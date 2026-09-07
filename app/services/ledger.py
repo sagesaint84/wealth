@@ -41,6 +41,12 @@ DEFAULT_CATEGORIES = {
     ],
 }
 
+BALANCE_DELTA_VERSION = 2
+
+
+class LegacyBalanceDeltaError(ValueError):
+    """Raised when a legacy transaction balance delta cannot be reversed safely."""
+
 
 def get_ledger_path(username: str | None = None) -> Path:
     user_dir = get_user_data_dir(username)
@@ -267,6 +273,30 @@ def _apply_account_balance_delta(
     return 0.0
 
 
+def _get_reversible_applied_delta(transaction: dict[str, Any]) -> float:
+    """Return a verified delta, refusing ambiguous legacy balance changes."""
+    account_id = str(transaction.get("account_id") or "").strip()
+    if not account_id:
+        return 0.0
+    if "applied_delta" not in transaction:
+        raise LegacyBalanceDeltaError(
+            "이 거래는 과거 잔액 반영값을 확인할 수 없어 안전하게 수정하거나 삭제할 수 없습니다."
+        )
+    try:
+        applied_delta = float(transaction.get("applied_delta") or 0.0)
+    except (TypeError, ValueError) as exc:
+        raise LegacyBalanceDeltaError(
+            "이 거래는 과거 잔액 반영값을 확인할 수 없어 안전하게 수정하거나 삭제할 수 없습니다."
+        ) from exc
+    if abs(applied_delta) < 1e-6:
+        return 0.0
+    if transaction.get("balance_delta_version") != BALANCE_DELTA_VERSION:
+        raise LegacyBalanceDeltaError(
+            "이 거래는 구버전 잔액 반영값을 사용하므로 계좌 잔액 확인 후 처리해야 합니다."
+        )
+    return applied_delta
+
+
 # ---------------------------------------------------------------------------
 # Credit / Debit Cards Management & Billing Settlement
 # ---------------------------------------------------------------------------
@@ -380,6 +410,7 @@ def settle_card_payment(card_id: str, payload: dict[str, Any], username: str | N
         "account_id": acc_id,
         "account_name": acc_name,
         "applied_delta": applied_delta,
+        "balance_delta_version": BALANCE_DELTA_VERSION,
         "merchant": f"[{target_card.get('card_name', '신용카드')}] 카드대금 결제",
         "memo": f"{len(unpaid_txs)}건 카드 이용대금 결제 완료",
         "is_recurring": False,
@@ -437,6 +468,7 @@ def add_transaction(payload: dict[str, Any], username: str | None = None) -> dic
         "account_id": linked_acc_id,
         "account_name": linked_acc_name,
         "applied_delta": applied_delta,
+        "balance_delta_version": BALANCE_DELTA_VERSION,
         "merchant": str(payload.get("merchant") or payload.get("description") or "").strip(),
         "memo": str(payload.get("memo") or "").strip(),
         "is_recurring": bool(payload.get("is_recurring", False)),
@@ -451,7 +483,7 @@ def update_transaction(tx_id: str, payload: dict[str, Any], username: str | None
     data = read_ledger(username=username)
     for idx, tx in enumerate(data.get("transactions", [])):
         if tx.get("id") == tx_id:
-            old_delta = float(tx.get("applied_delta") or 0.0)
+            old_delta = _get_reversible_applied_delta(tx)
             old_acc_id = tx.get("account_id")
 
             # 1. Rollback old balance delta if existed
@@ -480,6 +512,7 @@ def update_transaction(tx_id: str, payload: dict[str, Any], username: str | None
                 new_delta = _apply_account_balance_delta(new_acc_id, requested_delta, username=username)
 
             tx["applied_delta"] = new_delta
+            tx["balance_delta_version"] = BALANCE_DELTA_VERSION
             tx["updated_at"] = datetime.now().isoformat()
             data["transactions"][idx] = tx
             write_ledger(data, username=username)
@@ -494,7 +527,7 @@ def delete_transaction(tx_id: str, username: str | None = None) -> bool:
 
     # Rollback account balance delta if existed
     if target_tx:
-        old_delta = float(target_tx.get("applied_delta") or 0.0)
+        old_delta = _get_reversible_applied_delta(target_tx)
         old_acc_id = target_tx.get("account_id")
         if old_acc_id and abs(old_delta) > 1e-6:
             _apply_account_balance_delta(old_acc_id, -old_delta, username=username)
@@ -626,6 +659,7 @@ def process_recurring_deductions(username: str | None = None) -> list[dict[str, 
                     "merchant": rec_name,
                     "memo": f"[정기 자동이체] {rec_name}",
                     "applied_delta": applied_delta,
+                    "balance_delta_version": BALANCE_DELTA_VERSION,
                     "is_recurring": True,
                     "recurring_id": rec.get("id"),
                     "created_at": datetime.now().isoformat(),
@@ -800,6 +834,8 @@ def import_ledger_from_file_bytes(
             "pay_method": pay_method,
             "account_id": "",
             "account_name": "",
+            "applied_delta": 0.0,
+            "balance_delta_version": BALANCE_DELTA_VERSION,
             "merchant": merchant or "카드이용",
             "memo": memo,
             "is_recurring": False,

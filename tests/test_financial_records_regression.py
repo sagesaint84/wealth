@@ -90,6 +90,7 @@ class FinancialRecordsRegressionTests(IsolatedDataTestCase):
         after_create = portfolio.read_portfolio("fixture_user")
         self.assertEqual(after_create["bank_accounts"][0]["balance"], 900)
         self.assertEqual(transaction["applied_delta"], -100)
+        self.assertEqual(transaction["balance_delta_version"], ledger.BALANCE_DELTA_VERSION)
 
         updated = ledger.update_transaction(
             transaction["id"],
@@ -131,6 +132,7 @@ class FinancialRecordsRegressionTests(IsolatedDataTestCase):
 
         self.assertEqual(portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"], 1000)
         self.assertEqual(transaction["applied_delta"], 0)
+        self.assertEqual(transaction["balance_delta_version"], ledger.BALANCE_DELTA_VERSION)
         self.assertFalse(transaction["is_settled"])
 
     def test_recurring_deduction_runs_once_per_month_and_creates_transaction(self) -> None:
@@ -169,7 +171,22 @@ class FinancialRecordsRegressionTests(IsolatedDataTestCase):
         self.assertEqual(stored_portfolio["bank_accounts"][0]["balance"], 900)
         self.assertEqual(len(stored_ledger["transactions"]), 1)
         self.assertEqual(stored_ledger["transactions"][0]["recurring_id"], "recurring")
+        self.assertEqual(
+            stored_ledger["transactions"][0]["balance_delta_version"],
+            ledger.BALANCE_DELTA_VERSION,
+        )
         self.assertEqual(stored_ledger["recurring"][0]["last_deducted_date"], "2026-09-05")
+
+        self.assertTrue(
+            ledger.delete_transaction(
+                stored_ledger["transactions"][0]["id"],
+                username="fixture_user",
+            )
+        )
+        self.assertEqual(
+            portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"],
+            1000,
+        )
 
     def test_overdraft_transaction_update_and_delete_restores_original_balance(self) -> None:
         portfolio.write_portfolio(
@@ -227,10 +244,10 @@ class FinancialRecordsRegressionTests(IsolatedDataTestCase):
             ),
             username="fixture_user",
         )
-        ledger.add_transaction(
+        transaction = ledger.add_transaction(
             {
                 "type": "expense",
-                "amount": 20,
+                "amount": 150,
                 "account_id": "broker",
                 "apply_to_account": True,
             },
@@ -238,10 +255,22 @@ class FinancialRecordsRegressionTests(IsolatedDataTestCase):
         )
 
         dashboard = portfolio.get_dashboard(username="fixture_user")
-        self.assertEqual(dashboard["accounts"][0]["cash_krw"], 80)
+        self.assertEqual(transaction["applied_delta"], -100)
+        self.assertEqual(transaction["balance_delta_version"], ledger.BALANCE_DELTA_VERSION)
+        self.assertEqual(dashboard["accounts"][0]["cash_krw"], 0)
         self.assertEqual(dashboard["accounts"][0]["cash_usd"], 2)
+
+        updated = ledger.update_transaction(
+            transaction["id"],
+            {"amount": 50, "apply_to_account": True},
+            username="fixture_user",
+        )
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated["applied_delta"], -50)
+
+        self.assertTrue(ledger.delete_transaction(transaction["id"], username="fixture_user"))
         stored_cash = portfolio.read_portfolio("fixture_user")["settings"]["cash_balances"]["broker"]
-        self.assertEqual(stored_cash, {"KRW": 80, "USD": 2})
+        self.assertEqual(stored_cash, {"KRW": 100, "USD": 2})
 
     def test_brokerage_transaction_reads_legacy_lowercase_cash_and_writes_canonical_krw(self) -> None:
         portfolio.write_portfolio(
@@ -305,10 +334,149 @@ class FinancialRecordsRegressionTests(IsolatedDataTestCase):
         result = ledger.settle_card_payment("card", {}, username="fixture_user")
         settlement = result["transaction"]
         self.assertEqual(settlement["applied_delta"], -300)
+        self.assertEqual(settlement["balance_delta_version"], ledger.BALANCE_DELTA_VERSION)
         self.assertEqual(portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"], 700)
 
         self.assertTrue(ledger.delete_transaction(settlement["id"], username="fixture_user"))
         self.assertEqual(portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"], 1000)
+
+    def test_legacy_malformed_bank_transaction_delete_is_blocked_without_balance_change(self) -> None:
+        portfolio.write_portfolio(
+            empty_portfolio(bank_accounts=[{"id": "bank", "balance": 0}]),
+            username="fixture_user",
+        )
+        ledger_data = ledger.default_ledger_data()
+        ledger_data["transactions"] = [
+            {
+                "id": "legacy",
+                "type": "expense",
+                "amount": 150,
+                "account_id": "bank",
+                "applied_delta": -150,
+            }
+        ]
+        ledger.write_ledger(ledger_data, username="fixture_user")
+
+        with self.assertRaises(ledger.LegacyBalanceDeltaError):
+            ledger.delete_transaction("legacy", username="fixture_user")
+
+        self.assertEqual(portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"], 0)
+        self.assertEqual(len(ledger.read_ledger("fixture_user")["transactions"]), 1)
+
+    def test_legacy_malformed_bank_transaction_update_is_blocked_without_balance_change(self) -> None:
+        portfolio.write_portfolio(
+            empty_portfolio(bank_accounts=[{"id": "bank", "balance": 0}]),
+            username="fixture_user",
+        )
+        ledger_data = ledger.default_ledger_data()
+        ledger_data["transactions"] = [
+            {
+                "id": "legacy",
+                "type": "expense",
+                "amount": 150,
+                "account_id": "bank",
+                "applied_delta": -150,
+            }
+        ]
+        ledger.write_ledger(ledger_data, username="fixture_user")
+
+        with self.assertRaises(ledger.LegacyBalanceDeltaError):
+            ledger.update_transaction("legacy", {"amount": 50}, username="fixture_user")
+
+        self.assertEqual(portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"], 0)
+        stored = ledger.read_ledger("fixture_user")["transactions"][0]
+        self.assertEqual((stored["amount"], stored["applied_delta"]), (150, -150))
+
+    def test_legacy_malformed_brokerage_transaction_is_blocked_and_preserves_krw_usd(self) -> None:
+        portfolio.write_portfolio(
+            empty_portfolio(
+                settings={
+                    "fx_rates": {"KRW": 1.0, "USD": 1300.0},
+                    "cash_balances": {"broker": {"KRW": 0, "USD": 2}},
+                },
+                accounts=[{"id": "broker", "name": "가상계좌", "broker": "가상증권"}],
+            ),
+            username="fixture_user",
+        )
+        ledger_data = ledger.default_ledger_data()
+        ledger_data["transactions"] = [
+            {
+                "id": "legacy",
+                "type": "expense",
+                "amount": 150,
+                "account_id": "broker",
+                "applied_delta": -150,
+            }
+        ]
+        ledger.write_ledger(ledger_data, username="fixture_user")
+
+        with self.assertRaises(ledger.LegacyBalanceDeltaError):
+            ledger.delete_transaction("legacy", username="fixture_user")
+
+        cash = portfolio.get_dashboard(username="fixture_user")["accounts"][0]
+        self.assertEqual((cash["cash_krw"], cash["cash_usd"]), (0, 2))
+
+    def test_legacy_card_purchase_is_deletable_but_ambiguous_settlement_is_blocked(self) -> None:
+        portfolio.write_portfolio(
+            empty_portfolio(bank_accounts=[{"id": "bank", "balance": 0}]),
+            username="fixture_user",
+        )
+        ledger_data = ledger.default_ledger_data()
+        ledger_data["transactions"] = [
+            {
+                "id": "card-purchase",
+                "type": "expense",
+                "amount": 150,
+                "account_id": "bank",
+                "card_id": "card",
+                "is_card_payment": True,
+                "applied_delta": 0,
+            },
+            {
+                "id": "legacy-settlement",
+                "type": "transfer",
+                "category": "카드대금결제",
+                "amount": 150,
+                "account_id": "bank",
+                "applied_delta": -150,
+            },
+        ]
+        ledger.write_ledger(ledger_data, username="fixture_user")
+
+        self.assertTrue(ledger.delete_transaction("card-purchase", username="fixture_user"))
+        with self.assertRaises(ledger.LegacyBalanceDeltaError):
+            ledger.delete_transaction("legacy-settlement", username="fixture_user")
+
+        self.assertEqual(portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"], 0)
+        self.assertEqual(
+            [tx["id"] for tx in ledger.read_ledger("fixture_user")["transactions"]],
+            ["legacy-settlement"],
+        )
+
+    def test_legacy_malformed_recurring_transaction_is_blocked(self) -> None:
+        portfolio.write_portfolio(
+            empty_portfolio(bank_accounts=[{"id": "bank", "balance": 0}]),
+            username="fixture_user",
+        )
+        ledger_data = ledger.default_ledger_data()
+        ledger_data["transactions"] = [
+            {
+                "id": "legacy-recurring",
+                "type": "expense",
+                "amount": 150,
+                "account_id": "bank",
+                "applied_delta": -150,
+                "is_recurring": True,
+                "recurring_id": "recurring",
+            }
+        ]
+        ledger.write_ledger(ledger_data, username="fixture_user")
+
+        with self.assertRaises(ledger.LegacyBalanceDeltaError):
+            ledger.delete_transaction("legacy-recurring", username="fixture_user")
+
+        self.assertEqual(portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"], 0)
+        self.assertEqual(len(ledger.read_ledger("fixture_user")["transactions"]), 1)
 
 
 if __name__ == "__main__":

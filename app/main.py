@@ -2312,6 +2312,7 @@ async def sync_all_accounts(request: Request) -> dict:
 # Smart Household Ledger (스마트 가족 가계부) API Endpoints
 # ---------------------------------------------------------------------------
 from app.services.ledger import (
+    LegacyBalanceDeltaError,
     get_ledger_summary,
     add_transaction,
     update_transaction,
@@ -2357,7 +2358,10 @@ async def edit_ledger_transaction(tx_id: str, request: Request) -> dict:
     """Update an existing transaction."""
     username = get_current_username(request)
     payload = await request.json()
-    tx = update_transaction(tx_id, payload, username=username)
+    try:
+        tx = update_transaction(tx_id, payload, username=username)
+    except LegacyBalanceDeltaError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not tx:
         raise HTTPException(404, "수정할 내역을 찾을 수 없습니다.")
     return {"message": "내역이 수정되었습니다.", "transaction": tx}
@@ -2367,7 +2371,10 @@ async def edit_ledger_transaction(tx_id: str, request: Request) -> dict:
 async def remove_ledger_transaction(tx_id: str, request: Request) -> dict:
     """Delete a transaction."""
     username = get_current_username(request)
-    success = delete_transaction(tx_id, username=username)
+    try:
+        success = delete_transaction(tx_id, username=username)
+    except LegacyBalanceDeltaError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not success:
         raise HTTPException(404, "삭제할 내역을 찾을 수 없습니다.")
     return {"message": "내역이 삭제되었습니다."}
