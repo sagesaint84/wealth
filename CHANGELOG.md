@@ -1,3 +1,33 @@
+# Wealth 변경 이력
+
+## Wealth 1.0.1 - 2026-09-07
+
+### Security
+
+- `/api/export`를 공개 경로에서 제거하고 인증된 사용자만 접근할 수 있도록 변경했습니다.
+- 인증 컨텍스트가 없는 요청에서 기본 사용자(`sagesaint`)로 대체되던 동작을 제거했습니다.
+- export 대상 사용자명을 로그인 세션에서만 가져오도록 하여 사용자 간 백업 데이터가 섞이지 않도록 했습니다.
+- 백업에서 OpenAPI App Key, App Secret 및 관련 설정을 제외했습니다.
+- 일반 자산 데이터 안에 token, secret, password, credential 관련 필드가 중첩되어 있어도 export 전에 제거합니다.
+- credential 없는 일반 데이터 백업을 나타내도록 백업 형식을 `2.2`로 갱신했습니다.
+- Docker build context에서 `.env`, 사용자 데이터, Excel/CSV, scratch, credential, token cache, 로그, 백업 및 개발 임시파일을 제외했습니다.
+
+### Tests
+
+- 미인증 export 차단 및 기본 사용자 fallback 방지 테스트를 추가했습니다.
+- 사용자 A와 사용자 B의 export 격리 테스트를 추가했습니다.
+- credential 제거와 일반 자산 데이터 보존 테스트를 추가했습니다.
+- credential 없는 백업의 복원 테스트를 추가했습니다.
+- Docker build context의 민감 파일 제외와 런타임 파일 포함 테스트를 추가했습니다.
+
+### Documentation
+
+- README를 Wealth 1.0.1의 실제 기능, 실행 방법, 저장 구조 및 보안 경계에 맞게 다시 작성했습니다.
+
+> 이전 개발 이력의 버전 번호와 내용은 아래에 원문대로 유지합니다.
+
+---
+
 v5.5.52
 
 (fix) 🛡️ 사용자관리 버튼 권한 분기 철저화, 상단바 모바일 1행 컴팩트 정렬, 절세계좌 툴바 최적화 및 증권 계좌 세로정렬 개선

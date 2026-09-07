@@ -100,11 +100,88 @@ SESSION_MAX_AGE = 60 * 60 * 24 * 14  # 14일 동안 로그인 유지
 COOKIE_NAME = "dashboard_session_v2"
 
 _serializer = URLSafeTimedSerializer(SECRET_KEY)
-PUBLIC_PATHS = {"/login", "/change-password-init", "/api/export", "/sw.js", "/manifest.json", "/favicon.ico"}
+PUBLIC_PATHS = {"/login", "/change-password-init", "/sw.js", "/manifest.json", "/favicon.ico"}
+
+_SENSITIVE_EXPORT_KEYS = {
+    "accesstoken",
+    "apikey",
+    "apisecret",
+    "appkey",
+    "appsecret",
+    "authtoken",
+    "bearertoken",
+    "clientsecret",
+    "credential",
+    "credentials",
+    "password",
+    "passwordhash",
+    "passwordsalt",
+    "privatekey",
+    "refreshtoken",
+    "salt",
+    "secret",
+    "secretkey",
+    "sessionid",
+    "sessionsecret",
+    "sessiontoken",
+    "token",
+    "tokencache",
+}
+
+
+def _normalize_sensitive_key(key: object) -> str:
+    return "".join(char.lower() for char in str(key) if char.isalnum())
+
+
+def _is_sensitive_export_key(key: object) -> bool:
+    normalized = _normalize_sensitive_key(key)
+    return normalized in _SENSITIVE_EXPORT_KEYS or normalized.endswith(
+        (
+            "accesstoken",
+            "apikey",
+            "apisecret",
+            "appkey",
+            "appsecret",
+            "clientsecret",
+            "credential",
+            "credentials",
+            "password",
+            "passwordhash",
+            "privatekey",
+            "refreshtoken",
+            "secret",
+            "sessionsecret",
+            "token",
+            "tokencache",
+        )
+    )
+
+
+def _sanitize_export_data(value: object) -> object:
+    """백업 데이터 어디에도 인증정보가 포함되지 않도록 재귀적으로 제거한다."""
+    if isinstance(value, dict):
+        return {
+            key: _sanitize_export_data(item)
+            for key, item in value.items()
+            if not _is_sensitive_export_key(key)
+        }
+    if isinstance(value, list):
+        return [_sanitize_export_data(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_export_data(item) for item in value]
+    return value
+
+
+def _require_authenticated_username(request: Request) -> str:
+    """인증 미들웨어를 우회해 호출되더라도 기본 사용자로 대체하지 않는다."""
+    username = getattr(request.state, "username", None)
+    if not username:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+    return str(username)
 
 
 def get_current_username(request: Request) -> str:
-    return getattr(request.state, "username", None) or "sagesaint"
+    return _require_authenticated_username(request)
 
 
 def get_current_role(request: Request) -> str:
@@ -1552,20 +1629,19 @@ async def export_data(request: Request):
     from app.services.dividend_records import read_dividend_records
     from app.services.pnl_records import read_pnl_records
     from app.services.ledger import read_ledger
-    from app.services.user_openapi import get_user_openapi_config
 
-    username = get_current_username(request)
-    bundle = {
-        "version": "2.1",
+    username = _require_authenticated_username(request)
+    bundle = _sanitize_export_data({
+        "version": "2.2",
         "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "user": username,
+        "backup_policy": "general_data_only",
         "portfolio": read_portfolio(username=username),
         "asset_records": read_asset_records(username=username),
         "dividend_records": read_dividend_records(username=username),
         "realized_pnl_records": read_pnl_records(username=username),
         "ledger": read_ledger(username=username),
-        "openapi_config": get_user_openapi_config(username=username),
-    }
+    })
     content = json.dumps(bundle, ensure_ascii=False, indent=2)
     from starlette.responses import Response
     today_str = datetime.now().strftime("%Y-%m-%d")
