@@ -11,6 +11,83 @@ from app.services.portfolio import read_portfolio, write_portfolio
 from app.services.tax_benefit import calculate_yellow_umbrella_benefit, get_total_tax_benefits
 
 
+class OverdraftValidationError(ValueError):
+    """Raised when an automatic overdraft relation would be unsafe."""
+
+
+def _has_v3_balance_reference(
+    username: str | None,
+    *,
+    bank_account_id: str = "",
+    loan_id: str = "",
+) -> bool:
+    """Conservatively detect persisted v3 transactions without mutating ledger data."""
+    from app.services.ledger import OVERDRAFT_BALANCE_DELTA_VERSION, get_ledger_path
+
+    path = get_ledger_path(username)
+    if not path.exists():
+        return False
+    try:
+        ledger_data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+
+    for transaction in ledger_data.get("transactions", []):
+        if transaction.get("balance_delta_version") != OVERDRAFT_BALANCE_DELTA_VERSION:
+            continue
+        effect = transaction.get("balance_effect")
+        if not isinstance(effect, dict):
+            return True
+        if bank_account_id and effect.get("bank_account_id") == bank_account_id:
+            return True
+        if loan_id and effect.get("overdraft_loan_id") == loan_id:
+            return True
+    return False
+
+
+def _validate_overdraft_relation(
+    data: dict[str, Any],
+    loan: dict[str, Any],
+) -> None:
+    bank_account_id = str(loan.get("overdraft_bank_account_id") or "").strip()
+    if not bank_account_id:
+        return
+    if str(loan.get("loan_type") or "").strip() != "minus":
+        raise OverdraftValidationError("자동 상계는 마이너스통장 유형에만 설정할 수 있습니다.")
+
+    bank = next(
+        (item for item in data.get("bank_accounts", []) if item.get("id") == bank_account_id),
+        None,
+    )
+    if bank is None:
+        raise OverdraftValidationError("자동 상계 대상 은행계좌를 찾을 수 없습니다.")
+    if str(bank.get("currency") or "KRW").upper() != "KRW":
+        raise OverdraftValidationError("자동 상계는 KRW 은행계좌만 지원합니다.")
+    if str(loan.get("owner") or "모두") != str(bank.get("owner") or "모두"):
+        raise OverdraftValidationError("마이너스통장과 연결 은행계좌의 소유자가 일치해야 합니다.")
+
+    current_balance = float(loan.get("current_balance") or 0.0)
+    limit_amount = float(loan.get("limit_amount") or 0.0)
+    if not all(math.isfinite(value) for value in (current_balance, limit_amount, float(bank.get("balance") or 0.0))):
+        raise OverdraftValidationError("자동 상계 잔액과 한도는 유한한 숫자여야 합니다.")
+    if current_balance < 0 or limit_amount < 0:
+        raise OverdraftValidationError("마이너스통장 잔액과 한도는 0 이상이어야 합니다.")
+    if current_balance > limit_amount:
+        raise OverdraftValidationError("마이너스통장 잔액은 설정 한도를 초과할 수 없습니다.")
+    if float(bank.get("balance") or 0.0) < 0:
+        raise OverdraftValidationError("음수 잔고 legacy 계좌에는 자동 상계를 설정할 수 없습니다.")
+
+    duplicates = [
+        item
+        for item in data.get("loan_accounts", [])
+        if item.get("id") != loan.get("id")
+        and str(item.get("loan_type") or "") == "minus"
+        and str(item.get("overdraft_bank_account_id") or "").strip() == bank_account_id
+    ]
+    if duplicates:
+        raise OverdraftValidationError("한 은행계좌에는 하나의 자동연동 마이너스통장만 연결할 수 있습니다.")
+
+
 def calculate_interest(
     saving_type: str,
     principal_or_monthly: float,
@@ -335,6 +412,10 @@ def save_bank_account(payload: dict[str, Any], username: str | None = None) -> d
         record["created_at"] = record["updated_at"]
         accounts.append(record)
 
+    for loan in data.get("loan_accounts", []):
+        if str(loan.get("overdraft_bank_account_id") or "").strip() == acc_id:
+            _validate_overdraft_relation(data, loan)
+
     write_portfolio(data, username)
     return record
 
@@ -344,6 +425,13 @@ def delete_bank_account(acc_id: str, username: str | None = None) -> bool:
     data = read_portfolio(username)
     accounts = data.get("bank_accounts", [])
     before = len(accounts)
+    if any(
+        str(loan.get("overdraft_bank_account_id") or "").strip() == acc_id
+        for loan in data.get("loan_accounts", [])
+    ) or _has_v3_balance_reference(username, bank_account_id=acc_id):
+        raise OverdraftValidationError(
+            "자동 상계 또는 v3 거래가 참조하는 은행계좌는 연결을 먼저 안전하게 정리해야 합니다."
+        )
     data["bank_accounts"] = [a for a in accounts if a.get("id") != acc_id]
     if len(data["bank_accounts"]) == before:
         return False
@@ -482,11 +570,18 @@ def save_loan_account(payload: dict[str, Any], username: str | None = None) -> d
     lid = payload.get("id") or f"loan-{uuid.uuid4().hex[:12]}"
     existing_index = next((i for i, l in enumerate(loans) if l.get("id") == lid), None)
 
+    existing = loans[existing_index] if existing_index is not None else {}
     loan_type = (payload.get("loan_type") or "minus").strip()
-    balance = max(0.0, float(payload.get("current_balance") or 0.0))
-    limit = max(0.0, float(payload.get("limit_amount") or 0.0))
+    raw_balance = float(payload.get("current_balance") or 0.0)
+    raw_limit = float(payload.get("limit_amount") or 0.0)
+    balance = max(0.0, raw_balance)
+    limit = max(0.0, raw_limit)
     rate = max(0.0, float(payload.get("interest_rate") or 0.0))
     repay_type = (payload.get("repayment_type") or "bullet").strip()
+    if "overdraft_bank_account_id" in payload:
+        overdraft_bank_account_id = str(payload.get("overdraft_bank_account_id") or "").strip()
+    else:
+        overdraft_bank_account_id = str(existing.get("overdraft_bank_account_id") or "").strip()
 
     record = {
         "id": lid,
@@ -505,12 +600,28 @@ def save_loan_account(payload: dict[str, Any], username: str | None = None) -> d
         "memo": (payload.get("memo") or "").strip(),
         "updated_at": datetime.now().astimezone().isoformat(),
     }
+    if overdraft_bank_account_id:
+        record["overdraft_bank_account_id"] = overdraft_bank_account_id
+
+    if overdraft_bank_account_id and (raw_balance < 0 or raw_limit < 0):
+        raise OverdraftValidationError("마이너스통장 잔액과 한도는 0 이상이어야 합니다.")
+
+    previous_relation = str(existing.get("overdraft_bank_account_id") or "").strip()
+    previous_type = str(existing.get("loan_type") or "").strip()
+    if existing_index is not None and (
+        previous_relation != overdraft_bank_account_id or previous_type != loan_type
+    ) and _has_v3_balance_reference(username, loan_id=str(lid)):
+        raise OverdraftValidationError(
+            "v3 거래가 참조하는 마이너스통장 관계 또는 유형은 변경할 수 없습니다."
+        )
 
     if existing_index is not None:
         loans[existing_index] = record
     else:
         record["created_at"] = record["updated_at"]
         loans.append(record)
+
+    _validate_overdraft_relation(data, record)
 
     write_portfolio(data, username)
     return record
@@ -521,6 +632,10 @@ def delete_loan_account(loan_id: str, username: str | None = None) -> bool:
     data = read_portfolio(username)
     loans = data.get("loan_accounts", [])
     before = len(loans)
+    if _has_v3_balance_reference(username, loan_id=loan_id):
+        raise OverdraftValidationError(
+            "v3 거래가 참조하는 마이너스통장은 관련 거래를 먼저 안전하게 정리해야 합니다."
+        )
     data["loan_accounts"] = [l for l in loans if l.get("id") != loan_id]
     if len(data["loan_accounts"]) == before:
         return False

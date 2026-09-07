@@ -6,8 +6,10 @@ Manages income, expense, transfer transactions, recurring payments, and monthly 
 from __future__ import annotations
 
 import json
+import math
 import os
 import uuid
+from copy import deepcopy
 from datetime import datetime, date
 from pathlib import Path
 from typing import Any
@@ -42,10 +44,19 @@ DEFAULT_CATEGORIES = {
 }
 
 BALANCE_DELTA_VERSION = 2
+OVERDRAFT_BALANCE_DELTA_VERSION = 3
 
 
 class LegacyBalanceDeltaError(ValueError):
     """Raised when a legacy transaction balance delta cannot be reversed safely."""
+
+
+class BalanceConflictError(ValueError):
+    """Raised when a balance change cannot be applied completely and safely."""
+
+
+class PersistenceConsistencyError(RuntimeError):
+    """Raised when a cross-file rollback cannot restore the previous state."""
 
 
 def get_ledger_path(username: str | None = None) -> Path:
@@ -205,72 +216,252 @@ def get_ledger_summary(
     }
 
 
+def _validate_overdraft_pair(
+    portfolio_data: dict[str, Any],
+    bank_account_id: str,
+    expected_loan_id: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    bank = next(
+        (item for item in portfolio_data.get("bank_accounts", []) if item.get("id") == bank_account_id),
+        None,
+    )
+    if bank is None:
+        if expected_loan_id:
+            raise BalanceConflictError("v3 거래가 참조하는 은행계좌를 찾을 수 없습니다.")
+        return None
+
+    linked_loans = [
+        item
+        for item in portfolio_data.get("loan_accounts", [])
+        if str(item.get("overdraft_bank_account_id") or "").strip() == bank_account_id
+    ]
+    if expected_loan_id:
+        loan = next((item for item in linked_loans if item.get("id") == expected_loan_id), None)
+        if loan is None:
+            raise BalanceConflictError("v3 거래 당시의 마이너스통장 관계를 확인할 수 없습니다.")
+    elif not linked_loans:
+        return None
+    else:
+        loan = linked_loans[0]
+
+    if len(linked_loans) != 1:
+        raise BalanceConflictError("한 은행계좌에 여러 자동연동 마이너스통장이 연결되어 있습니다.")
+    if str(loan.get("loan_type") or "") != "minus":
+        raise BalanceConflictError("v3 거래가 참조하는 대출이 마이너스통장 유형이 아닙니다.")
+    if str(bank.get("currency") or "KRW").upper() != "KRW":
+        raise BalanceConflictError("자동 상계는 KRW 은행계좌만 지원합니다.")
+    if str(bank.get("owner") or "모두") != str(loan.get("owner") or "모두"):
+        raise BalanceConflictError("마이너스통장과 연결 은행계좌의 소유자가 일치하지 않습니다.")
+
+    bank_balance = float(bank.get("balance") or 0.0)
+    loan_balance = float(loan.get("current_balance") or 0.0)
+    limit_amount = float(loan.get("limit_amount") or 0.0)
+    if not all(math.isfinite(value) for value in (bank_balance, loan_balance, limit_amount)):
+        raise BalanceConflictError("자동 상계 잔액과 한도는 유한한 숫자여야 합니다.")
+    if bank_balance < 0:
+        raise BalanceConflictError("음수 잔고 legacy 계좌에는 자동 상계를 적용할 수 없습니다.")
+    if loan_balance < 0 or limit_amount < 0 or loan_balance > limit_amount:
+        raise BalanceConflictError("마이너스통장 잔액 또는 한도 데이터가 유효하지 않습니다.")
+    return bank, loan
+
+
+def _apply_overdraft_net_delta(
+    bank: dict[str, Any],
+    loan: dict[str, Any],
+    delta: float,
+) -> dict[str, Any]:
+    current_bank = float(bank.get("balance") or 0.0)
+    current_loan = float(loan.get("current_balance") or 0.0)
+    limit_amount = float(loan.get("limit_amount") or 0.0)
+    new_net_position = current_bank - current_loan + delta
+    if not math.isfinite(new_net_position):
+        raise BalanceConflictError("자동 상계 금액이 유효하지 않습니다.")
+    new_bank = max(0.0, new_net_position)
+    new_loan = max(0.0, -new_net_position)
+    if new_loan > limit_amount + 1e-6:
+        raise BalanceConflictError("마이너스통장 한도를 초과하여 거래 전체를 처리할 수 없습니다.")
+
+    bank_delta = new_bank - current_bank
+    loan_delta = new_loan - current_loan
+    now = datetime.now().astimezone().isoformat()
+    bank["balance"] = new_bank
+    bank["updated_at"] = now
+    loan["current_balance"] = new_loan
+    loan["updated_at"] = now
+    return {
+        "applied_delta": delta,
+        "balance_delta_version": OVERDRAFT_BALANCE_DELTA_VERSION,
+        "balance_effect": {
+            "bank_account_id": bank.get("id"),
+            "overdraft_loan_id": loan.get("id"),
+            "net_delta": delta,
+            "bank_delta": bank_delta,
+            "loan_delta": loan_delta,
+        },
+        "changed": abs(bank_delta) >= 1e-6 or abs(loan_delta) >= 1e-6,
+    }
+
+
+def _apply_balance_delta_to_portfolio(
+    portfolio_data: dict[str, Any],
+    acc_id: str | None,
+    delta: float,
+    *,
+    allow_overdraft: bool = True,
+    expected_overdraft_loan_id: str | None = None,
+) -> dict[str, Any]:
+    result = {
+        "applied_delta": 0.0,
+        "balance_delta_version": BALANCE_DELTA_VERSION,
+        "changed": False,
+    }
+    if not acc_id:
+        return result
+
+    if expected_overdraft_loan_id:
+        pair = _validate_overdraft_pair(
+            portfolio_data,
+            acc_id,
+            expected_loan_id=expected_overdraft_loan_id,
+        )
+        if abs(delta) < 1e-6:
+            return result
+        if pair is None:
+            raise BalanceConflictError("v3 거래 당시의 마이너스통장 관계를 확인할 수 없습니다.")
+        return _apply_overdraft_net_delta(pair[0], pair[1], delta)
+
+    if abs(delta) < 1e-6:
+        return result
+
+    bank = next(
+        (item for item in portfolio_data.get("bank_accounts", []) if item.get("id") == acc_id),
+        None,
+    )
+    if bank is not None:
+        if allow_overdraft:
+            pair = _validate_overdraft_pair(
+                portfolio_data,
+                acc_id,
+            )
+            if pair is not None:
+                return _apply_overdraft_net_delta(pair[0], pair[1], delta)
+        current = float(bank.get("balance") or 0.0)
+        new_balance = max(0.0, current + delta)
+        bank["balance"] = new_balance
+        bank["updated_at"] = datetime.now().astimezone().isoformat()
+        result["applied_delta"] = new_balance - current
+        result["changed"] = abs(result["applied_delta"]) >= 1e-6
+        return result
+
+    for saving in portfolio_data.get("savings_accounts", []):
+        if saving.get("id") == acc_id:
+            current = float(saving.get("balance") or 0.0)
+            new_balance = max(0.0, current + delta)
+            saving["balance"] = new_balance
+            saving["updated_at"] = datetime.now().astimezone().isoformat()
+            result["applied_delta"] = new_balance - current
+            result["changed"] = abs(result["applied_delta"]) >= 1e-6
+            return result
+
+    for account in portfolio_data.get("accounts", []):
+        if account.get("id") == acc_id:
+            settings = portfolio_data.setdefault("settings", {})
+            cash_balances = settings.setdefault("cash_balances", {})
+            account_cash = cash_balances.setdefault(acc_id, {})
+            if not isinstance(account_cash, dict):
+                account_cash = {}
+                cash_balances[acc_id] = account_cash
+            current = float(
+                account_cash.get("KRW")
+                if account_cash.get("KRW") is not None
+                else account_cash.get("krw", account.get("cash", 0.0))
+                or 0.0
+            )
+            new_balance = max(0.0, current + delta)
+            account["cash"] = new_balance
+            account_cash["KRW"] = new_balance
+            result["applied_delta"] = new_balance - current
+            result["changed"] = abs(result["applied_delta"]) >= 1e-6
+            return result
+    return result
+
+
 def _apply_account_balance_delta(
     acc_id: str | None,
     delta: float,
     username: str | None = None,
 ) -> float:
-    """Adjust a linked account and return the balance delta actually applied."""
-    if not acc_id or abs(delta) < 1e-6:
-        return 0.0
+    """Adjust one linked account immediately; retained for v2-compatible callers."""
+    from app.services.portfolio import read_portfolio, write_portfolio
+
+    portfolio_data = read_portfolio(username)
+    result = _apply_balance_delta_to_portfolio(portfolio_data, acc_id, delta)
+    if result["changed"]:
+        write_portfolio(portfolio_data, username)
+    return float(result["applied_delta"])
+
+
+def _commit_ledger_and_portfolio(
+    ledger_data: dict[str, Any],
+    username: str | None,
+    *,
+    portfolio_before: dict[str, Any] | None = None,
+    portfolio_after: dict[str, Any] | None = None,
+) -> None:
+    """Persist a coordinated change and restore portfolio data if ledger save fails."""
+    if portfolio_after is None:
+        write_ledger(ledger_data, username=username)
+        return
+
+    from app.services.portfolio import write_portfolio
+
+    write_portfolio(portfolio_after, username)
     try:
-        from app.services.portfolio import read_portfolio, write_portfolio
-        pf = read_portfolio(username)
-        applied = False
-        applied_delta = 0.0
+        write_ledger(ledger_data, username=username)
+    except Exception as ledger_error:
+        try:
+            if portfolio_before is not None:
+                write_portfolio(portfolio_before, username)
+        except Exception as rollback_error:
+            raise PersistenceConsistencyError(
+                "ledger 저장 실패 후 portfolio 원복에도 실패했습니다. 수동 확인이 필요합니다."
+            ) from rollback_error
+        raise ledger_error
 
-        # 1. Bank accounts
-        for b in pf.get("bank_accounts", []):
-            if b.get("id") == acc_id:
-                curr = float(b.get("balance") or 0.0)
-                new_balance = max(0.0, curr + delta)
-                b["balance"] = new_balance
-                applied_delta = new_balance - curr
-                b["updated_at"] = datetime.now().astimezone().isoformat()
-                applied = True
-                break
 
-        # 2. Savings accounts
-        if not applied:
-            for s in pf.get("savings_accounts", []):
-                if s.get("id") == acc_id:
-                    curr = float(s.get("balance") or 0.0)
-                    new_balance = max(0.0, curr + delta)
-                    s["balance"] = new_balance
-                    applied_delta = new_balance - curr
-                    s["updated_at"] = datetime.now().astimezone().isoformat()
-                    applied = True
-                    break
+def _set_balance_metadata(transaction: dict[str, Any], result: dict[str, Any]) -> None:
+    transaction["applied_delta"] = float(result.get("applied_delta") or 0.0)
+    transaction["balance_delta_version"] = int(
+        result.get("balance_delta_version") or BALANCE_DELTA_VERSION
+    )
+    effect = result.get("balance_effect")
+    if isinstance(effect, dict):
+        transaction["balance_effect"] = effect
+    else:
+        transaction.pop("balance_effect", None)
 
-        # 3. Brokerage accounts
-        if not applied:
-            for a in pf.get("accounts", []):
-                if a.get("id") == acc_id:
-                    settings = pf.setdefault("settings", {})
-                    cb = settings.setdefault("cash_balances", {})
-                    acc_cash = cb.setdefault(acc_id, {})
-                    if not isinstance(acc_cash, dict):
-                        acc_cash = {}
-                        cb[acc_id] = acc_cash
-                    curr = float(
-                        acc_cash.get("KRW")
-                        if acc_cash.get("KRW") is not None
-                        else acc_cash.get("krw", a.get("cash", 0.0))
-                        or 0.0
-                    )
-                    new_balance = max(0.0, curr + delta)
-                    applied_delta = new_balance - curr
-                    a["cash"] = new_balance
-                    acc_cash["KRW"] = new_balance
-                    applied = True
-                    break
 
-        if applied:
-            write_portfolio(pf, username)
-            return applied_delta
-    except Exception as e:
-        print(f"Error applying balance delta for account {acc_id}: {e}")
-    return 0.0
+def _get_v3_balance_effect(transaction: dict[str, Any]) -> dict[str, Any]:
+    effect = transaction.get("balance_effect")
+    if not isinstance(effect, dict):
+        raise BalanceConflictError("v3 거래의 잔액 반영 정보를 확인할 수 없습니다.")
+    bank_account_id = str(effect.get("bank_account_id") or "").strip()
+    loan_id = str(effect.get("overdraft_loan_id") or "").strip()
+    if not bank_account_id or not loan_id:
+        raise BalanceConflictError("v3 거래의 계좌 관계 정보가 불완전합니다.")
+    if str(transaction.get("account_id") or "").strip() != bank_account_id:
+        raise BalanceConflictError("v3 거래의 연결 계좌 정보가 변경되어 안전하게 처리할 수 없습니다.")
+    try:
+        net_delta = float(effect["net_delta"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise BalanceConflictError("v3 거래의 순잔액 반영값을 확인할 수 없습니다.") from exc
+    if not math.isfinite(net_delta):
+        raise BalanceConflictError("v3 거래의 순잔액 반영값이 유효하지 않습니다.")
+    return {
+        "bank_account_id": bank_account_id,
+        "overdraft_loan_id": loan_id,
+        "net_delta": net_delta,
+    }
 
 
 def _get_reversible_applied_delta(transaction: dict[str, Any]) -> float:
@@ -392,10 +583,24 @@ def settle_card_payment(card_id: str, payload: dict[str, Any], username: str | N
     if amount_to_pay <= 0:
         raise ValueError("결제할 카드 청구 금액이 없습니다 (0원).")
 
-    # 1. 은행 계좌에서 카드 대금 출금 차감
-    applied_delta = 0.0
+    # 1. 은행 계좌에서 카드 대금 출금 차감 (저장은 ledger와 함께 조정)
+    balance_result: dict[str, Any] = {
+        "applied_delta": 0.0,
+        "balance_delta_version": BALANCE_DELTA_VERSION,
+        "changed": False,
+    }
+    portfolio_before = None
+    portfolio_after = None
     if acc_id:
-        applied_delta = _apply_account_balance_delta(acc_id, -amount_to_pay, username=username)
+        from app.services.portfolio import read_portfolio
+
+        portfolio_after = read_portfolio(username)
+        portfolio_before = deepcopy(portfolio_after)
+        balance_result = _apply_balance_delta_to_portfolio(
+            portfolio_after,
+            acc_id,
+            -amount_to_pay,
+        )
 
     # 2. 가계부에 카드대금결제 거래 생성
     settle_tx_id = str(uuid.uuid4())
@@ -409,13 +614,12 @@ def settle_card_payment(card_id: str, payload: dict[str, Any], username: str | N
         "pay_method": f"계좌출금 ({acc_name})" if acc_name else "계좌출금",
         "account_id": acc_id,
         "account_name": acc_name,
-        "applied_delta": applied_delta,
-        "balance_delta_version": BALANCE_DELTA_VERSION,
         "merchant": f"[{target_card.get('card_name', '신용카드')}] 카드대금 결제",
         "memo": f"{len(unpaid_txs)}건 카드 이용대금 결제 완료",
         "is_recurring": False,
         "created_at": datetime.now().isoformat(),
     }
+    _set_balance_metadata(settle_tx, balance_result)
     data.setdefault("transactions", []).append(settle_tx)
 
     # 3. 해당 카드 미결제 거래들을 정산 완료(settled) 처리하여 카드 누적액 리셋!
@@ -425,7 +629,12 @@ def settle_card_payment(card_id: str, payload: dict[str, Any], username: str | N
         t["settled_at"] = now_iso
         t["settled_tx_id"] = settle_tx_id
 
-    write_ledger(data, username=username)
+    _commit_ledger_and_portfolio(
+        data,
+        username,
+        portfolio_before=portfolio_before if balance_result["changed"] else None,
+        portfolio_after=portfolio_after if balance_result["changed"] else None,
+    )
     return {
         "message": f"[{target_card.get('card_name')}] 카드대금 ₩{int(amount_to_pay):,}원이 결제 처리되었습니다.",
         "settled_amount": amount_to_pay,
@@ -447,11 +656,25 @@ def add_transaction(payload: dict[str, Any], username: str | None = None) -> dic
 
     # Calculate delta for account balance
     # 신용카드 지출인 경우 즉시 은행 계좌를 차감하지 않고 카드에 누적
-    applied_delta = 0.0
+    balance_result: dict[str, Any] = {
+        "applied_delta": 0.0,
+        "balance_delta_version": BALANCE_DELTA_VERSION,
+        "changed": False,
+    }
+    portfolio_before = None
+    portfolio_after = None
     apply_to_account = bool(payload.get("apply_to_account", False) or linked_acc_id)
     if apply_to_account and linked_acc_id and amount > 0 and not is_card:
+        from app.services.portfolio import read_portfolio
+
         requested_delta = amount if tx_type == "income" else -amount
-        applied_delta = _apply_account_balance_delta(linked_acc_id, requested_delta, username=username)
+        portfolio_after = read_portfolio(username)
+        portfolio_before = deepcopy(portfolio_after)
+        balance_result = _apply_balance_delta_to_portfolio(
+            portfolio_after,
+            linked_acc_id,
+            requested_delta,
+        )
 
     tx = {
         "id": tx_id,
@@ -467,15 +690,19 @@ def add_transaction(payload: dict[str, Any], username: str | None = None) -> dic
         "is_settled": False if is_card else True,
         "account_id": linked_acc_id,
         "account_name": linked_acc_name,
-        "applied_delta": applied_delta,
-        "balance_delta_version": BALANCE_DELTA_VERSION,
         "merchant": str(payload.get("merchant") or payload.get("description") or "").strip(),
         "memo": str(payload.get("memo") or "").strip(),
         "is_recurring": bool(payload.get("is_recurring", False)),
         "created_at": datetime.now().isoformat(),
     }
+    _set_balance_metadata(tx, balance_result)
     data["transactions"].append(tx)
-    write_ledger(data, username=username)
+    _commit_ledger_and_portfolio(
+        data,
+        username,
+        portfolio_before=portfolio_before if balance_result["changed"] else None,
+        portfolio_after=portfolio_after if balance_result["changed"] else None,
+    )
     return tx
 
 
@@ -483,40 +710,110 @@ def update_transaction(tx_id: str, payload: dict[str, Any], username: str | None
     data = read_ledger(username=username)
     for idx, tx in enumerate(data.get("transactions", [])):
         if tx.get("id") == tx_id:
-            old_delta = _get_reversible_applied_delta(tx)
-            old_acc_id = tx.get("account_id")
+            old_version = tx.get("balance_delta_version")
+            old_v3_effect = None
+            old_delta = 0.0
+            if old_version == OVERDRAFT_BALANCE_DELTA_VERSION:
+                old_v3_effect = _get_v3_balance_effect(tx)
+                old_delta = old_v3_effect["net_delta"]
+            else:
+                old_delta = _get_reversible_applied_delta(tx)
+            old_acc_id = str(tx.get("account_id") or "").strip()
 
-            # 1. Rollback old balance delta if existed
-            if old_acc_id and abs(old_delta) > 1e-6:
-                _apply_account_balance_delta(old_acc_id, -old_delta, username=username)
-
+            updated_tx = deepcopy(tx)
             for k in ["date", "type", "category", "owner", "pay_method", "card_id", "card_name", "is_card_payment", "is_settled", "account_id", "account_name", "merchant", "memo", "is_recurring"]:
                 if k in payload:
                     if k in ["is_recurring", "is_card_payment", "is_settled"]:
-                        tx[k] = bool(payload[k])
+                        updated_tx[k] = bool(payload[k])
                     else:
-                        tx[k] = str(payload[k]).strip() if payload[k] is not None else ""
+                        updated_tx[k] = str(payload[k]).strip() if payload[k] is not None else ""
             if "amount" in payload:
-                tx["amount"] = max(0.0, float(payload["amount"]))
+                updated_tx["amount"] = max(0.0, float(payload["amount"]))
 
-            # 2. Apply new delta
-            new_acc_id = str(tx.get("account_id") or "").strip()
-            new_amount = float(tx.get("amount") or 0.0)
-            new_type = str(tx.get("type") or "expense")
-            is_card = bool(tx.get("card_id") or tx.get("is_card_payment", False))
+            new_acc_id = str(updated_tx.get("account_id") or "").strip()
+            new_amount = float(updated_tx.get("amount") or 0.0)
+            new_type = str(updated_tx.get("type") or "expense")
+            is_card = bool(updated_tx.get("card_id") or updated_tx.get("is_card_payment", False))
             apply_to_account = bool(payload.get("apply_to_account", False) or new_acc_id)
 
-            new_delta = 0.0
-            if apply_to_account and new_acc_id and new_amount > 0 and not is_card:
-                requested_delta = new_amount if new_type == "income" else -new_amount
-                new_delta = _apply_account_balance_delta(new_acc_id, requested_delta, username=username)
+            portfolio_before = None
+            portfolio_after = None
+            needs_old_balance = bool(
+                old_acc_id and (old_v3_effect is not None or abs(old_delta) > 1e-6)
+            )
+            needs_new_balance = bool(
+                apply_to_account and new_acc_id and new_amount > 0 and not is_card
+            )
+            if needs_old_balance or needs_new_balance:
+                from app.services.portfolio import read_portfolio
 
-            tx["applied_delta"] = new_delta
-            tx["balance_delta_version"] = BALANCE_DELTA_VERSION
-            tx["updated_at"] = datetime.now().isoformat()
-            data["transactions"][idx] = tx
-            write_ledger(data, username=username)
-            return tx
+                portfolio_after = read_portfolio(username)
+                portfolio_before = deepcopy(portfolio_after)
+
+            # Same-pair edits are one net adjustment. Validating an intermediate
+            # reversal can reject a valid edit when later spending used the income.
+            same_pair_edit = bool(old_v3_effect is not None and needs_new_balance
+                                  and new_acc_id == old_acc_id)
+            combined_result = None
+            if same_pair_edit:
+                pair = _validate_overdraft_pair(
+                    portfolio_after, old_acc_id,
+                    expected_loan_id=old_v3_effect["overdraft_loan_id"],
+                )
+                requested_delta = new_amount if new_type == "income" else -new_amount
+                combined_result = _apply_overdraft_net_delta(
+                    pair[0], pair[1], requested_delta - old_delta,
+                )
+                combined_result["applied_delta"] = requested_delta
+                combined_result["balance_effect"]["net_delta"] = requested_delta
+                # Component audit values describe the actual edit, not a replay
+                # of the historical transaction. Only net_delta is reversible.
+                combined_result["balance_effect"]["audit_operation"] = "update"
+
+            if needs_old_balance and portfolio_after is not None and not same_pair_edit:
+                if old_v3_effect is not None:
+                    _apply_balance_delta_to_portfolio(
+                        portfolio_after,
+                        old_v3_effect["bank_account_id"],
+                        -old_v3_effect["net_delta"],
+                        expected_overdraft_loan_id=old_v3_effect["overdraft_loan_id"],
+                    )
+                else:
+                    _apply_balance_delta_to_portfolio(
+                        portfolio_after,
+                        old_acc_id,
+                        -old_delta,
+                        allow_overdraft=False,
+                    )
+
+            new_result: dict[str, Any] = {
+                "applied_delta": 0.0,
+                "balance_delta_version": BALANCE_DELTA_VERSION,
+                "changed": False,
+            }
+            if combined_result is not None:
+                new_result = combined_result
+            elif apply_to_account and new_acc_id and new_amount > 0 and not is_card:
+                requested_delta = new_amount if new_type == "income" else -new_amount
+                if portfolio_after is None:
+                    raise RuntimeError("계좌 잔액 변경 상태를 준비하지 못했습니다.")
+                new_result = _apply_balance_delta_to_portfolio(
+                    portfolio_after,
+                    new_acc_id,
+                    requested_delta,
+                    allow_overdraft=old_version == OVERDRAFT_BALANCE_DELTA_VERSION,
+                )
+
+            _set_balance_metadata(updated_tx, new_result)
+            updated_tx["updated_at"] = datetime.now().isoformat()
+            data["transactions"][idx] = updated_tx
+            _commit_ledger_and_portfolio(
+                data,
+                username,
+                portfolio_before=portfolio_before,
+                portfolio_after=portfolio_after,
+            )
+            return updated_tx
     return None
 
 
@@ -525,17 +822,47 @@ def delete_transaction(tx_id: str, username: str | None = None) -> bool:
     before = len(data.get("transactions", []))
     target_tx = next((t for t in data.get("transactions", []) if t.get("id") == tx_id), None)
 
-    # Rollback account balance delta if existed
+    portfolio_before = None
+    portfolio_after = None
+    # Rollback account balance delta if existed, using net position for v3.
     if target_tx:
-        old_delta = _get_reversible_applied_delta(target_tx)
-        old_acc_id = target_tx.get("account_id")
-        if old_acc_id and abs(old_delta) > 1e-6:
-            _apply_account_balance_delta(old_acc_id, -old_delta, username=username)
+        old_version = target_tx.get("balance_delta_version")
+        old_v3_effect = None
+        if old_version == OVERDRAFT_BALANCE_DELTA_VERSION:
+            old_v3_effect = _get_v3_balance_effect(target_tx)
+            old_delta = old_v3_effect["net_delta"]
+        else:
+            old_delta = _get_reversible_applied_delta(target_tx)
+        old_acc_id = str(target_tx.get("account_id") or "").strip()
+        if old_acc_id and (old_v3_effect is not None or abs(old_delta) > 1e-6):
+            from app.services.portfolio import read_portfolio
+
+            portfolio_after = read_portfolio(username)
+            portfolio_before = deepcopy(portfolio_after)
+            if old_v3_effect is not None:
+                _apply_balance_delta_to_portfolio(
+                    portfolio_after,
+                    old_v3_effect["bank_account_id"],
+                    -old_v3_effect["net_delta"],
+                    expected_overdraft_loan_id=old_v3_effect["overdraft_loan_id"],
+                )
+            else:
+                _apply_balance_delta_to_portfolio(
+                    portfolio_after,
+                    old_acc_id,
+                    -old_delta,
+                    allow_overdraft=False,
+                )
 
     data["transactions"] = [t for t in data.get("transactions", []) if t.get("id") != tx_id]
     after = len(data["transactions"])
     if before != after:
-        write_ledger(data, username=username)
+        _commit_ledger_and_portfolio(
+            data,
+            username,
+            portfolio_before=portfolio_before,
+            portfolio_after=portfolio_after,
+        )
         return True
     return False
 
@@ -560,9 +887,8 @@ def add_recurring(payload: dict[str, Any], username: str | None = None) -> dict[
         "active": bool(payload.get("active", True)),
     }
     data["recurring"].append(rec)
-    write_ledger(data, username=username)
     # 등록 즉시 오늘 이전 이체일인 경우 자동 출금 처리 시도
-    process_recurring_deductions(username=username)
+    process_recurring_deductions(username=username, pending_data=data)
     return rec
 
 
@@ -588,8 +914,7 @@ def edit_recurring(rec_id: str, payload: dict[str, Any], username: str | None = 
                 r["active"] = bool(payload.get("active"))
             
             data["recurring"][idx] = r
-            write_ledger(data, username=username)
-            process_recurring_deductions(username=username)
+            process_recurring_deductions(username=username, pending_data=data)
             return r
     return None
 
@@ -605,10 +930,12 @@ def delete_recurring(rec_id: str, username: str | None = None) -> bool:
     return False
 
 
-def process_recurring_deductions(username: str | None = None) -> list[dict[str, Any]]:
+def process_recurring_deductions(
+    username: str | None = None, *, pending_data: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """당월 지정일에 도래한 자동이체 고정지출을 연동 통장에서 자동 출금하고 가계부에 기록합니다."""
     import calendar
-    data = read_ledger(username=username)
+    data = pending_data if pending_data is not None else read_ledger(username=username)
     today = date.today()
     cur_year = today.year
     cur_month = today.month
@@ -617,6 +944,9 @@ def process_recurring_deductions(username: str | None = None) -> list[dict[str, 
 
     processed = []
     has_changes = False
+    portfolio_before = None
+    portfolio_after = None
+    portfolio_changed = False
 
     for rec in data.get("recurring", []):
         if not rec.get("active", True):
@@ -637,9 +967,19 @@ def process_recurring_deductions(username: str | None = None) -> list[dict[str, 
         if today >= due_date:
             last_deducted = str(rec.get("last_deducted_date") or "")
             if not last_deducted.startswith(cur_prefix):
-                # 1. 연동 계좌 잔액 차감
-                applied_delta = _apply_account_balance_delta(linked_acc_id, -amount, username=username)
-                balance_deducted = abs(applied_delta) > 1e-6
+                # 1. 연동 계좌 잔액 차감 (모든 due 항목 검증 후 한 번에 저장)
+                if portfolio_after is None:
+                    from app.services.portfolio import read_portfolio
+
+                    portfolio_after = read_portfolio(username)
+                    portfolio_before = deepcopy(portfolio_after)
+                balance_result = _apply_balance_delta_to_portfolio(
+                    portfolio_after,
+                    linked_acc_id,
+                    -amount,
+                )
+                portfolio_changed = portfolio_changed or bool(balance_result["changed"])
+                balance_deducted = abs(float(balance_result["applied_delta"])) > 1e-6
 
                 # 2. 가계부 지출 내역 1건 생성
                 tx_date_str = due_date.isoformat()
@@ -658,12 +998,11 @@ def process_recurring_deductions(username: str | None = None) -> list[dict[str, 
                     "account_name": acc_name,
                     "merchant": rec_name,
                     "memo": f"[정기 자동이체] {rec_name}",
-                    "applied_delta": applied_delta,
-                    "balance_delta_version": BALANCE_DELTA_VERSION,
                     "is_recurring": True,
                     "recurring_id": rec.get("id"),
                     "created_at": datetime.now().isoformat(),
                 }
+                _set_balance_metadata(tx, balance_result)
                 data.setdefault("transactions", []).append(tx)
                 rec["last_deducted_date"] = tx_date_str
                 processed.append({
@@ -676,8 +1015,13 @@ def process_recurring_deductions(username: str | None = None) -> list[dict[str, 
                 })
                 has_changes = True
 
-    if has_changes:
-        write_ledger(data, username=username)
+    if has_changes or pending_data is not None:
+        _commit_ledger_and_portfolio(
+            data,
+            username,
+            portfolio_before=portfolio_before if portfolio_changed else None,
+            portfolio_after=portfolio_after if portfolio_changed else None,
+        )
 
     return processed
 

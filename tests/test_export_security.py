@@ -136,6 +136,16 @@ class ExportSecurityTests(unittest.TestCase):
                 }
             ],
             "accounts": [{"name": "가상 계좌", "balance": 12345}],
+            "bank_accounts": [{"id": "bank-safe", "balance": 0, "currency": "KRW"}],
+            "loan_accounts": [
+                {
+                    "id": "loan-safe",
+                    "loan_type": "minus",
+                    "current_balance": 100,
+                    "limit_amount": 1000,
+                    "overdraft_bank_account_id": "bank-safe",
+                }
+            ],
         }
         asset_records = [
             {
@@ -173,6 +183,10 @@ class ExportSecurityTests(unittest.TestCase):
         self.assertEqual(bundle["portfolio"]["holdings"][0]["symbol"], "SAFE")
         self.assertEqual(bundle["portfolio"]["holdings"][0]["quantity"], 7)
         self.assertEqual(bundle["portfolio"]["accounts"][0]["balance"], 12345)
+        self.assertEqual(
+            bundle["portfolio"]["loan_accounts"][0]["overdraft_bank_account_id"],
+            "bank-safe",
+        )
         self.assertEqual(bundle["asset_records"][0]["total"], 12345)
         self.assertEqual(bundle["dividend_records"][0]["amount"], 321)
         self.assertEqual(bundle["realized_pnl_records"][0]["pnl"], 99)
@@ -183,7 +197,19 @@ class ExportSecurityTests(unittest.TestCase):
             "version": "2.2",
             "user": "user_a",
             "backup_policy": "general_data_only",
-            "portfolio": {"holdings": [{"symbol": "SAFE", "quantity": 7}]},
+            "portfolio": {
+                "holdings": [{"symbol": "SAFE", "quantity": 7}],
+                "bank_accounts": [{"id": "bank-safe", "balance": 0, "currency": "KRW"}],
+                "loan_accounts": [
+                    {
+                        "id": "loan-safe",
+                        "loan_type": "minus",
+                        "current_balance": 100,
+                        "limit_amount": 1000,
+                        "overdraft_bank_account_id": "bank-safe",
+                    }
+                ],
+            },
             "asset_records": [{"date": "2026-01-02", "total": 12345}],
             "dividend_records": [{"symbol": "SAFE", "amount": 321}],
             "realized_pnl_records": [{"symbol": "SAFE", "pnl": 99}],

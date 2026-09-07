@@ -1108,17 +1108,23 @@ async def get_savings_endpoint(request: Request) -> dict:
 
 @app.post("/api/bank-accounts")
 async def save_bank_account_endpoint(request: Request) -> dict:
-    from app.services.savings import save_bank_account
+    from app.services.savings import OverdraftValidationError, save_bank_account
     username = get_current_username(request)
     body = await request.json()
-    record = save_bank_account(body, username=username)
+    try:
+        record = save_bank_account(body, username=username)
+    except OverdraftValidationError as exc:
+        raise HTTPException(409, str(exc)) from exc
     return {"message": "은행 계좌가 저장되었습니다.", "account": record}
 
 @app.delete("/api/bank-accounts/{acc_id}")
 async def delete_bank_account_endpoint(acc_id: str, request: Request) -> dict:
-    from app.services.savings import delete_bank_account
+    from app.services.savings import OverdraftValidationError, delete_bank_account
     username = get_current_username(request)
-    success = delete_bank_account(acc_id, username=username)
+    try:
+        success = delete_bank_account(acc_id, username=username)
+    except OverdraftValidationError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not success:
         raise HTTPException(404, "계좌를 찾을 수 없습니다.")
     return {"message": "은행 계좌가 삭제되었습니다."}
@@ -1172,17 +1178,23 @@ async def delete_insurance_account_endpoint(ins_id: str, request: Request) -> di
 
 @app.post("/api/loan-accounts")
 async def save_loan_account_endpoint(request: Request) -> dict:
-    from app.services.savings import save_loan_account
+    from app.services.savings import OverdraftValidationError, save_loan_account
     username = get_current_username(request)
     body = await request.json()
-    record = save_loan_account(body, username=username)
+    try:
+        record = save_loan_account(body, username=username)
+    except OverdraftValidationError as exc:
+        raise HTTPException(409, str(exc)) from exc
     return {"message": "대출·마이너스통장이 저장되었습니다.", "loan": record}
 
 @app.delete("/api/loan-accounts/{loan_id}")
 async def delete_loan_account_endpoint(loan_id: str, request: Request) -> dict:
-    from app.services.savings import delete_loan_account
+    from app.services.savings import OverdraftValidationError, delete_loan_account
     username = get_current_username(request)
-    success = delete_loan_account(loan_id, username=username)
+    try:
+        success = delete_loan_account(loan_id, username=username)
+    except OverdraftValidationError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not success:
         raise HTTPException(404, "대출·마이너스통장을 찾을 수 없습니다.")
     return {"message": "대출·마이너스통장이 삭제되었습니다."}
@@ -2312,6 +2324,7 @@ async def sync_all_accounts(request: Request) -> dict:
 # Smart Household Ledger (스마트 가족 가계부) API Endpoints
 # ---------------------------------------------------------------------------
 from app.services.ledger import (
+    BalanceConflictError,
     LegacyBalanceDeltaError,
     get_ledger_summary,
     add_transaction,
@@ -2339,7 +2352,10 @@ async def get_ledger(
 ) -> dict:
     """Get ledger summary, category analytics, trend, cards, and transactions for the specified month/owner."""
     username = get_current_username(request)
-    return get_ledger_summary(username=username, year=year, month=month, owner=owner)
+    try:
+        return get_ledger_summary(username=username, year=year, month=month, owner=owner)
+    except BalanceConflictError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @app.post("/api/ledger/transactions")
@@ -2349,7 +2365,10 @@ async def create_ledger_transaction(request: Request) -> dict:
     payload = await request.json()
     if not payload.get("amount"):
         raise HTTPException(400, "금액을 입력해 주세요.")
-    tx = add_transaction(payload, username=username)
+    try:
+        tx = add_transaction(payload, username=username)
+    except BalanceConflictError as exc:
+        raise HTTPException(409, str(exc)) from exc
     return {"message": "내역이 등록되었습니다.", "transaction": tx}
 
 
@@ -2360,7 +2379,7 @@ async def edit_ledger_transaction(tx_id: str, request: Request) -> dict:
     payload = await request.json()
     try:
         tx = update_transaction(tx_id, payload, username=username)
-    except LegacyBalanceDeltaError as exc:
+    except (LegacyBalanceDeltaError, BalanceConflictError) as exc:
         raise HTTPException(409, str(exc)) from exc
     if not tx:
         raise HTTPException(404, "수정할 내역을 찾을 수 없습니다.")
@@ -2373,7 +2392,7 @@ async def remove_ledger_transaction(tx_id: str, request: Request) -> dict:
     username = get_current_username(request)
     try:
         success = delete_transaction(tx_id, username=username)
-    except LegacyBalanceDeltaError as exc:
+    except (LegacyBalanceDeltaError, BalanceConflictError) as exc:
         raise HTTPException(409, str(exc)) from exc
     if not success:
         raise HTTPException(404, "삭제할 내역을 찾을 수 없습니다.")
@@ -2387,7 +2406,10 @@ async def create_recurring(request: Request) -> dict:
     payload = await request.json()
     if not payload.get("name") or not payload.get("amount"):
         raise HTTPException(400, "고정지출 이름과 금액을 입력해 주세요.")
-    rec = add_recurring(payload, username=username)
+    try:
+        rec = add_recurring(payload, username=username)
+    except BalanceConflictError as exc:
+        raise HTTPException(409, str(exc)) from exc
     return {"message": "고정지출이 등록되었습니다.", "recurring": rec}
 
 
@@ -2406,7 +2428,10 @@ async def update_recurring_entry(rec_id: str, request: Request) -> dict:
     """Update a recurring entry."""
     username = get_current_username(request)
     payload = await request.json()
-    rec = edit_recurring(rec_id, payload, username=username)
+    try:
+        rec = edit_recurring(rec_id, payload, username=username)
+    except BalanceConflictError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not rec:
         raise HTTPException(404, "수정할 고정지출 항목을 찾을 수 없습니다.")
     return {"message": "고정지출 항목이 수정되었습니다.", "recurring": rec}
@@ -2416,7 +2441,10 @@ async def update_recurring_entry(rec_id: str, request: Request) -> dict:
 async def trigger_recurring_deductions(request: Request) -> dict:
     """Trigger processing of recurring bank deductions for current month."""
     username = get_current_username(request)
-    processed = process_recurring_deductions(username=username)
+    try:
+        processed = process_recurring_deductions(username=username)
+    except BalanceConflictError as exc:
+        raise HTTPException(409, str(exc)) from exc
     count = len(processed)
     msg = f"당월 자동이체 고정지출 {count}건이 통장에서 정상 출금 처리되었습니다." if count > 0 else "당월 추가로 출금 처리할 자동이체 항목이 없습니다."
     return {"message": msg, "count": count, "processed": processed}
@@ -2473,6 +2501,8 @@ async def pay_ledger_card(card_id: str, request: Request) -> dict:
     try:
         res = settle_card_payment(card_id, payload, username=username)
         return res
+    except BalanceConflictError as e:
+        raise HTTPException(409, str(e)) from e
     except ValueError as e:
         raise HTTPException(400, str(e))
 
