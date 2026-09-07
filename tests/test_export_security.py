@@ -11,7 +11,10 @@ from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 from itsdangerous import URLSafeTimedSerializer
 
-import app.main as main
+from regression_support import import_main_without_loading_real_env
+
+
+main = import_main_without_loading_real_env()
 
 
 TEST_USERS = {"user_a", "user_b"}
