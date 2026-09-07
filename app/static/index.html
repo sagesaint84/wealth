@@ -1,0 +1,2903 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="모든 증권사의 투자자산을 통합해 보는 개인 대시보드" />
+    <title>Wealth · 자산</title>
+    <meta name="theme-color" content="#0b1120" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Wealth" />
+    <meta name="application-name" content="Wealth" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/static/wealth.css?v=20260906-v5538" />
+    <link rel="stylesheet" href="/static/wealth-overrides.css?v=20260907-v5552" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="topbar-brand-wrap">
+          <a class="brand" href="/" aria-label="시작 화면">W</a>
+          <div class="title"><p>Wealth</p><h1>자산</h1></div>
+        </div>
+        <div class="topbar-actions top-actions" style="margin-left:auto;display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+          <button id="pwaInstallButton" class="button primary compact" type="button" onclick="triggerPwaInstall()" style="display:none;font-size:11.5px;padding:5px 10px;gap:4px;border-radius:8px;background:linear-gradient(135deg, #6366f1, #8b5cf6);color:#fff;border:none;box-shadow:0 2px 8px rgba(99,102,241,0.35);cursor:pointer;">📱 앱 설치</button>
+          <div class="user-pill" style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid #263558;font-size:12px;color:#dbe4ff;">
+            <span>👤</span> <strong id="topbarUsername">sagesaint</strong>
+          </div>
+          <button id="topbarFamilyBtn" class="button secondary compact" type="button" title="가족 구성원 관리" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#cbd5e1;border-color:#334155;">👨‍👩‍👧‍👦 가족</button>
+          <button id="adminUserBtn" class="button secondary compact" type="button" onclick="openAdminUsersModal()" style="display:none;font-size:11.5px;padding:5px 9px;border-radius:8px;color:#c4b5fd;border-color:#4c3e80;" title="사용자 관리">⚙️ 사용자 관리</button>
+          <button id="userOpenApiBtn" class="button secondary compact" type="button" onclick="openUserOpenApiModal()" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#38bdf8;border-color:#1e3a8a;" title="증권사 OpenAPI 설정">⚙️ OpenAPI</button>
+          <button id="changePwBtn" class="button secondary compact" type="button" onclick="openChangePasswordModal()" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#aeb8d8;" title="비밀번호 변경">🔑 비번 변경</button>
+          <a href="/logout" class="button secondary compact" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#ff8ca0;text-decoration:none;display:inline-flex;align-items:center;" title="로그아웃">로그아웃</a>
+        </div>
+      </header>
+
+      <!-- 0. [Admin 전용] 사용자 계정 관리 메인 화면 (admin 로그인 시 단독 노출) -->
+      <section id="adminMainPanel" class="panel admin-panel" style="display:none;margin-top:20px;">
+        <div class="panel-head admin-panel-head" style="padding-bottom:16px;">
+          <div>
+            <p class="eyebrow" style="color:#a78bfa;">SYSTEM ADMINISTRATION</p>
+            <h2 style="font-size:22px;display:flex;align-items:center;gap:10px;">
+              👑 시스템 사용자 계정 관리
+              <span class="admin-badge" style="font-size:12px;font-weight:600;padding:3px 9px;border-radius:6px;">Admin Only</span>
+            </h2>
+          </div>
+          <div class="admin-desc" style="font-size:12px;">
+            각 사용자의 자산 데이터는 <code>data/users/{username}/</code>에 완전 격리되어 안전하게 보관됩니다.
+          </div>
+        </div>
+
+        <!-- 관리자 통계 요약 카드 3종 -->
+        <div class="admin-stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;margin:20px 0 24px;">
+          <div class="metric-card admin-stat-card">
+            <div class="admin-stat-label">총 등록 사용자</div>
+            <div id="adminStatTotalUsers" class="admin-stat-value">-</div>
+          </div>
+          <div class="metric-card admin-stat-card">
+            <div class="admin-stat-label">정상 활성 사용자</div>
+            <div id="adminStatActiveUsers" class="admin-stat-value success">-</div>
+          </div>
+          <div class="metric-card admin-stat-card">
+            <div class="admin-stat-label">초기 비번 변경 대기</div>
+            <div id="adminStatPendingUsers" class="admin-stat-value warning">-</div>
+          </div>
+        </div>
+
+        <!-- 1) 신규 사용자 생성 영역 -->
+        <div class="admin-box admin-create-box" style="border-radius:12px;padding:20px;margin-bottom:24px;">
+          <h3 class="admin-box-title" style="margin:0 0 12px;font-size:15px;display:flex;align-items:center;gap:8px;">
+            ➕ 새 사용자 아이디 추가
+          </h3>
+          <form id="adminMainCreateUserForm" onsubmit="handleAdminCreateUser(event)" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+            <label class="admin-form-label" style="flex:1;min-width:180px;">
+              <span class="admin-label-text" style="display:block;font-size:12px;margin-bottom:6px;">사용자 아이디</span>
+              <input id="adminMainNewUsername" class="admin-input" type="text" placeholder="예: user2, family" required style="width:100%;box-sizing:border-box;" />
+            </label>
+            <label class="admin-form-label" style="width:160px;">
+              <span class="admin-label-text" style="display:block;font-size:12px;margin-bottom:6px;">초기 비밀번호 (4자리)</span>
+              <input id="adminMainNewPassword" class="admin-input" type="password" placeholder="숫자/문자 4자리" maxlength="4" minlength="4" required style="width:100%;box-sizing:border-box;" />
+            </label>
+            <button class="button primary" type="submit" style="height:42px;white-space:nowrap;padding:0 20px;font-weight:700;">
+              사용자 등록
+            </button>
+          </form>
+          <div class="admin-help-text" style="margin-top:10px;font-size:12px;line-height:1.5;">
+            * 생성된 사용자는 첫 로그인 시 <strong>새 비밀번호(4자 이상) 변경을 필수로 완료</strong>해야 자산 대시보드를 사용할 수 있습니다.<br>
+            * 등록 즉시 <code>data/users/{username}/</code> 격리 폴더가 자동 생성됩니다.
+          </div>
+        </div>
+
+        <!-- 2) 사용자 계정 목록 테이블 -->
+        <div style="margin-top:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h3 class="admin-table-title" style="margin:0;font-size:15px;">📋 등록된 사용자 계정 목록</h3>
+            <button type="button" class="button secondary compact" onclick="refreshAdminUserList()" style="font-size:11.5px;padding:4px 10px;">🔄 새로고침</button>
+          </div>
+          <div class="admin-table-wrap" style="overflow-x:auto;border-radius:10px;">
+            <table class="admin-user-table" style="width:100%;border-collapse:collapse;font-size:13px;text-align:left;">
+              <thead>
+                <tr class="admin-thead-tr">
+                  <th style="padding:12px 16px;">아이디</th>
+                  <th style="padding:12px 16px;">권한</th>
+                  <th style="padding:12px 16px;">접속 상태</th>
+                  <th style="padding:12px 16px;">생성일시</th>
+                  <th style="padding:12px 16px;text-align:center;">관리 작업</th>
+                </tr>
+              </thead>
+              <tbody id="adminMainUserListTbody">
+                <!-- JS에서 렌더링 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 자산 관리 전체 래퍼 (admin 로그인 시 제외, 일반 사용자 로그인 시 표시) -->
+      <div id="userAssetDashboardWrapper">
+        <!-- 1. 주요지수 (상단 마켓 오버뷰 & 기간별 지수 변화 탭) -->
+        <section id="marketPanel" class="panel market-panel user-asset-section" style="margin-top:16px;">
+        <div class="panel-head market-head" style="flex-wrap:wrap;gap:0.75rem;align-items:center;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div>
+              <p class="eyebrow">MARKET OVERVIEW</p>
+              <h2>주요지수 <button type="button" class="section-collapse-btn" data-section="market" title="접기/펼치기" aria-label="주요지수 접기/펼치기">▼</button></h2>
+            </div>
+            <!-- 주요지수 기간 선택 탭 (일간 주간 월간 연간 전체) -->
+            <div class="heatmap-period-tabs compact-market-tabs" id="marketPeriodTabs" style="margin-left:4px;">
+              <button type="button" class="heatmap-tab active" data-period="1D">일간</button>
+              <button type="button" class="heatmap-tab" data-period="1W">주간</button>
+              <button type="button" class="heatmap-tab" data-period="1M">월간</button>
+              <button type="button" class="heatmap-tab" data-period="1Y">연간</button>
+              <button type="button" class="heatmap-tab" data-period="ALL">전체</button>
+            </div>
+            <!-- 자산히트맵 선택 디자인과 동일한 전체기간 세부 선택 셀렉트 박스 -->
+            <div class="heatmap-selects-wrap" style="margin-left:2px;">
+              <select id="marketPeriodSelect" class="heatmap-select" style="font-size:12px;padding:6px 10px;" aria-label="전체 기간 세부 선택">
+                <option value="3Y" selected>전체: 3년 (3Y)</option>
+                <option value="5Y">전체: 5년 (5Y)</option>
+                <option value="10Y">전체: 10년 (10Y)</option>
+                <option value="MAX">전체: 최대 (MAX)</option>
+              </select>
+            </div>
+          </div>
+          <div class="toolbar" style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <button id="syncAccountsButton" class="button secondary compact" type="button">🔗 계좌 연결</button>
+            <button id="refreshButton" class="button secondary compact" type="button">↻ 조회</button>
+          </div>
+        </div>
+        <div id="marketGrid" class="market-grid" aria-label="주요 시장 지수" style="margin-top:16px;"></div>
+      </section>
+
+      <!-- 2열 통합 레이아웃: 핵심 요약 + 투자자산 분류 단일 패널 (접기/펼치기 통합) -->
+      <section id="summaryPanel" class="panel summary-panel overview-panel">
+        <div class="panel-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div>
+              <p class="eyebrow">PORTFOLIO OVERVIEW</p>
+              <h2>포트폴리오 <button type="button" class="section-collapse-btn" data-section="summary" title="접기/펼치기" aria-label="포트폴리오 접기/펼치기">▼</button></h2>
+            </div>
+            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
+            <div class="family-tabs topbar-family-tabs" id="topbarFamilyTabs" style="margin-left:4px;">
+              <button type="button" class="family-tab active" data-owner="모두">모두</button>
+            </div>
+          </div>
+          <!-- 투자자산 분류 탭 (자산 / 주식) -->
+          <div class="heatmap-period-tabs" id="allocTabs" style="margin-left:auto;">
+            <button type="button" class="heatmap-tab active" data-tab="asset_class">자산</button>
+            <button type="button" class="heatmap-tab" data-tab="sector">주식</button>
+          </div>
+          <span id="accountCaption" class="muted" style="font-size:11px;margin-left:6px;"></span>
+        </div>
+
+        <div class="overview-body-grid">
+          <!-- 좌측 열: 핵심 요약 지표 리스트 -->
+          <div class="overview-summary-col">
+            <div class="summary-item-list">
+              <!-- 1. 순자산 (자산 탭 전용) -->
+              <div class="summary-row featured" id="netWorthRow" style="background:rgba(56,189,248,0.06);border-left:3px solid #38bdf8;">
+                <div class="summary-row-label">
+                  <span class="card-icon mini" style="background:rgba(56,189,248,0.2);color:#38bdf8;">💎</span>
+                  <strong style="font-size:14.5px;">순자산</strong>
+                </div>
+                <div class="summary-row-val">
+                  <strong id="summaryNetWorth" class="value-highlight" style="font-size:19px;font-weight:800;">₩0</strong>
+                  <small id="summaryTotalDebtCaption" style="color:#38bdf8;font-weight:700;display:block;margin-top:2px;">총부채 ₩0</small>
+                </div>
+              </div>
+
+              <!-- 2. 투자자산 / 총 주식자산 -->
+              <div class="summary-row featured" id="totalInvestRow" style="background:rgba(167,139,250,0.06);border-left:3px solid #a78bfa;">
+                <div class="summary-row-label">
+                  <span class="card-icon mini" style="background:rgba(167,139,250,0.2);color:#a78bfa;">◈</span>
+                  <strong id="totalInvestLabelText" style="font-size:14.5px;">투자자산</strong>
+                </div>
+                <div class="summary-row-val">
+                  <strong id="totalValue" class="value-highlight" style="font-size:19px;font-weight:800;">₩0</strong>
+                  <div id="subAssetBreakdown" style="font-size:12px;color:#c4b5fd;margin-top:6px;line-height:1.6;display:flex;flex-direction:column;gap:3px;align-items:flex-end;">
+                    <span id="subRealEstateVal" style="color:#c4b5fd;display:block;">부동산 ₩0</span>
+                    <span id="subStockVal" style="color:#c4b5fd;display:block;">주식 ₩0</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2-1. 원화 주식 (주식 탭 전용) -->
+              <div class="summary-row featured" id="krwStockRow" style="display:none;background:rgba(56,189,248,0.06);border-left:3px solid #38bdf8;">
+                <div class="summary-row-label">
+                  <span class="card-icon mini" style="background:rgba(56,189,248,0.2);color:#38bdf8;">🇰🇷</span>
+                  <strong style="font-size:14.5px;">원화 주식</strong>
+                </div>
+                <div class="summary-row-val">
+                  <strong id="summaryKrwStockVal" class="value-highlight" style="font-size:18px;font-weight:800;">₩0</strong>
+                  <div style="margin-top:4px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-end;">
+                    <span id="summaryKrwStockProfit" style="font-weight:700;display:block;">+₩0 (+0.00%)</span>
+                    <span id="summaryKrwStockCount" style="color:#94a3b8;font-size:11px;margin-top:1px;">0개 종목</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2-2. 달러 주식 (주식 탭 전용) -->
+              <div class="summary-row featured" id="usdStockRow" style="display:none;background:rgba(45,212,191,0.06);border-left:3px solid #2dd4bf;">
+                <div class="summary-row-label">
+                  <span class="card-icon mini" style="background:rgba(45,212,191,0.2);color:#2dd4bf;">🇺🇸</span>
+                  <strong style="font-size:14.5px;">달러 주식</strong>
+                </div>
+                <div class="summary-row-val">
+                  <strong id="summaryUsdStockValKrw" class="value-highlight" style="font-size:18px;font-weight:800;">₩0</strong>
+                  <div style="margin-top:4px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-end;">
+                    <span id="summaryUsdStockValUsd" style="font-weight:700;color:#2dd4bf;display:block;">$0.00 (0개 종목)</span>
+                    <span id="summaryUsdStockProfit" style="font-weight:600;display:block;font-size:11.5px;margin-top:1px;">+₩0 (+0.00%)</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 3. 기대수익 / 총 수익 & 일간 수익 -->
+              <div class="summary-row featured" id="expectedProfitRow" style="background:rgba(244,63,94,0.06);border-left:3px solid #f43f5e;">
+                <div class="summary-row-label">
+                  <span class="card-icon mini" style="background:rgba(244,63,94,0.2);color:#f43f5e;">↗</span>
+                  <strong id="profitLabelText" style="font-size:14.5px;">기대수익</strong>
+                </div>
+                <div class="summary-row-val">
+                  <div class="val-line" style="display:flex;align-items:baseline;justify-content:flex-end;gap:6px;">
+                    <strong id="totalProfit" style="font-size:16px;">₩0</strong>
+                    <span id="profitRate" class="sub-rate" style="font-size:13.5px;font-weight:700;">(+0.00%)</span>
+                  </div>
+                  <div id="dayProfitSubLine" style="margin-top:4px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-end;">
+                    <span id="dayProfitVal" style="font-weight:700;display:block;">일간 수익 ₩0 (+0.00%)</span>
+                    <span id="dayCaption" style="color:#a78bfa;display:block;font-size:11px;margin-top:1px;">전일 대비</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 4. 실현손익 (자산: 통합 실현손익 / 주식: 주식 실현손익) -->
+              <div class="summary-row featured" id="realizedPnlRow" style="background:rgba(245,158,11,0.06);border-left:3px solid #f59e0b;">
+                <div class="summary-row-label">
+                  <span class="card-icon mini" style="background:rgba(245,158,11,0.2);color:#f59e0b;">📈</span>
+                  <strong id="pnlLabelText" style="font-size:14.5px;">실현손익</strong>
+                </div>
+                <div class="summary-row-val">
+                  <div class="val-line">
+                    <strong id="summaryRealizedPnl" class="gain up" style="color:#f43f5e;font-weight:700;font-size:16px;">+₩0</strong>
+                  </div>
+                  <div id="pnlSubBreakdown" style="font-size:11.5px;color:#cbd5e1;margin-top:4px;display:none;flex-direction:column;align-items:flex-end;gap:2px;"></div>
+                  <div style="margin-top:5px;font-size:12px;line-height:1.6;display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+                    <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
+                      <span id="pnlYearLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">26년</span>
+                      <strong id="summaryRealizedPnlYear" style="color:#f43f5e;font-weight:700;min-width:70px;text-align:right;">+₩0</strong>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
+                      <span id="pnlMonthLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">09월</span>
+                      <strong id="summaryRealizedPnlMonth" style="color:#f43f5e;font-weight:700;min-width:70px;text-align:right;">+₩0</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 5. 총 배당금 및 이자 (주식 탭 전용 행) -->
+              <div class="summary-row featured" id="dividendRow" style="display:none;background:rgba(234,179,8,0.06);border-left:3px solid #eab308;">
+                <div class="summary-row-label">
+                  <span class="card-icon mini" style="background:rgba(234,179,8,0.2);color:#eab308;">💰</span>
+                  <strong id="divLabelText" style="font-size:14.5px;">배당금</strong>
+                </div>
+                <div class="summary-row-val">
+                  <div class="val-line">
+                    <strong id="summaryActualDividend" style="font-weight:700;font-size:16px;">₩0</strong>
+                  </div>
+                  <div style="margin-top:5px;font-size:12px;line-height:1.6;display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+                    <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
+                      <span id="divYearLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">26년</span>
+                      <strong id="summaryActualDivYear" style="color:#a78bfa;font-weight:600;min-width:70px;text-align:right;">+₩0</strong>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
+                      <span id="divMonthLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">09월</span>
+                      <strong id="summaryActualDivMonth" style="color:#a78bfa;font-weight:600;min-width:70px;text-align:right;">+₩0</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 6. 안전자산 (자산 탭 전용) -->
+              <div class="summary-row featured" id="safeAssetRow" style="background:rgba(52,211,153,0.06);border-left:3px solid #34d399;">
+                <div class="summary-row-label">
+                  <span class="card-icon mini" style="background:rgba(52,211,153,0.2);color:#34d399;">🛡️</span>
+                  <strong style="font-size:14.5px;">안전자산</strong>
+                </div>
+                <div class="summary-row-val">
+                  <strong id="summarySafeAssetVal" class="value-highlight" style="font-size:19px;font-weight:800;">₩0</strong>
+                  <div id="subSafeAssetBreakdown" style="font-size:12px;color:#86efac;margin-top:6px;line-height:1.6;display:flex;flex-direction:column;gap:3px;align-items:flex-end;">
+                    <span id="subSafeCashVal" style="color:#86efac;display:block;">예수금 및 예금 ₩0</span>
+                    <span id="subSafeLeaseVal" style="color:#86efac;display:block;">임차보증금 ₩0</span>
+                    <span id="subSafeInsuranceVal" style="color:#86efac;display:block;">보험 ₩0</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 우측 열: 투자자산 분류 (도넛 차트 + 섹터/자산별 리스트) -->
+          <div class="overview-alloc-col">
+            <div id="sectorDonutWrap" style="display:block;margin:6px 0 12px;"></div>
+            <div id="classificationList" class="classification-list sector-mode"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. 기록 (구 자산기록) -->
+      <section id="recordsPanel" class="panel records-panel">
+        <div class="panel-head records-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div>
+              <p class="eyebrow">STOCK RECORDS</p>
+              <h2>주식기록 <button type="button" class="section-collapse-btn" data-section="records" title="접기/펼치기" aria-label="주식기록 접기/펼치기">▼</button></h2>
+            </div>
+            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
+            <div class="family-tabs" id="recordsFamilyTabs" style="margin-left:4px;"></div>
+          </div>
+          <div class="heatmap-period-tabs" id="recordViewTabs" style="margin-right:6px;">
+            <button type="button" class="heatmap-tab active" data-view="combo">📈 전체주식</button>
+            <button type="button" class="heatmap-tab" data-view="tax_accounts">🌿 절세계좌</button>
+          </div>
+          <div class="heatmap-period-tabs compact-record-tabs" id="recordPeriodTabs">
+            <button type="button" class="heatmap-tab" data-period="1D">일간</button>
+            <button type="button" class="heatmap-tab" data-period="1W">주간</button>
+            <button type="button" class="heatmap-tab" data-period="1M">월간</button>
+            <button type="button" class="heatmap-tab" data-period="1Y">연간</button>
+            <button type="button" class="heatmap-tab active" data-period="ALL">전체</button>
+          </div>
+          <div class="toolbar" style="margin-left:auto;">
+            <span id="recordCount" class="muted">0개 기록</span>
+            <button id="snapshotButton" class="button secondary compact" type="button" title="오늘 스냅샷 저장">💾 저장</button>
+            <button id="addRecordButton" class="button secondary compact" type="button" title="자산기록 직접 추가">➕ 추가</button>
+          </div>
+        </div>
+        <div class="records-grid">
+          <div id="assetChart" class="record-chart-wrap"></div>
+          <div class="record-side">
+            <div class="record-side-summary"><span>전체 변화</span><strong id="recordSummary">0원</strong><small>저장된 날짜별 자산 추이</small></div>
+            <div id="assetRecordList" class="record-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. 히트맵 (구 자산 히트맵) -->
+      <section id="assetHeatmapPanel" class="panel heatmap-panel">
+        <div class="panel-head heatmap-head">
+          <div class="heatmap-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div>
+              <p class="eyebrow">PORTFOLIO HEATMAP</p>
+              <h2>히트맵 <button type="button" class="section-collapse-btn" data-section="heatmap" title="접기/펼치기" aria-label="히트맵 접기/펼치기">▼</button></h2>
+            </div>
+            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
+            <div class="family-tabs" id="heatmapFamilyTabs" style="margin-left:4px;"></div>
+          </div>
+          <div class="heatmap-controls-row">
+            <div class="heatmap-period-tabs" id="heatmapViewTabs" style="margin-right:6px;">
+              <button type="button" class="heatmap-tab active" data-view="treemap">🗺️ 면적형</button>
+              <button type="button" class="heatmap-tab" data-view="cards">🗂️ 카드형</button>
+            </div>
+            <div class="heatmap-period-tabs compact-heatmap-tabs" id="heatmapPeriodTabs" role="tablist">
+              <button type="button" class="heatmap-tab active" data-period="1D">일간</button>
+              <button type="button" class="heatmap-tab" data-period="1W">주간</button>
+              <button type="button" class="heatmap-tab" data-period="1M">월간</button>
+              <button type="button" class="heatmap-tab" data-period="1Y">연간</button>
+              <button type="button" class="heatmap-tab" data-period="TOTAL">진입</button>
+            </div>
+            <div class="heatmap-selects-wrap">
+              <select id="heatmapCapSelect" class="heatmap-select" aria-label="히트맵 최대 등락률 범위 선택">
+                <option value="auto">범위: 자동 (Auto)</option>
+                <option value="5">범위: ±5%</option>
+                <option value="10">범위: ±10%</option>
+                <option value="15">범위: ±15%</option>
+                <option value="20">범위: ±20%</option>
+                <option value="30">범위: ±30%</option>
+                <option value="50">범위: ±50%</option>
+                <option value="100">범위: ±100%</option>
+              </select>
+              <select id="heatmapThemeSelect" class="heatmap-select" aria-label="히트맵 색상 테마 선택">
+                <option value="kr">🔴 한국형 (적/청)</option>
+                <option value="us">🟢 글로벌 (녹/적)</option>
+                <option value="neon">🟣 네온 (보라/청록)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="heatmap-body">
+          <div id="assetHeatmapContainer" class="heatmap-container"></div>
+          <div class="heatmap-footer">
+            <div class="heatmap-legend" id="heatmapLegend">
+              <span class="legend-cap" id="legendCapLeft">-15%</span>
+              <div class="legend-bar" id="legendBar"></div>
+              <span class="legend-cap" id="legendCapRight">+15%</span>
+              <span class="legend-text" id="legendText">하락 ← 0 → 상승</span>
+            </div>
+            <span class="heatmap-tip-note" id="heatmapTipNote">면적 = 포지션 규모 · 색 = 일간 등락률 · 클릭하면 종목 검색</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. 자산 (구 계좌 - 증권 / 은행 / 보험 / 부동산 통합 섹션) -->
+      <section id="accountsPanel" class="panel">
+        <div class="account-panel-head-row">
+          <div class="panel-head" style="flex-wrap:wrap;gap:0.5rem;display:flex;align-items:center;">
+            <div>
+              <p class="eyebrow">ACCOUNTS & WEALTH</p>
+              <h2>자산 <button type="button" class="section-collapse-btn" data-section="accounts" title="접기/펼치기" aria-label="자산 접기/펼치기">▼</button></h2>
+            </div>
+
+            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
+            <div class="family-tabs" id="familyTabs" style="display:flex;gap:0.35rem;align-items:center;flex-wrap:wrap;">
+              <button type="button" class="family-tab active" data-owner="모두">모두</button>
+            </div>
+
+            <!-- 4대 자산 분류 탭 (증권 / 은행 / 보험 / 부동산) -->
+            <div class="account-category-tabs" style="display:flex;gap:6px;align-items:center;margin-left:8px;flex-wrap:wrap;">
+              <button type="button" class="account-cat-tab active" data-cat="securities">📈 증권 (<span id="securitiesTabCount">0</span>)</button>
+              <button type="button" class="account-cat-tab" data-cat="banking">🏦 은행 (<span id="bankingTabCount">0</span>)</button>
+              <button type="button" class="account-cat-tab" data-cat="insurance">🛡️ 보험 (<span id="insuranceTabCount">0</span>)</button>
+              <button type="button" class="account-cat-tab" data-cat="real_estate">🏠 부동산 (<span id="realEstateTabCount">0</span>)</button>
+            </div>
+
+            <!-- 툴바 액션 버튼 (현재 카테고리 탭에 따라 스위칭) -->
+            <div class="toolbar" style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+              <div id="securitiesActions" style="display:flex;gap:6px;align-items:center;">
+                <button id="addAccountBtn" class="button secondary compact" type="button" title="증권 계좌 추가">➕ 증권계좌 추가</button>
+              </div>
+              <div id="bankingActions" style="display:none;gap:6px;align-items:center;">
+                <button id="addBankIntegratedBtn" class="button secondary compact" type="button" title="은행 계좌 추가 (자유통장 / 예·적금 / 대출)">🏦 계좌 추가</button>
+              </div>
+              <div id="insuranceActions" style="display:none;gap:6px;align-items:center;">
+                <button id="addInsuranceBtn" class="button secondary compact" type="button" title="보험 / 연금 / 공제 추가">➕ 보험/연금 추가</button>
+              </div>
+              <div id="realEstateActions" style="display:none;gap:6px;align-items:center;">
+                <button id="addRealEstateBtn" class="button secondary compact" type="button" title="부동산 자산 추가">🏠 부동산 추가</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 1) 증권 탭 본문 -->
+          <div id="catPanelSecurities" class="cat-panel active" style="margin-top:12px;">
+            <div id="accountList" class="account-list"></div>
+          </div>
+
+          <!-- 2) 은행 탭 본문 -->
+          <div id="catPanelBanking" class="cat-panel" style="display:none;margin-top:12px;">
+            <div class="savings-summary-grid loan-summary-grid" id="savingsSummaryCards">
+              <div class="saving-stat-card">
+                <span class="saving-stat-label">🏦 자유통장 잔고</span>
+                <strong id="totalBankBalanceVal">₩0</strong>
+              </div>
+              <div class="saving-stat-card">
+                <span class="saving-stat-label">💰 예·적금 불입액</span>
+                <strong id="totalSavingsPaidVal">₩0</strong>
+              </div>
+              <div class="saving-stat-card highlight">
+                <span class="saving-stat-label">🎯 만기 예상 실수령액</span>
+                <strong id="totalSavingsMaturityVal">₩0</strong>
+              </div>
+              <div class="saving-stat-card danger">
+                <span class="saving-stat-label" style="color:#fb7185;">🔴 총 대출·마통 부채</span>
+                <strong id="totalLoanBalanceVal" style="color:#fb7185;">₩0</strong>
+                <small id="totalLoanInterestSub" style="font-size:11px;color:#94a3b8;margin-top:2px;">월 예상 이자: ₩0</small>
+              </div>
+            </div>
+
+            <div class="savings-subtabs" style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+              <button type="button" class="savings-subtab active" data-subtab="all">전체 (<span id="allBankCount">0</span>)</button>
+              <button type="button" class="savings-subtab" data-subtab="banks">자유 (<span id="banksCount">0</span>)</button>
+              <button type="button" class="savings-subtab" data-subtab="savings">예·적금 (<span id="savingsCount">0</span>)</button>
+              <button type="button" class="savings-subtab" data-subtab="loans">대출 (<span id="loansCount">0</span>)</button>
+            </div>
+
+            <!-- 은행 계좌 서브 섹션들 (전체 탭에서는 세 섹션이 소제목과 함께 모두 표시됨) -->
+            <div id="bankSectionFree" class="bank-sub-section" style="margin-top:12px;">
+              <div class="bank-section-title" id="bankTitleFree" style="display:none;margin-bottom:8px;font-size:13px;font-weight:700;color:#38bdf8;align-items:center;gap:6px;">
+                <span>🏦 자유입출금 통장</span>
+              </div>
+              <div id="banksListWrap" class="banks-table-wrap"></div>
+            </div>
+
+            <div id="bankSectionSavings" class="bank-sub-section" style="margin-top:16px;">
+              <div class="bank-section-title" id="bankTitleSavings" style="display:none;margin-bottom:8px;font-size:13px;font-weight:700;color:#38bdf8;align-items:center;gap:6px;">
+                <span>💰 예·적금 상품</span>
+              </div>
+              <div id="savingsGrid" class="savings-card-grid"></div>
+            </div>
+
+            <div id="bankSectionLoans" class="bank-sub-section" style="margin-top:16px;">
+              <div class="bank-section-title" id="bankTitleLoans" style="display:none;margin-bottom:8px;font-size:13px;font-weight:700;color:#fb7185;align-items:center;gap:6px;">
+                <span>💳 대출 · 마이너스통장</span>
+              </div>
+              <div id="loansGrid" class="savings-card-grid"></div>
+            </div>
+          </div>
+
+          <!-- 3) 보험·연금·공제 탭 본문 -->
+          <div id="catPanelInsurance" class="cat-panel" style="display:none;margin-top:12px;">
+            <!-- 🎯 연간 절세 혜택 종합 요약 배너 -->
+            <div id="taxBenefitSummaryBanner" class="tax-benefit-banner" style="background:linear-gradient(135deg, rgba(234,179,8,0.12) 0%, rgba(56,189,248,0.1) 100%);border:1px solid rgba(234,179,8,0.35);border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-size:24px;">🎯</span>
+                <div>
+                  <div style="font-size:13px;font-weight:700;color:#facc15;display:flex;align-items:center;gap:6px;">
+                    <span>2026 연간 절세 혜택 종합 요약 (연말정산 · 종합소득세)</span>
+                  </div>
+                  <div style="font-size:11px;color:#94a3b8;margin-top:2px;">
+                    노란우산 소득공제 + 연금저축/IRP 세액공제 + ISA 만기이전 추가공제
+                  </div>
+                </div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:11px;color:#94a3b8;">예상 총 세금 절감(환급)액</div>
+                <strong id="grandTotalTaxBenefitVal" style="font-size:19px;font-weight:800;color:#4ade80;">₩0</strong>
+              </div>
+            </div>
+
+            <div class="savings-summary-grid" id="insuranceSummaryCards">
+              <div class="saving-stat-card">
+                <span class="saving-stat-label">🛡️ 총 월 납입액</span>
+                <strong id="totalInsuranceMonthlyVal">₩0</strong>
+              </div>
+              <div class="saving-stat-card">
+                <span class="saving-stat-label">💰 총 누적 납입액</span>
+                <strong id="totalInsurancePaidVal">₩0</strong>
+              </div>
+              <div class="saving-stat-card highlight">
+                <span class="saving-stat-label">🎯 예상 수령액 / 해약환급금</span>
+                <strong id="totalInsuranceExpectedVal">₩0</strong>
+              </div>
+            </div>
+
+            <div id="insuranceGrid" class="savings-card-grid" style="margin-top:14px;"></div>
+          </div>
+
+          <!-- 4) 부동산 탭 본문 -->
+          <div id="catPanelRealEstate" class="cat-panel" style="display:none;margin-top:12px;">
+            <div class="savings-summary-grid loan-summary-grid" id="realEstateSummaryCards">
+              <div class="saving-stat-card">
+                <span class="saving-stat-label">🏢 총 부동산 평가액</span>
+                <strong id="totalRealEstateVal">₩0</strong>
+                <small id="totalRealEstateCountSub" style="font-size:11px;color:#94a3b8;margin-top:2px;">보유: 0건 (자가 0 · 임대 0)</small>
+              </div>
+              <div class="saving-stat-card">
+                <span class="saving-stat-label">💰 총 매입금액 (취득원가)</span>
+                <strong id="totalPurchaseVal">₩0</strong>
+                <small id="totalTenantDepositSub" style="font-size:11px;color:#38bdf8;margin-top:2px;">임차 전세보증금: ₩0</small>
+              </div>
+              <div class="saving-stat-card highlight">
+                <span class="saving-stat-label">📈 평가손익 (시세차익)</span>
+                <strong id="totalRealEstateProfitVal">₩0</strong>
+                <small id="totalRealEstateRateSub" style="font-size:11px;color:#94a3b8;margin-top:2px;">수익률: 0.0%</small>
+              </div>
+              <div class="saving-stat-card danger">
+                <span class="saving-stat-label" style="color:#fb7185;">🔴 부동산 연결 부채</span>
+                <strong id="totalRealEstateDebtVal" style="color:#fb7185;">₩0</strong>
+                <small id="totalRealEstateDebtSub" style="font-size:11px;color:#94a3b8;margin-top:2px;">담보대출: ₩0 · 전세보증금: ₩0</small>
+              </div>
+              <div class="saving-stat-card highlight-sold" id="cardRealEstateRealized" style="border-color:rgba(245,158,11,0.35);background:rgba(245,158,11,0.06);cursor:pointer;" title="클릭하여 매도 부동산 내역 보기">
+                <span class="saving-stat-label" style="color:#f59e0b;display:flex;align-items:center;justify-content:space-between;">
+                  <span>🏷️ 부동산 실현손익</span>
+                  <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(245,158,11,0.2);color:#fbbf24;font-weight:700;">매도</span>
+                </span>
+                <strong id="totalRealEstateRealizedVal" style="color:#f59e0b;">+₩0</strong>
+                <small id="totalRealEstateRealizedSub" style="font-size:11px;color:#94a3b8;margin-top:2px;">매도: 0건 (수익률: 0.0%)</small>
+              </div>
+            </div>
+
+            <div class="savings-subtabs real-estate-subtabs" style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center;">
+              <button type="button" class="real-estate-subtab active" data-subtab="all">전체 (<span id="reAllCount">0</span>)</button>
+              <button type="button" class="real-estate-subtab" data-subtab="own">자가 (<span id="reOwnCount">0</span>)</button>
+              <button type="button" class="real-estate-subtab" data-subtab="rental">임대 (<span id="reRentalCount">0</span>)</button>
+              <button type="button" class="real-estate-subtab" data-subtab="lease">임차 (<span id="reLeaseCount">0</span>)</button>
+              <button type="button" class="real-estate-subtab" data-subtab="sold" style="border-color:rgba(245,158,11,0.4);color:#f59e0b;">🏷️ 매도 (<span id="reSoldCount">0</span>)</button>
+              <button type="button" class="button secondary compact" id="btnDirectAddSoldRe" onclick="openDirectAddSoldReDialog()" style="margin-left:auto;display:none;font-size:11.5px;color:#f59e0b;border-color:rgba(245,158,11,0.4);padding:4px 9px;border-radius:7px;">➕ 매도 기록 추가</button>
+            </div>
+
+            <div id="realEstateGrid" class="savings-card-grid" style="margin-top:12px;"></div>
+          </div>
+
+
+        </div>
+      </section>
+
+      <!-- 6. 실현손익 -->
+      <section id="realizedPnlPanel" class="panel dividend-panel pnl-panel">
+        <div class="panel-head dividend-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
+          <div class="dividend-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div>
+              <p class="eyebrow">PROFIT & LOSS</p>
+              <h2>실현손익 <button type="button" class="section-collapse-btn" data-section="pnl" title="접기/펼치기" aria-label="실현손익 접기/펼치기">▼</button></h2>
+            </div>
+            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
+            <div class="family-tabs" id="pnlFamilyTabs" style="margin-left:4px;"></div>
+          </div>
+          <div class="heatmap-period-tabs" id="pnlTradeTypeTabs" style="margin-left:8px;">
+            <button type="button" class="heatmap-tab active" data-trade-type="all">🏢 전체</button>
+            <button type="button" class="heatmap-tab" data-trade-type="ipo">📦 공모주</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
+            <select id="pnlYearSelect" class="heatmap-select" style="min-width:90px;font-size:12px;" aria-label="실현손익 연도 선택">
+              <option value="2026">2026년</option>
+              <option value="all">전체 기간</option>
+            </select>
+          </div>
+          <div class="toolbar" style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+            <button id="addPnlBtn" class="button secondary compact" type="button" title="매도 실현손익 추가">➕ 손익 추가</button>
+            <button id="importPnlBtn" class="button secondary compact" type="button" title="매도 실현손익 엑셀 가져오기">📂 가져오기</button>
+            <button id="clearAllPnlBtn" class="button secondary danger compact" type="button" title="매도 실현손익 전체 일괄 삭제">🗑️ 일괄삭제</button>
+          </div>
+        </div>
+
+        <div class="dividend-body">
+          <!-- 상단 실현손익 4대 요약 카드 -->
+          <div class="dividend-summary-cards">
+            <div class="div-summary-card">
+              <span class="div-card-label">총 실현손익</span>
+              <strong id="pnlTotal" class="div-card-val">₩0</strong>
+              <small id="pnlTotalCount" class="muted">총 0건 매도</small>
+            </div>
+            <div class="div-summary-card">
+              <span class="div-card-label">수익 실현 합계</span>
+              <strong id="pnlTotalWin" class="div-card-val gain">+₩0</strong>
+              <small id="pnlWinCount" class="muted">0건 실현</small>
+            </div>
+            <div class="div-summary-card">
+              <span class="div-card-label">손실 실현 합계</span>
+              <strong id="pnlTotalLoss" class="div-card-val loss">-₩0</strong>
+              <small id="pnlLossCount" class="muted">0건 실현</small>
+            </div>
+            <div class="div-summary-card">
+              <span class="div-card-label">매도 승률 (Win Rate)</span>
+              <strong id="pnlWinRate" class="div-card-val">0.0%</strong>
+              <small class="muted">수익 건수 비율</small>
+            </div>
+          </div>
+
+          <!-- 1월~12월 월별 실현손익 막대그래프 -->
+          <div class="dividend-chart-section">
+            <div class="dividend-chart-header">
+              <span id="pnlChartTitle">📊 1월 ~ 12월 월별 매도 실현손익 추이</span>
+              <small class="muted">막대를 클릭하면 해당 월의 매도 손익 내역을 확인할 수 있습니다.</small>
+            </div>
+            <div id="pnlBarChartWrap" class="dividend-chart-wrap"></div>
+          </div>
+
+          <!-- 선택 월별 실현손익 상세 목록 -->
+          <div id="pnlMonthlyDetail" class="dividend-detail-wrap"></div>
+        </div>
+      </section>
+
+      <!-- 7. 배당금 -->
+      <section id="dividendPanel" class="panel dividend-panel">
+        <div class="panel-head dividend-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
+          <div class="dividend-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div>
+              <p class="eyebrow">DIVIDEND</p>
+              <h2>배당금 <button type="button" class="section-collapse-btn" data-section="dividend" title="접기/펼치기" aria-label="배당금 접기/펼치기">▼</button></h2>
+            </div>
+            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
+            <div class="family-tabs" id="dividendFamilyTabs" style="margin-left:4px;"></div>
+          </div>
+          <div class="heatmap-period-tabs" id="dividendModeTabs" style="margin-left:8px;">
+            <button type="button" class="heatmap-tab active" data-div-mode="estimated">🔮 예상</button>
+            <button type="button" class="heatmap-tab" data-div-mode="actual">💵 실제</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
+            <select id="dividendYearSelect" class="heatmap-select" style="min-width:90px;font-size:12px;" aria-label="배당 연도 선택">
+              <option value="2026">2026년</option>
+              <option value="all">전체 기간</option>
+            </select>
+          </div>
+          <div class="toolbar" style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+            <button id="refreshDividendBtn" class="button secondary compact" type="button" title="배당 정보 재조회">↻ 조회</button>
+            <button id="addDividendBtn" class="button secondary compact" type="button" title="실제 입금 배당금 추가" style="display:none;">➕ 배당 추가</button>
+            <button id="importDividendBtn" class="button secondary compact" type="button" title="실제 배당금 엑셀 가져오기" style="display:none;">📂 가져오기</button>
+            <button id="clearAllDividendBtn" class="button secondary danger compact" type="button" title="실제 배당금 전체 일괄 삭제" style="display:none;">🗑️ 일괄삭제</button>
+          </div>
+        </div>
+
+        <div class="dividend-body">
+          <!-- 상단 배당 4대 요약 카드 -->
+          <div class="dividend-summary-cards">
+            <div class="div-summary-card">
+              <span class="div-card-label" id="divCardLabel1">연간 예상 배당금</span>
+              <strong id="divTotalAnnual" class="div-card-val">₩0</strong>
+              <small id="divTotalAnnualUsd" class="muted">$0.00 환산 포함</small>
+            </div>
+            <div class="div-summary-card">
+              <span class="div-card-label" id="divCardLabel2">포트폴리오 배당수익률</span>
+              <strong id="divYield" class="div-card-val gain">0.00%</strong>
+              <small id="divYieldSub" class="muted">총 평가금액 대비</small>
+            </div>
+            <div class="div-summary-card">
+              <span class="div-card-label" id="divCardLabel3">월평균 예상 배당금</span>
+              <strong id="divMonthlyAvg" class="div-card-val">₩0</strong>
+              <small class="muted">연간 배당금 ÷ 12개월</small>
+            </div>
+            <div class="div-summary-card">
+              <span class="div-card-label" id="divCardLabel4">배당 지급 종목 수</span>
+              <strong id="divPayingCount" class="div-card-val">0개</strong>
+              <small id="divTotalHoldings" class="muted">전체 0개 종목 중</small>
+            </div>
+          </div>
+
+          <!-- 1월~12월 월별 예상/실제 배당금 막대그래프 -->
+          <div class="dividend-chart-section">
+            <div class="dividend-chart-header">
+              <span id="dividendChartTitle">📊 1월 ~ 12월 월별 예상 배당금 추이</span>
+              <small class="muted">막대를 클릭하면 해당 월의 배당 내역을 확인할 수 있습니다.</small>
+            </div>
+            <div id="dividendBarChartWrap" class="dividend-chart-wrap"></div>
+          </div>
+
+          <!-- 선택 월별 배당 상세 목록 -->
+          <div id="dividendMonthlyDetail" class="dividend-detail-wrap"></div>
+        </div>
+      </section>
+
+      <!-- 7. 보유 종목 -->
+      <section id="holdingsPanel" class="panel holdings-panel">
+        <div class="panel-head holdings-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div>
+              <p class="eyebrow">HOLDINGS</p>
+              <h2>보유 종목 <button type="button" class="section-collapse-btn" data-section="holdings" title="접기/펼치기" aria-label="보유 종목 접기/펼치기">▼</button></h2>
+            </div>
+            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
+            <div class="family-tabs" id="holdingsFamilyTabs" style="margin-left:4px;"></div>
+          </div>
+          <div class="toolbar" style="margin-left:auto;">
+            <input id="searchInput" type="search" placeholder="종목명·코드·증권사 검색" />
+            <button id="addButton" class="button secondary compact" type="button">➕ 종목추가</button>
+            <button id="importButton" class="button secondary compact" type="button">📂 가져오기</button>
+            <button id="clearAllHoldingsBtn" class="button secondary danger compact" type="button" title="보유종목 전체 일괄 삭제">🗑️ 일괄삭제</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th data-sort="name" class="sortable-th">종목 <span class="sort-icon"></span></th>
+                <th data-sort="sector" class="sortable-th">섹터 <span class="sort-icon"></span></th>
+                <th data-sort="account" class="sortable-th">계좌 <span class="sort-icon"></span></th>
+                <th data-sort="quantity" class="sortable-th">수량 <span class="sort-icon"></span></th>
+                <th data-sort="market_value_krw" class="sortable-th">평가금액 <span class="sort-icon"></span></th>
+                <th data-sort="profit_krw" class="sortable-th">평가손익 <span class="sort-icon"></span></th>
+                <th data-sort="return_rate" class="sortable-th">수익률 <span class="sort-icon"></span></th>
+                <th data-sort="day_change_rate" class="sortable-th">등락률 <span class="sort-icon"></span></th>
+                <th style="text-align:center;">차트</th>
+              </tr>
+            </thead>
+            <tbody id="holdingsBody"></tbody>
+          </table>
+        </div>
+        <div id="emptyHoldings" class="empty">
+          <strong>아직 불러온 보유종목이 없습니다.</strong>
+          <p>각 증권사 동기화 또는 파일 가져오기로 시작하세요.</p>
+          <button id="demoButton" class="button text" type="button">예시 화면 보기</button>
+        </div>
+      </section>
+
+      <!-- 8. 📒 스마트 가족 가계부 섹션 -->
+      <section id="ledgerSectionPanel" class="panel ledger-section-panel" style="margin-top:18px;">
+        <div class="panel-head ledger-panel-head" style="flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;">
+          <div class="ledger-head-left" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div class="ledger-title-wrap">
+              <p class="eyebrow">HOUSEHOLD LEDGER</p>
+              <h2>가계부 <button type="button" class="section-collapse-btn" data-section="ledger" title="접기/펼치기" aria-label="가계부 접기/펼치기">▼</button></h2>
+            </div>
+            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
+            <div class="family-tabs" id="ledgerFamilyTabs" style="margin-left:4px;"></div>
+            <!-- 월 컨트롤러 -->
+            <div class="ledger-month-control">
+              <button id="ledgerPrevMonthBtn" class="button secondary compact ledger-month-btn" type="button" title="이전 달">◀</button>
+              <strong id="ledgerCurrentMonthText" class="ledger-month-text" title="클릭하여 원하는 년/월 직접 선택">2026년 8월</strong>
+              <input type="month" id="ledgerMonthPicker" class="ledger-month-picker" aria-label="가계부 년/월 선택" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" />
+              <button id="ledgerNextMonthBtn" class="button secondary compact ledger-month-btn" type="button" title="다음 달">▶</button>
+              <button id="ledgerTodayMonthBtn" class="button secondary compact ledger-month-btn" type="button" title="이번 달로 이동">이번달</button>
+            </div>
+          </div>
+
+          <div class="toolbar ledger-toolbar" style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <button id="ledgerOpenCardsBtn" class="button secondary compact" type="button" onclick="openLedgerCardsModal()">💳 카드 관리</button>
+            <button id="ledgerOpenRecurringBtn" class="button secondary compact" type="button" onclick="openLedgerRecurringModal()">🛡️ 고정지출</button>
+            <button id="ledgerOpenExcelBtn" class="button secondary compact" type="button" onclick="openLedgerExcelModal()">📂 가져오기</button>
+            <button id="ledgerAddTxBtn" class="button primary compact" type="button" onclick="openLedgerTxModal()">➕ 내역 추가</button>
+          </div>
+        </div>
+
+        <div id="ledgerSectionContent" class="section-collapsible-content">
+          <!-- 1. 월간 현금흐름 요약 카드 4종 -->
+          <div class="savings-summary-grid loan-summary-grid ledger-summary-grid">
+            <div class="saving-stat-card ledger-stat-income">
+              <span class="saving-stat-label">💰 이번 달 총 수입</span>
+              <strong id="ledgerTotalIncomeVal">₩0</strong>
+            </div>
+            <div class="saving-stat-card ledger-stat-expense">
+              <span class="saving-stat-label">💳 이번 달 총 지출</span>
+              <strong id="ledgerTotalExpenseVal">₩0</strong>
+            </div>
+            <div class="saving-stat-card highlight ledger-stat-savings">
+              <span class="saving-stat-label">📈 순저축 / 잉여자금</span>
+              <strong id="ledgerNetSavingsVal">₩0</strong>
+              <small id="ledgerSavingsRateVal" class="ledger-stat-sub" style="font-size:11px;display:block;margin-top:2px;">저축률 0%</small>
+            </div>
+            <div class="saving-stat-card ledger-stat-recurring">
+              <span class="saving-stat-label">🛡️ 등록된 고정지출</span>
+              <strong id="ledgerRecurringTotalVal">₩0</strong>
+            </div>
+          </div>
+
+          <!-- 2. 차트 & 분석 섹션 (카테고리 도넛 vs 6개월 추이) -->
+          <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:14px;margin-top:14px;" class="ledger-analytics-grid">
+            <!-- 1) 카테고리별 지출 비중 -->
+            <div class="sub-panel ledger-sub-panel" style="padding:16px 18px;border-radius:12px;">
+              <div class="panel-head" style="margin-bottom:10px;padding:0;">
+                <div>
+                  <p class="eyebrow" style="color:#38bdf8;margin:0 0 2px 0;">EXPENSE BREAKDOWN</p>
+                  <h3 style="font-size:15px;margin:0;">카테고리별 지출 분석</h3>
+                </div>
+              </div>
+              <div id="ledgerCategoryContainer" style="min-height:180px;display:flex;flex-direction:column;gap:8px;"></div>
+            </div>
+
+            <!-- 2) 최근 6개월 수입/지출 추이 -->
+            <div class="sub-panel ledger-sub-panel" style="padding:16px 18px;border-radius:12px;">
+              <div class="panel-head" style="margin-bottom:10px;padding:0;">
+                <div>
+                  <p class="eyebrow" style="color:#4ade80;margin:0 0 2px 0;">6-MONTH CASHFLOW TREND</p>
+                  <h3 style="font-size:15px;margin:0;">최근 6개월 현금흐름 추이</h3>
+                </div>
+              </div>
+              <div id="ledgerTrendContainer" style="min-height:180px;"></div>
+            </div>
+          </div>
+
+          <!-- 3. 상세 거래 내역 타임라인 -->
+          <div class="sub-panel ledger-history-panel" style="margin-top:14px;border-radius:12px;padding:16px 18px;">
+            <div class="panel-head" style="flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;margin-bottom:12px;padding:0;">
+              <div>
+                <p class="eyebrow" style="margin:0 0 2px 0;">TRANSACTION HISTORY</p>
+                <h3 style="font-size:15px;display:flex;align-items:center;gap:8px;margin:0;">
+                  상세 거래 내역
+                  <span id="ledgerTxCountBadge" class="ledger-tx-count-badge">0건</span>
+                </h3>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select id="ledgerFilterType" onchange="filterLedgerList()" class="ledger-filter-select">
+                  <option value="all">전체 내역</option>
+                  <option value="expense">지출만</option>
+                  <option value="income">수입만</option>
+                  <option value="transfer">이체만</option>
+                </select>
+                <input id="ledgerSearchInput" oninput="filterLedgerList()" type="text" placeholder="내용/가맹점/메모 검색" class="ledger-search-input" />
+              </div>
+            </div>
+
+            <div id="ledgerTxListContainer" style="overflow-x:auto;">
+              <!-- JS 렌더링 -->
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    </main>
+
+    <dialog id="holdingDialog" class="dialog">
+      <form id="holdingForm" method="dialog">
+        <div class="dialog-head">
+          <h2 id="holdingDialogTitle">보유종목 직접 추가</h2>
+          <button value="cancel" class="close" aria-label="닫기">×</button>
+        </div>
+        <div class="form-grid">
+          <label style="grid-column: 1 / -1;">
+            등록된 계좌 선택 (선택 시 증권사·계좌명·소유자 자동 채움)
+            <select id="holdingAccountSelect">
+              <option value="">-- 직접 입력 또는 등록된 계좌 선택 --</option>
+            </select>
+          </label>
+          <label>증권사<input name="broker" value="기타 증권사" required /></label>
+          <label>
+            계좌 이름
+            <input name="account_name" list="holdingAccountDatalist" value="내 주식 계좌" placeholder="계좌명 입력 또는 선택" required autocomplete="off" />
+            <datalist id="holdingAccountDatalist"></datalist>
+          </label>
+          <label>종목 코드<input name="code" list="holdingCodeList" placeholder="예: 005930 (종목명 입력 시 자동 완성)" autocomplete="off" /></label>
+          <label>종목명<input name="name" list="holdingNameList" placeholder="예: 삼성전자, 현대차, NVDA" autocomplete="off" required /></label>
+          <label>보유 수량<input name="quantity" type="number" min="0.000001" step="any" required /></label>
+          <label>평균매입가<input name="avg_price" type="number" min="0" step="any" required /></label>
+          <label>현재가<input name="current_price" type="number" min="0" step="any" required /></label>
+          <label>통화<select name="currency"><option>KRW</option><option>USD</option><option>JPY</option><option>HKD</option><option>CNY</option></select></label>
+          <label>거래소<input name="market" placeholder="KRX, NAS, NYS 등" /></label>
+          <label>섹터 분류<select name="sector">
+            <option value="">자동 판별 (기본값)</option>
+            <option value="반도체">반도체</option>
+            <option value="IT·빅테크">IT·빅테크</option>
+            <option value="2차전지">2차전지</option>
+            <option value="금융·지주">금융·지주</option>
+            <option value="전력·인프라">전력·인프라</option>
+            <option value="방산·우주">방산·우주</option>
+            <option value="조선·기계">조선·기계</option>
+            <option value="바이오·헬스케어">바이오·헬스케어</option>
+            <option value="소비재·뷰티">소비재·뷰티</option>
+            <option value="엔터·미디어">엔터·미디어</option>
+            <option value="자동차·운송">자동차·운송</option>
+            <option value="리츠·부동산">리츠·부동산</option>
+            <option value="미국 대표지수">미국 대표지수</option>
+            <option value="국내 대표지수">국내 대표지수</option>
+            <option value="채권·안전자산">채권·안전자산</option>
+            <option value="기타">기타</option>
+          </select></label>
+          <label>소유자<select name="owner"><option value="모두">모두</option><option value="아빠">아빠</option><option value="엄마">엄마</option><option value="자녀">자녀</option></select></label>
+        </div>
+        <div class="dialog-actions">
+          <button class="button secondary" value="cancel" type="button">취소</button>
+          <button class="button primary" type="submit">저장</button>
+        </div>
+      </form>
+    </dialog>
+    <!-- 보유종목 파일 가져오기 다이얼로그 -->
+    <dialog id="importDialog" class="dialog">
+      <form id="importForm" method="dialog">
+        <div class="dialog-head">
+          <h2>증권사 잔고 파일 가져오기</h2>
+          <button value="cancel" class="close" aria-label="닫기">×</button>
+        </div>
+        <p class="dialog-description">
+          엑셀(.xlsx) 또는 CSV 파일로 보유종목을 일괄 등록합니다.<br>
+          <strong>[소유자 / 증권사 / 계좌명 / 종목코드 / 종목명 / 보유수량 / 평균매입가 / 현재가 / 통화]</strong>
+        </p>
+        <div style="margin:4px 0 12px;">
+          <a href="/api/sample/holdings" download="샘플_타증권사_보유종목.xlsx" class="button text compact" style="color:#a78bfa;font-size:12px;text-decoration:underline;">
+            📥 샘플_타증권사_보유종목.xlsx 다운로드
+          </a>
+        </div>
+        <label>기본 증권사 이름<input id="importBroker" name="broker" value="기타 증권사" /></label>
+        <label>파일 선택<input id="importFile" name="file" type="file" accept=".csv,.xlsx,.xlsm" required /></label>
+        <div class="dialog-actions">
+          <button class="button secondary" value="cancel" type="button">취소</button>
+          <button class="button primary" type="submit">가져오기</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 실제 배당금 엑셀 가져오기 다이얼로그 -->
+    <dialog id="dividendImportDialog" class="dialog" style="max-width:540px;width:95vw;">
+      <form id="dividendImportForm" method="dialog">
+        <div class="dialog-head">
+          <h2>실제 배당금 파일 가져오기</h2>
+          <button value="cancel" class="close" aria-label="닫기">×</button>
+        </div>
+        <p class="dialog-description">
+          엑셀(.xlsx) 또는 CSV 파일로 배당 입금 내역을 일괄 등록합니다.<br>
+          <strong>[소유자 / 증권사 / 계좌명 / 입금일 / 종목코드 / 종목명 / 통화 / 실제 배당금 / 메모]</strong>
+        </p>
+        <div style="margin:4px 0 12px;">
+          <a href="/api/sample/dividends" download="샘플_배당.xlsx" class="button text compact" style="color:#34d399;font-size:12px;text-decoration:underline;">
+            📥 샘플_배당.xlsx 다운로드
+          </a>
+        </div>
+        <label>
+          파일 선택
+          <input id="divImportFileInput" name="file" type="file" accept=".csv,.xlsx" required />
+        </label>
+        <div class="dialog-actions">
+          <button class="button secondary" value="cancel" type="button">취소</button>
+          <button class="button primary" type="submit">가져오기</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="assetRecordDialog" class="dialog"><form id="assetRecordForm" method="dialog"><div class="dialog-head"><h2 id="assetRecordDialogTitle">자산기록 추가</h2><button value="cancel" class="close" aria-label="닫기">×</button></div><p class="dialog-description">하루 한 번의 자산기록을 저장하고, 필요하면 나중에 직접 수정할 수 있습니다.</p><div class="form-grid record-form-grid"><label>날짜<input name="date" type="date" required /></label><label>총 투자자산<input name="total_value_krw" type="number" min="0" step="any" required /></label><label>총 매입금액<input name="total_cost_krw" type="number" min="0" step="any" required /></label><label>총 수익<input name="profit_krw" type="number" step="any" /></label><label>수익률<input name="return_rate" type="number" step="any" /></label><label>일간 수익<input name="day_profit_krw" type="number" step="any" /></label><label>원화 자산<input name="krw_value_krw" type="number" min="0" step="any" /></label><label>달러 자산 환산<input name="usd_value_krw" type="number" min="0" step="any" /></label><label>보유 종목 수<input name="holding_count" type="number" min="0" step="1" /></label><label>메모<input name="memo" /></label><label>구성원<select name="owner"><option value="모두">모두</option><option value="아빠">아빠</option><option value="엄마">엄마</option><option value="자녀">자녀</option></select></label></div><div class="dialog-actions"><button class="button secondary" value="cancel" type="button">취소</button><button class="button primary" type="submit">저장</button></div></form></dialog>
+
+    <!-- 계좌 예수금 직접 입력/수정 다이얼로그 (원화 & 달러 통합) -->
+    <dialog id="accountCashDialog" class="dialog">
+      <form id="accountCashForm" method="dialog">
+        <div class="dialog-head">
+          <h2 id="accountCashDialogTitle">계좌 예수금 입력 / 수정</h2>
+          <button value="cancel" class="close" aria-label="닫기">×</button>
+        </div>
+        <p class="dialog-description">해당 계좌의 원화(KRW) 및 달러(USD) 예수금을 직접 입력합니다.</p>
+        <div class="form-grid">
+          <label>원화 예수금 (KRW)
+            <input name="cash_krw" type="number" step="any" placeholder="0" />
+          </label>
+          <label>달러 예수금 (USD)
+            <input name="cash_usd" type="number" step="any" placeholder="0" />
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button class="button secondary" value="cancel" type="button">취소</button>
+          <button class="button primary" type="submit">저장</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 증권사 및 계좌 정보 수정 다이얼로그 -->
+    <dialog id="accountEditDialog" class="dialog" style="max-width:560px;width:95vw;max-height:90vh;overflow-y:auto;">
+      <form id="accountEditForm" onsubmit="return false;">
+        <input type="hidden" name="id" />
+        <div class="dialog-head">
+          <h2>증권사 및 계좌 정보 수정</h2>
+          <button type="button" class="close" aria-label="닫기" onclick="this.closest('dialog')?.close()">×</button>
+        </div>
+        <p class="dialog-description">계좌 유형과 연말정산 세액공제 설정을 관리합니다.</p>
+        <div class="form-grid">
+          <label>증권사 이름
+            <input name="broker" placeholder="KB증권, 토스증권, 나무증권 등" required />
+          </label>
+          <label>계좌 이름
+            <input name="name" placeholder="종합계좌, ISA, IRP 등" required />
+          </label>
+          <label>소유자
+            <select name="owner">
+              <option value="모두">모두</option>
+              <option value="아빠">아빠</option>
+              <option value="엄마">엄마</option>
+              <option value="자녀">자녀</option>
+            </select>
+          </label>
+          <label>계좌 유형
+            <select name="account_type" class="account-type-select">
+              <option value="general">일반 주식 / 위탁계좌</option>
+              <option value="pension_savings">💎 연금저축펀드 (연 최대 1,800만 납입)</option>
+              <option value="irp">🛡️ 개인형 IRP (연 최대 1,800만 납입)</option>
+              <option value="isa">🔄 중개형 ISA (비과세 & 만기 연금전환)</option>
+            </select>
+          </label>
+          <label>원화 예수금 (KRW)
+            <input name="cash_krw" type="number" step="any" placeholder="0" data-korean-currency />
+          </label>
+          <label>달러 예수금 (USD)
+            <input name="cash_usd" type="number" step="any" placeholder="0" />
+          </label>
+        </div>
+
+        <!-- 연금저축 / IRP 세액공제 및 ISA 전환 설정 구역 -->
+        <div class="pension-tax-benefit-group" style="display:none;background:rgba(56,189,248,0.06);border:1px solid rgba(56,189,248,0.3);border-radius:8px;padding:12px;margin-top:10px;">
+          <div style="font-size:12.5px;font-weight:700;color:#38bdf8;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+            <span>💎 연금계좌 세액공제 & ISA 만기이전 설정</span>
+            <span style="font-size:11px;color:#94a3b8;font-weight:normal;">(연간 납입한도 1,800만원)</span>
+          </div>
+
+          <!-- 상단: 연도별 납입 정보 입력 구역 -->
+          <div class="pension-input-subbox" style="border-radius:8px;padding:10px;margin-bottom:10px;">
+            <div style="font-size:11.5px;font-weight:700;color:#93c5fd;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+              <span>📝</span> <span>납입 연도 및 공제 설정 입력</span>
+            </div>
+            
+            <div class="form-grid" style="grid-template-columns:100px 1fr;gap:8px;margin-bottom:8px;">
+              <label>납입 연도
+                <input type="text" id="accountInputYear" class="pension-entry-year" placeholder="예: 2024 또는 24년" maxlength="10" value="2026" style="font-weight:700;text-align:center;" />
+              </label>
+              <label>해당 연도 납입액 (KRW)
+                <input type="number" id="accountInputDeposit" name="annual_deposit" class="pension-annual-deposit pension-entry-deposit" placeholder="예: 6000000" min="0" max="18000000" step="any" data-korean-currency />
+              </label>
+            </div>
+
+            <div class="form-grid" style="grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px;">
+              <label>세액공제 적용 여부
+                <select id="accountInputDeductible" name="tax_deductible" class="pension-tax-deductible pension-entry-deductible">
+                  <option value="true" selected>🎯 세액공제 신청 (연말정산 공제 대상)</option>
+                  <option value="false">🌿 세액공제 제외 / 미신청 (비공제 납입 - 향후 비과세)</option>
+                </select>
+              </label>
+              <label>소득 구간 (공제율)
+                <select id="accountInputIncomeLevel" name="income_level" class="pension-income-level pension-entry-income-level">
+                  <option value="low" selected>총급여 5,500만원 이하 (16.5% 환급)</option>
+                  <option value="high">총급여 5,500만원 초과 (13.2% 환급)</option>
+                </select>
+              </label>
+            </div>
+
+            <!-- ISA 만기 전환 (선택 사항) -->
+            <div style="padding:6px 8px;background:rgba(0,0,0,0.25);border-radius:6px;margin-bottom:8px;">
+              <div class="form-grid" style="grid-template-columns:1fr 100px;gap:8px;">
+                <label style="font-size:11px;">🔄 ISA 만기 연금 전환 입금액 (선택)
+                  <input type="number" name="isa_transfer_amount" class="pension-isa-transfer" placeholder="전환액 (10% 추가공제)" min="0" step="any" data-korean-currency />
+                </label>
+                <label style="font-size:11px;">ISA 전환 연도
+                  <input type="number" name="isa_transfer_year" class="pension-isa-year" placeholder="2026" min="2020" max="2050" value="2026" style="text-align:center;" />
+                </label>
+              </div>
+            </div>
+
+            <!-- 입력 행 실시간 환급액 프리뷰 & 추가 버튼 -->
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:rgba(56,189,248,0.08);border-radius:6px;border:1px solid rgba(56,189,248,0.25);">
+              <div>
+                <span style="font-size:11.5px;color:#94a3b8;">입력 연도 예상 환급액: </span>
+                <strong class="pension-tax-refund-text" style="color:#4ade80;font-size:13px;font-weight:700;">₩0</strong>
+                <span class="pension-deduction-target-text" style="font-size:10.5px;color:#38bdf8;margin-left:4px;"></span>
+              </div>
+              <button type="button" class="button primary compact" id="addAccountYearlyBtn" onclick="handleAddAccountYearly()" style="padding:6px 12px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:4px;cursor:pointer;background:linear-gradient(135deg, #0284c7, #0ea5e9);border:none;border-radius:5px;color:#fff;">
+                <span>➕</span> <span>연도 추가 / 반영</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 하단: 연도별 납입 및 절세 이력 목록 -->
+          <div class="pension-yearly-history-section" style="border-top:1px dashed rgba(56,189,248,0.3);padding-top:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="font-size:12px;font-weight:700;color:#38bdf8;">📅 등록된 연도별 납입 및 절세 이력</span>
+              <span style="font-size:11px;color:#94a3b8;">(항목 클릭 시 상단에서 수정 가능)</span>
+            </div>
+            <div id="accountYearlyList" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;padding-right:2px;"></div>
+            <div style="margin-top:8px;padding:8px 12px;background:rgba(0,0,0,0.3);border-radius:6px;font-size:11.5px;display:flex;justify-content:space-between;align-items:center;border:1px solid rgba(255,255,255,0.06);">
+              <span style="color:#94a3b8;">총 납입원금: <strong id="accountCumulativeDepositText" style="color:#f8fafc;">₩0</strong></span>
+              <span style="color:#e2e8f0;font-weight:600;">누적 절세액: <strong id="accountCumulativeSavedText" style="color:#4ade80;font-size:13.5px;">₩0</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="dialog-actions" style="margin-top:14px;">
+          <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
+          <button id="accountEditSaveBtn" class="button primary" type="button">저장</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="accountAddDialog" class="dialog" style="max-width:560px;width:95vw;max-height:90vh;overflow-y:auto;">
+      <form id="accountAddForm" onsubmit="return false;">
+        <div class="dialog-head">
+          <h2>계좌 추가</h2>
+          <button type="button" class="close" aria-label="닫기" onclick="this.closest('dialog')?.close()">×</button>
+        </div>
+        <div class="form-grid">
+          <label>증권사<input name="broker" placeholder="KB증권, 토스증권, 나무증권 등" required /></label>
+          <label>계좌 이름<input name="account_name" placeholder="종합계좌, ISA, IRP 등" required /></label>
+          <label>소유자<select name="owner">
+            <option value="모두">모두</option>
+            <option value="아빠">아빠</option>
+            <option value="엄마">엄마</option>
+            <option value="자녀">자녀</option>
+          </select></label>
+          <label>계좌 유형
+            <select name="account_type" class="account-type-select">
+              <option value="general">일반 주식 / 위탁계좌</option>
+              <option value="pension_savings">💎 연금저축펀드 (연 최대 1,800만 납입)</option>
+              <option value="irp">🛡️ 개인형 IRP (연 최대 1,800만 납입)</option>
+              <option value="isa">🔄 중개형 ISA (비과세 & 만기 연금전환)</option>
+            </select>
+          </label>
+          <label>원화 예수금 (KRW)
+            <input name="cash_krw" type="number" step="any" placeholder="0" data-korean-currency />
+          </label>
+          <label>달러 예수금 (USD)
+            <input name="cash_usd" type="number" step="any" placeholder="0" />
+          </label>
+        </div>
+
+        <!-- 연금저축 / IRP 세액공제 및 ISA 전환 설정 구역 -->
+        <div class="pension-tax-benefit-group" style="display:none;background:rgba(56,189,248,0.06);border:1px solid rgba(56,189,248,0.3);border-radius:8px;padding:12px;margin-top:10px;">
+          <div style="font-size:12px;font-weight:700;color:#38bdf8;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+            <span>💎 연금계좌 세액공제 & ISA 만기이전 설정</span>
+            <span style="font-size:11px;color:#94a3b8;font-weight:normal;">(연간 납입한도 1,800만원)</span>
+          </div>
+          <div class="form-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px;">
+            <label style="grid-column:1/-1;">세액공제 적용 여부
+              <select name="tax_deductible" class="pension-tax-deductible">
+                <option value="true" selected>🎯 세액공제 신청 (연말정산 공제 대상 - 연 600만/900만 한도)</option>
+                <option value="false">🌿 세액공제 제외 / 미신청 (비공제 납입 - 향후 원금 비과세 인출용)</option>
+              </select>
+            </label>
+            <label>소득 구간 (공제율)
+              <select name="income_level" class="pension-income-level">
+                <option value="low" selected>총급여 5,500만원 이하 (16.5% 환급)</option>
+                <option value="high">총급여 5,500만원 초과 (13.2% 환급)</option>
+              </select>
+            </label>
+            <label>올해 연금 납입액 (KRW)
+              <input type="number" name="annual_deposit" class="pension-annual-deposit" placeholder="예: 6000000" min="0" max="18000000" step="any" data-korean-currency />
+            </label>
+            <label>🔄 ISA 만기 연금 전환 입금액
+              <input type="number" name="isa_transfer_amount" class="pension-isa-transfer" placeholder="전환액 (10% 추가공제)" min="0" step="any" data-korean-currency />
+            </label>
+            <label>ISA 전환 연도
+              <input type="number" name="isa_transfer_year" class="pension-isa-year" placeholder="예: 2026" min="2020" max="2050" value="2026" />
+            </label>
+          </div>
+          <div class="pension-preview-box" style="background:rgba(0,0,0,0.25);border-radius:6px;padding:8px 12px;font-size:11.5px;color:#cbd5e1;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <span>총 세액공제 대상: </span>
+              <strong class="pension-deduction-target-text" style="color:#38bdf8;">₩0</strong>
+            </div>
+            <div>
+              <span>예상 세액 환급액: </span>
+              <strong class="pension-tax-refund-text" style="color:#4ade80;font-size:13px;">₩0</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="dialog-actions" style="margin-top:14px;">
+          <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
+          <button id="accountAddSaveBtn" class="button primary" type="button">저장</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 자유입출금 통장 등록/수정 다이얼로그 -->
+    <dialog id="bankAccountDialog" class="dialog">
+      <form id="bankAccountForm" method="dialog">
+        <div class="dialog-head">
+          <h2 id="bankAccountDialogTitle">자유입출금 통장 추가</h2>
+          <button value="cancel" class="close" aria-label="닫기">×</button>
+        </div>
+        <p class="dialog-description">수시입출금 통장 등 일반 계좌의 잔고를 관리합니다. (※ 음수(-) 금액 입력 시 마이너스통장 부채로 자동 인식)</p>
+        <input type="hidden" name="id" />
+        <div class="form-grid bank-type-select-row" style="margin-bottom:12px;">
+          <label style="grid-column:1/-1;">계좌 유형
+            <select class="bank-category-switcher" data-current-type="free" style="font-weight:700;padding:8px 10px;border-color:#38bdf8;">
+              <option value="free" selected>🏦 자유입출금 통장 (수시입출금 / 마이너스통장)</option>
+              <option value="savings">💰 예·적금 상품 (정기예금 / 적금)</option>
+              <option value="loans">💳 대출 · 마이너스통장 (신용 / 담보 / 한도대출)</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>은행명
+            <input name="bank_name" placeholder="KB국민, 토스뱅크, 신한, 카카오뱅크 등" required />
+          </label>
+          <label>계좌 이름 (별칭)
+            <input name="account_name" placeholder="급여 통장, 마이너스 통장 등" required />
+          </label>
+          <label>계좌 번호 (선택)
+            <input name="account_number" placeholder="123-456-7890" />
+          </label>
+          <label>소유자
+            <select name="owner">
+              <option value="모두">모두</option>
+              <option value="아빠">아빠</option>
+              <option value="엄마">엄마</option>
+              <option value="자녀">자녀</option>
+            </select>
+          </label>
+          <label>현재 잔고 (KRW)
+            <input name="balance" id="bankBalanceInput" type="number" step="any" placeholder="예: 5000000 또는 -3500000 (마통)" data-korean-currency required />
+          </label>
+          <label>메모
+            <input name="memo" placeholder="생활비 및 결제 전용" />
+          </label>
+        </div>
+
+        <!-- 마이너스통장(한도대출) 옵션 영역 -->
+        <div id="bankMinusOptionsBox" style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(244,63,94,0.06);border:1px solid rgba(244,63,94,0.2);">
+          <div style="font-size:12px;font-weight:700;color:#fb7185;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+            <span>💳 마이너스통장 설정 (한도 / 금리)</span>
+            <span style="font-size:11px;font-weight:400;color:#94a3b8;">— 마통일 때 입력 (선택)</span>
+          </div>
+          <div class="form-grid" style="grid-template-columns:repeat(3,1fr);gap:10px;">
+            <label>설정 한도금액 (KRW)
+              <input name="limit_amount" id="bankLimitAmount" type="number" step="any" placeholder="예: 50000000" data-korean-currency />
+            </label>
+            <label>약정 대출금리 (연 %)
+              <input name="interest_rate" id="bankInterestRate" type="number" step="0.01" placeholder="예: 4.8" />
+            </label>
+            <label>만기일 (약정 만기일)
+              <input name="maturity_date" id="bankMaturityDate" type="date" />
+            </label>
+          </div>
+          <div id="bankMinusPreviewBox" style="display:none;margin-top:8px;padding:8px 10px;border-radius:6px;background:rgba(0,0,0,0.2);font-size:11.5px;color:#cbd5e1;justify-content:space-between;align-items:center;">
+            <span>월 예상 이자: <strong id="bankMinusMonthlyInterest" style="color:#fb7185;">₩0</strong></span>
+            <span>한도 소진율: <strong id="bankMinusUtilPercent" style="color:#38bdf8;">0%</strong></span>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button class="button secondary" value="cancel" type="button">취소</button>
+          <button class="button primary" type="submit">저장</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 예·적금 상품 등록/수정 다이얼로그 (실시간 이자 계산기 탑재) -->
+    <dialog id="savingAccountDialog" class="dialog" style="max-width:680px;width:95vw;">
+      <form id="savingAccountForm" method="dialog">
+        <div class="dialog-head">
+          <h2 id="savingAccountDialogTitle">예·적금 상품 추가</h2>
+          <button value="cancel" class="close" aria-label="닫기">×</button>
+        </div>
+        <p class="dialog-description">정기예금/적금의 이율과 만기일을 기록하고 세전·세후 이자를 자동으로 계산합니다.</p>
+        <input type="hidden" name="id" />
+        <div class="form-grid bank-type-select-row" style="margin-bottom:12px;">
+          <label style="grid-column:1/-1;">계좌 유형
+            <select class="bank-category-switcher" data-current-type="savings" style="font-weight:700;padding:8px 10px;border-color:#38bdf8;">
+              <option value="free">🏦 자유입출금 통장 (수시입출금 / 마이너스통장)</option>
+              <option value="savings" selected>💰 예·적금 상품 (정기예금 / 적금)</option>
+              <option value="loans">💳 대출 · 마이너스통장 (신용 / 담보 / 한도대출)</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
+          <label>상품 유형
+            <select name="saving_type" id="savingTypeSelect">
+              <option value="deposit">정기예금 (목돈 굴리기)</option>
+              <option value="installment">정기적금 (매월 목돈 모으기)</option>
+              <option value="free">자유적금 (자유 납입)</option>
+              <option value="housing">🏠 주택청약종합저축 (만기 없음)</option>
+            </select>
+          </label>
+          <label>소유자
+            <select name="owner" id="savingOwnerSelect">
+              <option value="모두">모두</option>
+              <option value="아빠">아빠</option>
+              <option value="엄마">엄마</option>
+              <option value="자녀">자녀</option>
+            </select>
+          </label>
+          <label>금융기관 (은행)
+            <input name="bank_name" placeholder="KB국민, 토스뱅크, 신한 등" required />
+          </label>
+          <label>상품명
+            <input name="product_name" placeholder="주택청약종합저축, 정기예금 등" required />
+          </label>
+          <label>가입일
+            <input name="start_date" type="date" id="savingStartDate" required />
+          </label>
+          <label id="savingEndDateLabel">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+              <span>만기일</span>
+              <label style="font-size:11px;color:#38bdf8;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin:0;font-weight:400;">
+                <input type="checkbox" id="savingNoMaturityCheck" style="cursor:pointer;" />
+                <span>만기 없음 (주택청약)</span>
+              </label>
+            </div>
+            <input name="end_date" type="date" id="savingEndDate" required />
+          </label>
+          <label id="savingDurationLabel">약정 기간 (개월)
+            <input name="duration_months" type="number" min="0" max="120" value="12" id="savingDurationMonths" required />
+          </label>
+          <label>약정 금리 (연이율 %)
+            <input name="interest_rate" type="number" step="0.01" min="0" max="30" placeholder="예: 4.2" id="savingInterestRate" required />
+          </label>
+          <label id="monthlyAmountLabel">월 납입 금액 (KRW)
+            <input name="monthly_amount" type="number" step="any" min="0" placeholder="예: 500000" id="savingMonthlyAmount" data-korean-currency />
+          </label>
+          <label id="targetAmountLabel">예치 원금 (목표금액 KRW)
+            <input name="target_amount" type="number" step="any" min="0" placeholder="예: 10000000" id="savingTargetAmount" data-korean-currency />
+          </label>
+          <label>현재까지 누적 납입액 (KRW)
+            <input name="current_paid_amount" type="number" step="any" min="0" placeholder="현재까지 불입한 원금" id="savingCurrentPaid" data-korean-currency />
+          </label>
+          <label>과세 구분
+            <select name="tax_type" id="savingTaxType">
+              <option value="normal">일반과세 (15.4%)</option>
+              <option value="preferential">세금우대 / 조합원 (1.4%)</option>
+              <option value="tax_free">비과세 (0%)</option>
+            </select>
+          </label>
+          <label>자동이체일 (매월 N일)
+            <input name="auto_transfer_day" type="number" min="0" max="31" placeholder="예: 15 (0은 없음)" />
+          </label>
+          <label>출금 통장 (연동)
+            <select name="withdraw_account_id" id="savingWithdrawAccountSelect">
+              <option value="">-- 출금 통장 선택 --</option>
+            </select>
+          </label>
+          <label>만기 입금 통장 (연동)
+            <select name="deposit_account_id" id="savingDepositAccountSelect">
+              <option value="">-- 만기 입금 통장 선택 --</option>
+            </select>
+          </label>
+          <label>메모
+            <input name="memo" placeholder="만기 후 풍차돌리기 등" />
+          </label>
+        </div>
+
+        <div id="savingCalcPreviewBox" class="saving-calc-preview-box" style="margin:16px 0;padding:12px 16px;background:rgba(20,29,51,0.7);border:1px solid #28375c;border-radius:10px;">
+          <h4 style="margin:0 0 8px;font-size:13px;color:#38bdf8;display:flex;align-items:center;gap:6px;">📊 실시간 예상 만기 수령액 시뮬레이션</h4>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:12px;">
+            <div><span style="color:#8fa0c5;display:block;">총 납입원금</span><strong id="prevTotalPrincipal" style="font-size:13px;color:#e2e8f0;">₩0</strong></div>
+            <div><span style="color:#8fa0c5;display:block;">세전 이자</span><strong id="prevPreTaxInterest" style="font-size:13px;color:#38bdf8;">₩0</strong></div>
+            <div><span style="color:#8fa0c5;display:block;">이자소득세</span><strong id="prevTaxAmount" style="font-size:13px;color:#f43f5e;">₩0</strong></div>
+            <div><span style="color:#8fa0c5;display:block;">만기 실수령액</span><strong id="prevMaturityTotal" style="font-size:14px;color:#42d5a3;">₩0</strong></div>
+          </div>
+        </div>
+
+        <div class="dialog-actions">
+          <button class="button secondary" value="cancel" type="button">취소</button>
+          <button class="button primary" type="submit">저장</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 보험/연금/공제 등록 및 수정 다이얼로그 -->
+    <dialog id="insuranceAccountDialog" class="dialog" style="max-width:640px;width:95vw;">
+      <div class="dialog-head">
+        <h2 id="insuranceAccountDialogTitle">보험 / 연금 / 공제 상품 추가</h2>
+        <button value="cancel" class="close" aria-label="닫기">×</button>
+      </div>
+      <form id="insuranceAccountForm" method="dialog" style="padding:16px 20px 20px;">
+        <input type="hidden" name="id" value="" />
+        <div class="form-grid">
+          <label>
+            상품 구분
+            <select name="insurance_type" id="insuranceTypeSelect" required>
+              <option value="protection">보장성보험 (실비·암·종신·건강 등)</option>
+              <option value="savings">저축성보험 (연금보험·저축보험)</option>
+              <option value="national_pension">국민연금</option>
+              <option value="yellow_umbrella">노란우산공제</option>
+              <option value="irp">개인연금 / IRP / 퇴직연금</option>
+              <option value="etc">기타 공제 / 연금</option>
+            </select>
+          </label>
+          <label>
+            소유자
+            <select name="owner" id="insuranceOwnerSelect">
+              <option value="모두">모두</option>
+              <option value="아빠">아빠</option>
+              <option value="엄마">엄마</option>
+              <option value="자녀">자녀</option>
+            </select>
+          </label>
+          <label>
+            기관 / 보험사명
+            <input type="text" name="company_name" placeholder="예: 삼성화재, 국민연금공단, 중기중앙회" required />
+          </label>
+          <label>
+            상품명
+            <input type="text" name="product_name" placeholder="예: 무배당 실손의료비, 노란우산공제부금" required />
+          </label>
+          <label>
+            납입 상태
+            <select name="payment_status">
+              <option value="paying">납입중 (매월 정기 납입)</option>
+              <option value="completed">납입완료 (만기·수령 대기)</option>
+              <option value="deferred">거치중 / 일시납</option>
+            </select>
+          </label>
+          <label>
+            월 납입액 (KRW)
+            <input type="number" name="monthly_premium" placeholder="예: 150000" min="0" step="any" data-korean-currency />
+          </label>
+          <label>
+            누적 총 납입액 (KRW)
+            <input type="number" name="total_paid_amount" placeholder="현재까지 납입한 원금 총액" min="0" step="any" data-korean-currency />
+          </label>
+          <!-- 수령 방식 선택 (일시금 vs 월지급식 연금형) -->
+          <div style="grid-column: 1 / -1; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 8px; padding: 12px; margin-bottom: 4px;">
+            <div style="font-size: 12px; font-weight: 700; color: #94a3b8; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+              <span>💰 만기/수령 방식 선택</span>
+            </div>
+            <div style="display: flex; gap: 18px; flex-wrap: wrap;">
+              <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 500;">
+                <input type="radio" name="payout_type" value="lump_sum" checked id="payoutTypeLumpSum" />
+                <span>일시금 / 해약환급금형 <small style="color:#94a3b8;">(일반 보장성·만기적금)</small></span>
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 600; color: #38bdf8;">
+                <input type="radio" name="payout_type" value="monthly_pension" id="payoutTypeMonthlyPension" />
+                <span>💎 월 지급식 / 연금형 <small style="color:#7dd3fc;">(국민연금·연금보험·주택연금)</small></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 1) 일시금형 입력 필드 -->
+          <label id="lumpSumAmountGroup">
+            예상 수령액 / 해약환급금 (KRW)
+            <input type="number" name="expected_amount" id="insuranceExpectedAmount" placeholder="만기 예상액 또는 해약환급금" min="0" step="any" data-korean-currency />
+          </label>
+
+          <!-- 2) 월지급식 연금형 전용 입력 & 자동 20년 환산 구역 -->
+          <div id="pensionPayoutGroup" style="display:none; grid-column: 1 / -1; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 8px; padding: 14px; margin-bottom: 4px;">
+            <div style="font-size: 12.5px; font-weight: 700; color: #38bdf8; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+              <span>💎 월 지급식 연금 자산 환산 설정</span>
+              <span style="font-size: 11px; font-weight: 400; color: #94a3b8;">※ 월 수령액 × 총 수령 개월수로 안전자산에 자동 합산</span>
+            </div>
+            <div class="form-grid" style="grid-template-columns: repeat(2, 1fr); margin-bottom: 10px;">
+              <label>
+                월 예상 수령액 (KRW)
+                <input type="number" name="monthly_payout" id="pensionMonthlyPayout" placeholder="예: 1250000" min="0" step="any" data-korean-currency />
+              </label>
+              <label>
+                기대 수령 기간
+                <select name="payout_duration_years" id="pensionDurationSelect">
+                  <option value="10">10년 (120개월 분할)</option>
+                  <option value="15">15년 (180개월 분할)</option>
+                  <option value="20" selected>20년 (240개월 / 국민연금·종신 권장 🌟)</option>
+                  <option value="25">25년 (300개월 분할)</option>
+                  <option value="30">30년 (360개월 분할)</option>
+                </select>
+              </label>
+            </div>
+            <div id="pensionAssetPreviewBox" style="background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #cbd5e1; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span>총 수령 기간: </span>
+                <strong id="pensionDurationText" style="color: #f1f5f9;">20년 (240개월)</strong>
+              </div>
+              <div>
+                <span>총자산 환산 가치: </span>
+                <strong id="pensionConvertedTotalText" style="color: #38bdf8; font-size: 14px;">₩0</strong>
+              </div>
+            </div>
+          </div>
+          <label>
+            가입일
+            <input type="date" name="start_date" />
+          </label>
+          <label>
+            만기일 (또는 연금개시일)
+            <input type="date" name="maturity_date" />
+          </label>
+          <!-- 노란우산공제 전용 소득공제 설정 구역 -->
+          <div id="yellowUmbrellaTaxGroup" style="display:none;grid-column:1/-1;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:12px;margin-top:4px;">
+            <div style="font-size:12px;font-weight:700;color:#facc15;margin-bottom:8px;display:flex;align-items:center;gap:5px;">
+              <span>🟡 노란우산공제 소득공제 & 절세 혜택 설정</span>
+            </div>
+            <div class="form-grid" style="grid-template-columns:repeat(2,1fr);margin-bottom:8px;">
+              <label>사업소득 구간 (공제한도)
+                <select name="income_bracket" id="yuIncomeBracket">
+                  <option value="under_40m">4천만 원 이하 (연 최대 500만원 공제)</option>
+                  <option value="40m_to_100m" selected>4천만 ~ 1억 원 이하 (연 최대 300만원 공제)</option>
+                  <option value="over_100m">1억 원 초과 (연 최대 200만원 공제)</option>
+                </select>
+              </label>
+              <label>적용 한계세율 (지방세 포함)
+                <select name="marginal_tax_rate" id="yuMarginalRate">
+                  <option value="6.6">6.6% (과표 1,400만 이하)</option>
+                  <option value="16.5">16.5% (과표 1,400만~5,000만)</option>
+                  <option value="26.4" selected>26.4% (과표 5,000만~8,800만)</option>
+                  <option value="38.5">38.5% (과표 8,800만~1.5억)</option>
+                  <option value="41.8">41.8% (과표 1.5억~3억)</option>
+                  <option value="44.0">44.0% (과표 3억~5억)</option>
+                  <option value="46.2">46.2% (과표 5억~10억)</option>
+                  <option value="49.5">49.5% (과표 10억 초과)</option>
+                </select>
+              </label>
+            </div>
+            <div id="yuTaxBenefitPreview" style="background:rgba(0,0,0,0.25);border-radius:6px;padding:8px 12px;font-size:11.5px;color:#cbd5e1;display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <span>연간 소득공제 대상: </span>
+                <strong id="yuDeductionAmountText" style="color:#facc15;">₩3,000,000</strong>
+              </div>
+              <div>
+                <span>예상 세금 절감(환급)액: </span>
+                <strong id="yuTaxSavedText" style="color:#4ade80;font-size:13px;">₩792,000</strong>
+              </div>
+            </div>
+
+            <!-- 노란우산공제 연도별 납입 & 절세 이력 관리 -->
+            <div class="yu-yearly-history-section" style="margin-top:10px;border-top:1px dashed rgba(234,179,8,0.3);padding-top:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <span style="font-size:12px;font-weight:700;color:#facc15;">📅 연도별 납입 및 소득공제 이력 (과거~현재)</span>
+                <button type="button" class="button secondary compact" id="addYuYearlyBtn" style="font-size:11px;padding:2px 8px;">+ 연도 추가</button>
+              </div>
+              <div id="yuYearlyList" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;padding-right:2px;"></div>
+              <div style="margin-top:8px;padding:6px 10px;background:rgba(0,0,0,0.2);border-radius:6px;font-size:11.5px;display:flex;justify-content:space-between;align-items:center;">
+                <span style="color:#94a3b8;">※ 비공제 선택 시 해당 연도 소득공제 및 절세액 ₩0 제외</span>
+                <span style="color:#e2e8f0;font-weight:600;">누적 절세액: <strong id="yuCumulativeSavedText" style="color:#4ade80;font-size:13px;">₩0</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <label style="grid-column: 1 / -1;">
+            메모
+            <input type="text" name="memo" placeholder="예: 20년납 100세만기, 65세 연금수령 개시 등" />
+          </label>
+        </div>
+
+        <div class="dialog-actions" style="margin-top:16px;">
+          <button class="button secondary" value="cancel" type="button">취소</button>
+          <button class="button primary" type="submit">저장</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 대출·마이너스통장 등록 및 수정 다이얼로그 -->
+    <dialog id="loanAccountDialog" class="dialog" style="max-width:640px;width:95vw;">
+      <div class="dialog-head">
+        <h2 id="loanAccountDialogTitle">대출 · 마이너스통장 추가</h2>
+        <button value="cancel" class="close" aria-label="닫기">×</button>
+      </div>
+      <form id="loanAccountForm" method="dialog" style="padding:16px 20px 20px;">
+        <input type="hidden" name="id" value="" />
+        <div class="form-grid bank-type-select-row" style="margin-bottom:12px;">
+          <label style="grid-column:1/-1;">계좌 유형
+            <select class="bank-category-switcher" data-current-type="loans" style="font-weight:700;padding:8px 10px;border-color:#38bdf8;">
+              <option value="free">🏦 자유입출금 통장 (수시입출금 / 마이너스통장)</option>
+              <option value="savings">💰 예·적금 상품 (정기예금 / 적금)</option>
+              <option value="loans" selected>💳 대출 · 마이너스통장 (신용 / 담보 / 한도대출)</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-grid">
+          <label>
+            대출 유형
+            <select name="loan_type" id="loanTypeSelect" required>
+              <option value="minus">마이너스통장 (한도대출)</option>
+              <option value="credit">일반 신용대출</option>
+              <option value="mortgage">담보대출 (부동산/예적금)</option>
+              <option value="etc">기타 대출</option>
+            </select>
+          </label>
+          <label>
+            소유자
+            <select name="owner" id="loanOwnerSelect">
+              <option value="모두">모두</option>
+              <option value="아빠">아빠</option>
+              <option value="엄마">엄마</option>
+              <option value="자녀">자녀</option>
+            </select>
+          </label>
+          <label>
+            금융기관 / 은행명
+            <input type="text" name="bank_name" placeholder="예: 카카오뱅크, 신한은행" required />
+          </label>
+          <label>
+            대출 상품명
+            <input type="text" name="product_name" placeholder="예: 직장인 마이너스통장, 전세대출" required />
+          </label>
+          <label id="loanLimitLabel">
+            설정 한도금액 (KRW)
+            <input type="number" name="limit_amount" id="loanLimitAmount" placeholder="마이너스통장 총 한도액" min="0" step="any" data-korean-currency />
+          </label>
+          <label>
+            현재 대출잔액 (갚아야 할 빚, KRW)
+            <input type="number" name="current_balance" id="loanCurrentBalance" placeholder="현재 실제 마이너스/대출금" min="0" step="any" data-korean-currency required />
+          </label>
+          <label>
+            약정 대출금리 (연 %)
+            <input type="number" name="interest_rate" id="loanInterestRate" placeholder="예: 4.85" min="0" max="30" step="0.01" required />
+          </label>
+          <label>
+            상환 방식
+            <select name="repayment_type" id="loanRepaymentType">
+              <option value="bullet">만기일시상환 (마통 / 만기 상환)</option>
+              <option value="amortizing">원리금균등분할상환 (원금+이자 균등)</option>
+              <option value="principal">원금균등분할상환</option>
+            </select>
+          </label>
+          <label>
+            이자 출금 통장 (연동)
+            <select name="linked_account_id" id="loanLinkedAccountSelect">
+              <option value="">-- 출금 은행 계좌 선택 --</option>
+            </select>
+          </label>
+          <label>
+            만기일 (약정 만기일)
+            <input type="date" name="maturity_date" id="loanMaturityDate" />
+          </label>
+          <label style="grid-column: 1 / -1;">
+            메모
+            <input type="text" name="memo" placeholder="예: 1년 만기 연장형, 급여이체 우대금리 적용 등" />
+          </label>
+        </div>
+
+        <!-- 실시간 월 예상 이자 시뮬레이션 박스 -->
+        <div id="loanCalcPreviewBox" style="margin:16px 0 8px;padding:12px 16px;background:rgba(30,15,25,0.7);border:1px solid #4a1d2e;border-radius:10px;">
+          <h4 style="margin:0 0 8px;font-size:13px;color:#fb7185;display:flex;align-items:center;gap:6px;">📊 실시간 월 상환액 및 이자 시뮬레이션</h4>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;">
+            <div><span style="color:#8fa0c5;display:block;">현재 대출원금</span><strong id="prevLoanBalance" style="font-size:13px;color:#f1f4fb;">₩0</strong></div>
+            <div><span style="color:#8fa0c5;display:block;">월 예상 이자 (연 <span id="prevLoanRateText">0</span>%)</span><strong id="prevLoanInterest" style="font-size:13px;color:#fb7185;">₩0</strong></div>
+            <div><span style="color:#8fa0c5;display:block;">월 총 예상 상환액</span><strong id="prevLoanMonthlyPayment" style="font-size:14px;color:#f43f5e;">₩0</strong></div>
+          </div>
+        </div>
+
+        <div class="dialog-actions" style="margin-top:16px;">
+          <button class="button secondary" value="cancel" type="button">취소</button>
+          <button class="button primary" type="submit">저장</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 부동산 자산 등록/수정 다이얼로그 -->
+    <dialog id="realEstateDialog" class="dialog" style="max-width:680px;width:95vw;">
+      <form id="realEstateForm" method="dialog">
+        <div class="dialog-head">
+          <h2 id="realEstateDialogTitle">부동산 자산 추가</h2>
+          <button value="cancel" class="close" aria-label="닫기">×</button>
+        </div>
+        <p class="dialog-description">자가(보유), 임대(전세/월세 준 주택 - 갭투자), 임차(전월세 거주) 부동산과 연결 대출을 기록합니다.</p>
+        <input type="hidden" name="id" />
+        <input type="hidden" name="kb_complex_no" id="reKbComplexNo" />
+
+        <div class="form-grid" style="grid-template-columns:repeat(2,1fr);gap:12px;">
+          <label>부동산 유형
+            <select name="property_type" id="reTypeSelect" required>
+              <option value="own">🏠 자가 (직접 거주 / 보유)</option>
+              <option value="rental">🏢 임대 (전세 / 월세 준 주택 - 갭투자)</option>
+              <option value="lease">🔑 임차 (전세 / 월세 거주 중)</option>
+            </select>
+          </label>
+          <div style="grid-column:1/-1;background:rgba(255,255,255,0.03);padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="font-size:12.5px;font-weight:600;color:#e2e8f0;">소유자 명의 설정</span>
+              <label style="font-size:12px;color:#38bdf8;cursor:pointer;display:flex;align-items:center;gap:4px;margin:0;">
+                <input type="checkbox" id="reIsJointCheck" style="cursor:pointer;" />
+                <span>부부·가족 공동명의</span>
+              </label>
+            </div>
+            <!-- 1) 단일 명의 셀렉트 -->
+            <div id="reSingleOwnerWrap">
+              <select name="owner" id="reOwnerSelect">
+                <option value="모두">모두</option>
+                <option value="아빠">아빠</option>
+                <option value="엄마">엄마</option>
+                <option value="자녀">자녀</option>
+              </select>
+            </div>
+            <!-- 2) 공동명의 지분율 설정 -->
+            <div id="reJointOwnershipWrap" style="display:none;margin-top:8px;">
+              <div id="reJointRows" style="display:flex;flex-direction:column;gap:6px;"></div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">
+                <small id="reJointTotalRatio" style="font-size:11.5px;color:#38bdf8;font-weight:600;">지분율 합계: 100%</small>
+                <button type="button" id="reAddJointRowBtn" class="button secondary compact" style="font-size:11px;padding:2px 8px;">+ 구성원 추가</button>
+              </div>
+            </div>
+          </div>
+
+          <label>단지명 / 건물명 (시세 연동)
+            <input name="name" id="reNameInput" placeholder="예: 마포 래미안 푸르지오 또는 현대아파트" required />
+            <small style="font-size:11px;color:#94a3b8;margin-top:2px;">동·호수를 빼고 단지명만 적으면 시세 검색이 정확합니다.</small>
+          </label>
+          <label>상세 동·호수 (선택)
+            <input name="dong_ho" id="reDongHoInput" placeholder="예: 105동 1204호" />
+            <small style="font-size:11px;color:#94a3b8;margin-top:2px;">카드에만 표시되고 시세 검색어에서는 자동 제외됩니다.</small>
+          </label>
+
+          <label style="grid-column:1/-1;">소재지 주소 (선택)
+            <input name="address" id="reAddressInput" placeholder="예: 서울시 마포구 아현동 777" />
+          </label>
+
+          <!-- 자가/임대용 금액 필드 -->
+          <label id="rePurchasePriceLabel">매수금액 (취득가, KRW)
+            <input name="purchase_price" id="rePurchasePrice" type="number" step="any" placeholder="예: 1200000000 (12억)" data-korean-currency />
+          </label>
+          <label id="reCurrentPriceLabel">현재 시세 / 평가액 (KRW)
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input name="current_price" id="reCurrentPrice" type="number" step="any" placeholder="예: 1450000000 (14.5억)" data-korean-currency style="flex:1;" />
+              <button type="button" id="reFetchKbBtn" class="button secondary compact" style="white-space:nowrap;padding:7px 10px;font-size:11.5px;font-weight:700;background:rgba(234,179,8,0.12);border-color:#eab308;color:#facc15;" title="KB부동산 공식 시세 자동 조회">🔍 KB시세 조회</button>
+            </div>
+            <div id="reKbResultBox" style="display:none;margin-top:6px;padding:8px 10px;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:6px;font-size:11.5px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span id="reKbResultTitle" style="font-weight:700;color:#facc15;">KB부동산 시세</span>
+                <button type="button" id="reApplyKbPriceBtn" class="button primary compact" style="font-size:10.5px;padding:2px 8px;background:#eab308;border-color:#eab308;color:#000;font-weight:700;">시세 적용</button>
+              </div>
+              <div id="reKbResultDetail" style="margin-top:4px;color:#e2e8f0;line-height:1.4;"></div>
+              <div id="reKbTypeSelectWrap" style="display:none;margin-top:6px;">
+                <label style="font-size:11px;color:#94a3b8;margin-bottom:2px;display:block;">평형 직접 선택:
+                  <select id="reKbTypeSelect" style="font-size:11.5px;padding:4px;margin-top:2px;"></select>
+                </label>
+              </div>
+            </div>
+          </label>
+
+          <!-- 임대/임차용 보증금 필드 -->
+          <label id="reDepositLabel" style="display:none;">임대차 보증금 (KRW)
+            <input name="deposit_amount" id="reDepositAmount" type="number" step="any" placeholder="예: 700000000 (전세금 7억)" data-korean-currency />
+            <small id="reDepositHint" style="font-size:11px;color:#94a3b8;margin-top:2px;">임대 시 만기 상환 부채, 임차 시 돌려받을 자산</small>
+          </label>
+          <label id="reMonthlyRentLabel" style="display:none;">월세 (KRW, 전세면 0)
+            <input name="monthly_rent" id="reMonthlyRent" type="number" step="any" placeholder="0" data-korean-currency />
+          </label>
+
+          <label>취득일 / 계약일
+            <input name="contract_date" id="reContractDate" type="date" />
+          </label>
+          <label id="reExpiryDateLabel">만기일 (임대차인 경우)
+            <input name="expiry_date" id="reExpiryDate" type="date" />
+          </label>
+
+          <label>전용면적 (㎡, 선택)
+            <input name="exclusive_area" id="reExclusiveArea" type="number" step="0.1" placeholder="예: 84.9" />
+          </label>
+          <label>연결 대출 (주택담보대출 / 전세대출)
+            <select name="linked_loan_ids" id="reLinkedLoansSelect">
+              <option value="">-- 연결 대출 없음 --</option>
+            </select>
+          </label>
+
+          <label style="grid-column:1/-1;">메모
+            <input name="memo" id="reMemoInput" placeholder="예: 주담대 고정금리 적용, 2년 뒤 갱신 예정 등" />
+          </label>
+        </div>
+
+        <!-- 실시간 시뮬레이션 박스 -->
+        <div id="rePreviewBox" style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div>
+            <span style="font-size:11.5px;color:#94a3b8;">부동산 순에퀴티(순자산): </span>
+            <strong id="rePreviewEquity" style="font-size:14px;color:#38bdf8;">₩0</strong>
+          </div>
+          <div id="rePreviewProfitWrap">
+            <span style="font-size:11.5px;color:#94a3b8;">예상 시세차익: </span>
+            <strong id="rePreviewProfit" style="font-size:14px;color:#42d5a3;">+₩0 (0.0%)</strong>
+          </div>
+        </div>
+
+        <div class="dialog-actions" style="margin-top:16px;">
+          <button class="button secondary" value="cancel" type="button">취소</button>
+          <button class="button primary" type="submit">저장</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 부동산 매각 및 실현손익 기록 다이얼로그 -->
+    <dialog id="realEstateSellDialog" class="dialog" style="max-width:540px;width:95vw;">
+      <div class="dialog-head">
+        <h2 id="reSellDialogTitle">🏢 부동산 매각 및 실현손익 기록</h2>
+        <button value="cancel" class="close" aria-label="닫기">×</button>
+      </div>
+      <form id="realEstateSellForm" onsubmit="return false;">
+        <input type="hidden" id="reSellTargetId" />
+        <input type="hidden" id="reSellEditPnlId" />
+        <div class="form-grid">
+          <label style="grid-column: 1 / -1;">부동산 이름
+            <input id="reSellName" placeholder="예: 상계주공4단지" required />
+          </label>
+          <label style="grid-column: 1 / -1;">소재지 / 주소 (선택)
+            <input id="reSellAddress" placeholder="예: 서울시 노원구 상계동 123" />
+          </label>
+          <label>소유자
+            <select id="reSellOwner">
+              <option value="모두">모두</option>
+            </select>
+          </label>
+          <label>매도일자
+            <input id="reSellDate" type="date" required />
+          </label>
+          <label>취득가 (매수가, KRW)
+            <input id="reSellPurchasePrice" type="number" step="any" placeholder="0" required data-korean-currency oninput="calcRealEstateSellProfit()" />
+          </label>
+          <label>양도가 (매도가, KRW)
+            <input id="reSellPrice" type="number" step="any" placeholder="예: 1450000000" required data-korean-currency oninput="calcRealEstateSellProfit()" />
+          </label>
+          <label style="grid-column: 1 / -1;">필요경비 (중개수수료, 세금, 취득세 등 공제액)
+            <input id="reSellExpenses" type="number" step="any" value="0" placeholder="0" data-korean-currency oninput="calcRealEstateSellProfit()" />
+          </label>
+
+          <!-- 실현손익 프리뷰 박스 -->
+          <div style="grid-column: 1 / -1; background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; padding: 12px; margin-top: 4px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:12.5px; color:#cbd5e1; font-weight:600;">예상 실현손익 (양도차익):</span>
+              <strong id="reSellPnlPreview" style="font-size:16px; color:#38bdf8;">+₩0</strong>
+            </div>
+            <div id="reSellCalcFormula" style="font-size:11px; color:#94a3b8; margin-top:4px;">
+              매도가 ₩0 - 매수가 ₩0 - 필요경비 ₩0
+            </div>
+          </div>
+
+          <div id="reSellRemoveFromAssetsWrap" style="grid-column: 1 / -1;">
+            <label style="display:flex; align-items:center; gap:8px; margin-top:6px; font-size:12px; color:#cbd5e1; cursor:pointer;">
+              <input type="checkbox" id="reSellRemoveFromAssets" checked />
+              <span>매각 완료 후 보유 자산 목록에서 <strong>해당 부동산 제외(정리)</strong></span>
+            </label>
+          </div>
+
+          <label style="grid-column: 1 / -1;">메모 / 비고
+            <input id="reSellMemo" placeholder="예: 매각 완료 및 잔금 수령" />
+          </label>
+        </div>
+
+        <div class="dialog-actions" style="margin-top:16px;">
+          <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
+          <button id="reSellSubmitBtn" class="button primary" type="button" onclick="submitRealEstateSell()" style="background:linear-gradient(135deg,#f59e0b,#d97706);">실현손익에 기록</button>
+        </div>
+      </form>
+    </dialog>
+
+
+    <div id="heatmapTooltip" class="heatmap-tooltip" style="display:none;"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- ======================================================================= -->
+  <!-- ⚙️ 공통 최하단 푸터: 테마 설정 & 데이터 백업 관리                     -->
+  <!-- ======================================================================= -->
+  <footer id="appCommonFooter" style="margin-top:28px;padding-bottom:28px;">
+    <!-- 테마 설정 (Theme Switcher) -->
+    <div class="theme-switcher-wrap">
+      <span class="theme-switcher-label">🎨 화면 테마 설정:</span>
+      <div class="theme-switcher-tabs" id="themeSwitcherTabs">
+        <button type="button" class="theme-tab active" data-theme="purple">🟣 퍼플 (시그니처 기본)</button>
+        <button type="button" class="theme-tab" data-theme="oled">🖤 클래식 다크 (OLED BLACK)</button>
+        <button type="button" class="theme-tab" data-theme="white">⚪ 모던 화이트 (CLEAN WHITE)</button>
+      </div>
+    </div>
+
+    <div class="bottom-actions" style="text-align:center; margin-top:12px; display:flex; flex-wrap:wrap; gap:8px; justify-content:center; padding-bottom:8px;">
+      <button id="exportButton" class="button secondary" type="button" style="font-size:14px;">💾 데이터 저장하기</button>
+      <button id="importBackupBtn" class="button secondary" type="button" style="font-size:14px;">📂 데이터 불러오기</button>
+      <button id="clearButton" class="button secondary danger" type="button" style="font-size:14px;">🗑️ 데이터 지우기</button>
+      <input id="importBackupFile" type="file" accept=".json" style="display:none;" />
+    </div>
+    <div style="text-align:center;">
+      <p id="updatedAt" class="muted" style="margin:0;font-size:12px;opacity:0.75;">데이터를 불러오는 중입니다.</p>
+    </div>
+  </footer>
+
+  <!-- 가계부 단건 등록/수정 다이얼로그 -->
+  <dialog id="ledgerTxDialog" class="dialog" style="max-width:540px;width:95vw;">
+    <form id="ledgerTxForm" onsubmit="return false;">
+      <div class="dialog-head">
+        <h2 id="ledgerTxDialogTitle">수입 / 지출 내역 등록</h2>
+        <button value="cancel" class="close" aria-label="닫기" onclick="this.closest('dialog')?.close()">×</button>
+      </div>
+      <div class="form-grid" style="grid-template-columns:repeat(2,1fr);margin-top:14px;">
+        <label id="ledgerTxDateWrap">거래 일자
+          <div class="split-date-wrap" id="ledgerTxSplitDateWrap">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" class="date-part date-part-year" id="ledgerTxDateYear" placeholder="YYYY" aria-label="거래일자 연도 4자리" autocomplete="off" title="마우스 휠로 연도 조절 가능" />
+            <span class="date-part-sep">-</span>
+            <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-month" id="ledgerTxDateMonth" placeholder="MM" aria-label="거래일자 월 2자리" autocomplete="off" title="마우스 휠로 월 조절 가능" />
+            <span class="date-part-sep">-</span>
+            <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-day" id="ledgerTxDateDay" placeholder="DD" aria-label="거래일자 일 2자리" autocomplete="off" title="마우스 휠로 일 조절 가능" />
+            <button type="button" class="date-picker-trigger" id="ledgerTxDatePickerTrigger" title="달력에서 선택" aria-label="달력에서 날짜 선택">📅</button>
+            <input type="date" name="date" id="ledgerTxNativeDate" required tabindex="-1" class="sr-only-picker" />
+          </div>
+        </label>
+        <label>구분
+          <select name="type" id="ledgerTxTypeSelect" onchange="onLedgerTxTypeChanged()">
+            <option value="expense" selected>💳 지출</option>
+            <option value="income">💰 수입</option>
+            <option value="transfer">🔄 이체/저축</option>
+          </select>
+        </label>
+        <label>금액 (KRW)
+          <input type="number" name="amount" placeholder="0" min="0" step="any" required data-korean-currency oninput="updateLedgerBalancePreview()" />
+        </label>
+        <label>카테고리
+          <select name="category" id="ledgerTxCategorySelect">
+            <!-- JS 동적 주입 -->
+          </select>
+        </label>
+        <label id="ledgerTxOwnerLabel">소유자
+          <select name="owner" id="ledgerTxOwnerSelect" onchange="onLedgerTxOwnerChanged()">
+            <option value="모두">모두 (가족공통)</option>
+            <option value="아빠">아빠</option>
+            <option value="엄마">엄마</option>
+            <option value="자녀">자녀</option>
+          </select>
+        </label>
+
+        <!-- 지출일 때 결제 방식 (신용카드 vs 계좌/체크카드/현금) -->
+        <label id="ledgerTxPayMethodTypeLabel">결제 방식
+          <select name="pay_method_type" id="ledgerTxPayMethodTypeSelect" onchange="onLedgerPayMethodTypeChanged()">
+            <option value="credit_card" selected>💳 신용카드 (청구 누적)</option>
+            <option value="bank_account">🏦 계좌출금 / 체크카드</option>
+            <option value="cash">💵 현금 / 기타</option>
+          </select>
+        </label>
+
+        <!-- 신용카드 선택 박스 (지출 - 신용카드일 때) -->
+        <div id="ledgerTxCardSelectBox" style="grid-column:1/-1;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <label style="margin:0;font-weight:700;font-size:12.5px;" class="ledger-dialog-label">💳 신용카드 선택</label>
+            <button type="button" class="button secondary compact" onclick="openLedgerCardsModal()" style="font-size:11px;padding:2px 8px;border-radius:6px;">⚙️ 카드 등록·관리</button>
+          </div>
+          <select name="card_id" id="ledgerTxCardSelect" onchange="onLedgerCardSelectChanged()">
+            <option value="">-- 등록된 신용카드 선택 --</option>
+          </select>
+          <div class="ledger-tip-box" style="margin-top:6px;font-size:11.5px;padding:6px 10px;border-radius:6px;">
+            💡 신용카드로 지출 시 당월 카드값으로 누적되며, 결제일에 연결 결제계좌에서 일괄 출금(정산)됩니다.
+          </div>
+        </div>
+
+        <!-- 연동 계좌 선택 박스 (수입 또는 계좌/체크카드 지출 시) -->
+        <div id="ledgerTxAccountSelectBox" style="grid-column:1/-1;display:none;">
+          <label style="margin:0 0 6px 0;font-weight:700;font-size:12.5px;" id="ledgerTxAccountSelectLabel" class="ledger-dialog-label">
+            🏦 연동 계좌 선택 (선택 시 출금/입금 잔액 자동 변동)
+          </label>
+          <select name="account_id" id="ledgerTxAccountSelect" onchange="updateLedgerBalancePreview()">
+            <option value="">-- 계좌 연동 안 함 (단순 기록) --</option>
+          </select>
+        </div>
+
+        <!-- 실시간 계좌 잔액 변동 인포 바 -->
+        <div id="ledgerBalancePreviewBox" class="ledger-balance-preview-box" style="display:none;grid-column:1/-1;border-radius:8px;padding:10px 14px;font-size:12.5px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span class="ledger-preview-label">기존 계좌 잔액:</span>
+            <strong id="ledgerPrevBalanceText">₩0</strong>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span id="ledgerNextBalanceLabel" style="font-weight:700;">적용 후 예상 잔액:</span>
+            <strong id="ledgerNextBalanceText" style="font-size:14px;font-weight:800;">₩0</strong>
+          </div>
+        </div>
+
+        <label style="grid-column:1/-1;">내용 / 가맹점
+          <input name="merchant" placeholder="예: 이마트, 스타벅스, 월급, 쿠팡 등" required />
+        </label>
+        <label style="grid-column:1/-1;">메모
+          <input name="memo" placeholder="비고 / 상세 내역 메모" />
+        </label>
+      </div>
+      <div class="dialog-actions" style="margin-top:16px;">
+        <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
+        <button id="ledgerTxSaveBtn" class="button primary" type="button" onclick="saveLedgerTransaction()">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 가계부 신용카드 관리 다이얼로그 -->
+  <dialog id="ledgerCardsDialog" class="dialog" style="max-width:680px;width:95vw;">
+    <div class="dialog-head">
+      <h2>💳 신용카드 등록 & 관리</h2>
+      <button value="cancel" class="close" aria-label="닫기" onclick="this.closest('dialog')?.close()">×</button>
+    </div>
+    <p class="dialog-description">신용카드별 결제일 및 출금 결제계좌를 등록하여 카드값 청구 누적 및 결제일 일괄 정산을 관리합니다.</p>
+
+    <!-- 등록된 카드 목록 -->
+    <div style="margin:14px 0;">
+      <h3 style="font-size:14px;font-weight:800;color:#f8fafc;margin:0 0 10px 0;">내 신용카드 목록 & 당월 청구 현황</h3>
+      <div id="ledgerCardsList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;max-height:280px;overflow-y:auto;">
+        <!-- JS 동적 주입 -->
+      </div>
+    </div>
+
+    <!-- 신규 카드 등록 / 수정 폼 -->
+    <div class="ledger-dialog-subbox" style="border-radius:10px;padding:14px;margin-top:12px;">
+      <h3 id="ledgerCardFormTitle" style="font-size:13.5px;font-weight:700;color:#38bdf8;margin:0 0 10px 0;">➕ 신규 카드 등록</h3>
+      <form id="ledgerCardForm" onsubmit="return false;">
+        <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
+          <label>카드사
+            <select name="card_company" required>
+              <option value="현대카드">현대카드</option>
+              <option value="삼성카드">삼성카드</option>
+              <option value="신한카드">신한카드</option>
+              <option value="KB국민카드">KB국민카드</option>
+              <option value="롯데카드">롯데카드</option>
+              <option value="우리카드">우리카드</option>
+              <option value="하나카드">하나카드</option>
+              <option value="NH농협카드">NH농협카드</option>
+              <option value="BC카드">BC카드</option>
+              <option value="기타카드">기타카드</option>
+            </select>
+          </label>
+          <label>카드명 (별칭)
+            <input name="card_name" placeholder="예: 현대카드 M Edition3" required />
+          </label>
+          <label>소유자
+            <select name="owner">
+              <option value="모두">모두 (가족공통)</option>
+              <option value="아빠">아빠</option>
+              <option value="엄마">엄마</option>
+              <option value="자녀">자녀</option>
+            </select>
+          </label>
+          <label>매월 결제일
+            <select name="payment_day">
+              <option value="1">매월 1일</option>
+              <option value="5">매월 5일</option>
+              <option value="10">매월 10일</option>
+              <option value="12">매월 12일</option>
+              <option value="14" selected>매월 14일</option>
+              <option value="15">매월 15일</option>
+              <option value="20">매월 20일</option>
+              <option value="23">매월 23일</option>
+              <option value="25">매월 25일</option>
+              <option value="27">매월 27일</option>
+              <option value="28">매월 28일</option>
+              <option value="30">매월 말일</option>
+            </select>
+          </label>
+          <label style="grid-column:1/-1;">연결 결제계좌 (카드값 출금 은행통장)
+            <select name="linked_account_id" id="ledgerCardLinkedAccountSelect">
+              <!-- 은행 계좌 동적 주입 -->
+            </select>
+          </label>
+          <label style="grid-column:1/-1;">메모 / 혜택 요약
+            <input name="memo" placeholder="예: 대중교통 10% 청구할인, 스타벅스 500원 할인" />
+          </label>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+          <button id="ledgerCardFormCancelBtn" class="button secondary compact" type="button" onclick="resetLedgerCardForm()" style="display:none;">수정 취소</button>
+          <button class="button primary compact" type="button" onclick="saveLedgerCard()">카드 저장</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="dialog-actions" style="margin-top:14px;">
+      <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">닫기</button>
+    </div>
+  </dialog>
+
+  <!-- 카드대금 결제 / 정산 다이얼로그 -->
+  <dialog id="ledgerCardPayDialog" class="dialog" style="max-width:480px;width:95vw;">
+    <form id="ledgerCardPayForm" onsubmit="return false;">
+      <div class="dialog-head">
+        <h2>💳 카드대금 결제 / 정산</h2>
+        <button value="cancel" class="close" aria-label="닫기" onclick="this.closest('dialog')?.close()">×</button>
+      </div>
+      <p class="dialog-description">연결된 은행 계좌에서 누적 카드값을 출금하고 가계부에 결제 내역을 등록하여 카드값을 0원으로 정산합니다.</p>
+
+      <div class="ledger-dialog-subbox" style="border-radius:10px;padding:14px;margin:12px 0;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span style="color:#94a3b8;">결제 대상 카드:</span>
+          <strong id="ledgerPayCardName" style="color:#f8fafc;">-</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span style="color:#94a3b8;">미결제 청구 누적액:</span>
+          <strong id="ledgerPayUnpaidAmount" style="color:#f43f5e;font-size:15px;font-weight:800;">₩0</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span style="color:#94a3b8;">출금 은행 계좌:</span>
+          <strong id="ledgerPayAccountName" style="color:#38bdf8;">-</strong>
+        </div>
+      </div>
+
+      <div class="form-grid" style="grid-template-columns:1fr;">
+        <label id="ledgerPayDateWrap">실제 결제(출금) 일자
+          <div class="split-date-wrap" id="ledgerPaySplitDateWrap">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" class="date-part date-part-year" id="ledgerPayDateYear" placeholder="YYYY" aria-label="결제일자 연도 4자리" autocomplete="off" title="마우스 휠로 연도 조절 가능" />
+            <span class="date-part-sep">-</span>
+            <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-month" id="ledgerPayDateMonth" placeholder="MM" aria-label="결제일자 월 2자리" autocomplete="off" title="마우스 휠로 월 조절 가능" />
+            <span class="date-part-sep">-</span>
+            <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-day" id="ledgerPayDateDay" placeholder="DD" aria-label="결제일자 일 2자리" autocomplete="off" title="마우스 휠로 일 조절 가능" />
+            <button type="button" class="date-picker-trigger" id="ledgerPayDatePickerTrigger" title="달력에서 선택" aria-label="달력에서 날짜 선택">📅</button>
+            <input type="date" name="pay_date" id="ledgerPayDateInput" required tabindex="-1" class="sr-only-picker" />
+          </div>
+        </label>
+        <label>결제 금액 (KRW)
+          <input type="number" name="pay_amount" id="ledgerPayAmountInput" placeholder="0" min="0" step="any" required data-korean-currency />
+        </label>
+      </div>
+
+      <div class="dialog-actions" style="margin-top:16px;">
+        <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
+        <button class="button primary" type="button" onclick="executeCardPayment()" style="background:linear-gradient(135deg,#38bdf8,#2563eb);">결제 및 정산 실행</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 가계부 고정지출 관리 다이얼로그 -->
+  <dialog id="ledgerRecurringDialog" class="dialog" style="max-width:620px;width:95vw;">
+    <form id="ledgerRecurringForm" onsubmit="return false;">
+      <div class="dialog-head">
+        <h2>🛡️ 정기 고정지출 관리</h2>
+        <button value="cancel" class="close" aria-label="닫기">×</button>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <p class="dialog-description" style="margin:0;">매월 정기적으로 나가는 공과금, 보험료, 구독료 등을 관리합니다.</p>
+        <button id="triggerRecurringBtn" class="button compact secondary" type="button" onclick="triggerRecurringProcess()" title="지정일 도래 항목 즉시 출금 정산" style="font-size:11px;padding:3px 8px;border-color:#38bdf8;color:#38bdf8;">
+          ⚡ 이번 달 자동이체 즉시 실행
+        </button>
+      </div>
+
+      <div id="ledgerRecurringList" style="display:flex;flex-direction:column;gap:8px;margin:10px 0;max-height:260px;overflow-y:auto;"></div>
+
+      <div class="ledger-dialog-subbox" style="border-radius:10px;padding:12px;margin-top:10px;">
+        <input type="hidden" id="recEditId" value="" />
+        <h4 id="recurringFormTitle" style="margin:0 0 10px;font-size:13px;color:#c084fc;">➕ 새 고정지출 추가</h4>
+        <div class="form-grid" style="grid-template-columns:repeat(2,1fr);margin:0;gap:8px;">
+          <label>항목 이름
+            <input id="recName" placeholder="예: 아파트 관리비, 인터넷 요금" required />
+          </label>
+          <label>월 금액 (KRW)
+            <input id="recAmount" type="number" placeholder="0" min="0" required data-korean-currency />
+          </label>
+          <label>매월 결제일 (1~31일)
+            <input id="recDay" type="number" min="1" max="31" value="1" placeholder="예: 25" required />
+          </label>
+          <label>카테고리
+            <select id="recCategory">
+              <option value="주거/통신">주거/통신</option>
+              <option value="금융/보험/이자">금융/보험/이자</option>
+              <option value="문화/여가">문화/여가 (구독)</option>
+              <option value="교육/학습">교육/학습</option>
+              <option value="교통/차량">교통/차량</option>
+              <option value="기타지출">기타지출</option>
+            </select>
+          </label>
+          <label>소유자
+            <select id="recOwner">
+              <option value="모두">모두 (공통)</option>
+              <option value="아빠">아빠</option>
+              <option value="엄마">엄마</option>
+              <option value="자녀">자녀</option>
+            </select>
+          </label>
+          <label>결제 수단
+            <select id="recPayMethod" onchange="toggleRecurringAccountSelect()">
+              <option value="자동이체" selected>🏦 자동이체 (계좌 출금)</option>
+              <option value="신용/체크카드">💳 신용/체크카드</option>
+              <option value="기타">기타</option>
+            </select>
+          </label>
+
+          <!-- 자동이체 선택 시 노출되는 출금 통장 연동 구역 -->
+          <div id="recAccountGroup" style="grid-column:1/-1;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);border-radius:8px;padding:10px 12px;margin-top:2px;">
+            <label style="margin:0;font-size:12px;font-weight:600;color:#38bdf8;">
+              🏦 출금 연동 통장 선택
+              <select id="recAccountSelect" style="margin-top:4px;width:100%;">
+                <option value="">-- 출금 통장 선택 (은행/증권 계좌) --</option>
+              </select>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;color:#cbd5e1;cursor:pointer;">
+              <input type="checkbox" id="recAutoDeduct" checked />
+              <span>매월 이체일에 위 통장에서 <strong>금액 자동 차감 & 가계부 지출 등록</strong></span>
+            </label>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button id="addRecurringBtn" class="button primary compact" type="button" onclick="saveNewRecurringItem()" style="flex:1;background:linear-gradient(135deg,#a855f7,#7c3aed);">
+            고정지출 항목 추가
+          </button>
+          <button id="cancelRecurringEditBtn" class="button secondary compact" type="button" onclick="cancelRecurringEdit()" style="display:none;padding:0 16px;">
+            취소
+          </button>
+        </div>
+      </div>
+
+      <div class="dialog-actions" style="margin-top:14px;">
+        <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">닫기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 가계부 엑셀/CSV 업로드 다이얼로그 -->
+  <dialog id="ledgerExcelDialog" class="dialog" style="max-width:580px;width:95vw;">
+    <form id="ledgerExcelForm" onsubmit="return false;">
+      <div class="dialog-head">
+        <h2>📤 카드사 / 은행 거래내역 엑셀 가져오기</h2>
+        <button value="cancel" class="close" aria-label="닫기">×</button>
+      </div>
+      <p class="dialog-description">카드사 또는 은행에서 다운로드받은 엑셀(.xlsx, .xls) 또는 CSV 파일을 일괄 등록합니다.</p>
+      
+      <!-- 샘플 엑셀 다운로드 링크 영역 -->
+      <div class="ledger-sample-box" style="border-radius:10px;padding:12px 14px;margin:12px 0;">
+        <div style="font-size:12px;font-weight:700;margin-bottom:6px;" class="ledger-sample-title">📋 표준 샘플 엑셀 서식 다운로드</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <a href="/api/sample/card-statement" download="샘플_카드내역.xlsx" class="button text compact" style="font-size:12px;text-decoration:underline;display:inline-flex;align-items:center;gap:4px;padding:2px 0;">
+            <span>📥 샘플_카드내역.xlsx 다운로드</span>
+          </a>
+          <span style="color:#64748b;">·</span>
+          <a href="/api/sample/ledger-transactions" download="샘플_거래내역.xlsx" class="button text compact" style="font-size:12px;text-decoration:underline;display:inline-flex;align-items:center;gap:4px;padding:2px 0;">
+            <span>📥 샘플_거래내역.xlsx 다운로드</span>
+          </a>
+        </div>
+      </div>
+
+      <div style="margin:12px 0;">
+        <label style="display:block;font-size:12px;margin-bottom:6px;">소유자 지정 (엑셀에 소유자 열이 없을 때 기본 적용)</label>
+        <select id="ledgerImportOwner" class="ledger-dialog-select" style="width:100%;padding:9px;border-radius:7px;">
+          <option value="아빠">아빠</option>
+          <option value="엄마">엄마</option>
+          <option value="자녀">자녀</option>
+          <option value="모두" selected>모두 (공통)</option>
+        </select>
+      </div>
+
+      <!-- 1. 엑셀 파일 업로드 영역 -->
+      <div class="ledger-upload-box" style="border-radius:10px;padding:20px;text-align:center;margin:14px 0;">
+        <span style="font-size:32px;display:block;margin-bottom:6px;">📂</span>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;" class="ledger-upload-title">엑셀(.xlsx, .xls) 또는 CSV 파일 선택</div>
+        <div style="font-size:11px;margin-bottom:12px;" class="ledger-upload-sub">카드사/은행 거래내역 원본 파일을 그대로 업로드할 수 있습니다.</div>
+        <input type="file" id="ledgerFileInput" accept=".xlsx, .xls, .csv" style="display:none;" onchange="handleLedgerFileSelect(this)" />
+        <button class="button primary compact" type="button" onclick="document.getElementById('ledgerFileInput').click()" style="padding:8px 18px;font-size:12.5px;">
+          파일 선택하기
+        </button>
+        <div id="ledgerSelectedFileName" style="margin-top:10px;font-size:12px;color:#38bdf8;font-weight:600;display:none;"></div>
+      </div>
+
+      <!-- 2. 간편 텍스트 붙여넣기 (접기/펼치기) -->
+      <details class="ledger-details-box" style="margin:12px 0;border-radius:8px;padding:8px 12px;">
+        <summary style="font-size:12px;cursor:pointer;font-weight:600;">또는 텍스트 직접 복사·붙여넣기로 가져오기</summary>
+        <div style="margin-top:10px;">
+          <textarea id="ledgerImportText" class="ledger-dialog-textarea" placeholder="예:&#10;2026-08-15 이마트 45000&#10;2026-08-16 스타벅스 6500&#10;2026-08-20 급여입금 5000000" rows="5" style="width:100%;box-sizing:border-box;border-radius:8px;padding:8px;font-family:monospace;font-size:12px;"></textarea>
+          <button class="button secondary compact" type="button" onclick="processLedgerTextImport()" style="margin-top:6px;width:100%;">
+            텍스트 내역 등록
+          </button>
+        </div>
+      </details>
+
+      <div class="dialog-actions" style="margin-top:14px;">
+        <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">닫기</button>
+        <button id="ledgerFileUploadBtn" class="button primary" type="button" onclick="uploadLedgerFile()" style="display:none;">
+          📂 엑셀 파일 등록하기
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+
+    <!-- 가족 구성원 관리 다이얼로그 -->
+    <dialog id="familyManagerDialog" class="dialog">
+      <div class="dialog-head">
+        <h2>가족 구성원 관리</h2>
+        <button value="cancel" class="close" aria-label="닫기">×</button>
+      </div>
+      <p class="dialog-description">구성원을 추가하거나 이름을 변경·삭제할 수 있습니다. "모두"는 항상 유지됩니다.</p>
+      <div id="familyMemberList" style="display:flex;flex-direction:column;gap:8px;margin:12px 0;min-height:60px;"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <input id="newMemberName" type="text" placeholder="새 구성원 이름" style="flex:1;" maxlength="20" />
+        <button id="addMemberBtn" class="button primary compact" type="button">추가</button>
+      </div>
+      <div class="dialog-actions">
+        <button class="button secondary" value="cancel" type="button">닫기</button>
+      </div>
+    </dialog>
+
+    <!-- 종목 가격 & 거래량 인터랙티브 차트 모달 -->
+    <dialog id="stockChartDialog" class="dialog" style="max-width:760px;width:95vw;">
+      <div class="dialog-head" style="flex-wrap:wrap;gap:8px;align-items:center;">
+        <div>
+          <h2 id="stockChartTitle" style="margin:0;font-size:18px;">종목 차트</h2>
+          <small id="stockChartCode" class="muted" style="font-size:12px;"></small>
+        </div>
+        <div class="heatmap-period-tabs compact-chart-tabs" id="stockChartPeriodTabs" style="margin-left:auto;margin-right:10px;">
+          <button type="button" class="heatmap-tab" data-period="1D">일간</button>
+          <button type="button" class="heatmap-tab" data-period="1W">주간</button>
+          <button type="button" class="heatmap-tab active" data-period="1M">월간</button>
+          <button type="button" class="heatmap-tab" data-period="1Y">연간</button>
+        </div>
+        <button value="cancel" class="close" aria-label="닫기">×</button>
+      </div>
+      <div id="stockChartPriceRow" style="padding:10px 24px 0;display:flex;align-items:baseline;gap:12px;">
+        <strong id="stockChartPrice" style="font-size:22px;"></strong>
+        <span id="stockChartChange" class="sub-rate" style="font-size:14px;"></span>
+      </div>
+      <div id="stockChartContainer" style="padding:12px 24px 20px;min-height:300px;"></div>
+    </dialog>
+
+    <!-- 공용 종목 검색 datalist -->
+    <datalist id="holdingCodeList"></datalist>
+    <datalist id="holdingNameList"></datalist>
+
+    <!-- 실제 배당금 기록 추가/수정 다이얼로그 -->
+    <dialog id="dividendRecordDialog" class="dialog" style="max-width:620px;width:95vw;">
+      <div class="dialog-head">
+        <h2 id="dividendDialogTitle">실제 배당금 추가</h2>
+        <button value="cancel" class="close" aria-label="닫기">×</button>
+      </div>
+      <form id="dividendRecordForm" onsubmit="return false;">
+        <div class="form-grid">
+          <label style="grid-column: 1 / -1;">
+            등록된 계좌 선택 (선택 시 증권사·계좌명·소유자 자동 채움)
+            <select id="dividendAccountSelect">
+              <option value="">-- 직접 입력 또는 등록된 계좌 선택 --</option>
+            </select>
+          </label>
+          <label id="divDateWrap">
+            입금일 (Date)
+            <div class="split-date-wrap" id="divSplitDateWrap">
+              <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" class="date-part date-part-year" id="divDateYear" placeholder="YYYY" aria-label="입금일 연도 4자리" autocomplete="off" title="마우스 휠로 연도 조절 가능" />
+              <span class="date-part-sep">-</span>
+              <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-month" id="divDateMonth" placeholder="MM" aria-label="입금일 월 2자리" autocomplete="off" title="마우스 휠로 월 조절 가능" />
+              <span class="date-part-sep">-</span>
+              <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-day" id="divDateDay" placeholder="DD" aria-label="입금일 일 2자리" autocomplete="off" title="마우스 휠로 일 조절 가능" />
+              <button type="button" class="date-picker-trigger" id="divDatePickerTrigger" title="달력에서 선택" aria-label="달력에서 날짜 선택">📅</button>
+              <input name="date" id="divNativeDate" type="date" required tabindex="-1" class="sr-only-picker" />
+            </div>
+          </label>
+          <label>
+            소유자
+            <select name="owner">
+              <option value="모두">모두</option>
+            </select>
+          </label>
+          <label>
+            증권사
+            <input name="broker" placeholder="예: 토스증권, 키움증권" />
+          </label>
+          <label>
+            계좌명
+            <input name="account_name" list="divAccountDatalist" placeholder="예: 종합계좌" autocomplete="off" />
+            <datalist id="divAccountDatalist"></datalist>
+          </label>
+          <label>
+            종목코드
+            <input name="code" list="holdingCodeList" placeholder="예: 005930 (종목명 입력 시 자동 완성)" autocomplete="off" />
+          </label>
+          <label>
+            종목명
+            <input name="name" list="holdingNameList" placeholder="예: 삼성전자, 현대차, NVDA" autocomplete="off" required />
+          </label>
+          <label>
+            통화
+            <select name="currency" id="divFormCurrency">
+              <option value="KRW">KRW (원화 ₩)</option>
+              <option value="USD">USD (달러 $)</option>
+            </select>
+          </label>
+          <label>
+            실제 배당금 (입금액)
+            <input name="amount" id="divFormAmount" type="number" step="any" min="0" placeholder="실제 수령 금액" required />
+          </label>
+          <label id="fxRateField" style="display:none;">
+            적용 환율 (USD/KRW)
+            <input name="fx_rate" id="divFormFxRate" type="number" step="0.1" min="0" placeholder="1385.0" />
+          </label>
+          <label id="amountKrwField" style="display:none;">
+            원화 환산금액 (₩)
+            <input name="amount_krw" id="divFormAmountKrw" type="number" step="any" readonly style="opacity:0.85;background:#131c33;" />
+          </label>
+          <label style="grid-column:1 / -1;">
+            메모 / 계좌
+            <input name="memo" placeholder="예: 토스증권 2분기 배당 입금" maxlength="60" />
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
+          <button id="dividendSaveBtn" class="button primary" type="button">저장하기</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 매도 실현손익 추가/수정 다이얼로그 -->
+    <dialog id="pnlRecordDialog" class="dialog" style="max-width:620px;width:95vw;">
+      <div class="dialog-head">
+        <h2 id="pnlDialogTitle">매도 실현손익 추가</h2>
+        <button value="cancel" class="close" aria-label="닫기">×</button>
+      </div>
+      <form id="pnlRecordForm" onsubmit="return false;">
+        <div class="form-grid">
+          <label style="grid-column: 1 / -1;">
+            자산 구분
+            <select name="asset_type" id="pnlAssetTypeSelect" onchange="togglePnlAssetTypeFields()">
+              <option value="stock" selected>📈 국내/해외 주식</option>
+              <option value="ipo">📦 공모주</option>
+            </select>
+          </label>
+          <label style="grid-column: 1 / -1;" id="pnlAccountSelectWrap">
+            등록된 계좌 선택 (선택 시 증권사·계좌명·소유자 자동 채움)
+            <select id="pnlAccountSelect">
+              <option value="">-- 직접 입력 또는 등록된 계좌 선택 --</option>
+            </select>
+          </label>
+          <label id="pnlDateWrap">
+            매도일 (Date)
+            <div class="split-date-wrap" id="pnlSplitDateWrap">
+              <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" class="date-part date-part-year" id="pnlDateYear" placeholder="YYYY" aria-label="매도일 연도 4자리" autocomplete="off" title="마우스 휠로 연도 조절 가능" />
+              <span class="date-part-sep">-</span>
+              <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-month" id="pnlDateMonth" placeholder="MM" aria-label="매도일 월 2자리" autocomplete="off" title="마우스 휠로 월 조절 가능" />
+              <span class="date-part-sep">-</span>
+              <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-day" id="pnlDateDay" placeholder="DD" aria-label="매도일 일 2자리" autocomplete="off" title="마우스 휠로 일 조절 가능" />
+              <button type="button" class="date-picker-trigger" id="pnlDatePickerTrigger" title="달력에서 선택" aria-label="달력에서 날짜 선택">📅</button>
+              <input name="date" id="pnlNativeDate" type="date" required tabindex="-1" class="sr-only-picker" />
+            </div>
+          </label>
+          <label>
+            소유자
+            <select name="owner">
+              <option value="모두">모두</option>
+            </select>
+          </label>
+          <label id="pnlBrokerWrap">
+            증권사
+            <input name="broker" placeholder="예: 토스증권, 키움증권" />
+          </label>
+          <label id="pnlAccountNameWrap">
+            계좌명
+            <input name="account_name" list="pnlAccountDatalist" placeholder="예: 종합계좌" autocomplete="off" />
+            <datalist id="pnlAccountDatalist"></datalist>
+          </label>
+          <label id="pnlCodeWrap">
+            종목코드
+            <input name="code" list="holdingCodeList" placeholder="예: 005930 (종목명 입력 시 자동 완성)" autocomplete="off" />
+          </label>
+          <label id="pnlNameWrap">
+            <span id="pnlNameLabelText">종목명</span>
+            <input name="name" list="holdingNameList" placeholder="예: 삼성전자, 현대차, NVDA" autocomplete="off" required />
+          </label>
+          <label id="pnlCurrencyWrap">
+            통화
+            <select name="currency" id="pnlFormCurrency">
+              <option value="KRW">KRW (원화 ₩)</option>
+              <option value="USD">USD (달러 $)</option>
+            </select>
+          </label>
+          <label>
+            실현손익 (+수익 / -손실)
+            <input name="pnl" id="pnlFormAmount" type="number" step="any" placeholder="예: 250000 또는 -50000" required />
+          </label>
+          <label id="pnlFxRateField" style="display:none;">
+            적용 환율 (USD/KRW)
+            <input name="fx_rate" id="pnlFormFxRate" type="number" step="0.1" min="0" placeholder="1385.0" />
+          </label>
+          <label id="pnlAmountKrwField" style="display:none;">
+            원화 환산손익 (₩)
+            <input name="pnl_krw" id="pnlFormAmountKrw" type="number" step="any" readonly style="opacity:0.85;background:#131c33;" />
+          </label>
+          <label id="pnlIpoWrap">
+            거래 유형 (공모주 여부)
+            <select name="is_ipo" id="pnlFormIsIpo">
+              <option value="false">일반 주식거래</option>
+              <option value="true">📦 공모주 청약/매매</option>
+            </select>
+          </label>
+          <label style="grid-column:1 / -1;">
+            메모
+            <input name="memo" placeholder="예: 목표가 달성 익절" maxlength="60" />
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
+          <button id="pnlSaveBtn" class="button primary" type="button">저장하기</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 매도 실현손익 엑셀 가져오기 다이얼로그 -->
+    <dialog id="pnlImportDialog" class="dialog" style="max-width:540px;width:95vw;">
+      <form id="pnlImportForm" method="dialog">
+        <div class="dialog-head">
+          <h2>매도 실현손익 파일 가져오기</h2>
+          <button value="cancel" class="close" aria-label="닫기">×</button>
+        </div>
+        <p class="dialog-description">
+          엑셀(.xlsx) 또는 CSV 파일로 매도 실현손익을 일괄 등록합니다.<br>
+          <strong>[소유자 / 증권사 / 계좌명 / 매도일 / 종목코드 / 종목명 / 통화 / 실현손익 / 환차손익 / 공모주 여부 / 메모]</strong>
+        </p>
+        <div style="margin:4px 0 12px;">
+          <a href="/api/sample/realized-pnl" download="샘플_매도실현손익.xlsx" class="button text compact" style="color:#f59e0b;font-size:12px;text-decoration:underline;">
+            📥 샘플_매도실현손익.xlsx 다운로드
+          </a>
+        </div>
+        <label>
+          파일 선택
+          <input id="pnlImportFileInput" name="file" type="file" accept=".csv,.xlsx" required />
+        </label>
+        <div class="dialog-actions">
+          <button class="button secondary" value="cancel" type="button">취소</button>
+          <button class="button primary" type="submit">가져오기</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 1) 최초 로그인/초기화 시 비밀번호 변경 강제 모달 -->
+    <dialog id="forcePasswordModal" class="dialog" style="position:fixed;inset:0;margin:auto;max-width:440px;width:92%;border:1px solid #7c65dc;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,0.4);z-index:99999;padding:24px;">
+      <form id="forcePasswordForm" onsubmit="handleForcePasswordSubmit(event); return false;">
+        <div class="dialog-head" style="margin-bottom:12px;">
+          <h2 style="color:#c4b5fd;font-size:18px;display:flex;align-items:center;gap:8px;margin:0;">⚠️ 초기 비밀번호 변경 필수</h2>
+        </div>
+        <p class="dialog-description" style="margin:0 0 16px;line-height:1.6;color:#c3cbea;font-size:13px;">
+          현재 <strong>초기 비밀번호 상태</strong>입니다.<br>
+          계정 보호를 위해 <strong>새로 사용할 비밀번호(4자 이상)</strong>를 설정해 주세요. 변경 완료 후 바로 시스템에 접속됩니다.
+        </p>
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <label style="display:block;">
+            <span style="display:block;font-size:12px;color:#91a0c1;margin-bottom:4px;">새 비밀번호</span>
+            <input id="forceNewPassword" type="password" placeholder="새 비밀번호 입력 (4자 이상)" required minlength="4" style="width:100%;box-sizing:border-box;" autofocus />
+          </label>
+          <label style="display:block;">
+            <span style="display:block;font-size:12px;color:#91a0c1;margin-bottom:4px;">새 비밀번호 확인</span>
+            <input id="forceNewPasswordConfirm" type="password" placeholder="비밀번호 한 번 더 입력" required minlength="4" style="width:100%;box-sizing:border-box;" />
+          </label>
+        </div>
+        <div class="dialog-actions" style="margin-top:22px;">
+          <button class="button primary" type="submit" style="width:100%;padding:12px;font-size:14.5px;font-weight:700;">비밀번호 변경 및 시작하기</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 2) 일반 사용자 비밀번호 변경 모달 -->
+    <dialog id="changePasswordModal" class="dialog" style="max-width:380px;">
+      <form id="changePasswordForm" method="dialog" onsubmit="handleChangePasswordSubmit(event)">
+        <div class="dialog-head">
+          <h2>🔑 비밀번호 변경</h2>
+          <button class="close" type="button" onclick="closeDialog('changePasswordModal')">×</button>
+        </div>
+        <div style="margin:16px 0;display:flex;flex-direction:column;gap:12px;">
+          <label>
+            현재 비밀번호
+            <input id="changeOldPassword" type="password" placeholder="현재 비밀번호 입력" required style="margin-top:4px;" />
+          </label>
+          <label>
+            새 비밀번호
+            <input id="changeNewPassword" type="password" placeholder="새 비밀번호 (4자 이상)" required minlength="4" style="margin-top:4px;" />
+          </label>
+          <label>
+            새 비밀번호 확인
+            <input id="changeNewPasswordConfirm" type="password" placeholder="새 비밀번호 확인" required minlength="4" style="margin-top:4px;" />
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button class="button secondary" type="button" onclick="closeDialog('changePasswordModal')">취소</button>
+          <button class="button primary" type="submit">변경 완료</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- 3) 관리자(Admin) 전용 사용자 관리 모달 -->
+    <dialog id="adminUsersModal" class="dialog" style="max-width:680px;width:95%;">
+      <div style="padding:22px;">
+        <div class="dialog-head" style="margin-bottom:16px;">
+          <h2 style="display:flex;align-items:center;gap:8px;">⚙️ 사용자 계정 관리 <span class="admin-desc" style="font-size:12px;font-weight:400;">(Admin)</span></h2>
+          <button class="close" type="button" onclick="closeDialog('adminUsersModal')">×</button>
+        </div>
+        
+        <!-- 신규 아이디 추가 영역 -->
+        <div class="admin-box admin-create-box" style="border-radius:10px;padding:14px 16px;margin-bottom:20px;">
+          <h3 class="admin-box-title" style="margin:0 0 10px;font-size:13.5px;font-weight:700;">➕ 새 사용자 아이디 추가</h3>
+          <form id="adminCreateUserForm" onsubmit="handleAdminCreateUser(event)" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+            <label class="admin-form-label" style="flex:1;min-width:140px;">
+              <span class="admin-label-text">아이디</span>
+              <input id="adminNewUsername" class="admin-input" type="text" placeholder="예: user2, family" required style="margin-top:4px;" />
+            </label>
+            <label class="admin-form-label" style="width:130px;">
+              <span class="admin-label-text">초기 비밀번호 (4자리)</span>
+              <input id="adminNewPassword" class="admin-input" type="password" placeholder="숫자/문자 4자리" maxlength="4" minlength="4" required style="margin-top:4px;" />
+            </label>
+            <button class="button primary compact" type="submit" style="height:37px;white-space:nowrap;">사용자 등록</button>
+          </form>
+          <small class="admin-help-text" style="display:block;margin-top:8px;font-size:11.5px;">* 생성된 사용자는 첫 로그인 시 새 비밀번호를 필수로 설정해야 합니다.</small>
+        </div>
+
+        <!-- 사용자 목록 테이블 -->
+        <h3 class="admin-table-title" style="margin:0 0 10px;font-size:13.5px;font-weight:700;">📋 등록된 사용자 목록</h3>
+        <div class="admin-table-wrap" style="overflow-x:auto;max-height:280px;border-radius:9px;">
+          <table class="admin-user-table" style="width:100%;border-collapse:collapse;font-size:12.5px;text-align:left;">
+            <thead>
+              <tr class="admin-thead-tr">
+                <th style="padding:9px 12px;">아이디</th>
+                <th style="padding:9px 12px;">권한</th>
+                <th style="padding:9px 12px;">상태</th>
+                <th style="padding:9px 12px;text-align:center;">관리</th>
+              </tr>
+            </thead>
+            <tbody id="adminUserListTbody">
+              <!-- JS에서 렌더링 -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="dialog-actions" style="margin-top:20px;">
+          <button class="button secondary" type="button" onclick="closeDialog('adminUsersModal')">닫기</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- 8. 증권사별 OpenAPI 연동 설정 모달 -->
+    <dialog id="userOpenApiModal" class="dialog" style="max-width:620px;width:92vw;">
+      <div class="dialog-head" style="margin-bottom:16px;border-bottom:1px solid var(--line, #263558);padding-bottom:12px;">
+        <div>
+          <h2 style="font-size:17px;margin:0;display:flex;align-items:center;gap:8px;">
+            ⚙️ 증권사 OpenAPI 설정
+          </h2>
+          <p class="dialog-description" style="margin:4px 0 0;font-size:12px;">
+            각 증권사에서 발급받은 AppKey/AppSecret을 등록하면 내 계좌만 안전하게 동기화됩니다.
+          </p>
+        </div>
+        <button type="button" class="close" data-close-dialog="userOpenApiModal" onclick="closeDialog('userOpenApiModal')" aria-label="닫기">✕</button>
+      </div>
+
+      <form id="userOpenApiForm" onsubmit="handleSaveUserOpenApi(event)" style="display:flex;flex-direction:column;gap:14px;padding:0;">
+        
+        <!-- 1. 토스증권 -->
+        <div class="openapi-broker-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-weight:700;color:#60a5fa;font-size:13.5px;display:flex;align-items:center;gap:6px;">
+              🟦 토스증권 (Toss)
+            </span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span id="openapiTossBadge" class="openapi-badge disconnected">확인 중...</span>
+              <button id="openapiTossDeleteBtn" type="button" class="button secondary compact" onclick="handleDeleteBrokerApi('toss')" style="display:none;font-size:11px;padding:2px 7px;border-radius:6px;color:#ff718c;border:1px solid rgba(255,113,140,0.3);background:rgba(255,113,140,0.08);cursor:pointer;" title="토스증권 연결 삭제">🗑️ 삭제</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">Client ID (App Key)</label>
+              <input id="openapiTossKey" class="openapi-input" type="text" placeholder="Client ID 입력" autocomplete="off" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">Client Secret</label>
+              <input id="openapiTossSecret" class="openapi-input" type="password" placeholder="Client Secret 입력" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. KB증권 -->
+        <div class="openapi-broker-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-weight:700;color:#facc15;font-size:13.5px;display:flex;align-items:center;gap:6px;">
+              🟨 KB증권
+            </span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span id="openapiKbBadge" class="openapi-badge disconnected">확인 중...</span>
+              <button id="openapiKbDeleteBtn" type="button" class="button secondary compact" onclick="handleDeleteBrokerApi('kb')" style="display:none;font-size:11px;padding:2px 7px;border-radius:6px;color:#ff718c;border:1px solid rgba(255,113,140,0.3);background:rgba(255,113,140,0.08);cursor:pointer;" title="KB증권 연결 삭제">🗑️ 삭제</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">App Key</label>
+              <input id="openapiKbKey" class="openapi-input" type="text" placeholder="KB App Key 입력" autocomplete="off" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">App Secret</label>
+              <input id="openapiKbSecret" class="openapi-input" type="password" placeholder="KB App Secret 입력" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. NH투자증권 (나무) -->
+        <div class="openapi-broker-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-weight:700;color:#4ade80;font-size:13.5px;display:flex;align-items:center;gap:6px;">
+              🟩 NH투자증권 (나무)
+            </span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span id="openapiNhBadge" class="openapi-badge disconnected">확인 중...</span>
+              <button id="openapiNhDeleteBtn" type="button" class="button secondary compact" onclick="handleDeleteBrokerApi('nh')" style="display:none;font-size:11px;padding:2px 7px;border-radius:6px;color:#ff718c;border:1px solid rgba(255,113,140,0.3);background:rgba(255,113,140,0.08);cursor:pointer;" title="나무증권 연결 삭제">🗑️ 삭제</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">App Key</label>
+              <input id="openapiNhKey" class="openapi-input" type="text" placeholder="나무 App Key 입력" autocomplete="off" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">App Secret</label>
+              <input id="openapiNhSecret" class="openapi-input" type="password" placeholder="나무 App Secret 입력" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. 한국투자증권 (KIS) -->
+        <div class="openapi-broker-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-weight:700;color:#f97316;font-size:13.5px;display:flex;align-items:center;gap:6px;">
+              🟧 한국투자증권 (KIS)
+            </span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span id="openapiKisBadge" class="openapi-badge disconnected">확인 중...</span>
+              <button id="openapiKisDeleteBtn" type="button" class="button secondary compact" onclick="handleDeleteBrokerApi('kis')" style="display:none;font-size:11px;padding:2px 7px;border-radius:6px;color:#ff718c;border:1px solid rgba(255,113,140,0.3);background:rgba(255,113,140,0.08);cursor:pointer;" title="한국투자증권 연결 삭제">🗑️ 삭제</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">App Key</label>
+              <input id="openapiKisKey" class="openapi-input" type="text" placeholder="한투 App Key 입력" autocomplete="off" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">App Secret</label>
+              <input id="openapiKisSecret" class="openapi-input" type="password" placeholder="한투 App Secret 입력" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+          </div>
+          <div>
+            <label class="openapi-label" style="display:block;margin-bottom:4px;">계좌번호 (CANO 8자리 또는 8자리-01)</label>
+            <input id="openapiKisAccountNo" class="openapi-input" type="text" placeholder="예: 12345678-01 또는 12345678" autocomplete="off" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+          </div>
+        </div>
+
+        <!-- 5. 키움증권 (Kiwoom) -->
+        <div class="openapi-broker-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-weight:700;color:#c084fc;font-size:13.5px;display:flex;align-items:center;gap:6px;">
+              🟪 키움증권 (Kiwoom)
+            </span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span id="openapiKiwoomBadge" class="openapi-badge disconnected">확인 중...</span>
+              <button id="openapiKiwoomDeleteBtn" type="button" class="button secondary compact" onclick="handleDeleteBrokerApi('kiwoom')" style="display:none;font-size:11px;padding:2px 7px;border-radius:6px;color:#ff718c;border:1px solid rgba(255,113,140,0.3);background:rgba(255,113,140,0.08);cursor:pointer;" title="키움증권 연결 삭제">🗑️ 삭제</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">App Key</label>
+              <input id="openapiKiwoomKey" class="openapi-input" type="text" placeholder="키움 App Key 입력" autocomplete="off" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">App Secret</label>
+              <input id="openapiKiwoomSecret" class="openapi-input" type="password" placeholder="키움 App Secret 입력" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+          </div>
+          <div>
+            <label class="openapi-label" style="display:block;margin-bottom:4px;">계좌번호 (8자리 또는 8자리-01)</label>
+            <input id="openapiKiwoomAccountNo" class="openapi-input" type="text" placeholder="예: 12345678-01 또는 12345678" autocomplete="off" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+          </div>
+        </div>
+
+        <div class="openapi-info-box" style="border-radius:8px;padding:10px 12px;font-size:11.5px;line-height:1.5;">
+          💡 <strong>안내</strong>: 이미 등록된 인증키는 마스킹(<code>****</code>)되어 표시되며, 변경하지 않고 비워두면 기존 키가 안전하게 보존됩니다.
+        </div>
+
+        <div id="openapiStatusMsg" style="display:none;font-size:12px;padding:8px 12px;border-radius:6px;"></div>
+
+        <div class="dialog-actions" style="margin-top:4px;display:flex;justify-content:flex-end;gap:8px;">
+          <button class="button secondary" type="button" data-close-dialog="userOpenApiModal" onclick="closeDialog('userOpenApiModal')">취소</button>
+          <button id="saveUserOpenApiBtn" class="button primary" type="submit">💾 설정 저장</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/static/wealth.js?v=20260907-v5552"></script>
+  </body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

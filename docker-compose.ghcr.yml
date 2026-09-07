@@ -1,0 +1,4 @@
+services:
+  dashboard:
+    image: ghcr.io/sagesaint84/wealth:latest
+    container_name: wealth

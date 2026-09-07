@@ -1,0 +1,5693 @@
+.market-card{display:flex;justify-content:space-between;gap:10px}.market-copy{position:relative;z-index:1;min-width:0}.spark-wrap{width:112px;align-self:flex-end;margin-bottom:2px}.sparkline{display:block;width:100%;height:48px;overflow:visible}.spark-empty{display:block;text-align:right;color:var(--muted);padding-top:24px}.market-card small{white-space:nowrap}.market-card strong{white-space:nowrap}
+
+/* 상단 2열 통합 레이아웃: 핵심 요약 + 투자자산 분류 단일 패널 */
+.overview-panel .overview-body-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: stretch;
+  margin-top: 14px;
+}
+
+.overview-summary-col {
+  min-width: 0;
+}
+
+.overview-alloc-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 960px) {
+  .overview-panel .overview-body-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+}
+
+/* ── 주요 섹션 카드 패널 간 일관된 여백 (16px) ── */
+.records-panel,
+.heatmap-panel,
+.dividend-panel,
+.pnl-panel,
+.market-panel,
+#accountsPanel,
+.holdings-panel {
+  margin-top: 16px !important;
+}
+
+.summary-item-list {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  flex: 1;
+  margin-top: 8px;
+}
+
+/* 핵심 요약 행 줄 맞춤 (5개 행 완벽한 수직 수평 정렬) */
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid #1c2742;
+  border-radius: 6px;
+  gap: 12px;
+  box-sizing: border-box;
+}
+
+.summary-row:last-child {
+  border-bottom: none;
+}
+
+.summary-row.featured {
+  background: linear-gradient(90deg, rgba(124, 101, 220, 0.18), transparent);
+  border-bottom: 1px solid #362973;
+  padding: 10px 12px;
+}
+
+.summary-row-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 140px;
+  flex-shrink: 0;
+}
+
+.summary-row-label strong {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #e4e9f7;
+  white-space: nowrap;
+}
+
+.card-icon.mini {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 6px;
+  background: #a687ff22;
+  color: #bdaeff;
+  font-weight: 800;
+  font-size: 13px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.summary-row-val {
+  text-align: right;
+  flex: 1;
+  min-width: 0;
+}
+
+.summary-row-val .val-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.summary-row-val .val-line.stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.summary-row-val .val-line.stacked .sub-rate {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.summary-row-val strong {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f3f5ff;
+}
+
+.summary-row.featured strong.value-highlight {
+  font-size: 18px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.summary-row-val .sub-rate {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.summary-row-val .cash-badge-inline {
+  font-size: 11px;
+  font-weight: 600;
+  color: #c4b5fd;
+}
+
+.summary-row-val small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.overview-right .classification-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.dashboard-grid.single-panel {
+  grid-template-columns: 1fr;
+}
+
+.dashboard-grid.single-panel .account-panel {
+  grid-column: 1 / -1;
+}
+
+.account-subrow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 10px 12px 10px 20px; border-bottom: 1px solid #1c2742; }
+.account-subrow:last-child { border-bottom: none; }
+.account-subrow-info { min-width: 0; }
+.account-subrow-info .account-name { display: block; font-weight: 600; color: #e4e9f7; font-size: 13px; }
+.account-subrow-detail { display: block; color: #8fa0c5; font-size: 11px; margin-top: 3px; }
+.account-group-cash { display: block; font-size: 12px; font-weight: 600; color: #38bdf8; margin-top: 4px; }
+.account-actions { display: flex; gap: 4px; align-items: center; }
+.account-actions .icon-button { font-size: 13px; padding: 2px 4px; border-radius: 4px; transition: background 0.15s; }
+.account-actions .icon-button:hover { background: #1f2c4d; }
+.account-cash-button { color: #38bdf8; }
+
+/* 수치 증가: 붉은색(Red), 수치 감소: 파란색(Blue) */
+.up,
+.gain,
+.pnl-gain-val {
+  color: #f43f5e !important;
+}
+
+.down,
+.loss,
+.pnl-loss-val {
+  color: #38bdf8 !important;
+}
+
+#summaryRealizedPnl.gain,
+#summaryRealizedPnl.up {
+  color: #f43f5e !important;
+}
+
+#summaryRealizedPnl.loss,
+#summaryRealizedPnl.down {
+  color: #38bdf8 !important;
+}
+
+/* =========================================================================
+   히트맵 (Heatmap) 공통 스타일
+   ========================================================================= */
+.heatmap-panel {
+  margin-top: 14px;
+}
+
+.heatmap-head {
+  margin-bottom: 12px;
+}
+
+.heatmap-container {
+  position: relative;
+  width: 100%;
+  min-height: 420px;
+  background: #090e1d;
+  border: 1px solid #1f2b48;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.heatmap-tile {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid rgba(13, 19, 38, 0.85);
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.1s ease, filter 0.12s ease, z-index 0.1s ease, border-color 0.12s ease;
+  user-select: none;
+}
+
+.heatmap-tile:hover {
+  filter: brightness(1.22);
+  z-index: 20;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.7);
+  border-color: rgba(255, 255, 255, 0.65);
+}
+
+.heatmap-tile-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 3px 4px;
+  text-align: center;
+  box-sizing: border-box;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+}
+
+.tile-name {
+  display: block;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.tile-name.med {
+  font-size: 11px;
+}
+
+.tile-name.small {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.tile-rate {
+  display: block;
+  font-weight: 800;
+  font-size: 12px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.tile-rate.med {
+  font-size: 10.5px;
+}
+
+.tile-rate.small {
+  font-size: 9.5px;
+}
+
+.tile-tiny-dot {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.heatmap-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0 4px;
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-bar {
+  width: 190px;
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #2076f5 0%, #34415c 50%, #e13044 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.legend-cap {
+  font-size: 11px;
+  font-weight: 700;
+  color: #aebcdb;
+}
+
+.legend-text {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 6px;
+}
+
+.heatmap-tip-note {
+  font-size: 11px;
+  color: #7b8cae;
+}
+
+/* Floating Tooltip */
+.heatmap-tooltip {
+  position: fixed;
+  z-index: 9999;
+  background: #111a33;
+  border: 1px solid #36486e;
+  border-radius: 9px;
+  padding: 10px 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  font-size: 12px;
+  color: #f0f3fc;
+  min-width: 180px;
+  transform: translate(-50%, -100%);
+  margin-top: -12px;
+}
+
+.heatmap-tooltip-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px solid #233454;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+
+.heatmap-tooltip-title strong {
+  font-size: 13px;
+  color: #fff;
+}
+
+.heatmap-tooltip-title span {
+  font-size: 11px;
+  color: #8da1c7;
+}
+
+.heatmap-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  line-height: 1.55;
+  font-size: 11.5px;
+}
+
+.heatmap-tooltip-row .label {
+  color: var(--muted);
+}
+
+.heatmap-tooltip-row .val {
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .overview-layout {
+    grid-template-columns: 1fr;
+  }
+  .heatmap-container {
+    min-height: 360px;
+  }
+}
+
+/* =========================================================================
+   주요 지수 (Toss App 스타일: 좌측 차트 + 우측 수치/변동률)
+   ========================================================================= */
+.market-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+
+@media (max-width: 1300px) {
+  .market-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .market-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .market-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .toss-market-card {
+    padding: 8px 10px !important;
+    gap: 6px !important;
+  }
+  .market-chart-col {
+    width: 68px !important;
+    height: 40px !important;
+  }
+  .market-title {
+    font-size: 13px !important;
+  }
+  .market-price {
+    font-size: 14px !important;
+  }
+  .market-change {
+    font-size: 11px !important;
+  }
+}
+
+/* 주요지수, 자산기록, 히트맵, 종목차트 기간 탭 축소 스타일 */
+.compact-market-tabs,
+.compact-record-tabs,
+.compact-heatmap-tabs,
+.compact-chart-tabs {
+  display: inline-flex !important;
+  gap: 3px !important;
+  padding: 2px 3px !important;
+  background: rgba(14, 22, 45, 0.75) !important;
+  border-radius: 8px !important;
+}
+
+.compact-market-tabs .heatmap-tab,
+.compact-record-tabs .heatmap-tab,
+.compact-heatmap-tabs .heatmap-tab,
+.compact-chart-tabs .heatmap-tab {
+  padding: 3px 8px !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  min-height: 24px !important;
+  border-radius: 6px !important;
+  letter-spacing: -0.2px !important;
+}
+
+.toss-market-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #111a33;
+  border: 1px solid #1f2b48;
+  border-radius: 10px;
+  padding: 8px 10px;
+  transition: transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  overflow: hidden;
+}
+
+.toss-market-card:hover {
+  transform: translateY(-2px);
+  border-color: #354770;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.market-chart-col {
+  width: 96px;
+  height: 48px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.market-chart-col .sparkline {
+  display: block;
+  width: 100%;
+  height: 44px;
+  overflow: visible;
+}
+
+.market-info-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+
+.market-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f0f3fc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
+}
+
+.market-price {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+  line-height: 1.25;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.market-change-point {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.market-change-rate {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* =========================================================================
+   상단바 (Topbar) 반응형 및 모바일/태블릿 최적화 (글자 끊김/어색한 줄바꿈 방지)
+   ========================================================================= */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  border-bottom: 1px solid #1c2848;
+  padding-bottom: 18px;
+}
+
+.topbar-brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.title {
+  min-width: 0;
+}
+
+.title h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  white-space: nowrap;
+  word-break: keep-all;
+}
+
+.title p {
+  white-space: nowrap;
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.top-actions .button,
+.button {
+  white-space: nowrap;
+  word-break: keep-all;
+  flex-shrink: 0;
+}
+
+/* 태블릿 / 가로형 폰 / 폴더블폰 중간 가로폭 (1080px 이하) 대응 */
+@media (max-width: 1080px) {
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .topbar-brand-wrap {
+    justify-content: flex-start;
+  }
+  .top-actions {
+    margin-left: 0;
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .top-actions .button {
+    flex: 1 1 auto;
+    min-width: 68px;
+    text-align: center;
+    padding: 9px 10px;
+    font-size: 12px;
+  }
+}
+
+/* 소형 모바일 (540px 이하) 대응 */
+@media (max-width: 540px) {
+  .topbar-brand-wrap {
+    gap: 10px;
+  }
+  .brand {
+    width: 38px;
+    height: 38px;
+    font-size: 19px;
+  }
+  .title h1 {
+    font-size: 17px;
+  }
+  .topbar-actions,
+  .top-actions {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    gap: 4px !important;
+    width: 100% !important;
+    align-items: center !important;
+    overflow-x: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+  .topbar-actions::-webkit-scrollbar,
+  .top-actions::-webkit-scrollbar {
+    display: none !important;
+  }
+  .topbar-actions .button,
+  .top-actions .button,
+  .topbar-actions a.button,
+  .top-actions a.button {
+    flex: 0 0 auto !important;
+    min-width: unset !important;
+    height: 26px !important;
+    min-height: 26px !important;
+    padding: 0 6px !important;
+    font-size: 10.5px !important;
+    border-radius: 6px !important;
+    gap: 3px !important;
+    white-space: nowrap !important;
+  }
+  .user-pill {
+    height: 26px !important;
+    min-height: 26px !important;
+    padding: 0 6px !important;
+    font-size: 10.5px !important;
+    border-radius: 6px !important;
+    gap: 3px !important;
+    flex: 0 0 auto !important;
+    white-space: nowrap !important;
+  }
+}
+
+/* =========================================================================
+   히트맵 기간 선택 (1D, 1W, 1M, YTD, 1Y, TOTAL) & % 색상 테마 스타일
+   ========================================================================= */
+.heatmap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.heatmap-controls-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.heatmap-period-tabs {
+  display: inline-flex;
+  background: #111a33;
+  border: 1px solid #27365c;
+  border-radius: 9px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.heatmap-tab {
+  background: transparent;
+  border: 0;
+  color: #92a2c9;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  white-space: nowrap;
+}
+
+.heatmap-tab:hover {
+  color: #ffffff;
+  background: #1c294d;
+}
+
+.heatmap-tab.active {
+  background: linear-gradient(135deg, #7c58f0, #5431d1);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(118, 83, 235, 0.4);
+}
+
+.heatmap-theme-picker select {
+  background: #111a33;
+  color: #d8e2ff;
+  border: 1px solid #27365c;
+  border-radius: 8px;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.16s ease;
+}
+
+.heatmap-theme-picker select:hover,
+.heatmap-theme-picker select:focus {
+  border-color: #7957e8;
+}
+
+/* 동적 범례 바 스타일 */
+.legend-bar.theme-kr {
+  background: linear-gradient(90deg, #2563eb, #1e2638 50%, #ff3355);
+}
+
+.legend-bar.theme-us {
+  background: linear-gradient(90deg, #ef4444, #1e2638 50%, #10b981);
+}
+
+.legend-bar.theme-neon {
+  background: linear-gradient(90deg, #06b6d4, #1e2638 50%, #a855f7);
+}
+
+/* 모바일 화면 대응 */
+@media (max-width: 768px) {
+  .heatmap-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .heatmap-controls-row {
+    justify-content: space-between;
+    width: 100%;
+  }
+  .heatmap-period-tabs {
+    flex: 1 1 auto;
+    overflow-x: auto;
+  }
+  .heatmap-tab {
+    flex: 1 1 auto;
+    padding: 6px 7px;
+    font-size: 11px;
+  }
+  .heatmap-theme-picker select {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+}
+
+.heatmap-selects-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.heatmap-select {
+  background: #111a33;
+  color: #d8e2ff;
+  border: 1px solid #27365c;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.16s ease;
+}
+
+.heatmap-select:hover,
+.heatmap-select:focus {
+  border-color: #7957e8;
+}
+
+/* ── 가족 탭 (모두 / 아빠 / 엄마 / 자녀) ──────────────────────────────── */
+.family-tabs {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.family-tab {
+  background: #111a33;
+  color: #98a6c8;
+  border: 1px solid #27365c;
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.family-tab:hover {
+  background: #1c2d55;
+  color: #d8e2ff;
+  border-color: #4f6dab;
+}
+
+.family-tab.active {
+  background: #7957e8;
+  color: #fff;
+  border-color: #7957e8;
+}
+
+/* ── 가족 구성원 관리 행 ──────────────────────────────────────────────────── */
+.family-member-row input {
+  background: #111a33;
+  color: #d8e2ff;
+  border: 1px solid #27365c;
+  border-radius: 6px;
+  padding: 5px 10px;
+}
+.family-member-row input:focus {
+  border-color: #7957e8;
+  outline: none;
+}
+
+/* ── 주요지수 & 핵심요약 가족 탭 / 기간 탭 레이아웃 ──────────────────────── */
+.market-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.market-head #marketPeriodTabs,
+.summary-panel .topbar-family-tabs {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.topbar-family-tabs .family-tab {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 7px;
+  text-align: center;
+}
+
+/* 모바일 좁은 화면 (600px 이하) 대응 */
+@media (max-width: 600px) {
+  .market-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .market-head #marketPeriodTabs,
+  .summary-panel .topbar-family-tabs {
+    margin-left: 0;
+    width: 100%;
+    display: flex;
+    justify-content: stretch;
+  }
+  .summary-panel .topbar-family-tabs .family-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 7px 4px;
+    font-size: 12px;
+    text-align: center;
+  }
+  .market-head .toolbar {
+    margin-left: 0 !important;
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+/* ── 하단 액션 버튼 – secondary + danger 조합 ──────────────────────────────── */
+.button.secondary.danger {
+  color: var(--color-danger, #e53e3e);
+  border-color: var(--color-danger, #e53e3e);
+}
+.button.secondary.danger:hover {
+  background: var(--color-danger, #e53e3e);
+  color: #fff;
+  border-color: var(--color-danger, #e53e3e);
+}
+
+/* ── 컴팩트 액션 버튼 – 글자 크기 축소 및 단정한 패딩 & 크기 통일 (11.5px / 높이 31px) ───────────── */
+.button.compact,
+.toolbar .button,
+.panel-head .button.compact,
+.topbar-actions .button,
+.topbar-actions a.button,
+.top-actions .button.compact,
+.top-actions a.button {
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  height: 31px !important;
+  min-height: 31px !important;
+  padding: 0 10px !important;
+  border-radius: 8px !important;
+  line-height: 1 !important;
+  display: inline-flex;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
+
+[style*="display:none"],
+[style*="display: none"],
+[hidden],
+.is-hidden {
+  display: none !important;
+}
+
+.user-pill {
+  height: 31px !important;
+  min-height: 31px !important;
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 0 10px !important;
+  border-radius: 8px !important;
+  font-size: 11.5px !important;
+}
+
+/* ── 탭 버튼 규격 표준화 (높이 29px, 글자 11.5px, 둥글기 7px) ───────────── */
+.family-tab,
+.heatmap-tab,
+.account-cat-tab {
+  height: 29px !important;
+  min-height: 29px !important;
+  padding: 0 9px !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  border-radius: 7px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
+
+/* ── 섹션 헤더 타이틀 및 접기 버튼 통일감 ──────────────────────────── */
+.panel-head h2 {
+  font-size: 20px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: -0.4px;
+  margin: 0;
+}
+
+.section-collapse-btn {
+  font-size: 10.5px !important;
+  padding: 2px 6px !important;
+  border-radius: 6px !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #94a3b8 !important;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.2 !important;
+}
+.section-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: #f8fafc !important;
+}
+
+/* ── 요약 통계 카드 공통 오버플로우 방지 ───────────────────────────── */
+.saving-stat-card,
+.div-summary-card {
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* ── 모바일 환경 (좁은 넓이 <= 600px) 헤더 및 여백 최적화 ──────────── */
+@media (max-width: 600px) {
+  .shell {
+    padding: 14px 10px 36px !important;
+  }
+  .panel {
+    padding: 15px 12px !important;
+  }
+  .panel-head {
+    gap: 10px !important;
+  }
+  .panel-head h2 {
+    font-size: 17.5px;
+  }
+  .panel-head .eyebrow {
+    font-size: 9px;
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+  }
+  .panel-head .toolbar {
+    margin-left: 0 !important;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  /* 모바일 최상단 버튼 한 행(Single Row) 정렬 및 크기 축소 */
+  .topbar-actions,
+  .top-actions {
+    margin-left: 0 !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    gap: 4px !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    overflow-x: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+    padding-bottom: 2px;
+  }
+  .topbar-actions::-webkit-scrollbar,
+  .top-actions::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .topbar-actions .button,
+  .top-actions .button,
+  .topbar-actions a.button,
+  .top-actions a.button {
+    flex: 0 0 auto !important;
+    min-width: unset !important;
+    height: 26px !important;
+    min-height: 26px !important;
+    padding: 0 6px !important;
+    font-size: 10.5px !important;
+    border-radius: 6px !important;
+    gap: 3px !important;
+    white-space: nowrap !important;
+  }
+
+  .user-pill {
+    height: 26px !important;
+    min-height: 26px !important;
+    padding: 0 6px !important;
+    font-size: 10.5px !important;
+    border-radius: 6px !important;
+    gap: 3px !important;
+    flex: 0 0 auto !important;
+    white-space: nowrap !important;
+  }
+}
+
+/* =========================================================================
+   추가 기능 스타일 (테이블 정렬, 섹터 도넛, 자산기록 콤보/월별, 종목 차트)
+   ========================================================================= */
+
+/* 1. 테이블 컬럼 정렬 */
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.sortable-th:hover {
+  color: #c4b5fd !important;
+  background-color: rgba(142, 112, 250, 0.08);
+}
+.sort-icon {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  color: #7182a6;
+}
+.sortable-th.sort-asc .sort-icon {
+  color: #8e70fa;
+}
+.sortable-th.sort-asc .sort-icon::after {
+  content: "▲";
+}
+.sortable-th.sort-desc .sort-icon {
+  color: #8e70fa;
+}
+.sortable-th.sort-desc .sort-icon::after {
+  content: "▼";
+}
+
+/* 2. 섹터 뱃지 */
+.sector-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(142, 112, 250, 0.14);
+  color: #c4b5fd;
+  border: 1px solid rgba(142, 112, 250, 0.28);
+  white-space: nowrap;
+}
+
+/* 3. 종목 상세 차트 버튼 */
+.stock-chart-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #192545;
+  color: #8fa0c5;
+  border: 1px solid #2a3c66;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.stock-chart-btn:hover {
+  background: #8e70fa;
+  color: #fff;
+  border-color: #8e70fa;
+  transform: translateY(-1px);
+}
+.holding-name-link {
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.holding-name-link:hover {
+  color: #8e70fa;
+  text-decoration: underline;
+}
+
+/* 4. 섹터 도넛 차트 컨테이너 & 범례 */
+.sector-donut-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 10px 14px;
+  background: #090e1d;
+  border: 1px solid #1a2542;
+  border-radius: 10px;
+}
+.sector-donut-svg-wrap {
+  width: 130px;
+  height: 130px;
+  flex-shrink: 0;
+  position: relative;
+}
+.sector-donut-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.sector-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 150px;
+  max-height: 130px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.sector-legend-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  gap: 8px;
+}
+.sector-legend-color {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* 섹터별/자산군별 상세 세로 목록 및 스크롤바 */
+.overview-alloc-col .classification-list,
+.classification-panel .classification-list.sector-mode,
+.classification-list.sector-mode,
+#classificationList {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1;
+  min-height: 0;
+  max-height: 460px;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding-right: 6px;
+  margin-top: 10px;
+  gap: 0;
+}
+.overview-alloc-col .classification-list .classification-row,
+.classification-panel .classification-list.sector-mode .classification-row,
+.classification-list.sector-mode .classification-row,
+#classificationList .classification-row {
+  display: block !important;
+  width: 100% !important;
+  padding: 8px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.classification-row.clickable-sector-row,
+.sector-legend-item.clickable-sector-item {
+  cursor: pointer !important;
+  transition: all 0.15s ease-in-out;
+  border-radius: 6px;
+}
+.classification-row.clickable-sector-row:hover {
+  background: rgba(142, 112, 250, 0.14) !important;
+  padding-left: 10px !important;
+}
+.sector-legend-item.clickable-sector-item {
+  padding: 2px 4px;
+}
+.sector-legend-item.clickable-sector-item:hover {
+  background: rgba(142, 112, 250, 0.14) !important;
+  border-radius: 4px;
+}
+.clickable-sector-slice {
+  cursor: pointer;
+  transition: opacity 0.15s ease, stroke-width 0.15s ease;
+}
+.clickable-sector-slice:hover {
+  stroke-width: 28px !important;
+  filter: brightness(1.2);
+}
+
+/* 검색창 하이라이트 펄스 애니메이션 */
+@keyframes searchInputPulse {
+  0% { box-shadow: 0 0 0 0 rgba(142, 112, 250, 0.8); border-color: #a78bfa; }
+  50% { box-shadow: 0 0 0 8px rgba(142, 112, 250, 0.35); border-color: #c084fc; }
+  100% { box-shadow: 0 0 0 0 rgba(142, 112, 250, 0); border-color: #30405f; }
+}
+.search-pulse {
+  animation: searchInputPulse 1.2s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.overview-alloc-col .classification-list .classification-row:last-child,
+.classification-list.sector-mode .classification-row:last-child,
+#classificationList .classification-row:last-child {
+  border-bottom: none;
+}
+.overview-alloc-col .classification-list::-webkit-scrollbar,
+.classification-panel .classification-list.sector-mode::-webkit-scrollbar,
+.classification-list.sector-mode::-webkit-scrollbar,
+#classificationList::-webkit-scrollbar,
+.sector-legend-list::-webkit-scrollbar {
+  width: 5px;
+}
+.overview-alloc-col .classification-list::-webkit-scrollbar-thumb,
+.classification-panel .classification-list.sector-mode::-webkit-scrollbar-thumb,
+.classification-list.sector-mode::-webkit-scrollbar-thumb,
+#classificationList::-webkit-scrollbar-thumb,
+.sector-legend-list::-webkit-scrollbar-thumb {
+  background: rgba(142, 112, 250, 0.35);
+  border-radius: 4px;
+}
+.overview-alloc-col .classification-list::-webkit-scrollbar-thumb:hover,
+.classification-panel .classification-list.sector-mode::-webkit-scrollbar-thumb:hover,
+.classification-list.sector-mode::-webkit-scrollbar-thumb:hover,
+#classificationList::-webkit-scrollbar-thumb:hover,
+.sector-legend-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(142, 112, 250, 0.65);
+}
+
+/* 5. 자산기록 월별 막대 차트 뷰 */
+.monthly-records-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  padding: 10px;
+}
+.monthly-bar-card {
+  background: #090e1d;
+  border: 1px solid #1a2542;
+  border-radius: 8px;
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.monthly-bar-card .month-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #aebbd7;
+}
+.monthly-bar-card .month-val {
+  font-size: 13px;
+  font-weight: 800;
+  color: #f3f5ff;
+}
+.monthly-bar-card .month-delta {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* 6. 히트맵 카드형 뷰 스타일 (와이드 카드) */
+.heatmap-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+  padding: 10px 4px;
+}
+.heatmap-card-item {
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 74px;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.15s ease;
+}
+.heatmap-card-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* 7. 계좌 목록 액션 버튼 (다크 테마 일체화) */
+.account-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-action-button,
+.mini-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  background: #141d33;
+  border: 1px solid #273656;
+  color: #c4d1eb;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.account-action-button:hover {
+  background: #25355e;
+  border-color: #38bdf8;
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+.mini-delete-button:hover {
+  background: rgba(255, 92, 119, 0.2);
+  border-color: #ff5c77;
+  color: #ff5c77;
+  transform: translateY(-1px);
+}
+
+/* 8. 월별 자산 막대그래프 인터랙션 */
+.monthly-bar-group:hover rect {
+  opacity: 1;
+  filter: brightness(1.25) drop-shadow(0 4px 12px rgba(56, 189, 248, 0.5));
+}
+
+/* 9. 계좌 통합 현황 (스크롤 & 증권사 그룹 간격 & 세부계좌 들여쓰기) */
+#accountList.account-list {
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 6px;
+  margin-top: 14px;
+}
+
+#accountList.account-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+#accountList.account-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+}
+
+#accountList.account-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.65);
+}
+
+#accountList.account-list::-webkit-scrollbar-track {
+  background: rgba(13, 21, 39, 0.5);
+  border-radius: 4px;
+}
+
+.broker-group {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: #0d1527;
+  border: 1px solid #1f2c4d;
+  border-radius: 10px;
+}
+
+.broker-group:last-child {
+  margin-bottom: 0;
+}
+
+.broker-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #1e2c4d;
+}
+
+.broker-head strong {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.broker-head span {
+  font-size: 12px;
+  color: #788bab;
+  background: #162038;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid #233454;
+}
+
+.broker-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 14px;
+  border-left: 2.5px solid #28375c;
+  margin-left: 6px;
+}
+
+.account-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #111a33;
+  border: 1px solid #1f2b48;
+  border-radius: 9px;
+  margin-bottom: 8px;
+  gap: 12px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.account-row:hover {
+  background: #152244;
+  border-color: #384d7a;
+}
+
+.account-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.account-row-info strong,
+.account-name-text {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f1f4fb;
+  word-break: keep-all;
+}
+
+.account-row-info span {
+  font-size: 12px;
+  color: #8da0c7;
+}
+
+.account-row-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: 14px;
+  flex-shrink: 0;
+}
+
+.account-row-values {
+  text-align: right;
+  min-width: 110px;
+}
+
+.account-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+/* 모바일 좁은 화면 (<= 640px) 증권 계좌 카드 반응형: 세로 글자 줄바꿈 원천 차단 및 깔끔한 상하 분할 */
+@media (max-width: 640px) {
+  .broker-accounts {
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+    border-left: none !important;
+  }
+  .account-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    padding: 12px 10px !important;
+  }
+  .account-row-info {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .account-name-text {
+    font-size: 13.5px !important;
+    white-space: normal !important;
+    word-break: keep-all !important;
+  }
+  .account-row-right {
+    width: 100% !important;
+    margin-left: 0 !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding-top: 8px !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.07) !important;
+  }
+  .account-row-values {
+    min-width: 0 !important;
+    text-align: left !important;
+  }
+  .account-row-values strong {
+    font-size: 14px !important;
+  }
+  .account-row-actions {
+    flex-shrink: 0 !important;
+  }
+}
+
+/* 10. 배당 현황 & 월별 캘린더 (DIVIDEND CALENDAR) */
+.dividend-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dividend-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .dividend-summary-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .dividend-summary-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.div-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: #0d1527;
+  border: 1px solid #1e2c4d;
+  border-radius: 10px;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.div-summary-card:hover {
+  transform: translateY(-2px);
+  border-color: #8e70fa;
+}
+
+.div-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #8da0c7;
+}
+
+.div-card-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f1f4fb;
+}
+
+.div-card-val.gain {
+  color: #a78bfa;
+}
+
+.dividend-chart-section {
+  padding: 16px;
+  background: #0d1527;
+  border: 1px solid #1e2c4d;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dividend-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #c4b5fd;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dividend-chart-wrap {
+  width: 100%;
+  height: 250px;
+  overflow: visible;
+}
+
+.dividend-bar-group {
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.dividend-bar-group:hover rect {
+  opacity: 1;
+  filter: brightness(1.3) drop-shadow(0 4px 12px rgba(167, 139, 250, 0.6));
+}
+
+.dividend-detail-wrap {
+  margin-top: 4px;
+}
+
+.div-detail-header {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #f1f4fb;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.div-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.div-item-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #111a33;
+  border: 1px solid #1f2b48;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.div-item-card:hover {
+  background: #152244;
+  border-color: #8e70fa;
+  transform: translateY(-1px);
+}
+
+.div-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.div-item-info strong {
+  font-size: 13px;
+  color: #f1f4fb;
+}
+
+.div-item-info span {
+  font-size: 11px;
+  color: #8da0c7;
+}
+
+.div-item-val {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.div-item-val strong {
+  font-size: 13.5px;
+  color: #f43f5e;
+  font-weight: 700;
+}
+
+.div-item-val small {
+  font-size: 10.5px;
+  color: #788bab;
+}
+
+/* ── 배당금 수익 붉은색 테마 ── */
+.dividend-panel #divTotalAnnual,
+.dividend-panel #divMonthlyAvg,
+.div-gain-val {
+  color: #f43f5e !important;
+}
+
+/* ── 매도 실현손익 전용 스타일 ── */
+.pnl-panel .div-card-val.gain {
+  color: #f43f5e; /* 한국형 상승 레드 */
+}
+
+.pnl-panel .div-card-val.loss {
+  color: #38bdf8; /* 하락 블루 */
+}
+
+.pnl-gain-val {
+  color: #f43f5e !important;
+}
+
+.pnl-loss-val {
+  color: #38bdf8 !important;
+}
+
+.pnl-zero-val {
+  color: #94a3b8 !important;
+}
+
+.pnl-bar-group {
+  cursor: pointer;
+}
+
+.pnl-bar-group:hover rect {
+  opacity: 1;
+  filter: brightness(1.2);
+}
+
+/* ── 배당/실현손익 다열 테이블 스타일 (자산기록과 같은 5~10개 표시 스크롤 형태) ── */
+.detail-table-wrap {
+  width: 100%;
+  max-height: 420px;
+  overflow-y: auto;
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #1f2b48;
+  background: #0d1527;
+  margin-top: 8px;
+  position: relative;
+}
+
+.holdings-panel .table-wrap {
+  max-height: 480px;
+  overflow-y: auto;
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #1f2b48;
+  margin-top: 14px;
+  position: relative;
+}
+
+.div-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* 세련된 커스텀 스크롤바 */
+.detail-table-wrap::-webkit-scrollbar,
+.holdings-panel .table-wrap::-webkit-scrollbar,
+.div-detail-grid::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.detail-table-wrap::-webkit-scrollbar-thumb,
+.holdings-panel .table-wrap::-webkit-scrollbar-thumb,
+.div-detail-grid::-webkit-scrollbar-thumb {
+  background: rgba(142, 112, 250, 0.35);
+  border-radius: 4px;
+}
+.detail-table-wrap::-webkit-scrollbar-thumb:hover,
+.holdings-panel .table-wrap::-webkit-scrollbar-thumb:hover,
+.div-detail-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(142, 112, 250, 0.65);
+}
+
+.detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.detail-table th {
+  background: #111a33;
+  color: #8da0c7;
+  font-weight: 600;
+  padding: 10px 12px;
+  border-bottom: 1px solid #1f2b48;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.holdings-panel table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #111a33;
+}
+
+.detail-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #15203a;
+  color: #f1f4fb;
+  vertical-align: middle;
+}
+
+.detail-table tr:hover td {
+  background: #152244;
+}
+
+.detail-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.detail-table td.center {
+  text-align: center;
+}
+
+/* ── 다이얼로그 팝업창 가로 너비 및 반응형 확장 ── */
+dialog.dialog {
+  max-width: 620px !important;
+  width: 95vw !important;
+  max-height: 90vh !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: 24px !important;
+  box-sizing: border-box !important;
+  border-radius: 12px !important;
+}
+
+dialog.dialog .dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+dialog.dialog .dialog-head h2 {
+  font-size: 17.5px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+  white-space: nowrap;
+}
+
+dialog.dialog .form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+}
+
+dialog.dialog .form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+dialog.dialog input,
+dialog.dialog select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  font-size: 13px;
+  border-radius: 7px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #f8fafc;
+}
+
+dialog.dialog input:focus,
+dialog.dialog select:focus {
+  border-color: #818cf8;
+  outline: none;
+}
+
+dialog.dialog .dialog-actions {
+  margin-top: 22px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ── 섹션 접기 / 펼치기 (Accordion / Collapse) ── */
+.section-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--muted, #94a3b8);
+  font-size: 11px;
+  cursor: pointer;
+  margin-left: 8px;
+  vertical-align: middle;
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0;
+  user-select: none;
+}
+
+.section-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  transform: scale(1.1);
+}
+
+.section-collapse-btn.is-collapsed {
+  transform: rotate(-90deg);
+  background: rgba(147, 51, 234, 0.24);
+  color: #c084fc;
+}
+
+.panel.is-collapsed {
+  padding-bottom: 14px !important;
+}
+
+.panel.is-collapsed .panel-body,
+.panel.is-collapsed .records-grid,
+.panel.is-collapsed .heatmap-body,
+.panel.is-collapsed .dividend-body,
+.panel.is-collapsed .overview-body-grid,
+.panel.is-collapsed .summary-item-list,
+.panel.is-collapsed #sectorDonutWrap,
+.panel.is-collapsed #sectorDetailToggleWrap,
+.panel.is-collapsed #classificationList,
+.panel.is-collapsed .table-wrap,
+.panel.is-collapsed #accountList,
+.panel.is-collapsed .cat-panel,
+.panel.is-collapsed #catPanelSecurities,
+.panel.is-collapsed #catPanelBanking,
+.panel.is-collapsed #catPanelInsurance,
+.panel.is-collapsed #marketGrid,
+.panel.is-collapsed #ledgerSectionContent,
+.panel.is-collapsed .section-collapsible-content {
+  display: none !important;
+}
+
+.panel.is-collapsed .heatmap-controls-row,
+.panel.is-collapsed .heatmap-period-tabs,
+.panel.is-collapsed .heatmap-selects-wrap,
+.panel.is-collapsed #allocTabs,
+.panel.is-collapsed .toolbar,
+.panel.is-collapsed .family-tabs,
+.panel.is-collapsed .account-category-tabs,
+.panel.is-collapsed .dividend-head select,
+.panel.is-collapsed #dividendYearSelect,
+.panel.is-collapsed #pnlYearSelect,
+.panel.is-collapsed #dividendModeTabs,
+.panel.is-collapsed #pnlTradeTypeTabs,
+.panel.is-collapsed .dividend-head > div:not(.dividend-title-wrap) {
+  opacity: 0.28 !important;
+  pointer-events: none !important;
+  filter: grayscale(0.9) !important;
+  cursor: not-allowed !important;
+}
+
+.panel.is-collapsed select {
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+/* 주요지수 섹션 접힘 상태에서도 계좌 연결 및 조회 버튼은 항상 클릭 가능 */
+.panel.is-collapsed #syncAccountsButton,
+.panel.is-collapsed #refreshButton,
+.panel.is-collapsed .market-head .toolbar {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  filter: none !important;
+}
+
+/* ── 화면 테마 설정 (Theme Switcher) ── */
+.theme-switcher-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 32px auto 14px;
+  padding: 12px 22px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  width: fit-content;
+  max-width: 95%;
+  flex-wrap: wrap;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+}
+
+.theme-switcher-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-switcher-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.theme-tab {
+  padding: 8px 16px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-tab:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.theme-tab.active {
+  background: linear-gradient(135deg, #7c3aed, #6366f1);
+  color: #ffffff !important;
+  border-color: #a855f7;
+  box-shadow: 0 3px 14px rgba(124, 58, 237, 0.4);
+}
+
+/* ── 테마별 변수 및 룩앤필 ── */
+/* 1. OLED BLACK (클래식 다크) */
+[data-theme="oled"] {
+  --bg: #000000;
+  --panel: #060608;
+  --panel-2: #0d0d11;
+  --line: #181822;
+  --text: #f1f5f9;
+  --muted: #808b9e;
+}
+
+[data-theme="oled"] body {
+  background: #000000 !important;
+}
+
+[data-theme="oled"] .market-card,
+[data-theme="oled"] .summary-card,
+[data-theme="oled"] .panel,
+[data-theme="oled"] .record-chart-wrap,
+[data-theme="oled"] .record-chart-meta div,
+[data-theme="oled"] .record-side-summary,
+[data-theme="oled"] .record-row,
+[data-theme="oled"] .div-summary-card,
+[data-theme="oled"] .dividend-chart-section,
+[data-theme="oled"] .broker-group,
+[data-theme="oled"] .div-item-card,
+[data-theme="oled"] .dialog,
+[data-theme="oled"] .theme-switcher-wrap {
+  background: #070709 !important;
+  border-color: #1a1a24 !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.85);
+}
+
+[data-theme="oled"] .heatmap-period-tabs,
+[data-theme="oled"] .family-tabs {
+  background: #0a0a0f !important;
+  border-color: #1a1a26 !important;
+}
+
+[data-theme="oled"] .theme-tab.active {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 3px 14px rgba(37, 99, 235, 0.45);
+}
+
+[data-theme="oled"] .family-tab.active,
+[data-theme="oled"] .heatmap-tab.active {
+  background: #2563eb !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.4) !important;
+}
+
+[data-theme="oled"] .button.secondary {
+  background: #111118 !important;
+  border-color: #222233 !important;
+  color: #e2e8f0 !important;
+}
+
+[data-theme="oled"] .button.secondary:hover {
+  background: #1c1c28 !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+[data-theme="oled"] .broker-head strong {
+  color: #f8fafc !important;
+}
+
+[data-theme="oled"] .broker-head span {
+  background: #111118 !important;
+  border-color: #222233 !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme="oled"] .account-row {
+  background: #0b0b10 !important;
+  border-color: #1a1a26 !important;
+}
+
+[data-theme="oled"] .account-row:hover {
+  background: #14141e !important;
+  border-color: #2e2e42 !important;
+}
+
+[data-theme="oled"] .account-action-button {
+  background: #111118 !important;
+  border-color: #222233 !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme="oled"] .account-action-button:hover {
+  background: #1c1c28 !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+/* 2. CLEAN WHITE (모던 화이트 라이트 모드) */
+[data-theme="white"] {
+  --bg: #f3f5f9;
+  --panel: #ffffff;
+  --panel-2: #f8fafc;
+  --line: #e2e8f0;
+  --text: #0f172a;
+  --muted: #64748b;
+}
+
+[data-theme="white"] body {
+  background: #f3f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* 메인 패널 및 컨테이너 */
+[data-theme="white"] .summary-card,
+[data-theme="white"] .panel,
+[data-theme="white"] .dialog,
+[data-theme="white"] .theme-switcher-wrap {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.05) !important;
+  color: #0f172a !important;
+}
+
+/* 주요지수 카드 (서브 카드 박스) */
+[data-theme="white"] .market-card {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+}
+
+[data-theme="white"] .market-card .symbol {
+  color: #6366f1 !important;
+}
+
+[data-theme="white"] .market-title {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .market-price {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .market-card p {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .market-card small {
+  color: #64748b !important;
+}
+
+/* 탭 캡슐 컨테이너 바 */
+[data-theme="white"] .heatmap-period-tabs,
+[data-theme="white"] .family-tabs {
+  background: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+}
+
+[data-theme="white"] .heatmap-tab,
+[data-theme="white"] .family-tab {
+  color: #475569 !important;
+  background: transparent !important;
+}
+
+[data-theme="white"] .heatmap-tab:hover,
+[data-theme="white"] .family-tab:hover {
+  background: rgba(255, 255, 255, 0.7) !important;
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .heatmap-tab.active,
+[data-theme="white"] .family-tab.active {
+  background: #4f46e5 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3) !important;
+}
+
+/* 계좌 통합 현황 (증권사 그룹 & 계좌 행) */
+[data-theme="white"] .broker-group {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04) !important;
+}
+
+[data-theme="white"] .broker-head {
+  border-bottom-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .broker-head strong {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .broker-head span {
+  background: #edf2f7 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+
+[data-theme="white"] .account-row {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .account-row-info strong,
+[data-theme="white"] .account-row-values strong,
+[data-theme="white"] .account-row-info span strong {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .account-row-info span,
+[data-theme="white"] .account-row-values small {
+  color: #64748b !important;
+}
+
+/* 배당금 & 실현손익 하단 개별 종목 카드 */
+[data-theme="white"] .div-item-card {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+}
+
+[data-theme="white"] .div-item-card:hover {
+  background: #ffffff !important;
+  border-color: #818cf8 !important;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.12) !important;
+}
+
+[data-theme="white"] .div-item-info strong,
+[data-theme="white"] .div-item-val strong {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .div-item-info span,
+[data-theme="white"] .div-item-val small {
+  color: #64748b !important;
+}
+
+/* 자산기록 섹션 카드 및 차트 */
+[data-theme="white"] .record-chart-wrap {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .record-chart-meta div,
+[data-theme="white"] .record-side-summary,
+[data-theme="white"] .record-row {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .record-chart-meta strong,
+[data-theme="white"] .record-side-summary strong,
+[data-theme="white"] .record-row-main strong,
+[data-theme="white"] .record-row-values b {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .record-chart-meta span,
+[data-theme="white"] .record-chart-meta small,
+[data-theme="white"] .record-side-summary span,
+[data-theme="white"] .record-side-summary small,
+[data-theme="white"] .record-row-main span,
+[data-theme="white"] .record-row small {
+  color: #64748b !important;
+}
+
+/* 배당 & 실현손익 섹션 상단 4대 요약 카드 및 차트 */
+[data-theme="white"] .div-summary-card,
+[data-theme="white"] .dividend-chart-section {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .div-card-label,
+[data-theme="white"] .div-summary-card small,
+[data-theme="white"] .dividend-chart-header small {
+  color: #64748b !important;
+}
+
+[data-theme="white"] .div-card-val:not(.gain):not(.loss) {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .div-detail-header,
+[data-theme="white"] .dividend-chart-header span {
+  color: #1e293b !important;
+}
+
+/* 핵심 요약 & 분류 행 */
+[data-theme="white"] .summary-row {
+  border-bottom-color: #f1f5f9 !important;
+}
+
+[data-theme="white"] .summary-row.featured {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.08), transparent) !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .summary-row-label strong,
+[data-theme="white"] .summary-row-val strong:not(.gain):not(.loss):not(.up):not(.down),
+[data-theme="white"] .summary-row-val .value-highlight,
+[data-theme="white"] #totalInvestLabelText,
+[data-theme="white"] #profitLabelText,
+[data-theme="white"] #pnlLabelText,
+[data-theme="white"] #divLabelText,
+[data-theme="white"] #summaryActualDividend,
+[data-theme="white"] .classification-title strong,
+[data-theme="white"] .classification-value b,
+[data-theme="white"] h1, [data-theme="white"] h2, [data-theme="white"] h3,
+[data-theme="white"] strong:not(.tile-name):not(.heatmap-tile-inner *):not(.heatmap-tooltip *):not(.heatmap-stock-card *):not(.gain):not(.loss):not(.up):not(.down),
+[data-theme="white"] th, [data-theme="white"] td {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] #subRealEstateVal,
+[data-theme="white"] #subStockVal {
+  color: #6366f1 !important;
+}
+
+[data-theme="white"] #subSafeCashVal,
+[data-theme="white"] #subSafeLeaseVal,
+[data-theme="white"] #subSafeInsuranceVal {
+  color: #059669 !important;
+}
+
+[data-theme="white"] #dayCaption,
+[data-theme="white"] #pnlSubBreakdown,
+[data-theme="white"] #pnlYearLabel,
+[data-theme="white"] #pnlMonthLabel,
+[data-theme="white"] #divYearLabel,
+[data-theme="white"] #divMonthLabel,
+[data-theme="white"] #summaryKrwStockCount,
+[data-theme="white"] #summaryTotalDebtCaption {
+  color: #64748b !important;
+}
+
+[data-theme="white"] .classification-row {
+  border-bottom-color: #f1f5f9 !important;
+}
+
+[data-theme="white"] .classification-title span,
+[data-theme="white"] .classification-value span {
+  color: #64748b !important;
+}
+
+/* 계좌 액션 버튼 (화이트 테마) */
+[data-theme="white"] .account-action-button,
+[data-theme="white"] .mini-delete-button {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08) !important;
+}
+
+[data-theme="white"] .account-action-button:hover {
+  background: #e2e8f0 !important;
+  border-color: #818cf8 !important;
+  color: #1e1b4b !important;
+  transform: translateY(-1px);
+}
+
+[data-theme="white"] .mini-delete-button:hover {
+  background: #fee2e2 !important;
+  border-color: #fca5a5 !important;
+  color: #ef4444 !important;
+  transform: translateY(-1px);
+}
+
+/* 버튼, 탭, 입력창 컨트롤 */
+[data-theme="white"] .button.secondary,
+[data-theme="white"] .heatmap-select,
+[data-theme="white"] .toolbar input,
+[data-theme="white"] select,
+[data-theme="white"] input,
+[data-theme="white"] textarea {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .dialog label,
+[data-theme="white"] .dashboard-dialog label {
+  color: #334155 !important;
+}
+
+[data-theme="white"] .dialog-head h2 {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .dialog-description,
+[data-theme="white"] .close {
+  color: #64748b !important;
+}
+
+[data-theme="white"] .close:hover {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .topbar {
+  border-bottom-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .detail-table-wrap,
+[data-theme="white"] .holdings-panel .table-wrap {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04) !important;
+}
+
+[data-theme="white"] .detail-table th,
+[data-theme="white"] .holdings-panel table thead th {
+  background: #f8fafc !important;
+  color: #475569 !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .button.danger {
+  color: #dc2626 !important;
+  border-color: #fecaca !important;
+  background: #fef2f2 !important;
+}
+[data-theme="white"] .button.danger:hover {
+  background: #fee2e2 !important;
+  border-color: #fca5a5 !important;
+}
+
+[data-theme="white"] .detail-table td {
+  border-bottom-color: #f1f5f9 !important;
+  color: #1e293b !important;
+  background: transparent !important;
+}
+
+[data-theme="white"] .detail-table tr:hover td {
+  background: #f8fafc !important;
+}
+
+[data-theme="white"] .td-stock-name {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .td-stock-code,
+[data-theme="white"] .td-date,
+[data-theme="white"] .td-currency,
+[data-theme="white"] .td-orig-amt,
+[data-theme="white"] .td-fx-info,
+[data-theme="white"] .td-memo,
+[data-theme="white"] .td-normal-badge,
+[data-theme="white"] .holding-name-cell small {
+  color: #64748b !important;
+}
+
+[data-theme="white"] .holding-account-detail,
+[data-theme="white"] .holding-accounts {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .stock-chart-btn {
+  background: #f1f5f9 !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #334155 !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06) !important;
+}
+
+[data-theme="white"] .stock-chart-btn:hover {
+  background: #4f46e5 !important;
+  border-color: #4f46e5 !important;
+  color: #ffffff !important;
+  box-shadow: 0 3px 10px rgba(79, 70, 229, 0.3) !important;
+}
+
+[data-theme="white"] .mini-edit-button {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+
+[data-theme="white"] .mini-edit-button:hover {
+  background: #e2e8f0 !important;
+  color: #1e1b4b !important;
+}
+
+[data-theme="white"] .mini-edit-button.delete-button:hover {
+  background: #fee2e2 !important;
+  border-color: #fca5a5 !important;
+  color: #ef4444 !important;
+}
+
+[data-theme="white"] .td-owner-badge {
+  background: rgba(124, 58, 237, 0.1) !important;
+  color: #6d28d9 !important;
+  border: 1px solid rgba(124, 58, 237, 0.2) !important;
+}
+
+[data-theme="oled"] .detail-table-wrap,
+[data-theme="oled"] .holdings-panel .table-wrap {
+  background: #070709 !important;
+  border-color: #1a1a24 !important;
+}
+
+[data-theme="oled"] .detail-table th,
+[data-theme="oled"] .holdings-panel table thead th {
+  background: #0d0d12 !important;
+  color: #808b9e !important;
+  border-bottom-color: #1a1a24 !important;
+}
+
+[data-theme="oled"] .detail-table td {
+  border-bottom-color: #14141c !important;
+  color: #f1f5f9 !important;
+  background: transparent !important;
+}
+
+[data-theme="oled"] .detail-table tr:hover td {
+  background: #12121a !important;
+}
+
+[data-theme="oled"] .stock-chart-btn {
+  background: #0d0d12 !important;
+  border-color: #1a1a26 !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme="oled"] .holding-account-detail {
+  color: #cbd5e1 !important;
+}
+
+[data-theme="white"] .section-collapse-btn {
+  background: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+
+[data-theme="white"] .empty strong {
+  color: #334155 !important;
+}
+
+[data-theme="white"] #accountList.account-list::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.3) !important;
+}
+[data-theme="white"] #accountList.account-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 58, 237, 0.6) !important;
+}
+[data-theme="white"] #accountList.account-list::-webkit-scrollbar-track {
+  background: rgba(226, 232, 240, 0.5) !important;
+}
+
+[data-theme="oled"] #accountList.account-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+[data-theme="oled"] #accountList.account-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35) !important;
+}
+[data-theme="oled"] #accountList.account-list::-webkit-scrollbar-track {
+  background: #070709 !important;
+}
+
+[data-theme="white"] .empty p {
+  color: #64748b !important;
+}
+
+[data-theme="white"] .heatmap-legend {
+  color: #475569 !important;
+}
+
+[data-theme="white"] .legend-text,
+[data-theme="white"] .legend-cap,
+[data-theme="white"] .heatmap-tip-note {
+  color: #64748b !important;
+}
+
+[data-theme="white"] .card-icon.mini {
+  background: rgba(99, 102, 241, 0.12) !important;
+  color: #4f46e5 !important;
+}
+
+/* ── 자산 히트맵 타일 & 툴팁 글자색 (모든 테마에서 반드시 흰색 보장) ── */
+.heatmap-tile,
+.heatmap-tile *,
+.heatmap-tile-inner,
+.heatmap-tile-inner *,
+.tile-name,
+.tile-rate,
+.tile-val,
+.heatmap-stock-card,
+.heatmap-stock-card *,
+.heatmap-stock-card strong,
+.heatmap-stock-card span,
+.heatmap-stock-card small,
+[data-theme="white"] .heatmap-tile,
+[data-theme="white"] .heatmap-tile *,
+[data-theme="white"] .tile-name,
+[data-theme="white"] .tile-rate,
+[data-theme="white"] .heatmap-stock-card,
+[data-theme="white"] .heatmap-stock-card * {
+  color: #ffffff !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9) !important;
+}
+
+/* 히트맵 툴팁 텍스트 (모든 테마에서 선명한 다크 플로팅 박스 & 흰색 글자 보장) */
+.heatmap-tooltip,
+[data-theme="white"] .heatmap-tooltip,
+[data-theme="oled"] .heatmap-tooltip {
+  background: #0f172a !important;
+  border-color: #334155 !important;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55) !important;
+  color: #f8fafc !important;
+}
+
+.heatmap-tooltip strong,
+.heatmap-tooltip span,
+.heatmap-tooltip-title strong,
+.heatmap-tooltip-title span,
+[data-theme="white"] .heatmap-tooltip strong,
+[data-theme="white"] .heatmap-tooltip-title strong {
+  color: #ffffff !important;
+}
+
+.heatmap-tooltip-title span,
+[data-theme="white"] .heatmap-tooltip-title span {
+  color: #94a3b8 !important;
+}
+
+.heatmap-tooltip .label,
+[data-theme="white"] .heatmap-tooltip .label {
+  color: #94a3b8 !important;
+}
+
+.heatmap-tooltip .val,
+[data-theme="white"] .heatmap-tooltip .val {
+  color: #f8fafc !important;
+}
+
+/* ── 섹터 도넛 및 상세 리스트 테마 스타일 ── */
+[data-theme="white"] .sector-donut-container {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .overview-alloc-col .classification-list::-webkit-scrollbar-thumb,
+[data-theme="white"] .classification-panel .classification-list.sector-mode::-webkit-scrollbar-thumb,
+[data-theme="white"] .classification-list.sector-mode::-webkit-scrollbar-thumb,
+[data-theme="white"] #classificationList::-webkit-scrollbar-thumb,
+[data-theme="white"] .sector-legend-list::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35) !important;
+}
+
+[data-theme="white"] .overview-alloc-col .classification-list::-webkit-scrollbar-thumb:hover,
+[data-theme="white"] .classification-panel .classification-list.sector-mode::-webkit-scrollbar-thumb:hover,
+[data-theme="white"] .classification-list.sector-mode::-webkit-scrollbar-thumb:hover,
+[data-theme="white"] #classificationList::-webkit-scrollbar-thumb:hover,
+[data-theme="white"] .sector-legend-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.65) !important;
+}
+
+[data-theme="white"] .overview-alloc-col .classification-list .classification-row,
+[data-theme="white"] #classificationList .classification-row {
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="oled"] .sector-donut-container {
+  background: #08080c !important;
+  border-color: #1a1a24 !important;
+}
+
+[data-theme="oled"] .overview-alloc-col .classification-list::-webkit-scrollbar-thumb,
+[data-theme="oled"] .classification-panel .classification-list.sector-mode::-webkit-scrollbar-thumb,
+[data-theme="oled"] .classification-list.sector-mode::-webkit-scrollbar-thumb,
+[data-theme="oled"] #classificationList::-webkit-scrollbar-thumb,
+[data-theme="oled"] .sector-legend-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+[data-theme="white"] .summary-row-val .cash-badge-inline,
+[data-theme="white"] .account-group-cash,
+[data-theme="white"] .account-cash-button {
+  color: #7c3aed !important;
+}
+
+/* ── 강제 비밀번호 변경 모달 백드롭 및 전용 스타일 ── */
+#forcePasswordModal::backdrop {
+  background: rgba(4, 7, 18, 0.92) !important;
+  backdrop-filter: blur(10px) !important;
+}
+#forcePasswordModal {
+  color: #f3f5ff !important;
+}
+
+/* ── 11. 예·적금 및 은행 계좌 (SAVINGS & BANKING) ────────────────────────── */
+.savings-panel {
+  margin-top: 14px;
+}
+
+.savings-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.saving-stat-card {
+  padding: 14px 16px;
+  background: #0d1527;
+  border: 1px solid #1f2c4d;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.saving-stat-card.highlight {
+  background: linear-gradient(135deg, rgba(13, 21, 39, 0.9), rgba(16, 42, 60, 0.9));
+  border-color: #0284c7;
+}
+
+.saving-stat-label {
+  font-size: 11.5px;
+  color: #8fa0c5;
+  font-weight: 600;
+}
+
+.saving-stat-card strong {
+  font-size: 17px;
+  font-weight: 700;
+  color: #f1f4fb;
+  letter-spacing: -0.3px;
+}
+
+.saving-stat-card.highlight strong {
+  color: #38bdf8;
+}
+
+.savings-subtabs {
+  display: flex;
+  gap: 8px;
+}
+
+.savings-subtab {
+  background: #111a33;
+  color: #98a6c8;
+  border: 1px solid #27365c;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.savings-subtab:hover {
+  background: #19274a;
+  color: #e2e8f0;
+}
+
+.savings-subtab.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #3b82f6;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35);
+}
+
+.savings-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+}
+
+.saving-card {
+  background: #0d1527;
+  border: 1px solid #1f2c4d;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.saving-card:hover {
+  transform: translateY(-2px);
+  border-color: #3b82f6;
+}
+
+.saving-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.saving-card-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.saving-badge-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.saving-type-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.saving-type-badge.deposit {
+  background: rgba(66, 213, 163, 0.15);
+  color: #42d5a3;
+  border-color: rgba(66, 213, 163, 0.3);
+}
+
+.saving-type-badge.installment {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.saving-owner-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #1a2542;
+  color: #cbd5e1;
+  border: 1px solid #2d3e68;
+}
+
+.d-day-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(244, 63, 94, 0.15);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+
+.d-day-badge.done {
+  background: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+  border-color: #475569;
+}
+
+.saving-product-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f1f4fb;
+  margin: 0;
+}
+
+.saving-bank-name {
+  font-size: 12px;
+  color: #8fa0c5;
+}
+
+.saving-progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.saving-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #8fa0c5;
+}
+
+.saving-progress-track {
+  height: 6px;
+  background: #17223e;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.saving-progress-bar {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #38bdf8, #3b82f6);
+  transition: width 0.3s ease;
+}
+
+.saving-card-details {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding: 10px 12px;
+  background: #111a33;
+  border-radius: 8px;
+  font-size: 11.5px;
+}
+
+.saving-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.saving-detail-label {
+  color: #788bab;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.saving-detail-val {
+  color: #e2e8f0;
+  font-weight: 600;
+  text-align: right;
+  word-break: keep-all;
+}
+
+.saving-interest-box {
+  padding: 10px 12px;
+  background: rgba(14, 30, 56, 0.65);
+  border: 1px solid #1e3a66;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+}
+
+.saving-interest-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.saving-interest-row.maturity-row {
+  padding-top: 6px;
+  border-top: 1px dashed #264478;
+  font-size: 13px;
+  font-weight: 700;
+  color: #42d5a3;
+}
+
+.saving-card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* 일반 은행 계좌 테이블 */
+.banks-table-wrap {
+  background: #0d1527;
+  border: 1px solid #1f2c4d;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.banks-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.banks-table th {
+  padding: 10px 14px;
+  background: #121d36;
+  color: #8fa0c5;
+  text-align: left;
+  border-bottom: 1px solid #1f2c4d;
+  font-size: 11px;
+}
+
+.banks-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #172340;
+  color: #e2e8f0;
+}
+
+.banks-table tr:last-child td {
+  border-bottom: none;
+}
+
+.banks-table tr:hover td {
+  background: #111d38;
+}
+
+/* ── 테마별 스타일 오버라이드 ── */
+[data-theme="oled"] .saving-stat-card,
+[data-theme="oled"] .saving-card,
+[data-theme="oled"] .banks-table-wrap {
+  background: #08080c !important;
+  border-color: #1a1a24 !important;
+}
+
+[data-theme="oled"] .saving-stat-card.highlight {
+  background: #0c1018 !important;
+  border-color: #2563eb !important;
+}
+
+[data-theme="oled"] .saving-card-details,
+[data-theme="oled"] .banks-table th {
+  background: #0f0f16 !important;
+}
+
+[data-theme="oled"] .saving-interest-box {
+  background: #0d121c !important;
+  border-color: #1a2742 !important;
+}
+
+[data-theme="oled"] .savings-subtab {
+  background: #0f0f16 !important;
+  border-color: #1a1a26 !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme="white"] .saving-stat-card,
+[data-theme="white"] .saving-card,
+[data-theme="white"] .banks-table-wrap {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+}
+
+[data-theme="white"] .saving-stat-card strong,
+[data-theme="white"] .saving-product-name,
+[data-theme="white"] .banks-table td {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .saving-card-details,
+[data-theme="white"] .banks-table th {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .saving-detail-label {
+  color: #64748b !important;
+}
+
+[data-theme="white"] .saving-detail-val:not(.gain):not(.loss) {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .saving-detail-val small {
+  color: #64748b !important;
+}
+
+[data-theme="white"] .saving-bank-name {
+  color: #64748b !important;
+}
+
+[data-theme="white"] .saving-interest-box {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .saving-interest-row span:first-child {
+  color: #475569 !important;
+}
+
+[data-theme="white"] .saving-interest-row span:last-child:not([style*="color"]) {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .saving-interest-row.maturity-row {
+  border-top-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .savings-subtab {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+
+[data-theme="white"] .savings-subtab.active {
+  background: #2563eb !important;
+  color: #fff !important;
+}
+
+/* ── 12. 통합 계좌 카테고리 탭 (증권 / 은행 / 보험) ─────────────────────── */
+.account-category-tabs {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.account-cat-tab {
+  background: #111a33;
+  color: #98a6c8;
+  border: 1px solid #27365c;
+  border-radius: 7px;
+  padding: 6px 13px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.account-cat-tab:hover {
+  background: #1a274a;
+  color: #f1f5f9;
+}
+
+.account-cat-tab.active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #3b82f6;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.4);
+}
+
+/* 보험 배지 스타일 */
+.insurance-type-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.insurance-type-badge.protection {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.insurance-type-badge.savings {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.insurance-type-badge.national_pension {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.insurance-type-badge.yellow_umbrella {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.insurance-type-badge.irp {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.3);
+}
+
+.insurance-type-badge.etc {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.payment-status-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.payment-status-badge.paying {
+  background: rgba(66, 213, 163, 0.15);
+  color: #42d5a3;
+  border: 1px solid rgba(66, 213, 163, 0.3);
+}
+
+.payment-status-badge.completed {
+  background: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+  border: 1px solid #475569;
+}
+
+.payment-status-badge.deferred {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* OLED 테마 */
+[data-theme="oled"] .account-cat-tab {
+  background: #08080c !important;
+  border-color: #1a1a26 !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme="oled"] .account-cat-tab.active {
+  background: #2563eb !important;
+  color: #fff !important;
+  border-color: #3b82f6 !important;
+}
+
+/* 화이트 테마 */
+[data-theme="white"] .account-cat-tab {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+
+[data-theme="white"] .account-cat-tab.active {
+  background: #2563eb !important;
+  color: #fff !important;
+  border-color: #2563eb !important;
+}
+
+/* ── 대출·마이너스통장 및 부채 카드 스타일 ───────────────────────── */
+.savings-summary-grid.loan-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.saving-stat-card.danger {
+  background: rgba(244, 63, 94, 0.08);
+  border-color: rgba(244, 63, 94, 0.28);
+}
+
+.saving-card.loan-card {
+  border-color: rgba(244, 63, 94, 0.2);
+}
+
+.saving-type-badge.loan-minus {
+  background: rgba(244, 63, 94, 0.15);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+
+.saving-type-badge.loan-credit {
+  background: rgba(251, 146, 60, 0.15);
+  color: #fb923c;
+  border: 1px solid rgba(251, 146, 60, 0.3);
+}
+
+/* OLED 테마 오버라이드 */
+[data-theme="oled"] .saving-stat-card.danger {
+  background: #140508 !important;
+  border-color: #4c111a !important;
+}
+
+[data-theme="oled"] .saving-card.loan-card {
+  border-color: #3b111a !important;
+}
+
+/* 화이트 테마 오버라이드 */
+[data-theme="white"] .saving-stat-card.danger {
+  background: #fff1f2 !important;
+  border-color: #fecdd3 !important;
+}
+
+[data-theme="white"] .saving-card.loan-card {
+  border-color: #ffe4e6 !important;
+  background: #ffffff !important;
+}
+
+/* ── 부동산 (Real Estate) 카드 & 뱃지 스타일 ── */
+.badge-own {
+  background: rgba(56, 189, 248, 0.15) !important;
+  color: #38bdf8 !important;
+  border: 1px solid rgba(56, 189, 248, 0.3) !important;
+}
+
+.badge-rental {
+  background: rgba(168, 85, 247, 0.15) !important;
+  color: #c084fc !important;
+  border: 1px solid rgba(168, 85, 247, 0.3) !important;
+}
+
+.badge-lease {
+  background: rgba(251, 191, 36, 0.15) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(251, 191, 36, 0.3) !important;
+}
+
+.real-estate-card {
+  border-left: 3px solid #38bdf8;
+}
+
+.real-estate-card.badge-rental {
+  border-left: 3px solid #a855f7 !important;
+}
+
+.real-estate-card.badge-lease {
+  border-left: 3px solid #f59e0b !important;
+}
+
+.real-estate-subtab {
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.real-estate-subtab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.real-estate-subtab.active {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+/* 화이트 테마 오버라이드 */
+[data-theme="white"] .real-estate-card {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+[data-theme="white"] .real-estate-subtab {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+[data-theme="white"] .real-estate-subtab.active {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+/* 주택청약종합저축 전용 뱃지 및 카드 스타일 */
+.saving-type-badge.housing {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  font-weight: 700;
+}
+.saving-card.housing-card {
+  border-left: 3px solid #10b981;
+}
+
+/* 노란우산공제 전용 카드 및 뱃지 스타일 */
+.insurance-type-badge.yellow_umbrella {
+  background: rgba(234, 179, 8, 0.18);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  font-weight: 700;
+}
+.saving-card.yellow-umbrella-card {
+  border-left: 3px solid #eab308;
+}
+
+/* 절세 종합 요약 배너 스타일 */
+.tax-benefit-banner {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.tax-benefit-banner:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(234, 179, 8, 0.2);
+}
+
+/* 증권 계좌 태그 스타일 */
+.account-type-tag {
+  font-family: inherit;
+  letter-spacing: -0.2px;
+}
+.account-type-tag.non-deductible {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   스마트 가족 가계부 (HOUSEHOLD LEDGER) 전용 스타일링
+   ========================================================================== */
+/* 1. 월 컨트롤러 */
+.ledger-month-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #0d1527;
+  border: 1px solid #23314f;
+  border-radius: 10px;
+  padding: 3px 6px;
+  position: relative;
+}
+.ledger-month-text {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: #f8fafc;
+  padding: 2px 8px;
+  min-width: 105px;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+.ledger-month-text:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.ledger-month-btn {
+  padding: 4px 8px !important;
+  font-size: 11.5px !important;
+  line-height: 1 !important;
+  min-height: unset !important;
+}
+
+/* 2. 4대 요약 카드 (기본 테마) */
+.ledger-stat-income {
+  background: linear-gradient(145deg, rgba(34, 197, 94, 0.08), #0d1424) !important;
+  border-color: rgba(34, 197, 94, 0.35) !important;
+}
+.ledger-stat-income .saving-stat-label {
+  color: #86efac;
+}
+.ledger-stat-income strong {
+  color: #4ade80 !important;
+  font-size: 20px !important;
+}
+
+.ledger-stat-expense {
+  background: linear-gradient(145deg, rgba(244, 63, 94, 0.08), #0d1424) !important;
+  border-color: rgba(244, 63, 94, 0.35) !important;
+}
+.ledger-stat-expense .saving-stat-label {
+  color: #fda4af;
+}
+.ledger-stat-expense strong {
+  color: #f43f5e !important;
+  font-size: 20px !important;
+}
+
+.ledger-stat-savings {
+  background: linear-gradient(145deg, rgba(56, 189, 248, 0.1), #0d1424) !important;
+  border-color: rgba(56, 189, 248, 0.4) !important;
+}
+.ledger-stat-savings .saving-stat-label {
+  color: #7dd3fc;
+}
+.ledger-stat-savings strong {
+  color: #38bdf8 !important;
+  font-size: 20px !important;
+}
+.ledger-stat-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  display: block;
+  margin-top: 2px;
+}
+
+.ledger-stat-recurring {
+  background: linear-gradient(145deg, rgba(168, 85, 247, 0.08), #0d1424) !important;
+  border-color: rgba(168, 85, 247, 0.35) !important;
+}
+.ledger-stat-recurring .saving-stat-label {
+  color: #d8b4fe;
+}
+.ledger-stat-recurring strong {
+  color: #c084fc !important;
+  font-size: 20px !important;
+}
+
+/* 3. 카테고리 지출 분석 */
+.ledger-cat-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+.ledger-cat-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12.5px;
+}
+.ledger-cat-name {
+  font-weight: 600;
+  color: #f1f5f9;
+}
+.ledger-cat-amt {
+  font-weight: 700;
+  color: #38bdf8;
+}
+.ledger-cat-pct {
+  color: #94a3b8;
+  font-weight: normal;
+}
+.ledger-cat-bar-track {
+  height: 6px;
+  background: #1e293b;
+  border-radius: 99px;
+  overflow: hidden;
+}
+.ledger-cat-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #38bdf8, #818cf8);
+  transition: width 0.3s ease;
+}
+
+/* 4. 현금흐름 추이 */
+.ledger-trend-chart {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  height: 180px;
+  padding-top: 15px;
+}
+.ledger-trend-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  justify-content: flex-end;
+}
+.ledger-trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  width: 100%;
+  max-width: 44px;
+  height: 140px;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 6px;
+  padding: 3px;
+}
+.ledger-bar-inc {
+  flex: 1;
+  background: linear-gradient(180deg, #4ade80, #16a34a);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+}
+.ledger-bar-exp {
+  flex: 1;
+  background: linear-gradient(180deg, #f43f5e, #be123c);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+}
+.ledger-trend-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+.ledger-trend-label.current {
+  font-weight: 800;
+  color: #38bdf8;
+}
+.ledger-trend-legend {
+  color: #94a3b8;
+}
+
+/* 5. 상세 거래 내역 테이블 */
+.ledger-tx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ledger-tx-table th {
+  padding: 10px 12px;
+  background: #090e1c;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  border-bottom: 1px solid #1e293b;
+  text-align: left;
+}
+.ledger-tx-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+}
+.ledger-tx-row:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+.ledger-tx-cell-date {
+  color: #94a3b8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ledger-cat-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+.ledger-tx-cell-merchant strong {
+  font-weight: 600;
+  color: #f8fafc;
+}
+.ledger-tx-memo {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: normal;
+}
+.ledger-tx-cell-pay {
+  color: #94a3b8;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.ledger-status-pill {
+  font-size: 9.5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+.ledger-status-pill.unsettled {
+  color: #f43f5e;
+  background: rgba(244, 63, 94, 0.12);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+}
+.ledger-status-pill.settled {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+.ledger-tx-count-badge {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #1e293b;
+  color: #94a3b8;
+}
+.ledger-filter-select,
+.ledger-search-input {
+  font-size: 12px;
+  padding: 5px 9px;
+  background: #090e1c;
+  border: 1px solid #23314f;
+  border-radius: 8px;
+  color: #cbd5e1;
+}
+.ledger-search-input {
+  width: 170px;
+  color: #fff;
+}
+
+.ledger-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.ledger-badge.expense {
+  background: rgba(244, 63, 94, 0.15);
+  color: #fda4af;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+.ledger-badge.income {
+  background: rgba(34, 197, 94, 0.15);
+  color: #86efac;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+.ledger-badge.transfer {
+  background: rgba(56, 189, 248, 0.15);
+  color: #7dd3fc;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+/* 6. 다이얼로그 내부 서브박스 및 리스트 항목 */
+.ledger-dialog-subbox {
+  background: #090e1c;
+  border: 1px solid #23314f;
+}
+.ledger-credit-card-item {
+  background: linear-gradient(135deg, #0d1527, #131f37);
+  border: 1px solid #23314f;
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ledger-card-company-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.ledger-card-owner-tag {
+  font-size: 11px;
+  color: #cbd5e1;
+  margin-left: 4px;
+}
+.ledger-card-name {
+  margin: 6px 0 2px 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: #f8fafc;
+}
+.ledger-card-meta {
+  margin: 0;
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+.ledger-card-meta strong {
+  color: #f1f5f9;
+}
+.ledger-card-memo {
+  margin: 4px 0 0 0;
+  font-size: 11px;
+  color: #64748b;
+}
+.ledger-card-foot {
+  border-top: 1px dashed #23314f;
+  padding-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ledger-card-unpaid-label {
+  font-size: 11px;
+  color: #94a3b8;
+}
+.ledger-card-unpaid-val {
+  font-size: 14px;
+  font-weight: 800;
+}
+.ledger-card-unpaid-count {
+  font-size: 11px;
+  font-weight: normal;
+  color: #64748b;
+}
+
+.ledger-recurring-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: #090e1c;
+  border: 1px solid #23314f;
+  border-radius: 8px;
+}
+.ledger-recurring-title {
+  font-weight: 700;
+  color: #f8fafc;
+  font-size: 13.5px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ledger-recurring-meta {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ledger-recurring-amt {
+  color: #c084fc;
+  font-size: 14px;
+  margin-right: 2px;
+}
+
+.account-yearly-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+.account-yearly-dep {
+  color: #f8fafc;
+}
+.account-yearly-edit-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+}
+.pension-input-subbox {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+.ledger-sample-box {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+.ledger-sample-title {
+  color: #38bdf8;
+}
+.ledger-upload-box {
+  border: 2px dashed #334155;
+  background: #081022;
+}
+.ledger-upload-title {
+  color: #f1f5f9;
+}
+.ledger-upload-sub {
+  color: #94a3b8;
+}
+.ledger-details-box {
+  background: #090e1c;
+  border: 1px solid #1e293b;
+}
+.ledger-dialog-textarea {
+  background: #081022;
+  border: 1px solid #31415f;
+  color: #fff;
+}
+.ledger-dialog-select {
+  background: #081022;
+  border: 1px solid #31415f;
+  color: #fff;
+}
+
+.ledger-tip-box {
+  background: rgba(56, 189, 248, 0.05);
+  border: 1px dashed rgba(56, 189, 248, 0.2);
+  color: #94a3b8;
+}
+.ledger-balance-preview-box {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+.ledger-preview-label {
+  color: #94a3b8;
+}
+#ledgerPrevBalanceText {
+  color: #f1f5f9;
+}
+#ledgerNextBalanceLabel,
+#ledgerNextBalanceText {
+  color: #38bdf8;
+}
+
+/* ── 가계부 4대 요약 카드 반응형 레이아웃 ───────────────────────── */
+.ledger-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+
+@media (max-width: 900px) {
+  .ledger-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .ledger-analytics-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .ledger-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .ledger-summary-grid .saving-stat-card {
+    padding: 10px 11px !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+  .ledger-summary-grid .saving-stat-label {
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  .ledger-summary-grid strong {
+    font-size: 15.5px !important;
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  .ledger-summary-grid .ledger-stat-sub {
+    font-size: 10px !important;
+  }
+}
+
+@media (max-width: 330px) {
+  .ledger-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 가계부 헤더 및 툴바 모바일 반응형 ──────────────────────────── */
+@media (max-width: 680px) {
+  .ledger-panel-head {
+    gap: 10px !important;
+  }
+  .ledger-head-left {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .ledger-toolbar {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 6px !important;
+    width: 100% !important;
+    margin-left: 0 !important;
+    margin-top: 8px !important;
+  }
+  .ledger-toolbar .button {
+    width: 100% !important;
+    justify-content: center !important;
+    text-align: center !important;
+    font-size: 11.5px !important;
+  }
+}
+
+/* ==========================================================================
+   화이트 테마 오버라이드: 가계부 & 카드 배경색 & 컴포넌트
+   ========================================================================== */
+[data-theme="white"] .sub-panel,
+[data-theme="white"] #ledgerSectionPanel .sub-panel,
+[data-theme="white"] .ledger-sub-panel,
+[data-theme="white"] .ledger-history-panel {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+}
+
+/* 1. 월 컨트롤러 */
+[data-theme="white"] .ledger-month-control {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05) !important;
+}
+[data-theme="white"] .ledger-month-text {
+  color: #0f172a !important;
+}
+[data-theme="white"] .ledger-month-text:hover {
+  background: #f1f5f9 !important;
+}
+[data-theme="white"] .ledger-month-btn {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+[data-theme="white"] .ledger-month-btn:hover {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* 2. 가계부 4대 요약 카드 특성화 배경색 (화이트 테마) */
+[data-theme="white"] .ledger-stat-income {
+  background: linear-gradient(145deg, #f0fdf4, #ffffff) !important;
+  border-color: #86efac !important;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.08) !important;
+}
+[data-theme="white"] .ledger-stat-income .saving-stat-label {
+  color: #15803d !important;
+}
+[data-theme="white"] .ledger-stat-income strong {
+  color: #16a34a !important;
+}
+
+[data-theme="white"] .ledger-stat-expense {
+  background: linear-gradient(145deg, #fff1f2, #ffffff) !important;
+  border-color: #fecdd3 !important;
+  box-shadow: 0 2px 8px rgba(244, 63, 94, 0.08) !important;
+}
+[data-theme="white"] .ledger-stat-expense .saving-stat-label {
+  color: #be123c !important;
+}
+[data-theme="white"] .ledger-stat-expense strong {
+  color: #e11d48 !important;
+}
+
+[data-theme="white"] .ledger-stat-savings {
+  background: linear-gradient(145deg, #f0f9ff, #ffffff) !important;
+  border-color: #bae6fd !important;
+  box-shadow: 0 2px 8px rgba(56, 189, 248, 0.08) !important;
+}
+[data-theme="white"] .ledger-stat-savings .saving-stat-label {
+  color: #0369a1 !important;
+}
+[data-theme="white"] .ledger-stat-savings strong {
+  color: #0284c7 !important;
+}
+[data-theme="white"] .ledger-stat-savings .ledger-stat-sub {
+  color: #64748b !important;
+}
+
+[data-theme="white"] .ledger-stat-recurring {
+  background: linear-gradient(145deg, #faf5ff, #ffffff) !important;
+  border-color: #e9d5ff !important;
+  box-shadow: 0 2px 8px rgba(168, 85, 247, 0.08) !important;
+}
+[data-theme="white"] .ledger-stat-recurring .saving-stat-label {
+  color: #7e22ce !important;
+}
+[data-theme="white"] .ledger-stat-recurring strong {
+  color: #9333ea !important;
+}
+
+/* 3. 카테고리 지출 분석 */
+[data-theme="white"] .ledger-cat-row {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+[data-theme="white"] .ledger-cat-name {
+  color: #0f172a !important;
+  font-weight: 700 !important;
+}
+[data-theme="white"] .ledger-cat-amt {
+  color: #0284c7 !important;
+}
+[data-theme="white"] .ledger-cat-pct {
+  color: #64748b !important;
+}
+[data-theme="white"] .ledger-cat-bar-track {
+  background: #e2e8f0 !important;
+}
+
+/* 4. 현금흐름 추이 */
+[data-theme="white"] .ledger-trend-bars {
+  background: #f1f5f9 !important;
+}
+[data-theme="white"] .ledger-trend-label {
+  color: #64748b !important;
+}
+[data-theme="white"] .ledger-trend-label.current {
+  color: #0284c7 !important;
+  font-weight: 800 !important;
+}
+[data-theme="white"] .ledger-trend-legend {
+  color: #475569 !important;
+}
+
+/* 5. 상세 거래 내역 테이블 및 뱃지 */
+[data-theme="white"] .ledger-tx-table th {
+  background: #f8fafc !important;
+  color: #475569 !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+[data-theme="white"] .ledger-tx-table td {
+  border-bottom-color: #f1f5f9 !important;
+  color: #1e293b !important;
+}
+[data-theme="white"] .ledger-tx-row:hover td {
+  background: #f8fafc !important;
+}
+[data-theme="white"] .ledger-tx-cell-date {
+  color: #475569 !important;
+}
+[data-theme="white"] .ledger-cat-badge {
+  background: #f1f5f9 !important;
+  color: #1e293b !important;
+  border: 1px solid #cbd5e1 !important;
+  font-weight: 700 !important;
+}
+[data-theme="white"] .ledger-tx-cell-merchant strong {
+  color: #0f172a !important;
+}
+[data-theme="white"] .ledger-tx-memo {
+  color: #64748b !important;
+}
+[data-theme="white"] .ledger-tx-cell-pay span {
+  color: #334155 !important;
+}
+[data-theme="white"] .ledger-status-pill.unsettled {
+  color: #be123c !important;
+  background: #ffe4e6 !important;
+  border: 1px solid #fecdd3 !important;
+}
+[data-theme="white"] .ledger-status-pill.settled {
+  color: #0369a1 !important;
+  background: #e0f2fe !important;
+  border: 1px solid #bae6fd !important;
+}
+[data-theme="white"] .saving-owner-badge {
+  background: #f1f5f9 !important;
+  color: #334155 !important;
+  border-color: #cbd5e1 !important;
+}
+[data-theme="white"] .saving-stat-label {
+  color: #475569 !important;
+}
+[data-theme="white"] #ledgerTxCountBadge {
+  background: #e2e8f0 !important;
+  color: #334155 !important;
+}
+[data-theme="white"] .ledger-filter-select,
+[data-theme="white"] .ledger-search-input {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+/* 6. 다이얼로그 내부 요소 */
+[data-theme="white"] .ledger-dialog-subbox {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+[data-theme="white"] .ledger-dialog-label {
+  color: #334155 !important;
+}
+[data-theme="white"] .ledger-tip-box {
+  background: #f0f9ff !important;
+  border-color: #bae6fd !important;
+  color: #0369a1 !important;
+}
+[data-theme="white"] .ledger-balance-preview-box {
+  background: #f0f9ff !important;
+  border-color: #bae6fd !important;
+}
+[data-theme="white"] .ledger-preview-label {
+  color: #64748b !important;
+}
+[data-theme="white"] #ledgerPrevBalanceText {
+  color: #0f172a !important;
+}
+[data-theme="white"] #ledgerNextBalanceLabel,
+[data-theme="white"] #ledgerNextBalanceText {
+  color: #0284c7 !important;
+}
+[data-theme="white"] .ledger-credit-card-item {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05) !important;
+}
+[data-theme="white"] .ledger-card-company-tag {
+  background: #e0f2fe !important;
+  color: #0284c7 !important;
+}
+[data-theme="white"] .ledger-card-owner-tag {
+  color: #64748b !important;
+}
+[data-theme="white"] .ledger-card-name {
+  color: #0f172a !important;
+}
+[data-theme="white"] .ledger-card-meta {
+  color: #64748b !important;
+}
+[data-theme="white"] .ledger-card-meta strong {
+  color: #0f172a !important;
+}
+[data-theme="white"] .ledger-card-memo {
+  color: #64748b !important;
+}
+[data-theme="white"] .ledger-card-foot {
+  border-top-color: #f1f5f9 !important;
+}
+[data-theme="white"] .ledger-card-unpaid-label {
+  color: #64748b !important;
+}
+[data-theme="white"] .ledger-recurring-item {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04) !important;
+}
+[data-theme="white"] .ledger-recurring-title span {
+  color: #0f172a !important;
+  font-weight: 700 !important;
+}
+[data-theme="white"] .ledger-recurring-meta {
+  color: #64748b !important;
+}
+[data-theme="white"] .ledger-recurring-amt {
+  color: #7e22ce !important;
+}
+[data-theme="white"] .account-yearly-card {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
+}
+[data-theme="white"] .account-yearly-dep {
+  color: #0f172a !important;
+}
+[data-theme="white"] .account-yearly-edit-btn {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+[data-theme="white"] .pension-input-subbox {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+[data-theme="white"] .ledger-sample-box {
+  background: #f0f9ff !important;
+  border-color: #bae6fd !important;
+}
+[data-theme="white"] .ledger-sample-title {
+  color: #0284c7 !important;
+}
+[data-theme="white"] .ledger-upload-box {
+  background: #f8fafc !important;
+  border: 2px dashed #cbd5e1 !important;
+}
+[data-theme="white"] .ledger-upload-title {
+  color: #0f172a !important;
+}
+[data-theme="white"] .ledger-upload-sub {
+  color: #64748b !important;
+}
+[data-theme="white"] .ledger-details-box {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+[data-theme="white"] .ledger-details-box summary {
+  color: #334155 !important;
+}
+[data-theme="white"] .ledger-dialog-select,
+[data-theme="white"] .ledger-dialog-textarea {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+/* 7. 탑바 및 유저 박스 */
+[data-theme="white"] .topbar {
+  border-bottom-color: #e2e8f0 !important;
+}
+[data-theme="white"] .user-pill {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05) !important;
+}
+[data-theme="white"] .user-pill strong {
+  color: #0f172a !important;
+}
+[data-theme="white"] #topbarFamilyBtn,
+[data-theme="white"] #changePwBtn {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+/* ==========================================================================
+   OLED 테마 오버라이드: 가계부 & 카드 배경색
+   ========================================================================== */
+[data-theme="oled"] .sub-panel,
+[data-theme="oled"] #ledgerSectionPanel .sub-panel,
+[data-theme="oled"] .ledger-sub-panel,
+[data-theme="oled"] .ledger-history-panel {
+  background: #070709 !important;
+  border-color: #1a1a24 !important;
+}
+
+/* 1. 월 컨트롤러 */
+[data-theme="oled"] .ledger-month-control {
+  background: #08080c !important;
+  border-color: #1a1a26 !important;
+}
+[data-theme="oled"] .ledger-month-text {
+  color: #f1f5f9 !important;
+}
+[data-theme="oled"] .ledger-month-text:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+[data-theme="oled"] .ledger-month-btn {
+  background: #111118 !important;
+  border-color: #222233 !important;
+  color: #cbd5e1 !important;
+}
+
+/* 2. 가계부 4대 요약 카드 특성화 배경색 (OLED) */
+[data-theme="oled"] .ledger-stat-income {
+  background: linear-gradient(145deg, rgba(34, 197, 94, 0.12), #070709) !important;
+  border-color: rgba(34, 197, 94, 0.45) !important;
+}
+[data-theme="oled"] .ledger-stat-income .saving-stat-label {
+  color: #86efac !important;
+}
+[data-theme="oled"] .ledger-stat-income strong {
+  color: #4ade80 !important;
+}
+
+[data-theme="oled"] .ledger-stat-expense {
+  background: linear-gradient(145deg, rgba(244, 63, 94, 0.12), #070709) !important;
+  border-color: rgba(244, 63, 94, 0.45) !important;
+}
+[data-theme="oled"] .ledger-stat-expense .saving-stat-label {
+  color: #fda4af !important;
+}
+[data-theme="oled"] .ledger-stat-expense strong {
+  color: #f43f5e !important;
+}
+
+[data-theme="oled"] .ledger-stat-savings {
+  background: linear-gradient(145deg, rgba(56, 189, 248, 0.14), #070709) !important;
+  border-color: rgba(56, 189, 248, 0.5) !important;
+}
+[data-theme="oled"] .ledger-stat-savings .saving-stat-label {
+  color: #7dd3fc !important;
+}
+[data-theme="oled"] .ledger-stat-savings strong {
+  color: #38bdf8 !important;
+}
+[data-theme="oled"] .ledger-stat-savings .ledger-stat-sub {
+  color: #808b9e !important;
+}
+
+[data-theme="oled"] .ledger-stat-recurring {
+  background: linear-gradient(145deg, rgba(168, 85, 247, 0.12), #070709) !important;
+  border-color: rgba(168, 85, 247, 0.45) !important;
+}
+[data-theme="oled"] .ledger-stat-recurring .saving-stat-label {
+  color: #d8b4fe !important;
+}
+[data-theme="oled"] .ledger-stat-recurring strong {
+  color: #c084fc !important;
+}
+
+/* 3. 카테고리 & 트렌드 & 내역 */
+[data-theme="oled"] .ledger-cat-row {
+  background: #0d0d12 !important;
+  border-color: #1a1a24 !important;
+}
+[data-theme="oled"] .ledger-cat-bar-track {
+  background: #14141c !important;
+}
+[data-theme="oled"] .ledger-trend-bars {
+  background: #0d0d12 !important;
+}
+[data-theme="oled"] .ledger-tx-table th {
+  background: #0d0d12 !important;
+  color: #808b9e !important;
+  border-bottom-color: #1a1a24 !important;
+}
+[data-theme="oled"] .ledger-tx-table td {
+  border-bottom-color: #14141c !important;
+  color: #f1f5f9 !important;
+}
+[data-theme="oled"] .ledger-tx-row:hover td {
+  background: #12121a !important;
+}
+[data-theme="oled"] .ledger-cat-badge {
+  background: rgba(148, 163, 184, 0.12) !important;
+  color: #cbd5e1 !important;
+  border-color: #222233 !important;
+}
+[data-theme="oled"] .saving-owner-badge {
+  background: #111118 !important;
+  color: #cbd5e1 !important;
+  border-color: #222233 !important;
+}
+[data-theme="oled"] .ledger-filter-select,
+[data-theme="oled"] .ledger-search-input,
+[data-theme="oled"] .ledger-dialog-textarea,
+[data-theme="oled"] .ledger-dialog-select {
+  background: #0d0d12 !important;
+  border-color: #1a1a26 !important;
+  color: #f1f5f9 !important;
+}
+[data-theme="oled"] .ledger-dialog-subbox,
+[data-theme="oled"] .ledger-credit-card-item,
+[data-theme="oled"] .ledger-recurring-item,
+[data-theme="oled"] .account-yearly-card,
+[data-theme="oled"] .pension-input-subbox,
+[data-theme="oled"] .ledger-upload-box,
+[data-theme="oled"] .ledger-details-box {
+  background: #08080c !important;
+  border-color: #1a1a26 !important;
+}
+
+/* 절세계좌 필터 카드 */
+.tax-card {
+  cursor: pointer !important;
+  border: 1px solid #22304f !important;
+  background: #0c1429 !important;
+  border-radius: 10px;
+  padding: 11px 13px !important;
+  transition: all 0.2s ease-in-out !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  margin-bottom: 8px;
+  user-select: none;
+}
+.tax-card:hover {
+  border-color: rgba(167, 139, 250, 0.5) !important;
+  background: #111a36 !important;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.tax-card.active-tax-card {
+  border: 1.5px solid #a78bfa !important;
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.22), rgba(99, 102, 241, 0.16)) !important;
+  box-shadow: 0 0 14px rgba(167, 139, 250, 0.25) !important;
+}
+
+/* ── 주식기록 [절세계좌] 탭 전용 레이아웃: 좌측 계좌내역, 우측 보유종목 및 전체변화 카드 제외 ── */
+.records-panel.is-tax-view .records-grid {
+  grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.records-panel.is-tax-view .record-side {
+  order: 1;
+}
+
+.records-panel.is-tax-view .record-chart-wrap {
+  order: 2;
+  min-width: 0;
+}
+
+.records-panel.is-tax-view .record-side-summary,
+.records-panel.is-tax-view #recordPeriodTabs,
+.records-panel.is-tax-view #snapshotButton,
+.records-panel.is-tax-view #addRecordButton,
+.records-panel.is-tax-view #recordCount {
+  display: none !important;
+}
+
+.records-panel.is-tax-view .record-list {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.records-panel.is-tax-view .tax-table-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 560px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.records-panel.is-tax-view .tax-holdings-table {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: collapse;
+}
+
+.records-panel.is-tax-view .tax-holdings-table thead th {
+  position: sticky;
+  top: 0;
+  background: #0d1424;
+  z-index: 3;
+  padding: 12px 10px;
+  font-size: 11px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.records-panel.is-tax-view .tax-holdings-table tbody td {
+  padding: 12px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.records-panel.is-tax-view .tax-holdings-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* 화이트 테마 오버라이드: 절세계좌 카드 & 테이블 */
+[data-theme="white"] .tax-card {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+}
+[data-theme="white"] .tax-card:hover {
+  background: #f8fafc !important;
+  border-color: #818cf8 !important;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.12) !important;
+}
+[data-theme="white"] .tax-card.active-tax-card {
+  background: #eef2ff !important;
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.2) !important;
+}
+[data-theme="white"] .tax-card strong:not(.gain):not(.loss):not(.up):not(.down),
+[data-theme="white"] .tax-card h3,
+[data-theme="white"] .tax-card h4 {
+  color: #0f172a !important;
+}
+[data-theme="white"] .tax-card span[style*="color:#cbd5e1"] {
+  color: #475569 !important;
+}
+[data-theme="white"] .tax-card div[style*="background:rgba(167,139,250"] {
+  background: rgba(167, 139, 250, 0.1) !important;
+  border-color: rgba(167, 139, 250, 0.3) !important;
+}
+[data-theme="white"] .tax-card div[style*="background:rgba(167,139,250"] span {
+  color: #6d28d9 !important;
+}
+[data-theme="white"] .tax-card div[style*="background:rgba(167,139,250"] strong {
+  color: #6d28d9 !important;
+}
+[data-theme="white"] .tax-table-wrap,
+[data-theme="white"] .records-panel.is-tax-view .tax-table-wrap {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04) !important;
+}
+[data-theme="white"] .tax-holdings-table thead th,
+[data-theme="white"] .records-panel.is-tax-view .tax-holdings-table thead th {
+  background: #f8fafc !important;
+  color: #475569 !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+[data-theme="white"] .tax-holdings-table tbody td,
+[data-theme="white"] .records-panel.is-tax-view .tax-holdings-table tbody td {
+  border-bottom-color: #f1f5f9 !important;
+  color: #1e293b !important;
+}
+[data-theme="white"] .records-panel.is-tax-view .tax-holdings-table tbody tr:hover td {
+  background: #f8fafc !important;
+}
+[data-theme="white"] .tax-cash-table-row {
+  background: #f0f9ff !important;
+  border-bottom-color: #bae6fd !important;
+}
+[data-theme="white"] .tax-cash-table-row strong {
+  color: #0284c7 !important;
+}
+[data-theme="white"] .tax-cash-table-row small {
+  color: #0369a1 !important;
+}
+[data-theme="white"] .tax-filter-title {
+  color: #6366f1 !important;
+}
+[data-theme="white"] .tax-table-header strong {
+  color: #0f172a !important;
+}
+
+/* OLED 테마 오버라이드: 절세계좌 */
+[data-theme="oled"] .tax-card {
+  background: #070709 !important;
+  border-color: #1a1a24 !important;
+}
+[data-theme="oled"] .tax-card:hover {
+  background: #0d0d12 !important;
+  border-color: #3b82f6 !important;
+}
+[data-theme="oled"] .tax-card.active-tax-card {
+  background: #0e1022 !important;
+  border-color: #6366f1 !important;
+}
+[data-theme="oled"] .tax-table-wrap,
+[data-theme="oled"] .records-panel.is-tax-view .tax-table-wrap {
+  background: #070709 !important;
+  border-color: #1a1a24 !important;
+}
+[data-theme="oled"] .tax-holdings-table thead th,
+[data-theme="oled"] .records-panel.is-tax-view .tax-holdings-table thead th {
+  background: #0d0d12 !important;
+  color: #808b9e !important;
+  border-bottom-color: #1a1a24 !important;
+}
+[data-theme="oled"] .tax-holdings-table tbody td,
+[data-theme="oled"] .records-panel.is-tax-view .tax-holdings-table tbody td {
+  border-bottom-color: #14141c !important;
+  color: #f1f5f9 !important;
+}
+[data-theme="oled"] .records-panel.is-tax-view .tax-holdings-table tbody tr:hover td {
+  background: #12121a !important;
+}
+
+@media (max-width: 1100px) {
+  .records-panel.is-tax-view .records-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ── 주식기록 [전체주식] 탭 날짜별 자산추이 모바일 스크롤 보장 ── */
+.record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 440px;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) rgba(15, 23, 42, 0.4);
+}
+
+@media (max-width: 1100px) {
+  .record-list {
+    max-height: 380px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+  }
+  .records-panel.is-tax-view .record-list {
+    max-height: 420px !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .record-list {
+    max-height: 340px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding-right: 3px;
+  }
+  .records-panel.is-tax-view .record-list {
+    max-height: 380px !important;
+  }
+}
+
+/* 다크 기본 테마 스크롤바 */
+.record-list::-webkit-scrollbar {
+  width: 6px;
+}
+.record-list::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 4px;
+}
+.record-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 4px;
+}
+.record-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+/* 화이트 테마 스크롤바 */
+[data-theme="white"] .record-list {
+  scrollbar-color: rgba(0, 0, 0, 0.2) rgba(0, 0, 0, 0.05);
+}
+[data-theme="white"] .record-list::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+[data-theme="white"] .record-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+[data-theme="white"] .record-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+/* OLED 테마 스크롤바 */
+[data-theme="oled"] .record-list {
+  scrollbar-color: #333 #000;
+}
+[data-theme="oled"] .record-list::-webkit-scrollbar-track {
+  background: #000;
+}
+[data-theme="oled"] .record-list::-webkit-scrollbar-thumb {
+  background: #333;
+}
+
+/* ── 부동산 실현손익 요약 카드 및 매도 부동산 카드 스타일 ── */
+#cardRealEstateRealized {
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+#cardRealEstateRealized:hover {
+  transform: translateY(-2px);
+  border-color: rgba(245, 158, 11, 0.7) !important;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.15);
+}
+
+.real-estate-subtab[data-subtab="sold"] {
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  color: #f59e0b !important;
+}
+.real-estate-subtab[data-subtab="sold"].active {
+  background: rgba(245, 158, 11, 0.2) !important;
+  border-color: #f59e0b !important;
+  color: #fbbf24 !important;
+  font-weight: 700;
+}
+
+.saving-card.real-estate-card.badge-sold {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.04), rgba(15, 23, 42, 0.8));
+}
+.saving-card.real-estate-card.badge-sold:hover {
+  border-color: rgba(245, 158, 11, 0.55);
+}
+
+/* 화이트 테마 */
+[data-theme="white"] #cardRealEstateRealized {
+  background: #fffbeb !important;
+  border-color: #fde68a !important;
+}
+[data-theme="white"] #cardRealEstateRealized:hover {
+  border-color: #f59e0b !important;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.12);
+}
+[data-theme="white"] .saving-card.real-estate-card.badge-sold {
+  background: #fffdfa !important;
+  border-color: #fed7aa !important;
+}
+[data-theme="white"] .saving-card.real-estate-card.badge-sold:hover {
+  border-color: #f59e0b !important;
+}
+[data-theme="white"] .saving-card.real-estate-card.badge-sold .saving-product-name {
+  color: #0f172a !important;
+}
+[data-theme="white"] .saving-card.real-estate-card.badge-sold .saving-detail-row[style*="background"] {
+  background: #fef3c7 !important;
+}
+[data-theme="white"] .saving-card.real-estate-card.badge-sold .saving-detail-label {
+  color: #64748b !important;
+}
+[data-theme="white"] .saving-card.real-estate-card.badge-sold .d-day-badge {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #475569 !important;
+}
+
+/* OLED 테마 */
+[data-theme="oled"] #cardRealEstateRealized {
+  background: #0f0b02 !important;
+  border-color: #3f2a08 !important;
+}
+[data-theme="oled"] .saving-card.real-estate-card.badge-sold {
+  background: #0a0802 !important;
+  border-color: #3f2a08 !important;
+}
+
+/* ── 다이얼로그 및 내부 컴포넌트 화이트 테마 오버라이드 ── */
+[data-theme="white"] .dialog,
+[data-theme="white"] .dashboard-dialog {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.15) !important;
+}
+[data-theme="white"] .dialog form,
+[data-theme="white"] .dashboard-dialog form {
+  color: #0f172a !important;
+}
+[data-theme="white"] .dialog label,
+[data-theme="white"] .dashboard-dialog label {
+  color: #334155 !important;
+}
+[data-theme="white"] .dialog label span,
+[data-theme="white"] .dashboard-dialog label span {
+  color: #475569 !important;
+}
+[data-theme="white"] .dialog input,
+[data-theme="white"] .dialog select,
+[data-theme="white"] .dialog textarea,
+[data-theme="white"] .dashboard-dialog input,
+[data-theme="white"] .dashboard-dialog select,
+[data-theme="white"] .dashboard-dialog textarea {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+[data-theme="white"] .dialog-head h2,
+[data-theme="white"] .dashboard-dialog h2,
+[data-theme="white"] .dashboard-dialog h3 {
+  color: #0f172a !important;
+}
+[data-theme="white"] .dialog-description {
+  color: #64748b !important;
+}
+
+/* 다이얼로그 내부 절세/연금/대출 프리뷰 박스 */
+[data-theme="white"] #pensionAssetPreviewBox,
+[data-theme="white"] #yuTaxBenefitPreview,
+[data-theme="white"] .pension-preview-box,
+[data-theme="white"] #bankMinusPreviewBox,
+[data-theme="white"] #reKbResultDetail {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+[data-theme="white"] #pensionDurationText,
+[data-theme="white"] #pensionAssetPreviewBox strong,
+[data-theme="white"] #reKbResultDetail strong {
+  color: #0f172a !important;
+}
+
+/* 연도별 공제/납입 이력 행 편집기 (.yu-yearly-row) */
+[data-theme="white"] .yu-yearly-row {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+}
+[data-theme="white"] .yu-yearly-row input,
+[data-theme="white"] .yu-yearly-row select {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+[data-theme="white"] .yu-yearly-row span {
+  color: #475569 !important;
+}
+
+/* 비밀번호 변경 및 OpenAPI 설정 모달 */
+[data-theme="white"] #forcePasswordModal,
+[data-theme="white"] #userOpenApiModal,
+[data-theme="white"] #changePasswordModal,
+[data-theme="white"] #adminUsersModal {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* ── OpenAPI 모달 컴포넌트: 기본 테마 (다크/퍼플) ── */
+#userOpenApiModal {
+  background: #0e162b;
+  border: 1px solid #263558;
+  color: #f3f5ff;
+}
+.openapi-broker-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #263558;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.openapi-label {
+  color: #aeb8d8;
+  font-size: 11.5px;
+}
+.openapi-input {
+  background: #091024;
+  border: 1px solid #263558;
+  color: #f3f5ff;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  box-sizing: border-box;
+}
+.openapi-input:focus {
+  border-color: #818cf8;
+  outline: none;
+}
+.openapi-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+  display: inline-block;
+}
+.openapi-badge.disconnected {
+  background: rgba(255, 255, 255, 0.06);
+  color: #91a0c1;
+}
+.openapi-badge.connected {
+  background: rgba(66, 213, 163, 0.15);
+  color: #42d5a3;
+}
+.openapi-info-box {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #bae6fd;
+}
+
+/* ── OpenAPI 모달 컴포넌트: OLED 다크 테마 ── */
+[data-theme="oled"] #userOpenApiModal {
+  background: #070709 !important;
+  border-color: #1a1a24 !important;
+  color: #f8fafc !important;
+}
+[data-theme="oled"] #userOpenApiModal .dialog-head {
+  border-bottom-color: #1a1a24 !important;
+}
+[data-theme="oled"] .openapi-broker-card {
+  background: #0b0b10 !important;
+  border-color: #1a1a26 !important;
+}
+[data-theme="oled"] .openapi-label {
+  color: #94a3b8 !important;
+}
+[data-theme="oled"] .openapi-input {
+  background: #050508 !important;
+  border-color: #222230 !important;
+  color: #f8fafc !important;
+}
+[data-theme="oled"] .openapi-input:focus {
+  border-color: #3b82f6 !important;
+}
+[data-theme="oled"] .openapi-badge.disconnected {
+  background: #15151e !important;
+  color: #818cf8 !important;
+}
+[data-theme="oled"] .openapi-badge.connected {
+  background: rgba(66, 213, 163, 0.12) !important;
+  color: #42d5a3 !important;
+}
+[data-theme="oled"] .openapi-info-box {
+  background: #08111f !important;
+  border-color: #1e3a8a !important;
+  color: #93c5fd !important;
+}
+
+/* ── OpenAPI 모달 컴포넌트: 화이트 테마 ── */
+[data-theme="white"] #userOpenApiModal {
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.15) !important;
+}
+[data-theme="white"] #userOpenApiModal .dialog-head {
+  border-bottom-color: #e2e8f0 !important;
+}
+[data-theme="white"] #userOpenApiModal .dialog-head h2 {
+  color: #0f172a !important;
+}
+[data-theme="white"] #userOpenApiModal .dialog-description {
+  color: #64748b !important;
+}
+[data-theme="white"] .openapi-broker-card {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+[data-theme="white"] .openapi-label {
+  color: #334155 !important;
+}
+[data-theme="white"] .openapi-input {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+[data-theme="white"] .openapi-input:focus {
+  border-color: #2563eb !important;
+}
+[data-theme="white"] .openapi-badge.disconnected {
+  background: #f1f5f9 !important;
+  color: #64748b !important;
+  border: 1px solid #cbd5e1 !important;
+}
+[data-theme="white"] .openapi-badge.connected {
+  background: #dcfce7 !important;
+  color: #15803d !important;
+  border: 1px solid #86efac !important;
+}
+[data-theme="white"] .openapi-info-box {
+  background: #f0f9ff !important;
+  border-color: #bae6fd !important;
+  color: #0369a1 !important;
+}
+[data-theme="white"] #userOpenApiModal .button.secondary {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+[data-theme="white"] #userOpenApiBtn {
+  color: #0284c7 !important;
+  border-color: #bae6fd !important;
+  background: #f0f9ff !important;
+}
+
+/* ── Admin 패널 및 사용자 관리: 기본 테마 (다크/퍼플) ── */
+#adminMainPanel.admin-panel {
+  border: 1px solid #3b2d71;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+.admin-panel .panel-head {
+  border-bottom: 1px solid #263558;
+}
+.admin-badge {
+  color: #9d7bff;
+  background: rgba(157, 123, 255, 0.15);
+}
+.admin-desc {
+  color: #91a0c1;
+}
+.admin-stat-card {
+  background: #0e1529;
+  border: 1px solid #263558;
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+.admin-stat-label {
+  color: #91a0c1;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.admin-stat-value {
+  color: #f3f5ff;
+  font-size: 28px;
+  font-weight: 800;
+}
+.admin-stat-value.success {
+  color: #42d5a3;
+}
+.admin-stat-value.warning {
+  color: #f59e0b;
+}
+.admin-create-box {
+  background: #0e1529;
+  border: 1px solid #2d3e68;
+}
+.admin-box-title {
+  color: #c4b5fd;
+}
+.admin-label-text {
+  color: #91a0c1;
+}
+.admin-input {
+  background: #091024;
+  border: 1px solid #263558;
+  color: #f3f5ff;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.admin-input:focus {
+  border-color: #818cf8;
+  outline: none;
+}
+.admin-help-text {
+  color: #91a0c1;
+}
+.admin-table-title {
+  color: #f3f5ff;
+}
+.admin-table-wrap {
+  border: 1px solid #263558;
+  background: #091024;
+}
+.admin-thead-tr {
+  background: #0e1529;
+  color: #91a0c1;
+  border-bottom: 1px solid #263558;
+}
+.admin-thead-tr th {
+  padding: 12px 16px;
+  color: #91a0c1;
+}
+.admin-row {
+  border-bottom: 1px solid #1c2742;
+}
+.admin-cell-user {
+  padding: 12px 16px;
+  font-weight: 700;
+  color: #f3f5ff;
+}
+.admin-self-badge {
+  font-size: 10px;
+  color: #9d7bff;
+  margin-left: 4px;
+  background: rgba(157, 123, 255, 0.15);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.admin-cell-role {
+  padding: 12px 16px;
+  color: #c3cbea;
+}
+.admin-role-badge {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11.5px;
+}
+.admin-role-badge.admin {
+  background: rgba(157, 123, 255, 0.15);
+  color: #c4b5fd;
+}
+.admin-role-badge.user {
+  background: rgba(255, 255, 255, 0.06);
+  color: #c3cbea;
+}
+.admin-status-badge {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.admin-status-badge.active {
+  color: #42d5a3;
+  background: rgba(66, 213, 163, 0.12);
+}
+.admin-status-badge.pending {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+}
+.admin-cell-status {
+  padding: 12px 16px;
+}
+.admin-cell-date {
+  padding: 12px 16px;
+  color: #8593b5;
+  font-size: 12px;
+}
+.admin-cell-actions {
+  padding: 12px 16px;
+  text-align: center;
+}
+.admin-btn-reset {
+  font-size: 11.5px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  color: #c4b5fd;
+}
+.admin-btn-delete {
+  font-size: 11.5px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  color: #ff718c;
+}
+.admin-empty-cell {
+  text-align: center;
+  padding: 16px;
+  color: #91a0c1;
+}
+
+/* ── Admin 패널 및 사용자 관리: OLED 다크 테마 ── */
+[data-theme="oled"] #adminMainPanel.admin-panel {
+  background: #070709 !important;
+  border-color: #1a1a24 !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.85) !important;
+}
+[data-theme="oled"] .admin-panel .panel-head {
+  border-bottom-color: #1a1a24 !important;
+}
+[data-theme="oled"] .admin-stat-card {
+  background: #0b0b10 !important;
+  border-color: #1a1a26 !important;
+}
+[data-theme="oled"] .admin-create-box {
+  background: #0b0b10 !important;
+  border-color: #1a1a26 !important;
+}
+[data-theme="oled"] .admin-input {
+  background: #050508 !important;
+  border-color: #222230 !important;
+  color: #f8fafc !important;
+}
+[data-theme="oled"] .admin-input:focus {
+  border-color: #3b82f6 !important;
+}
+[data-theme="oled"] .admin-table-wrap {
+  border-color: #1a1a26 !important;
+  background: #070709 !important;
+}
+[data-theme="oled"] .admin-thead-tr {
+  background: #0b0b10 !important;
+  border-bottom-color: #1a1a26 !important;
+}
+[data-theme="oled"] .admin-row {
+  border-bottom-color: #14141d !important;
+}
+
+/* ── Admin 패널 및 사용자 관리: 화이트 테마 ── */
+[data-theme="white"] #adminMainPanel.admin-panel {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06) !important;
+  color: #0f172a !important;
+}
+[data-theme="white"] .admin-panel .panel-head {
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+[data-theme="white"] .admin-panel .panel-head h2 {
+  color: #0f172a !important;
+}
+[data-theme="white"] .admin-badge {
+  color: #7c3aed !important;
+  background: #f5f3ff !important;
+  border: 1px solid #ddd6fe !important;
+}
+[data-theme="white"] .admin-desc {
+  color: #64748b !important;
+}
+[data-theme="white"] .admin-stat-card {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+}
+[data-theme="white"] .admin-stat-label {
+  color: #64748b !important;
+}
+[data-theme="white"] .admin-stat-value {
+  color: #0f172a !important;
+}
+[data-theme="white"] .admin-stat-value.success {
+  color: #16a34a !important;
+}
+[data-theme="white"] .admin-stat-value.warning {
+  color: #d97706 !important;
+}
+[data-theme="white"] .admin-create-box {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+}
+[data-theme="white"] .admin-box-title {
+  color: #0f172a !important;
+}
+[data-theme="white"] .admin-label-text {
+  color: #334155 !important;
+}
+[data-theme="white"] .admin-input {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+[data-theme="white"] .admin-input:focus {
+  border-color: #2563eb !important;
+}
+[data-theme="white"] .admin-help-text {
+  color: #64748b !important;
+}
+[data-theme="white"] .admin-table-title {
+  color: #0f172a !important;
+}
+[data-theme="white"] .admin-table-wrap {
+  border: 1px solid #e2e8f0 !important;
+  background: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+}
+[data-theme="white"] .admin-thead-tr {
+  background: #f1f5f9 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+[data-theme="white"] .admin-thead-tr th {
+  color: #475569 !important;
+  font-weight: 600 !important;
+}
+[data-theme="white"] .admin-row {
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+[data-theme="white"] .admin-cell-user {
+  color: #0f172a !important;
+}
+[data-theme="white"] .admin-self-badge {
+  color: #7c3aed !important;
+  background: #f5f3ff !important;
+  border: 1px solid #ddd6fe !important;
+}
+[data-theme="white"] .admin-cell-role {
+  color: #334155 !important;
+}
+[data-theme="white"] .admin-role-badge.admin {
+  background: #ede9fe !important;
+  color: #6d28d9 !important;
+  border: 1px solid #ddd6fe !important;
+}
+[data-theme="white"] .admin-role-badge.user {
+  background: #f1f5f9 !important;
+  color: #475569 !important;
+  border: 1px solid #e2e8f0 !important;
+}
+[data-theme="white"] .admin-status-badge.active {
+  color: #15803d !important;
+  background: #dcfce7 !important;
+  border: 1px solid #86efac !important;
+}
+[data-theme="white"] .admin-status-badge.pending {
+  color: #b45309 !important;
+  background: #fef3c7 !important;
+  border: 1px solid #fde68a !important;
+}
+[data-theme="white"] .admin-cell-date {
+  color: #64748b !important;
+}
+[data-theme="white"] .admin-btn-reset {
+  color: #6d28d9 !important;
+  border-color: #ddd6fe !important;
+  background: #ffffff !important;
+}
+[data-theme="white"] .admin-btn-delete {
+  color: #dc2626 !important;
+  border-color: #fecaca !important;
+  background: #ffffff !important;
+}
+[data-theme="white"] .admin-empty-cell {
+  color: #64748b !important;
+}
+
+/* ── 종목 검색 실시간 자동완성 드롭다운 (Suggestions Dropdown) ── */
+.stock-suggestions-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 999999;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 6px;
+  backdrop-filter: blur(10px);
+}
+
+.stock-suggestions-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 8px 6px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  border-bottom: 1px solid #1e293b;
+  margin-bottom: 4px;
+}
+
+.stock-suggestions-hint {
+  font-size: 10px;
+  font-weight: normal;
+  color: #64748b;
+}
+
+.stock-suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stock-suggestion-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: #e2e8f0;
+}
+
+.stock-suggestion-item:hover,
+.stock-suggestion-item.selected {
+  background: #1e293b;
+  color: #38bdf8;
+  transform: translateX(2px);
+}
+
+.stock-suggestion-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stock-suggestion-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.stock-suggestion-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stock-suggestion-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: 10px;
+}
+
+.stock-suggestion-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #1e293b;
+  color: #a5b4fc;
+  border: 1px solid #334155;
+}
+
+.stock-suggestion-item:hover .stock-suggestion-code,
+.stock-suggestion-item.selected .stock-suggestion-code {
+  background: #312e81;
+  color: #c7d2fe;
+  border-color: #4f46e5;
+}
+
+.stock-suggestion-curr {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* 화이트테마 전용 스타일 */
+[data-theme="white"] .stock-suggestions-dropdown {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="white"] .stock-suggestions-header {
+  color: #475569 !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+
+[data-theme="white"] .stock-suggestions-hint {
+  color: #94a3b8 !important;
+}
+
+[data-theme="white"] .stock-suggestion-item {
+  color: #1e293b !important;
+}
+
+[data-theme="white"] .stock-suggestion-item:hover,
+[data-theme="white"] .stock-suggestion-item.selected {
+  background: #f1f5f9 !important;
+  color: #2563eb !important;
+}
+
+[data-theme="white"] .stock-suggestion-code {
+  background: #f8fafc !important;
+  color: #4338ca !important;
+  border-color: #cbd5e1 !important;
+}
+
+[data-theme="white"] .stock-suggestion-item:hover .stock-suggestion-code,
+[data-theme="white"] .stock-suggestion-item.selected .stock-suggestion-code {
+  background: #e0e7ff !important;
+  color: #3730a3 !important;
+  border-color: #a5b4fc !important;
+}
+
+[data-theme="white"] .stock-suggestion-curr {
+  color: #64748b !important;
+}
+
+/* 다크테마 전용 스타일 */
+[data-theme="dark"] .stock-suggestions-dropdown {
+  background: #18181b !important;
+  border: 1px solid #27272a !important;
+}
+
+[data-theme="dark"] .stock-suggestions-header {
+  border-bottom-color: #27272a !important;
+}
+
+[data-theme="dark"] .stock-suggestion-item:hover,
+[data-theme="dark"] .stock-suggestion-item.selected {
+  background: #27272a !important;
+  color: #38bdf8 !important;
+}
+
+/* 자동완성 성공 하이라이트 애니메이션 */
+@keyframes inputAutofillPulse {
+  0% { border-color: #38bdf8 !important; box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.4) !important; }
+  40% { border-color: #22c55e !important; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.45) !important; }
+  100% { box-shadow: none !important; }
+}
+
+.input-autofill-flash {
+  animation: inputAutofillPulse 1.2s ease-out !important;
+}
+
+/* ── 분할 날짜 입력 컴포넌트 (연도 4자리 자동 이동, YYYY-MM-DD) ── */
+.split-date-wrap {
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 0 10px !important;
+  height: 38px !important;
+  border-radius: 7px !important;
+  background: #0f172a !important;
+  border: 1px solid #334155 !important;
+  color: #f8fafc !important;
+  gap: 4px !important;
+  position: relative !important;
+  transition: border-color 0.15s, box-shadow 0.15s !important;
+}
+
+.split-date-wrap:focus-within {
+  border-color: #818cf8 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.25) !important;
+}
+
+.split-date-wrap input.date-part {
+  width: auto !important;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  padding: 0 2px !important;
+  margin: 0 !important;
+  color: #f8fafc !important;
+  font-size: 13.5px !important;
+  font-weight: 600 !important;
+  text-align: center !important;
+  letter-spacing: 0.5px !important;
+  border-radius: 4px !important;
+  transition: background 0.15s ease, color 0.15s ease !important;
+  cursor: text;
+}
+
+.split-date-wrap input.date-part:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.split-date-wrap input.date-part-year {
+  width: 48px !important;
+}
+
+.split-date-wrap input.date-part-month,
+.split-date-wrap input.date-part-day {
+  width: 28px !important;
+}
+
+.split-date-wrap .date-part-sep {
+  color: #64748b !important;
+  font-weight: 700 !important;
+  font-size: 13px !important;
+  user-select: none !important;
+  padding: 0 1px !important;
+}
+
+.split-date-wrap .date-picker-trigger {
+  background: transparent !important;
+  border: none !important;
+  cursor: pointer !important;
+  padding: 2px 4px !important;
+  font-size: 14px !important;
+  margin-left: auto !important;
+  opacity: 0.75 !important;
+  transition: opacity 0.15s, transform 0.1s !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+}
+
+.split-date-wrap .date-picker-trigger:hover {
+  opacity: 1 !important;
+  transform: scale(1.15) !important;
+}
+
+.split-date-wrap .sr-only-picker {
+  position: absolute !important;
+  right: 6px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 20px !important;
+  height: 20px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  border: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* 화이트 테마 분할 날짜 스타일 */
+[data-theme="white"] .split-date-wrap {
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .split-date-wrap:focus-within {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+}
+
+[data-theme="white"] .split-date-wrap input.date-part {
+  color: #0f172a !important;
+}
+
+[data-theme="white"] .split-date-wrap input.date-part:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="white"] .split-date-wrap .date-part-sep {
+  color: #94a3b8 !important;
+}
+
+/* OLED 테마 분할 날짜 스타일 */
+[data-theme="oled"] .split-date-wrap {
+  background: #000000 !important;
+  border: 1px solid #22222a !important;
+  color: #f8fafc !important;
+}
+
+[data-theme="oled"] .split-date-wrap:focus-within {
+  border-color: #a78bfa !important;
+  box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.25) !important;
+}
+
+[data-theme="oled"] .split-date-wrap input.date-part:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+
+
+
+
+
+
+
+
+
+
+

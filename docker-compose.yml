@@ -1,0 +1,12 @@
+services:
+  dashboard:
+    build: .
+    container_name: wealth
+    ports:
+      - "4829:4829"
+    volumes:
+      # 실제 보유종목 데이터는 컨테이너 밖에 영구 보관
+      - ./data:/app/data
+      # API 키가 담긴 .env는 읽기 전용으로 마운트 (이미지에는 포함시키지 않음)
+      - ./.env:/app/.env:ro
+    restart: unless-stopped
