@@ -290,15 +290,22 @@ def get_dashboard(data: dict[str, Any] | None = None, username: str | None = Non
                         acc_cash = seq_val
                         break
         acc_cash = acc_cash or {}
-        cash_krw = to_number(acc_cash.get("KRW"))
-        cash_usd = to_number(acc_cash.get("USD"))
+        cash_krw = to_number(acc_cash.get("KRW", acc_cash.get("krw")))
+        cash_usd = to_number(acc_cash.get("USD", acc_cash.get("usd")))
         cash_total_krw = cash_krw + (cash_usd * usd_rate)
 
         # Ensure yearly_contributions consistency for pension & irp accounts
         acc_type = a.get("account_type")
         a_name = (a.get("name") or "").lower()
         if not acc_type:
-            acc_type = "pension_savings" if ("연금" in a_name) else ("irp" if ("irp" in a_name) else "general")
+            if "isa" in a_name:
+                acc_type = "isa"
+            elif "irp" in a_name:
+                acc_type = "irp"
+            elif "연금" in a_name or "pension" in a_name:
+                acc_type = "pension_savings"
+            else:
+                acc_type = "general"
 
         ycs = a.get("yearly_contributions")
         ann_dep = to_number(a.get("annual_deposit"), 0.0)

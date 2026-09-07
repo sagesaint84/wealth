@@ -995,6 +995,11 @@ async def get_accounts(request: Request, group: str = "All", owner: str = "모�
     filtered = [a for a in accounts
                 if (owner == "모두" or a.get("owner", "모두") == owner)
                 and (group == "All" or a.get("family_group", "All") == group)]
+    filtered_account_ids = {a.get("id") for a in filtered}
+    filtered_holdings = [
+        holding for holding in full.get("holdings", [])
+        if holding.get("account_id") in filtered_account_ids
+    ]
     total_stock_value = sum(a.get("stock_value_krw", 0) for a in filtered)
     total_cash = sum(a.get("cash_krw", 0) for a in filtered)
     total_value = total_stock_value + total_cash
@@ -1011,7 +1016,7 @@ async def get_accounts(request: Request, group: str = "All", owner: str = "모�
             "account_count": len(filtered),
         },
         "accounts": filtered,
-        "holdings": full.get("holdings", []),
+        "holdings": filtered_holdings,
         "fx_rates": full.get("fx_rates", {}),
         "currency_summary": full.get("currency_summary", {}),
         "classifications": full.get("classifications", []),
@@ -1555,8 +1560,8 @@ async def rename_account(account_id: str, payload: dict, request: Request) -> di
     if "cash_krw" in payload or "cash_usd" in payload:
         cash_balances = data["settings"].setdefault("cash_balances", {})
         existing_cash = cash_balances.get(account_id, {})
-        cash_krw = float(to_number(payload["cash_krw"])) if "cash_krw" in payload else float(to_number(existing_cash.get("KRW", 0.0)))
-        cash_usd = float(to_number(payload["cash_usd"])) if "cash_usd" in payload else float(to_number(existing_cash.get("USD", 0.0)))
+        cash_krw = float(to_number(payload["cash_krw"])) if "cash_krw" in payload else float(to_number(existing_cash.get("KRW", existing_cash.get("krw", 0.0))))
+        cash_usd = float(to_number(payload["cash_usd"])) if "cash_usd" in payload else float(to_number(existing_cash.get("USD", existing_cash.get("usd", 0.0))))
         cash_balances[account_id] = {"KRW": cash_krw, "USD": cash_usd}
 
     for holding in data["holdings"]:

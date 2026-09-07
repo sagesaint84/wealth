@@ -171,8 +171,7 @@ class FinancialRecordsRegressionTests(IsolatedDataTestCase):
         self.assertEqual(stored_ledger["transactions"][0]["recurring_id"], "recurring")
         self.assertEqual(stored_ledger["recurring"][0]["last_deducted_date"], "2026-09-05")
 
-    @unittest.expectedFailure
-    def test_overdraft_transaction_delete_should_restore_original_balance_expected_current_bug(self) -> None:
+    def test_overdraft_transaction_update_and_delete_restores_original_balance(self) -> None:
         portfolio.write_portfolio(
             empty_portfolio(bank_accounts=[{"id": "bank", "balance": 100}]),
             username="fixture_user",
@@ -186,18 +185,35 @@ class FinancialRecordsRegressionTests(IsolatedDataTestCase):
             },
             username="fixture_user",
         )
-        ledger.delete_transaction(transaction["id"], username="fixture_user")
+        self.assertEqual(transaction["applied_delta"], -100)
+        self.assertEqual(
+            portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"],
+            0,
+        )
+
+        updated = ledger.update_transaction(
+            transaction["id"],
+            {"amount": 50, "apply_to_account": True},
+            username="fixture_user",
+        )
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated["applied_delta"], -50)
+        self.assertEqual(
+            portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"],
+            50,
+        )
+
+        self.assertTrue(ledger.delete_transaction(transaction["id"], username="fixture_user"))
 
         restored_balance = portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"]
         self.assertEqual(restored_balance, 100)
 
-    @unittest.expectedFailure
-    def test_brokerage_transaction_should_update_dashboard_cash_expected_current_bug(self) -> None:
+    def test_brokerage_transaction_updates_krw_and_preserves_usd_cash(self) -> None:
         portfolio.write_portfolio(
             empty_portfolio(
                 settings={
-                    "fx_rates": {"KRW": 1.0},
-                    "cash_balances": {"broker": {"KRW": 100}},
+                    "fx_rates": {"KRW": 1.0, "USD": 1300.0},
+                    "cash_balances": {"broker": {"KRW": 100, "USD": 2}},
                 },
                 accounts=[
                     {
@@ -223,6 +239,76 @@ class FinancialRecordsRegressionTests(IsolatedDataTestCase):
 
         dashboard = portfolio.get_dashboard(username="fixture_user")
         self.assertEqual(dashboard["accounts"][0]["cash_krw"], 80)
+        self.assertEqual(dashboard["accounts"][0]["cash_usd"], 2)
+        stored_cash = portfolio.read_portfolio("fixture_user")["settings"]["cash_balances"]["broker"]
+        self.assertEqual(stored_cash, {"KRW": 80, "USD": 2})
+
+    def test_brokerage_transaction_reads_legacy_lowercase_cash_and_writes_canonical_krw(self) -> None:
+        portfolio.write_portfolio(
+            empty_portfolio(
+                settings={
+                    "fx_rates": {"KRW": 1.0, "USD": 1300.0},
+                    "cash_balances": {"broker": {"krw": 100, "usd": 2}},
+                },
+                accounts=[
+                    {
+                        "id": "broker",
+                        "broker": "가상증권",
+                        "name": "가상계좌",
+                        "owner": "아빠",
+                        "account_type": "general",
+                    }
+                ],
+            ),
+            username="fixture_user",
+        )
+
+        before = portfolio.get_dashboard(username="fixture_user")["accounts"][0]
+        self.assertEqual((before["cash_krw"], before["cash_usd"]), (100, 2))
+
+        ledger.add_transaction(
+            {
+                "type": "expense",
+                "amount": 20,
+                "account_id": "broker",
+                "apply_to_account": True,
+            },
+            username="fixture_user",
+        )
+
+        stored_cash = portfolio.read_portfolio("fixture_user")["settings"]["cash_balances"]["broker"]
+        dashboard_cash = portfolio.get_dashboard(username="fixture_user")["accounts"][0]
+        self.assertEqual(stored_cash["KRW"], 80)
+        self.assertEqual((dashboard_cash["cash_krw"], dashboard_cash["cash_usd"]), (80, 2))
+
+    def test_credit_card_settlement_records_actual_delta_and_delete_restores_balance(self) -> None:
+        portfolio.write_portfolio(
+            empty_portfolio(bank_accounts=[{"id": "bank", "name": "가상통장", "balance": 1000}]),
+            username="fixture_user",
+        )
+        ledger_data = ledger.default_ledger_data()
+        ledger_data["cards"] = [
+            {
+                "id": "card",
+                "card_name": "가상카드",
+                "owner": "아빠",
+                "linked_account_id": "bank",
+                "linked_account_name": "가상통장",
+            }
+        ]
+        ledger.write_ledger(ledger_data, username="fixture_user")
+        ledger.add_transaction(
+            {"type": "expense", "amount": 300, "card_id": "card", "owner": "아빠"},
+            username="fixture_user",
+        )
+
+        result = ledger.settle_card_payment("card", {}, username="fixture_user")
+        settlement = result["transaction"]
+        self.assertEqual(settlement["applied_delta"], -300)
+        self.assertEqual(portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"], 700)
+
+        self.assertTrue(ledger.delete_transaction(settlement["id"], username="fixture_user"))
+        self.assertEqual(portfolio.read_portfolio("fixture_user")["bank_accounts"][0]["balance"], 1000)
 
 
 if __name__ == "__main__":

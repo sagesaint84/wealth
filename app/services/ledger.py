@@ -203,20 +203,23 @@ def _apply_account_balance_delta(
     acc_id: str | None,
     delta: float,
     username: str | None = None,
-) -> bool:
-    """Adjust balance of a linked bank account, savings account, or brokerage account."""
+) -> float:
+    """Adjust a linked account and return the balance delta actually applied."""
     if not acc_id or abs(delta) < 1e-6:
-        return False
+        return 0.0
     try:
         from app.services.portfolio import read_portfolio, write_portfolio
         pf = read_portfolio(username)
         applied = False
+        applied_delta = 0.0
 
         # 1. Bank accounts
         for b in pf.get("bank_accounts", []):
             if b.get("id") == acc_id:
                 curr = float(b.get("balance") or 0.0)
-                b["balance"] = max(0.0, curr + delta)
+                new_balance = max(0.0, curr + delta)
+                b["balance"] = new_balance
+                applied_delta = new_balance - curr
                 b["updated_at"] = datetime.now().astimezone().isoformat()
                 applied = True
                 break
@@ -226,7 +229,9 @@ def _apply_account_balance_delta(
             for s in pf.get("savings_accounts", []):
                 if s.get("id") == acc_id:
                     curr = float(s.get("balance") or 0.0)
-                    s["balance"] = max(0.0, curr + delta)
+                    new_balance = max(0.0, curr + delta)
+                    s["balance"] = new_balance
+                    applied_delta = new_balance - curr
                     s["updated_at"] = datetime.now().astimezone().isoformat()
                     applied = True
                     break
@@ -235,21 +240,31 @@ def _apply_account_balance_delta(
         if not applied:
             for a in pf.get("accounts", []):
                 if a.get("id") == acc_id:
-                    curr = float(a.get("cash") or 0.0)
-                    a["cash"] = max(0.0, curr + delta)
                     settings = pf.setdefault("settings", {})
                     cb = settings.setdefault("cash_balances", {})
-                    if acc_id in cb and isinstance(cb[acc_id], dict):
-                        cb[acc_id]["krw"] = max(0.0, float(cb[acc_id].get("krw") or 0.0) + delta)
+                    acc_cash = cb.setdefault(acc_id, {})
+                    if not isinstance(acc_cash, dict):
+                        acc_cash = {}
+                        cb[acc_id] = acc_cash
+                    curr = float(
+                        acc_cash.get("KRW")
+                        if acc_cash.get("KRW") is not None
+                        else acc_cash.get("krw", a.get("cash", 0.0))
+                        or 0.0
+                    )
+                    new_balance = max(0.0, curr + delta)
+                    applied_delta = new_balance - curr
+                    a["cash"] = new_balance
+                    acc_cash["KRW"] = new_balance
                     applied = True
                     break
 
         if applied:
             write_portfolio(pf, username)
-            return True
+            return applied_delta
     except Exception as e:
         print(f"Error applying balance delta for account {acc_id}: {e}")
-    return False
+    return 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -348,8 +363,9 @@ def settle_card_payment(card_id: str, payload: dict[str, Any], username: str | N
         raise ValueError("결제할 카드 청구 금액이 없습니다 (0원).")
 
     # 1. 은행 계좌에서 카드 대금 출금 차감
+    applied_delta = 0.0
     if acc_id:
-        _apply_account_balance_delta(acc_id, -amount_to_pay, username=username)
+        applied_delta = _apply_account_balance_delta(acc_id, -amount_to_pay, username=username)
 
     # 2. 가계부에 카드대금결제 거래 생성
     settle_tx_id = str(uuid.uuid4())
@@ -363,7 +379,7 @@ def settle_card_payment(card_id: str, payload: dict[str, Any], username: str | N
         "pay_method": f"계좌출금 ({acc_name})" if acc_name else "계좌출금",
         "account_id": acc_id,
         "account_name": acc_name,
-        "applied_delta": -amount_to_pay if acc_id else 0.0,
+        "applied_delta": applied_delta,
         "merchant": f"[{target_card.get('card_name', '신용카드')}] 카드대금 결제",
         "memo": f"{len(unpaid_txs)}건 카드 이용대금 결제 완료",
         "is_recurring": False,
@@ -403,8 +419,8 @@ def add_transaction(payload: dict[str, Any], username: str | None = None) -> dic
     applied_delta = 0.0
     apply_to_account = bool(payload.get("apply_to_account", False) or linked_acc_id)
     if apply_to_account and linked_acc_id and amount > 0 and not is_card:
-        applied_delta = amount if tx_type == "income" else -amount
-        _apply_account_balance_delta(linked_acc_id, applied_delta, username=username)
+        requested_delta = amount if tx_type == "income" else -amount
+        applied_delta = _apply_account_balance_delta(linked_acc_id, requested_delta, username=username)
 
     tx = {
         "id": tx_id,
@@ -460,8 +476,8 @@ def update_transaction(tx_id: str, payload: dict[str, Any], username: str | None
 
             new_delta = 0.0
             if apply_to_account and new_acc_id and new_amount > 0 and not is_card:
-                new_delta = new_amount if new_type == "income" else -new_amount
-                _apply_account_balance_delta(new_acc_id, new_delta, username=username)
+                requested_delta = new_amount if new_type == "income" else -new_amount
+                new_delta = _apply_account_balance_delta(new_acc_id, requested_delta, username=username)
 
             tx["applied_delta"] = new_delta
             tx["updated_at"] = datetime.now().isoformat()
@@ -589,8 +605,8 @@ def process_recurring_deductions(username: str | None = None) -> list[dict[str, 
             last_deducted = str(rec.get("last_deducted_date") or "")
             if not last_deducted.startswith(cur_prefix):
                 # 1. 연동 계좌 잔액 차감
-                applied_ok = _apply_account_balance_delta(linked_acc_id, -amount, username=username)
-                applied_delta = -amount if applied_ok else 0.0
+                applied_delta = _apply_account_balance_delta(linked_acc_id, -amount, username=username)
+                balance_deducted = abs(applied_delta) > 1e-6
 
                 # 2. 가계부 지출 내역 1건 생성
                 tx_date_str = due_date.isoformat()
@@ -622,7 +638,7 @@ def process_recurring_deductions(username: str | None = None) -> list[dict[str, 
                     "amount": amount,
                     "account_name": acc_name,
                     "deducted_date": tx_date_str,
-                    "balance_deducted": applied_ok,
+                    "balance_deducted": balance_deducted,
                 })
                 has_changes = True
 
@@ -798,4 +814,3 @@ def import_ledger_from_file_bytes(
         write_ledger(ledger_data, username=username)
 
     return imported_count
-

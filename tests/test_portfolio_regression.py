@@ -109,7 +109,7 @@ class PortfolioAccountRegressionTests(IsolatedDataTestCase):
         }
         data = empty_portfolio(
             accounts=[
-                account("general", "일반계좌", "아빠", "general"),
+                account("general", "이름에는 ISA가 있지만 일반계좌", "아빠", "general"),
                 account("isa", "중개형 ISA", "아빠", "isa"),
                 account("pension", "연금저축", "엄마", "pension_savings"),
                 account("irp", "개인형 IRP", "엄마", "irp"),
@@ -126,7 +126,7 @@ class PortfolioAccountRegressionTests(IsolatedDataTestCase):
             accounts=[
                 account("general", "가상 위탁계좌", "아빠"),
                 account("pension", "가상 연금저축", "엄마"),
-                account("irp", "가상 IRP", "엄마"),
+                account("irp", "가상 개인형퇴직연금 IRP", "엄마"),
             ]
         )
 
@@ -138,8 +138,7 @@ class PortfolioAccountRegressionTests(IsolatedDataTestCase):
             {"general": "general", "pension": "pension_savings", "irp": "irp"},
         )
 
-    @unittest.expectedFailure
-    def test_legacy_isa_name_should_fallback_to_isa_expected_current_bug(self) -> None:
+    def test_legacy_isa_name_falls_back_to_isa(self) -> None:
         data = empty_portfolio(accounts=[account("legacy-isa", "가상 중개형 ISA", "아빠")])
 
         dashboard = portfolio.get_dashboard(data=data, username="fixture_user")
@@ -199,16 +198,17 @@ class PortfolioAccountRegressionTests(IsolatedDataTestCase):
             {"all", "father", "mother", "child", "joint"},
         )
 
-    @unittest.expectedFailure
-    def test_accounts_api_should_filter_holdings_with_owner_expected_current_bug(self) -> None:
+    def test_accounts_api_filters_holdings_with_owner_account_scope(self) -> None:
         data = empty_portfolio(
             accounts=[
                 account("father", "아빠계좌", "아빠", "general"),
                 account("mother", "엄마계좌", "엄마", "general"),
+                account("joint", "공동명의계좌", "공동명의", "general"),
             ],
             holdings=[
-                holding("father-stock", "father", owner="아빠"),
+                holding("father-stock", "father", owner="엄마"),
                 holding("mother-stock", "mother", owner="엄마"),
+                holding("joint-stock", "joint", owner="공동명의"),
             ],
         )
         portfolio.write_portfolio(data, username="fixture_user")
@@ -218,6 +218,19 @@ class PortfolioAccountRegressionTests(IsolatedDataTestCase):
         )
 
         self.assertEqual([item["id"] for item in result["holdings"]], ["father-stock"])
+
+        joint_result = asyncio.run(
+            main.get_accounts(authenticated_request("fixture_user"), owner="공동명의")
+        )
+        self.assertEqual([item["id"] for item in joint_result["holdings"]], ["joint-stock"])
+
+        all_result = asyncio.run(
+            main.get_accounts(authenticated_request("fixture_user"), owner="모두")
+        )
+        self.assertEqual(
+            {item["id"] for item in all_result["holdings"]},
+            {"father-stock", "mother-stock", "joint-stock"},
+        )
 
 
 if __name__ == "__main__":
