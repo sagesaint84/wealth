@@ -1311,6 +1311,13 @@ function renderSummary(data) {
 
   $("#updatedAt") && ($("#updatedAt").textContent = data.updated_at ? `마지막 자산 반영 ${new Date(data.updated_at).toLocaleString("ko-KR")}` : "아직 보유종목이 없습니다.");
   $("#accountCaption") && ($("#accountCaption").textContent = `전체 ${number(s.account_count, 0)}개 계좌`);
+  // Presentation-only projection of the existing totals; no second calculation policy.
+  window.dispatchEvent(new CustomEvent('wealth:summary', { detail: {
+    owner: o, netWorth, debt: totalAllDebt, cash: totalAllCash,
+    stock: totalStockVal, property: totalREInvestEquity,
+    deposits: totalTenantDepositVal, insurance: insuranceTotal,
+    updatedAt: data.updated_at || null,
+  }}));
 }
 
 // ── 3. 투자자산 분류 & 섹터별 도넛 원그래프 ──────────────────────────────────
@@ -2349,6 +2356,38 @@ function calcLoanPreview() {
   }
 }
 
+function refreshLoanOverdraftBankOptions(selectedValue = null) {
+  const form = $("#loanAccountForm");
+  const label = $("#loanOverdraftBankLabel");
+  const select = $("#loanOverdraftBankSelect");
+  if (!form || !label || !select) return;
+
+  const loanType = form.querySelector("[name='loan_type']")?.value || "minus";
+  const owner = form.querySelector("[name='owner']")?.value || "모두";
+  const currentLoanId = form.querySelector("[name='id']")?.value || "";
+  label.style.display = loanType === "minus" ? "" : "none";
+  if (loanType !== "minus") {
+    select.value = "";
+    return;
+  }
+
+  const previousValue = selectedValue !== null ? selectedValue : select.value;
+  const occupiedBankIds = new Set(
+    rawLoanAccounts
+      .filter(l => l.id !== currentLoanId && l.loan_type === "minus" && l.overdraft_bank_account_id)
+      .map(l => l.overdraft_bank_account_id)
+  );
+  const eligibleBanks = rawBankAccounts.filter(b =>
+    String(b.currency || "KRW").toUpperCase() === "KRW" &&
+    Number(b.balance || 0) >= 0 &&
+    (b.owner || "모두") === owner &&
+    !occupiedBankIds.has(b.id)
+  );
+  select.innerHTML = '<option value="">-- 자동 상계 사용 안 함 --</option>' +
+    eligibleBanks.map(b => `<option value="${b.id}">${html(b.bank_name)} ${html(b.account_name)} (${html(b.owner || '모두')})</option>`).join('');
+  select.value = eligibleBanks.some(b => b.id === previousValue) ? previousValue : "";
+}
+
 function openLoanAccountDialog(loan = null) {
   const dialog = $("#loanAccountDialog");
   const form = $("#loanAccountForm");
@@ -2381,12 +2420,14 @@ function openLoanAccountDialog(loan = null) {
     form.querySelector("[name='interest_rate']").value = loan.interest_rate || "";
     form.querySelector("[name='repayment_type']").value = loan.repayment_type || "bullet";
     if (select) select.value = loan.linked_account_id || "";
+    refreshLoanOverdraftBankOptions(loan.overdraft_bank_account_id || "");
     form.querySelector("[name='maturity_date']").value = loan.maturity_date || "";
     form.querySelector("[name='memo']").value = loan.memo || "";
   } else {
     form.querySelector("[name='owner']").value = currentOwner !== "모두" ? currentOwner : "모두";
     form.querySelector("[name='loan_type']").value = "minus";
     form.querySelector("[name='repayment_type']").value = "bullet";
+    refreshLoanOverdraftBankOptions("");
   }
 
   calcLoanPreview();
@@ -9965,6 +10006,7 @@ async function initAuthSession() {
 async function applyUserRoleView(me) {
   if (!me) return;
   const isAdminUser = (me.username === 'admin');
+  window.dispatchEvent(new CustomEvent('wealth:role', { detail: { isAdminUser } }));
   console.log('[AUTH] 화면 뷰 분기 적용 - isAdminUser:', isAdminUser, 'username:', me.username);
 
   // 상단 사용자명 표시
@@ -10825,6 +10867,7 @@ function initSavingsListeners() {
         interest_rate: Number(fd.get("interest_rate")) || 0,
         repayment_type: fd.get("repayment_type") || "bullet",
         linked_account_id: fd.get("linked_account_id") || "",
+        overdraft_bank_account_id: fd.get("overdraft_bank_account_id") || "",
         maturity_date: fd.get("maturity_date") || "",
         memo: fd.get("memo") || "",
       };
@@ -10852,6 +10895,10 @@ function initSavingsListeners() {
       const isMinus = e.target.value === "minus";
       const limitLabel = document.getElementById("loanLimitLabel");
       if (limitLabel) limitLabel.style.display = isMinus ? "" : "none";
+      refreshLoanOverdraftBankOptions();
+    });
+    document.getElementById("loanOwnerSelect")?.addEventListener("change", () => {
+      refreshLoanOverdraftBankOptions();
     });
   }
 
@@ -12387,3 +12434,8 @@ if (document.readyState === 'loading') {
 } else {
   bootstrap();
 }
+
+window.addEventListener('wealth:view', ({ detail }) => {
+  if (detail === 'invest' && dashboard) requestAnimationFrame(() => renderHeatmaps(dashboard));
+  if (detail === 'ledger' && currentUserProfile && currentUserProfile.username !== 'admin') loadLedger();
+});
