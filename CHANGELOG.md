@@ -1,5 +1,11 @@
 # Wealth 변경 이력
 
+## Wealth v1.0.10 — 테스트·시작 작업 부작용 격리 — 2026-09-09
+
+- 테스트 환경을 명시적으로 구분해 FastAPI 시작 시 외부 동기화와 실제 사용자 데이터 쓰기를 차단합니다.
+- 공통 테스트 helper에 임시 환경 및 외부 네트워크 차단을 중앙화하고, raw `TestClient` 경로도 동일한 보호를 적용합니다.
+- Yahoo 환율·주가 동기화는 합성 fixture로 검증하며 실제 `.env`·`data/` 파일과 외부 API에 접근하지 않습니다.
+
 ## Wealth v1.0.9 — 증권사 동기화 안정화 및 데이터 보호 — 2026-09-09
 
 - 증권사별 동기화 결과를 `SUCCESS`, `PARTIAL_SUCCESS`, `CONFIG_REQUIRED`, `API_ERROR`, `PARSE_ERROR`, `INTERNAL_ERROR`로 구분하고 실패 범위의 기존 보유종목·예수금을 유지합니다.

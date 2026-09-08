@@ -53,6 +53,8 @@ logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 STATIC_DIR = ROOT_DIR / "app" / "static"
+WEALTH_ENV = os.getenv("WEALTH_ENV", "production").strip().lower()
+TESTING = WEALTH_ENV == "test"
 
 
 def load_env_file() -> None:
@@ -66,7 +68,8 @@ def load_env_file() -> None:
             os.environ.setdefault(key.strip(), value.strip())
 
 
-load_env_file()
+if not TESTING:
+    load_env_file()
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -107,6 +110,8 @@ async def manifest_file_root():
     return FileResponse(STATIC_DIR / "manifest.json", media_type="application/manifest+json")
 @app.on_event("startup")
 async def ensure_data_dir():
+    if TESTING:
+        return
     data_dir = ROOT_DIR / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     # 1. 멀티유저 초기화 및 sagesaint 데이터 자동 마이그레이션 실행

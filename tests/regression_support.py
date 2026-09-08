@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import os
+import socket
 import sys
 import tempfile
 import unittest
@@ -12,6 +14,34 @@ from starlette.requests import Request
 
 from app.services import ledger, portfolio, user_manager, user_openapi
 
+# The package-level guard is intentionally also installed here so tests that
+# import this helper directly (outside package discovery) get the same policy.
+os.environ.setdefault("WEALTH_ENV", "test")
+
+_original_socket_connect = socket.socket.connect
+_original_socket_connect_ex = socket.socket.connect_ex
+
+
+def _test_loopback(address: object) -> bool:
+    return isinstance(address, tuple) and bool(address) and str(address[0]).strip().lower().strip("[]") in {"127.0.0.1", "localhost", "::1"}
+
+
+def _blocked_external_connect(sock, address):
+    if not _test_loopback(address):
+        raise AssertionError(f"External network is blocked in tests: {address!r}")
+    return _original_socket_connect(sock, address)
+
+
+def _blocked_external_connect_ex(sock, address):
+    if not _test_loopback(address):
+        raise AssertionError(f"External network is blocked in tests: {address!r}")
+    return _original_socket_connect_ex(sock, address)
+
+
+if socket.socket.connect is not _blocked_external_connect:
+    socket.socket.connect = _blocked_external_connect
+    socket.socket.connect_ex = _blocked_external_connect_ex
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,12 +49,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def import_main_without_loading_real_env():
     """Import app.main while making its .env loader see no production .env file."""
     if "app.main" in sys.modules:
-        module = sys.modules["app.main"]
-        module.app.router.on_startup[:] = [
-            handler for handler in module.app.router.on_startup
-            if handler is not module.ensure_data_dir
-        ]
-        return module
+        return sys.modules["app.main"]
 
     original_exists = Path.exists
 
@@ -35,12 +60,6 @@ def import_main_without_loading_real_env():
 
     with patch.object(Path, "exists", safe_exists):
         module = importlib.import_module("app.main")
-    # TestClient must not run startup jobs that call external market APIs or
-    # write production caches. Endpoint tests invoke only the routes in scope.
-    module.app.router.on_startup[:] = [
-        handler for handler in module.app.router.on_startup
-        if handler is not module.ensure_data_dir
-    ]
     return module
 
 
