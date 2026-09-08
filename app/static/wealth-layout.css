@@ -253,13 +253,24 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 .wealth-history-summary strong.is-positive { color: #61c9b2; }
 .wealth-history-summary strong.is-negative { color: var(--red); }
 .wealth-history-chart-card { padding: 10px 12px 2px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb,var(--surface-2) 55%,var(--surface-1)); }
-.wealth-history-chart { max-height: 230px; color: var(--muted); }
+.wealth-history-legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 0 2px 4px; color: var(--muted); font-size: 10px; }
+.wealth-history-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.wealth-history-legend i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; }
+.wealth-history-legend .legend-line { width: 14px; height: 2px; background: #9b8afb; }
+.wealth-history-legend .legend-positive { background: #ef4444; }
+.wealth-history-legend .legend-negative { background: #3b82f6; }
+.wealth-history-chart { max-height: 250px; color: var(--muted); }
+.wealth-history-bar.is-positive { fill: #ef4444; opacity: .8; }
+.wealth-history-bar.is-negative { fill: #3b82f6; opacity: .8; }
 .wealth-history-details { margin-top: 10px; border-top: 1px solid var(--line); }
 .wealth-history-details summary { display: flex; justify-content: space-between; padding: 11px 2px; color: var(--text); cursor: pointer; font-size: 11px; }
 .wealth-history-details summary span { color: var(--muted); }
 .wealth-history-details table { font-size: 11px; }
 .wealth-history-details th, .wealth-history-details td { padding: 9px 8px; }
 .wealth-history-details tbody tr:hover { background: var(--surface-2); }
+.wealth-history .compact-record-tabs { display: inline-flex; width: max-content; gap: 3px; padding: 2px 3px; margin: 0 0 12px; background: #111a33; border: 1px solid #27365c; border-radius: 9px; }
+.wealth-history .compact-record-tabs .heatmap-tab { padding: 3px 8px; min-height: 24px; border: 0; border-radius: 6px; font-size: 11px; line-height: 1.2; font-weight: 700; }
+.wealth-history .compact-record-tabs .heatmap-tab.active { background: linear-gradient(135deg,#7c58f0,#5431d1); color: #fff; box-shadow: 0 2px 8px rgba(118,83,235,.4); }
 @media (max-width: 760px) {
   .wealth-history { padding: 18px; }
   .wealth-history-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }

@@ -4597,7 +4597,18 @@ function renderAssetRecords(records) {
   assetRecords = records || [];
   window.assetRecords = records || [];
 
-  if (currentRecordView === 'tax_accounts') {
+  const recordsEyebrow = document.getElementById('recordsEyebrow');
+  const recordsHeading = document.getElementById('recordsHeadingText');
+  const recordsCollapse = document.querySelector('#recordsPanel .section-collapse-btn');
+  const taxView = currentRecordView === 'tax_accounts';
+  if (recordsEyebrow) recordsEyebrow.textContent = taxView ? 'TAX-ADVANTAGED ACCOUNTS' : 'STOCK RECORDS';
+  if (recordsHeading) recordsHeading.textContent = taxView ? '절세계좌' : '주식기록';
+  if (recordsCollapse) {
+    recordsCollapse.title = taxView ? '절세계좌 접기/펼치기' : '주식기록 접기/펼치기';
+    recordsCollapse.setAttribute('aria-label', taxView ? '절세계좌 접기/펼치기' : '주식기록 접기/펼치기');
+  }
+
+  if (taxView) {
     $("#recordsPanel")?.classList.add("is-tax-view");
     const sideSummaryEl = document.querySelector(".record-side-summary");
     if (sideSummaryEl) sideSummaryEl.style.display = "none";
