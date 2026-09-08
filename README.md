@@ -273,7 +273,7 @@ python -m unittest discover -s tests -v
 
 ## 버전
 
-현재 앱 버전은 **Wealth v1.0.10**입니다. 당분간 `v1.0.x` 체계를 사용합니다. 백업/ledger 형식 번호는 앱 버전과 별개로 유지합니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
+현재 앱 버전은 **Wealth v1.0.12**입니다. 당분간 `v1.0.x` 체계를 사용합니다. 백업/ledger 형식 번호는 앱 버전과 별개로 유지합니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
 
 Linux에서 브랜치를 Docker로 설치하거나 갱신하려면 [브랜치 설치 안내](docs/linux-branch-install.md)를 확인하세요. GHCR `latest`는 main 기준이며 `codex-refactor`는 직접 빌드해야 합니다.
 

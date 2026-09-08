@@ -10,11 +10,11 @@
   window.addEventListener('beforeunload', e => { if(dirty || editingRecord) { e.preventDefault(); e.returnValue = ''; } });
   const historyPanel = document.createElement('article');
   historyPanel.className = 'wealth-history wealth-composition';
-  historyPanel.innerHTML = `<div class="wealth-section-heading"><div><p class="wealth-eyebrow">NET WORTH HISTORY</p><h3>순자산 추이</h3></div></div>
-    <p class="wealth-help">사용자가 확인해 저장한 날짜별 기록입니다. 자금 입출금·자산 등록도 반영되므로 투자수익률이 아닙니다.</p>
+  historyPanel.innerHTML = `<div class="wealth-section-heading wealth-history-heading"><div><p class="wealth-eyebrow">NET WORTH HISTORY</p><h3>순자산 추이</h3><p class="wealth-history-description">확인해 저장한 날짜별 순자산 기록입니다.</p></div></div>
+    <p class="wealth-help wealth-history-help">자금 입출금·자산 등록도 반영되므로 투자수익률과는 다릅니다.</p>
     <div class="wealth-history-actions" aria-label="순자산 기록 관리"><button type="button" class="button primary" id="wealthSaveSnapshot" disabled>오늘 기록</button><button type="button" class="button secondary" id="wealthAddHistory" disabled>과거 기록 추가</button><button type="button" id="wealthEditHistory" class="button secondary" disabled>선택 기록 수정</button><button type="button" id="wealthDeleteHistory" class="button danger" disabled>선택 기록 삭제</button></div>
     <div class="wealth-periods" aria-label="순자산 조회 기간"><button data-days="30">1개월</button><button data-days="90">3개월</button><button data-days="365" aria-pressed="true">1년</button><button data-days="0">전체</button></div>
-    <p id="wealthHistoryStatus" class="wealth-help" role="status">기록을 불러오는 중입니다.</p><div id="wealthHistoryPlot"></div>`;
+    <p id="wealthHistoryStatus" class="wealth-help" role="status">기록을 불러오는 중입니다.</p><div id="wealthHistorySummary" class="wealth-history-summary" aria-label="순자산 요약"></div><div id="wealthHistoryPlot"></div>`;
   home.querySelector('.wealth-home-secondary').before(historyPanel);
   const historyManager = document.createElement('div');
   historyManager.className='wealth-history-selection';
@@ -95,12 +95,17 @@
   invest.append(bucketPanel);
   const nav = document.createElement('div'); nav.className = 'wealth-invest-tabs';
   nav.setAttribute('aria-label','투자 화면 선택');
-  nav.innerHTML = '<button type="button" data-invest="overview" aria-pressed="true">포트폴리오</button><button type="button" data-invest="buckets">전략 버킷</button><button type="button" data-invest="records">주식기록</button>';
+  nav.innerHTML = '<button type="button" data-invest="overview" aria-pressed="true">포트폴리오</button><button type="button" data-invest="heatmap">히트맵</button><button type="button" data-invest="records">주식기록</button><button type="button" data-invest="buckets">전략 버킷</button><button type="button" data-invest="tax_accounts">절세계좌</button><button type="button" data-invest="holdings">보유종목</button>';
   invest.prepend(nav);
   function selectTab(tab) {
-    ['summaryPanel','assetHeatmapPanel','holdingsPanel'].forEach(id => document.getElementById(id).classList.toggle('wealth-invest-hidden',tab !== 'overview'));
+    ['summaryPanel','assetHeatmapPanel','holdingsPanel'].forEach(id => document.getElementById(id).classList.toggle('wealth-invest-hidden', !((tab === 'overview' && id === 'summaryPanel') || (tab === 'heatmap' && id === 'assetHeatmapPanel') || (tab === 'holdings' && id === 'holdingsPanel'))));
     document.getElementById('recordsPanel').classList.toggle('wealth-invest-hidden',tab !== 'records');
     bucketPanel.classList.toggle('wealth-invest-hidden',tab !== 'buckets');
+    if (tab === 'records' || tab === 'tax_accounts') {
+      const view = document.querySelector(`#recordViewTabs [data-view="${tab === 'tax_accounts' ? 'tax_accounts' : 'combo'}"]`);
+      if (view && !view.classList.contains('active')) view.click();
+      document.getElementById('recordsPanel').classList.remove('wealth-invest-hidden');
+    }
     nav.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed',String(b.dataset.invest === tab)));
     window.dispatchEvent(new CustomEvent('wealth:view',{detail:'invest'}));
   }
@@ -142,12 +147,15 @@
     document.getElementById('wealthEditHistory').disabled=!canEdit || historyBusy;
     document.getElementById('wealthDeleteHistory').disabled=!canEdit || historyBusy;
     document.getElementById('wealthHistoryStatus').textContent = records.length ? `${summary.owner === '모두' ? '전체 가족' : summary.owner} · ${records.length}개 기록${records.length > 1 ? ' · 기간 증감 '+won(records.at(-1).net_worth-records[0].net_worth) : ' · 두 번째 기록부터 추세를 표시합니다.'}` : '아직 기록이 없습니다. 자산 정보를 확인한 뒤 ‘오늘 기록’을 누르세요. 과거 값을 추정하지 않습니다.';
-    if(!records.length) { plot.replaceChildren(); return; }
-    const values = records.map(r=>r.net_worth), lo=Math.min(...values), hi=Math.max(...values), span=hi-lo || Math.max(Math.abs(hi)*0.05,1);
+    const summaryBox=document.getElementById('wealthHistorySummary');
+    if(!records.length) { summaryBox.replaceChildren(); plot.replaceChildren(); return; }
+    const values=records.map(r=>Number(r.net_worth)||0), firstValue=values[0], latestValue=values.at(-1), minValue=Math.min(...values), maxValue=Math.max(...values);
+    summaryBox.innerHTML=`<div><span>기간 시작</span><strong>${won(firstValue)}</strong></div><div><span>최근 기록</span><strong>${won(latestValue)}</strong></div><div><span>최저 / 최고</span><strong>${won(minValue)} · ${won(maxValue)}</strong></div><div><span>기간 증감</span><strong class="${latestValue-firstValue >= 0 ? 'is-positive' : 'is-negative'}">${latestValue-firstValue >= 0 ? '+' : ''}${won(latestValue-firstValue)}</strong></div>`;
+    const lo=Math.min(...values), hi=Math.max(...values), span=hi-lo || Math.max(Math.abs(hi)*0.05,1);
     const first=Date.parse(records[0].date), duration=Date.parse(records.at(-1).date)-first || 1;
     const width=Math.max(plot.clientWidth || 800,250), left=16, right=width-16;
     const points=records.map(r=>[records.length === 1 ? width/2 : left+(Date.parse(r.date)-first)/duration*(right-left), 170-(r.net_worth-lo)/span*130]);
-    plot.innerHTML = `<svg class="wealth-history-chart" viewBox="0 0 ${width} 210" role="img" aria-label="날짜별 순자산 추이. 아래 기록 표에서 정확한 값을 확인할 수 있습니다."><path d="M${left} 180H${right}" stroke="currentColor" opacity=".2"/><polyline points="${points.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#9b8afb" stroke-width="3"/>${points.map((p,i)=>`<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="#9b8afb"><title>${esc(records[i].date)}: ${won(records[i].net_worth)}</title></circle>`).join('')}<text x="${left}" y="205" fill="currentColor" font-size="12">${esc(records[0].date)}</text><text x="${right}" y="205" text-anchor="end" fill="currentColor" font-size="12">${esc(records.at(-1).date)}</text></svg><details><summary>기록 상세 보기</summary><div class="table-wrap"><table><thead><tr><th>날짜</th><th>총자산</th><th>총부채</th><th>순자산</th><th>구분</th><th>메모</th></tr></thead><tbody>${records.map(r=>`<tr><td>${esc(r.date)}</td><td>${r.assets == null ? '미입력' : won(r.assets)}</td><td>${r.debt == null ? '미입력' : won(r.debt)}</td><td>${won(r.net_worth)}</td><td>${r.source==='manual'?'직접 입력':'현재 자산 기록'}</td><td class="wealth-history-note">${esc(r.memo || '—')}</td></tr>`).join('')}</tbody></table></div></details>`;
+    plot.innerHTML = `<div class="wealth-history-chart-card"><svg class="wealth-history-chart" viewBox="0 0 ${width} 210" role="img" aria-label="날짜별 순자산 추이. 아래 기록 표에서 정확한 값을 확인할 수 있습니다."><path d="M${left} 180H${right}" stroke="currentColor" opacity=".2"/><polyline points="${points.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#9b8afb" stroke-width="2.5"/>${points.map((p,i)=>`<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="#9b8afb"><title>${esc(records[i].date)}: ${won(records[i].net_worth)}</title></circle>`).join('')}<text x="${left}" y="205" fill="currentColor" font-size="11">${esc(records[0].date)}</text><text x="${right}" y="205" text-anchor="end" fill="currentColor" font-size="11">${esc(records.at(-1).date)}</text></svg></div><details class="wealth-history-details"><summary>기록 상세 보기 <span>${records.length}개</span></summary><div class="table-wrap"><table><thead><tr><th>날짜</th><th>총자산</th><th>총부채</th><th>순자산</th><th>구분</th><th>메모</th></tr></thead><tbody>${records.map(r=>`<tr><td>${esc(r.date)}</td><td>${r.assets == null ? '미입력' : won(r.assets)}</td><td>${r.debt == null ? '미입력' : won(r.debt)}</td><td>${won(r.net_worth)}</td><td>${r.source==='manual'?'직접 입력':'현재 자산 기록'}</td><td class="wealth-history-note">${esc(r.memo || '—')}</td></tr>`).join('')}</tbody></table></div></details>`;
   }
   function showHistoryDate(date) {
     // A newly added old date must be visible even outside the active period.
