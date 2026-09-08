@@ -54,6 +54,29 @@
   move('marketPanel', document.getElementById('wealthMarketSlot'));
   ['summaryPanel', 'assetHeatmapPanel', 'holdingsPanel', 'recordsPanel'].forEach(id => move(id, page('invest')));
   move('accountsPanel', page('assets'));
+  // Preserve delegated edit/delete handlers while placing destructive actions
+  // behind an explicit disclosure. Renderers may replace the lists at any time.
+  const accountsPanel = document.getElementById('accountsPanel');
+  function enhanceAccountLists() {
+    accountsPanel.querySelectorAll('.mini-delete-button').forEach(button => {
+      if (button.closest('.wealth-row-more')) return;
+      const more = document.createElement('details');
+      more.className = 'wealth-row-more';
+      const summary = document.createElement('summary');
+      summary.textContent = '⋯';
+      summary.setAttribute('aria-label', '추가 작업');
+      button.before(more);
+      more.append(summary, button);
+      button.textContent = '삭제';
+      button.setAttribute('aria-label', button.title || '삭제');
+    });
+    const labels = ['은행', '계좌 이름', '계좌 번호', '소유자', '잔고 (KRW)', '메모', '관리'];
+    accountsPanel.querySelectorAll('.banks-table tbody tr').forEach(row => {
+      [...row.cells].forEach((cell, index) => { cell.dataset.label = labels[index] || ''; });
+    });
+  }
+  new MutationObserver(enhanceAccountLists).observe(accountsPanel, { childList: true, subtree: true });
+  enhanceAccountLists();
   ['realizedPnlPanel', 'dividendPanel'].forEach(id => move(id, page('income')));
   move('ledgerSectionPanel', page('ledger'));
   const settingsCard = document.createElement('article');
@@ -103,6 +126,7 @@
       window.scrollTo({ top: 0, behavior: 'instant' });
     }
     activeView = key;
+    layout.dataset.activeView = key;
     // Charts drawn while hidden need their visible dimensions recalculated.
     window.dispatchEvent(new CustomEvent('wealth:view', { detail: key }));
   }

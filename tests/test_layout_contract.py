@@ -23,6 +23,17 @@ class Elements(HTMLParser):
 
 
 class LayoutContractTests(unittest.TestCase):
+    def test_account_list_uses_page_scroll_and_mobile_bank_cards(self):
+        source = (STATIC / 'wealth-layout.css').read_text(encoding='utf-8')
+        self.assertIn('#accountList.account-list { max-height: none; overflow-y: visible; }', source)
+        self.assertIn('.banks-table { display: block; min-width: 0;', source)
+
+    def test_destructive_action_disclosure_preserves_existing_buttons(self):
+        source = (STATIC / 'wealth-layout.js').read_text(encoding='utf-8')
+        self.assertIn('more.append(summary, button)', source)
+        self.assertIn("button.closest('.wealth-row-more')", source)
+        self.assertIn('childList: true, subtree: true', source)
+
     def test_existing_panel_and_action_ids_remain_unique(self):
         elements = Elements((STATIC / 'index.html').read_text(encoding='utf-8'))
         self.assertFalse([key for key, count in Counter(elements.ids).items() if count > 1])

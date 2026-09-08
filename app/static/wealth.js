@@ -1744,7 +1744,7 @@ function renderSavingsWithOwner(owner = '모두') {
   const savingsGrid = $("#savingsGrid");
   if (savingsGrid) {
     if (!filteredSavings.length) {
-      savingsGrid.innerHTML = '<div class="empty" style="grid-column:1/-1;">등록된 예·적금 상품이 없습니다. 상단 [+ 예·적금 추가] 버튼을 눌러보세요.</div>';
+      savingsGrid.innerHTML = '<div class="empty" style="grid-column:1/-1;">등록된 예·적금 상품이 없습니다. 상단 [🏦 계좌 추가]에서 예·적금을 선택하세요.</div>';
     } else {
       savingsGrid.innerHTML = filteredSavings.map(s => {
         const isHousing = s.saving_type === 'housing' || !s.end_date;
@@ -1848,7 +1848,7 @@ function renderSavingsWithOwner(owner = '모두') {
   const banksWrap = $("#banksListWrap");
   if (banksWrap) {
     if (!filteredBanks.length) {
-      banksWrap.innerHTML = '<div class="empty">등록된 자유입출금 통장이 없습니다. 상단 [🏦 자유통장 추가] 버튼을 눌러보세요.</div>';
+      banksWrap.innerHTML = '<div class="empty">등록된 자유입출금 통장이 없습니다. 상단 [🏦 계좌 추가]에서 자유입출금 통장을 선택하세요.</div>';
     } else {
       banksWrap.innerHTML = `
         <table class="banks-table">
