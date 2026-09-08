@@ -50,7 +50,15 @@
   const page = key => layout.querySelector(`[data-wealth-page="${key}"]`);
   const move = (id, target) => { const node = document.getElementById(id); if (node) target.append(node); };
   move('topbarFamilyTabs', document.getElementById('wealthOwnerSlot'));
-  move('refreshButton', layout.querySelector('.wealth-owner-bar'));
+  const refreshActions = document.createElement('div');
+  refreshActions.className = 'wealth-refresh-actions';
+  layout.querySelector('.wealth-owner-bar').append(refreshActions);
+  move('refreshButton', refreshActions);
+  move('syncAccountsButton', refreshActions);
+  document.getElementById('refreshButton').textContent = '시세 갱신';
+  document.getElementById('syncAccountsButton').textContent = '계좌 동기화';
+  document.getElementById('refreshButton').title = '시세를 갱신합니다. 증권사 잔고 동기화와 별개입니다.';
+  document.getElementById('syncAccountsButton').title = '설정된 증권사에서 잔고와 보유종목을 가져옵니다.';
   move('marketPanel', document.getElementById('wealthMarketSlot'));
   ['summaryPanel', 'assetHeatmapPanel', 'holdingsPanel', 'recordsPanel'].forEach(id => move(id, page('invest')));
   move('accountsPanel', page('assets'));
@@ -85,7 +93,7 @@
   page('settings').append(settingsCard);
   const actions = settingsCard.querySelector('.wealth-settings-actions');
   // Retain admin/password actions in the global header for the separate admin view.
-  ['topbarFamilyBtn', 'userOpenApiBtn', 'syncAccountsButton'].forEach(id => move(id, actions));
+  ['topbarFamilyBtn', 'userOpenApiBtn'].forEach(id => move(id, actions));
   const footer = document.getElementById('appCommonFooter');
   const footerParent = footer?.parentNode;
   if (footer) page('settings').append(footer);

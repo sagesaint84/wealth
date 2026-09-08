@@ -12,11 +12,18 @@ from urllib.parse import urlsplit
 
 STATIC = Path(__file__).resolve().parents[1] / "app" / "static"
 ALLOWED = {"index.html", "wealth.js", "wealth.css", "wealth-overrides.css",
-           "wealth-layout.js", "wealth-layout.css", "icon-192.png", "apple-touch-icon.png"}
+           "wealth-layout.js", "wealth-layout.css", "wealth-planning.js", "wealth-planning-model.js", "icon-192.png", "apple-touch-icon.png"}
 DASHBOARD = {
     "summary": {"total_value_krw": 85000000, "total_stock_value_krw": 80000000,
-                "total_cash_krw": 5000000, "account_count": 0},
-    "accounts": [], "holdings": [], "classifications": [], "sector_classifications": [],
+                "total_cash_krw": 5000000, "account_count": 2},
+    "accounts": [
+        {"id":"demo-stock-a", "name":"가상 성장계좌", "broker":"가상증권", "owner":"아빠", "account_type":"general", "cash_krw":3000000, "cash_usd":0, "market_value_krw":53000000},
+        {"id":"demo-stock-b", "name":"가상 연금계좌", "broker":"가상증권", "owner":"엄마", "account_type":"pension", "cash_krw":2000000, "cash_usd":0, "market_value_krw":32000000},
+    ],
+    "holdings": [
+        {"id":"demo-h-a", "account_id":"demo-stock-a", "account_name":"가상 성장계좌", "broker":"가상증권", "name":"가상 인덱스", "code":"DEMO", "owner":"아빠", "currency":"KRW", "quantity":500, "current_price":100000, "avg_price":90000, "market_value_krw":50000000, "cost_value_krw":45000000, "profit_krw":5000000},
+        {"id":"demo-h-b", "account_id":"demo-stock-b", "account_name":"가상 연금계좌", "broker":"가상증권", "name":"가상 인덱스", "code":"DEMO", "owner":"엄마", "currency":"KRW", "quantity":300, "current_price":100000, "avg_price":90000, "market_value_krw":30000000, "cost_value_krw":27000000, "profit_krw":3000000},
+    ], "classifications": [], "sector_classifications": [],
     "currency_summary": {}, "fx_rates": {"KRW": 1, "USD": 1350},
     "bank_accounts": [{"id": "demo-bank", "bank_name": "가상은행", "account_name": "생활비",
                        "balance": 12000000, "owner": "아빠", "currency": "KRW"}],
@@ -43,6 +50,10 @@ class PreviewHandler(BaseHTTPRequestHandler):
         if path.startswith('/api/'):
             responses = {
                 '/api/auth/me': {'username': 'DEMO', 'role': 'user', 'must_change_password': False},
+                '/api/planning': {'revision': 0, 'buckets': [], 'accounts': {}, 'holdings': {}, 'history': [
+                    {'date': day, 'owner': '모두', 'assets': net + 120000000, 'debt': 120000000, 'net_worth': net}
+                    for day, net in [('2026-06-08', 380000000), ('2026-07-08', 385000000), ('2026-08-08', 382000000), ('2026-09-08', 397000000)]
+                ]},
                 '/api/dashboard': DASHBOARD,
                 '/api/family-members': {'members': ['아빠', '엄마', '자녀']},
                 '/api/asset-records': {'records': []},

@@ -1317,6 +1317,7 @@ function renderSummary(data) {
     stock: totalStockVal, property: totalREInvestEquity,
     deposits: totalTenantDepositVal, insurance: insuranceTotal,
     updatedAt: data.updated_at || null,
+    fxRates: data.fx_rates || {},
   }}));
 }
 
@@ -5567,6 +5568,10 @@ function render(data) {
   renderRealEstate(data.real_estates || [], currentOwner, data.sold_real_estates);
   renderHeatmaps(data);
   renderHoldings(data);
+  window.dispatchEvent(new CustomEvent('wealth:portfolio', { detail: {
+    accounts: data.accounts || [], holdings: data.holdings || [],
+    owner: currentOwner, fxRates: data.fx_rates || {},
+  }}));
 }
 
 async function loadDashboard() {
@@ -6838,7 +6843,21 @@ document.addEventListener('click', async (e) => {
 // ── 이벤트 리스너 바인딩 ─────────────────────────────────────────────────────
 
 // 1. 상단 계좌 연결 & 갱신 버튼
-$("#syncAccountsButton")?.addEventListener("click", (e) => action(e.currentTarget, () => api("/api/sync/all", { method: "POST" }), async () => { await loadDashboard(); await loadMarkets(); }));
+$("#syncAccountsButton")?.addEventListener("click", (e) => action(e.currentTarget, async () => {
+  window.dispatchEvent(new CustomEvent('wealth:sync', {detail: {state: 'running'}}));
+  try {
+    const result = await api("/api/sync/all", { method: "POST" });
+    await loadDashboard();
+    window.dispatchEvent(new CustomEvent('wealth:sync', {detail: {
+      state: result.errors?.length ? 'partial' : result.synced > 0 ? 'success' : 'empty',
+      message: result.message,
+    }}));
+    return result;
+  } catch (error) {
+    window.dispatchEvent(new CustomEvent('wealth:sync', {detail: {state: 'error'}}));
+    throw error;
+  }
+}, async () => { await loadMarkets(); }));
 $("#refreshButton")?.addEventListener("click", (e) => action(e.currentTarget, () => api("/api/refresh-prices", { method: "POST" }), async () => { await loadDashboard(); await loadMarkets(); }));
 $("#refreshMarketButton")?.addEventListener("click", (e) => action(e.currentTarget, () => api("/api/refresh-prices", { method: "POST" }), async () => { await loadDashboard(); await loadMarkets(); }));
 $("#demoButton")?.addEventListener("click", (e) => action(e.currentTarget, () => api("/api/demo", { method: "POST" })));

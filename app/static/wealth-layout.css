@@ -1,4 +1,28 @@
 /* Workspace shell. Financial panels and theme contracts remain unchanged. */
+.wealth-history { margin: 20px 0; }
+.wealth-refresh-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; flex-shrink: 0; }
+.wealth-history-chart { display: block; width: 100%; max-height: 280px; }
+.wealth-invest-hidden { display: none !important; }
+.wealth-periods, .wealth-invest-tabs, .wealth-editor-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+.wealth-periods button, .wealth-invest-tabs button { border: 1px solid var(--line); border-radius: 8px; padding: 9px 13px; color: var(--text); background: var(--panel); cursor: pointer; }
+.wealth-periods button[aria-pressed="true"], .wealth-invest-tabs button[aria-pressed="true"] { color: var(--workspace-accent); border-color: var(--workspace-accent); }
+.wealth-sync-status:empty { display: none; }
+.wealth-bucket-cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 12px; margin: 20px 0; }
+.wealth-bucket-cards article { border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+.wealth-bucket-cards h4 { margin: 0 0 10px; }
+.wealth-bucket-cards p { color: var(--muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+#wealthBucketEditor > summary { padding: 14px 0; cursor: pointer; }
+.wealth-bucket-edit-row { display: grid; grid-template-columns: 1fr 2fr 90px auto; gap: 10px; align-items: end; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.wealth-bucket-edit-row label { font-size: 12px; display: grid; gap: 6px; min-width: 0; }
+.wealth-bucket-edit-row input, .wealth-assignment select { width: 100%; padding: 10px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; min-width: 0; }
+.wealth-assignment { display: grid; grid-template-columns: minmax(0,1fr) minmax(120px,220px); gap: 12px; align-items: center; padding: 10px 0; font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .wealth-owner-bar { flex-wrap: wrap; }
+  .wealth-refresh-actions { width: 100%; justify-content: flex-end; }
+  .wealth-bucket-edit-row { grid-template-columns: 1fr 1fr; }
+  .wealth-history .wealth-section-heading { gap: 12px; flex-wrap: wrap; }
+  .wealth-history .table-wrap table { min-width: 480px; }
+}
 .wealth-layout #accountList.account-list { max-height: none; overflow-y: visible; }
 .wealth-workspace[data-active-view="assets"] .wealth-page-head { margin: 4px 0 16px; }
 .wealth-workspace[data-active-view="assets"] .wealth-page-head .wealth-eyebrow { display: none; }
