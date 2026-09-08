@@ -1,6 +1,6 @@
 """Optional planning metadata; never changes financial balances or holdings."""
 from copy import deepcopy
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 import json
 import math
 from app.services import portfolio
@@ -27,6 +27,21 @@ def finite(value, minimum=None):
     return result
 
 
+def history_date(value):
+    if not isinstance(value, str):
+        raise ValueError("날짜를 YYYY-MM-DD 형식으로 입력하세요.")
+    parsed = date.fromisoformat(value)
+    if parsed.isoformat() != value or parsed > datetime.now(timezone(timedelta(hours=9))).date():
+        raise ValueError("오늘 또는 과거 날짜만 기록할 수 있습니다.")
+    return value
+
+
+def history_memo(value):
+    if not isinstance(value, str) or len(value) > 1000:
+        raise ValueError("메모는 1,000자 이내로 입력하세요.")
+    return value
+
+
 def mutate(username, operation, payload):
     # Share the portfolio write lock and read within it (no stale planning copy).
     with portfolio._LOCK:
@@ -42,13 +57,21 @@ def mutate(username, operation, payload):
             if len(matches) != 1:
                 raise PlanningConflict("삭제할 기록이 변경되었거나 없습니다. 다시 불러오세요.")
             state['history'].remove(matches[0])
-        elif operation in ("snapshot", "snapshot-edit"):
+        elif operation in ("snapshot", "snapshot-edit", "snapshot-manual"):
             owner = str(payload.get("owner") or "").strip()
             if not owner or len(owner) > 100:
                 raise ValueError("조회 범위를 확인하세요.")
-            assets, debt = finite(payload["assets"], 0), finite(payload["debt"], 0)
+            original = None
+            if operation == "snapshot-edit":
+                matches = [r for r in state['history'] if r['date'] == payload.get('date') and r['owner'] == owner]
+                if len(matches) != 1 or payload.get('confirm') is not True:
+                    raise PlanningConflict("수정할 기존 기록과 확인 여부를 확인하세요.")
+                original = matches[0]
+            manual = operation == 'snapshot-manual' or (original is not None and original.get('source') == 'manual')
+            # Net-only manual records never invent an asset/debt breakdown.
+            assets, debt = (None, None) if manual else (finite(payload["assets"], 0), finite(payload["debt"], 0))
             net = finite(payload["net_worth"])
-            if not math.isclose(assets - debt, net, rel_tol=0, abs_tol=0.01):
+            if not manual and not math.isclose(assets - debt, net, rel_tol=0, abs_tol=0.01):
                 raise ValueError("순자산과 자산·부채 합계가 일치하지 않습니다.")
             fx = {str(k): finite(v, 0) for k, v in payload.get("fx_rates", {}).items()}
             if any(len(k) != 3 or not k.isascii() or not k.isalpha() or k != k.upper() or v <= 0 for k, v in fx.items()):
@@ -59,17 +82,22 @@ def mutate(username, operation, payload):
                       "fx_rates": fx, "recorded_at": now.isoformat(),
                       "valuation_at": str(payload.get("valuation_at") or "")[:100],
                       "source": "user_confirmed", "calculation_version": 1}
-            if operation == "snapshot-edit":
-                matches = [r for r in state['history'] if r['date'] == payload.get('date') and r['owner'] == owner]
-                if len(matches) != 1 or payload.get('confirm') is not True:
-                    raise PlanningConflict("수정할 기존 기록과 확인 여부를 확인하세요.")
-                original = matches[0]
+            if operation == 'snapshot-manual':
+                record.update(date=history_date(payload.get('date')), source='manual',
+                              memo=history_memo(payload.get('memo', '')), fx_rates={}, valuation_at='')
+            if original is not None:
                 record = {**original, 'assets': assets, 'debt': debt, 'net_worth': net,
-                          'edited_at': now.isoformat(), 'source': 'user_corrected'}
+                          'date': history_date(payload.get('new_date', original['date'])),
+                          'edited_at': now.isoformat(), 'source': 'manual' if manual else 'user_corrected'}
+                if 'memo' in payload:
+                    record['memo'] = history_memo(payload['memo'])
+            others = [r for r in state['history'] if r is not original]
+            if operation != 'snapshot' and any(r['date'] == record['date'] and r['owner'] == owner for r in others):
+                raise PlanningConflict("해당 날짜의 기록이 이미 있습니다. 기존 기록을 선택하여 수정하세요.")
             exists = any(r["date"] == record["date"] and r["owner"] == owner for r in state["history"])
             if exists and operation == 'snapshot' and payload.get("replace") is not True:
                 raise PlanningConflict("오늘 같은 조회 범위의 기록이 있습니다. 교체 여부를 확인하세요.")
-            state["history"] = [r for r in state["history"] if not (r["date"] == record["date"] and r["owner"] == owner)] + [record]
+            state["history"] = [r for r in others if not (r["date"] == record["date"] and r["owner"] == owner)] + [record]
             state["history"].sort(key=lambda r: (r["date"], r["owner"]))
         elif operation == "buckets":
             buckets = payload.get("buckets", [])

@@ -23,7 +23,13 @@
     });
     return { totals, total: [...totals.values()].reduce((a, b) => a + b, 0) };
   }
-  const model = { bucketTotals };
+  function historyView(history, owner, days, selectedDate, now=Date.now()) {
+    const cutoff=now-days*86400000;
+    const records=history.filter(r=>r.owner===owner && (!days || Date.parse(r.date+'T23:59:59+09:00')>=cutoff)).sort((a,b)=>a.date.localeCompare(b.date));
+    const selected=records.find(r=>r.date===selectedDate) || records.at(-1) || null;
+    return {records,selectedDate:selected?.date || '',canEdit:!!selected};
+  }
+  const model = { bucketTotals, historyView };
   if (typeof module !== 'undefined' && module.exports) module.exports = model;
   else root.WealthPlanningModel = model;
 })(typeof window !== 'undefined' ? window : this);
