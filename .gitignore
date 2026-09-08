@@ -15,6 +15,7 @@ scratch_*.py
 
 # 민감 정보 및 개인 데이터 - 절대 커밋 금지
 .env
+!.env.example
 .env.local
 .env.*.local
 data/

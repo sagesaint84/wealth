@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from app.services.test_safety import assert_write_allowed
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -68,6 +69,8 @@ def read_asset_records(username: str | None = None) -> dict[str, Any]:
 
 def write_asset_records(data: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     with _LOCK:
+        f = _get_records_file(username)
+        assert_write_allowed(f)
         f = _ensure_data_file(username)
         data["updated_at"] = now_iso()
         temp_file = f.with_suffix(".json.tmp")

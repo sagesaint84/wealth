@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 import httpx
+from app.services.test_safety import assert_write_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ def load_cached_fx() -> dict[str, float]:
 def save_cached_fx(fx_map: dict[str, float]) -> None:
     global _HISTORICAL_FX_MAP
     _HISTORICAL_FX_MAP = fx_map
+    assert_write_allowed(FX_CACHE_FILE)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     try:
         with open(FX_CACHE_FILE, "w", encoding="utf-8") as f:

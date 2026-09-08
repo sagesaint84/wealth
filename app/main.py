@@ -61,6 +61,8 @@ def load_env_file() -> None:
     env_path = ROOT_DIR / ".env"
     if not env_path.exists():
         return
+    if not env_path.is_file():
+        raise RuntimeError("Configuration error: .env must be a regular file, but a directory was found.")
     for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:

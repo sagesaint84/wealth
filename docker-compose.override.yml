@@ -5,4 +5,3 @@ services:
       - "4829:4829"
     volumes:
       - ./data:/app/data
-      - ./.env:/app/.env:ro

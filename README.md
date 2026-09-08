@@ -149,6 +149,13 @@ python -m pip install -r requirements.txt
 
 프로젝트 루트에 `.env`를 만들고 최소한 다음 값을 설정합니다. 실제 값은 저장소에 commit하지 마세요.
 
+신규 설치는 먼저 안전한 템플릿을 복사하세요.
+
+```bash
+cp .env.example .env
+chmod 600 .env
+```
+
 ```dotenv
 DASHBOARD_SECRET_KEY=<충분히 길고 무작위인 세션 서명 키>
 DASHBOARD_PASSWORD=<초기 일반 사용자 비밀번호>
@@ -182,11 +189,17 @@ Windows에서는 `대시보드_실행.cmd`를 실행할 수도 있습니다. 브
 
 ## Docker 실행
 
-Docker Compose는 호스트의 `data/`를 `/app/data`에 마운트하고 `.env`를 `/app/.env`에 읽기 전용으로 마운트합니다. 두 항목은 이미지에 포함되지 않습니다.
+Docker Compose는 호스트의 `data/`를 `/app/data`에 마운트하고 `.env`를 Compose `env_file`로 컨테이너 환경변수에 전달합니다. `.env` 자체는 컨테이너에 파일로 마운트되지 않으며 이미지에도 포함되지 않습니다. `.env`가 없으면 Compose가 실행 전에 오류를 표시하므로 먼저 템플릿을 복사해야 합니다.
 
 ```bash
 docker compose up -d --build
 docker compose logs -f dashboard
+```
+
+실행 전 최종 설정을 확인하려면 다음을 사용합니다.
+
+```bash
+docker compose config
 ```
 
 중지하려면 다음을 실행합니다.

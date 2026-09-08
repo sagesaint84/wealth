@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from openpyxl import load_workbook
+from app.services.test_safety import assert_write_allowed
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -92,6 +93,8 @@ def read_portfolio(username: str | None = None) -> dict[str, Any]:
 
 def write_portfolio(data: dict[str, Any], username: str | None = None, *, replace_planning: bool = False) -> dict[str, Any]:
     with _LOCK:
+        f = _get_portfolio_file(username)
+        assert_write_allowed(f)
         f = _ensure_data_file(username)
         # Financial writers may have read before a planning save. Planning owns
         # this metadata; only explicit restore/reset may replace it here.
