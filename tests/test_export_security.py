@@ -237,7 +237,7 @@ class ExportSecurityTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        write_portfolio.assert_called_once_with(backup["portfolio"], username="user_a")
+        write_portfolio.assert_called_once_with(backup["portfolio"], username="user_a", replace_planning=True)
         write_assets.assert_called_once_with(backup["asset_records"], username="user_a")
         write_dividends.assert_called_once_with(backup["dividend_records"], username="user_a")
         write_pnl.assert_called_once_with(backup["realized_pnl_records"], username="user_a")

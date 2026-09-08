@@ -1693,7 +1693,7 @@ async def import_backup(request: Request, file: UploadFile = File(...)) -> dict:
 
     msgs = []
     if "portfolio" in bundle and bundle["portfolio"]:
-        write_portfolio(bundle["portfolio"], username=username)
+        write_portfolio(bundle["portfolio"], username=username, replace_planning=True)
         msgs.append("포트폴리오")
     if "asset_records" in bundle and bundle["asset_records"]:
         write_asset_records(bundle["asset_records"], username=username)

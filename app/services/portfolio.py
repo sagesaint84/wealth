@@ -90,9 +90,16 @@ def read_portfolio(username: str | None = None) -> dict[str, Any]:
         return data
 
 
-def write_portfolio(data: dict[str, Any], username: str | None = None) -> dict[str, Any]:
+def write_portfolio(data: dict[str, Any], username: str | None = None, *, replace_planning: bool = False) -> dict[str, Any]:
     with _LOCK:
         f = _ensure_data_file(username)
+        # Financial writers may have read before a planning save. Planning owns
+        # this metadata; only explicit restore/reset may replace it here.
+        if not replace_planning:
+            current = json.loads(f.read_text(encoding="utf-8"))
+            saved = current.get("settings", {}).get("wealth_planning")
+            if saved is not None:
+                data.setdefault("settings", {})["wealth_planning"] = deepcopy(saved)
         data["updated_at"] = now_iso()
         temp_file = f.with_suffix(".json.tmp")
         temp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -710,4 +717,4 @@ def seed_demo() -> None:
 
 
 def clear_portfolio() -> None:
-    write_portfolio(deepcopy(EMPTY_PORTFOLIO))
+    write_portfolio(deepcopy(EMPTY_PORTFOLIO), replace_planning=True)

@@ -35,7 +35,14 @@ def mutate(username, operation, payload):
         state = deepcopy(pf.get("settings", {}).get("wealth_planning", empty()))
         if payload.get("revision") != state["revision"]:
             raise PlanningConflict("다른 화면에서 기록이 변경되었습니다. 다시 불러온 뒤 저장하세요.")
-        if operation == "snapshot":
+        if operation == "snapshot-delete":
+            if payload.get("confirm") is not True:
+                raise ValueError("기록 삭제를 확인하세요.")
+            matches = [r for r in state['history'] if r['date'] == payload.get('date') and r['owner'] == payload.get('owner')]
+            if len(matches) != 1:
+                raise PlanningConflict("삭제할 기록이 변경되었거나 없습니다. 다시 불러오세요.")
+            state['history'].remove(matches[0])
+        elif operation in ("snapshot", "snapshot-edit"):
             owner = str(payload.get("owner") or "").strip()
             if not owner or len(owner) > 100:
                 raise ValueError("조회 범위를 확인하세요.")
@@ -52,8 +59,15 @@ def mutate(username, operation, payload):
                       "fx_rates": fx, "recorded_at": now.isoformat(),
                       "valuation_at": str(payload.get("valuation_at") or "")[:100],
                       "source": "user_confirmed", "calculation_version": 1}
+            if operation == "snapshot-edit":
+                matches = [r for r in state['history'] if r['date'] == payload.get('date') and r['owner'] == owner]
+                if len(matches) != 1 or payload.get('confirm') is not True:
+                    raise PlanningConflict("수정할 기존 기록과 확인 여부를 확인하세요.")
+                original = matches[0]
+                record = {**original, 'assets': assets, 'debt': debt, 'net_worth': net,
+                          'edited_at': now.isoformat(), 'source': 'user_corrected'}
             exists = any(r["date"] == record["date"] and r["owner"] == owner for r in state["history"])
-            if exists and payload.get("replace") is not True:
+            if exists and operation == 'snapshot' and payload.get("replace") is not True:
                 raise PlanningConflict("오늘 같은 조회 범위의 기록이 있습니다. 교체 여부를 확인하세요.")
             state["history"] = [r for r in state["history"] if not (r["date"] == record["date"] and r["owner"] == owner)] + [record]
             state["history"].sort(key=lambda r: (r["date"], r["owner"]))

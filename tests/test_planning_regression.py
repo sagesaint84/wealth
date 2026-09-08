@@ -29,6 +29,49 @@ class PlanningTests(IsolatedDataTestCase):
         after['settings'].pop('wealth_planning')
         self.assertEqual(after,before)
 
+    def test_stale_financial_write_preserves_new_planning(self):
+        stale = portfolio.read_portfolio('A')
+        saved = planning.mutate('A', 'snapshot', self.snapshot())
+        stale['accounts'][0]['name'] = 'Synthetic renamed account'
+        portfolio.write_portfolio(stale, 'A')
+        self.assertEqual(planning.read_planning('A'), saved)
+        self.assertEqual(portfolio.read_portfolio('A')['accounts'][0]['name'], 'Synthetic renamed account')
+
+    def test_explicit_restore_can_remove_planning(self):
+        planning.mutate('A', 'snapshot', self.snapshot())
+        portfolio.write_portfolio(deepcopy(self.pf), 'A', replace_planning=True)
+        self.assertEqual(planning.read_planning('A'), planning.empty())
+
+    def test_history_edit_preserves_identity_fx_and_financial_accounts(self):
+        saved=planning.mutate('A','snapshot',self.snapshot())
+        record=saved['history'][0]
+        result=planning.mutate('A','snapshot-edit',dict(revision=1,date=record['date'],owner=record['owner'],assets=180,debt=40,net_worth=140,confirm=True))
+        edited=result['history'][0]
+        for field in ('date','owner','fx_rates','recorded_at','valuation_at'):
+            self.assertEqual(edited[field],record[field])
+        self.assertEqual(edited['net_worth'],140)
+        self.assertEqual(edited['source'],'user_corrected')
+        self.assertEqual(portfolio.read_portfolio('A')['accounts'],self.pf['accounts'])
+
+    def test_history_delete_requires_confirmation_identity_and_revision(self):
+        record=planning.mutate('A','snapshot',self.snapshot())['history'][0]
+        valid=dict(revision=1,date=record['date'],owner=record['owner'],confirm=True)
+        before=portfolio._get_portfolio_file('A').read_bytes()
+        for extra in ({'confirm':False},{'revision':0},{'owner':'Other'},{'date':'1900-01-01'}):
+            with self.assertRaises(ValueError): planning.mutate('A','snapshot-delete',{**valid,**extra})
+            self.assertEqual(portfolio._get_portfolio_file('A').read_bytes(),before)
+        result=planning.mutate('A','snapshot-delete',valid)
+        self.assertEqual(result['history'],[])
+        self.assertEqual(result['revision'],2)
+
+    def test_history_edit_cannot_create_or_write_invalid_amount(self):
+        record=planning.mutate('A','snapshot',self.snapshot())['history'][0]
+        valid=dict(revision=1,date=record['date'],owner=record['owner'],assets=150,debt=50,net_worth=100,confirm=True)
+        before=portfolio._get_portfolio_file('A').read_bytes()
+        for extra in ({'date':'1900-01-01'},{'owner':'Other'},{'assets':-1},{'net_worth':float('nan')},{'net_worth':99},{'confirm':False}):
+            with self.assertRaises(ValueError): planning.mutate('A','snapshot-edit',{**valid,**extra})
+            self.assertEqual(portfolio._get_portfolio_file('A').read_bytes(),before)
+
     def test_daily_replace_requires_explicit_confirmation(self):
         planning.mutate('A','snapshot',self.snapshot())
         with self.assertRaises(planning.PlanningConflict):

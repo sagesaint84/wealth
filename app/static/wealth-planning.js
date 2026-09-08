@@ -6,7 +6,8 @@
   if (!home || !invest) return;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const won = value => `${Math.round(value).toLocaleString('ko-KR')}원`;
-  let state = null, summary = null, portfolioView = null, range = 365, dirty = false, syncBlocked = false;
+  let state = null, summary = null, portfolioView = null, editorView = null, editorRevision = null, range = 365, dirty = false, syncBlocked = false;
+  window.addEventListener('beforeunload', e => { if(dirty || editingRecord) { e.preventDefault(); e.returnValue = ''; } });
   const historyPanel = document.createElement('article');
   historyPanel.className = 'wealth-history wealth-composition';
   historyPanel.innerHTML = `<div class="wealth-section-heading"><div><p class="wealth-eyebrow">NET WORTH HISTORY</p><h3>순자산 추이</h3></div><button type="button" class="button secondary" id="wealthSaveSnapshot" disabled>오늘 기록</button></div>
@@ -14,9 +15,41 @@
     <div class="wealth-periods" aria-label="순자산 조회 기간"><button data-days="30">1개월</button><button data-days="90">3개월</button><button data-days="365" aria-pressed="true">1년</button><button data-days="0">전체</button></div>
     <p id="wealthHistoryStatus" class="wealth-help" role="status">기록을 불러오는 중입니다.</p><div id="wealthHistoryPlot"></div>`;
   home.querySelector('.wealth-home-secondary').before(historyPanel);
+  const historyManager = document.createElement('details');
+  historyManager.innerHTML = '<summary>기록 수정·삭제</summary><p class="wealth-help">현재 가족 범위의 저장 기록만 관리합니다. 금액은 원 단위이며 실제 계좌 잔고는 바뀌지 않습니다. 날짜·가족·당시 환율은 유지합니다.</p><label>기록 선택<select id="wealthHistoryRecord"></select></label><button type="button" id="wealthEditHistory" class="button secondary">선택 기록 수정</button><button type="button" id="wealthDeleteHistory" class="button secondary">선택 기록 삭제</button><form id="wealthHistoryEditForm" hidden><label>총자산 (원)<input name="assets" type="number" min="0" step="0.01" required></label><label>총부채 (원)<input name="debt" type="number" min="0" step="0.01" required></label><button type="submit" class="button primary">정정 저장</button><button type="button" id="wealthCancelHistory">취소</button></form><p id="wealthHistoryEditStatus" role="status"></p>';
+  historyPanel.append(historyManager);
+  let editingRecord = null;
+  const editForm = document.getElementById('wealthHistoryEditForm');
+  const editStatus = document.getElementById('wealthHistoryEditStatus');
+  function selectedRecord() { return state?.history.find(r => r.owner === summary?.owner && r.date === document.getElementById('wealthHistoryRecord').value); }
+  document.getElementById('wealthEditHistory').addEventListener('click', () => {
+    const record = selectedRecord(); if(!record) return;
+    editingRecord = {...record, revision:state.revision}; editForm.hidden = false;
+    editForm.elements.assets.value = record.assets; editForm.elements.debt.value = record.debt;
+    editStatus.textContent = `${record.owner} · ${record.date} 정정 중 · 평가 기준: ${record.valuation_at || '미기록'} · 저장: ${record.recorded_at || '미기록'}${record.edited_at ? ' · 최종 정정: '+record.edited_at : ''}`;
+  });
+  document.getElementById('wealthCancelHistory').addEventListener('click', () => { editingRecord=null;editForm.hidden=true;editStatus.textContent='정정을 취소했습니다.'; });
+  editForm.addEventListener('submit', async e => {
+    e.preventDefault(); if(!editingRecord) return;
+    const record=editingRecord, assets=Number(editForm.elements.assets.value), debt=Number(editForm.elements.debt.value);
+    if(!confirm(`${record.owner} · ${record.date} 기록을 정정할까요? 실제 계좌 잔고는 변경하지 않습니다.`)) return;
+    e.submitter.disabled=true;
+    try { state=await request('/snapshot-edit',{revision:record.revision,date:record.date,owner:record.owner,assets,debt,net_worth:assets-debt,confirm:true});editingRecord=null;editForm.hidden=true;renderHistory();editStatus.textContent='기록을 정정했습니다.'; }
+    catch(error){editStatus.textContent=error.message;}
+    finally{e.submitter.disabled=false;}
+  });
+  document.getElementById('wealthDeleteHistory').addEventListener('click',async e=>{
+    const record=selectedRecord();if(!record || !confirm(`${record.owner} · ${record.date} 순자산 기록을 삭제할까요? 복구하려면 백업이 필요합니다. 실제 계좌는 삭제하지 않습니다.`))return;
+    e.currentTarget.disabled=true;const button=e.currentTarget;
+    try{state=await request('/snapshot-delete',{revision:state.revision,date:record.date,owner:record.owner,confirm:true});editingRecord=null;editForm.hidden=true;renderHistory();editStatus.textContent='기록을 삭제했습니다.';}
+    catch(error){editStatus.textContent=error.message;}
+    finally{button.disabled=false;}
+  });
   const syncStatus = document.createElement('p');
   syncStatus.className = 'wealth-help wealth-sync-status'; syncStatus.setAttribute('role', 'status');
   document.querySelector('.wealth-owner-bar').after(syncStatus);
+  const draftNotice=document.createElement('p');draftNotice.className='wealth-help';draftNotice.setAttribute('role','status');syncStatus.after(draftNotice);
+  function markDirty() { dirty=true;draftNotice.textContent=`전략 버킷에 미저장 변경이 있습니다 · 편집 범위: ${editorView?.owner || '모두'}. 투자 → 전략 버킷에서 저장하거나 다시 불러오세요.`; }
   window.addEventListener('wealth:sync', ({detail}) => {
     syncBlocked = detail.state !== 'success';
     const labels = {running:'증권사 잔고·보유종목 동기화 중…',partial:'일부 증권사 동기화 실패 — 결과를 확인한 뒤 다시 동기화하세요.',error:'계좌 동기화 실패 — 다시 시도하세요.',empty:'동기화된 증권사가 없습니다. 설정의 OpenAPI를 확인하세요.',success:`전체 설정 증권사 동기화 성공 · ${new Date().toLocaleString('ko-KR')}`};
@@ -48,14 +81,18 @@
     if (!response.ok) throw new Error(data.detail || '저장하지 못했습니다.');
     return data;
   }
-  async function load() {
-    try { state = await request(''); renderHistory(); renderBucketSummary(); if(!dirty) renderEditor(); }
+  async function load(discardDraft = false) {
+    try { state = await request(''); if(discardDraft) dirty=false; renderHistory(); renderBucketSummary(); if(!dirty) renderEditor(); }
     catch(error) { document.getElementById('wealthHistoryStatus').textContent = error.message; document.getElementById('wealthBucketStatus').textContent = error.message; }
     snapshotButton.disabled = !state || !summary || syncBlocked;
   }
   window.addEventListener('wealth:role', ({detail}) => { if(!detail.isAdminUser) load(); });
   window.addEventListener('wealth:summary', ({detail}) => { summary = detail; renderHistory(); snapshotButton.disabled = !state || syncBlocked; });
-  window.addEventListener('wealth:portfolio', ({detail}) => { portfolioView = detail; renderBucketSummary(); if(!dirty) renderEditor(); });
+  window.addEventListener('wealth:portfolio', ({detail}) => {
+    portfolioView = detail; renderBucketSummary();
+    if(!dirty) renderEditor();
+    else document.getElementById('wealthBucketStatus').textContent = `미저장 변경 있음 · 편집 범위: ${editorView.owner}. 현재 조회 범위와 다를 수 있습니다. 저장하거나 ‘다시 불러오기’를 선택하세요.`;
+  });
   historyPanel.querySelector('.wealth-periods').addEventListener('click', e => {
     if(!e.target.dataset.days) return;
     range = Number(e.target.dataset.days);
@@ -67,6 +104,11 @@
     const cutoff = Date.now() - range * 86400000;
     const records = state.history.filter(r => r.owner === summary.owner && (!range || Date.parse(r.date+'T23:59:59+09:00') >= cutoff)).sort((a,b)=>a.date.localeCompare(b.date));
     const plot = document.getElementById('wealthHistoryPlot');
+    const selector=document.getElementById('wealthHistoryRecord'), previous=selector.value;
+    selector.innerHTML=records.map(r=>`<option value="${esc(r.date)}">${esc(r.owner)} · ${esc(r.date)}</option>`).join('');
+    if(records.some(r=>r.date===previous))selector.value=previous;
+    document.getElementById('wealthEditHistory').disabled=!records.length;
+    document.getElementById('wealthDeleteHistory').disabled=!records.length;
     document.getElementById('wealthHistoryStatus').textContent = records.length ? `${summary.owner === '모두' ? '전체 가족' : summary.owner} · ${records.length}개 기록${records.length > 1 ? ' · 기간 증감 '+won(records.at(-1).net_worth-records[0].net_worth) : ' · 두 번째 기록부터 추세를 표시합니다.'}` : '아직 기록이 없습니다. 자산 정보를 확인한 뒤 ‘오늘 기록’을 누르세요. 과거 값을 추정하지 않습니다.';
     if(!records.length) { plot.replaceChildren(); return; }
     const values = records.map(r=>r.net_worth), lo=Math.min(...values), hi=Math.max(...values), span=hi-lo || Math.max(Math.abs(hi)*0.05,1);
@@ -102,6 +144,11 @@
   }
   function renderEditor() {
     if(!state || !portfolioView) return;
+    editorView = portfolioView; editorRevision = state.revision;
+    draftNotice.textContent='';
+    document.getElementById('wealthBucketStatus').textContent='';
+    document.getElementById('wealthAccountAssignments').replaceChildren();
+    document.getElementById('wealthHoldingAssignments').replaceChildren();
     const rows=document.getElementById('wealthBucketRows'); rows.replaceChildren(...state.buckets.map(bucketRow));
     renderAssignments();
   }
@@ -112,21 +159,21 @@
     for(const [field,target] of [['accounts','wealthAccountAssignments'],['holdings','wealthHoldingAssignments']]) {
       const holder=document.getElementById(target);
       const previous=new Map([...holder.querySelectorAll('select')].map(s=>[s.dataset.id,s.value]));
-      const items=field === 'accounts' ? portfolioView.accounts : portfolioView.holdings.filter(h=>portfolioView.accounts.some(a=>a.id === h.account_id));
+      const items=field === 'accounts' ? editorView.accounts : editorView.holdings.filter(h=>editorView.accounts.some(a=>a.id === h.account_id));
       holder.innerHTML=items.map(item=>{const value=previous.has(String(item.id))?previous.get(String(item.id)):Object.hasOwn(state[field],item.id)?state[field][item.id]:field==='holdings'?'__inherit__':'';return `<label class="wealth-assignment">${esc(field==='holdings' ? `${item.account_name || item.account_id} · ${item.name}` : `${item.broker || ''} · ${item.name}`)}<select data-field="${field}" data-id="${esc(item.id)}">${options(value,field==='holdings')}</select></label>`;}).join('') || '<p class="wealth-help">선택한 가족 범위에 분류할 증권 내역이 없습니다.</p>';
       holder.querySelectorAll('select').forEach(s=>{const value=previous.has(s.dataset.id)?previous.get(s.dataset.id):state[field][s.dataset.id]; if(value!==undefined && [...s.options].some(o=>o.value===value)) s.value=value;});
     }
   }
-  document.getElementById('wealthBucketForm').addEventListener('input',e=>{dirty=true;if(e.target.name==='bucketName')renderAssignments();});
-  document.getElementById('wealthBucketForm').addEventListener('change',e=>{dirty=true;if(e.target.name==='bucketName')renderAssignments();});
-  document.getElementById('wealthAddBucket').addEventListener('click',()=>{if(draftBuckets().length>=30)return;dirty=true;document.getElementById('wealthBucketRows').append(bucketRow({id:crypto.randomUUID(),name:'',purpose:'',target:0}));renderAssignments();});
-  document.getElementById('wealthBucketRows').addEventListener('click',e=>{if(e.target.hasAttribute('data-remove-bucket')){e.target.closest('.wealth-bucket-edit-row').remove();dirty=true;renderAssignments();}});
-  document.getElementById('wealthReloadPlanning').addEventListener('click',()=>{if(!dirty || confirm('저장하지 않은 분류 변경을 버리고 다시 불러올까요?')){dirty=false;load();}});
+  document.getElementById('wealthBucketForm').addEventListener('input',e=>{markDirty();if(e.target.name==='bucketName')renderAssignments();});
+  document.getElementById('wealthBucketForm').addEventListener('change',e=>{markDirty();if(e.target.name==='bucketName')renderAssignments();});
+  document.getElementById('wealthAddBucket').addEventListener('click',()=>{if(draftBuckets().length>=30)return;markDirty();document.getElementById('wealthBucketRows').append(bucketRow({id:crypto.randomUUID(),name:'',purpose:'',target:0}));renderAssignments();});
+  document.getElementById('wealthBucketRows').addEventListener('click',e=>{if(e.target.hasAttribute('data-remove-bucket')){e.target.closest('.wealth-bucket-edit-row').remove();markDirty();renderAssignments();}});
+  document.getElementById('wealthReloadPlanning').addEventListener('click',()=>{if(!dirty || confirm('저장하지 않은 분류 변경을 버리고 다시 불러올까요?'))load(true);});
   document.getElementById('wealthBucketForm').addEventListener('submit',async e=>{
     e.preventDefault(); if(!state)return;
     const button=e.submitter; button.disabled=true;
     const buckets=draftBuckets(), ids=new Set(buckets.map(b=>b.id));
-    const payload={revision:state.revision,buckets,accounts:{...state.accounts},holdings:{...state.holdings}};
+    const payload={revision:editorRevision,buckets,accounts:{...state.accounts},holdings:{...state.holdings}};
     for(const field of ['accounts','holdings']) for(const key of Object.keys(payload[field])) if(payload[field][key] && !ids.has(payload[field][key])) delete payload[field][key];
     document.querySelectorAll('.wealth-assignment select').forEach(s=>{if(s.value==='__inherit__')delete payload[s.dataset.field][s.dataset.id];else payload[s.dataset.field][s.dataset.id]=s.value;});
     try { state=await request('/buckets',payload);dirty=false;renderBucketSummary();renderEditor();document.getElementById('wealthBucketStatus').textContent='분류를 저장했습니다. 실제 잔고와 거래는 변경하지 않았습니다.'; }
