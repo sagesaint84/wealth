@@ -6848,9 +6848,11 @@ $("#syncAccountsButton")?.addEventListener("click", (e) => action(e.currentTarge
   try {
     const result = await api("/api/sync/all", { method: "POST" });
     await loadDashboard();
+    const hasPartial = result.brokers?.some(item => ['PARTIAL_SUCCESS', 'API_ERROR', 'PARSE_ERROR', 'INTERNAL_ERROR'].includes(item.status));
     window.dispatchEvent(new CustomEvent('wealth:sync', {detail: {
-      state: result.errors?.length ? 'partial' : result.synced > 0 ? 'success' : 'empty',
+      state: hasPartial || result.errors?.length ? 'partial' : result.synced > 0 ? 'success' : 'empty',
       message: result.message,
+      brokers: result.brokers || [],
     }}));
     return result;
   } catch (error) {

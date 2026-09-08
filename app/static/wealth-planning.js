@@ -85,7 +85,7 @@
   window.addEventListener('wealth:sync', ({detail}) => {
     syncBlocked = detail.state !== 'success';
     const labels = {running:'증권사 잔고·보유종목 동기화 중…',partial:'일부 증권사 동기화 실패 — 결과를 확인한 뒤 다시 동기화하세요.',error:'계좌 동기화 실패 — 다시 시도하세요.',empty:'동기화된 증권사가 없습니다. 설정의 OpenAPI를 확인하세요.',success:`전체 설정 증권사 동기화 성공 · ${new Date().toLocaleString('ko-KR')}`};
-    syncStatus.textContent = labels[detail.state] || '';
+    syncStatus.textContent = detail.message || labels[detail.state] || '';
     snapshotButton.disabled = syncBlocked || !state || !summary;
   });
   const bucketPanel = document.createElement('article');

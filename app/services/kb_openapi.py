@@ -101,8 +101,15 @@ class KBOpenAPI:
                 json=self._payload(data_body),
             )
             self._raise_for_response(response)
-            payload = response.json()
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise KBOpenAPIError("KB OpenAPI 응답이 올바른 JSON이 아닙니다.") from exc
+        if not isinstance(payload, dict):
+            raise KBOpenAPIError("KB OpenAPI 응답 형식이 올바르지 않습니다.")
         body = payload.get("dataBody", payload)
+        if not isinstance(body, dict):
+            raise KBOpenAPIError("KB OpenAPI dataBody 형식이 올바르지 않습니다.")
         code = str(body.get("o_clsf", body.get("clsfP", "0")))
         if code not in {"", "0", "00"}:
             raise KBOpenAPIError(body.get("o_msg", body.get("msg", "KB OpenAPI가 오류를 반환했습니다.")))
@@ -113,14 +120,22 @@ class KBOpenAPI:
             self.call("/api/v1/ssqm1801", {"inq_clsf": "0", "mkt_tm_ccd": "1", "is_no": "", "nxt_key": ""}),
             self.call("/api/v1/spqm2226", {"std_crncy_f": "2", "exch_r_aplc_f": "2", "fee_clsf": "0", "cn_f": "0", "nxt_key": "", "mktpr_aplc_clsf": ""}),
         )
+        domestic_rows = domestic.get("Record1")
+        overseas_rows = overseas.get("Record2")
+        if not isinstance(domestic_rows, list) or not isinstance(overseas_rows, list):
+            raise KBOpenAPIError("KB OpenAPI 잔고 응답의 보유종목 목록 형식이 올바르지 않습니다.")
         records: list[dict[str, Any]] = []
-        for row in domestic.get("Record1", []):
+        for row in domestic_rows:
+            if not isinstance(row, dict):
+                raise KBOpenAPIError("KB OpenAPI 국내 보유종목 항목 형식이 올바르지 않습니다.")
             code = str(row.get("is_no", ""))[-6:]
             qty = max(0.0, as_float(row.get("gnrl_q", 0)) - as_float(row.get("sll_q", 0) or row.get("tdy_sll_q", 0)))
             if qty <= 0:
                 continue
             records.append({"code": code, "name": row.get("is_nm", code), "quantity": qty, "avg_price": 0, "current_price": 0, "currency": "KRW", "market": "KRX"})
-        for row in overseas.get("Record2", []):
+        for row in overseas_rows:
+            if not isinstance(row, dict):
+                raise KBOpenAPIError("KB OpenAPI 해외 보유종목 항목 형식이 올바르지 않습니다.")
             qty = max(0.0, as_float(row.get("frgn_hld_q_p6", 0)) - as_float(row.get("sll_q", 0) or row.get("tdy_sll_q", 0)))
             if qty <= 0:
                 continue

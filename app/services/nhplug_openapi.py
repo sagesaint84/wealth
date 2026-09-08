@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -8,6 +9,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class NhPlugOpenAPIError(RuntimeError):
@@ -109,17 +112,20 @@ class NhPlugOpenAPI:
                 detail = response.text
             raise NhPlugOpenAPIError(f"나무증권 OpenAPI 요청 실패 ({response.status_code}): {detail}")
 
-    async def _call(self, path: str, input_0: dict[str, Any]) -> dict[str, Any]:
+    async def _call(self, path: str, input_0: dict[str, Any], *, cts: str = "") -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=20.0) as client:
             token = await self._access_token(client)
+            request_headers = {
+                "x-client-id": self.app_key,
+                "x-client-secret": self.app_secret,
+                "authorization": f"Bearer {token}",
+                "content-type": "application/json;charset=utf-8",
+            }
+            if cts:
+                request_headers["cts"] = cts
             response = await client.post(
                 f"{self.base_url}{path}",
-                headers={
-                    "x-client-id": self.app_key,
-                    "x-client-secret": self.app_secret,
-                    "authorization": f"Bearer {token}",
-                    "content-type": "application/json;charset=utf-8",
-                },
+                headers=request_headers,
                 json={"Input_0": input_0},
             )
             # 만약 캐시된 토큰이 무효화되었거나 401/IGW40043 오류인 경우, 토큰을 즉시 재발급받아 1회 재시도
@@ -143,18 +149,50 @@ class NhPlugOpenAPI:
                         json={"Input_0": input_0},
                     )
             self._raise_for_response(response)
-            payload = response.json()
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise NhPlugOpenAPIError("나무증권 OpenAPI 응답이 올바른 JSON이 아닙니다.") from exc
+            if not isinstance(payload, dict):
+                raise NhPlugOpenAPIError("나무증권 OpenAPI 응답 형식이 올바르지 않습니다.")
+            response_cts = str(response.headers.get("cts", "")).strip()
+            response_cts_flag = str(response.headers.get("cts_flag", "")).strip().upper()
         code = str(payload.get("rsp_cd", ""))
         message = str(payload.get("rsp_msg", ""))
         if code not in self._SUCCESS_CODES and "완료" not in message:
             raise NhPlugOpenAPIError(f"나무증권 OpenAPI 응답 오류 ({code or '코드 없음'}): {message or payload}")
+        if not response_cts:
+            for value in payload.values():
+                if isinstance(value, dict):
+                    response_cts = next((str(v).strip() for k, v in value.items() if str(k).lower().startswith("ctsz") and str(v).strip()), "")
+                    if response_cts:
+                        break
+        payload["_wealth_continuation"] = {"cts": response_cts, "flag": response_cts_flag}
         return payload
+
+    async def _call_pages(self, path: str, input_0: dict[str, Any]) -> list[dict[str, Any]]:
+        pages: list[dict[str, Any]] = []
+        cts = ""
+        seen: set[str] = set()
+        for _ in range(20):
+            page = await self._call(path, input_0, cts=cts)
+            pages.append(page)
+            meta = page.get("_wealth_continuation", {})
+            next_cts = str(meta.get("cts", "")).strip() if isinstance(meta, dict) else ""
+            flag = str(meta.get("flag", "")).upper() if isinstance(meta, dict) else ""
+            if not next_cts or flag == "N":
+                return pages
+            if next_cts in seen:
+                raise NhPlugOpenAPIError("나무증권 연속조회 키가 반복되었습니다.")
+            seen.add(next_cts)
+            cts = next_cts
+        raise NhPlugOpenAPIError("나무증권 연속조회 한도를 초과했습니다.")
 
     async def _accounts(self) -> list[dict[str, Any]]:
         payload = await self._call("/n2/acctinfo", {})
         accounts = payload.get("Output_0", [])
         if not isinstance(accounts, list):
-            return []
+            raise NhPlugOpenAPIError("나무증권 계좌 목록 응답 형식이 올바르지 않습니다.")
         allowed_types = {"03"} if self.is_mock else {"01", "02"}
         return [account for account in accounts if str(account.get("acct_type", "")) in allowed_types]
 
@@ -167,16 +205,22 @@ class NhPlugOpenAPI:
         records: list[dict[str, Any]] = []
         self.account_cash = {}
         self.last_accounts = await self._accounts()
+        if not self.last_accounts:
+            raise NhPlugOpenAPIError("현재 API 환경에서 사용할 수 있는 나무증권 계좌가 없습니다.")
         for account in self.last_accounts:
             account_no = str(account.get("acct_no", ""))
             if not account_no:
                 continue
             account_name = self._account_name(account)
-            domestic = await self._call(
+            domestic_pages = await self._call_pages(
                 "/krstock/inquiry/v1/balance",
                 {"act_no": account_no, "bnc_bse_cd": "5", "ltg_aot_dit_cd": "9", "aet_bse": "2", "qut_dit_cd": "UNT"},
             )
+            domestic = domestic_pages[0]
             out_0 = domestic.get("Output_0") or {}
+            domestic_items = [item for page in domestic_pages for item in (page.get("Output_1") or [])]
+            if not isinstance(out_0, dict) or not isinstance(domestic_items, list):
+                raise NhPlugOpenAPIError("나무증권 국내 잔고 응답 형식이 올바르지 않습니다.")
             
             # 예수금: D+2 결제반영 추정 예수금(nxt2_dd_dca) 또는 원장 예수금(dca) 우선
             krw_cash = 0.0
@@ -185,16 +229,22 @@ class NhPlugOpenAPI:
             elif out_0.get("dca") is not None and str(out_0.get("dca")).strip() != "":
                 krw_cash = as_float(out_0.get("dca"))
             else:
+                found_cash = False
                 for k in ("nas_amt", "drn_pbl_amt", "orr_pbl_amt1"):
                     val = out_0.get(k)
                     if val is not None and str(val).strip() != "":
                         krw_cash = as_float(val)
+                        found_cash = True
                         break
+                if not found_cash:
+                    raise NhPlugOpenAPIError("나무증권 국내 잔고 응답에 예수금 필드가 없습니다.")
 
             usd_cash = 0.0
             self.account_cash[account_no] = {"KRW": krw_cash, "USD": 0.0}
 
-            for item in domestic.get("Output_1", []) or []:
+            for item in domestic_items:
+                if not isinstance(item, dict):
+                    raise NhPlugOpenAPIError("나무증권 국내 보유종목 항목 형식이 올바르지 않습니다.")
                 # 수량: 체결기준 잔여수량(rsdl_qty)이 최우선 (당일 매도 체결 시 0으로 반영)
                 qty = None
                 if item.get("rsdl_qty") is not None and str(item.get("rsdl_qty")).strip() != "":
@@ -228,11 +278,15 @@ class NhPlugOpenAPI:
 
             for country_code, (currency, market) in self._OVERSEAS_COUNTRIES.items():
                 try:
-                    overseas = await self._call(
+                    overseas_pages = await self._call_pages(
                         "/gbstock/inquiry/v1/balance",
                         {"act_no": account_no, "qut_iqr_dit_cd": "9", "fc_sec_trd_nat_cd": country_code, "cur_cd": "KRW", "xns_dit_cd": "1"},
                     )
+                    overseas = overseas_pages[0]
                     ov_out0 = overseas.get("Output_0") or {}
+                    overseas_items = [item for page in overseas_pages for item in (page.get("Output_1") or [])]
+                    if not isinstance(ov_out0, dict) or not isinstance(overseas_items, list):
+                        raise NhPlugOpenAPIError("나무증권 해외 잔고 응답 형식이 올바르지 않습니다.")
                     if currency == "USD":
                         for k in ("fc_dca", "fc_ny_stl_xcl_amt", "fc_aet_amt"):
                             val = ov_out0.get(k)
@@ -243,7 +297,9 @@ class NhPlugOpenAPI:
                                     break
                         self.account_cash[account_no]["USD"] = usd_cash
 
-                    for item in overseas.get("Output_1", []) or []:
+                    for item in overseas_items:
+                        if not isinstance(item, dict):
+                            raise NhPlugOpenAPIError("나무증권 해외 보유종목 항목 형식이 올바르지 않습니다.")
                         ov_qty = None
                         for k in ("cns_bse_bnc_qty", "fc_cns_bse_bnc_qty", "rsdl_qty"):
                             if item.get(k) is not None and str(item.get(k)).strip() != "":
@@ -276,6 +332,13 @@ class NhPlugOpenAPI:
                             "market": market,
                         })
                 except Exception as e:
-                    logger.debug("나무증권 해외잔고 조회 (%s) 제외/오류: %s", country_code, e)
+                    logger.warning(
+                        "나무증권 해외잔고 조회 실패 (%s, %s); 기존 데이터 보호를 위해 동기화를 중단합니다.",
+                        country_code,
+                        type(e).__name__,
+                    )
+                    if isinstance(e, NhPlugOpenAPIError):
+                        raise
+                    raise NhPlugOpenAPIError("나무증권 해외 잔고 처리 중 오류가 발생했습니다.") from e
 
         return [record for record in records if record["code"] and record["quantity"] > 0]

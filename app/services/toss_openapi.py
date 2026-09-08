@@ -102,16 +102,22 @@ class TossOpenAPI:
     async def sync_holdings(self) -> list[dict[str, Any]]:
         accounts = await self._get("/api/v1/accounts")
         if isinstance(accounts, dict):
-            accounts = accounts.get("items") or accounts.get("accounts") or []
+            accounts = accounts.get("items") if "items" in accounts else accounts.get("accounts")
+        if not isinstance(accounts, list):
+            raise TossOpenAPIError("토스증권 계좌 응답 형식이 올바르지 않습니다.")
         self.last_accounts = accounts
         records: list[dict[str, Any]] = []
         for account in accounts:
+            if not isinstance(account, dict):
+                raise TossOpenAPIError("토스증권 계좌 항목 형식이 올바르지 않습니다.")
             account_seq = account.get("accountSeq")
             if account_seq is None:
                 continue
             overview = await self._get("/api/v1/holdings", account_seq=int(account_seq))
             if isinstance(overview, list):
                 overview = {"items": overview}
+            if not isinstance(overview, dict) or not isinstance(overview.get("items"), list):
+                raise TossOpenAPIError("토스증권 보유종목 응답 형식이 올바르지 않습니다.")
             account_no = str(account.get("accountNo", ""))
             account_name = f"토스증권 계좌 {account_no[-4:]}" if account_no else f"토스증권 계좌 {account_seq}"
             for item in overview.get("items", []):
@@ -132,12 +138,13 @@ class TossOpenAPI:
     async def get_buying_power(self, account_seq: int) -> dict[str, float]:
         res: dict[str, float] = {"KRW": 0.0, "USD": 0.0}
         for cur in ["KRW", "USD"]:
-            try:
-                data = await self._get("/api/v1/buying-power", params={"currency": cur}, account_seq=account_seq)
-                if isinstance(data, dict):
-                    res[cur] = as_float(data.get("cashBuyingPower") or data.get("orderableAmount") or data.get("buyingPower") or 0.0)
-            except Exception:
-                pass
+            data = await self._get("/api/v1/buying-power", params={"currency": cur}, account_seq=account_seq)
+            if not isinstance(data, dict):
+                raise TossOpenAPIError(f"토스증권 {cur} 예수금 응답 형식이 올바르지 않습니다.")
+            value = next((data.get(key) for key in ("cashBuyingPower", "orderableAmount", "buyingPower") if data.get(key) is not None), None)
+            if value is None:
+                raise TossOpenAPIError(f"토스증권 {cur} 예수금 응답에 금액 필드가 없습니다.")
+            res[cur] = as_float(value)
         return res
 
     async def get_exchange_rate(self, base_currency: str, quote_currency: str = "KRW") -> dict[str, Any]:

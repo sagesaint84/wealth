@@ -19,7 +19,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def import_main_without_loading_real_env():
     """Import app.main while making its .env loader see no production .env file."""
     if "app.main" in sys.modules:
-        return sys.modules["app.main"]
+        module = sys.modules["app.main"]
+        module.app.router.on_startup[:] = [
+            handler for handler in module.app.router.on_startup
+            if handler is not module.ensure_data_dir
+        ]
+        return module
 
     original_exists = Path.exists
 
@@ -29,7 +34,14 @@ def import_main_without_loading_real_env():
         return original_exists(path)
 
     with patch.object(Path, "exists", safe_exists):
-        return importlib.import_module("app.main")
+        module = importlib.import_module("app.main")
+    # TestClient must not run startup jobs that call external market APIs or
+    # write production caches. Endpoint tests invoke only the routes in scope.
+    module.app.router.on_startup[:] = [
+        handler for handler in module.app.router.on_startup
+        if handler is not module.ensure_data_dir
+    ]
+    return module
 
 
 def authenticated_request(username: str = "fixture_user") -> Request:
@@ -93,4 +105,3 @@ class IsolatedDataTestCase(unittest.TestCase):
         path = self.fixture_users / safe_username
         path.mkdir(parents=True, exist_ok=True)
         return path
-

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import secrets
 import time
 import uuid
@@ -68,6 +69,34 @@ def load_env_file() -> None:
 load_env_file()
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+_syncing_users: set[str] = set()
+
+
+def _mask_sync_error(error: Exception, client: object | None = None) -> str:
+    """Return a user-facing sync error without credentials or full account numbers."""
+    detail = error.detail if isinstance(error, HTTPException) else str(error)
+    text = str(detail)
+    if client is not None:
+        for attr in ("app_key", "app_secret", "account_no"):
+            value = str(getattr(client, attr, "") or "")
+            if value:
+                text = text.replace(value, f"{value[:4]}****" if attr == "account_no" else "********")
+    text = re.sub(r"(?<!\d)\d{8,12}(?!\d)", lambda m: f"{m.group(0)[:4]}****", text)
+    return text[:300]
+
+
+def _sync_error_status(error: Exception) -> str:
+    text = str(error.detail if isinstance(error, HTTPException) else error)
+    if any(marker in text for marker in ("응답 형식", "올바른 JSON", "항목 형식", "연속조회")):
+        return "PARSE_ERROR"
+    if isinstance(error, (HTTPException, KBOpenAPIError, TossOpenAPIError, NhPlugOpenAPIError, KISOpenAPIError, KiwoomOpenAPIError)):
+        return "API_ERROR"
+    return "INTERNAL_ERROR"
+
+
+def _mark_sync_success(data: dict, broker: str) -> None:
+    data.setdefault("settings", {}).setdefault("sync_last_success", {})[broker] = datetime.now().astimezone().isoformat(timespec="seconds")
 
 @app.get("/sw.js")
 async def service_worker_file():
@@ -1829,7 +1858,7 @@ async def sync_kb(request: Request = None) -> dict:
     username = get_current_username(request) if request else "sagesaint"
     client = KBOpenAPI(username=username)
     if not client.configured:
-        return {"message": "KB증권 OpenAPI 키가 설정되지 않았습니다. 상단 [OpenAPI] 버튼에서 키를 등록하세요.", "count": 0, "warnings": []}
+        return {"broker": "KB증권", "status": "CONFIG_REQUIRED", "message": "KB증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True, "warnings": []}
     try:
         records = await client.sync_holdings()
     except KBOpenAPIError as exc:
@@ -1869,8 +1898,9 @@ async def sync_kb(request: Request = None) -> dict:
             if holding["avg_price"] == 0:
                 holding["avg_price"] = price
     upsert_holdings(data, holdings, replace_source="kb_api")
+    _mark_sync_success(data, "kb")
     write_portfolio(data, username=username)
-    return {"message": f"KB증권 보유종목 {len(holdings)}개를 동기화했습니다.", "count": len(holdings), "warnings": warnings[:10]}
+    return {"broker": "KB증권", "status": "SUCCESS", "message": f"KB증권 보유종목 {len(holdings)}개를 동기화했습니다.", "count": len(holdings), "holdings_valid": True, "cash_valid": False, "data_preserved": False, "warnings": warnings[:10]}
 
 
 @app.post("/api/sync/toss")
@@ -1878,7 +1908,7 @@ async def sync_toss(request: Request = None) -> dict:
     username = get_current_username(request) if request else "sagesaint"
     client = TossOpenAPI(username=username)
     if not client.configured:
-        return {"message": "토스증권 OpenAPI 키가 설정되지 않았습니다. 상단 [OpenAPI] 버튼에서 키를 등록하세요.", "count": 0}
+        return {"broker": "토스증권", "status": "CONFIG_REQUIRED", "message": "토스증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
     try:
         records = await client.sync_holdings()
         toss_accounts = client.last_accounts
@@ -1909,6 +1939,7 @@ async def sync_toss(request: Request = None) -> dict:
         return None
 
     toss_map = {}
+    cash_failures = 0
     for account in toss_accounts:
         seq = account.get("accountSeq")
         seq_str = str(seq) if seq is not None else ""
@@ -1947,7 +1978,7 @@ async def sync_toss(request: Request = None) -> dict:
                 cash[str(seq)] = bp
                 cash_balances[account_id] = bp
             except TossOpenAPIError:
-                pass
+                cash_failures += 1
 
     data["settings"]["toss_cash"] = cash
     data["settings"]["cash_balances"] = cash_balances
@@ -1967,8 +1998,12 @@ async def sync_toss(request: Request = None) -> dict:
         holdings.append(normalize_holding(record, account_id, "토스증권", account_name, "toss_api"))
 
     upsert_holdings(data, holdings, replace_source="toss_api")
+    _mark_sync_success(data, "toss")
     write_portfolio(data, username=username)
-    return {"message": f"토스증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다.", "count": len(holdings)}
+    status = "PARTIAL_SUCCESS" if cash_failures else "SUCCESS"
+    message = f"토스증권 보유종목 {len(holdings)}개를 동기화했습니다."
+    message += " 예수금 조회 실패 계좌의 기존 데이터는 유지했습니다." if cash_failures else " 예수금도 동기화했습니다."
+    return {"broker": "토스증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "cash_valid": not cash_failures, "data_preserved": bool(cash_failures)}
 
 
 @app.post("/api/sync/namoo")
@@ -1976,7 +2011,7 @@ async def sync_namoo(request: Request = None) -> dict:
     username = get_current_username(request) if request else "sagesaint"
     client = NhPlugOpenAPI(username=username)
     if not client.configured:
-        return {"message": "나무증권 OpenAPI 키가 설정되지 않았습니다. 상단 [OpenAPI] 버튼에서 키를 등록하세요.", "count": 0}
+        return {"broker": "NH투자증권(나무)", "status": "CONFIG_REQUIRED", "message": "나무증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
     try:
         records = await client.sync_holdings()
     except NhPlugOpenAPIError as exc:
@@ -2048,8 +2083,9 @@ async def sync_namoo(request: Request = None) -> dict:
 
     upsert_holdings(data, holdings, replace_source="nhplug_api")
     data["settings"]["cash_balances"] = cash_balances
+    _mark_sync_success(data, "nh")
     write_portfolio(data, username=username)
-    return {"message": f"나무증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다.", "count": len(holdings)}
+    return {"broker": "NH투자증권(나무)", "status": "SUCCESS", "message": f"나무증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다.", "count": len(holdings), "holdings_valid": True, "cash_valid": True, "data_preserved": False}
 
 
 @app.post("/api/sync/kis")
@@ -2057,7 +2093,9 @@ async def sync_kis(request: Request = None) -> dict:
     username = get_current_username(request) if request else "sagesaint"
     client = KISOpenAPI(username=username)
     if not client.configured:
-        return {"message": "한국투자증권 OpenAPI 키가 설정되지 않았습니다. 상단 [OpenAPI] 버튼에서 키를 등록하세요.", "count": 0}
+        return {"broker": "한국투자증권", "status": "CONFIG_REQUIRED", "message": "한국투자증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
+    if not client._parse_account_no()[0]:
+        return {"broker": "한국투자증권", "status": "CONFIG_REQUIRED", "message": "한국투자증권 계좌번호(CANO 8자리 또는 8자리-상품코드 2자리)를 확인해 주세요. 기존 데이터는 유지했습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
     try:
         records = await client.sync_holdings()
     except KISOpenAPIError as exc:
@@ -2079,7 +2117,7 @@ async def sync_kis(request: Request = None) -> dict:
     account_map = {}
     for account in client.last_accounts:
         account_no = str(account.get("account_number", ""))
-        default_name = account.get("account_name", f"한국투자증권 ({account_no})")
+        default_name = account.get("account_name", f"한국투자증권 ({account_no[:4]}****)")
         suffix = account_no[-4:] if account_no else ""
         if account_no:
             existing = resolve_kis_account(data["accounts"], account_no, default_name)
@@ -2124,8 +2162,9 @@ async def sync_kis(request: Request = None) -> dict:
 
     upsert_holdings(data, holdings, replace_source="kis_api")
     data["settings"]["cash_balances"] = cash_balances
+    _mark_sync_success(data, "kis")
     write_portfolio(data, username=username)
-    return {"message": f"한국투자증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다.", "count": len(holdings)}
+    return {"broker": "한국투자증권", "status": "SUCCESS", "message": f"한국투자증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다.", "count": len(holdings), "holdings_valid": True, "cash_valid": True, "data_preserved": False}
 
 
 @app.post("/api/sync/kiwoom")
@@ -2133,7 +2172,7 @@ async def sync_kiwoom(request: Request = None) -> dict:
     username = get_current_username(request) if request else "sagesaint"
     client = KiwoomOpenAPI(username=username)
     if not client.configured:
-        return {"message": "키움증권 OpenAPI 키가 설정되지 않았습니다. 상단 [OpenAPI] 버튼에서 키를 등록하세요.", "count": 0}
+        return {"broker": "키움증권", "status": "CONFIG_REQUIRED", "message": "키움증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
     try:
         records = await client.sync_holdings()
     except KiwoomOpenAPIError as exc:
@@ -2155,7 +2194,7 @@ async def sync_kiwoom(request: Request = None) -> dict:
     account_map = {}
     for account in client.last_accounts:
         account_no = str(account.get("account_number", ""))
-        default_name = account.get("account_name", f"키움증권 ({account_no})")
+        default_name = account.get("account_name", f"키움증권 ({account_no[:4]}****)")
         suffix = account_no[-4:] if account_no else ""
         if account_no:
             existing = resolve_kiwoom_account(data["accounts"], account_no, default_name)
@@ -2198,10 +2237,14 @@ async def sync_kiwoom(request: Request = None) -> dict:
                 account_name = "키움증권 계좌"
         holdings.append(normalize_holding(record, account_id, "키움증권", account_name, "kiwoom_api"))
 
-    upsert_holdings(data, holdings, replace_source="kiwoom_api")
+    # v1.0.9 uses Kiwoom's documented domestic API. Preserve any legacy USD
+    # holdings until an official overseas adapter is implemented and validated.
+    data["holdings"] = [h for h in data["holdings"] if not (h.get("source") == "kiwoom_api" and str(h.get("currency", "KRW")).upper() == "KRW")]
+    upsert_holdings(data, holdings)
     data["settings"]["cash_balances"] = cash_balances
+    _mark_sync_success(data, "kiwoom")
     write_portfolio(data, username=username)
-    return {"message": f"키움증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다.", "count": len(holdings)}
+    return {"broker": "키움증권", "status": "SUCCESS", "message": f"키움증권 국내 보유종목 {len(holdings)}개 및 KRW 예수금을 동기화했습니다.", "count": len(holdings), "holdings_valid": True, "cash_valid": True, "data_preserved": False}
 
 
 @app.post("/api/fx/refresh")
@@ -2284,61 +2327,42 @@ async def stock_search(q: str = "") -> dict:
 @app.post("/api/sync/all")
 async def sync_all_accounts(request: Request) -> dict:
     username = get_current_username(request)
-    results = []
-    errors = []
-    
-    # 1. KB
-    kb = KBOpenAPI(username=username)
-    if kb.configured:
-        try:
-            r = await sync_kb(request)
-            results.append(r.get("message", "KB 동기화 완료"))
-        except Exception as e:
-            errors.append(f"KB: {e}")
-            
-    # 2. Toss
-    toss = TossOpenAPI(username=username)
-    if toss.configured:
-        try:
-            r = await sync_toss(request)
-            results.append(r.get("message", "토스 동기화 완료"))
-        except Exception as e:
-            errors.append(f"토스: {e}")
-            
-    # 3. Namoo
-    namoo = NhPlugOpenAPI(username=username)
-    if namoo.configured:
-        try:
-            r = await sync_namoo(request)
-            results.append(r.get("message", "나무 동기화 완료"))
-        except Exception as e:
-            errors.append(f"나무: {e}")
+    if username in _syncing_users:
+        raise HTTPException(409, "이미 계좌 동기화가 진행 중입니다.")
+    _syncing_users.add(username)
+    broker_results: list[dict] = []
+    try:
+        jobs = [
+            ("KB증권", KBOpenAPI(username=username), sync_kb),
+            ("토스증권", TossOpenAPI(username=username), sync_toss),
+            ("NH투자증권(나무)", NhPlugOpenAPI(username=username), sync_namoo),
+            ("한국투자증권", KISOpenAPI(username=username), sync_kis),
+            ("키움증권", KiwoomOpenAPI(username=username), sync_kiwoom),
+        ]
+        for label, client, endpoint in jobs:
+            if not client.configured:
+                broker_results.append({
+                    "broker": label, "status": "CONFIG_REQUIRED", "count": 0,
+                    "holdings_valid": False, "cash_valid": False, "data_preserved": True,
+                    "message": "OpenAPI 연결 정보가 필요합니다. 기존 데이터는 유지했습니다.",
+                })
+                continue
+            try:
+                broker_results.append(await endpoint(request))
+            except Exception as exc:
+                status = _sync_error_status(exc)
+                broker_results.append({
+                    "broker": label, "status": status, "count": 0,
+                    "holdings_valid": False, "cash_valid": False, "data_preserved": True,
+                    "message": f"{_mask_sync_error(exc, client)} 기존 데이터는 유지했습니다.",
+                })
+    finally:
+        _syncing_users.discard(username)
 
-    # 4. KIS (한국투자증권)
-    kis = KISOpenAPI(username=username)
-    if kis.configured:
-        try:
-            r = await sync_kis(request)
-            results.append(r.get("message", "한국투자증권 동기화 완료"))
-        except Exception as e:
-            errors.append(f"한투: {e}")
-
-    # 5. Kiwoom (키움증권)
-    kiwoom = KiwoomOpenAPI(username=username)
-    if kiwoom.configured:
-        try:
-            r = await sync_kiwoom(request)
-            results.append(r.get("message", "키움증권 동기화 완료"))
-        except Exception as e:
-            errors.append(f"키움: {e}")
-            
-    if not results and not errors:
-        return {"message": "등록된 증권사 OpenAPI 설정이 없습니다. 설정의 [OpenAPI]에서 연결 정보를 등록하세요.", "synced": 0}
-        
-    msg = " / ".join(results) if results else "동기화 완료된 계좌가 없습니다."
-    if errors:
-        msg += f" (오류: {', '.join(errors)})"
-    return {"message": msg, "synced": len(results), "errors": errors}
+    succeeded = [r for r in broker_results if r["status"] in {"SUCCESS", "PARTIAL_SUCCESS"}]
+    errors = [f"{r['broker']}: {r['message']}" for r in broker_results if r["status"] not in {"SUCCESS", "PARTIAL_SUCCESS", "CONFIG_REQUIRED"}]
+    lines = [f"{r['broker']} [{r['status']}] {r['message']}" for r in broker_results]
+    return {"message": " / ".join(lines), "synced": len(succeeded), "errors": errors, "brokers": broker_results}
 
 
 # ---------------------------------------------------------------------------

@@ -79,11 +79,26 @@ class KISOpenAPI:
     def _parse_account_no(self) -> tuple[str, str]:
         """계좌번호를 CANO(8자리)와 ACNT_PRDT_CD(2자리)로 분리합니다."""
         acc = self.account_no.replace("-", "").strip()
-        if len(acc) >= 10:
+        if len(acc) == 10 and acc.isdigit():
             return acc[:8], acc[8:10]
-        elif len(acc) == 8:
+        elif len(acc) == 8 and acc.isdigit():
             return acc, "01"
-        return acc, "01"
+        return "", ""
+
+    @staticmethod
+    def _validate_balance_body(body: Any, label: str) -> dict[str, Any]:
+        if not isinstance(body, dict):
+            raise KISOpenAPIError(f"한국투자증권 {label} 응답 형식이 올바르지 않습니다.")
+        if "rt_cd" not in body:
+            raise KISOpenAPIError(f"한국투자증권 {label} 응답에 업무 결과 코드가 없습니다.")
+        if str(body.get("rt_cd", "0")) != "0":
+            raise KISOpenAPIError(f"한국투자증권 {label} 응답 오류: {body.get('msg1') or body.get('msg_cd') or '업무 오류'}")
+        if not isinstance(body.get("output1"), list):
+            raise KISOpenAPIError(f"한국투자증권 {label} 보유종목 응답 형식이 올바르지 않습니다.")
+        output2 = body.get("output2")
+        if not isinstance(output2, (list, dict)):
+            raise KISOpenAPIError(f"한국투자증권 {label} 예수금 응답 형식이 올바르지 않습니다.")
+        return body
 
     async def _access_token(self, client: httpx.AsyncClient, force_refresh: bool = False) -> str:
         if not self.configured:
@@ -175,17 +190,39 @@ class KISOpenAPI:
             "CTX_AREA_NK100": "",
         }
 
-        response = await client.get(
-            f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-balance",
-            headers=headers,
-            params=params,
-        )
-        self._raise_for_response(response)
-        body = response.json()
-
         holdings: list[dict[str, Any]] = []
-        raw_items = body.get("output1", [])
-        for item in raw_items:
+        summaries: list[dict[str, Any]] = []
+        for page in range(10):
+            response = await client.get(
+                f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-balance",
+                headers=headers,
+                params=params,
+            )
+            self._raise_for_response(response)
+            try:
+                body = self._validate_balance_body(response.json(), "국내 잔고")
+            except ValueError as exc:
+                raise KISOpenAPIError("한국투자증권 국내 잔고 응답이 올바른 JSON이 아닙니다.") from exc
+            output2 = body.get("output2", [])
+            summaries.extend(output2 if isinstance(output2, list) else [output2])
+            for item in body["output1"]:
+                if not isinstance(item, dict):
+                    raise KISOpenAPIError("한국투자증권 국내 보유종목 항목 형식이 올바르지 않습니다.")
+                holdings.append(item)
+            continuation = str(response.headers.get("tr_cont", "")).upper()
+            if continuation not in {"M", "F"}:
+                break
+            fk = str(body.get("ctx_area_fk100", ""))
+            nk = str(body.get("ctx_area_nk100", ""))
+            if not fk and not nk:
+                raise KISOpenAPIError("한국투자증권 국내 잔고 연속조회 키가 없습니다.")
+            params["CTX_AREA_FK100"], params["CTX_AREA_NK100"] = fk, nk
+            headers["tr_cont"] = "N"
+        else:
+            raise KISOpenAPIError("한국투자증권 국내 잔고 연속조회 한도를 초과했습니다.")
+
+        parsed_holdings: list[dict[str, Any]] = []
+        for item in holdings:
             hldg = as_float(item.get("hldg_qty", 0))
             sll = as_float(item.get("thdt_sll_qty", 0))
             qty = max(0.0, hldg - sll) if sll > 0 else hldg
@@ -197,7 +234,7 @@ class KISOpenAPI:
             avg_price = as_float(item.get("pchs_avg_pric", 0))
             current_price = as_float(item.get("prpr", 0)) or avg_price
 
-            holdings.append({
+            parsed_holdings.append({
                 "symbol": code,
                 "name": name,
                 "quantity": qty,
@@ -209,15 +246,16 @@ class KISOpenAPI:
             })
 
         # output2 예수금 정보: D+2 결제반영 추정예수금(prvs_rcdl_excc_amt) 우선
-        output2 = body.get("output2", [])
         cash_krw = 0.0
-        summary = output2[0] if isinstance(output2, list) and output2 else (output2 if isinstance(output2, dict) else {})
+        summary = summaries[0] if summaries else {}
         if summary.get("prvs_rcdl_excc_amt") is not None and str(summary.get("prvs_rcdl_excc_amt")).strip() != "":
             cash_krw = as_float(summary.get("prvs_rcdl_excc_amt"))
         elif summary.get("dnca_tot_amt") is not None and str(summary.get("dnca_tot_amt")).strip() != "":
             cash_krw = as_float(summary.get("dnca_tot_amt"))
+        else:
+            raise KISOpenAPIError("한국투자증권 국내 잔고 응답에 예수금 필드가 없습니다.")
 
-        return holdings, cash_krw
+        return parsed_holdings, cash_krw
 
     async def fetch_overseas_balance(self, client: httpx.AsyncClient, token: str) -> tuple[list[dict[str, Any]], float]:
         """해외주식 (미국 등) 잔고 및 외화예수금 조회 (TTTS3012R / VTTS3012R)"""
@@ -245,47 +283,63 @@ class KISOpenAPI:
 
         holdings: list[dict[str, Any]] = []
         cash_usd = 0.0
-
-        try:
+        raw_items: list[dict[str, Any]] = []
+        summaries: list[dict[str, Any]] = []
+        for _ in range(10):
             response = await client.get(
                 f"{self.base_url}/uapi/overseas-stock/v1/trading/inquire-balance",
                 headers=headers,
                 params=params,
             )
-            if response.status_code == 200:
-                body = response.json()
-                raw_items = body.get("output1", [])
-                for item in raw_items:
-                    ovrs_cblc = as_float(item.get("ovrs_cblc_qty", 0))
-                    sll = as_float(item.get("thdt_sll_qty", 0))
-                    qty = max(0.0, ovrs_cblc - sll) if sll > 0 else ovrs_cblc
-                    if qty <= 0:
-                        continue
+            self._raise_for_response(response)
+            try:
+                body = self._validate_balance_body(response.json(), "해외 잔고")
+            except ValueError as exc:
+                raise KISOpenAPIError("한국투자증권 해외 잔고 응답이 올바른 JSON이 아닙니다.") from exc
+            raw_items.extend(body["output1"])
+            output2 = body.get("output2", {})
+            summaries.extend(output2 if isinstance(output2, list) else [output2])
+            continuation = str(response.headers.get("tr_cont", "")).upper()
+            if continuation not in {"M", "F"}:
+                break
+            fk = str(body.get("ctx_area_fk200", ""))
+            nk = str(body.get("ctx_area_nk200", ""))
+            if not fk and not nk:
+                raise KISOpenAPIError("한국투자증권 해외 잔고 연속조회 키가 없습니다.")
+            params["CTX_AREA_FK200"], params["CTX_AREA_NK200"] = fk, nk
+            headers["tr_cont"] = "N"
+        else:
+            raise KISOpenAPIError("한국투자증권 해외 잔고 연속조회 한도를 초과했습니다.")
+        for item in raw_items:
+            if not isinstance(item, dict):
+                raise KISOpenAPIError("한국투자증권 해외 보유종목 항목 형식이 올바르지 않습니다.")
+            ovrs_cblc = as_float(item.get("ovrs_cblc_qty", 0))
+            sll = as_float(item.get("thdt_sll_qty", 0))
+            qty = max(0.0, ovrs_cblc - sll) if sll > 0 else ovrs_cblc
+            if qty <= 0:
+                continue
+            code = str(item.get("ovrs_pdno", "")).strip()
+            name = str(item.get("ovrs_item_name", "")).strip() or code
+            avg_price = as_float(item.get("pchs_avg_pric", 0))
+            current_price = as_float(item.get("now_pric2", 0)) or avg_price
+            holdings.append({
+                "symbol": code,
+                "name": name,
+                "quantity": qty,
+                "avg_price": avg_price,
+                "current_price": current_price,
+                "currency": "USD",
+                "market": "US",
+                "source": "kis_api",
+            })
 
-                    code = str(item.get("ovrs_pdno", "")).strip()
-                    name = str(item.get("ovrs_item_name", "")).strip() or code
-                    avg_price = as_float(item.get("pchs_avg_pric", 0))
-                    current_price = as_float(item.get("now_pric2", 0)) or avg_price
-
-                    holdings.append({
-                        "symbol": code,
-                        "name": name,
-                        "quantity": qty,
-                        "avg_price": avg_price,
-                        "current_price": current_price,
-                        "currency": "USD",
-                        "market": "US",
-                        "source": "kis_api",
-                    })
-
-                output2 = body.get("output2", {})
-                if isinstance(output2, dict):
-                    if output2.get("frcr_dncl_amt_2") is not None and str(output2.get("frcr_dncl_amt_2")).strip() != "":
-                        cash_usd = as_float(output2.get("frcr_dncl_amt_2"))
-                    else:
-                        cash_usd = as_float(output2.get("frcr_drwg_psbl_amt_1") or output2.get("ovrs_tot_pfls", 0))
-        except Exception as e:
-            logger.warning("한국투자증권 해외주식 잔고 조회 중 알림: %s", e)
+        summary = summaries[0] if summaries else {}
+        if summary.get("frcr_dncl_amt_2") is not None and str(summary.get("frcr_dncl_amt_2")).strip() != "":
+            cash_usd = as_float(summary.get("frcr_dncl_amt_2"))
+        elif any(summary.get(key) is not None for key in ("frcr_drwg_psbl_amt_1", "ovrs_tot_pfls")):
+            cash_usd = as_float(summary.get("frcr_drwg_psbl_amt_1") or summary.get("ovrs_tot_pfls", 0))
+        else:
+            raise KISOpenAPIError("한국투자증권 해외 잔고 응답에 외화예수금 필드가 없습니다.")
 
         return holdings, cash_usd
 
@@ -312,7 +366,7 @@ class KISOpenAPI:
                 "account_number": full_acc_no,
                 "cano": cano,
                 "acnt_prdt_cd": prdt_cd,
-                "account_name": f"한국투자증권 ({full_acc_no})",
+                "account_name": f"한국투자증권 ({full_acc_no[:4]}****)",
                 "cash_krw": cash_krw,
                 "cash_usd": cash_usd,
             }]
