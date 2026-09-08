@@ -260,7 +260,7 @@ python -m unittest discover -s tests -v
 
 ## 버전
 
-현재 문서 기준 버전은 **Wealth 1.0.1**입니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
+현재 앱 버전은 **Wealth v1.0.6**입니다. 당분간 `v1.0.x` 체계를 사용합니다. 백업/ledger 형식 번호는 앱 버전과 별개로 유지합니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
 
 ## 주의사항
 
