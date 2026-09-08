@@ -1739,6 +1739,27 @@ async def clear_all(request: Request) -> dict:
     return {"message": "저장된 보유내역을 모두 지웠습니다."}
 
 
+@app.get("/api/planning")
+async def get_planning(request: Request) -> dict:
+    from app.services.planning import read_planning
+    return read_planning(_require_authenticated_username(request))
+
+
+@app.post("/api/planning/{operation}")
+async def save_planning(operation: str, request: Request) -> dict:
+    from app.services.planning import mutate, PlanningConflict
+    username = _require_authenticated_username(request)
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "입력 형식이 올바르지 않습니다.")
+    try:
+        return mutate(username, operation, payload)
+    except PlanningConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        raise HTTPException(400, "입력값을 확인하세요. " + str(exc)) from exc
+
+
 @app.get("/api/asset-records")
 async def get_asset_records(request: Request, owner: str = "") -> dict:
     username = get_current_username(request)
@@ -2312,7 +2333,7 @@ async def sync_all_accounts(request: Request) -> dict:
             errors.append(f"키움: {e}")
             
     if not results and not errors:
-        return {"message": "등록된 증권사 OpenAPI 설정이 없습니다. 상단 [OpenAPI] 버튼에서 키를 등록하세요.", "synced": 0}
+        return {"message": "등록된 증권사 OpenAPI 설정이 없습니다. 설정의 [OpenAPI]에서 연결 정보를 등록하세요.", "synced": 0}
         
     msg = " / ".join(results) if results else "동기화 완료된 계좌가 없습니다."
     if errors:
