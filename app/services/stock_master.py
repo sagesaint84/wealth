@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 import httpx
 
+from app.services.network_policy import external_network_allowed
+
 logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -347,6 +349,8 @@ async def sync_stock_master_online() -> None:
     global _NAME_TO_CODE_MAP, _CODE_TO_NAME_MAP
     if not _INITIALIZED:
         load_stock_master_cache()
+    if not external_network_allowed():
+        return
 
     headers = {"User-Agent": "Mozilla/5.0"}
     
@@ -402,6 +406,8 @@ async def sync_stock_master_online() -> None:
 def search_naver_finance(query: str) -> list[dict[str, str]]:
     """네이버 증권에서 종목명 또는 코드로 실시간 검색하여 (code, name, currency) 목록을 반환한다."""
     q = str(query or "").strip()
+    if not external_network_allowed():
+        return []
     if not q or len(q) < 2:
         return []
 
@@ -456,6 +462,8 @@ def search_naver_finance(query: str) -> list[dict[str, str]]:
 async def search_naver_finance_async(query: str) -> list[dict[str, str]]:
     """네이버 증권에서 종목명 또는 코드로 비동기 실시간 검색하여 (code, name, currency) 목록을 반환한다."""
     q = str(query or "").strip()
+    if not external_network_allowed():
+        return []
     if not q or len(q) < 2:
         return []
 
@@ -929,7 +937,7 @@ def resolve_stock_info(code: str = "", name: str = "", currency: str = "") -> tu
                 name = US_STOCK_CODE_MAP[code.upper()]
             elif code.upper() in US_STOCK_NAME_MAP:
                 name = US_STOCK_NAME_MAP[code.upper()]
-            elif code.isdigit() and len(code) == 6:
+            elif code.isdigit() and len(code) == 6 and external_network_allowed():
                 # 네이버 상세 페이지에서 종목명 실시간 조회 폴백
                 try:
                     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}

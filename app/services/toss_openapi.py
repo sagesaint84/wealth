@@ -11,6 +11,8 @@ from typing import Any
 
 import httpx
 
+from app.services.network_policy import require_external_network
+
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
 
@@ -87,6 +89,7 @@ class TossOpenAPI:
             )
 
     async def _get(self, path: str, params: dict[str, Any] | None = None, account_seq: int | None = None) -> Any:
+        require_external_network("Toss OpenAPI")
         async with httpx.AsyncClient(timeout=15.0) as client:
             token = await self._access_token(client)
             headers = {"Authorization": f"Bearer {token}"}
@@ -185,6 +188,10 @@ class TossOpenAPI:
 
     @staticmethod
     async def _fetch_us_index(ticker: str, label: str, note: str) -> dict[str, Any] | None:
+        try:
+            require_external_network("Yahoo market index")
+        except RuntimeError:
+            return None
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=2m&range=1d"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         try:

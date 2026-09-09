@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 import httpx
 from app.services.test_safety import assert_write_allowed
+from app.services.network_policy import external_network_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,8 @@ def save_cached_fx(fx_map: dict[str, float]) -> None:
 async def sync_historical_fx() -> dict[str, float]:
     """야후 파이낸스에서 5년치 일별 환율(KRW=X)을 비동기로 수집하여 캐싱합니다."""
     global _LAST_FETCH_TIME
+    if not external_network_allowed():
+        return load_cached_fx()
     url = "https://query1.finance.yahoo.com/v8/finance/chart/KRW=X?interval=1d&range=5y"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -85,7 +88,7 @@ def get_historical_fx_rate(target_date: str, fallback: float = 1385.0) -> float:
     휴일/주말인 경우 직전 가장 최근 영업일의 환율을 반환합니다.
     """
     fx_map = load_cached_fx()
-    if not fx_map:
+    if not fx_map and external_network_allowed():
         try:
             url = "https://query1.finance.yahoo.com/v8/finance/chart/KRW=X?interval=1d&range=5y"
             headers = {"User-Agent": "Mozilla/5.0"}

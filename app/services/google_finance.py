@@ -6,6 +6,8 @@ import re
 import urllib.request
 from typing import Any
 
+from app.services.network_policy import external_network_allowed
+
 # 기본 구글 스프레드시트 웹 게시 CSV URL (gid=1737697913: 📈주식현황상세)
 DEFAULT_GOOGLE_SHEET_CSV_URL = (
     "https://docs.google.com/spreadsheets/d/e/2PACX-1vTEAJjUsiTqdPRVPMkYnb6qFi-HeejyZOIm5l-2SHvcML54c0ZArUrOiGmRVZTbfhPB_BmvF5Q8oYGv/pub?gid=1737697913&single=true&output=csv"
@@ -27,6 +29,8 @@ def fetch_google_sheet_data(url: str = DEFAULT_GOOGLE_SHEET_CSV_URL) -> dict[str
     구글 스프레드시트 웹 발행 CSV 데이터를 파싱하여
     환율(USD/KRW) 및 종목별 현재가/정보를 딕셔너리로 반환합니다.
     """
+    if not external_network_allowed():
+        return {"fx_usd_krw": None, "quotes": {}, "unavailable": True}
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=10) as resp:
         text = resp.read().decode("utf-8")
@@ -84,11 +88,13 @@ def fetch_google_sheet_data(url: str = DEFAULT_GOOGLE_SHEET_CSV_URL) -> dict[str
     }
 
 
-def refresh_prices_from_google_sheet(holdings: list[dict[str, Any]]) -> tuple[dict[str, float], list[dict[str, Any]], float]:
+def refresh_prices_from_google_sheet(holdings: list[dict[str, Any]]) -> tuple[dict[str, float], list[dict[str, Any]], float | None]:
     """
     보유 종목 리스트를 받아 구글 시트에서 시세를 매칭하여
     (매칭된 holding_id: 가격 딕셔너리, 미매칭 종목 리스트, 환율)을 반환합니다.
     """
+    if not external_network_allowed():
+        return {}, list(holdings), None
     data = fetch_google_sheet_data()
     quotes = data.get("quotes", {})
     fx_rate = data.get("fx_usd_krw", 0.0)

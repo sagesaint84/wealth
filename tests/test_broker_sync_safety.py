@@ -259,7 +259,8 @@ class EndpointDataProtectionTests(unittest.IsolatedAsyncioTestCase):
             app_key = "fixture"; app_secret = "fixture"; account_no = ""
 
         success = {"broker": "KB증권", "status": "SUCCESS", "message": "synthetic success", "count": 1, "holdings_valid": True, "cash_valid": False, "data_preserved": False}
-        with patch.object(main, "KBOpenAPI", return_value=Configured()), \
+        with patch.object(main, "is_test_mode", return_value=False), \
+             patch.object(main, "KBOpenAPI", return_value=Configured()), \
              patch.object(main, "TossOpenAPI", return_value=Configured()), \
              patch.object(main, "NhPlugOpenAPI", return_value=Configured()), \
              patch.object(main, "KISOpenAPI", return_value=Configured()), \
@@ -279,7 +280,7 @@ class EndpointDataProtectionTests(unittest.IsolatedAsyncioTestCase):
         username = "duplicate-fixture"
         main._syncing_users.add(username)
         try:
-            with self.assertRaisesRegex(HTTPException, "409"):
+            with patch.object(main, "is_test_mode", return_value=False), self.assertRaisesRegex(HTTPException, "409"):
                 await main.sync_all_accounts(authenticated_request(username))
         finally:
             main._syncing_users.discard(username)

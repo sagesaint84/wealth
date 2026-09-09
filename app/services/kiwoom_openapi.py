@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.services.network_policy import require_external_network
+
 
 class KiwoomOpenAPIError(RuntimeError):
     pass
@@ -180,6 +182,7 @@ class KiwoomOpenAPI:
         return holdings, as_float(deposit["entr"])
 
     async def sync_holdings(self) -> list[dict[str, Any]]:
+        require_external_network("Kiwoom OpenAPI")
         if not self.configured:
             raise KiwoomOpenAPIError("키움증권 AppKey/AppSecret이 설정되지 않았습니다.")
         async with httpx.AsyncClient(timeout=15.0) as client:

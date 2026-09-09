@@ -5,13 +5,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from app.services.network_policy import is_test_mode
+
 
 class TestSafetyError(AssertionError):
     pass
 
 
 def assert_write_allowed(path: Path) -> None:
-    if os.getenv("WEALTH_ENV", "production").strip().lower() != "test":
+    if not is_test_mode():
         return
     candidate = path.resolve()
     project_root = Path(__file__).resolve().parents[2]

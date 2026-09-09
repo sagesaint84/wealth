@@ -21,6 +21,7 @@ from app.services.nhplug_openapi import NhPlugOpenAPI, NhPlugOpenAPIError
 from app.services.toss_openapi import TossOpenAPI, TossOpenAPIError
 from app.services.kis_openapi import KISOpenAPI, KISOpenAPIError
 from app.services.kiwoom_openapi import KiwoomOpenAPI, KiwoomOpenAPIError
+from app.services.network_policy import is_test_mode
 from app.services.web_finance import (
     get_web_market_overview,
     fetch_fx_rate_usd_krw,
@@ -2271,6 +2272,15 @@ async def refresh_fx_rate(request: Request) -> dict:
 async def refresh_prices(request: Request) -> dict:
     username = get_current_username(request)
     data = read_portfolio(username=username)
+    if is_test_mode():
+        return {
+            "message": "테스트 환경에서는 외부 시세 갱신을 실행하지 않습니다. 기존 데이터를 유지했습니다.",
+            "count": 0,
+            "fx_rate": data.get("settings", {}).get("fx_rates", {}).get("USD"),
+            "warnings": [],
+            "status": "TEST_MODE",
+            "data_preserved": True,
+        }
     now_str = datetime.now().astimezone().isoformat(timespec="seconds")
 
     # 보유종목이 없는 경우에도 지수 및 환율 정상 갱신
@@ -2334,6 +2344,21 @@ async def stock_search(q: str = "") -> dict:
 @app.post("/api/sync/all")
 async def sync_all_accounts(request: Request) -> dict:
     username = get_current_username(request)
+    if is_test_mode():
+        brokers = [
+            {"broker": label, "status": "TEST_MODE", "count": 0,
+             "holdings_valid": False, "cash_valid": False, "data_preserved": True,
+             "message": "테스트 환경에서는 외부 동기화를 실행하지 않습니다. 기존 데이터를 유지했습니다."}
+            for label in ("KB증권", "토스증권", "NH투자증권(나무)", "한국투자증권", "키움증권")
+        ]
+        return {
+            "message": "테스트 환경에서는 계좌 동기화를 실행하지 않습니다. 기존 데이터를 유지했습니다.",
+            "synced": 0,
+            "errors": [],
+            "brokers": brokers,
+            "status": "TEST_MODE",
+            "data_preserved": True,
+        }
     if username in _syncing_users:
         raise HTTPException(409, "이미 계좌 동기화가 진행 중입니다.")
     _syncing_users.add(username)

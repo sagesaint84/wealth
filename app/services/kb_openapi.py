@@ -10,6 +10,8 @@ from typing import Any
 
 import httpx
 
+from app.services.network_policy import require_external_network
+
 
 class KBOpenAPIError(RuntimeError):
     pass
@@ -93,6 +95,7 @@ class KBOpenAPI:
             raise KBOpenAPIError(f"KB OpenAPI 요청 실패 ({response.status_code}): {detail}")
 
     async def call(self, endpoint: str, data_body: dict[str, Any]) -> dict[str, Any]:
+        require_external_network("KB OpenAPI")
         async with httpx.AsyncClient(timeout=15.0) as client:
             token = await self._access_token(client)
             response = await client.post(

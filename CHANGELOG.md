@@ -1,5 +1,11 @@
 # Wealth 변경 이력
 
+## Wealth v1.0.16 — 테스트 환경 외부 네트워크 정책 강화 — 2026-09-09
+
+- `WEALTH_ENV=test`에서 Yahoo, Naver, KIND 및 증권사 OpenAPI 호출을 HTTP client 생성 전에 중단합니다.
+- 시세 갱신과 계좌 동기화는 테스트 환경에서 기존 금융 데이터를 보존하며 명시적인 `TEST_MODE` 결과를 반환합니다.
+- localhost FastAPI/browser 검증은 허용하고 외부 연결 guard는 누락된 호출 경로를 잡는 canary로 유지합니다.
+
 ## Wealth v1.0.15 — 자산 포트폴리오와 주식 현황 분리 — 2026-09-09
 
 - 전체 자산 포트폴리오와 주식 중심 현황의 화면 책임을 분리했습니다.

@@ -7,6 +7,8 @@ import xml.etree.ElementTree as ET
 
 import httpx
 
+from app.services.network_policy import external_network_allowed
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
@@ -101,6 +103,8 @@ def calculate_period_changes(candles: list[dict[str, Any]], current_price: float
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def fetch_kr_stock_info(client: httpx.AsyncClient, code: str) -> dict[str, Any] | None:
+    if not external_network_allowed():
+        return None
     clean_code = str(code).strip().zfill(6)
     url = f"https://m.stock.naver.com/api/stock/{clean_code}/basic"
     try:
@@ -126,6 +130,8 @@ async def fetch_kr_stock_info(client: httpx.AsyncClient, code: str) -> dict[str,
 
 
 async def fetch_kr_stock_candles(client: httpx.AsyncClient, code: str, current_price: float) -> dict[str, float]:
+    if not external_network_allowed():
+        return {}
     clean_code = str(code).strip().zfill(6)
     url = f"https://fchart.stock.naver.com/sise.nhn?symbol={clean_code}&timeframe=day&count=300&requestType=0"
     try:
@@ -156,6 +162,8 @@ async def fetch_kr_stock_candles(client: httpx.AsyncClient, code: str, current_p
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def fetch_us_stock_info(client: httpx.AsyncClient, symbol: str) -> dict[str, Any] | None:
+    if not external_network_allowed():
+        return None
     clean_sym = str(symbol).strip().upper()
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{clean_sym}?interval=1d&range=1y"
     try:
@@ -208,6 +216,8 @@ async def fetch_us_stock_info(client: httpx.AsyncClient, symbol: str) -> dict[st
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def fetch_fx_rate_usd_krw(client: httpx.AsyncClient | None = None) -> float:
+    if not external_network_allowed():
+        return 0.0
     url = "https://query1.finance.yahoo.com/v8/finance/chart/KRW=X?interval=1d&range=5d"
     should_close = False
     if client is None:
@@ -365,6 +375,9 @@ async def get_web_market_overview() -> dict[str, Any]:
     코스피, 코스닥, S&P 500, 나스닥 종합 4개 지수 및 USD/KRW 환율에 대해
     1D(5분봉), 1W(60분봉), 1M/3M/YTD/1Y(일봉)를 비동기 병렬 조회하여 제공합니다.
     """
+    if not external_network_allowed():
+        return {"markets": [], "exchange_rate": None, "unavailable": True}
+
     indices = [
         {"symbol": "^KS11", "label": "코스피", "market": "KRX", "currency": "KRW"},
         {"symbol": "^KQ11", "label": "코스닥", "market": "KRX", "currency": "KRW"},
@@ -492,6 +505,8 @@ async def fetch_stock_chart_data(code: str, period: str = "3M") -> dict[str, Any
     1D(5분봉), 1W(60분봉), 1M/3M/YTD/1Y(일봉) 데이터를 정확한 기간 크기로 반환합니다.
     """
     clean_code = str(code).strip().upper()
+    if not external_network_allowed():
+        return {"code": clean_code, "period": period, "candles": [], "unavailable": True}
     is_kr = len(clean_code) == 6 and any(ch.isdigit() for ch in clean_code)
 
     candles: list[dict[str, Any]] = []
@@ -672,6 +687,8 @@ async def fetch_stock_chart_data(code: str, period: str = "3M") -> dict[str, Any
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def refresh_all_holdings_prices(holdings: list[dict[str, Any]]) -> dict[str, Any]:
+    if not external_network_allowed():
+        return {"prices": {}, "daily_changes": {}, "period_rates": {}, "fx_rate": None, "unavailable": True}
     if not holdings:
         return {"prices": {}, "daily_changes": {}, "period_rates": {}, "fx_rate": 1385.0}
 
@@ -744,6 +761,8 @@ async def refresh_all_holdings_prices(holdings: list[dict[str, Any]]) -> dict[st
 
 async def fetch_us_dividend(client: httpx.AsyncClient, symbol: str) -> dict[str, Any]:
     """미국 주식/ETF의 1년치 배당 이력, 배당월, 주당 배당금 수집"""
+    if not external_network_allowed():
+        return {}
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1y&events=div"
     try:
         resp = await client.get(url, headers=HEADERS, timeout=6.0)
@@ -788,6 +807,8 @@ async def fetch_us_dividend(client: httpx.AsyncClient, symbol: str) -> dict[str,
 async def fetch_kr_dividend(client: httpx.AsyncClient, code: str, current_price: float) -> dict[str, Any]:
     """국내 주식/ETF의 배당수익률 및 배당월 수집 (일반 주식 + 국내 상장 ETF TTM 배당수익률 지원)"""
     clean_code = str(code).strip().zfill(6)
+    if not external_network_allowed():
+        return {}
     dvd_yield = 0.0
     dvd_amt = 0.0
     is_etf = False
@@ -858,6 +879,16 @@ async def get_web_dividend_summary(holdings: list[dict[str, Any]], fx_rate: floa
     전체 보유 종목에 대해 실시간 배당 정보를 집계하고,
     1월부터 12월까지의 월별 예상 배당금 캘린더 데이터를 계산합니다.
     """
+    if not external_network_allowed():
+        return {
+            "total_annual_dividend_krw": None,
+            "portfolio_yield": None,
+            "monthly_avg_dividend_krw": None,
+            "dividend_paying_count": 0,
+            "monthly_schedule": {m: {"month": m, "total_krw": None, "items": []} for m in range(1, 13)},
+            "holding_dividends": [],
+            "unavailable": True,
+        }
     if not holdings:
         return {
             "total_annual_dividend_krw": 0.0,

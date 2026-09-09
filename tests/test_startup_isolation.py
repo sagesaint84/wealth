@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 import socket
 import tempfile
 import unittest
@@ -64,7 +65,8 @@ class StartupIsolationTests(unittest.TestCase):
         payload = {"chart": {"result": [{"timestamp": [1704067200], "indicators": {"quote": [{"close": [1300.25]}]}}]}}
         with tempfile.TemporaryDirectory(prefix="wealth-fx-test-") as temp:
             cache = Path(temp) / "historical_fx_cache.json"
-            with patch.object(historical_fx, "FX_CACHE_FILE", cache), \
+            with patch.dict(os.environ, {"WEALTH_ENV": "production"}), \
+                 patch.object(historical_fx, "FX_CACHE_FILE", cache), \
                  patch.object(historical_fx.httpx, "AsyncClient", return_value=FakeAsyncClient(FakeResponse(payload))), \
                  patch.object(historical_fx, "_HISTORICAL_FX_MAP", {}):
                 result = asyncio.run(historical_fx.sync_historical_fx())
@@ -77,7 +79,8 @@ class StartupIsolationTests(unittest.TestCase):
             cache = Path(temp) / "historical_fx_cache.json"
             cache.write_text('{"2024-01-01": 1300.0}', encoding="utf-8")
             before = cache.read_bytes()
-            with patch.object(historical_fx, "FX_CACHE_FILE", cache), \
+            with patch.dict(os.environ, {"WEALTH_ENV": "production"}), \
+                 patch.object(historical_fx, "FX_CACHE_FILE", cache), \
                  patch.object(historical_fx.httpx, "AsyncClient", side_effect=OSError("synthetic network failure")), \
                  patch.object(historical_fx, "_HISTORICAL_FX_MAP", {}):
                 result = asyncio.run(historical_fx.sync_historical_fx())

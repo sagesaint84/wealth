@@ -1,5 +1,7 @@
 from typing import Any
 import httpx
+
+from app.services.network_policy import external_network_allowed
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,6 +15,8 @@ KB_HEADERS = {
 
 
 def search_kb_complex(keyword: str) -> list[dict[str, Any]]:
+    if not external_network_allowed():
+        return []
     """단지명 키워드로 KB부동산 단지 목록을 검색합니다."""
     clean_kw = keyword.strip()
     if not clean_kw:
@@ -72,6 +76,8 @@ def search_kb_complex(keyword: str) -> list[dict[str, Any]]:
 
 
 def get_kb_market_prices(complex_no: str | int, target_area: float | None = None) -> dict[str, Any]:
+    if not external_network_allowed():
+        return {}
     """단지기본일련번호(complex_no)의 평형별 KB시세를 조회하고, target_area(전용면적)와 가장 가까운 평형을 매칭합니다."""
     c_no = str(complex_no).strip()
     if not c_no:

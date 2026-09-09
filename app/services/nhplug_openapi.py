@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.services.network_policy import require_external_network
+
 logger = logging.getLogger(__name__)
 
 
@@ -113,6 +115,7 @@ class NhPlugOpenAPI:
             raise NhPlugOpenAPIError(f"나무증권 OpenAPI 요청 실패 ({response.status_code}): {detail}")
 
     async def _call(self, path: str, input_0: dict[str, Any], *, cts: str = "") -> dict[str, Any]:
+        require_external_network("NH/Namuh OpenAPI")
         async with httpx.AsyncClient(timeout=20.0) as client:
             token = await self._access_token(client)
             request_headers = {

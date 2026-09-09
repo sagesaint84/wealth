@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.services.network_policy import require_external_network
+
 logger = logging.getLogger(__name__)
 
 
@@ -344,6 +346,7 @@ class KISOpenAPI:
         return holdings, cash_usd
 
     async def sync_holdings(self) -> list[dict[str, Any]]:
+        require_external_network("KIS OpenAPI")
         """한국투자증권 국내 및 해외 주식 잔고와 예수금을 일괄 조회합니다."""
         if not self.configured:
             raise KISOpenAPIError("한국투자증권 AppKey/AppSecret이 설정되지 않았습니다.")
