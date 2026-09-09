@@ -3,7 +3,9 @@ let assetRecords = [];
 let currentRecordPeriod = 'ALL'; // '1M' | '3M' | '6M' | '1Y' | 'ALL'
 let currentRecordView = 'combo'; // 'combo' | 'tax_accounts'
 let currentTaxAccountFilter = 'all'; // 'all' | 'isa' | 'irp' | 'pension_savings' | acc_<id>
-let currentAllocTab = 'asset_class'; // 'asset_class' | 'sector'
+// Stock page is intentionally stock-focused; the former asset/stock UI toggle
+// is no longer user-facing. Asset overview remains on the home page.
+const STOCK_PORTFOLIO_MODE = 'sector';
 let currentStockChartCode = '';
 let currentStockChartName = '';
 let currentStockChartPrice = 0;
@@ -52,7 +54,7 @@ async function updateOverviewCardsAllTime(owner = currentOwner) {
       const winRate = Number(pnlRes.win_rate || 0);
       const recordCount = Number(pnlRes.record_count || 0);
 
-      const isStockTab = (currentAllocTab === 'sector');
+      const isStockTab = (STOCK_PORTFOLIO_MODE === 'sector');
       if (isStockTab) {
         const summaryPnlEl = $("#summaryRealizedPnl");
         if (summaryPnlEl) {
@@ -77,7 +79,7 @@ async function updateOverviewCardsAllTime(owner = currentOwner) {
       if (actualEl) {
         actualEl.textContent = money(totalActual);
       }
-      const isStockTab = (currentAllocTab === 'sector');
+      const isStockTab = (STOCK_PORTFOLIO_MODE === 'sector');
       if (!isStockTab) {
         const combined = totalPnl + totalActual;
         const summaryPnlEl = $("#summaryRealizedPnl");
@@ -1109,7 +1111,13 @@ function renderSummary(data) {
   const usdStockProfitKrw = usdStockValKrw - usdStockCostKrw;
   const usdStockReturnRate = usdStockCostUsd > 0 ? (usdStockProfitUsd / usdStockCostUsd) * 100 : 0;
 
-  const isStockTab = (currentAllocTab === 'sector');
+  // Existing asset-mode totals are projected to the page-local HOME renderer below.
+  const totalExpectedProfit = (Number(s.profit_krw) || 0) + totalREProfit;
+  const stockPurchaseCost = Math.max(0, totalStockVal - (Number(s.profit_krw) || 0));
+  const totalCombinedCost = stockPurchaseCost + totalREPurchaseVal;
+  const combinedReturnRate = totalCombinedCost > 0 ? ((totalExpectedProfit / totalCombinedCost) * 100) : 0;
+
+  const isStockTab = (STOCK_PORTFOLIO_MODE === 'sector');
 
   // =========================================================================
   // [자산] 탭 vs [주식] 탭 조건부 좌측 요약 렌더링
@@ -1229,11 +1237,6 @@ function renderSummary(data) {
     if ($("#subStockVal")) $("#subStockVal").textContent = `주식 ${money(totalStockVal)}`;
 
     // 3. 기대수익 (주식 평가손익 + 부동산 예상 수익 통합 반영!) & 일간 수익
-    const totalExpectedProfit = (Number(s.profit_krw) || 0) + totalREProfit;
-    const stockPurchaseCost = Math.max(0, totalStockVal - (Number(s.profit_krw) || 0));
-    const totalCombinedCost = stockPurchaseCost + totalREPurchaseVal;
-    const combinedReturnRate = totalCombinedCost > 0 ? ((totalExpectedProfit / totalCombinedCost) * 100) : 0;
-
     if ($("#expectedProfitRow")) $("#expectedProfitRow").style.display = "flex";
     if ($("#profitLabelText")) $("#profitLabelText").textContent = "기대수익";
     if ($("#totalProfit")) {
@@ -1314,8 +1317,16 @@ function renderSummary(data) {
   // Presentation-only projection of the existing totals; no second calculation policy.
   window.dispatchEvent(new CustomEvent('wealth:summary', { detail: {
     owner: o, netWorth, debt: totalAllDebt, cash: totalAllCash,
+    invest: totalInvestAssets, expected: totalExpectedProfit, expectedRate: combinedReturnRate,
+    realized: combinedRealizedKrw, safe: totalSafeAssets,
     stock: totalStockVal, property: totalREInvestEquity,
     deposits: totalTenantDepositVal, insurance: insuranceTotal,
+    realizedTrade: totalRealizedKrw, dividendInterest: totalActualDivKrw,
+    realizedYear: combinedYearRealizedKrw, realizedMonth: combinedMonthRealizedKrw,
+    dayProfit: Number((data.day_change || {}).change_krw || 0),
+    dayRate: Number((data.day_change || {}).change_rate || 0),
+    dayDate: (data.day_change || {}).date || null,
+    classifications: data.classifications || [],
     updatedAt: data.updated_at || null,
     fxRates: data.fx_rates || {},
   }}));
@@ -1431,7 +1442,7 @@ function renderClassifications(items) {
   list.style.display = 'flex';
   list.style.flexDirection = 'column';
 
-  if (currentAllocTab === 'sector') {
+  if (STOCK_PORTFOLIO_MODE === 'sector') {
     const sectors = dashboard?.sector_classifications || rawDashboard?.sector_classifications || [];
     renderAllocationDonut(sectors, '섹터별 투자자산 데이터가 없습니다.');
     list.innerHTML = sectors.length ? sectors.map((item) => `
@@ -6576,20 +6587,6 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
-  // 투자자산 분류 탭 (자산군별 vs 섹터별 / 자산 vs 주식)
-  const allocTab = e.target.closest('#allocTabs .heatmap-tab');
-  if (allocTab) {
-    document.querySelectorAll('#allocTabs .heatmap-tab').forEach(t => t.classList.remove('active'));
-    allocTab.classList.add('active');
-    currentAllocTab = allocTab.dataset.tab || 'asset_class';
-    const curData = dashboard || rawDashboard;
-    if (curData) {
-      renderSummary(curData);
-      renderClassifications(curData.classifications || []);
-    }
-    return;
-  }
-
   // 히트맵 뷰 전환 탭 (면적형 vs 카드형)
   const hmViewTab = e.target.closest('#heatmapViewTabs .heatmap-tab');
   if (hmViewTab) {
@@ -6941,20 +6938,6 @@ $("#snapshotButton")?.addEventListener("click", (e) => action(e.currentTarget, a
 }, async () => {
   await loadAssetRecords(currentOwner);
 }));
-
-// 3. 투자자산 분류 [자산군별] / [섹터별] (자산 / 주식) 탭 전환
-document.getElementById('allocTabs')?.addEventListener('click', (e) => {
-  const tab = e.target.closest('.heatmap-tab');
-  if (!tab) return;
-  document.querySelectorAll('#allocTabs .heatmap-tab').forEach(t => t.classList.remove('active'));
-  tab.classList.add('active');
-  currentAllocTab = tab.dataset.tab || 'asset_class';
-  const curData = dashboard || rawDashboard;
-  if (curData) {
-    renderSummary(curData);
-    renderClassifications(curData.classifications || []);
-  }
-});
 
 // 4. 자산기록 [콤보 차트] / [월별 자산] 뷰 모드 탭
 document.getElementById('recordViewTabs')?.addEventListener('click', (e) => {

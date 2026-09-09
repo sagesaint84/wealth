@@ -5,7 +5,7 @@
   if (!root) return;
   const views = {
     home: ['홈', '가족의 자산을 한눈에', '지금의 자산 현황을 확인하고, 필요한 관리로 이어가세요.'],
-    invest: ['투자', '투자 현황', '포트폴리오, 보유종목과 자산 기록을 한곳에서 확인하세요.'],
+    invest: ['투자', '주식 현황', '주식 포트폴리오, 보유종목과 투자 기록을 한곳에서 확인하세요.'],
     assets: ['자산·계좌', '자산과 계좌 관리', '증권·은행·보험·부동산과 대출을 관리하세요.'],
     income: ['손익·배당', '투자의 결실', '실현손익과 배당 내역을 확인하세요.'],
     ledger: ['가계부', '생활의 현금 흐름', '수입·지출, 카드와 고정지출을 관리하세요.'],
@@ -35,12 +35,12 @@
       <div class="wealth-owner-bar"><span>조회 범위</span><div id="wealthOwnerSlot"></div></div>
       <section data-wealth-page="home" aria-label="자산 요약">
         <div class="wealth-home-grid">
-          <article class="wealth-net-card"><div class="wealth-card-top"><span>나의 순자산</span><span class="wealth-live-label" id="wealthOwnerLabel">전체 가족</span></div><strong id="wealthNetWorth">—</strong><p>등록 자산에서 부채를 뺀 금액</p><div class="wealth-net-bottom"><span id="wealthHomeUpdated">자산 정보를 불러오는 중입니다.</span><a href="#invest">상세 현황 <span aria-hidden="true">↗</span></a></div></article>
+          <article class="wealth-net-card"><div class="wealth-card-top"><span>나의 순자산</span><span class="wealth-live-label" id="wealthOwnerLabel">전체 가족</span></div><strong id="wealthNetWorth">—</strong><p>등록 자산에서 부채를 뺀 금액</p><div class="wealth-net-bottom"><span id="wealthHomeUpdated">자산 정보를 불러오는 중입니다.</span><a id="wealthNetWorthDetails" href="#homeAssetPortfolioPanel">상세 현황 <span aria-hidden="true">↗</span></a></div></article>
           <article class="wealth-stat-card"><span class="wealth-stat-icon">${icon('assets')}</span><h3>현금·예적금</h3><strong id="wealthCash">—</strong><p>은행 잔액 · 증권 예수금 · 예적금</p><a href="#assets">계좌 살펴보기 →</a></article>
           <article class="wealth-stat-card"><span class="wealth-stat-icon wealth-debt-icon">${icon('ledger')}</span><h3>총부채</h3><strong id="wealthDebt">—</strong><p>대출 · 음수 잔액 · 임대보증금 반환의무</p><a href="#assets">부채 확인하기 →</a></article>
         </div>
-        <div class="wealth-home-secondary"><article class="wealth-composition"><div class="wealth-section-heading"><div><p class="wealth-eyebrow">ASSET MIX</p><h3>어디에 담겨 있나요?</h3></div><a href="#invest">자세히 ↗</a></div><p class="wealth-help">부채 차감 전 등록 자산 기준</p><div id="wealthMix" class="wealth-mix" aria-hidden="true"></div><div id="wealthMixLegend" class="wealth-mix-legend"><p class="wealth-help">자산 정보가 준비되면 구성을 표시합니다.</p></div></article>
-        <article class="wealth-shortcuts"><p class="wealth-eyebrow">QUICK ACCESS</p><h3>오늘의 자산 관리</h3><a href="#ledger">${icon('ledger')}<span><strong>수입과 지출 정리</strong><small>가계부 · 카드 · 고정지출</small></span><b aria-hidden="true">↗</b></a><a href="#income">${icon('income')}<span><strong>손익과 배당 확인</strong><small>실현손익 · 배당 내역</small></span><b aria-hidden="true">↗</b></a><a href="#assets">${icon('assets')}<span><strong>자산 정보 관리</strong><small>계좌 · 대출 · 보험 · 부동산</small></span><b aria-hidden="true">↗</b></a></article></div>
+        <article class="wealth-composition wealth-home-asset-portfolio" id="homeAssetPortfolioPanel" tabindex="-1"><div class="wealth-section-heading"><div><p class="wealth-eyebrow">ASSET PORTFOLIO</p><h3>자산 포트폴리오</h3></div><a href="#assets">자산 상세보기 ↗</a></div><p class="wealth-help">전체 자산의 핵심 지표와 자산군별 구성을 한눈에 확인하세요.</p><div class="wealth-asset-dashboard"><div id="wealthAssetKpis" class="wealth-asset-kpis" aria-label="자산 포트폴리오 요약"><article class="wealth-asset-kpi tone-net"><span class="wealth-asset-kpi-icon">◆</span><div><span>순자산</span><strong id="wealthAssetNetWorth">—</strong><small id="wealthAssetDebtDetail">총부채 —</small></div></article><article class="wealth-asset-kpi tone-invest"><span class="wealth-asset-kpi-icon">◈</span><div><span>투자자산</span><strong id="wealthAssetInvest">—</strong><small id="wealthAssetInvestDetail">부동산 — · 주식 —</small></div></article><article class="wealth-asset-kpi tone-profit"><span class="wealth-asset-kpi-icon">↗</span><div><span>기대수익</span><strong id="wealthAssetExpected">—</strong><small id="wealthAssetExpectedRate">수익률 —</small><small id="wealthAssetDayDetail">일간 수익 — · 전일 대비</small></div></article><article class="wealth-asset-kpi tone-realized"><span class="wealth-asset-kpi-icon">▤</span><div><span>실현손익</span><strong id="wealthAssetRealized">—</strong><small id="wealthAssetRealizedDetail">매매차익 — · 배당/이자 —</small><small id="wealthAssetRealizedPeriod">연간 — · 월간 —</small></div></article><article class="wealth-asset-kpi tone-safe"><span class="wealth-asset-kpi-icon">◇</span><div><span>안전자산</span><strong id="wealthAssetSafe">—</strong><small id="wealthAssetSafeDetail">예수금 및 예금 —</small><small id="wealthAssetSafeBreakdown">임차보증금 — · 보험 —</small></div></article></div><div class="wealth-asset-allocation"><div class="wealth-asset-allocation-head"><div><span class="wealth-eyebrow">ASSET ALLOCATION</span><h4>전체 자산 구성</h4></div><div id="homeAssetAllocationDonut" class="wealth-asset-donut" role="img" aria-label="전체 자산 구성"><span>전체 자산</span><strong id="homeAssetAllocationTotal">—</strong></div><div id="homeAssetAllocationLegend" class="wealth-asset-donut-legend"></div></div><div id="wealthMixLegend" class="wealth-mix-legend wealth-asset-breakdown"><p class="wealth-help">자산 정보가 준비되면 구성을 표시합니다.</p></div></div></div></article>
+        <div class="wealth-home-secondary"><article class="wealth-shortcuts"><p class="wealth-eyebrow">QUICK ACCESS</p><h3>오늘의 자산 관리</h3><a href="#ledger">${icon('ledger')}<span><strong>수입과 지출 정리</strong><small>가계부 · 카드 · 고정지출</small></span><b aria-hidden="true">↗</b></a><a href="#income">${icon('income')}<span><strong>손익과 배당 확인</strong><small>실현손익 · 배당 내역</small></span><b aria-hidden="true">↗</b></a><a href="#assets">${icon('assets')}<span><strong>자산 정보 관리</strong><small>계좌 · 대출 · 보험 · 부동산</small></span><b aria-hidden="true">↗</b></a></article></div>
         <div id="wealthMarketSlot"></div>
       </section>
       ${Object.keys(views).filter(key => key !== 'home').map(key => `<section data-wealth-page="${key}" aria-label="${views[key][0]}" hidden></section>`).join('')}
@@ -166,27 +166,67 @@
     event.preventDefault();
     document.getElementById('wealthPageTitle').focus();
   });
+  document.getElementById('wealthNetWorthDetails').addEventListener('click', event => {
+    event.preventDefault();
+    const target = document.getElementById('homeAssetPortfolioPanel');
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target.focus({ preventScroll: true });
+  });
   navigate();
   const won = value => `${Math.round(value).toLocaleString('ko-KR')}원`;
+  const signedWon = value => `${Number(value) >= 0 ? '+' : ''}${won(Number(value) || 0)}`;
+  const pct = value => `${Number(value) >= 0 ? '+' : ''}${Number(value || 0).toFixed(2)}%`;
   window.addEventListener('wealth:summary', ({ detail: s }) => {
     document.getElementById('wealthNetWorth').textContent = won(s.netWorth);
+    document.getElementById('wealthAssetNetWorth').textContent = won(s.netWorth);
+    document.getElementById('wealthAssetInvest').textContent = won(s.invest);
+    document.getElementById('wealthAssetExpected').textContent = won(s.expected);
+    document.getElementById('wealthAssetRealized').textContent = won(s.realized);
+    document.getElementById('wealthAssetSafe').textContent = won(s.safe);
+    document.getElementById('wealthAssetDebtDetail').textContent = `총부채 ${won(s.debt)}`;
+    document.getElementById('wealthAssetInvestDetail').textContent = `부동산 ${won(s.property)} · 주식 ${won(s.stock)}`;
+    document.getElementById('wealthAssetExpectedRate').textContent = `수익률 ${pct(s.expectedRate)}`;
+    document.getElementById('wealthAssetDayDetail').textContent = `일간 수익 ${signedWon(s.dayProfit)} · ${s.dayDate ? `${s.dayDate} 대비` : '전일 대비'}`;
+    document.getElementById('wealthAssetRealizedDetail').textContent = `매매차익 ${signedWon(s.realizedTrade)} · 배당/이자 ${signedWon(s.dividendInterest)}`;
+    document.getElementById('wealthAssetRealizedPeriod').textContent = `연간 ${signedWon(s.realizedYear)} · 월간 ${signedWon(s.realizedMonth)}`;
+    document.getElementById('wealthAssetSafeDetail').textContent = `예수금 및 예금 ${won(s.cash)}`;
+    document.getElementById('wealthAssetSafeBreakdown').textContent = `임차보증금 ${won(s.deposits)} · 보험 ${won(s.insurance)}`;
     document.getElementById('wealthCash').textContent = won(s.cash);
     document.getElementById('wealthDebt').textContent = won(s.debt);
     document.getElementById('wealthOwnerLabel').textContent = s.owner === '모두' ? '전체 가족' : s.owner;
     document.getElementById('wealthHomeUpdated').textContent = s.updatedAt ? `자산 반영 ${new Date(s.updatedAt).toLocaleString('ko-KR')}` : '등록된 자산 기준 · 반영 시각 없음';
-    const items = [['주식', s.stock, '#9b8afb'], ['현금·예적금', s.cash, '#61c9b2'], ['부동산', s.property, '#6ea6ec'], ['임차보증금', s.deposits, '#e7bc71'], ['보험', s.insurance, '#c891bd']];
-    const total = items.reduce((sum, item) => sum + Math.max(0, item[1]), 0);
-    const mix = document.getElementById('wealthMix');
+    const palette = ['#9b8afb','#61c9b2','#6ea6ec','#e7bc71','#c891bd','#5aa9cf','#ef7b8e','#8bbf74','#a9a1d6'];
+    const items = (s.classifications || []).filter(item => Number(item.market_value_krw || 0) > 0).map((item, index) => ({ ...item, color: palette[index % palette.length] }));
+    const total = items.reduce((sum, item) => sum + Math.max(0, Number(item.market_value_krw || 0)), 0);
+    const donut = document.getElementById('homeAssetAllocationDonut');
+    const donutLegend = document.getElementById('homeAssetAllocationLegend');
     const legend = document.getElementById('wealthMixLegend');
-    mix.replaceChildren(); legend.replaceChildren();
-    items.forEach(([label, value, color]) => {
-      const pct = total > 0 ? Math.max(0, value) / total * 100 : 0;
-      const bar = document.createElement('span'); bar.style.width = `${pct}%`; bar.style.background = color; mix.append(bar);
+    donutLegend.replaceChildren(); legend.replaceChildren();
+    let cursor = 0;
+    const stops = items.map(item => { const share = total > 0 ? Math.max(0, Number(item.market_value_krw || 0)) / total * 100 : 0; const start = cursor; cursor += share; return `${item.color} ${start}% ${cursor}%`; });
+    donut.style.background = stops.length ? `conic-gradient(${stops.join(',')})` : 'var(--line)';
+    document.getElementById('homeAssetAllocationTotal').textContent = won(total);
+    items.slice(0, 6).forEach(item => {
+      const row = document.createElement('span'); row.style.setProperty('--mix-color', item.color); row.textContent = `${item.name} ${Number(item.weight || 0).toFixed(1)}%`; donutLegend.append(row);
+    });
+    items.forEach(item => {
+      const label = item.name; const value = Number(item.market_value_krw || 0); const color = item.color;
       const row = document.createElement('div');
       const name = document.createElement('span'); name.textContent = label; name.style.setProperty('--mix-color', color);
       const amount = document.createElement('strong'); amount.textContent = won(value);
-      const percent = document.createElement('small'); percent.textContent = `${pct.toFixed(1)}%`;
-      row.append(name, amount, percent); legend.append(row);
+      let secondary = `${Number(item.holding_count || 0)}종목 · ${Number(item.weight || 0).toFixed(1)}%`;
+      if (label === '부동산') secondary = `부동산 순에퀴티 · ${Number(item.weight || 0).toFixed(1)}%`;
+      else if (label === '현금·예수금') secondary = `은행 예수금 포함 · ${Number(item.weight || 0).toFixed(1)}%`;
+      else if (label === '보험') secondary = `예상 수령액/해약환급금 · ${Number(item.weight || 0).toFixed(1)}%`;
+      const detail = document.createElement('small'); detail.textContent = secondary;
+      const metric = document.createElement('b');
+      const showReturn = !['현금·예수금','부동산','보험'].includes(label);
+      metric.textContent = showReturn ? pct(item.return_rate) : `${Number(item.weight || 0).toFixed(1)}%`;
+      metric.className = showReturn ? (Number(item.profit_krw || 0) >= 0 ? 'up' : 'down') : '';
+      const title = document.createElement('div'); title.append(name, detail);
+      const values = document.createElement('div'); values.append(amount, metric);
+      row.append(title, values); legend.append(row);
     });
   });
 })();
