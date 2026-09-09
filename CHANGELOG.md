@@ -1,5 +1,10 @@
 # Wealth 변경 이력
 
+## Wealth v1.0.19 — HOME dashboard visual refinement — 2026-09-09
+
+- HOME 요약 카드와 자산 포트폴리오, 순자산 추이의 간격·정렬·타이포그래피를 정돈했습니다.
+- HOME 전용 스타일 범위에서 카드 밀도와 모바일 수직 리듬을 개선했습니다.
+
 ## Wealth v1.0.18 — FastAPI lifespan startup migration — 2026-09-09
 
 - 프로젝트 소유 startup hook을 FastAPI lifespan으로 전환했습니다.

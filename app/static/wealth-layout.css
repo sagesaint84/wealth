@@ -173,6 +173,38 @@
 }
 @media (prefers-reduced-motion: reduce) { .wealth-layout * { scroll-behavior: auto !important; } }
 
+/* v1.0.19: unify the home dashboard rhythm without affecting other pages. */
+[data-wealth-page="home"] { --home-section-gap: 18px; }
+[data-wealth-page="home"] .wealth-page-head { margin-bottom: 20px; }
+[data-wealth-page="home"] .wealth-home-grid { gap: var(--home-section-gap); }
+[data-wealth-page="home"] .wealth-net-card,
+[data-wealth-page="home"] .wealth-stat-card { padding: 22px; border-radius: 16px; }
+[data-wealth-page="home"] .wealth-net-card { min-height: 224px; }
+[data-wealth-page="home"] .wealth-stat-card { display: flex; flex-direction: column; min-height: 224px; }
+[data-wealth-page="home"] .wealth-stat-card > p { margin-bottom: 16px; }
+[data-wealth-page="home"] .wealth-home-asset-portfolio { margin: var(--home-section-gap) 0; }
+[data-wealth-page="home"] .wealth-home-secondary { margin-top: var(--home-section-gap); }
+[data-wealth-page="home"] .wealth-section-heading h3 { font-size: 17px; }
+[data-wealth-page="home"] .wealth-home-asset-portfolio > .wealth-help { margin: 7px 0 0; }
+[data-wealth-page="home"] .wealth-asset-dashboard { margin-top: 16px; gap: 18px; }
+[data-wealth-page="home"] .wealth-asset-kpi { padding: 12px 13px; }
+[data-wealth-page="home"] .wealth-asset-kpi strong,
+[data-wealth-page="home"] #wealthNetWorth,
+[data-wealth-page="home"] .wealth-asset-donut strong { font-variant-numeric: tabular-nums; }
+[data-wealth-page="home"] .wealth-asset-allocation { padding: 15px; }
+[data-wealth-page="home"] #netWorthHistoryPanel { margin-top: var(--home-section-gap) !important; }
+[data-wealth-page="home"] #netWorthHistoryPanel .wealth-section-heading { align-items: flex-start; gap: 14px; }
+[data-wealth-page="home"] #netWorthHistoryPanel .wealth-section-heading + .wealth-help { margin-top: 7px; }
+
+@media (max-width: 760px) {
+  [data-wealth-page="home"] { --home-section-gap: 14px; }
+  [data-wealth-page="home"] .wealth-page-head { margin-bottom: 16px; }
+  [data-wealth-page="home"] .wealth-net-card,
+  [data-wealth-page="home"] .wealth-stat-card { min-height: 0; padding: 18px; }
+  [data-wealth-page="home"] .wealth-section-heading { align-items: flex-start; }
+  [data-wealth-page="home"] #netWorthHistoryPanel .wealth-section-heading { flex-direction: column; gap: 9px; }
+}
+
 #wealthHistoryEditForm label { min-width: 0; }
 #wealthHistoryEditForm input, #wealthHistoryRecord { max-width: 100%; box-sizing: border-box; }
 #wealthHistoryEditStatus { overflow-wrap: anywhere; }
