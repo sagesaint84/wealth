@@ -29,14 +29,18 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
         for metric in ("wealthAssetNetWorth", "wealthAssetInvest", "wealthAssetExpected", "wealthAssetRealized", "wealthAssetSafe"):
             self.assertIn(metric, self.layout)
         for detail in (
-            "wealthAssetDebtDetail", "wealthAssetInvestDetail", "wealthAssetExpectedRate",
-            "wealthAssetDayDetail", "wealthAssetRealizedDetail", "wealthAssetRealizedPeriod",
-            "wealthAssetSafeDetail", "wealthAssetSafeBreakdown",
+            "wealthAssetDebtDetail", "wealthAssetPropertyDetail", "wealthAssetStockDetail",
+            "wealthAssetExpectedRate", "wealthAssetDayDetail", "wealthAssetDayDate",
+            "wealthAssetTradeDetail", "wealthAssetDividendDetail", "wealthAssetYearDetail",
+            "wealthAssetMonthDetail", "wealthAssetSafeDetail", "wealthAssetDepositDetail",
+            "wealthAssetInsuranceDetail",
         ):
             self.assertIn(detail, self.layout)
         self.assertIn('id="homeAssetAllocationDonut"', self.layout)
         self.assertIn('id="homeAssetAllocationLegend"', self.layout)
         self.assertIn("wealth-asset-dashboard", self.css)
+        self.assertIn("wealth-asset-secondary-row", self.layout)
+        self.assertIn("grid-template-columns:154px", self.css)
 
     def test_summary_detail_links_home_asset_and_assets_page(self):
         self.assertIn('id="wealthNetWorthDetails"', self.layout)

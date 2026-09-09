@@ -1,5 +1,11 @@
 # Wealth 변경 이력
 
+## Wealth v1.0.17 — 홈 자산 포트폴리오 visual refinement — 2026-09-09
+
+- 자산 KPI 보조 정보를 명시적인 세로 행으로 정리했습니다.
+- 전체 자산 구성 donut과 주요 비중 legend를 desktop에서 좌우로 배치했습니다.
+- 자산군 상세 목록의 금액·비중·보조 설명 가독성을 개선하고 mobile에서는 안전하게 stack합니다.
+
 ## Wealth v1.0.16 — 테스트 환경 외부 네트워크 정책 강화 — 2026-09-09
 
 - `WEALTH_ENV=test`에서 Yahoo, Naver, KIND 및 증권사 OpenAPI 호출을 HTTP client 생성 전에 중단합니다.

@@ -46,6 +46,27 @@
       ${Object.keys(views).filter(key => key !== 'home').map(key => `<section data-wealth-page="${key}" aria-label="${views[key][0]}" hidden></section>`).join('')}
     </div>`;
   root.prepend(layout);
+  // Turn compact legacy secondary strings into explicit label/value rows.
+  const splitMetricRows = (card, rows) => {
+    if (!card) return;
+    const content = card.querySelector(':scope > div:last-child');
+    if (!content) return;
+    const primary = content.querySelector('strong');
+    [...content.querySelectorAll('small')].forEach(node => node.remove());
+    rows.forEach(([label, id, initial]) => {
+      const row = document.createElement('span');
+      row.className = 'wealth-asset-secondary-row';
+      const key = document.createElement('em'); key.textContent = label;
+      const value = document.createElement('small'); value.id = id; value.textContent = initial;
+      row.append(key, value);
+      primary?.after(row);
+    });
+  };
+  splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-net'), [['총부채', 'wealthAssetDebtDetail', '—']]);
+  splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-invest'), [['부동산', 'wealthAssetPropertyDetail', '—'], ['주식', 'wealthAssetStockDetail', '—']]);
+  splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-profit'), [['수익률', 'wealthAssetExpectedRate', '—'], ['일간 수익', 'wealthAssetDayDetail', '—'], ['기준일', 'wealthAssetDayDate', '전일 대비']]);
+  splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-realized'), [['매매차익', 'wealthAssetTradeDetail', '—'], ['배당/이자', 'wealthAssetDividendDetail', '—'], ['연간', 'wealthAssetYearDetail', '—'], ['월간', 'wealthAssetMonthDetail', '—']]);
+  splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-safe'), [['예수금 및 예금', 'wealthAssetSafeDetail', '—'], ['임차보증금', 'wealthAssetDepositDetail', '—'], ['보험', 'wealthAssetInsuranceDetail', '—']]);
   document.body.classList.add('wealth-layout');
   const page = key => layout.querySelector(`[data-wealth-page="${key}"]`);
   const move = (id, target) => { const node = document.getElementById(id); if (node) target.append(node); };
@@ -184,14 +205,19 @@
     document.getElementById('wealthAssetExpected').textContent = won(s.expected);
     document.getElementById('wealthAssetRealized').textContent = won(s.realized);
     document.getElementById('wealthAssetSafe').textContent = won(s.safe);
-    document.getElementById('wealthAssetDebtDetail').textContent = `총부채 ${won(s.debt)}`;
-    document.getElementById('wealthAssetInvestDetail').textContent = `부동산 ${won(s.property)} · 주식 ${won(s.stock)}`;
-    document.getElementById('wealthAssetExpectedRate').textContent = `수익률 ${pct(s.expectedRate)}`;
-    document.getElementById('wealthAssetDayDetail').textContent = `일간 수익 ${signedWon(s.dayProfit)} · ${s.dayDate ? `${s.dayDate} 대비` : '전일 대비'}`;
-    document.getElementById('wealthAssetRealizedDetail').textContent = `매매차익 ${signedWon(s.realizedTrade)} · 배당/이자 ${signedWon(s.dividendInterest)}`;
-    document.getElementById('wealthAssetRealizedPeriod').textContent = `연간 ${signedWon(s.realizedYear)} · 월간 ${signedWon(s.realizedMonth)}`;
-    document.getElementById('wealthAssetSafeDetail').textContent = `예수금 및 예금 ${won(s.cash)}`;
-    document.getElementById('wealthAssetSafeBreakdown').textContent = `임차보증금 ${won(s.deposits)} · 보험 ${won(s.insurance)}`;
+    document.getElementById('wealthAssetDebtDetail').textContent = won(s.debt);
+    document.getElementById('wealthAssetPropertyDetail').textContent = won(s.property);
+    document.getElementById('wealthAssetStockDetail').textContent = won(s.stock);
+    document.getElementById('wealthAssetExpectedRate').textContent = pct(s.expectedRate);
+    document.getElementById('wealthAssetDayDetail').textContent = signedWon(s.dayProfit);
+    document.getElementById('wealthAssetDayDate').textContent = s.dayDate ? `${s.dayDate} 대비` : '전일 대비';
+    document.getElementById('wealthAssetTradeDetail').textContent = signedWon(s.realizedTrade);
+    document.getElementById('wealthAssetDividendDetail').textContent = signedWon(s.dividendInterest);
+    document.getElementById('wealthAssetYearDetail').textContent = signedWon(s.realizedYear);
+    document.getElementById('wealthAssetMonthDetail').textContent = signedWon(s.realizedMonth);
+    document.getElementById('wealthAssetSafeDetail').textContent = won(s.cash);
+    document.getElementById('wealthAssetDepositDetail').textContent = won(s.deposits);
+    document.getElementById('wealthAssetInsuranceDetail').textContent = won(s.insurance);
     document.getElementById('wealthCash').textContent = won(s.cash);
     document.getElementById('wealthDebt').textContent = won(s.debt);
     document.getElementById('wealthOwnerLabel').textContent = s.owner === '모두' ? '전체 가족' : s.owner;
@@ -208,7 +234,10 @@
     donut.style.background = stops.length ? `conic-gradient(${stops.join(',')})` : 'var(--line)';
     document.getElementById('homeAssetAllocationTotal').textContent = won(total);
     items.slice(0, 6).forEach(item => {
-      const row = document.createElement('span'); row.style.setProperty('--mix-color', item.color); row.textContent = `${item.name} ${Number(item.weight || 0).toFixed(1)}%`; donutLegend.append(row);
+      const row = document.createElement('span'); row.style.setProperty('--mix-color', item.color);
+      const name = document.createElement('span'); name.textContent = item.name;
+      const weight = document.createElement('strong'); weight.textContent = `${Number(item.weight || 0).toFixed(1)}%`;
+      row.append(name, weight); donutLegend.append(row);
     });
     items.forEach(item => {
       const label = item.name; const value = Number(item.market_value_krw || 0); const color = item.color;
