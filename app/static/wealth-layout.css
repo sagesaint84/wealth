@@ -33,7 +33,7 @@
 .wealth-layout #accountsPanel .panel-head .eyebrow { display: none; }
 .wealth-layout #accountsPanel .panel-head h2 { font-size: 0; }
 .wealth-layout #accountsPanel .section-collapse-btn { font-size: 13px; }
-.wealth-layout #accountsPanel .account-category-tabs { margin-left: 0 !important; gap: 8px !important; }
+.wealth-layout .account-category-tabs { margin: 0 0 18px !important; gap: 4px !important; }
 .wealth-layout #accountsPanel .toolbar { width: auto; margin-left: auto !important; }
 .wealth-row-more { display: inline-flex; position: relative; font-size: 12px; }
 .wealth-row-more summary { list-style: none; cursor: pointer; padding: 5px 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); font-size: 18px; line-height: 1; }
@@ -42,9 +42,11 @@
 .wealth-row-more .mini-delete-button { width: auto; min-width: 44px; padding: 6px 9px; min-height: 34px; white-space: nowrap; }
 @media (max-width: 760px) {
   .wealth-layout #accountsPanel { padding: 16px; }
-  .wealth-layout #accountsPanel .account-category-tabs { width: 100%; display: grid !important; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 4px !important; }
-  .wealth-layout #accountsPanel .account-cat-tab { padding: 10px 3px; font-size: 11px; white-space: nowrap; }
+  .wealth-layout .account-category-tabs { width: 100%; display: flex !important; overflow-x: auto; gap: 4px !important; }
+  .wealth-layout .account-category-tabs .account-cat-tab { padding: 10px 12px; font-size: 11px; white-space: nowrap; }
   .wealth-layout #accountsPanel .toolbar { margin-left: 0 !important; }
+  .wealth-layout .income-tabs { width: 100%; }
+  .wealth-layout .income-tabs > button { flex: 1 1 0; }
   .wealth-layout #accountsPanel .savings-summary-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)) !important; gap: 8px; }
   .wealth-layout #accountsPanel .saving-stat-card { min-width: 0; padding: 12px; }
   .wealth-layout #accountsPanel .saving-stat-card strong { font-size: 16px; overflow-wrap: anywhere; }
@@ -209,6 +211,13 @@
 .wealth-layout .wealth-invest-tabs button { flex: 1 1 0; min-width: max-content; padding: 9px 13px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap; cursor: pointer; }
 .wealth-layout .wealth-invest-tabs button:hover { color: var(--text); background: var(--surface-1); }
 .wealth-layout .wealth-invest-tabs button[aria-pressed="true"] { color: var(--text); background: var(--surface-1); border-color: color-mix(in srgb,var(--workspace-accent) 45%,var(--line)); box-shadow: 0 1px 4px #0002; }
+.wealth-layout .wealth-section-tabs { display: inline-flex; flex-wrap: nowrap; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.wealth-layout .wealth-section-tabs > button { flex: 0 0 auto; min-height: 36px; padding: 8px 13px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 650; white-space: nowrap; cursor: pointer; }
+.wealth-layout .wealth-section-tabs > button:hover { color: var(--text); background: var(--surface-1); }
+.wealth-layout .wealth-section-tabs > button.active, .wealth-layout .wealth-section-tabs > button[aria-selected="true"] { color: var(--text); background: var(--surface-1); border-color: color-mix(in srgb,var(--workspace-accent) 45%,var(--line)); box-shadow: 0 1px 4px #0002; }
+.wealth-layout .income-tabs { margin: 22px 0 12px; }
+.wealth-layout .wealth-income-hidden { display: none !important; }
+.wealth-layout .account-category-tabs { margin-left: 0 !important; }
 .wealth-layout #recordViewTabs { display: none !important; }
 .wealth-history-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
 .wealth-history-actions .button, .wealth-history-dialog .button { min-height: 44px; }

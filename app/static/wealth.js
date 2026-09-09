@@ -2450,6 +2450,25 @@ function openIntegratedBankDialog() {
 let rawInsuranceAccounts = [];
 let currentAccountCategory = 'securities'; // 'securities' | 'banking' | 'insurance'
 
+// 손익·배당은 기존 두 panel과 renderer를 공유하며 화면만 전환합니다.
+let currentIncomeTab = 'pnl';
+function setIncomeTab(tab) {
+  currentIncomeTab = tab === 'dividend' ? 'dividend' : 'pnl';
+  document.getElementById('realizedPnlPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'pnl');
+  document.getElementById('dividendPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'dividend');
+  document.querySelectorAll('#incomeTabs .income-tab').forEach(button => {
+    const active = button.dataset.income === currentIncomeTab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+}
+
+document.getElementById('incomeTabs')?.addEventListener('click', event => {
+  const tab = event.target.closest('.income-tab');
+  if (tab) setIncomeTab(tab.dataset.income);
+});
+setIncomeTab('pnl');
+
 const INSURANCE_TYPE_LABELS = {
   protection: "보장성보험",
   savings: "저축성보험",

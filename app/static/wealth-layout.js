@@ -61,7 +61,31 @@
   document.getElementById('syncAccountsButton').title = '설정된 증권사에서 잔고와 보유종목을 가져옵니다.';
   move('marketPanel', document.getElementById('wealthMarketSlot'));
   ['summaryPanel', 'assetHeatmapPanel', 'holdingsPanel', 'recordsPanel'].forEach(id => move(id, page('invest')));
+  // Create page-local navigation exactly where it is used. Keeping these nodes
+  // out of the legacy content root prevents orphan tabs if layout relocation fails.
+  const assetCategoryTabs = document.createElement('div');
+  assetCategoryTabs.id = 'assetCategoryTabs';
+  assetCategoryTabs.className = 'account-category-tabs wealth-section-tabs';
+  assetCategoryTabs.setAttribute('role', 'tablist');
+  assetCategoryTabs.setAttribute('aria-label', '자산 종류 선택');
+  assetCategoryTabs.innerHTML = `
+    <button type="button" class="account-cat-tab active" data-cat="securities">📈 증권 (<span id="securitiesTabCount">0</span>)</button>
+    <button type="button" class="account-cat-tab" data-cat="banking">🏦 은행 (<span id="bankingTabCount">0</span>)</button>
+    <button type="button" class="account-cat-tab" data-cat="insurance">🛡️ 보험 (<span id="insuranceTabCount">0</span>)</button>
+    <button type="button" class="account-cat-tab" data-cat="real_estate">🏠 부동산 (<span id="realEstateTabCount">0</span>)</button>`;
+  page('assets').append(assetCategoryTabs);
   move('accountsPanel', page('assets'));
+
+  const incomeTabs = document.createElement('div');
+  incomeTabs.id = 'incomeTabs';
+  incomeTabs.className = 'wealth-section-tabs income-tabs';
+  incomeTabs.setAttribute('role', 'tablist');
+  incomeTabs.setAttribute('aria-label', '손익과 배당 선택');
+  incomeTabs.innerHTML = `
+    <button type="button" class="income-tab active" data-income="pnl" role="tab" aria-selected="true">실현손익</button>
+    <button type="button" class="income-tab" data-income="dividend" role="tab" aria-selected="false">배당·이자</button>`;
+  page('income').append(incomeTabs);
+  ['realizedPnlPanel', 'dividendPanel'].forEach(id => move(id, page('income')));
   // Preserve delegated edit/delete handlers while placing destructive actions
   // behind an explicit disclosure. Renderers may replace the lists at any time.
   const accountsPanel = document.getElementById('accountsPanel');
@@ -85,7 +109,6 @@
   }
   new MutationObserver(enhanceAccountLists).observe(accountsPanel, { childList: true, subtree: true });
   enhanceAccountLists();
-  ['realizedPnlPanel', 'dividendPanel'].forEach(id => move(id, page('income')));
   move('ledgerSectionPanel', page('ledger'));
   const settingsCard = document.createElement('article');
   settingsCard.className = 'wealth-settings-card';

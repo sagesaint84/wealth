@@ -1,5 +1,5 @@
 // Wealth Service Worker - MDN Progressive Web App Standard
-const CACHE_NAME = "wealth-cache-v1.0.13";
+const CACHE_NAME = "wealth-cache-v1.0.14";
 const PRECACHE_RESOURCES = [
   "/",
   "/dashboard",
