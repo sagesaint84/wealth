@@ -8615,11 +8615,13 @@ function renderDividends(data) {
   $("#dividendChartTitle") && ($("#dividendChartTitle").textContent = "📊 1월 ~ 12월 월별 예상 배당금 추이");
 
   // 1. 상단 4대 요약 카드
-  const totalAnnual = Number(data.total_annual_dividend_krw || 0);
+  const schedule = data.monthly_schedule || [];
+  const scheduleTotal = schedule.reduce((sum, item) => sum + Number(item.total_krw || 0), 0);
+  const totalAnnual = Number(data.total_annual_dividend_krw ?? scheduleTotal ?? 0) || scheduleTotal;
   const totalAnnualUsd = fxUsd > 0 ? (totalAnnual / fxUsd) : 0;
   const yieldRate = Number(data.portfolio_yield || 0);
-  const monthlyAvg = Number(data.monthly_avg_dividend_krw || 0);
-  const payingCount = Number(data.dividend_paying_count || 0);
+  const monthlyAvg = Number(data.monthly_avg_dividend_krw ?? (totalAnnual / 12)) || (totalAnnual / 12);
+  const payingCount = Number(data.dividend_paying_count ?? (data.holding_dividends || []).filter(item => Number(item.annual_payout_krw || 0) > 0).length) || 0;
   let totalHoldings = (dashboard?.holdings || []).length;
   if (currentOwner !== '모두') {
     totalHoldings = (dashboard?.holdings || []).filter(h => (h.owner || '모두') === currentOwner).length;
@@ -8637,7 +8639,6 @@ function renderDividends(data) {
   $("#summaryEstimatedDividend") && ($("#summaryEstimatedDividend").textContent = `예상 연간 배당금 ${money(totalAnnual)} (${number(yieldRate, 2)}%)`);
 
   // 2. 1월~12월 월별 막대그래프 (SVG Bar Chart)
-  const schedule = data.monthly_schedule || [];
   const maxMonthly = Math.max(...schedule.map(s => Number(s.total_krw || 0)), 1);
 
   const w = 900, h = 240, pad = 30;

@@ -1,5 +1,11 @@
 # Wealth 변경 이력
 
+## Wealth v1.0.20 — Release stabilization and regression audit — 2026-09-09
+
+- 전체 Python/JavaScript 회귀, 데이터·네트워크 안전성, lifespan 및 merge readiness를 점검했습니다.
+- 이번 audit에서 production blocker는 발견되지 않았습니다.
+- 상세 월별 데이터가 있을 때 예상 배당금 요약 카드가 0으로 남는 fallback 문제를 수정했습니다.
+
 ## Wealth v1.0.19 — HOME dashboard visual refinement — 2026-09-09
 
 - HOME 요약 카드와 자산 포트폴리오, 순자산 추이의 간격·정렬·타이포그래피를 정돈했습니다.
