@@ -1,5 +1,10 @@
 # Wealth 변경 이력
 
+## Wealth v1.0.18 — FastAPI lifespan startup migration — 2026-09-09
+
+- 프로젝트 소유 startup hook을 FastAPI lifespan으로 전환했습니다.
+- 기존 테스트 격리와 production startup 계약은 유지하고 deprecation warning 원인을 제거했습니다.
+
 ## Wealth v1.0.17 — 홈 자산 포트폴리오 visual refinement — 2026-09-09
 
 - 자산 KPI 보조 정보를 명시적인 세로 행으로 정리했습니다.

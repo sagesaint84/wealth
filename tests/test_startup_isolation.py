@@ -61,6 +61,20 @@ class StartupIsolationTests(unittest.TestCase):
         fx.assert_not_awaited()
         stocks.assert_not_awaited()
 
+    def test_app_uses_lifespan_and_runs_existing_startup_contract_once(self):
+        self.assertIs(self.main.app.router.lifespan_context, self.main.app_lifespan)
+        with patch.object(self.main, "ensure_data_dir", new_callable=AsyncMock) as ensure:
+            with TestClient(self.main.app) as client:
+                self.assertEqual(client.get("/manifest.json").status_code, 200)
+            ensure.assert_awaited_once_with()
+
+    def test_lifespan_exits_cleanly(self):
+        async def exercise():
+            async with self.main.app.router.lifespan_context(self.main.app):
+                return True
+
+        self.assertTrue(asyncio.run(exercise()))
+
     def test_mocked_fx_response_writes_only_temp_cache(self):
         payload = {"chart": {"result": [{"timestamp": [1704067200], "indicators": {"quote": [{"close": [1300.25]}]}}]}}
         with tempfile.TemporaryDirectory(prefix="wealth-fx-test-") as temp:

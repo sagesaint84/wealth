@@ -6,6 +6,7 @@ import re
 import secrets
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -111,7 +112,6 @@ async def service_worker_file():
 @app.get("/manifest.json")
 async def manifest_file_root():
     return FileResponse(STATIC_DIR / "manifest.json", media_type="application/manifest+json")
-@app.on_event("startup")
 async def ensure_data_dir():
     if TESTING:
         return
@@ -126,6 +126,16 @@ async def ensure_data_dir():
     asyncio.create_task(sync_historical_fx())
     # 4. 종목 마스터(국내 ETF/상장사/미국주식) 비동기 동기화
     asyncio.create_task(sync_stock_master_online())
+
+
+@asynccontextmanager
+async def app_lifespan(_app: FastAPI):
+    """Run the existing startup contract once per application lifespan."""
+    await ensure_data_dir()
+    yield
+
+
+app.router.lifespan_context = app_lifespan
 
 
 # ---------------------------------------------------------------------------
@@ -1497,11 +1507,6 @@ async def delete_family_member(member_name: str, request: Request) -> dict:
             acct["owner"] = "모두"
     write_portfolio(data, username=username)
     return {"members": members, "message": f"'{member_name}' 구성원을 삭제했습니다."}
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    pass
 
 
 @app.get("/api/market-overview")
