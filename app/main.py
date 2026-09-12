@@ -53,11 +53,16 @@ from app.services.toss_wts_feed_auth import check_wts_feed_static_authorization
 from app.services.toss_wts_feed_runtime import (
     check_wts_feed_runtime_confirmation,
     confirm_wts_feed_runtime_session,
+    get_current_runtime_generation_id,
 )
 from app.services.toss_wts_feed import (
     build_realized_feed_response,
+    compute_items_hash,
+    sign_import_preview_ticket,
     validate_realized_feed_request,
+    verify_import_preview_ticket,
 )
+from app.services.toss_wts_realized import preview_toss_wts_realized_selection
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -84,7 +89,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version="1.1.0")
+app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version="1.1.1")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 _syncing_users: set[str] = set()
@@ -1148,7 +1153,15 @@ async def toss_wts_realized_feed_fetch(request: Request) -> JSONResponse:
     try:
         adapter = TossWtsAdapter()
         raw_result = adapter.get_profit_daily(from_date=from_date, to_date=to_date, currency=basis)
-        feed_response = build_realized_feed_response(from_date, to_date, basis, raw_result)
+        gen_id = get_current_runtime_generation_id(user_id)
+        feed_response = build_realized_feed_response(
+            from_date,
+            to_date,
+            basis,
+            raw_result,
+            user_id=str(user_id) if user_id else None,
+            generation_id=gen_id,
+        )
         return JSONResponse(
             status_code=200,
             content=feed_response,
@@ -1167,6 +1180,258 @@ async def toss_wts_realized_feed_fetch(request: Request) -> JSONResponse:
             detail={"code": "FEED_FETCH_FAILED"},
             headers={"Cache-Control": "no-store"},
         )
+
+
+@app.post("/api/toss-wts/realized-feed/import-preview")
+async def toss_wts_realized_feed_import_preview(request: Request) -> JSONResponse:
+    """Preview duplicate classification for selected WTS rows without persisting."""
+    username = get_current_username(request)
+    user_id = getattr(request.state, "user_id", None)
+    auth_decision = check_wts_feed_static_authorization(user_id)
+    if not auth_decision.authorized:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "STATIC_AUTHORIZATION_FAILED"},
+            headers={"Cache-Control": "no-store"},
+        )
+    runtime_decision = check_wts_feed_runtime_confirmation(user_id)
+    if not runtime_decision.confirmed:
+        if runtime_decision.code == "RUNTIME_MATERIAL_UNAVAILABLE":
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "RUNTIME_MATERIAL_UNAVAILABLE"},
+                headers={"Cache-Control": "no-store"},
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={"code": runtime_decision.code},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("Request body must be a JSON object")
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "Invalid JSON body"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    selected_items = body.get("selected_items")
+    if not isinstance(selected_items, list) or len(selected_items) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "selected_items must be a non-empty list"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    account_id = body.get("account_id")
+    if not isinstance(account_id, str) or not account_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "account_id is required"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    portfolio = read_portfolio(username=username)
+    accounts = portfolio.get("accounts", [])
+    destination_account = next((a for a in accounts if str(a.get("id")) == account_id.strip()), None)
+    if not destination_account:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_ACCOUNT", "message": "Destination account not found in user portfolio"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    gen_id = get_current_runtime_generation_id(user_id)
+    existing_records = read_pnl_records(username=username)
+    profit_rate_basis = str(body.get("profit_rate_basis") or "KRW").upper()
+    if profit_rate_basis not in ("KRW", "USD"):
+        profit_rate_basis = "KRW"
+
+    preview_result = preview_toss_wts_realized_selection(
+        selected_items=selected_items,
+        destination_account=destination_account,
+        existing_records=existing_records,
+        user_id=str(user_id),
+        current_generation_id=gen_id,
+        profit_rate_basis=profit_rate_basis,
+    )
+
+    items_hash = compute_items_hash(selected_items)
+    preview_ticket = sign_import_preview_ticket(
+        account_id=str(destination_account["id"]),
+        items_hash=items_hash,
+        user_id=str(user_id),
+        generation_id=gen_id,
+    )
+    preview_result["preview_ticket"] = preview_ticket
+
+    return JSONResponse(
+        status_code=200,
+        content=preview_result,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/toss-wts/realized-feed/import")
+async def toss_wts_realized_feed_import(request: Request) -> JSONResponse:
+    """Commit eligible selected WTS rows into user's normal realized P/L records.
+
+    Rechecks duplicates at commit time to prevent race conditions.
+    """
+    username = get_current_username(request)
+    user_id = getattr(request.state, "user_id", None)
+    auth_decision = check_wts_feed_static_authorization(user_id)
+    if not auth_decision.authorized:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "STATIC_AUTHORIZATION_FAILED"},
+            headers={"Cache-Control": "no-store"},
+        )
+    runtime_decision = check_wts_feed_runtime_confirmation(user_id)
+    if not runtime_decision.confirmed:
+        if runtime_decision.code == "RUNTIME_MATERIAL_UNAVAILABLE":
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "RUNTIME_MATERIAL_UNAVAILABLE"},
+                headers={"Cache-Control": "no-store"},
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={"code": runtime_decision.code},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("Request body must be a JSON object")
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "Invalid JSON body"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    selected_items = body.get("selected_items")
+    if not isinstance(selected_items, list) or len(selected_items) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "selected_items must be a non-empty list"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    account_id = body.get("account_id")
+    if not isinstance(account_id, str) or not account_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "account_id is required"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    portfolio = read_portfolio(username=username)
+    accounts = portfolio.get("accounts", [])
+    destination_account = next((a for a in accounts if str(a.get("id")) == account_id.strip()), None)
+    if not destination_account:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_ACCOUNT", "message": "Destination account not found in user portfolio"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    gen_id = get_current_runtime_generation_id(user_id)
+    items_hash = compute_items_hash(selected_items)
+
+    preview_ticket = body.get("preview_ticket")
+    if preview_ticket:
+        valid_ticket, ticket_err = verify_import_preview_ticket(
+            preview_ticket,
+            account_id=str(destination_account["id"]),
+            items_hash=items_hash,
+            user_id=str(user_id),
+            current_generation_id=gen_id,
+        )
+        if not valid_ticket:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": ticket_err or "PREVIEW_TICKET_INVALID", "message": f"Preview verification failed: {ticket_err}"},
+                headers={"Cache-Control": "no-store"},
+            )
+
+    include_possible_duplicates = bool(body.get("include_possible_duplicates", False))
+    profit_rate_basis = str(body.get("profit_rate_basis") or "KRW").upper()
+    if profit_rate_basis not in ("KRW", "USD"):
+        profit_rate_basis = "KRW"
+
+    fresh_existing = read_pnl_records(username=username)
+    classification = preview_toss_wts_realized_selection(
+        selected_items=selected_items,
+        destination_account=destination_account,
+        existing_records=fresh_existing,
+        user_id=str(user_id),
+        current_generation_id=gen_id,
+        profit_rate_basis=profit_rate_basis,
+    )
+
+    imported_count = 0
+    already_imported_count = 0
+    possible_duplicate_skipped = 0
+    invalid_count = 0
+    imported_ids: list[str] = []
+    now_iso = datetime.now().astimezone().isoformat()
+
+    for item in classification["items"]:
+        status = item["status"]
+        if status == "ALREADY_IMPORTED":
+            already_imported_count += 1
+            continue
+        if status == "INVALID":
+            invalid_count += 1
+            continue
+        if status == "POSSIBLE_DUPLICATE":
+            if not include_possible_duplicates:
+                possible_duplicate_skipped += 1
+                continue
+
+        candidate = item.get("candidate")
+        if not candidate:
+            invalid_count += 1
+            continue
+
+        candidate_payload = dict(candidate)
+        candidate_payload["source"] = "toss_wts"
+        candidate_payload["source_fingerprint"] = item["fingerprint"]
+        candidate_payload["source_scope_verified"] = False
+        candidate_payload["imported_by_user_action"] = True
+        candidate_payload["imported_at"] = now_iso
+
+        created = create_pnl_record(candidate_payload, username=username)
+        imported_ids.append(created["id"])
+        imported_count += 1
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "selected": len(selected_items),
+            "imported": imported_count,
+            "already_imported": already_imported_count,
+            "possible_duplicate_skipped": possible_duplicate_skipped,
+            "invalid": invalid_count,
+            "imported_ids": imported_ids,
+            "scope_kind": "unverified",
+            "scope_verified": False,
+            "destination_account": {
+                "id": destination_account.get("id"),
+                "broker": destination_account.get("broker"),
+                "account_name": destination_account.get("account_name") or destination_account.get("name"),
+                "owner": destination_account.get("owner"),
+            },
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # ---------------------------------------------------------------------------

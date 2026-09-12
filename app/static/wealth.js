@@ -12482,12 +12482,15 @@ function initLedgerListeners() {
   }
 }
 
-// ── 토스 WTS 실현손익 피드 (읽기 전용 UX) ──────────────────────────────────
+// ── 토스 WTS 실현손익 피드 (선택 가져오기 UX) ──────────────────────────────────
 const tossWtsState = {
   status: null,
   confirmed: false,
   loading: false,
   rows: [],
+  selectionTokens: [],
+  selectedIndices: new Set(),
+  importedIndices: new Set(),
   lastRequested: null,    // { from_date, to_date, profit_rate_basis } from response.requested
   fetchedBasis: null,     // response.requested.profit_rate_basis
   fetchedFromDate: null,  // response.requested.from_date
@@ -12735,10 +12738,14 @@ async function fetchTossWtsRealizedFeed() {
     tossWtsState.fetchedToDate = tossWtsState.lastRequested.to_date;
     tossWtsState.fetchedAt = data.fetched_at;
     tossWtsState.rows = data.rows || [];
+    tossWtsState.selectionTokens = data.selection_tokens || [];
+    tossWtsState.selectedIndices.clear();
 
     hideTossWtsMessage();
+    populateWtsAccounts();
     renderTossWtsFeedTable(tossWtsState.rows, tossWtsState.fetchedBasis, 'ok');
     updateTossWtsMetaUI();
+    updateWtsSelectionUI();
   } catch (err) {
     showTossWtsMessage('토스 WTS 조회 중 네트워크 오류가 발생했습니다.', 'error');
     updateTossWtsMetaUI();
@@ -12747,22 +12754,227 @@ async function fetchTossWtsRealizedFeed() {
   }
 }
 
+function updateWtsSelectionUI() {
+  const countBadge = document.getElementById('wtsSelectedCountBadge');
+  const importBtn = document.getElementById('btnWtsImportSelected');
+  const destSelect = document.getElementById('wtsDestinationAccount');
+  const count = tossWtsState.selectedIndices ? tossWtsState.selectedIndices.size : 0;
+  if (countBadge) countBadge.textContent = `선택 ${count}건`;
+  if (importBtn) {
+    importBtn.disabled = count === 0 || !destSelect?.value;
+  }
+  const selectAll = document.getElementById('wtsSelectAll');
+  if (selectAll && tossWtsState.rows) {
+    const importableCount = tossWtsState.rows.filter((_, idx) => !tossWtsState.importedIndices.has(idx)).length;
+    selectAll.checked = importableCount > 0 && count === importableCount;
+    selectAll.disabled = importableCount === 0;
+  }
+}
+
+function populateWtsAccounts() {
+  const select = document.getElementById('wtsDestinationAccount');
+  if (!select) return;
+  const accounts = (dashboard && dashboard.accounts) || [];
+  const currentVal = select.value;
+  select.innerHTML = '<option value="">귀속할 Wealth 계좌를 선택하세요</option>' +
+    accounts.map(acc => {
+      const broker = acc.broker || '기타';
+      const name = acc.account_name || acc.name || '계좌';
+      const owner = acc.owner ? ` (${acc.owner})` : '';
+      return `<option value="${html(acc.id)}">${html(broker)} - ${html(name)}${html(owner)}</option>`;
+    }).join('');
+  if (currentVal && accounts.some(a => String(a.id) === currentVal)) {
+    select.value = currentVal;
+  }
+}
+
+let currentPreviewData = null;
+
+async function openWtsImportPreview() {
+  const destSelect = document.getElementById('wtsDestinationAccount');
+  const destAccountId = destSelect?.value;
+  if (!destAccountId) {
+    showTossWtsMessage('귀속할 Wealth 계좌를 선택해주세요.', 'error');
+    return;
+  }
+  if (!tossWtsState.selectedIndices || tossWtsState.selectedIndices.size === 0) {
+    showTossWtsMessage('추가할 실현손익 항목을 선택해주세요.', 'error');
+    return;
+  }
+
+  const selectedItems = Array.from(tossWtsState.selectedIndices).map(idx => ({
+    row: tossWtsState.rows[idx],
+    selection_token: (tossWtsState.selectionTokens && tossWtsState.selectionTokens[idx]) || '',
+  }));
+
+  setTossWtsLoading(true);
+  try {
+    const res = await fetch('/api/toss-wts/realized-feed/import-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        selected_items: selectedItems,
+        account_id: destAccountId,
+        profit_rate_basis: tossWtsState.fetchedBasis || 'KRW',
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showTossWtsMessage(`가져오기 미리보기 실패: ${err.detail?.message || err.detail?.code || res.status}`, 'error');
+      return;
+    }
+
+    const data = await res.json();
+    currentPreviewData = data;
+    renderWtsImportModal(data);
+  } catch (err) {
+    showTossWtsMessage('가져오기 미리보기 중 네트워크 오류가 발생했습니다.', 'error');
+  } finally {
+    setTossWtsLoading(false);
+  }
+}
+
+function renderWtsImportModal(data) {
+  const overlay = document.getElementById('wtsImportModalOverlay');
+  if (!overlay) return;
+
+  const counts = data.counts || { new: 0, already_imported: 0, possible_duplicate: 0, invalid: 0 };
+  const destAcc = data.destination_account || {};
+  const destText = `${destAcc.broker || ''} - ${destAcc.account_name || ''} (${destAcc.owner || '모두'})`;
+
+  const destEl = document.getElementById('wtsModalDestAccountName');
+  if (destEl) destEl.textContent = destText;
+  const countNewEl = document.getElementById('wtsCountNew');
+  if (countNewEl) countNewEl.textContent = `${counts.new}건`;
+  const countAlreadyEl = document.getElementById('wtsCountAlready');
+  if (countAlreadyEl) countAlreadyEl.textContent = `${counts.already_imported}건`;
+  const countDupEl = document.getElementById('wtsCountDup');
+  if (countDupEl) countDupEl.textContent = `${counts.possible_duplicate}건`;
+  const countInvalidEl = document.getElementById('wtsCountInvalid');
+  if (countInvalidEl) countInvalidEl.textContent = `${counts.invalid}건`;
+
+  const dupWrap = document.getElementById('wtsDupOverrideWrap');
+  const dupCheckbox = document.getElementById('wtsIncludePossibleDuplicates');
+  if (dupWrap && dupCheckbox) {
+    dupCheckbox.checked = false;
+    dupWrap.style.display = counts.possible_duplicate > 0 ? 'block' : 'none';
+  }
+
+  updateWtsCommitButton();
+  overlay.style.display = 'flex';
+}
+
+function updateWtsCommitButton() {
+  const commitBtn = document.getElementById('btnWtsConfirmCommit');
+  const dupCheckbox = document.getElementById('wtsIncludePossibleDuplicates');
+  if (!commitBtn) return;
+  const newCount = (currentPreviewData?.counts?.new) || 0;
+  const dupCount = (currentPreviewData?.counts?.possible_duplicate) || 0;
+  const includeDup = Boolean(dupCheckbox?.checked);
+  const totalEligible = newCount + (includeDup ? dupCount : 0);
+
+  if (totalEligible > 0) {
+    commitBtn.disabled = false;
+    commitBtn.textContent = `신규 ${totalEligible}건 Wealth에 추가`;
+  } else {
+    commitBtn.disabled = true;
+    commitBtn.textContent = '신규 0건 Wealth에 추가';
+  }
+}
+
+function closeWtsImportModal() {
+  const overlay = document.getElementById('wtsImportModalOverlay');
+  if (overlay) overlay.style.display = 'none';
+  currentPreviewData = null;
+}
+
+async function commitWtsImport() {
+  if (!currentPreviewData) return;
+  const destSelect = document.getElementById('wtsDestinationAccount');
+  const destAccountId = destSelect?.value;
+  const dupCheckbox = document.getElementById('wtsIncludePossibleDuplicates');
+  const includeDup = Boolean(dupCheckbox?.checked);
+
+  const selectedItems = Array.from(tossWtsState.selectedIndices).map(idx => ({
+    row: tossWtsState.rows[idx],
+    selection_token: (tossWtsState.selectionTokens && tossWtsState.selectionTokens[idx]) || '',
+  }));
+
+  const commitBtn = document.getElementById('btnWtsConfirmCommit');
+  if (commitBtn) commitBtn.disabled = true;
+
+  try {
+    const res = await fetch('/api/toss-wts/realized-feed/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        selected_items: selectedItems,
+        account_id: destAccountId,
+        preview_ticket: currentPreviewData.preview_ticket,
+        include_possible_duplicates: includeDup,
+        profit_rate_basis: tossWtsState.fetchedBasis || 'KRW',
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showTossWtsMessage(`실현손익 추가 실패: ${err.detail?.message || err.detail?.code || res.status}`, 'error');
+      if (commitBtn) commitBtn.disabled = false;
+      return;
+    }
+
+    const result = await res.json();
+    closeWtsImportModal();
+
+    for (const idx of tossWtsState.selectedIndices) {
+      tossWtsState.importedIndices.add(idx);
+    }
+    tossWtsState.selectedIndices.clear();
+
+    showTossWtsMessage(`${result.imported}건을 Wealth 실현손익에 추가했습니다. (중복 제외: ${result.already_imported}건)`, 'success');
+    renderTossWtsFeedTable(tossWtsState.rows, tossWtsState.fetchedBasis, 'ok');
+    updateWtsSelectionUI();
+
+    if (typeof loadRealizedPnl === 'function') {
+      loadRealizedPnl();
+    } else if (typeof loadDashboard === 'function') {
+      loadDashboard();
+    }
+  } catch (err) {
+    showTossWtsMessage('실현손익 추가 중 네트워크 오류가 발생했습니다.', 'error');
+    if (commitBtn) commitBtn.disabled = false;
+  }
+}
+
 function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
   const tbody = document.getElementById('tossWtsTableBody');
+  const importBar = document.getElementById('tossWtsImportBar');
   if (!tbody) return;
 
   if (status === 'error') {
-    tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-empty">조회에 실패했습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="toss-wts-empty">조회에 실패했습니다.</td></tr>';
+    if (importBar) importBar.style.display = 'none';
     return;
   }
 
   if (!rows || rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-empty">선택한 기간에 조회된 실현손익 내역이 없습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="toss-wts-empty">선택한 기간에 조회된 실현손익 내역이 없습니다.</td></tr>';
+    if (importBar) importBar.style.display = 'none';
     return;
   }
 
+  if (importBar) importBar.style.display = 'flex';
+
   const isUsd = basis === 'USD';
-  const htmlRows = rows.map(r => {
+  const htmlRows = rows.map((r, idx) => {
+    const isImported = tossWtsState.importedIndices.has(idx);
+    const isSelected = tossWtsState.selectedIndices.has(idx);
+
+    const checkCell = isImported
+      ? '<span class="toss-wts-badge-imported">추가됨</span>'
+      : `<input type="checkbox" class="wts-row-cb" data-index="${idx}" ${isSelected ? 'checked' : ''}>`;
+
     const pnl = isUsd ? Number(r.profit_loss?.usd ?? 0) : Number(r.profit_loss?.krw ?? 0);
     const pnlColor = pnl > 0 ? 'gain' : (pnl < 0 ? 'loss' : '');
     const pnlSign = pnl > 0 ? '+' : '';
@@ -12788,6 +13000,7 @@ function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
     const qtyFormatted = number(qty, Number.isInteger(qty) ? 0 : 2);
 
     return `<tr>
+      <td class="center">${checkCell}</td>
       <td class="center">${html(r.date || '')}</td>
       <td class="center">${marketBadge}</td>
       <td><strong>${html(r.name || '')}</strong> <small class="muted">(${html(r.symbol || r.product_code || '')})</small></td>
@@ -12800,6 +13013,19 @@ function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
   }).join('');
 
   tbody.innerHTML = htmlRows;
+
+  // Attach event listeners to row checkboxes
+  tbody.querySelectorAll('.wts-row-cb').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const index = parseInt(e.target.dataset.index, 10);
+      if (e.target.checked) {
+        tossWtsState.selectedIndices.add(index);
+      } else {
+        tossWtsState.selectedIndices.delete(index);
+      }
+      updateWtsSelectionUI();
+    });
+  });
 }
 
 function initTossWtsUI() {
@@ -12822,6 +13048,33 @@ function initTossWtsUI() {
   document.getElementById('btnCheckTossWtsStatus')?.addEventListener('click', checkTossWtsStatus);
   document.getElementById('btnConfirmTossWtsSession')?.addEventListener('click', confirmTossWtsSession);
   document.getElementById('btnFetchTossWtsFeed')?.addEventListener('click', fetchTossWtsRealizedFeed);
+
+  // Import bar listeners
+  document.getElementById('wtsSelectAll')?.addEventListener('change', (e) => {
+    const checked = e.target.checked;
+    if (tossWtsState.rows) {
+      tossWtsState.rows.forEach((_, idx) => {
+        if (!tossWtsState.importedIndices.has(idx)) {
+          if (checked) {
+            tossWtsState.selectedIndices.add(idx);
+          } else {
+            tossWtsState.selectedIndices.delete(idx);
+          }
+        }
+      });
+      renderTossWtsFeedTable(tossWtsState.rows, tossWtsState.fetchedBasis, 'ok');
+      updateWtsSelectionUI();
+    }
+  });
+
+  document.getElementById('wtsDestinationAccount')?.addEventListener('change', updateWtsSelectionUI);
+  document.getElementById('btnWtsImportSelected')?.addEventListener('click', openWtsImportPreview);
+
+  // Modal listeners
+  document.getElementById('btnWtsModalClose')?.addEventListener('click', closeWtsImportModal);
+  document.getElementById('btnWtsModalCancel')?.addEventListener('click', closeWtsImportModal);
+  document.getElementById('wtsIncludePossibleDuplicates')?.addEventListener('change', updateWtsCommitButton);
+  document.getElementById('btnWtsConfirmCommit')?.addEventListener('click', commitWtsImport);
 
   // Form input changes do NOT auto-fetch or re-interpret existing rows!
   // They only trigger staleness detection against last successful request metadata.

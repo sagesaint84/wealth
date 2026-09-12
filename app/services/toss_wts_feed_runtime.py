@@ -25,6 +25,7 @@ SECURITY ARCHITECTURE CONTRACT:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import os
 from pathlib import Path
 import threading
@@ -280,3 +281,22 @@ def clear_wts_feed_runtime_confirmation() -> None:
     global _ACTIVE_CONFIRMATION
     with _LOCK:
         _ACTIVE_CONFIRMATION = None
+
+
+def get_current_runtime_generation_id(user_id: object = None) -> str | None:
+    """Return a deterministic generation identifier for the confirmed session.
+
+    Returns None if the session is not confirmed or runtime material has changed.
+    """
+    decision = check_wts_feed_runtime_confirmation(user_id)
+    if not decision.confirmed:
+        return None
+    with _LOCK:
+        active = _ACTIVE_CONFIRMATION
+        if active is None:
+            return None
+        marker_repr = (
+            f"{active.user_id}:{active.allowed_user_id}:"
+            f"{active.marker.executable_meta}:{active.marker.config_dir_meta}:{active.marker.session_meta}"
+        )
+        return hashlib.sha256(marker_repr.encode("utf-8")).hexdigest()

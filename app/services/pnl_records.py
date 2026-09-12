@@ -64,10 +64,19 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
     currency = str(payload.get("currency", "KRW")).upper()
     pnl = float(payload.get("pnl", 0.0))
     date_val = str(payload.get("date", datetime.now().strftime("%Y-%m-%d")))
-    fx_pnl_krw = float(payload.get("fx_pnl_krw", 0.0))
+
+    raw_fx_pnl = payload.get("fx_pnl_krw")
+    if raw_fx_pnl is not None:
+        fx_pnl_krw = float(raw_fx_pnl)
+    elif payload.get("source") == "toss_wts":
+        fx_pnl_krw = None
+    else:
+        fx_pnl_krw = 0.0
     
     raw_fx = payload.get("fx_rate")
-    if currency == "USD":
+    if payload.get("source") == "toss_wts" and raw_fx is None:
+        fx_rate = None
+    elif currency == "USD":
         if raw_fx is not None and float(raw_fx) > 0:
             fx_rate = float(raw_fx)
         else:
@@ -76,8 +85,10 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
         fx_rate = 1.0
 
     pnl_krw = float(payload.get("pnl_krw", 0.0))
-    if pnl_krw == 0.0 and (pnl != 0.0 or fx_pnl_krw != 0.0):
-        pnl_krw = round(pnl * fx_rate + fx_pnl_krw, 0) if currency == "USD" else round(pnl, 0)
+    if pnl_krw == 0.0 and (pnl != 0.0 or (fx_pnl_krw or 0.0) != 0.0):
+        effective_fx = fx_rate if fx_rate is not None else 1.0
+        effective_fx_pnl = fx_pnl_krw if fx_pnl_krw is not None else 0.0
+        pnl_krw = round(pnl * effective_fx + effective_fx_pnl, 0) if currency == "USD" else round(pnl, 0)
 
     is_ipo = bool(payload.get("is_ipo", False))
     asset_type = str(payload.get("asset_type") or "").strip().lower()
@@ -137,6 +148,14 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
         "is_joint_ownership", "ownerships", "re_id"
     ]
     for field in re_fields:
+        if field in payload:
+            record[field] = payload[field]
+
+    provenance_fields = [
+        "source", "source_fingerprint", "source_scope_verified",
+        "imported_by_user_action", "imported_at", "source_meta"
+    ]
+    for field in provenance_fields:
         if field in payload:
             record[field] = payload[field]
 
@@ -216,6 +235,14 @@ def update_pnl_record(record_id: str, payload: dict[str, Any], username: str | N
         "is_joint_ownership", "ownerships", "re_id"
     ]
     for field in re_fields:
+        if field in payload:
+            target[field] = payload[field]
+
+    provenance_fields = [
+        "source", "source_fingerprint", "source_scope_verified",
+        "imported_by_user_action", "imported_at", "source_meta"
+    ]
+    for field in provenance_fields:
         if field in payload:
             target[field] = payload[field]
 

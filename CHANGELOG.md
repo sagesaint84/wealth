@@ -1,5 +1,17 @@
 # Wealth 변경 이력
 
+## Wealth v1.1.1 — Toss WTS Selective Realized-P/L Import — 2026-09-12
+
+- **토스 WTS 실현손익 선택 가져오기 (Selective Realized-P/L Import)**:
+  - 브라우저에 임시 조회된 실현손익 피드에서 사용자가 원하는 행만 명시적으로 선택하여 Wealth 손익 데이터베이스로 가져오는 기능 추가
+  - 선택 행에 대한 HMAC 서명 토큰(`signed_token`) 검증을 통한 파라미터 변조(tampering) 방지 및 만료 보호
+  - 다중 세트(multiset) 기반 중복 방지: 동일 종목·체결일시·금액에 대한 중복 import 사전 감지(`ALREADY_IMPORTED`, `POSSIBLE_DUPLICATE`) 및 커밋 시점 재검증
+  - 대상 계좌 수동 지정: 사용자가 등록한 Wealth 계좌 목록 중 대상 계좌를 명시적으로 선택하여 귀속 (`destination_account_id` / `destination_account_name`)
+  - 안전한 출처 메타데이터(Provenance) 보존: `source: "toss_wts"`, `source_scope_verified: False`(미검증 스코프 경고 유지), `imported_by_user_action: True`
+  - 기존 v1.1.0의 읽기 전용 조회 흐름 및 무저장 기본 원칙 완벽 보존
+- **토스 WTS 배당금 연동 차단 상태 명시 (`WTS_DIVIDEND_RECORD_CONTRACT_BLOCKER`)**:
+  - 토스 WTS 배당금 계약 불일치로 인해 추측성 배당 기능은 v1.1.1 릴리즈 스코프에서 안전하게 제외 유지
+
 ## Wealth v1.1.0 — Toss WTS Read-only Integration — 2026-09-12
 
 - 불변 사용자 식별자(UUID) 기반 토스 WTS 정적 인가 계층 구현

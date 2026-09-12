@@ -76,7 +76,7 @@ def _fingerprint_identity(candidate: Mapping[str, Any]) -> tuple[list[str | int 
     meta = candidate.get("source_meta")
     if not isinstance(meta, Mapping):
         raise ValueError("source_meta must be a mapping")
-    market_type = _require_text(meta.get("market_type"), "source_meta.market_type")
+    market_type = _require_text(meta.get("market_type"), "source_meta.market_type").strip().lower()
     if market_type not in _SUPPORTED_MARKETS:
         raise ValueError("unsupported source_meta.market_type")
     product_code = _require_text(meta.get("product_code"), "source_meta.product_code")
@@ -215,7 +215,7 @@ def map_toss_wts_profit_row(
     if not isinstance(row, Mapping):
         raise ValueError("row must be a mapping")
 
-    market_type = _require_text(row.get("market_type"), "market_type")
+    market_type = _require_text(row.get("market_type"), "market_type").strip().lower()
     if market_type not in _SUPPORTED_MARKETS:
         raise ValueError("unsupported market_type")
 
@@ -281,5 +281,186 @@ def map_toss_wts_profit_row(
             "buy_amount": buy_amount,
             "sell_amount": sell_amount,
             "fetched_at": source_fetched_at,
+        },
+    }
+
+
+def preview_toss_wts_realized_selection(
+    selected_items: list[Mapping[str, Any]],
+    destination_account: Mapping[str, Any],
+    existing_records: Iterable[Mapping[str, Any]],
+    *,
+    user_id: str,
+    current_generation_id: str | None = None,
+    profit_rate_basis: str = "KRW",
+) -> dict[str, Any]:
+    """Classify user-selected WTS rows for import into a chosen Wealth account.
+
+    Zero financial writes. Enforces row token integrity and binds rows
+    to the current active WTS runtime generation.
+    """
+    from app.services.toss_wts_feed import verify_realized_feed_row_token
+
+    destination_account_name = str(
+        destination_account.get("account_name") or destination_account.get("name") or ""
+    ).strip()
+    destination_broker = str(destination_account.get("broker") or TOSS_WTS_BROKER).strip()
+    destination_owner = str(destination_account.get("owner") or "모두").strip()
+
+    existing_list = list(existing_records)
+    existing_wts_counts: Counter[str] = Counter()
+    for rec in existing_list:
+        if isinstance(rec, Mapping) and rec.get("source") == "toss_wts":
+            fp = rec.get("source_fingerprint")
+            if fp and _is_trusted_fingerprint(fp):
+                existing_wts_counts[fp] += 1
+
+    assigned_wts_counts: Counter[str] = Counter()
+    classified_items: list[dict[str, Any]] = []
+
+    counts = {
+        "selected": len(selected_items),
+        "new": 0,
+        "already_imported": 0,
+        "possible_duplicate": 0,
+        "invalid": 0,
+    }
+
+    for idx, item in enumerate(selected_items):
+        if not isinstance(item, Mapping):
+            counts["invalid"] += 1
+            classified_items.append({
+                "index": idx,
+                "status": "INVALID",
+                "reason": "MALFORMED_ITEM",
+                "candidate": None,
+            })
+            continue
+
+        if "row" in item and isinstance(item["row"], Mapping):
+            row = item["row"]
+            token = item.get("selection_token") or row.get("selection_token")
+        else:
+            row = item
+            token = item.get("selection_token")
+
+        if not isinstance(token, str):
+            token = ""
+
+        valid, err_code = verify_realized_feed_row_token(
+            row, token, user_id=user_id, current_generation_id=current_generation_id
+        )
+        if not valid:
+            counts["invalid"] += 1
+            classified_items.append({
+                "index": idx,
+                "status": "INVALID",
+                "reason": err_code or "TOKEN_INVALID",
+                "candidate": None,
+            })
+            continue
+
+        try:
+            candidate = map_toss_wts_profit_row(
+                row,
+                account_name=destination_account_name,
+                source_account_scope="unverified",
+                owner=destination_owner,
+                profit_rate_basis=profit_rate_basis,
+                fetched_at=str(row.get("fetched_at") or "unspecified"),
+            )
+            candidate["broker"] = destination_broker or TOSS_WTS_BROKER
+            fingerprint = build_toss_wts_realized_fingerprint(candidate)
+            candidate["source_fingerprint"] = fingerprint
+        except (ValueError, TypeError, KeyError):
+            counts["invalid"] += 1
+            classified_items.append({
+                "index": idx,
+                "status": "INVALID",
+                "reason": "MAPPING_FAILED",
+                "candidate": None,
+            })
+            continue
+
+        if assigned_wts_counts[fingerprint] < existing_wts_counts[fingerprint]:
+            assigned_wts_counts[fingerprint] += 1
+            counts["already_imported"] += 1
+            classified_items.append({
+                "index": idx,
+                "status": "ALREADY_IMPORTED",
+                "reason": "EXACT_WTS_FINGERPRINT_MATCH",
+                "fingerprint": fingerprint,
+                "candidate": candidate,
+            })
+            continue
+
+        cand_date = candidate.get("date")
+        cand_code = candidate.get("code")
+        cand_name = candidate.get("name")
+        cand_pnl = float(candidate.get("pnl", 0.0))
+        cand_pnl_krw = float(candidate.get("pnl_krw", 0.0))
+
+        manual_match = None
+        for rec in existing_list:
+            if not isinstance(rec, Mapping) or rec.get("source") == "toss_wts":
+                continue
+            if str(rec.get("date")) != str(cand_date):
+                continue
+            rec_code = str(rec.get("code", "")).strip()
+            rec_name = str(rec.get("name", "")).strip()
+            code_or_name_match = (
+                (rec_code and rec_code == cand_code)
+                or (rec_name and rec_name == cand_name)
+            )
+            if not code_or_name_match:
+                continue
+            rec_pnl = float(rec.get("pnl", 0.0))
+            rec_pnl_krw = float(rec.get("pnl_krw", 0.0))
+            pnl_match = (
+                abs(rec_pnl - cand_pnl) < 0.01
+                or abs(rec_pnl_krw - cand_pnl_krw) < 1.0
+            )
+            if pnl_match:
+                manual_match = {
+                    "id": rec.get("id"),
+                    "date": rec.get("date"),
+                    "code": rec.get("code"),
+                    "name": rec.get("name"),
+                    "pnl": rec_pnl,
+                    "account_name": rec.get("account_name"),
+                }
+                break
+
+        if manual_match:
+            counts["possible_duplicate"] += 1
+            classified_items.append({
+                "index": idx,
+                "status": "POSSIBLE_DUPLICATE",
+                "reason": "MATCHING_MANUAL_RECORD",
+                "matched_record": manual_match,
+                "fingerprint": fingerprint,
+                "candidate": candidate,
+            })
+            continue
+
+        counts["new"] += 1
+        classified_items.append({
+            "index": idx,
+            "status": "NEW",
+            "fingerprint": fingerprint,
+            "candidate": candidate,
+        })
+
+    return {
+        "counts": counts,
+        "items": classified_items,
+        "scope_kind": "unverified",
+        "scope_verified": False,
+        "source_account_scope": "unverified",
+        "destination_account": {
+            "id": destination_account.get("id"),
+            "broker": destination_broker,
+            "account_name": destination_account_name,
+            "owner": destination_owner,
         },
     }
