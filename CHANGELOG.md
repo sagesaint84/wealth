@@ -1,5 +1,19 @@
 # Wealth 변경 이력
 
+## Wealth v1.1.0 — Toss WTS Read-only Integration — 2026-09-12
+
+- 불변 사용자 식별자(UUID) 기반 토스 WTS 정적 인가 계층 구현
+- 명시적 런타임 세션 확인(confirmation guard) 및 로컬 상태 검증 엔드포인트 추가
+- 토스 WTS 어댑터를 통한 일별 실현손익 읽기 전용 피드 제공 (KRW/USD 기준)
+- 손익·배당 화면 내 토스 WTS 전용 카드 및 transient 테이블 UI 구현 (무저장 정책 준수)
+- 테스트 환경 운영 데이터 쓰기 차단 우선순위 강화 및 배당 스케줄 정규화 안정화
+
+## Wealth v1.0.21 — HOME UX 개선 — 2026-09-10
+
+- HOME 자산 포트폴리오 중심 레이아웃 및 KPI 정렬 개선
+- 기대수익·실현손익 보조 정보 간소화와 증감 색상 정리
+- Quick Access와 모바일 하단 navigation을 정리했습니다.
+
 ## Wealth v1.0.20 — Release stabilization and regression audit — 2026-09-09
 
 - 전체 Python/JavaScript 회귀, 데이터·네트워크 안전성, lifespan 및 merge readiness를 점검했습니다.

@@ -87,6 +87,9 @@ def normalize_record(raw: dict[str, Any], preserve_id: bool = False) -> dict[str
         "date": date,
         "owner": str(raw.get("owner") or "모두").strip(),  # 가족 구성원
         "total_value_krw": _coerce_float(raw.get("total_value_krw")),
+        "total_assets_krw": _coerce_float(raw.get("total_assets_krw", raw.get("total_value_krw"))),
+        "total_debt_krw": _coerce_float(raw.get("total_debt_krw")),
+        "net_worth_krw": _coerce_float(raw.get("net_worth_krw", _coerce_float(raw.get("total_assets_krw", raw.get("total_value_krw"))) - _coerce_float(raw.get("total_debt_krw")))),
         "total_cost_krw": _coerce_float(raw.get("total_cost_krw")),
         "profit_krw": _coerce_float(raw.get("profit_krw")),
         "return_rate": _coerce_float(raw.get("return_rate")),

@@ -94,7 +94,21 @@ class KBOpenAPI:
                 detail = response.text
             raise KBOpenAPIError(f"KB OpenAPI 요청 실패 ({response.status_code}): {detail}")
 
-    async def call(self, endpoint: str, data_body: dict[str, Any]) -> dict[str, Any]:
+    @staticmethod
+    def _normalize_response(payload: Any, *, require_data_body: bool = False) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise KBOpenAPIError("KB OpenAPI 응답 형식이 올바르지 않습니다.")
+        if require_data_body and "dataBody" not in payload:
+            raise KBOpenAPIError("KB OpenAPI가 잔고 데이터 없이 상태 응답만 반환했습니다.")
+        body = payload.get("dataBody", payload)
+        if not isinstance(body, dict):
+            raise KBOpenAPIError("KB OpenAPI dataBody 형식이 올바르지 않습니다.")
+        code = str(body.get("o_clsf", body.get("clsfP", "0")))
+        if code not in {"", "0", "00"}:
+            raise KBOpenAPIError("KB OpenAPI 업무 응답이 실패했습니다.")
+        return body
+
+    async def call(self, endpoint: str, data_body: dict[str, Any], *, require_data_body: bool = False) -> dict[str, Any]:
         require_external_network("KB OpenAPI")
         async with httpx.AsyncClient(timeout=15.0) as client:
             token = await self._access_token(client)
@@ -108,20 +122,12 @@ class KBOpenAPI:
                 payload = response.json()
             except ValueError as exc:
                 raise KBOpenAPIError("KB OpenAPI 응답이 올바른 JSON이 아닙니다.") from exc
-        if not isinstance(payload, dict):
-            raise KBOpenAPIError("KB OpenAPI 응답 형식이 올바르지 않습니다.")
-        body = payload.get("dataBody", payload)
-        if not isinstance(body, dict):
-            raise KBOpenAPIError("KB OpenAPI dataBody 형식이 올바르지 않습니다.")
-        code = str(body.get("o_clsf", body.get("clsfP", "0")))
-        if code not in {"", "0", "00"}:
-            raise KBOpenAPIError(body.get("o_msg", body.get("msg", "KB OpenAPI가 오류를 반환했습니다.")))
-        return body
+        return self._normalize_response(payload, require_data_body=require_data_body)
 
     async def sync_holdings(self) -> list[dict[str, Any]]:
         domestic, overseas = await asyncio.gather(
-            self.call("/api/v1/ssqm1801", {"inq_clsf": "0", "mkt_tm_ccd": "1", "is_no": "", "nxt_key": ""}),
-            self.call("/api/v1/spqm2226", {"std_crncy_f": "2", "exch_r_aplc_f": "2", "fee_clsf": "0", "cn_f": "0", "nxt_key": "", "mktpr_aplc_clsf": ""}),
+            self.call("/api/v1/ssqm1801", {"inq_clsf": "0", "mkt_tm_ccd": "1", "is_no": "", "nxt_key": ""}, require_data_body=True),
+            self.call("/api/v1/spqm2226", {"std_crncy_f": "2", "exch_r_aplc_f": "2", "fee_clsf": "0", "cn_f": "0", "nxt_key": "", "mktpr_aplc_clsf": ""}, require_data_body=True),
         )
         domestic_rows = domestic.get("Record1")
         overseas_rows = overseas.get("Record2")

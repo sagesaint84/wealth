@@ -11,6 +11,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from app.services.user_identity import (
+    INVALID_ID,
+    VALID_ID,
+    classify_user_id_state,
+    generate_user_id,
+    inspect_user_id_states,
+    validate_user_id,
+)
+
 logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -19,6 +28,30 @@ USERS_DIR = DATA_DIR / "users"
 USERS_FILE = DATA_DIR / "users.json"
 
 PBKDF2_ITERATIONS = 100_000
+
+
+def _validate_user_identity_integrity(users: list[dict[str, Any]]) -> None:
+    """Reject present malformed or duplicated stable IDs without migration."""
+    if any(not isinstance(user, dict) for user in users):
+        raise ValueError("invalid user identity database")
+    inspection = inspect_user_id_states(users)
+    if inspection["invalid_ids"]:
+        raise ValueError("invalid user identity database")
+    if inspection["duplicate_ids"]:
+        raise ValueError("duplicate stable user identity")
+
+
+def _generate_fresh_user_id(users: list[dict[str, Any]]) -> str:
+    """Generate one new ID and fail closed on the astronomically rare collision."""
+    generated = generate_user_id()
+    existing_ids = {
+        validate_user_id(user["id"])
+        for user in users
+        if classify_user_id_state(user) == VALID_ID
+    }
+    if generated in existing_ids:
+        raise ValueError("unable to allocate stable user identity")
+    return generated
 
 
 def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
@@ -54,14 +87,23 @@ def load_users_db() -> dict[str, Any]:
         return {"users": []}
     try:
         with open(USERS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
     except Exception as e:
         logger.error("users.json 로드 실패: %s", e)
         return {"users": []}
+    users = data.get("users", [])
+    if not isinstance(users, list):
+        raise ValueError("invalid user identity database")
+    _validate_user_identity_integrity(users)
+    return data
 
 
 def save_users_db(data: dict[str, Any]) -> None:
     """users.json 파일에 저장합니다."""
+    users = data.get("users", [])
+    if not isinstance(users, list):
+        raise ValueError("invalid user identity database")
+    _validate_user_identity_integrity(users)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     tmp = USERS_FILE.with_suffix(".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
@@ -86,6 +128,7 @@ def init_users_and_migration() -> None:
     if "admin" not in usernames:
         salt, p_hash = hash_password("admin")
         users.append({
+            "id": _generate_fresh_user_id(users),
             "username": "admin",
             "salt": salt,
             "password_hash": p_hash,
@@ -104,6 +147,7 @@ def init_users_and_migration() -> None:
     if env_user not in usernames:
         salt, p_hash = hash_password(env_pass)
         users.append({
+            "id": _generate_fresh_user_id(users),
             "username": env_user,
             "salt": salt,
             "password_hash": p_hash,
@@ -174,6 +218,7 @@ def list_users() -> list[dict[str, Any]]:
     results = []
     for u in db.get("users", []):
         results.append({
+            "id": u.get("id"),
             "username": u["username"],
             "role": u.get("role", "user"),
             "must_change_password": bool(u.get("must_change_password", False)),
@@ -201,6 +246,7 @@ def create_new_user(username: str, initial_password_4digit: str, role: str = "us
 
     salt, p_hash = hash_password(initial_password_4digit)
     users.append({
+        "id": _generate_fresh_user_id(users),
         "username": username,
         "salt": salt,
         "password_hash": p_hash,

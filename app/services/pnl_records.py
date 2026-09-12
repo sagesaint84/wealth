@@ -522,6 +522,10 @@ def recalculate_pnl_historical_fx(username: str | None = None) -> int:
     records = read_pnl_records(username)
     updated_count = 0
     for r in records:
+        # Toss WTS provides its own KRW realized-P/L value.  It must not be
+        # replaced by Wealth's historical-FX reconstruction.
+        if r.get("source") == "toss_wts":
+            continue
         if str(r.get("currency", "KRW")).upper() == "USD":
             d_str = str(r.get("date", ""))
             if d_str:

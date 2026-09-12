@@ -68,10 +68,13 @@ def mutate(username, operation, payload):
                     raise PlanningConflict("수정할 기존 기록과 확인 여부를 확인하세요.")
                 original = matches[0]
             manual = operation == 'snapshot-manual' or (original is not None and original.get('source') == 'manual')
-            # Net-only manual records never invent an asset/debt breakdown.
-            assets, debt = (None, None) if manual else (finite(payload["assets"], 0), finite(payload["debt"], 0))
+            has_breakdown = 'assets' in payload and 'debt' in payload
+            # New manual records may include an explicit asset/debt breakdown;
+            # legacy net-only records remain supported without inventing values.
+            assets, debt = ((finite(payload["assets"], 0), finite(payload["debt"], 0))
+                            if has_breakdown else ((None, None) if manual else (finite(payload["assets"], 0), finite(payload["debt"], 0))))
             net = finite(payload["net_worth"])
-            if not manual and not math.isclose(assets - debt, net, rel_tol=0, abs_tol=0.01):
+            if has_breakdown and not math.isclose(assets - debt, net, rel_tol=0, abs_tol=0.01):
                 raise ValueError("순자산과 자산·부채 합계가 일치하지 않습니다.")
             fx = {str(k): finite(v, 0) for k, v in payload.get("fx_rates", {}).items()}
             if any(len(k) != 3 or not k.isascii() or not k.isalpha() or k != k.upper() or v <= 0 for k, v in fx.items()):

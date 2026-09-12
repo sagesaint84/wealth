@@ -273,7 +273,14 @@ python -m unittest discover -s tests -v
 
 ## 버전
 
-현재 앱 버전은 **Wealth v1.0.20**입니다. 당분간 `v1.0.x` 체계를 사용합니다. 백업/ledger 형식 번호는 앱 버전과 별개로 유지합니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
+현재 앱 버전은 **Wealth v1.1.0**입니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
+
+### 토스 WTS 읽기 전용 실현손익 연동 (v1.1.0)
+
+- 로컬 tossctl 런타임을 통한 토스 WTS 실현손익 읽기 전용 피드 조회 지원
+- 불변 사용자 식별자(UUID) 기반 정적 인가 및 명시적 런타임 세션 확인(confirmation guard) 적용
+- 조회 결과는 브라우저 일시 표시(transient) 전용이며 Wealth 금융 데이터베이스에 저장되지 않음(zero-persistence)
+- 상세 설정 방법은 `.env.example`의 `WEALTH_TOSS_WTS_*` 항목을 참고하세요.
 
 Linux에서 브랜치를 Docker로 설치하거나 갱신하려면 [브랜치 설치 안내](docs/linux-branch-install.md)를 확인하세요. GHCR `latest`는 main 기준이며 `codex-refactor`는 직접 빌드해야 합니다.
 

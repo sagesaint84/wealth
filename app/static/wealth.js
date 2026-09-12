@@ -5707,6 +5707,9 @@ function openAssetRecordDialog(record = null) {
   $("#assetRecordDialogTitle") && ($("#assetRecordDialogTitle").textContent = record ? "자산기록 수정" : "자산기록 추가");
   form.date.value = record?.date || new Date().toISOString().slice(0, 10);
   form.total_value_krw.value = record?.total_value_krw ?? "";
+  if (form.total_assets_krw) form.total_assets_krw.value = record?.total_assets_krw ?? record?.total_value_krw ?? "";
+  if (form.total_debt_krw) form.total_debt_krw.value = record?.total_debt_krw ?? "";
+  if (form.net_worth_krw) form.net_worth_krw.value = record?.net_worth_krw ?? ((Number(record?.total_assets_krw ?? record?.total_value_krw) || 0) - (Number(record?.total_debt_krw) || 0));
   form.total_cost_krw.value = record?.total_cost_krw ?? "";
   form.profit_krw.value = record?.profit_krw ?? "";
   form.return_rate.value = record?.return_rate ?? "";
@@ -7209,9 +7212,11 @@ $("#assetRecordForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.currentTarget;
   const payload = Object.fromEntries(new FormData(form));
-  ["total_value_krw", "total_cost_krw", "profit_krw", "return_rate", "day_profit_krw", "krw_value_krw", "usd_value_krw", "holding_count"].forEach(key => {
+  ["total_value_krw", "total_assets_krw", "total_debt_krw", "net_worth_krw", "total_cost_krw", "profit_krw", "return_rate", "day_profit_krw", "krw_value_krw", "usd_value_krw", "holding_count"].forEach(key => {
     payload[key] = Number(payload[key] || 0);
   });
+  payload.total_value_krw = payload.total_value_krw || payload.total_assets_krw;
+  payload.net_worth_krw = (Number(payload.total_assets_krw) || 0) - (Number(payload.total_debt_krw) || 0);
   payload.memo = payload.memo || "";
   payload.owner = payload.owner || currentOwner || "모두";
   try {
@@ -8565,6 +8570,24 @@ let actualDividendData = null;
 let selectedDividendMonth = null;
 let selectedDividendYear = "2026";
 
+function normalizeMonthlyDividendSchedule(monthlySchedule) {
+  if (Array.isArray(monthlySchedule)) return monthlySchedule;
+  if (!monthlySchedule || typeof monthlySchedule !== "object") return [];
+
+  return Object.entries(monthlySchedule)
+    .map(([key, value]) => {
+      const item = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      const itemMonth = Number(item.month);
+      const keyMonth = Number(key);
+      return {
+        ...item,
+        month: Number.isFinite(itemMonth) ? itemMonth : (Number.isFinite(keyMonth) ? keyMonth : 0),
+        items: Array.isArray(item.items) ? item.items : [],
+      };
+    })
+    .sort((left, right) => left.month - right.month);
+}
+
 async function loadDividends(owner = currentOwner) {
   try {
     const res = await api(`/api/dividends?owner=${encodeURIComponent(owner)}`);
@@ -8615,7 +8638,7 @@ function renderDividends(data) {
   $("#dividendChartTitle") && ($("#dividendChartTitle").textContent = "📊 1월 ~ 12월 월별 예상 배당금 추이");
 
   // 1. 상단 4대 요약 카드
-  const schedule = data.monthly_schedule || [];
+  const schedule = normalizeMonthlyDividendSchedule(data.monthly_schedule);
   const scheduleTotal = schedule.reduce((sum, item) => sum + Number(item.total_krw || 0), 0);
   const totalAnnual = Number(data.total_annual_dividend_krw ?? scheduleTotal ?? 0) || scheduleTotal;
   const totalAnnualUsd = fxUsd > 0 ? (totalAnnual / fxUsd) : 0;
@@ -8702,7 +8725,7 @@ function renderMonthlyDividendDetail(month = null) {
   const container = $("#dividendMonthlyDetail");
   if (!container || !dividendData) return;
 
-  const schedule = dividendData.monthly_schedule || [];
+  const schedule = normalizeMonthlyDividendSchedule(dividendData.monthly_schedule);
   let title = "전체 배당 지급 종목 (연간 기준)";
   let items = [];
 
@@ -9336,6 +9359,10 @@ function renderRealizedPnl(data) {
   renderPnlMonthlyDetail(selectedPnlMonth);
 }
 
+function formatOptionalTossWtsFxDisplay(record, value, formatter) {
+  return record?.source === 'toss_wts' && value == null ? '—' : formatter(value);
+}
+
 function renderPnlMonthlyDetail(month = null) {
   const container = $("#pnlMonthlyDetail");
   if (!container || !pnlData) return;
@@ -9413,8 +9440,12 @@ function renderPnlMonthlyDetail(month = null) {
     const colorClass = pnlVal > 0 ? 'pnl-gain-val' : (pnlVal < 0 ? 'pnl-loss-val' : 'pnl-zero-val');
     const origText = isUsd ? `${Number(item.pnl) > 0 ? '+' : ''}$${number(item.pnl, 2)}` : '';
     const fxPnlVal = Number(item.fx_pnl_krw || 0);
-    const fxPnlInfo = (isUsd && fxPnlVal !== 0) ? `<br><small style="color:#c4b5fd;">환차손익 ${fxPnlVal > 0 ? '+' : ''}${money(fxPnlVal)}</small>` : '';
-    const fxInfo = isUsd ? `<br><small style="color:#8da0c7;">환율 ${number(item.fx_rate, 1)}원</small>${fxPnlInfo}` : '';
+    const wtsFxPnlUnavailable = item.source === 'toss_wts' && item.fx_pnl_krw == null;
+    const wtsFxPnlZero = item.source === 'toss_wts' && item.fx_pnl_krw === 0;
+    const fxPnlDisplay = formatOptionalTossWtsFxDisplay(item, item.fx_pnl_krw, value => `${Number(value) > 0 ? '+' : ''}${money(value)}`);
+    const fxPnlInfo = (isUsd && (wtsFxPnlUnavailable || wtsFxPnlZero || fxPnlVal !== 0)) ? `<br><small style="color:#c4b5fd;">환차손익 ${fxPnlDisplay}</small>` : '';
+    const fxRateDisplay = formatOptionalTossWtsFxDisplay(item, item.fx_rate, value => `${number(value, 1)}원`);
+    const fxInfo = isUsd ? `<br><small style="color:#8da0c7;">환율 ${fxRateDisplay}</small>${fxPnlInfo}` : '';
 
     let typeBadge = '<span class="td-normal-badge">일반거래</span>';
     if (item.asset_type === 'real_estate' || item.code === 'REAL_ESTATE') {
@@ -12451,6 +12482,354 @@ function initLedgerListeners() {
   }
 }
 
+// ── 토스 WTS 실현손익 피드 (읽기 전용 UX) ──────────────────────────────────
+const tossWtsState = {
+  status: null,
+  confirmed: false,
+  loading: false,
+  rows: [],
+  lastRequested: null,    // { from_date, to_date, profit_rate_basis } from response.requested
+  fetchedBasis: null,     // response.requested.profit_rate_basis
+  fetchedFromDate: null,  // response.requested.from_date
+  fetchedToDate: null,    // response.requested.to_date
+  fetchedAt: null,        // response.fetched_at
+};
+
+function showTossWtsMessage(msg, type = 'info') {
+  const el = document.getElementById('tossWtsMessage');
+  if (!el) return;
+  el.className = `toss-wts-message ${type}`;
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function hideTossWtsMessage() {
+  const el = document.getElementById('tossWtsMessage');
+  if (!el) return;
+  el.style.display = 'none';
+  el.textContent = '';
+}
+
+function updateTossWtsStatusUI(text, stateClass) {
+  const el = document.getElementById('tossWtsStatusText');
+  if (!el) return;
+  el.className = `toss-wts-status-text ${stateClass || ''}`.trim();
+  el.textContent = text;
+}
+
+function setTossWtsLoading(isLoading) {
+  tossWtsState.loading = isLoading;
+  const checkBtn = document.getElementById('btnCheckTossWtsStatus');
+  const confirmBtn = document.getElementById('btnConfirmTossWtsSession');
+  const fetchBtn = document.getElementById('btnFetchTossWtsFeed');
+  if (checkBtn) checkBtn.disabled = isLoading;
+  if (confirmBtn) confirmBtn.disabled = isLoading;
+  if (fetchBtn) fetchBtn.disabled = isLoading;
+}
+
+function checkTossWtsFormStale() {
+  const staleEl = document.getElementById('tossWtsStaleHint');
+  if (!staleEl) return;
+
+  if (!tossWtsState.lastRequested || !tossWtsState.rows || tossWtsState.rows.length === 0) {
+    staleEl.style.display = 'none';
+    return;
+  }
+
+  const curFrom = document.getElementById('tossWtsFromDate')?.value?.trim();
+  const curTo = document.getElementById('tossWtsToDate')?.value?.trim();
+  const curBasis = document.getElementById('tossWtsBasisSelect')?.value;
+
+  const isStale = (
+    curFrom !== tossWtsState.fetchedFromDate ||
+    curTo !== tossWtsState.fetchedToDate ||
+    curBasis !== tossWtsState.fetchedBasis
+  );
+
+  if (isStale) {
+    staleEl.textContent = '조회 조건이 변경되었습니다. [WTS 조회]를 눌러 다시 조회하세요.';
+    staleEl.style.display = 'block';
+  } else {
+    staleEl.style.display = 'none';
+  }
+}
+
+function updateTossWtsMetaUI() {
+  const metaEl = document.getElementById('tossWtsMeta');
+  if (!metaEl) return;
+
+  if (!tossWtsState.lastRequested || !tossWtsState.rows) {
+    metaEl.style.display = 'none';
+    metaEl.innerHTML = '';
+    checkTossWtsFormStale();
+    return;
+  }
+
+  const basis = tossWtsState.fetchedBasis || 'KRW';
+  const fromDate = tossWtsState.fetchedFromDate || '-';
+  const toDate = tossWtsState.fetchedToDate || '-';
+  const count = tossWtsState.rows.length;
+  const timeStr = tossWtsState.fetchedAt ? new Date(tossWtsState.fetchedAt).toLocaleTimeString('ko-KR') : '';
+
+  metaEl.innerHTML = `
+    <span class="toss-wts-meta-item">조회 기간: <strong>${html(fromDate)} ~ ${html(toDate)}</strong></span>
+    <span class="toss-wts-meta-sep">·</span>
+    <span class="toss-wts-meta-item">수익률 기준: <strong>${html(basis)}</strong></span>
+    ${timeStr ? `<span class="toss-wts-meta-sep">·</span><span class="toss-wts-meta-item">조회 시각: ${html(timeStr)}</span>` : ''}
+    <span class="toss-wts-meta-sep">·</span>
+    <span class="toss-wts-meta-item"><strong>${count}건</strong></span>
+  `;
+  metaEl.style.display = 'flex';
+  checkTossWtsFormStale();
+}
+
+async function checkTossWtsStatus() {
+  if (tossWtsState.loading) return;
+  setTossWtsLoading(true);
+  try {
+    const res = await fetch('/api/toss-wts/status');
+    if (res.status === 403) {
+      updateTossWtsStatusUI('권한 없음', 'error');
+      showTossWtsMessage('이 사용자에게는 토스 WTS 조회 권한이 없습니다.', 'error');
+      return;
+    }
+    if (!res.ok) {
+      updateTossWtsStatusUI('연결 상태 확인 불가', 'error');
+      showTossWtsMessage('토스 WTS 연결 상태를 확인할 수 없습니다.', 'error');
+      return;
+    }
+    const data = await res.json();
+    tossWtsState.status = data;
+    if (data.adapter_ready) {
+      updateTossWtsStatusUI('준비 완료', 'ready');
+      showTossWtsMessage('토스 WTS 어댑터가 준비되었습니다. 조회를 위해 [WTS 세션 확인]을 진행하세요.', 'info');
+    } else {
+      const errMap = {
+        NOT_CONFIGURED: 'WTS 비활성',
+        SESSION_MISSING: '세션 확인 필요',
+      };
+      const desc = errMap[data.error_code] || '연결 상태 확인 불가';
+      updateTossWtsStatusUI(desc, 'error');
+      showTossWtsMessage(`토스 WTS 상태: ${desc}`, 'error');
+    }
+  } catch (err) {
+    updateTossWtsStatusUI('연결 상태 확인 불가', 'error');
+    showTossWtsMessage('토스 WTS 상태 확인 중 네트워크 오류가 발생했습니다.', 'error');
+  } finally {
+    setTossWtsLoading(false);
+  }
+}
+
+async function confirmTossWtsSession() {
+  if (tossWtsState.loading) return;
+  setTossWtsLoading(true);
+  try {
+    const res = await fetch('/api/toss-wts/feed/confirm', { method: 'POST' });
+    if (res.status === 403) {
+      tossWtsState.confirmed = false;
+      updateTossWtsStatusUI('권한 없음', 'error');
+      showTossWtsMessage('이 사용자에게는 토스 WTS 조회 권한이 없습니다.', 'error');
+      return;
+    }
+    if (res.status === 503) {
+      tossWtsState.confirmed = false;
+      updateTossWtsStatusUI('연결 상태 확인 불가', 'error');
+      showTossWtsMessage('토스 WTS 연동 런타임을 사용할 수 없습니다.', 'error');
+      return;
+    }
+    if (!res.ok) {
+      tossWtsState.confirmed = false;
+      updateTossWtsStatusUI('세션 확인 필요', 'error');
+      showTossWtsMessage('WTS 세션 확인에 실패했습니다.', 'error');
+      return;
+    }
+    const data = await res.json();
+    if (data.confirmed) {
+      tossWtsState.confirmed = true;
+      updateTossWtsStatusUI('세션 확인 완료', 'confirmed');
+      showTossWtsMessage('WTS 세션이 확인되었습니다. 실현손익 조회가 가능합니다.', 'success');
+    } else {
+      tossWtsState.confirmed = false;
+      updateTossWtsStatusUI('세션 확인 필요', 'error');
+      showTossWtsMessage('WTS 세션 확인에 실패했습니다.', 'error');
+    }
+  } catch (err) {
+    tossWtsState.confirmed = false;
+    updateTossWtsStatusUI('연결 상태 확인 불가', 'error');
+    showTossWtsMessage('WTS 세션 확인 중 네트워크 오류가 발생했습니다.', 'error');
+  } finally {
+    setTossWtsLoading(false);
+  }
+}
+
+async function fetchTossWtsRealizedFeed() {
+  if (tossWtsState.loading) return;
+  const fromInput = document.getElementById('tossWtsFromDate');
+  const toInput = document.getElementById('tossWtsToDate');
+  const basisSelect = document.getElementById('tossWtsBasisSelect');
+  const reqFromDate = fromInput?.value?.trim();
+  const reqToDate = toInput?.value?.trim();
+  const reqBasis = basisSelect?.value || 'KRW';
+
+  if (!reqFromDate || !reqToDate) {
+    showTossWtsMessage('시작일과 종료일을 입력해주세요.', 'error');
+    return;
+  }
+  if (reqFromDate > reqToDate) {
+    showTossWtsMessage('시작일은 종료일보다 이전이어야 합니다.', 'error');
+    return;
+  }
+
+  setTossWtsLoading(true);
+  const tbody = document.getElementById('tossWtsTableBody');
+  if (tbody && (!tossWtsState.rows || tossWtsState.rows.length === 0)) {
+    tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-loading">⏳ 토스 WTS 실현손익을 조회하는 중입니다...</td></tr>';
+  }
+  showTossWtsMessage('토스 WTS 실현손익을 조회하는 중입니다...', 'info');
+
+  try {
+    const res = await fetch('/api/toss-wts/realized-feed/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from_date: reqFromDate,
+        to_date: reqToDate,
+        profit_rate_basis: reqBasis,
+      }),
+    });
+
+    if (res.status === 403) {
+      showTossWtsMessage('이 사용자에게는 토스 WTS 조회 권한이 없습니다.', 'error');
+      updateTossWtsMetaUI();
+      return;
+    }
+    if (res.status === 409) {
+      showTossWtsMessage("WTS 세션 확인이 필요합니다. 먼저 [WTS 세션 확인] 버튼을 눌러주세요.", 'error');
+      updateTossWtsMetaUI();
+      return;
+    }
+    if (res.status === 502 || res.status === 503) {
+      showTossWtsMessage('토스 WTS 연동 런타임을 사용할 수 없습니다.', 'error');
+      updateTossWtsMetaUI();
+      return;
+    }
+    if (res.status === 400) {
+      showTossWtsMessage('조회 요청 파라미터가 유효하지 않습니다.', 'error');
+      updateTossWtsMetaUI();
+      return;
+    }
+    if (!res.ok) {
+      showTossWtsMessage(`토스 WTS 조회 중 오류가 발생했습니다. (${res.status})`, 'error');
+      updateTossWtsMetaUI();
+      return;
+    }
+
+    const data = await res.json();
+    tossWtsState.lastRequested = data.requested || {
+      from_date: reqFromDate,
+      to_date: reqToDate,
+      profit_rate_basis: reqBasis,
+    };
+    tossWtsState.fetchedBasis = tossWtsState.lastRequested.profit_rate_basis;
+    tossWtsState.fetchedFromDate = tossWtsState.lastRequested.from_date;
+    tossWtsState.fetchedToDate = tossWtsState.lastRequested.to_date;
+    tossWtsState.fetchedAt = data.fetched_at;
+    tossWtsState.rows = data.rows || [];
+
+    hideTossWtsMessage();
+    renderTossWtsFeedTable(tossWtsState.rows, tossWtsState.fetchedBasis, 'ok');
+    updateTossWtsMetaUI();
+  } catch (err) {
+    showTossWtsMessage('토스 WTS 조회 중 네트워크 오류가 발생했습니다.', 'error');
+    updateTossWtsMetaUI();
+  } finally {
+    setTossWtsLoading(false);
+  }
+}
+
+function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
+  const tbody = document.getElementById('tossWtsTableBody');
+  if (!tbody) return;
+
+  if (status === 'error') {
+    tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-empty">조회에 실패했습니다.</td></tr>';
+    return;
+  }
+
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-empty">선택한 기간에 조회된 실현손익 내역이 없습니다.</td></tr>';
+    return;
+  }
+
+  const isUsd = basis === 'USD';
+  const htmlRows = rows.map(r => {
+    const pnl = isUsd ? Number(r.profit_loss?.usd ?? 0) : Number(r.profit_loss?.krw ?? 0);
+    const pnlColor = pnl > 0 ? 'gain' : (pnl < 0 ? 'loss' : '');
+    const pnlSign = pnl > 0 ? '+' : '';
+    const pnlFormatted = isUsd ? `${pnlSign}$${number(pnl, 2)}` : `${pnlSign}₩${money(pnl)}`;
+
+    const buyAmt = isUsd ? `$${number(r.buy_amount?.usd ?? 0, 2)}` : `₩${money(r.buy_amount?.krw ?? 0)}`;
+    const sellAmt = isUsd ? `$${number(r.sell_amount?.usd ?? 0, 2)}` : `₩${money(r.sell_amount?.krw ?? 0)}`;
+
+    const rate = r.profit_rate != null ? Number(r.profit_rate) : null;
+    const rateSign = rate > 0 ? '+' : '';
+    const rateColor = rate > 0 ? 'gain' : (rate < 0 ? 'loss' : '');
+    const rateFormatted = rate != null ? `${rateSign}${rate.toFixed(2)}%` : '-';
+
+    const market = String(r.market_type || '').toUpperCase();
+    let marketBadge = `<span class="toss-wts-market-badge">${html(market || '-')}</span>`;
+    if (market === 'KR' || market === 'DOMESTIC') {
+      marketBadge = '<span class="toss-wts-market-badge kr">국내</span>';
+    } else if (market === 'US' || market === 'OVERSEAS') {
+      marketBadge = '<span class="toss-wts-market-badge us">해외</span>';
+    }
+
+    const qty = Number(r.quantity ?? 0);
+    const qtyFormatted = number(qty, Number.isInteger(qty) ? 0 : 2);
+
+    return `<tr>
+      <td class="center">${html(r.date || '')}</td>
+      <td class="center">${marketBadge}</td>
+      <td><strong>${html(r.name || '')}</strong> <small class="muted">(${html(r.symbol || r.product_code || '')})</small></td>
+      <td class="right">${qtyFormatted}</td>
+      <td class="right">${buyAmt}</td>
+      <td class="right">${sellAmt}</td>
+      <td class="right ${pnlColor}" style="font-weight:700;">${pnlFormatted}</td>
+      <td class="right ${rateColor}" style="font-weight:700;">${rateFormatted}</td>
+    </tr>`;
+  }).join('');
+
+  tbody.innerHTML = htmlRows;
+}
+
+function initTossWtsUI() {
+  const fromInput = document.getElementById('tossWtsFromDate');
+  const toInput = document.getElementById('tossWtsToDate');
+  const basisSelect = document.getElementById('tossWtsBasisSelect');
+
+  if (fromInput && !fromInput.value) {
+    const year = new Date().getFullYear();
+    fromInput.value = `${year}-01-01`;
+  }
+  if (toInput && !toInput.value) {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    toInput.value = `${yyyy}-${mm}-${dd}`;
+  }
+
+  document.getElementById('btnCheckTossWtsStatus')?.addEventListener('click', checkTossWtsStatus);
+  document.getElementById('btnConfirmTossWtsSession')?.addEventListener('click', confirmTossWtsSession);
+  document.getElementById('btnFetchTossWtsFeed')?.addEventListener('click', fetchTossWtsRealizedFeed);
+
+  // Form input changes do NOT auto-fetch or re-interpret existing rows!
+  // They only trigger staleness detection against last successful request metadata.
+  basisSelect?.addEventListener('change', checkTossWtsFormStale);
+  fromInput?.addEventListener('input', checkTossWtsFormStale);
+  toInput?.addEventListener('input', checkTossWtsFormStale);
+}
+
 // ── APP BOOTSTRAP ─────────────────────────────────────────────────────────────
 async function bootstrap() {
   initAppTheme();
@@ -12461,6 +12840,7 @@ async function bootstrap() {
   setupAutoAdvancingDateInput("#divSplitDateWrap");
   setupAutoAdvancingDateInput("#ledgerTxSplitDateWrap");
   setupAutoAdvancingDateInput("#ledgerPaySplitDateWrap");
+  initTossWtsUI();
   await initAuthSession();
 }
 

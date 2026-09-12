@@ -11,13 +11,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Wealth" />
     <meta name="application-name" content="Wealth" />
-    <meta name="application-version" content="1.0.19" />
+    <meta name="application-version" content="1.1.0" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/static/wealth.css?v=1.0.19" />
-    <link rel="stylesheet" href="/static/wealth-overrides.css?v=1.0.19" />
-    <link rel="stylesheet" href="/static/wealth-layout.css?v=1.0.19" />
+    <link rel="stylesheet" href="/static/wealth.css?v=1.1.0" />
+    <link rel="stylesheet" href="/static/wealth-overrides.css?v=1.1.0" />
+    <link rel="stylesheet" href="/static/wealth-layout.css?v=1.1.0" />
   </head>
   <body>
     <main class="shell">
@@ -347,8 +347,8 @@
           </div>
           <div class="toolbar" style="margin-left:auto;">
             <span id="recordCount" class="muted">0개 기록</span>
-            <button id="snapshotButton" class="button secondary compact" type="button" title="오늘 스냅샷 저장">💾 저장</button>
-            <button id="addRecordButton" class="button secondary compact" type="button" title="자산기록 직접 추가">➕ 추가</button>
+            <button id="snapshotButton" class="button secondary compact" type="button" title="오늘 스냅샷 저장">기록</button>
+            <button id="addRecordButton" class="button secondary compact" type="button" title="자산기록 직접 추가">추가</button>
           </div>
         </div>
         <div class="records-grid">
@@ -656,6 +656,85 @@
 
           <!-- 선택 월별 실현손익 상세 목록 -->
           <div id="pnlMonthlyDetail" class="dividend-detail-wrap"></div>
+
+          <!-- 토스 WTS 실현손익 (읽기 전용 피드) -->
+          <div id="tossWtsCard" class="wealth-card toss-wts-card">
+            <div class="toss-wts-header">
+              <div class="toss-wts-title-group">
+                <h3 class="toss-wts-title">토스 WTS 실현손익</h3>
+                <span class="toss-wts-badge">읽기 전용</span>
+              </div>
+              <div class="toss-wts-status-group">
+                <span id="tossWtsStatusText" class="toss-wts-status-text">상태 미확인</span>
+                <button type="button" id="btnCheckTossWtsStatus" class="button secondary compact toss-wts-btn">상태 확인</button>
+                <button type="button" id="btnConfirmTossWtsSession" class="button secondary compact toss-wts-btn">WTS 세션 확인</button>
+              </div>
+            </div>
+
+            <!-- 경고 배너 -->
+            <div class="toss-wts-banner" role="note" aria-label="WTS 읽기 전용 주의사항">
+              <span class="toss-wts-banner-icon">⚠️</span>
+              <span class="toss-wts-banner-text">토스 WTS 조회 자료 · 읽기 전용 · 계좌 범위 미확인 · Wealth 자산 및 실현손익 합계에 반영되지 않습니다.</span>
+            </div>
+
+            <!-- 조회 컨트롤 바 -->
+            <div class="toss-wts-controls">
+              <div class="toss-wts-control-item">
+                <label for="tossWtsFromDate">시작일</label>
+                <input type="date" id="tossWtsFromDate" class="toss-wts-input" aria-label="WTS 조회 시작일">
+              </div>
+              <div class="toss-wts-control-item">
+                <label for="tossWtsToDate">종료일</label>
+                <input type="date" id="tossWtsToDate" class="toss-wts-input" aria-label="WTS 조회 종료일">
+              </div>
+              <div class="toss-wts-control-item">
+                <label for="tossWtsBasisSelect">수익률 기준</label>
+                <select id="tossWtsBasisSelect" class="toss-wts-select" aria-label="WTS 수익률 기준 통화">
+                  <option value="KRW" selected>원화 (KRW)</option>
+                  <option value="USD">달러 (USD)</option>
+                </select>
+              </div>
+              <div class="toss-wts-control-action">
+                <button type="button" id="btnFetchTossWtsFeed" class="button primary compact toss-wts-fetch-btn">WTS 조회</button>
+              </div>
+            </div>
+
+            <!-- 조회 조건 변경 알림 (재조회 안내) -->
+            <div id="tossWtsStaleHint" class="toss-wts-stale-hint" style="display:none;" role="status"></div>
+
+            <!-- 상태/에러 메시지 -->
+            <div id="tossWtsMessage" class="toss-wts-message" style="display:none;" role="status"></div>
+
+            <!-- 직전 성공 조회 메타데이터 -->
+            <div id="tossWtsMeta" class="toss-wts-meta" style="display:none;"></div>
+
+            <!-- 실현손익 목록 테이블 -->
+            <div id="tossWtsTableWrap" class="toss-wts-table-wrap">
+              <table id="tossWtsTable" class="toss-wts-table">
+                <thead>
+                  <tr>
+                    <th class="center" style="width:100px;">거래일자</th>
+                    <th class="center" style="width:70px;">시장</th>
+                    <th>종목명 (코드)</th>
+                    <th class="right" style="width:80px;">수량</th>
+                    <th class="right" style="width:110px;">매수금액</th>
+                    <th class="right" style="width:110px;">매도금액</th>
+                    <th class="right" style="width:120px;">실현손익</th>
+                    <th class="right" style="width:90px;">수익률</th>
+                  </tr>
+                </thead>
+                <tbody id="tossWtsTableBody">
+                  <tr>
+                    <td colspan="8" class="toss-wts-empty">조회 버튼을 눌러 토스 WTS 실현손익을 조회하세요.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div id="tossWtsNotice" class="toss-wts-notice muted">
+              본 화면의 조회 결과는 브라우저 새로고침 시 초기화되며 저장되지 않습니다.
+            </div>
+          </div>
         </div>
       </section>
 
@@ -2782,10 +2861,10 @@
       </form>
     </dialog>
 
-    <script src="/static/wealth-layout.js?v=1.0.19"></script>
-    <script src="/static/wealth.js?v=1.0.19"></script>
-    <script src="/static/wealth-planning-model.js?v=1.0.19"></script>
-    <script src="/static/wealth-planning.js?v=1.0.19"></script>
+    <script src="/static/wealth-layout.js?v=1.1.0"></script>
+    <script src="/static/wealth.js?v=1.1.0"></script>
+    <script src="/static/wealth-planning-model.js?v=1.1.0"></script>
+    <script src="/static/wealth-planning.js?v=1.1.0"></script>
   </body>
 </html>
 

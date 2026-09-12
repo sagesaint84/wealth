@@ -43,6 +43,14 @@ class FakeClient:
 
 
 class AdapterContractTests(unittest.IsolatedAsyncioTestCase):
+    def test_kb_header_only_response_is_envelope_error(self):
+        with self.assertRaisesRegex(KBOpenAPIError, "잔고 데이터 없이"):
+            KBOpenAPI._normalize_response({"dataHeader": {"resultCode": "x"}}, require_data_body=True)
+
+    def test_kb_data_body_response_remains_supported(self):
+        body = KBOpenAPI._normalize_response({"dataHeader": {}, "dataBody": {"Record1": []}}, require_data_body=True)
+        self.assertEqual(body["Record1"], [])
+
     async def test_kb_true_zero_requires_both_documented_lists(self):
         client = KBOpenAPI.__new__(KBOpenAPI)
         client.call = AsyncMock(side_effect=[{"Record1": []}, {"Record2": []}])

@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -48,6 +48,16 @@ from app.services.pnl_records import (
 )
 from app.services.historical_fx import get_historical_fx_rate, sync_historical_fx
 from app.services.stock_master import sync_stock_master_online
+from app.services.toss_wts_adapter import TossWtsAdapter, TossWtsAdapterError
+from app.services.toss_wts_feed_auth import check_wts_feed_static_authorization
+from app.services.toss_wts_feed_runtime import (
+    check_wts_feed_runtime_confirmation,
+    confirm_wts_feed_runtime_session,
+)
+from app.services.toss_wts_feed import (
+    build_realized_feed_response,
+    validate_realized_feed_request,
+)
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -74,7 +84,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None)
+app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version="1.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 _syncing_users: set[str] = set()
@@ -347,6 +357,9 @@ FORCE_PASSWORD_PAGE_HTML = """<!DOCTYPE html>
 @app.middleware("http")
 async def require_login(request: Request, call_next):
     path = request.url.path
+    # Immutable authorization identity is resolved from the current persisted
+    # user record below; it is never accepted from the signed cookie.
+    request.state.user_id = None
     
     if path in PUBLIC_PATHS or path.startswith("/static/"):
         return await call_next(request)
@@ -358,6 +371,7 @@ async def require_login(request: Request, call_next):
         return RedirectResponse("/login")
     
     request.state.username = user["username"]
+    request.state.user_id = user.get("id")
     request.state.role = user.get("role", "user")
     request.state.must_change_password = bool(user.get("must_change_password", False))
 
@@ -1027,6 +1041,132 @@ async def status() -> dict:
         "namoo_configured": NhPlugOpenAPI().configured,
         "storage": "local",
     }
+
+
+@app.get("/api/toss-wts/status")
+async def toss_wts_local_status(request: Request, response: Response = None) -> dict:
+    """Local-only WTS readiness state; protected by static allowed-user authorization."""
+    get_current_username(request)
+    auth_decision = check_wts_feed_static_authorization(getattr(request.state, "user_id", None))
+    if not auth_decision.authorized:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "STATIC_AUTHORIZATION_FAILED"},
+            headers={"Cache-Control": "no-store"},
+        )
+    if response is not None:
+        response.headers["Cache-Control"] = "no-store"
+    return TossWtsAdapter().get_local_status()
+
+
+@app.post("/api/toss-wts/feed/confirm")
+async def toss_wts_feed_confirm(request: Request) -> JSONResponse:
+    """Explicitly confirm current local WTS session generation for the allowed Wealth user."""
+    get_current_username(request)
+    try:
+        decision = confirm_wts_feed_runtime_session(getattr(request.state, "user_id", None))
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "CONFIRMATION_FAILED"},
+            headers={"Cache-Control": "no-store"},
+        )
+    if decision.confirmed and decision.code == "CONFIRMED":
+        return JSONResponse(
+            status_code=200,
+            content={"confirmed": True, "code": "CONFIRMED"},
+            headers={"Cache-Control": "no-store"},
+        )
+    if decision.code == "STATIC_AUTHORIZATION_FAILED":
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "STATIC_AUTHORIZATION_FAILED"},
+            headers={"Cache-Control": "no-store"},
+        )
+    if decision.code == "RUNTIME_MATERIAL_UNAVAILABLE":
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "RUNTIME_MATERIAL_UNAVAILABLE"},
+            headers={"Cache-Control": "no-store"},
+        )
+    raise HTTPException(
+        status_code=409,
+        detail={"code": decision.code if decision.code else "CONFIRMATION_FAILED"},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/toss-wts/realized-feed/fetch")
+async def toss_wts_realized_feed_fetch(request: Request) -> JSONResponse:
+    """Fetch read-only, non-persisted realized P/L feed for the confirmed WTS session."""
+    get_current_username(request)
+    user_id = getattr(request.state, "user_id", None)
+    runtime_decision = check_wts_feed_runtime_confirmation(user_id)
+    if not runtime_decision.confirmed:
+        if runtime_decision.code == "STATIC_AUTHORIZATION_FAILED":
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "STATIC_AUTHORIZATION_FAILED"},
+                headers={"Cache-Control": "no-store"},
+            )
+        if runtime_decision.code == "RUNTIME_MATERIAL_UNAVAILABLE":
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "RUNTIME_MATERIAL_UNAVAILABLE"},
+                headers={"Cache-Control": "no-store"},
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={"code": runtime_decision.code},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("Request body must be a JSON object")
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "Invalid JSON body"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    try:
+        from_date, to_date, basis = validate_realized_feed_request(
+            body.get("from_date"),
+            body.get("to_date"),
+            body.get("profit_rate_basis"),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": str(exc)},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    try:
+        adapter = TossWtsAdapter()
+        raw_result = adapter.get_profit_daily(from_date=from_date, to_date=to_date, currency=basis)
+        feed_response = build_realized_feed_response(from_date, to_date, basis, raw_result)
+        return JSONResponse(
+            status_code=200,
+            content=feed_response,
+            headers={"Cache-Control": "no-store"},
+        )
+    except TossWtsAdapterError as exc:
+        status_code = 502 if exc.code in {"INVALID_JSON", "INVALID_SCHEMA", "UNSUPPORTED_COMMAND"} else 503
+        raise HTTPException(
+            status_code=status_code,
+            detail={"code": exc.code},
+            headers={"Cache-Control": "no-store"},
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "FEED_FETCH_FAILED"},
+            headers={"Cache-Control": "no-store"},
+        )
 
 
 # ---------------------------------------------------------------------------
