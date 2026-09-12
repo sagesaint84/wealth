@@ -68,13 +68,13 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
     raw_fx_pnl = payload.get("fx_pnl_krw")
     if raw_fx_pnl is not None:
         fx_pnl_krw = float(raw_fx_pnl)
-    elif payload.get("source") == "toss_wts":
+    elif payload.get("source") in ("toss_wts", "kis"):
         fx_pnl_krw = None
     else:
         fx_pnl_krw = 0.0
     
     raw_fx = payload.get("fx_rate")
-    if payload.get("source") == "toss_wts" and raw_fx is None:
+    if payload.get("source") in ("toss_wts", "kis") and raw_fx is None:
         fx_rate = None
     elif currency == "USD":
         if raw_fx is not None and float(raw_fx) > 0:
@@ -84,11 +84,17 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
     else:
         fx_rate = 1.0
 
-    pnl_krw = float(payload.get("pnl_krw", 0.0))
-    if pnl_krw == 0.0 and (pnl != 0.0 or (fx_pnl_krw or 0.0) != 0.0):
-        effective_fx = fx_rate if fx_rate is not None else 1.0
-        effective_fx_pnl = fx_pnl_krw if fx_pnl_krw is not None else 0.0
-        pnl_krw = round(pnl * effective_fx + effective_fx_pnl, 0) if currency == "USD" else round(pnl, 0)
+    raw_pnl_krw = payload.get("pnl_krw")
+    if raw_pnl_krw is None and payload.get("source") in ("toss_wts", "kis"):
+        pnl_krw = None
+    elif raw_pnl_krw is not None:
+        pnl_krw = float(raw_pnl_krw)
+    else:
+        pnl_krw = 0.0
+        if (pnl != 0.0 or (fx_pnl_krw or 0.0) != 0.0):
+            effective_fx = fx_rate if fx_rate is not None else 1.0
+            effective_fx_pnl = fx_pnl_krw if fx_pnl_krw is not None else 0.0
+            pnl_krw = round(pnl * effective_fx + effective_fx_pnl, 0) if currency == "USD" else round(pnl, 0)
 
     is_ipo = bool(payload.get("is_ipo", False))
     asset_type = str(payload.get("asset_type") or "").strip().lower()
@@ -152,7 +158,8 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
             record[field] = payload[field]
 
     provenance_fields = [
-        "source", "source_fingerprint", "source_scope_verified",
+        "source", "source_fingerprint", "source_account_scope", "source_account_key",
+        "source_account_label", "source_scope_verified",
         "imported_by_user_action", "imported_at", "source_meta"
     ]
     for field in provenance_fields:
@@ -239,7 +246,7 @@ def update_pnl_record(record_id: str, payload: dict[str, Any], username: str | N
             target[field] = payload[field]
 
     provenance_fields = [
-        "source", "source_fingerprint", "source_scope_verified",
+        "source", "source_fingerprint", "source_account_scope", "source_scope_verified",
         "imported_by_user_action", "imported_at", "source_meta"
     ]
     for field in provenance_fields:

@@ -1,5 +1,27 @@
 # Wealth 변경 이력
 
+## Wealth v1.1.2 — KIS Realized-P/L Integration — 2026-09-12
+
+- **한국투자증권(KIS) 공식 OpenAPI 실현손익 연동 (Selective Realized-P/L Import)**:
+  - 한국투자증권 공식 OpenAPI(국내 `TTTC8715R`, 해외 `TTTS3039R`) 기반 기간별 실현손익 실시간 피드 조회 및 선택 가져오기 파이프라인 구현
+  - **검증된 계좌 스코프 (`source_scope_verified: True`)**: 토스 WTS와 달리 OpenAPI 키 설정과 계좌번호가 일치함을 사전에 검증하여 신뢰된 계좌 범위 확정
+  - **불투명 출처 계좌 식별자 (Opaque Source Account Key)**: raw CANO(계좌번호 앞 8자리) 노출을 차단하고 `HMAC-SHA256(CANO, secret)` 기반 64자 불투명 키 사용
+  - **마스킹 계좌 표시**: API 상태, 피드 응답, 브라우저 DOM 전반에 `XXXX****-YY` 마스킹 포맷 적용
+  - **명시적 최초 귀속 및 영구 매핑**: 첫 import 시 사용자가 선택한 Wealth 계좌에 귀속되며, 이후 `kis_account_mapping.json`을 통해 안전하게 자동 제안
+  - **행 단위 HMAC 서명 및 무결성 보호**: 조회 시 발급되는 `selection_token`을 통해 행 데이터 위변조(`ROW_TAMPERED`) 및 타 사용자/타 계좌 오남용 차단
+  - **브라우저 JSON 정규화 불변성 (`_canonical_num_str`)**: `10`, `10.0`, `"10"`, `"10.0"` 등 브라우저/JSON 라운드트립 간 정수·실수 표기 차이로 인한 서명 검증 실패 문제 해결
+  - **쓰기 전 사전 검증 (Preview-before-write)**: 모달을 통해 `NEW`, `ALREADY_IMPORTED`, `POSSIBLE_DUPLICATE`, `INVALID` 상태를 사전 분류 (미리보기 단계 금융 데이터 무저장)
+  - **커밋 시점 중복 방지 (Replay Protection)**: 단기 유효한 `preview_ticket` 발급 및 최종 import 커밋 시 재분류 검증을 통해 동시성/반복 클릭에 의한 중복 쓰기 원천 차단
+  - **선택적 가져오기 및 읽기 전용 피드 원칙**: 임시 조회 피드는 `read_only: True, persisted: False`로 관리되며 전체 회계 합산에 중복 포함되지 않음
+  - **완전한 출처 메타데이터 보존 (Provenance)**: `source: "kis"`, `source_fingerprint: "kis-realized:v1:<sha256>"`, `source_account_key`, `source_account_label`, `imported_by_user_action: True`, `imported_at`, 최소 필요 메타데이터(`source_meta`) 저장
+  - **국내 공식 매수금액 매핑 (`buy_amt` 우선 매핑)**: 공식 매수금액 필드인 `buy_amt`를 우선 매핑하여 레거시 `pchs_amt`에 의한 가림 문제 해결 및 공모주·대체입고의 매수금액 0원 정상 보존
+  - **수수료 및 제세금 매핑**: `fee`, `tl_tax` 필드를 추출하여 국내 거래 테이블에 수수료/제세금 정보 명확히 표시
+  - **해외 환율 미제공 시 KRW 손익 Null 처리**: 공식 환율 또는 KRW 환산 금액이 없는 경우 `pnl_krw = None`으로 보존하며, 외화 금액을 원화 필드에 복사하지 않고 UI에 `—`로 표시
+- **릴리즈 범위 안전 제외 확인**:
+  - **주식 주문 기능 (Stock Orders) 미포함** (주문 API 호출 차단)
+  - **공모주 청약/일정 연동 (IPO Integration) 미포함** (실현손익 이외의 공모주 청약 기능 제외)
+  - **배당금 연동 (Dividend Integration) 미포함** (사전 검증된 실현손익 범위만 지원)
+
 ## Wealth v1.1.1 — Toss WTS Selective Realized-P/L Import — 2026-09-12
 
 - **토스 WTS 실현손익 선택 가져오기 (Selective Realized-P/L Import)**:

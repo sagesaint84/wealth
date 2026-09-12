@@ -11,13 +11,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Wealth" />
     <meta name="application-name" content="Wealth" />
-    <meta name="application-version" content="1.1.1" />
+    <meta name="application-version" content="1.1.2" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/static/wealth.css?v=1.1.1" />
-    <link rel="stylesheet" href="/static/wealth-overrides.css?v=1.1.1" />
-    <link rel="stylesheet" href="/static/wealth-layout.css?v=1.1.1" />
+    <link rel="stylesheet" href="/static/wealth.css?v=1.1.2" />
+    <link rel="stylesheet" href="/static/wealth-overrides.css?v=1.1.2" />
+    <link rel="stylesheet" href="/static/wealth-layout.css?v=1.1.2" />
   </head>
   <body>
     <main class="shell">
@@ -657,6 +657,12 @@
           <!-- 선택 월별 실현손익 상세 목록 -->
           <div id="pnlMonthlyDetail" class="dividend-detail-wrap"></div>
 
+                    <!-- 증권사 실현손익 연동 탭 스위처 -->
+          <div class="broker-feed-switcher" style="display: flex; gap: 8px; margin-top: 24px; margin-bottom: -12px;">
+            <button type="button" id="btnTabBrokerToss" class="button secondary compact active" style="font-weight: 600;">토스증권 (WTS)</button>
+            <button type="button" id="btnTabBrokerKis" class="button secondary compact" style="font-weight: 600;">한국투자증권 (OpenAPI)</button>
+          </div>
+
           <!-- 토스 WTS 실현손익 (읽기 전용 피드) -->
           <div id="tossWtsCard" class="wealth-card toss-wts-card">
             <div class="toss-wts-header">
@@ -803,6 +809,167 @@
               본 화면의 조회 결과는 브라우저 새로고침 시 초기화되며 저장되지 않습니다.
             </div>
           </div>
+
+          <!-- 한국투자증권 OpenAPI 실현손익 피드 및 선택 가져오기 -->
+          <div id="kisRealizedCard" class="wealth-card toss-wts-card" style="display: none;">
+            <div class="toss-wts-header">
+              <div class="toss-wts-title-group">
+                <h3 class="toss-wts-title">한국투자증권 실현손익</h3>
+                <span class="toss-wts-badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3);">OpenAPI 검증됨</span>
+              </div>
+              <div class="toss-wts-status-group">
+                <span id="kisStatusText" class="toss-wts-status-text">상태 확인 중...</span>
+                <button type="button" id="btnCheckKisStatus" class="button secondary compact toss-wts-btn">상태 확인</button>
+              </div>
+            </div>
+
+            <!-- 안내 배너 -->
+            <div class="toss-wts-banner" style="background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.35); color: #93c5fd;" role="note" aria-label="한투 OpenAPI 안내">
+              <span class="toss-wts-banner-icon">ℹ️</span>
+              <span id="kisBannerText" class="toss-wts-banner-text">한국투자증권 공식 OpenAPI 조회 자료 · 읽기 전용 · 계좌 범위 검증됨 · 선택한 항목만 안전하게 Wealth 계좌로 가져올 수 있습니다.</span>
+            </div>
+
+            <!-- 조회 컨트롤 바 -->
+            <div class="toss-wts-controls">
+              <div class="toss-wts-control-item">
+                <label for="kisMarketSelect">시장 구분</label>
+                <select id="kisMarketSelect" class="toss-wts-select" aria-label="한투 시장 구분">
+                  <option value="kr" selected>국내주식 (KRW)</option>
+                  <option value="us">해외주식 (USD)</option>
+                </select>
+              </div>
+              <div class="toss-wts-control-item">
+                <label for="kisFromDate">시작일</label>
+                <input type="date" id="kisFromDate" class="toss-wts-input" aria-label="한투 조회 시작일">
+              </div>
+              <div class="toss-wts-control-item">
+                <label for="kisToDate">종료일</label>
+                <input type="date" id="kisToDate" class="toss-wts-input" aria-label="한투 조회 종료일">
+              </div>
+              <div class="toss-wts-control-action">
+                <button type="button" id="btnFetchKisFeed" class="button primary compact toss-wts-fetch-btn">한투 실현손익 조회</button>
+              </div>
+            </div>
+
+            <!-- 조회 조건 변경 알림 (재조회 안내) -->
+            <div id="kisStaleHint" class="toss-wts-stale-hint" style="display:none;" role="status"></div>
+
+            <!-- 상태/에러 메시지 -->
+            <div id="kisMessage" class="toss-wts-message" style="display:none;" role="status"></div>
+
+            <!-- 직전 성공 조회 메타데이터 -->
+            <div id="kisMeta" class="toss-wts-meta" style="display:none;"></div>
+
+            <!-- 실현손익 테이블 -->
+            <div id="kisTableWrap" class="toss-wts-table-wrap">
+              <table id="kisTable" class="toss-wts-table">
+                <thead>
+                  <tr>
+                    <th class="toss-wts-th-check"><input type="checkbox" id="kisSelectAll" aria-label="전체 선택"></th>
+                    <th>매매일자</th>
+                    <th>시장</th>
+                    <th>종목코드</th>
+                    <th>종목명</th>
+                    <th class="num">매도수량</th>
+                    <th class="num">매도금액</th>
+                    <th class="num">매수금액</th>
+                    <th class="num">실현손익</th>
+                    <th class="num">수익률</th>
+                    <th class="num" id="kisColFxOrExpense">수수료 / 제세금</th>
+                  </tr>
+                </thead>
+                <tbody id="kisTableBody">
+                  <tr>
+                    <td colspan="11" class="toss-wts-empty">조회 버튼을 눌러 한국투자증권 실현손익을 조회하세요.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 선택 항목 가져오기 액션바 -->
+            <div id="kisImportBar" class="toss-wts-import-bar" style="display:none;">
+              <div class="toss-wts-import-bar-left">
+                <span id="kisSelectedCountBadge" class="toss-wts-selected-count">선택 0건</span>
+                <div class="toss-wts-dest-wrap">
+                  <label for="kisDestinationAccount" class="toss-wts-dest-label">귀속 계좌:</label>
+                  <select id="kisDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌">
+                    <option value="">계좌 선택...</option>
+                  </select>
+                </div>
+              </div>
+              <div class="toss-wts-import-bar-right">
+                <button type="button" id="btnKisImportSelected" class="button primary compact" disabled>선택 항목 가져오기</button>
+              </div>
+            </div>
+
+            <!-- 가져오기 확인 모달 -->
+            <div id="kisImportModalOverlay" class="toss-wts-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="kisModalTitle">
+              <div class="toss-wts-modal">
+                <div class="toss-wts-modal-header">
+                  <h4 id="kisModalTitle" class="toss-wts-modal-title">한국투자증권 실현손익 가져오기 확인</h4>
+                  <button type="button" id="btnKisModalClose" class="toss-wts-modal-close" aria-label="닫기">&times;</button>
+                </div>
+                <div class="toss-wts-modal-body">
+                  <div class="toss-wts-banner" role="note">
+                    <span class="toss-wts-banner-icon">ℹ️</span>
+                    <span class="toss-wts-banner-text">
+                      가져오기를 완료하면 선택한 항목이 Wealth 실현손익에 영구 기록됩니다.<br>
+                      이미 가져온 항목(ALREADY_IMPORTED)은 자동으로 제외됩니다.
+                    </span>
+                  </div>
+                  <div id="kisModalDestAccountDisplay" class="toss-wts-dest-display"></div>
+                  <div class="toss-wts-counts-grid">
+                    <div class="toss-wts-count-card new">
+                      <span class="toss-wts-count-label">신규 등록 가능</span>
+                      <span id="kisModalCountNew" class="toss-wts-count-val">0</span>
+                    </div>
+                    <div class="toss-wts-count-card already">
+                      <span class="toss-wts-count-label">이미 가져옴 (제외)</span>
+                      <span id="kisModalCountAlready" class="toss-wts-count-val">0</span>
+                    </div>
+                    <div class="toss-wts-count-card dup">
+                      <span class="toss-wts-count-label">기존 수동 기록 중복 의심</span>
+                      <span id="kisModalCountDup" class="toss-wts-count-val">0</span>
+                    </div>
+                    <div class="toss-wts-count-card invalid">
+                      <span class="toss-wts-count-label">유효하지 않음 (제외)</span>
+                      <span id="kisModalCountInvalid" class="toss-wts-count-val">0</span>
+                    </div>
+                  </div>
+                  <div id="kisDupOverrideWrap" class="toss-wts-dup-wrap" style="display:none;">
+                    <label class="toss-wts-checkbox-label">
+                      <input type="checkbox" id="kisIncludePossibleDuplicates">
+                      <span>기존 수동 기록과 중복 의심되는 항목도 포함하여 가져오기</span>
+                    </label>
+                  </div>
+                  <div class="toss-wts-preview-items-wrap">
+                    <table class="toss-wts-table toss-wts-preview-table">
+                      <thead>
+                        <tr>
+                          <th>상태</th>
+                          <th>일자</th>
+                          <th>종목</th>
+                          <th class="num">수량</th>
+                          <th class="num">손익</th>
+                        </tr>
+                      </thead>
+                      <tbody id="kisModalItemsBody"></tbody>
+                    </table>
+                  </div>
+                </div>
+                <div class="toss-wts-modal-footer">
+                  <button type="button" id="btnKisModalCancel" class="button secondary compact">취소</button>
+                  <button type="button" id="btnKisConfirmCommit" class="button primary compact" disabled>0건 가져오기 완료</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 하단 주의사항 -->
+            <div id="kisNotice" class="toss-wts-notice muted">
+              💡 한국투자증권 기간별 매매손익(국내) 및 기간손익(해외)을 실시간 조회합니다. 선택한 내역만 Wealth 손익 원장에 반영됩니다.
+            </div>
+          </div>
+
         </div>
       </section>
 
@@ -2929,10 +3096,10 @@
       </form>
     </dialog>
 
-    <script src="/static/wealth-layout.js?v=1.1.1"></script>
-    <script src="/static/wealth.js?v=1.1.1"></script>
-    <script src="/static/wealth-planning-model.js?v=1.1.1"></script>
-    <script src="/static/wealth-planning.js?v=1.1.1"></script>
+    <script src="/static/wealth-layout.js?v=1.1.2"></script>
+    <script src="/static/wealth.js?v=1.1.2"></script>
+    <script src="/static/wealth-planning-model.js?v=1.1.2"></script>
+    <script src="/static/wealth-planning.js?v=1.1.2"></script>
   </body>
 </html>
 

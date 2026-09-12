@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -32,6 +34,16 @@ def as_float(value: Any) -> float:
 class Token:
     value: str
     expires_at: float
+
+
+def compute_kis_account_key(cano: str, prdt_cd: str, secret: str | None = None) -> str:
+    """Compute deterministic opaque server-side account key from CANO + PRDT_CD."""
+    if not cano:
+        return ""
+    from app.services.kis_feed import get_kis_signing_secret
+    key_secret = secret if secret is not None else get_kis_signing_secret()
+    message = f"kis-account-v1:{cano}:{prdt_cd}".encode("utf-8")
+    return hmac.new(key_secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
 class KISOpenAPI:
@@ -86,6 +98,25 @@ class KISOpenAPI:
         elif len(acc) == 8 and acc.isdigit():
             return acc, "01"
         return "", ""
+
+    def get_masked_account(self) -> str:
+        """프론트엔드 노출용 마스킹 계좌번호를 반환합니다."""
+        cano, prdt_cd = self._parse_account_no()
+        if not cano:
+            return ""
+        return f"{cano[:4]}****-{prdt_cd}" if prdt_cd else f"{cano[:4]}****"
+
+    def get_source_account_key(self, secret: str | None = None) -> str:
+        """서버 비밀키 기반의 결정론적 불투명 계좌 고유 식별키를 반환합니다."""
+        cano, prdt_cd = self._parse_account_no()
+        return compute_kis_account_key(cano, prdt_cd, secret=secret)
+
+    def get_account_scope(self) -> str:
+        """불투명 계좌 식별 범위를 반환합니다 (CANO 비노출)."""
+        key = self.get_source_account_key()
+        if not key:
+            return ""
+        return f"kis:{key}"
 
     @staticmethod
     def _validate_balance_body(body: Any, label: str) -> dict[str, Any]:
@@ -378,3 +409,193 @@ class KISOpenAPI:
             }
 
             return all_holdings
+
+    async def fetch_domestic_period_trade_profit(
+        self,
+        client: httpx.AsyncClient,
+        token: str,
+        inqr_strt_dt: str,
+        inqr_end_dt: str,
+        max_pages: int = 20,
+    ) -> list[dict[str, Any]]:
+        """국내주식 기간별 매매손익 조회 (TTTC8715R / VTTC8715R)"""
+        cano, prdt_cd = self._parse_account_no()
+        if not cano:
+            return []
+
+        tr_id = "VTTC8715R" if self.is_virtual else "TTTC8715R"
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "Authorization": f"Bearer {token}",
+            "appkey": self.app_key,
+            "appsecret": self.app_secret,
+            "tr_id": tr_id,
+            "custtype": "P",
+        }
+        params = {
+            "CANO": cano,
+            "ACNT_PRDT_CD": prdt_cd,
+            "SORT_DVSN": "02",
+            "INQR_STRT_DT": inqr_strt_dt.replace("-", "").strip(),
+            "INQR_END_DT": inqr_end_dt.replace("-", "").strip(),
+            "CBLC_DVSN": "00",
+            "PDNO": "",
+            "CTX_AREA_FK100": "",
+            "CTX_AREA_NK100": "",
+        }
+
+        rows: list[dict[str, Any]] = []
+        seen_keys: set[tuple[str, str]] = set()
+
+        for _ in range(max_pages):
+            response = await client.get(
+                f"{self.base_url}/uapi/domestic-stock/v1/trading/inquire-period-trade-profit",
+                headers=headers,
+                params=params,
+            )
+            self._raise_for_response(response)
+            try:
+                body = response.json()
+            except ValueError as exc:
+                raise KISOpenAPIError("한국투자증권 국내 기간매매손익 응답이 올바른 JSON이 아닙니다.") from exc
+
+            if not isinstance(body, dict):
+                raise KISOpenAPIError("한국투자증권 국내 기간매매손익 응답 형식이 올바르지 않습니다.")
+            if str(body.get("rt_cd", "0")) != "0":
+                raise KISOpenAPIError(f"한국투자증권 국내 기간매매손익 조회 오류: {body.get('msg1') or body.get('msg_cd') or '업무 오류'}")
+
+            items = body.get("output1", [])
+            if isinstance(items, list):
+                for it in items:
+                    if isinstance(it, dict):
+                        rows.append(it)
+            elif isinstance(items, dict):
+                rows.append(items)
+
+            continuation = str(response.headers.get("tr_cont", "")).upper()
+            if continuation not in {"M", "F"}:
+                break
+
+            fk = str(body.get("ctx_area_fk100", "")).strip()
+            nk = str(body.get("ctx_area_nk100", "")).strip()
+            if not fk and not nk:
+                break
+            if (fk, nk) in seen_keys:
+                break
+            seen_keys.add((fk, nk))
+
+            params["CTX_AREA_FK100"] = fk
+            params["CTX_AREA_NK100"] = nk
+            headers["tr_cont"] = "N"
+
+        return rows
+
+    async def fetch_overseas_period_profit(
+        self,
+        client: httpx.AsyncClient,
+        token: str,
+        inqr_strt_dt: str,
+        inqr_end_dt: str,
+        max_pages: int = 20,
+    ) -> list[dict[str, Any]]:
+        """해외주식 기간손익 조회 (TTTS3039R / VTTS3039R)"""
+        cano, prdt_cd = self._parse_account_no()
+        if not cano:
+            return []
+
+        tr_id = "VTTS3039R" if self.is_virtual else "TTTS3039R"
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "Authorization": f"Bearer {token}",
+            "appkey": self.app_key,
+            "appsecret": self.app_secret,
+            "tr_id": tr_id,
+            "custtype": "P",
+        }
+        params = {
+            "CANO": cano,
+            "ACNT_PRDT_CD": prdt_cd,
+            "OVRS_EXCG_CD": "%",
+            "NATN_CD": "",
+            "CRCY_CD": "",
+            "PDNO": "",
+            "INQR_STRT_DT": inqr_strt_dt.replace("-", "").strip(),
+            "INQR_END_DT": inqr_end_dt.replace("-", "").strip(),
+            "WCRC_FRCR_DVSN_CD": "01",
+            "CTX_AREA_FK200": "",
+            "CTX_AREA_NK200": "",
+        }
+
+        rows: list[dict[str, Any]] = []
+        seen_keys: set[tuple[str, str]] = set()
+
+        for _ in range(max_pages):
+            response = await client.get(
+                f"{self.base_url}/uapi/overseas-stock/v1/trading/inquire-period-profit",
+                headers=headers,
+                params=params,
+            )
+            self._raise_for_response(response)
+            try:
+                body = response.json()
+            except ValueError as exc:
+                raise KISOpenAPIError("한국투자증권 해외 기간손익 응답이 올바른 JSON이 아닙니다.") from exc
+
+            if not isinstance(body, dict):
+                raise KISOpenAPIError("한국투자증권 해외 기간손익 응답 형식이 올바르지 않습니다.")
+            if str(body.get("rt_cd", "0")) != "0":
+                raise KISOpenAPIError(f"한국투자증권 해외 기간손익 조회 오류: {body.get('msg1') or body.get('msg_cd') or '업무 오류'}")
+
+            items = body.get("output1", [])
+            if isinstance(items, list):
+                for it in items:
+                    if isinstance(it, dict):
+                        rows.append(it)
+            elif isinstance(items, dict):
+                rows.append(items)
+
+            continuation = str(response.headers.get("tr_cont", "")).upper()
+            if continuation not in {"M", "F"}:
+                break
+
+            fk = str(body.get("ctx_area_fk200", "")).strip()
+            nk = str(body.get("ctx_area_nk200", "")).strip()
+            if not fk and not nk:
+                break
+            if (fk, nk) in seen_keys:
+                break
+            seen_keys.add((fk, nk))
+
+            params["CTX_AREA_FK200"] = fk
+            params["CTX_AREA_NK200"] = nk
+            headers["tr_cont"] = "N"
+
+        return rows
+
+    async def fetch_realized_profit(
+        self,
+        market: str,
+        from_date: str,
+        to_date: str,
+    ) -> tuple[list[dict[str, Any]], str, str]:
+        """한국투자증권 실현손익 내역을 조회합니다 (읽기 전용)."""
+        require_external_network("KIS OpenAPI")
+        if not self.configured:
+            raise KISOpenAPIError("한국투자증권 AppKey/AppSecret이 설정되지 않았습니다.")
+
+        cano, prdt_cd = self._parse_account_no()
+        if not cano:
+            raise KISOpenAPIError("한국투자증권 계좌번호가 설정되지 않았습니다. 상단 [OpenAPI] 버튼에서 등록할 수 있습니다.")
+
+        market_clean = market.strip().lower()
+        if market_clean not in {"domestic", "overseas", "kr", "us"}:
+            raise KISOpenAPIError(f"지원하지 않는 시장 구분입니다: {market}")
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            token = await self._access_token(client)
+            if market_clean in {"domestic", "kr"}:
+                rows = await self.fetch_domestic_period_trade_profit(client, token, from_date, to_date)
+            else:
+                rows = await self.fetch_overseas_period_profit(client, token, from_date, to_date)
+
+        return rows, self.get_source_account_key(), self.get_masked_account()

@@ -13083,6 +13083,680 @@ function initTossWtsUI() {
   toInput?.addEventListener('input', checkTossWtsFormStale);
 }
 
+// ── 한국투자증권 (KIS) 실현손익 피드 및 선택 가져오기 ────────────────────────
+const kisRealizedState = {
+  status: null,
+  configured: false,
+  hasAccount: false,
+  maskedAccount: '',
+  accountScope: '',
+  loading: false,
+  rows: [],
+  selectionTokens: [],
+  selectedIndices: new Set(),
+  importedIndices: new Set(),
+  lastRequested: null,
+  fetchedMarket: null,
+  fetchedFromDate: null,
+  fetchedToDate: null,
+  fetchedAt: null,
+  previewTicket: null,
+  currentPreviewClassification: null,
+};
+window.kisRealizedState = kisRealizedState;
+
+function showKisMessage(msg, type = 'info') {
+  const el = document.getElementById('kisMessage');
+  if (!el) return;
+  el.className = `toss-wts-message ${type}`;
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function hideKisMessage() {
+  const el = document.getElementById('kisMessage');
+  if (!el) return;
+  el.style.display = 'none';
+  el.textContent = '';
+}
+
+function updateKisStatusUI(text, stateClass) {
+  const el = document.getElementById('kisStatusText');
+  if (!el) return;
+  el.className = `toss-wts-status-text ${stateClass || ''}`.trim();
+  el.textContent = text;
+}
+
+function setKisLoading(isLoading) {
+  kisRealizedState.loading = isLoading;
+  const checkBtn = document.getElementById('btnCheckKisStatus');
+  const fetchBtn = document.getElementById('btnFetchKisFeed');
+  if (checkBtn) checkBtn.disabled = isLoading;
+  if (fetchBtn) fetchBtn.disabled = isLoading;
+}
+
+function checkKisFormStale() {
+  const staleEl = document.getElementById('kisStaleHint');
+  if (!staleEl) return;
+
+  if (!kisRealizedState.lastRequested || !kisRealizedState.rows || kisRealizedState.rows.length === 0) {
+    staleEl.style.display = 'none';
+    return;
+  }
+
+  const curMarket = document.getElementById('kisMarketSelect')?.value?.trim();
+  const curFrom = document.getElementById('kisFromDate')?.value?.trim();
+  const curTo = document.getElementById('kisToDate')?.value?.trim();
+
+  const isStale = (
+    curMarket !== kisRealizedState.fetchedMarket ||
+    curFrom !== kisRealizedState.fetchedFromDate ||
+    curTo !== kisRealizedState.fetchedToDate
+  );
+
+  if (isStale) {
+    staleEl.textContent = '조회 조건이 변경되었습니다. [한투 실현손익 조회]를 눌러 다시 조회하세요.';
+    staleEl.style.display = 'block';
+  } else {
+    staleEl.style.display = 'none';
+  }
+}
+
+function updateKisMetaUI() {
+  const metaEl = document.getElementById('kisMeta');
+  if (!metaEl) return;
+
+  if (!kisRealizedState.lastRequested || !kisRealizedState.rows) {
+    metaEl.style.display = 'none';
+    metaEl.innerHTML = '';
+    checkKisFormStale();
+    return;
+  }
+
+  const mktLabel = kisRealizedState.fetchedMarket === 'us' ? '해외주식 (USD)' : '국내주식 (KRW)';
+  const fromDate = kisRealizedState.fetchedFromDate || '-';
+  const toDate = kisRealizedState.fetchedToDate || '-';
+  const count = kisRealizedState.rows.length;
+  const timeStr = kisRealizedState.fetchedAt ? new Date(kisRealizedState.fetchedAt).toLocaleTimeString('ko-KR') : '';
+
+  metaEl.innerHTML = `
+    <span class="toss-wts-meta-item">조회 시장: <strong>${html(mktLabel)}</strong></span>
+    <span class="toss-wts-meta-sep">·</span>
+    <span class="toss-wts-meta-item">조회 기간: <strong>${html(fromDate)} ~ ${html(toDate)}</strong></span>
+    ${timeStr ? `<span class="toss-wts-meta-sep">·</span><span class="toss-wts-meta-item">조회 시각: ${html(timeStr)}</span>` : ''}
+    <span class="toss-wts-meta-sep">·</span>
+    <span class="toss-wts-meta-item"><strong>${count}건</strong></span>
+  `;
+  metaEl.style.display = 'flex';
+  checkKisFormStale();
+}
+
+async function checkKisStatus() {
+  if (kisRealizedState.loading) return;
+  setKisLoading(true);
+  try {
+    const res = await fetch('/api/kis/status');
+    if (!res.ok) {
+      updateKisStatusUI('상태 확인 실패', 'error');
+      showKisMessage('한국투자증권 연동 상태 확인에 실패했습니다.', 'error');
+      return;
+    }
+    const data = await res.json();
+    kisRealizedState.status = data;
+    kisRealizedState.configured = !!data.configured;
+    kisRealizedState.hasAccount = !!data.has_account;
+    kisRealizedState.maskedAccount = data.masked_account || '';
+    kisRealizedState.sourceAccountKey = data.source_account_key || '';
+    kisRealizedState.sourceAccountLabel = data.source_account_label || data.masked_account || '';
+    kisRealizedState.mappedDestAccountId = data.mapped_destination_account_id || '';
+
+    const bannerEl = document.getElementById('kisBannerText');
+    if (!data.configured) {
+      updateKisStatusUI('미설정 (API 키 필요)', 'error');
+      showKisMessage('상단 [OpenAPI] 버튼에서 한국투자증권 AppKey와 AppSecret을 등록하세요.', 'warning');
+      if (bannerEl) bannerEl.textContent = '한국투자증권 OpenAPI 키 설정이 필요합니다. 상단 OpenAPI 메뉴에서 키를 등록해 주세요.';
+    } else if (!data.has_account) {
+      updateKisStatusUI('계좌 미등록', 'error');
+      showKisMessage('상단 [OpenAPI] 버튼에서 한국투자증권 계좌번호를 등록하세요.', 'warning');
+      if (bannerEl) bannerEl.textContent = '한국투자증권 계좌번호 설정이 필요합니다. 상단 OpenAPI 메뉴에서 등록해 주세요.';
+    } else {
+      updateKisStatusUI(`계좌: ${data.masked_account || '확인됨'}`, 'ready');
+      hideKisMessage();
+      if (bannerEl) bannerEl.textContent = `한국투자증권 공식 OpenAPI 조회 자료 · 읽기 전용 · 계좌 범위(${data.masked_account}) 검증됨 · 선택한 항목만 안전하게 Wealth 계좌로 가져올 수 있습니다.`;
+    }
+  } catch (err) {
+    updateKisStatusUI('연결 오류', 'error');
+    showKisMessage('네트워크 오류가 발생했습니다.', 'error');
+  } finally {
+    setKisLoading(false);
+  }
+}
+
+async function fetchKisRealizedFeed() {
+  if (kisRealizedState.loading) return;
+  hideKisMessage();
+
+  const market = document.getElementById('kisMarketSelect')?.value?.trim() || 'kr';
+  const fromDate = document.getElementById('kisFromDate')?.value?.trim();
+  const toDate = document.getElementById('kisToDate')?.value?.trim();
+
+  if (!fromDate || !toDate) {
+    showKisMessage('시작일과 종료일을 모두 선택하세요.', 'warning');
+    return;
+  }
+  if (fromDate > toDate) {
+    showKisMessage('시작일은 종료일보다 이전이거나 같아야 합니다.', 'warning');
+    return;
+  }
+
+  setKisLoading(true);
+  try {
+    const res = await fetch('/api/kis/realized-feed/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ market, from_date: fromDate, to_date: toDate }),
+    });
+
+    if (res.status === 400 || res.status === 502) {
+      const err = await res.json().catch(() => ({}));
+      const msg = err.detail?.message || err.detail?.code || '조회 실패';
+      showKisMessage(msg, 'error');
+      renderKisFeedTable([], market, 'empty');
+      return;
+    }
+    if (!res.ok) {
+      showKisMessage(`조회 실패 (HTTP ${res.status})`, 'error');
+      renderKisFeedTable([], market, 'empty');
+      return;
+    }
+
+    const data = await res.json();
+    kisRealizedState.rows = data.rows || [];
+    kisRealizedState.selectionTokens = data.selection_tokens || [];
+    kisRealizedState.selectedIndices.clear();
+    kisRealizedState.importedIndices.clear();
+    kisRealizedState.lastRequested = data.requested;
+    kisRealizedState.fetchedMarket = data.market || market;
+    kisRealizedState.fetchedFromDate = data.requested?.from_date || fromDate;
+    kisRealizedState.fetchedToDate = data.requested?.to_date || toDate;
+    kisRealizedState.fetchedAt = data.fetched_at || new Date().toISOString();
+
+    renderKisFeedTable(kisRealizedState.rows, kisRealizedState.fetchedMarket, data.state);
+    updateKisMetaUI();
+    updateKisSelectionUI();
+
+    if (kisRealizedState.rows.length === 0) {
+      showKisMessage('해당 기간의 실현손익 내역이 없습니다.', 'info');
+    }
+  } catch (err) {
+    showKisMessage('조회 중 네트워크 오류가 발생했습니다.', 'error');
+  } finally {
+    setKisLoading(false);
+  }
+}
+
+function renderKisFeedTable(rows, market, state) {
+  const tbody = document.getElementById('kisTableBody');
+  const selectAll = document.getElementById('kisSelectAll');
+  if (!tbody) return;
+
+  if (selectAll) selectAll.checked = false;
+
+  if (!rows || rows.length === 0) {
+    const emptyMsg = state === 'empty' ? '조회된 실현손익 내역이 없습니다.' : '조회 버튼을 눌러 한국투자증권 실현손익을 조회하세요.';
+    tbody.innerHTML = `<tr><td colspan="11" class="toss-wts-empty">${html(emptyMsg)}</td></tr>`;
+    return;
+  }
+
+  const isUs = market === 'us';
+  const thExtra = document.getElementById('kisColFxOrExpense');
+  if (thExtra) {
+    thExtra.textContent = isUs ? '환율 / 원화손익' : '수수료 / 제세금';
+  }
+
+  const trs = rows.map((r, idx) => {
+    const isImported = kisRealizedState.importedIndices.has(idx);
+    const isSelected = kisRealizedState.selectedIndices.has(idx);
+
+    const checkHtml = isImported
+      ? `<span class="toss-wts-imported-badge" title="이미 가져온 항목">완료</span>`
+      : `<input type="checkbox" class="kis-row-check" data-index="${idx}" ${isSelected ? 'checked' : ''}>`;
+
+    const pnlVal = Number(r.profit_loss || 0);
+    const pnlCls = pnlVal > 0 ? 'pos' : (pnlVal < 0 ? 'neg' : '');
+    const pnlSign = pnlVal > 0 ? '+' : '';
+    const pnlCur = isUs ? (r.currency || 'USD') : '원';
+    const pnlFmt = isUs
+      ? `${pnlSign}${pnlVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${pnlCur}`
+      : `${pnlSign}${Math.round(pnlVal).toLocaleString('ko-KR')} 원`;
+
+    const rateVal = Number(r.profit_rate || 0);
+    const rateSign = rateVal > 0 ? '+' : '';
+    const rateFmt = `${rateSign}${rateVal.toFixed(2)}%`;
+
+    const sellAmtVal = Number(isUs ? (r.foreign_sell_amount || r.sell_amount || 0) : (r.sell_amount || 0));
+    const buyAmtVal = Number(isUs ? (r.foreign_buy_amount || r.buy_amount || 0) : (r.buy_amount || 0));
+    const sellFmt = isUs ? `$${sellAmtVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${Math.round(sellAmtVal).toLocaleString('ko-KR')}원`;
+    const buyFmt = isUs ? `$${buyAmtVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${Math.round(buyAmtVal).toLocaleString('ko-KR')}원`;
+
+    let wonCol = '—';
+    if (isUs) {
+      const fxRate = r.fx_rate ? Number(r.fx_rate).toFixed(1) : null;
+      const wonPnl = (r.profit_loss_krw !== null && r.profit_loss_krw !== undefined) ? Math.round(Number(r.profit_loss_krw)) : null;
+      if (wonPnl !== null && !isNaN(wonPnl)) {
+        const wonCls = wonPnl > 0 ? 'pos' : (wonPnl < 0 ? 'neg' : '');
+        const wonSign = wonPnl > 0 ? '+' : '';
+        const fxLabel = fxRate ? `<br><small class="muted">@${fxRate}</small>` : '';
+        wonCol = `<span class="${wonCls}">${wonSign}${wonPnl.toLocaleString('ko-KR')}원</span>${fxLabel}`;
+      } else if (fxRate) {
+        wonCol = `—<br><small class="muted">@${fxRate}</small>`;
+      } else {
+        wonCol = '—';
+      }
+    } else {
+      const feeVal = Number(r.fee || 0);
+      const taxVal = Number(r.tax || 0);
+      const feeParts = [];
+      if (feeVal > 0) feeParts.push(`수수료 ${Math.round(feeVal).toLocaleString('ko-KR')}원`);
+      if (taxVal > 0) feeParts.push(`제세금 ${Math.round(taxVal).toLocaleString('ko-KR')}원`);
+      wonCol = feeParts.length > 0 ? `<small class="muted">${feeParts.join('<br>')}</small>` : '—';
+    }
+
+    return `
+      <tr class="${isSelected ? 'selected' : ''} ${isImported ? 'imported-row' : ''}">
+        <td class="toss-wts-td-check">${checkHtml}</td>
+        <td>${html(r.date || '')}</td>
+        <td><span class="badge ${isUs ? 'badge-us' : 'badge-kr'}">${isUs ? '해외' : '국내'}</span></td>
+        <td><code>${html(r.code || '')}</code></td>
+        <td><strong>${html(r.name || '')}</strong></td>
+        <td class="num">${Number(r.quantity || 0).toLocaleString()}</td>
+        <td class="num">${sellFmt}</td>
+        <td class="num">${buyFmt}</td>
+        <td class="num ${pnlCls}"><strong>${pnlFmt}</strong></td>
+        <td class="num ${pnlCls}">${rateFmt}</td>
+        <td class="num">${wonCol}</td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = trs.join('');
+
+  tbody.querySelectorAll('.kis-row-check').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const idx = parseInt(e.target.getAttribute('data-index'), 10);
+      if (e.target.checked) {
+        kisRealizedState.selectedIndices.add(idx);
+      } else {
+        kisRealizedState.selectedIndices.delete(idx);
+      }
+      updateKisSelectionUI();
+    });
+  });
+}
+
+function updateKisSelectionUI() {
+  const badge = document.getElementById('kisSelectedCountBadge');
+  const bar = document.getElementById('kisImportBar');
+  const importBtn = document.getElementById('btnKisImportSelected');
+  const selectAll = document.getElementById('kisSelectAll');
+  const accountSelect = document.getElementById('kisDestinationAccount');
+
+  populateKisDestinationAccounts();
+
+  const count = kisRealizedState.selectedIndices.size;
+  if (badge) badge.textContent = `선택 ${count}건`;
+
+  if (kisRealizedState.rows && kisRealizedState.rows.length > 0) {
+    if (bar) bar.style.display = 'flex';
+  } else {
+    if (bar) bar.style.display = 'none';
+  }
+
+  const hasAccount = !!accountSelect?.value;
+  if (importBtn) importBtn.disabled = count === 0 || !hasAccount;
+
+  if (selectAll && kisRealizedState.rows) {
+    const unimportedCount = kisRealizedState.rows.filter((_, idx) => !kisRealizedState.importedIndices.has(idx)).length;
+    selectAll.checked = unimportedCount > 0 && count === unimportedCount;
+  }
+}
+
+function populateKisDestinationAccounts() {
+  const select = document.getElementById('kisDestinationAccount');
+  if (!select) return;
+
+  const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts))
+    ? dashboard.accounts
+    : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
+
+  const curVal = select.value;
+  select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
+
+  const key = kisRealizedState.sourceAccountKey || '';
+  const localMapped = key ? localStorage.getItem('kis_account_map_' + key) : null;
+  const mappedId = kisRealizedState.mappedDestAccountId || localMapped;
+
+  accounts.forEach(acc => {
+    const id = String(acc.id || '');
+    const broker = acc.broker || '';
+    let name = acc.account_name || acc.name || `계좌 ${id}`;
+    name = name.replace(/\b(\d{4})\d{4}(-\d{2})?\b/g, '$1****$2');
+    const owner = acc.owner ? ` (${acc.owner})` : '';
+    const label = `[${broker}] ${name}${owner}`;
+
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = label;
+    select.appendChild(opt);
+  });
+
+  // First use: DO NOT auto-select based on broker name or single account.
+  // Require explicit choice unless a verified persistent mapping exists.
+  if (curVal && Array.from(select.options).some(o => o.value === curVal)) {
+    select.value = curVal;
+  } else if (mappedId && Array.from(select.options).some(o => o.value === String(mappedId))) {
+    select.value = String(mappedId);
+  } else {
+    select.value = '';
+  }
+}
+
+async function openKisImportPreview() {
+  if (kisRealizedState.selectedIndices.size === 0) return;
+  const accountSelect = document.getElementById('kisDestinationAccount');
+  const accountId = accountSelect?.value;
+  if (!accountId) {
+    showKisMessage('귀속할 Wealth 계좌를 선택하세요.', 'warning');
+    return;
+  }
+
+  const selectedItems = [];
+  kisRealizedState.selectedIndices.forEach(idx => {
+    const row = kisRealizedState.rows[idx];
+    const token = kisRealizedState.selectionTokens[idx];
+    if (row && token) {
+      selectedItems.push({ row, selection_token: token });
+    }
+  });
+
+  if (selectedItems.length === 0) return;
+
+  setKisLoading(true);
+  try {
+    const res = await fetch('/api/kis/realized-feed/import-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        selected_items: selectedItems,
+        account_id: accountId,
+        market: kisRealizedState.fetchedMarket || 'kr',
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showKisMessage(err.detail?.message || '미리보기 검증 실패', 'error');
+      return;
+    }
+
+    const data = await res.json();
+    kisRealizedState.previewTicket = data.preview_ticket;
+    kisRealizedState.currentPreviewClassification = data;
+    renderKisPreviewModal(data);
+  } catch (err) {
+    showKisMessage('미리보기 통신 오류', 'error');
+  } finally {
+    setKisLoading(false);
+  }
+}
+
+function renderKisPreviewModal(data) {
+  const overlay = document.getElementById('kisImportModalOverlay');
+  if (!overlay) return;
+
+  const counts = data.counts || { new: 0, already_imported: 0, possible_duplicate: 0, invalid: 0 };
+  const dest = data.destination_account || {};
+
+  document.getElementById('kisModalCountNew').textContent = String(counts.new || 0);
+  document.getElementById('kisModalCountAlready').textContent = String(counts.already_imported || 0);
+  document.getElementById('kisModalCountDup').textContent = String(counts.possible_duplicate || 0);
+  document.getElementById('kisModalCountInvalid').textContent = String(counts.invalid || 0);
+
+  const destEl = document.getElementById('kisModalDestAccountDisplay');
+  if (destEl) {
+    destEl.innerHTML = `귀속 계좌: <strong>[${html(dest.broker || '한국투자증권')}] ${html(dest.account_name || '-')}</strong> (${html(dest.owner || '모두')})`;
+  }
+
+  const dupWrap = document.getElementById('kisDupOverrideWrap');
+  if (dupWrap) {
+    dupWrap.style.display = counts.possible_duplicate > 0 ? 'block' : 'none';
+    const dupCheck = document.getElementById('kisIncludePossibleDuplicates');
+    if (dupCheck) dupCheck.checked = false;
+  }
+
+  const itemsBody = document.getElementById('kisModalItemsBody');
+  if (itemsBody) {
+    const rowsHtml = (data.items || []).map(it => {
+      const status = it.status;
+      let badgeCls = 'secondary';
+      let statusLabel = status;
+      if (status === 'NEW') { badgeCls = 'pos'; statusLabel = '신규 등록'; }
+      else if (status === 'ALREADY_IMPORTED') { badgeCls = 'muted'; statusLabel = '이미 가져옴'; }
+      else if (status === 'POSSIBLE_DUPLICATE') { badgeCls = 'warning'; statusLabel = '수동 중복 의심'; }
+      else if (status === 'INVALID') {
+        badgeCls = 'neg';
+        const reasonMap = {
+          'ROW_TAMPERED': '데이터 위변조 감지',
+          'TOKEN_INVALID': '유효하지 않은 토큰',
+          'TOKEN_EXPIRED': '토큰 만료',
+          'TOKEN_MISSING': '토큰 누락',
+          'USER_MISMATCH': '사용자 불일치',
+          'SCOPE_MISMATCH': '계좌 범위 불일치',
+          'MALFORMED_ITEM': '잘못된 항목 형식',
+          'MAPPING_INVALID': '필수 데이터 오류',
+          'MISSING_DATE': '매매일자 누락',
+          'MISSING_CODE': '종목코드 누락',
+          'MISSING_NAME': '종목명 누락',
+          'MISSING_QUANTITY': '수량 누락',
+          'MISSING_BUY_AMOUNT': '매수금액 누락',
+          'MISSING_SELL_AMOUNT': '매도금액 누락',
+          'MISSING_REALIZED_PNL': '실현손익 누락',
+          'NUMERIC_PARSE_ERROR': '숫자 변환 오류',
+        };
+        const reasonKor = reasonMap[it.reason] || it.reason || '오류';
+        statusLabel = `유효하지 않음 (${reasonKor})`;
+      }
+
+      const cand = it.candidate || it.row || {};
+      const pnlVal = Number(cand.pnl !== undefined ? cand.pnl : (cand.profit_loss || 0));
+      const pnlSign = pnlVal > 0 ? '+' : '';
+      const pnlCls = pnlVal > 0 ? 'pos' : (pnlVal < 0 ? 'neg' : '');
+      const nameVal = cand.name || cand.prdt_name || '-';
+      const dateVal = cand.date || cand.trad_dt || '-';
+      const qtyVal = cand.source_meta?.quantity ? Number(cand.source_meta.quantity).toLocaleString() : (cand.quantity ? Number(cand.quantity).toLocaleString() : '-');
+      const curVal = cand.currency || (kisRealizedState.fetchedMarket === 'us' ? 'USD' : 'KRW');
+
+      return `
+        <tr>
+          <td><span class="badge ${badgeCls}">${html(statusLabel)}</span></td>
+          <td>${html(dateVal)}</td>
+          <td><strong>${html(nameVal)}</strong></td>
+          <td class="num">${qtyVal}</td>
+          <td class="num ${pnlCls}">${pnlSign}${pnlVal.toLocaleString()} ${html(curVal)}</td>
+        </tr>
+      `;
+    });
+    itemsBody.innerHTML = rowsHtml.join('');
+  }
+
+  updateKisCommitButton();
+  overlay.style.display = 'flex';
+}
+
+function updateKisCommitButton() {
+  const commitBtn = document.getElementById('btnKisConfirmCommit');
+  const dupCheck = document.getElementById('kisIncludePossibleDuplicates');
+  const data = kisRealizedState.currentPreviewClassification;
+  if (!commitBtn || !data) return;
+
+  const counts = data.counts || {};
+  const includeDups = !!dupCheck?.checked;
+  const eligibleCount = (counts.new || 0) + (includeDups ? (counts.possible_duplicate || 0) : 0);
+
+  commitBtn.textContent = `${eligibleCount}건 가져오기 완료`;
+  commitBtn.disabled = eligibleCount === 0;
+}
+
+function closeKisImportModal() {
+  const overlay = document.getElementById('kisImportModalOverlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+async function commitKisImport() {
+  const data = kisRealizedState.currentPreviewClassification;
+  const accountId = data?.destination_account?.id || document.getElementById('kisDestinationAccount')?.value;
+  const previewTicket = kisRealizedState.previewTicket;
+  const dupCheck = document.getElementById('kisIncludePossibleDuplicates');
+  const includePossibleDuplicates = !!dupCheck?.checked;
+
+  const selectedItems = [];
+  kisRealizedState.selectedIndices.forEach(idx => {
+    const row = kisRealizedState.rows[idx];
+    const token = kisRealizedState.selectionTokens[idx];
+    if (row && token) {
+      selectedItems.push({ row, selection_token: token });
+    }
+  });
+
+  setKisLoading(true);
+  try {
+    const res = await fetch('/api/kis/realized-feed/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        selected_items: selectedItems,
+        account_id: accountId,
+        preview_ticket: previewTicket,
+        include_possible_duplicates: includePossibleDuplicates,
+        market: kisRealizedState.fetchedMarket || 'kr',
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showKisMessage(err.detail?.message || '가져오기 실패', 'error');
+      return;
+    }
+
+    const result = await res.json();
+    closeKisImportModal();
+
+    kisRealizedState.selectedIndices.forEach(idx => {
+      kisRealizedState.importedIndices.add(idx);
+    });
+    kisRealizedState.selectedIndices.clear();
+
+    renderKisFeedTable(kisRealizedState.rows, kisRealizedState.fetchedMarket, 'ok');
+    updateKisSelectionUI();
+
+    showKisMessage(`한국투자증권 실현손익 ${result.imported}건을 성공적으로 Wealth 계좌에 가져왔습니다.`, 'success');
+
+    if (typeof loadPnlRecords === 'function') {
+      loadPnlRecords();
+    }
+    if (typeof fetchDashboard === 'function') {
+      fetchDashboard();
+    }
+  } catch (err) {
+    showKisMessage('가져오기 처리 중 네트워크 오류가 발생했습니다.', 'error');
+  } finally {
+    setKisLoading(false);
+  }
+}
+
+function switchRealizedBroker(broker) {
+  const tossCard = document.getElementById('tossWtsCard');
+  const kisCard = document.getElementById('kisRealizedCard');
+  const btnToss = document.getElementById('btnTabBrokerToss');
+  const btnKis = document.getElementById('btnTabBrokerKis');
+
+  if (broker === 'kis') {
+    if (tossCard) tossCard.style.display = 'none';
+    if (kisCard) kisCard.style.display = 'block';
+    btnToss?.classList.remove('active');
+    btnKis?.classList.add('active');
+    if (!kisRealizedState.status) {
+      checkKisStatus();
+    }
+  } else {
+    if (tossCard) tossCard.style.display = 'block';
+    if (kisCard) kisCard.style.display = 'none';
+    btnKis?.classList.remove('active');
+    btnToss?.classList.add('active');
+  }
+}
+
+function initKisRealizedUI() {
+  const fromInput = document.getElementById('kisFromDate');
+  const toInput = document.getElementById('kisToDate');
+  const marketSelect = document.getElementById('kisMarketSelect');
+
+  if (fromInput && !fromInput.value) {
+    const year = new Date().getFullYear();
+    fromInput.value = `${year}-01-01`;
+  }
+  if (toInput && !toInput.value) {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    toInput.value = `${yyyy}-${mm}-${dd}`;
+  }
+
+  document.getElementById('btnTabBrokerToss')?.addEventListener('click', () => switchRealizedBroker('toss'));
+  document.getElementById('btnTabBrokerKis')?.addEventListener('click', () => switchRealizedBroker('kis'));
+
+  document.getElementById('btnCheckKisStatus')?.addEventListener('click', checkKisStatus);
+  document.getElementById('btnFetchKisFeed')?.addEventListener('click', fetchKisRealizedFeed);
+
+  document.getElementById('kisSelectAll')?.addEventListener('change', (e) => {
+    const checked = e.target.checked;
+    if (kisRealizedState.rows) {
+      kisRealizedState.rows.forEach((_, idx) => {
+        if (!kisRealizedState.importedIndices.has(idx)) {
+          if (checked) {
+            kisRealizedState.selectedIndices.add(idx);
+          } else {
+            kisRealizedState.selectedIndices.delete(idx);
+          }
+        }
+      });
+      renderKisFeedTable(kisRealizedState.rows, kisRealizedState.fetchedMarket, 'ok');
+      updateKisSelectionUI();
+    }
+  });
+
+  document.getElementById('kisDestinationAccount')?.addEventListener('change', (e) => {
+    const key = kisRealizedState.sourceAccountKey;
+    const val = e.target.value;
+    if (key && val) {
+      localStorage.setItem('kis_account_map_' + key, val);
+      kisRealizedState.mappedDestAccountId = val;
+    }
+    updateKisSelectionUI();
+  });
+  document.getElementById('btnKisImportSelected')?.addEventListener('click', openKisImportPreview);
+
+  document.getElementById('btnKisModalClose')?.addEventListener('click', closeKisImportModal);
+  document.getElementById('btnKisModalCancel')?.addEventListener('click', closeKisImportModal);
+  document.getElementById('kisIncludePossibleDuplicates')?.addEventListener('change', updateKisCommitButton);
+  document.getElementById('btnKisConfirmCommit')?.addEventListener('click', commitKisImport);
+
+  marketSelect?.addEventListener('change', checkKisFormStale);
+  fromInput?.addEventListener('input', checkKisFormStale);
+  toInput?.addEventListener('input', checkKisFormStale);
+}
+
 // ── APP BOOTSTRAP ─────────────────────────────────────────────────────────────
 async function bootstrap() {
   initAppTheme();
@@ -13094,6 +13768,7 @@ async function bootstrap() {
   setupAutoAdvancingDateInput("#ledgerTxSplitDateWrap");
   setupAutoAdvancingDateInput("#ledgerPaySplitDateWrap");
   initTossWtsUI();
+  initKisRealizedUI();
   await initAuthSession();
 }
 

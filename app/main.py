@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import secrets
@@ -63,6 +64,14 @@ from app.services.toss_wts_feed import (
     verify_import_preview_ticket,
 )
 from app.services.toss_wts_realized import preview_toss_wts_realized_selection
+from app.services.kis_feed import (
+    build_kis_realized_feed_response,
+    compute_kis_items_hash,
+    sign_kis_import_preview_ticket,
+    validate_kis_feed_request,
+    verify_kis_import_preview_ticket,
+)
+from app.services.kis_realized import preview_kis_realized_selection
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -89,7 +98,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version="1.1.1")
+app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version="1.1.2")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 _syncing_users: set[str] = set()
@@ -1426,6 +1435,382 @@ async def toss_wts_realized_feed_import(request: Request) -> JSONResponse:
             "destination_account": {
                 "id": destination_account.get("id"),
                 "broker": destination_account.get("broker"),
+                "account_name": destination_account.get("account_name") or destination_account.get("name"),
+                "owner": destination_account.get("owner"),
+            },
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# KIS Realized Profit Feed API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/kis/status")
+async def kis_status(request: Request) -> JSONResponse:
+    """Read-only KIS OpenAPI readiness status and account scope."""
+    username = get_current_username(request)
+    client = KISOpenAPI(username=username)
+    cano, prdt_cd = client._parse_account_no()
+    source_account_key = client.get_source_account_key() if cano else ""
+    masked_account = client.get_masked_account()
+
+    mapped_account_id = None
+    if source_account_key:
+        from app.services.user_manager import get_user_data_dir
+        user_dir = get_user_data_dir(username)
+        mapping_file = user_dir / "kis_account_mapping.json"
+        if mapping_file.exists():
+            try:
+                mapping_data = json.loads(mapping_file.read_text(encoding="utf-8"))
+                candidate_dest = mapping_data.get(source_account_key)
+                portfolio = read_portfolio(username=username)
+                if any(str(a.get("id")) == str(candidate_dest) for a in portfolio.get("accounts", [])):
+                    mapped_account_id = str(candidate_dest)
+            except Exception:
+                pass
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "configured": client.configured,
+            "has_account": bool(cano),
+            "masked_account": masked_account,
+            "source_account_key": source_account_key,
+            "source_account_label": masked_account,
+            "source_scope_verified": bool(cano),
+            "mapped_destination_account_id": mapped_account_id,
+            "is_virtual": client.is_virtual,
+            "broker": "한국투자증권",
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/kis/realized-feed/fetch")
+async def kis_realized_feed_fetch(request: Request) -> JSONResponse:
+    """Fetch read-only, non-persisted realized P/L feed from KIS OpenAPI."""
+    username = get_current_username(request)
+    user_id = getattr(request.state, "user_id", None) or username
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("Request body must be a JSON object")
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "Invalid JSON body"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    try:
+        market, from_date, to_date = validate_kis_feed_request(
+            body.get("market"),
+            body.get("from_date"),
+            body.get("to_date"),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": str(exc)},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    client = KISOpenAPI(username=username)
+    if not client.configured:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "CONFIG_REQUIRED", "message": "한국투자증권 OpenAPI AppKey/AppSecret이 설정되지 않았습니다."},
+            headers={"Cache-Control": "no-store"},
+        )
+    source_account_key = client.get_source_account_key()
+    masked_account = client.get_masked_account()
+    if not source_account_key:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "ACCOUNT_REQUIRED", "message": "한국투자증권 계좌번호가 설정되지 않았습니다."},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    try:
+        rows, fetched_key, fetched_label = await client.fetch_realized_profit(
+            market=market,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        feed_response = build_kis_realized_feed_response(
+            market=market,
+            from_date=from_date,
+            to_date=to_date,
+            rows_raw=rows,
+            source_account_key=source_account_key,
+            source_account_label=masked_account,
+            user_id=str(user_id),
+        )
+        return JSONResponse(
+            status_code=200,
+            content=feed_response,
+            headers={"Cache-Control": "no-store"},
+        )
+    except KISOpenAPIError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "KIS_API_ERROR", "message": str(exc)},
+            headers={"Cache-Control": "no-store"},
+        )
+    except Exception as exc:
+        logger.exception("KIS feed fetch failed: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "FEED_FETCH_FAILED", "message": "KIS 실현손익 조회 중 오류가 발생했습니다."},
+            headers={"Cache-Control": "no-store"},
+        )
+
+
+@app.post("/api/kis/realized-feed/import-preview")
+async def kis_realized_feed_import_preview(request: Request) -> JSONResponse:
+    """Preview duplicate classification for selected KIS rows without persisting."""
+    username = get_current_username(request)
+    user_id = getattr(request.state, "user_id", None) or username
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("Request body must be a JSON object")
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "Invalid JSON body"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    selected_items = body.get("selected_items")
+    if not isinstance(selected_items, list) or len(selected_items) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "selected_items must be a non-empty list"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    account_id = body.get("account_id")
+    if not isinstance(account_id, str) or not account_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "account_id is required"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    portfolio = read_portfolio(username=username)
+    accounts = portfolio.get("accounts", [])
+    destination_account = next((a for a in accounts if str(a.get("id")) == account_id.strip()), None)
+    if not destination_account:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_ACCOUNT", "message": "Destination account not found in user portfolio"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    client = KISOpenAPI(username=username)
+    source_account_key = client.get_source_account_key()
+    masked_account = client.get_masked_account()
+    if not source_account_key:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "ACCOUNT_REQUIRED", "message": "한국투자증권 계좌 설정이 필요합니다."},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    existing_records = read_pnl_records(username=username)
+    market = str(body.get("market") or "kr").strip().lower()
+
+    preview_result = preview_kis_realized_selection(
+        selected_items=selected_items,
+        destination_account=destination_account,
+        existing_records=existing_records,
+        user_id=str(user_id),
+        source_account_key=source_account_key,
+        source_account_label=masked_account,
+        market=market,
+    )
+
+    items_hash = compute_kis_items_hash(selected_items)
+    preview_ticket = sign_kis_import_preview_ticket(
+        account_id=str(destination_account["id"]),
+        items_hash=items_hash,
+        user_id=str(user_id),
+        source_account_key=source_account_key,
+    )
+    preview_result["preview_ticket"] = preview_ticket
+
+    return JSONResponse(
+        status_code=200,
+        content=preview_result,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/kis/realized-feed/import")
+async def kis_realized_feed_import(request: Request) -> JSONResponse:
+    """Commit eligible selected KIS rows into user normal realized P/L records.
+
+    Rechecks duplicates at commit time to prevent race conditions.
+    """
+    username = get_current_username(request)
+    user_id = getattr(request.state, "user_id", None) or username
+
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("Request body must be a JSON object")
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "Invalid JSON body"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    selected_items = body.get("selected_items")
+    if not isinstance(selected_items, list) or len(selected_items) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "selected_items must be a non-empty list"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    account_id = body.get("account_id")
+    if not isinstance(account_id, str) or not account_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_REQUEST", "message": "account_id is required"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    portfolio = read_portfolio(username=username)
+    accounts = portfolio.get("accounts", [])
+    destination_account = next((a for a in accounts if str(a.get("id")) == account_id.strip()), None)
+    if not destination_account:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_ACCOUNT", "message": "Destination account not found in user portfolio"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    client = KISOpenAPI(username=username)
+    source_account_key = client.get_source_account_key()
+    masked_account = client.get_masked_account()
+    if not source_account_key:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "ACCOUNT_REQUIRED", "message": "한국투자증권 계좌 설정이 필요합니다."},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    items_hash = compute_kis_items_hash(selected_items)
+
+    preview_ticket = body.get("preview_ticket")
+    if preview_ticket:
+        valid_ticket, ticket_err = verify_kis_import_preview_ticket(
+            preview_ticket,
+            account_id=str(destination_account["id"]),
+            items_hash=items_hash,
+            user_id=str(user_id),
+            expected_account_key=source_account_key,
+        )
+        if not valid_ticket:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": ticket_err or "PREVIEW_TICKET_INVALID", "message": f"Preview verification failed: {ticket_err}"},
+                headers={"Cache-Control": "no-store"},
+            )
+
+    include_possible_duplicates = bool(body.get("include_possible_duplicates", False))
+    market = str(body.get("market") or "kr").strip().lower()
+
+    fresh_existing = read_pnl_records(username=username)
+    classification = preview_kis_realized_selection(
+        selected_items=selected_items,
+        destination_account=destination_account,
+        existing_records=fresh_existing,
+        user_id=str(user_id),
+        source_account_key=source_account_key,
+        source_account_label=masked_account,
+        market=market,
+    )
+
+    imported_count = 0
+    already_imported_count = 0
+    possible_duplicate_skipped = 0
+    invalid_count = 0
+    imported_ids: list[str] = []
+    now_iso = datetime.now().astimezone().isoformat()
+
+    for item in classification["items"]:
+        status = item["status"]
+        if status == "ALREADY_IMPORTED":
+            already_imported_count += 1
+            continue
+        if status == "INVALID":
+            invalid_count += 1
+            continue
+        if status == "POSSIBLE_DUPLICATE":
+            if not include_possible_duplicates:
+                possible_duplicate_skipped += 1
+                continue
+
+        candidate = item.get("candidate")
+        if not candidate:
+            invalid_count += 1
+            continue
+
+        candidate_payload = dict(candidate)
+        candidate_payload["source"] = "kis"
+        candidate_payload["source_fingerprint"] = item["fingerprint"]
+        candidate_payload["source_account_key"] = source_account_key
+        candidate_payload["source_account_label"] = masked_account
+        candidate_payload["source_account_scope"] = f"kis:{source_account_key}"
+        candidate_payload["source_scope_verified"] = True
+        candidate_payload["imported_by_user_action"] = True
+        candidate_payload["imported_at"] = now_iso
+
+        created = create_pnl_record(candidate_payload, username=username)
+        imported_ids.append(created["id"])
+        imported_count += 1
+
+    # Persist destination mapping: source_account_key -> destination_account_id
+    if source_account_key and destination_account.get("id"):
+        try:
+            from app.services.user_manager import get_user_data_dir
+            user_dir = get_user_data_dir(username)
+            mapping_file = user_dir / "kis_account_mapping.json"
+            mapping: dict[str, Any] = {}
+            if mapping_file.exists():
+                try:
+                    mapping = json.loads(mapping_file.read_text(encoding="utf-8"))
+                except Exception:
+                    mapping = {}
+            mapping[source_account_key] = str(destination_account["id"])
+            mapping_file.write_text(json.dumps(mapping, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "selected": len(selected_items),
+            "imported": imported_count,
+            "already_imported": already_imported_count,
+            "possible_duplicate_skipped": possible_duplicate_skipped,
+            "invalid": invalid_count,
+            "imported_ids": imported_ids,
+            "scope_kind": "verified",
+            "scope_verified": True,
+            "source_account_key": source_account_key,
+            "source_account_label": masked_account,
+            "destination_account": {
+                "id": destination_account.get("id"),
+                "broker": destination_account.get("broker") or "한국투자증권",
                 "account_name": destination_account.get("account_name") or destination_account.get("name"),
                 "owner": destination_account.get("owner"),
             },
