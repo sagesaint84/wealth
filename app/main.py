@@ -79,6 +79,11 @@ from app.services.nh_feed import (
 )
 from app.services.nh_realized import preview_nh_realized_selection
 from app.services.nhplug_openapi import compute_nh_account_key, mask_nh_account
+from app.services.kiwoom_feed import (
+    build_kiwoom_realized_feed, compute_kiwoom_items_hash,
+    sign_kiwoom_import_preview_ticket, verify_kiwoom_import_preview_ticket,
+)
+from app.services.kiwoom_realized import preview_kiwoom_realized_selection
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -89,6 +94,7 @@ STATIC_DIR = ROOT_DIR / "app" / "static"
 WEALTH_ENV = os.getenv("WEALTH_ENV", "production").strip().lower()
 TESTING = WEALTH_ENV == "test"
 _NH_IMPORT_LOCK = threading.RLock()
+_KIWOOM_IMPORT_LOCK = threading.RLock()
 
 
 def load_env_file() -> None:
@@ -106,7 +112,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version="1.1.3")
+app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version="1.1.4")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 _syncing_users: set[str] = set()
@@ -2025,6 +2031,333 @@ async def nh_realized_feed_import(request: Request) -> JSONResponse:
                 mapping_status="warning"
                 mapping_warning="MAPPING_PERSISTENCE_FAILED"
     return JSONResponse({"selected":len(selected),"imported":imported,"already_imported":result["counts"]["already_imported"],"possible_duplicate_skipped":result["counts"]["possible_duplicate"],"invalid":result["counts"]["invalid"],"imported_ids":ids,"destination_account":{"id":destination.get("id")},"mapping_status":mapping_status,"mapping_warning":mapping_warning,"mapping_repaired":mapping_repaired,"partial_success":bool(imported and mapping_warning)},headers={"Cache-Control":"no-store"})
+
+
+# ---------------------------------------------------------------------------
+# Kiwoom Realized Profit Feed API
+# ---------------------------------------------------------------------------
+
+def _kiwoom_mapping_file(username: str) -> Path:
+    from app.services.user_manager import get_user_data_dir
+    return get_user_data_dir(username) / "kiwoom_account_mapping.json"
+
+
+def _read_kiwoom_mapping(username: str) -> dict[str, str]:
+    path = _kiwoom_mapping_file(username)
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "DESTINATION_MAPPING_INVALID", "message": "Kiwoom destination mapping requires review"},
+        ) from exc
+    if not isinstance(value, dict) or not all(isinstance(key, str) and isinstance(item, str) for key, item in value.items()):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "DESTINATION_MAPPING_INVALID", "message": "Kiwoom destination mapping requires review"},
+        )
+    return value
+
+
+def _assert_kiwoom_mapping_compatible(username: str, source_key: str, destination_id: str) -> bool:
+    existing = _read_kiwoom_mapping(username).get(source_key)
+    if existing and existing != destination_id:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "DESTINATION_MAPPING_CONFLICT", "message": "Kiwoom destination mapping conflicts with this import"},
+        )
+    return existing == destination_id
+
+
+def _write_kiwoom_mapping(username: str, source_key: str, destination_id: str) -> bool:
+    if _assert_kiwoom_mapping_compatible(username, source_key, destination_id):
+        return False
+    path = _kiwoom_mapping_file(username)
+    mapping = _read_kiwoom_mapping(username)
+    mapping[source_key] = destination_id
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temp_path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+    return True
+
+
+def _kiwoom_destination(username: str, account_id: object) -> dict[str, Any]:
+    if not isinstance(account_id, str) or not account_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "DESTINATION_INVALID", "message": "Explicit destination account is required"},
+        )
+    account = next(
+        (item for item in read_portfolio(username=username).get("accounts", []) if str(item.get("id")) == account_id.strip()),
+        None,
+    )
+    if not account:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "DESTINATION_INVALID", "message": "Destination account not found"},
+        )
+    return account
+
+
+def _read_kiwoom_pnl_records_strict(username: str) -> list[dict[str, Any]]:
+    try:
+        return read_pnl_records_readonly(username=username)
+    except PnlRecordsStorageError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "PNL_STORAGE_INVALID", "message": "Realized P/L storage requires review"},
+        ) from exc
+
+
+def _assert_kiwoom_source_records_destination(
+    current: list[dict[str, Any]], source_key: str, destination_id: str,
+) -> None:
+    if any(
+        record.get("source") == "kiwoom"
+        and str(record.get("source_account_key") or "") == source_key
+        and str(record.get("destination_account_id") or "") != destination_id
+        for record in current
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "DESTINATION_MAPPING_CONFLICT", "message": "Kiwoom source records belong to a different destination"},
+        )
+
+
+def _kiwoom_imported_items_match_destination(
+    result: dict[str, Any], current: list[dict[str, Any]], source_key: str, destination_id: str,
+) -> bool:
+    items = result.get("items") if isinstance(result, dict) else None
+    if not isinstance(items, list) or not items or any(item.get("status") != "ALREADY_IMPORTED" for item in items):
+        return False
+    records_by_fingerprint = {
+        str(record.get("source_fingerprint")): record
+        for record in current
+        if record.get("source") == "kiwoom" and record.get("source_fingerprint")
+    }
+    for item in items:
+        record = records_by_fingerprint.get(str(item.get("fingerprint") or ""))
+        if (
+            not record
+            or str(record.get("source_account_key") or "") != source_key
+            or str(record.get("destination_account_id") or "") != destination_id
+        ):
+            return False
+    return True
+
+
+async def _verify_kiwoom_source_context(
+    client: KiwoomOpenAPI, source_key: str,
+) -> tuple[str, str]:
+    try:
+        current_key, label = await client.get_realized_source_account_state()
+    except KiwoomOpenAPIError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "KIWOOM_API_ERROR", "message": "Kiwoom source account unavailable"},
+        ) from exc
+    if not source_key or current_key != source_key:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "SCOPE_MISMATCH", "message": "Kiwoom source account changed"},
+        )
+    return current_key, label
+
+
+@app.get("/api/kiwoom/status")
+async def kiwoom_status(request: Request) -> JSONResponse:
+    username = get_current_username(request)
+    client = KiwoomOpenAPI(username=username)
+    if not client.configured:
+        return JSONResponse(
+            {"configured": False, "accounts": [], "broker": "키움증권", "source_scope_verified": False},
+            headers={"Cache-Control": "no-store"},
+        )
+    try:
+        source_key, label = await client.get_realized_source_account_state()
+        mapping = _read_kiwoom_mapping(username)
+        valid_ids = {str(item.get("id")) for item in read_portfolio(username=username).get("accounts", [])}
+        mapped = mapping.get(source_key)
+        account = {
+            "source_account_key": source_key,
+            "source_account_label": label,
+            "mapped_destination_account_id": mapped if mapped in valid_ids else None,
+            "source_scope_verified": False,
+        }
+        return JSONResponse(
+            {"configured": True, "accounts": [account], "broker": "키움증권", "source_scope_verified": False},
+            headers={"Cache-Control": "no-store"},
+        )
+    except KiwoomOpenAPIError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "KIWOOM_API_ERROR", "message": "Kiwoom status unavailable"},
+        ) from exc
+
+
+@app.post("/api/kiwoom/realized-feed/fetch")
+async def kiwoom_realized_feed_fetch(request: Request) -> JSONResponse:
+    username = get_current_username(request)
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail={"code": "USER_ID_REQUIRED", "message": "Stable user identity required"})
+    body = await request.json()
+    market = str(body.get("market") or "").lower()
+    if market not in {"kr", "us"}:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST", "message": "market must be kr or us"})
+    try:
+        rows, source_key, label = await KiwoomOpenAPI(username=username).fetch_realized_profit(
+            market=market,
+            from_date=str(body.get("from_date") or ""),
+            to_date=str(body.get("to_date") or ""),
+            stock_code=body.get("stock_code"),
+        )
+        return JSONResponse(
+            build_kiwoom_realized_feed(
+                rows, market=market, source_account_key=source_key,
+                source_account_label=label, user_id=str(user_id),
+            ),
+            headers={"Cache-Control": "no-store"},
+        )
+    except KiwoomOpenAPIError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "KIWOOM_API_ERROR", "message": "Kiwoom realized feed unavailable"},
+        ) from exc
+
+
+@app.post("/api/kiwoom/realized-feed/import-preview")
+async def kiwoom_realized_feed_import_preview(request: Request) -> JSONResponse:
+    username = get_current_username(request)
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail={"code": "USER_ID_REQUIRED", "message": "Stable user identity required"})
+    body = await request.json()
+    selected = body.get("selected_items")
+    market = str(body.get("market") or "").lower()
+    source_key = str(body.get("source_account_key") or "")
+    if not isinstance(selected, list) or not selected or market not in {"kr", "us"}:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST", "message": "Invalid Kiwoom preview request"})
+    destination = _kiwoom_destination(username, body.get("account_id"))
+    _, label = await _verify_kiwoom_source_context(KiwoomOpenAPI(username=username), source_key)
+    result = preview_kiwoom_realized_selection(
+        selected, destination, _read_kiwoom_pnl_records_strict(username),
+        user_id=str(user_id), source_account_key=source_key,
+        source_account_label=label, market=market,
+    )
+    result["preview_ticket"] = sign_kiwoom_import_preview_ticket(
+        account_id=str(destination["id"]), items_hash=compute_kiwoom_items_hash(selected),
+        user_id=str(user_id), source_account_key=source_key, market=market,
+    )
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/kiwoom/realized-feed/import")
+async def kiwoom_realized_feed_import(request: Request) -> JSONResponse:
+    username = get_current_username(request)
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail={"code": "USER_ID_REQUIRED", "message": "Stable user identity required"})
+    body = await request.json()
+    selected = body.get("selected_items")
+    market = str(body.get("market") or "").lower()
+    source_key = str(body.get("source_account_key") or "")
+    if not isinstance(selected, list) or not selected or market not in {"kr", "us"}:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST", "message": "Invalid Kiwoom import request"})
+    destination = _kiwoom_destination(username, body.get("account_id"))
+    _, label = await _verify_kiwoom_source_context(KiwoomOpenAPI(username=username), source_key)
+    valid, error = verify_kiwoom_import_preview_ticket(
+        str(body.get("preview_ticket") or ""), account_id=str(destination["id"]),
+        items_hash=compute_kiwoom_items_hash(selected), user_id=str(user_id),
+        source_account_key=source_key, market=market,
+    )
+    if not valid:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": error or "PREVIEW_TICKET_INVALID", "message": "Kiwoom preview verification failed"},
+        )
+    with _KIWOOM_IMPORT_LOCK:
+        destination_id = str(destination["id"])
+        mapping_exists = _assert_kiwoom_mapping_compatible(username, source_key, destination_id)
+        current = _read_kiwoom_pnl_records_strict(username)
+        _assert_kiwoom_source_records_destination(current, source_key, destination_id)
+        result = preview_kiwoom_realized_selection(
+            selected, destination, current, user_id=str(user_id),
+            source_account_key=source_key, source_account_label=label, market=market,
+        )
+        already_items = [item for item in result["items"] if item.get("status") == "ALREADY_IMPORTED"]
+        if already_items and not _kiwoom_imported_items_match_destination(
+            {"items": already_items}, current, source_key, destination_id,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "DESTINATION_MAPPING_CONFLICT", "message": "Imported Kiwoom records belong to another destination"},
+            )
+        now = datetime.now().astimezone().isoformat()
+        imported = 0
+        imported_ids: list[str] = []
+        include_possible = bool(body.get("include_possible_duplicates", False))
+        for item in result["items"]:
+            if item["status"] != "NEW" and not (include_possible and item["status"] == "POSSIBLE_DUPLICATE"):
+                continue
+            candidate = dict(item["candidate"])
+            source_meta = candidate.get("source_meta") if isinstance(candidate.get("source_meta"), dict) else {}
+            source_meta = {
+                key: source_meta[key]
+                for key in ("api_id", "buy_amount_semantics", "sell_amount_semantics", "currency_basis")
+                if key in source_meta
+            }
+            candidate.update({
+                "source": "kiwoom",
+                "source_fingerprint": item["fingerprint"],
+                "source_account_key": source_key,
+                "source_account_label": label,
+                "source_account_scope": f"kiwoom:{source_key}",
+                "source_scope_verified": False,
+                "destination_account_id": destination_id,
+                "imported_by_user_action": True,
+                "imported_at": now,
+                "source_meta": source_meta,
+            })
+            created = create_pnl_record(candidate, username=username)
+            imported_ids.append(created["id"])
+            imported += 1
+        repairable = (
+            not mapping_exists
+            and imported == 0
+            and _kiwoom_imported_items_match_destination(result, current, source_key, destination_id)
+        )
+        mapping_status = "already_present" if mapping_exists else "not_written"
+        mapping_warning = None
+        mapping_repaired = False
+        if imported or repairable:
+            try:
+                changed = _write_kiwoom_mapping(username, source_key, destination_id)
+                mapping_status = "repaired" if repairable and changed else "persisted" if changed else "already_present"
+                mapping_repaired = bool(repairable and changed)
+            except OSError:
+                mapping_status = "warning"
+                mapping_warning = "MAPPING_PERSISTENCE_FAILED"
+    return JSONResponse(
+        {
+            "selected": len(selected), "imported": imported,
+            "already_imported": result["counts"]["already_imported"],
+            "possible_duplicate_skipped": result["counts"]["possible_duplicate"],
+            "invalid": result["counts"]["invalid"], "imported_ids": imported_ids,
+            "destination_account": {"id": destination.get("id")},
+            "mapping_status": mapping_status, "mapping_warning": mapping_warning,
+            "mapping_repaired": mapping_repaired,
+            "partial_success": bool(imported and mapping_warning),
+            "source_scope_verified": False,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # ---------------------------------------------------------------------------

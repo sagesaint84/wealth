@@ -13803,20 +13803,346 @@ async function commitNhImport() {
   try { const res = await fetch('/api/nh/realized-feed/import', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ selected_items: nhSelectedItems(), account_id: accountId, market: nhRealizedState.market, source_account_key: nhRealizedState.sourceAccountKey, preview_ticket: nhRealizedState.previewTicket, include_possible_duplicates: !!document.getElementById('nhIncludePossibleDuplicates')?.checked }) }); const data = await res.json().catch(() => ({})); if (!res.ok) throw data; nhRealizedState.selectedIndices.forEach(index => nhRealizedState.importedIndices.add(index)); nhRealizedState.selectedIndices.clear(); nhRealizedState.previewTicket = null; closeNhImportModal(); renderNhFeedTable(); updateNhSelectionUI(); showNhMessage(`NH 실현손익 ${data.imported || 0}건을 Wealth 계좌에 가져왔습니다.`, 'success'); if (typeof loadPnlRecords === 'function') loadPnlRecords(); if (typeof loadDashboard === 'function') loadDashboard(); else if (typeof fetchDashboard === 'function') fetchDashboard(); } catch (error) { showNhMessage(nhSafeError(error, 'NH 가져오기에 실패했습니다.'), 'error'); } finally { nhRealizedState.importing = false; updateNhCommitButton(); updateNhSelectionUI(); }
 }
 
+// ── 키움증권 (Kiwoom) 실현손익 UI ──────────────────────────────────────────
+const kiwoomRealizedState = {
+  status: null, accounts: [], sourceAccountKey: '', mappedDestAccountId: '',
+  loading: false, importing: false, rows: [], selectionTokens: [],
+  selectedIndices: new Set(), importedIndices: new Set(), market: 'kr',
+  previewTicket: null, preview: null,
+};
+window.kiwoomRealizedState = kiwoomRealizedState;
+
+function showKiwoomMessage(message, type = 'info') {
+  const el = document.getElementById('kiwoomMessage');
+  if (!el) return;
+  el.className = `toss-wts-message ${type}`;
+  el.textContent = message;
+  el.style.display = 'block';
+}
+function hideKiwoomMessage() { const el = document.getElementById('kiwoomMessage'); if (el) { el.style.display = 'none'; el.textContent = ''; } }
+function setKiwoomLoading(loading) {
+  kiwoomRealizedState.loading = loading;
+  ['btnCheckKiwoomStatus', 'btnFetchKiwoomFeed'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = loading || (id === 'btnFetchKiwoomFeed' && !kiwoomRealizedState.sourceAccountKey);
+  });
+}
+function kiwoomSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
+function kiwoomSelectedItems() {
+  return Array.from(kiwoomRealizedState.selectedIndices).sort((a, b) => a - b).map(idx => {
+    const row = kiwoomRealizedState.rows[idx]; const token = kiwoomRealizedState.selectionTokens[idx];
+    return row && token ? { row, selection_token: token } : null;
+  }).filter(Boolean);
+}
+function populateKiwoomSourceAccounts() {
+  const select = document.getElementById('kiwoomSourceAccount'); if (!select) return;
+  const current = select.value; select.innerHTML = '<option value="">원본 계좌 선택...</option>';
+  kiwoomRealizedState.accounts.forEach(account => {
+    const option = document.createElement('option');
+    option.value = account.source_account_key;
+    option.textContent = account.source_account_label || '마스킹된 키움 계좌';
+    select.appendChild(option);
+  });
+  select.disabled = kiwoomRealizedState.accounts.length === 0;
+  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
+  else if (kiwoomRealizedState.accounts.length === 1) select.value = kiwoomRealizedState.accounts[0].source_account_key;
+  kiwoomRealizedState.sourceAccountKey = select.value;
+  kiwoomRealizedState.mappedDestAccountId = kiwoomRealizedState.accounts.find(a => a.source_account_key === select.value)?.mapped_destination_account_id || '';
+}
+async function checkKiwoomStatus() {
+  if (kiwoomRealizedState.loading) return;
+  setKiwoomLoading(true); hideKiwoomMessage();
+  try {
+    const res = await fetch('/api/kiwoom/status'); const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw data;
+    kiwoomRealizedState.status = data; kiwoomRealizedState.accounts = Array.isArray(data.accounts) ? data.accounts : [];
+    populateKiwoomSourceAccounts();
+    const status = document.getElementById('kiwoomStatusText'); const banner = document.getElementById('kiwoomBannerText');
+    if (!data.configured) {
+      if (status) status.textContent = '미설정 (API 키 필요)';
+      showKiwoomMessage('키움증권 OpenAPI 설정이 필요합니다.', 'warning');
+    } else if (!kiwoomRealizedState.accounts.length) {
+      if (status) status.textContent = '계좌 미등록';
+      showKiwoomMessage('조회 가능한 키움 계좌가 없습니다.', 'warning');
+    } else {
+      if (status) status.textContent = '계좌 선택 가능';
+      if (banner) banner.textContent = '마스킹된 원본 계좌를 선택한 뒤 조회하세요. 조회 결과는 읽기 전용입니다.';
+    }
+  } catch (error) {
+    showKiwoomMessage(kiwoomSafeError(error, '키움 연동 상태 확인에 실패했습니다.'), 'error');
+  } finally {
+    setKiwoomLoading(false);
+    updateKiwoomSelectionUI();
+  }
+}
+function populateKiwoomDestinationAccounts() {
+  const select = document.getElementById('kiwoomDestinationAccount'); if (!select) return;
+  const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
+  const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
+  accounts.forEach(acc => {
+    const option = document.createElement('option');
+    option.value = String(acc.id || '');
+    option.textContent = `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`;
+    select.appendChild(option);
+  });
+  const preferred = kiwoomRealizedState.mappedDestAccountId;
+  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
+  else if (preferred && Array.from(select.options).some(o => o.value === String(preferred))) select.value = String(preferred);
+}
+async function fetchKiwoomRealizedFeed() {
+  if (kiwoomRealizedState.loading) return;
+  const market = document.getElementById('kiwoomMarketSelect')?.value || 'kr';
+  const fromDate = document.getElementById('kiwoomFromDate')?.value;
+  const toDate = document.getElementById('kiwoomToDate')?.value;
+  if (!kiwoomRealizedState.sourceAccountKey) return showKiwoomMessage('마스킹된 키움 원본 계좌를 선택하세요.', 'warning');
+  if (!fromDate || !toDate || fromDate > toDate) return showKiwoomMessage('유효한 시작일과 종료일을 선택하세요.', 'warning');
+  setKiwoomLoading(true); hideKiwoomMessage();
+  try {
+    const res = await fetch('/api/kiwoom/realized-feed/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ market, from_date: fromDate, to_date: toDate, source_account_key: kiwoomRealizedState.sourceAccountKey })
+    });
+    const data = await res.json().catch(() => ({})); if (!res.ok) throw data;
+    kiwoomRealizedState.rows = Array.isArray(data.rows) ? data.rows : [];
+    kiwoomRealizedState.selectionTokens = Array.isArray(data.selection_tokens) ? data.selection_tokens : [];
+    kiwoomRealizedState.selectedIndices.clear();
+    kiwoomRealizedState.importedIndices.clear();
+    kiwoomRealizedState.preview = null;
+    kiwoomRealizedState.previewTicket = null;
+    kiwoomRealizedState.market = data.market || market;
+    const meta = document.getElementById('kiwoomMeta');
+    if (meta) {
+      meta.textContent = `조회 시장: ${kiwoomRealizedState.market === 'us' ? '해외주식' : '국내주식'} · ${kiwoomRealizedState.rows.length}건`;
+      meta.style.display = 'flex';
+    }
+    renderKiwoomFeedTable();
+    updateKiwoomSelectionUI();
+    if (!kiwoomRealizedState.rows.length) showKiwoomMessage('해당 기간의 실현손익 내역이 없습니다.', 'info');
+  } catch (error) {
+    showKiwoomMessage(kiwoomSafeError(error, '키움 실현손익 조회에 실패했습니다.'), 'error');
+    renderKiwoomFeedTable();
+  } finally {
+    setKiwoomLoading(false);
+  }
+}
+function kiwoomNumber(value, digits = 0) {
+  if (value === null || value === undefined || value === '') return '—';
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—';
+}
+function renderKiwoomFeedTable() {
+  const tbody = document.getElementById('kiwoomTableBody');
+  const selectAll = document.getElementById('kiwoomSelectAll');
+  if (!tbody) return;
+  if (selectAll) selectAll.checked = false;
+  if (!kiwoomRealizedState.rows.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-empty">조회 버튼을 눌러 키움 실현손익을 조회하세요.</td></tr>';
+    return;
+  }
+  const overseas = kiwoomRealizedState.market === 'us';
+  const extra = document.getElementById('kiwoomExpenseColumn');
+  if (extra) extra.textContent = overseas ? '해외 제비용 합계' : '수수료 / 제세금';
+  tbody.innerHTML = kiwoomRealizedState.rows.map((row, index) => {
+    const imported = kiwoomRealizedState.importedIndices.has(index);
+    const selected = kiwoomRealizedState.selectedIndices.has(index);
+    const pnl = Number(row.pnl);
+    const pnlClass = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
+    const check = imported ? '<span class="toss-wts-imported-badge">완료</span>' : `<input type="checkbox" class="kiwoom-row-check" data-index="${index}" ${selected ? 'checked' : ''}>`;
+    const context = overseas ? `${html(row.country || '미국')} / ${html(row.currency || 'USD')}` : '국내 / KRW';
+    const expense = overseas
+      ? (row.expenses_total == null ? '—' : kiwoomNumber(row.expenses_total, 2))
+      : `${row.fee == null ? '—' : `수수료 ${kiwoomNumber(row.fee)}`} ${row.tax == null ? '' : `제세금 ${kiwoomNumber(row.tax)}`}`;
+    return `<tr class="${selected ? 'selected' : ''} ${imported ? 'imported-row' : ''}">` +
+      `<td>${check}</td>` +
+      `<td>${html(row.date || '')}</td>` +
+      `<td><strong>${html(row.name || '')}</strong><br><code>${html(row.code || '')}</code></td>` +
+      `<td>${context}</td>` +
+      `<td class="num">${kiwoomNumber(row.quantity)}</td>` +
+      `<td class="num">${kiwoomNumber(row.buy_amount, overseas ? 2 : 0)}</td>` +
+      `<td class="num">${kiwoomNumber(row.sell_amount, overseas ? 2 : 0)}</td>` +
+      `<td class="num ${pnlClass}"><strong>${kiwoomNumber(row.pnl, overseas ? 2 : 0)}</strong></td>` +
+      `<td class="num">${row.profit_rate == null ? '—' : `${kiwoomNumber(row.profit_rate, 2)}%`}</td>` +
+      `<td class="num"><small class="muted">${expense}</small></td>` +
+    `</tr>`;
+  }).join('');
+  tbody.querySelectorAll('.kiwoom-row-check').forEach(check => check.addEventListener('change', event => {
+    const index = Number(event.target.dataset.index);
+    event.target.checked ? kiwoomRealizedState.selectedIndices.add(index) : kiwoomRealizedState.selectedIndices.delete(index);
+    updateKiwoomSelectionUI();
+  }));
+}
+function updateKiwoomSelectionUI() {
+  populateKiwoomDestinationAccounts();
+  const count = kiwoomRealizedState.selectedIndices.size;
+  const badge = document.getElementById('kiwoomSelectedCountBadge');
+  const bar = document.getElementById('kiwoomImportBar');
+  const button = document.getElementById('btnKiwoomImportSelected');
+  if (badge) badge.textContent = `선택 ${count}건`;
+  if (bar) bar.style.display = kiwoomRealizedState.rows.length ? 'flex' : 'none';
+  if (button) button.disabled = count === 0 || !document.getElementById('kiwoomDestinationAccount')?.value || kiwoomRealizedState.loading || kiwoomRealizedState.importing;
+}
+async function openKiwoomImportPreview() {
+  const accountId = document.getElementById('kiwoomDestinationAccount')?.value;
+  const selectedItems = kiwoomSelectedItems();
+  if (!accountId) return showKiwoomMessage('귀속할 Wealth 계좌를 선택하세요.', 'warning');
+  if (!selectedItems.length) return;
+  setKiwoomLoading(true);
+  try {
+    const res = await fetch('/api/kiwoom/realized-feed/import-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        selected_items: selectedItems,
+        account_id: accountId,
+        market: kiwoomRealizedState.market,
+        source_account_key: kiwoomRealizedState.sourceAccountKey
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw data;
+    kiwoomRealizedState.preview = data;
+    kiwoomRealizedState.previewTicket = data.preview_ticket;
+    renderKiwoomPreviewModal(data);
+  } catch (error) {
+    showKiwoomMessage(kiwoomSafeError(error, '키움 미리보기 검증에 실패했습니다.'), 'error');
+  } finally {
+    setKiwoomLoading(false);
+  }
+}
+function renderKiwoomPreviewModal(data) {
+  const counts = data.counts || {};
+  ['New', 'Already', 'Dup', 'Invalid'].forEach(name => {
+    const key = { New: 'new', Already: 'already_imported', Dup: 'possible_duplicate', Invalid: 'invalid' }[name];
+    const el = document.getElementById(`kiwoomModalCount${name}`);
+    if (el) el.textContent = String(counts[key] || 0);
+  });
+  const dest = data.destination_account || {};
+  const display = document.getElementById('kiwoomModalDestAccountDisplay');
+  if (display) display.innerHTML = `귀속 계좌: <strong>[${html(dest.broker || 'Wealth')}] ${html(maskAccountDisplayLabel(dest.account_name || '-'))}</strong> (${html(dest.owner || '모두')})`;
+  const dup = document.getElementById('kiwoomDupOverrideWrap');
+  if (dup) dup.style.display = counts.possible_duplicate ? 'block' : 'none';
+  const check = document.getElementById('kiwoomIncludePossibleDuplicates');
+  if (check) check.checked = false;
+  const body = document.getElementById('kiwoomModalItemsBody');
+  if (body) {
+    body.innerHTML = (data.items || []).map(item => {
+      const candidate = item.candidate || {};
+      const labels = { NEW: '신규 등록', ALREADY_IMPORTED: '이미 가져옴', POSSIBLE_DUPLICATE: '중복 의심', INVALID: '유효하지 않음' };
+      return `<tr><td><span class="badge">${html(labels[item.status] || '유효하지 않음')}</span></td><td>${html(candidate.date || '-')}</td><td>${html(candidate.name || '-')}</td><td class="num">${kiwoomNumber(candidate.quantity)}</td><td class="num">${kiwoomNumber(candidate.pnl, 2)} ${html(candidate.currency || '')}</td></tr>`;
+    }).join('');
+  }
+  updateKiwoomCommitButton();
+  document.getElementById('kiwoomImportModalOverlay').style.display = 'flex';
+}
+function updateKiwoomCommitButton() {
+  const button = document.getElementById('btnKiwoomConfirmCommit');
+  const counts = kiwoomRealizedState.preview?.counts || {};
+  const include = !!document.getElementById('kiwoomIncludePossibleDuplicates')?.checked;
+  const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0);
+  if (button) {
+    button.textContent = `${eligible}건 가져오기 완료`;
+    button.disabled = eligible === 0 || kiwoomRealizedState.importing;
+  }
+}
+function closeKiwoomImportModal() {
+  const overlay = document.getElementById('kiwoomImportModalOverlay');
+  if (overlay) overlay.style.display = 'none';
+}
+async function commitKiwoomImport() {
+  if (kiwoomRealizedState.importing || !kiwoomRealizedState.previewTicket) return;
+  kiwoomRealizedState.importing = true;
+  updateKiwoomCommitButton();
+  const accountId = kiwoomRealizedState.preview?.destination_account?.id || document.getElementById('kiwoomDestinationAccount')?.value;
+  try {
+    const res = await fetch('/api/kiwoom/realized-feed/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        selected_items: kiwoomSelectedItems(),
+        account_id: accountId,
+        market: kiwoomRealizedState.market,
+        source_account_key: kiwoomRealizedState.sourceAccountKey,
+        preview_ticket: kiwoomRealizedState.previewTicket,
+        include_possible_duplicates: !!document.getElementById('kiwoomIncludePossibleDuplicates')?.checked
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw data;
+    kiwoomRealizedState.selectedIndices.forEach(index => kiwoomRealizedState.importedIndices.add(index));
+    kiwoomRealizedState.selectedIndices.clear();
+    kiwoomRealizedState.previewTicket = null;
+    closeKiwoomImportModal();
+    renderKiwoomFeedTable();
+    updateKiwoomSelectionUI();
+    if (data.partial_success || data.mapping_warning === 'MAPPING_PERSISTENCE_FAILED') {
+      showKiwoomMessage(`키움 실현손익 ${data.imported || 0}건 가져오기를 완료했으나, 계좌 매핑 저장에 실패했습니다. 재시도 시 손익 중복 없이 매핑을 복구할 수 있습니다.`, 'warning');
+    } else if (data.mapping_repaired) {
+      showKiwoomMessage(`키움 실현손익 ${data.imported || 0}건을 가져오고 계좌 매핑을 복구했습니다.`, 'success');
+    } else {
+      showKiwoomMessage(`키움 실현손익 ${data.imported || 0}건을 Wealth 계좌에 가져왔습니다.`, 'success');
+    }
+    if (typeof loadPnlRecords === 'function') loadPnlRecords();
+    if (typeof loadDashboard === 'function') loadDashboard();
+    else if (typeof fetchDashboard === 'function') fetchDashboard();
+  } catch (error) {
+    showKiwoomMessage(kiwoomSafeError(error, '키움 가져오기에 실패했습니다.'), 'error');
+  } finally {
+    kiwoomRealizedState.importing = false;
+    updateKiwoomCommitButton();
+    updateKiwoomSelectionUI();
+  }
+}
+function initKiwoomRealizedUI() {
+  const kiwoomFrom = document.getElementById('kiwoomFromDate');
+  const kiwoomTo = document.getElementById('kiwoomToDate');
+  const currentYear = new Date().getFullYear();
+  if (kiwoomFrom && !kiwoomFrom.value) kiwoomFrom.value = `${currentYear}-01-01`;
+  if (kiwoomTo && !kiwoomTo.value) kiwoomTo.value = new Date().toISOString().slice(0, 10);
+  document.getElementById('btnTabBrokerKiwoom')?.addEventListener('click', () => switchRealizedBroker('kiwoom'));
+  document.getElementById('btnCheckKiwoomStatus')?.addEventListener('click', checkKiwoomStatus);
+  document.getElementById('btnFetchKiwoomFeed')?.addEventListener('click', fetchKiwoomRealizedFeed);
+  document.getElementById('kiwoomSourceAccount')?.addEventListener('change', event => {
+    kiwoomRealizedState.sourceAccountKey = event.target.value;
+    kiwoomRealizedState.mappedDestAccountId = kiwoomRealizedState.accounts.find(a => a.source_account_key === event.target.value)?.mapped_destination_account_id || '';
+    updateKiwoomSelectionUI();
+    setKiwoomLoading(false);
+  });
+  document.getElementById('kiwoomDestinationAccount')?.addEventListener('change', updateKiwoomSelectionUI);
+  document.getElementById('kiwoomSelectAll')?.addEventListener('change', event => {
+    kiwoomRealizedState.rows.forEach((_, index) => {
+      if (!kiwoomRealizedState.importedIndices.has(index)) {
+        event.target.checked ? kiwoomRealizedState.selectedIndices.add(index) : kiwoomRealizedState.selectedIndices.delete(index);
+      }
+    });
+    renderKiwoomFeedTable();
+    updateKiwoomSelectionUI();
+  });
+  document.getElementById('btnKiwoomImportSelected')?.addEventListener('click', openKiwoomImportPreview);
+  document.getElementById('btnKiwoomModalClose')?.addEventListener('click', closeKiwoomImportModal);
+  document.getElementById('btnKiwoomModalCancel')?.addEventListener('click', closeKiwoomImportModal);
+  document.getElementById('kiwoomIncludePossibleDuplicates')?.addEventListener('change', updateKiwoomCommitButton);
+  document.getElementById('btnKiwoomConfirmCommit')?.addEventListener('click', commitKiwoomImport);
+}
+
 function switchRealizedBroker(broker) {
   const tossCard = document.getElementById('tossWtsCard');
   const kisCard = document.getElementById('kisRealizedCard');
   const nhCard = document.getElementById('nhRealizedCard');
+  const kiwoomCard = document.getElementById('kiwoomRealizedCard');
   const btnToss = document.getElementById('btnTabBrokerToss');
   const btnKis = document.getElementById('btnTabBrokerKis');
   const btnNh = document.getElementById('btnTabBrokerNh');
+  const btnKiwoom = document.getElementById('btnTabBrokerKiwoom');
 
   if (broker === 'kis') {
     if (tossCard) tossCard.style.display = 'none';
     if (kisCard) kisCard.style.display = 'block';
     if (nhCard) nhCard.style.display = 'none';
+    if (kiwoomCard) kiwoomCard.style.display = 'none';
     btnToss?.classList.remove('active');
     btnNh?.classList.remove('active');
+    btnKiwoom?.classList.remove('active');
     btnKis?.classList.add('active');
     if (!kisRealizedState.status) {
       checkKisStatus();
@@ -13825,16 +14151,30 @@ function switchRealizedBroker(broker) {
     if (tossCard) tossCard.style.display = 'none';
     if (kisCard) kisCard.style.display = 'none';
     if (nhCard) nhCard.style.display = 'block';
+    if (kiwoomCard) kiwoomCard.style.display = 'none';
     btnToss?.classList.remove('active');
     btnKis?.classList.remove('active');
+    btnKiwoom?.classList.remove('active');
     btnNh?.classList.add('active');
     // Deliberately do not call /api/nh/status here: selecting a broker tab is not a provider action.
+  } else if (broker === 'kiwoom') {
+    if (tossCard) tossCard.style.display = 'none';
+    if (kisCard) kisCard.style.display = 'none';
+    if (nhCard) nhCard.style.display = 'none';
+    if (kiwoomCard) kiwoomCard.style.display = 'block';
+    btnToss?.classList.remove('active');
+    btnKis?.classList.remove('active');
+    btnNh?.classList.remove('active');
+    btnKiwoom?.classList.add('active');
+    // Deliberately do not call /api/kiwoom/status here: selecting a broker tab is not a provider action.
   } else {
     if (tossCard) tossCard.style.display = 'block';
     if (kisCard) kisCard.style.display = 'none';
     if (nhCard) nhCard.style.display = 'none';
+    if (kiwoomCard) kiwoomCard.style.display = 'none';
     btnKis?.classList.remove('active');
     btnNh?.classList.remove('active');
+    btnKiwoom?.classList.remove('active');
     btnToss?.classList.add('active');
   }
 }
@@ -13929,6 +14269,7 @@ async function bootstrap() {
   setupAutoAdvancingDateInput("#ledgerPaySplitDateWrap");
   initTossWtsUI();
   initKisRealizedUI();
+  initKiwoomRealizedUI();
   await initAuthSession();
 }
 

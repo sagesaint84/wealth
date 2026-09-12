@@ -97,13 +97,13 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
     raw_fx_pnl = payload.get("fx_pnl_krw")
     if raw_fx_pnl is not None:
         fx_pnl_krw = float(raw_fx_pnl)
-    elif payload.get("source") in ("toss_wts", "kis", "nh"):
+    elif payload.get("source") in ("toss_wts", "kis", "nh", "kiwoom"):
         fx_pnl_krw = None
     else:
         fx_pnl_krw = 0.0
     
     raw_fx = payload.get("fx_rate")
-    if payload.get("source") in ("toss_wts", "kis", "nh") and raw_fx is None:
+    if payload.get("source") in ("toss_wts", "kis", "nh", "kiwoom") and raw_fx is None:
         fx_rate = None
     elif currency == "USD":
         if raw_fx is not None and float(raw_fx) > 0:
@@ -114,7 +114,7 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
         fx_rate = 1.0
 
     raw_pnl_krw = payload.get("pnl_krw")
-    if raw_pnl_krw is None and payload.get("source") in ("toss_wts", "kis", "nh"):
+    if raw_pnl_krw is None and payload.get("source") in ("toss_wts", "kis", "nh", "kiwoom"):
         pnl_krw = None
     elif raw_pnl_krw is not None:
         pnl_krw = float(raw_pnl_krw)
@@ -195,7 +195,7 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
         if field in payload:
             record[field] = payload[field]
 
-    for field in ("quantity", "buy_unit_price", "buy_amount", "sell_unit_price", "sell_amount", "fee", "tax", "expenses_total", "profit_rate"):
+    for field in ("quantity", "buy_unit_price", "buy_amount", "sell_unit_price", "sell_amount", "fee", "tax", "expenses_total", "profit_rate", "country", "exchange"):
         if field in payload:
             record[field] = payload[field]
 
@@ -320,6 +320,19 @@ def clear_pnl_records(username: str | None = None) -> None:
     write_pnl_records(preserved, username)
 
 
+def _parse_pnl_summary_date(value: Any) -> datetime | None:
+    """Parse only supported realized-P/L date formats for summary bucketing."""
+    text = str(value or "").strip()
+    for date_format in ("%Y-%m-%d", "%Y%m%d"):
+        try:
+            parsed = datetime.strptime(text, date_format)
+        except ValueError:
+            continue
+        if parsed.strftime(date_format) == text:
+            return parsed
+    return None
+
+
 def get_pnl_summary(owner: str = "모두", year: int | str | None = None, trade_type: str = "all", username: str | None = None) -> dict[str, Any]:
     records = read_pnl_records(username)
     
@@ -365,10 +378,12 @@ def get_pnl_summary(owner: str = "모두", year: int | str | None = None, trade_
     
     for r in filtered:
         r_date = str(r.get("date", ""))
-        try:
-            m = int(r_date.split("-")[1])
-        except (IndexError, ValueError):
+        parsed_date = _parse_pnl_summary_date(r_date)
+        if parsed_date is None:
+            # Preserve the legacy defensive fallback for malformed dates.
             m = 1
+        else:
+            m = parsed_date.month
         if 1 <= m <= 12:
             amt_krw = available_pnl_krw(r)
             if amt_krw is not None:

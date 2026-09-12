@@ -273,7 +273,17 @@ python -m unittest discover -s tests -v
 
 ## 버전
 
-현재 앱 버전은 **Wealth v1.1.3**입니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
+현재 앱 버전은 **Wealth v1.1.4**입니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
+
+### 키움증권 공식 OpenAPI 실현손익 연동 (v1.1.4)
+
+- 키움증권 공식 OpenAPI(국내 `ka10073`, 해외 `ust21530`) 기반 기간별 실현손익 실시간 조회 및 선택 가져오기 파이프라인
+- HMAC-SHA256 불투명 계좌 키, 계좌번호 마스킹 처리 및 미검증 스코프 투명 공개(`source_scope_verified: False`)
+- 행 단위 HMAC 서명 토큰 및 브라우저 JSON 정규화 불변성(`_canonical_num_str`)을 통한 위변조 방지
+- 사전 미리보기(preview-before-write) 및 커밋 시점 중복 방지(replay protection)를 통한 데이터 무결성 보장
+- 검증된 동작 특성에 기반한 국내 장기 조회 시 보수적 3개월 단위 자동 분할 수집(conservative three-calendar-month chunks)
+- 해외 실현손익 정상 빈 결과 봉투 처리 및 환율 미제공 시 원화 손익 무조작(`pnl_krw = None`) 원칙 준수
+- 주식 주문, 공모주 청약, 배당금 연동 기능은 포함되지 않습니다.
 
 ### NH투자증권 공식 OpenAPI 실현손익 연동 (v1.1.3)
 

@@ -56,9 +56,9 @@ class NhRealizedFrontendTests(unittest.TestCase):
         script = r'''
 const fs = require("fs");
 const source = fs.readFileSync("app/static/wealth.js", "utf8");
-const match = source.match(/function maskAccountDisplayLabel\(value\) \{[\s\S]*?\n\}\n\nconst kisRealizedState/);
+const match = source.match(/function maskAccountDisplayLabel\(value\) \{[\s\S]*?\r?\n\}\r?\n\r?\nconst kisRealizedState/);
 if (!match) process.exit(2);
-eval(match[0].replace(/\n\nconst kisRealizedState$/, ""));
+eval(match[0].replace(/\r?\n\r?\nconst kisRealizedState$/, ""));
 console.log(JSON.stringify([
   maskAccountDisplayLabel("12345678"),
   maskAccountDisplayLabel("1234567890"),

@@ -1,5 +1,29 @@
 # Wealth 변경 이력
 
+## Wealth v1.1.4 — Kiwoom Realized-P/L Integration — 2026-09-13
+
+- **키움증권 공식 OpenAPI 실현손익 연동 (Selective Realized-P/L Import)**:
+  - 키움증권 공식 OpenAPI(국내 `ka10073` 일자별종목별실현손익요청_기간, 해외 `ust21530` 미국주식 실현손익) 기반 기간별 실현손익 실시간 피드 조회 및 선택 가져오기 파이프라인 구현
+  - **계좌 목록 조회 (`ka00001`) 및 스코프 투명성 (`source_scope_verified: False`)**: 키움 OpenAPI 특성상 API 키와 특정 계좌 간의 사전 서버 검증 증거가 요청 페이로드에 포함되지 않으므로, 신뢰 스코프를 투명하게 미검증(`source_scope_verified: False`) 상태로 유지 및 UI 안내
+  - **불투명 출처 계좌 식별자 (Opaque Source Account Key)**: raw 계좌번호 노출을 차단하고 `HMAC-SHA256(account, secret)` 기반 64자 불투명 키 사용
+  - **마스킹 계좌 표시**: API 상태, 피드 응답, 브라우저 DOM 전반에 `XXXX****-YY` 마스킹 포맷 적용
+  - **명시적 최초 귀속 및 영구 매핑**: 첫 import 시 사용자가 선택한 Wealth 계좌에 귀속되며, 이후 `kiwoom_account_mapping.json`을 통해 안전하게 자동 제안
+  - **행 단위 HMAC 서명 및 무결성 보호**: 조회 시 발급되는 `selection_token`을 통해 행 데이터 위변조(`ROW_TAMPERED`) 및 타 사용자/타 계좌 오남용 차단
+  - **브라우저 JSON 정규화 불변성 (`_canonical_num_str`)**: 브라우저/JSON 라운드트립 간 정수·실수 표기 차이로 인한 서명 검증 실패 방지
+  - **국내 장기 조회 안전 분할 (Conservative Chunking)**: Wealth uses conservative three-calendar-month chunks for reliable long-range domestic retrieval based on validated behavior (검증된 동작 특성에 기반하여 안정적인 장기 조회를 위한 3개월 단위 자동 분할 수집)
+  - **해외 정상 빈 결과 봉투 처리**: 해외 실현손익 내역 부재 시 키움 특유의 정상 빈 응답 봉투(`return_code: 20`, subcode `571758`, "조회내역이 없습니다")를 오류가 아닌 빈 목록으로 정상 처리
+  - **브라우저 입력 날짜 정규화**: HTML5 date 입력(`YYYY-MM-DD`)을 OpenAPI 규격(`YYYYMMDD`)으로 완벽 정규화 지원
+  - **쓰기 전 사전 검증 (Preview-before-write)**: 모달을 통해 `NEW`, `ALREADY_IMPORTED`, `POSSIBLE_DUPLICATE`, `INVALID` 상태를 사전 분류 (미리보기 단계 금융 데이터 무저장)
+  - **커밋 시점 중복 방지 (Replay Protection)**: 단기 유효한 `preview_ticket` 발급 및 최종 import 커밋 시 재분류 검증을 통해 동시성/반복 클릭에 의한 중복 쓰기 원천 차단
+  - **선택적 가져오기 및 읽기 전용 피드 원칙**: 임시 조회 피드는 `read_only: True, persisted: False`로 관리되며 전체 회계 합산에 중복 포함되지 않음
+  - **완전한 출처 메타데이터 보존 (Provenance)**: `source: "kiwoom"`, `source_fingerprint: "kiwoom-realized:v1:<sha256>"`, `source_account_key`, `source_account_label`, `imported_by_user_action: True`, `imported_at`, 최소 필요 메타데이터(`source_meta`) 저장
+  - **수수료 및 제세금 안전 표시**: 국내 수수료/제세금 필드를 합산하여 UI에 명확히 표시
+  - **해외 환율 미제공 시 KRW 손익 Null 처리**: 공식 환율 또는 KRW 환산 금액이 없는 경우 `pnl_krw = None`으로 보존하며, 외화 금액을 원화 필드에 복사하지 않고 UI에 `—`로 표시
+- **릴리즈 범위 안전 제외 확인**:
+  - **주식 주문 기능 (Stock Orders) 미포함** (주문 API 호출 차단)
+  - **공모주 청약/일정 연동 (IPO Integration) 미포함** (실현손익 이외의 공모주 청약 기능 제외)
+  - **배당금 연동 (Dividend Integration) 미포함** (사전 검증된 실현손익 범위만 지원)
+
 ## Wealth v1.1.3 — NH Realized-P/L Integration — 2026-09-13
 
 - **NH투자증권 공식 OpenAPI 실현손익 연동 (Selective Realized-P/L Import)**:
