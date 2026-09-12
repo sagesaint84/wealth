@@ -12779,7 +12779,7 @@ function populateWtsAccounts() {
   select.innerHTML = '<option value="">귀속할 Wealth 계좌를 선택하세요</option>' +
     accounts.map(acc => {
       const broker = acc.broker || '기타';
-      const name = acc.account_name || acc.name || '계좌';
+      const name = maskAccountDisplayLabel(acc.account_name || acc.name || '계좌');
       const owner = acc.owner ? ` (${acc.owner})` : '';
       return `<option value="${html(acc.id)}">${html(broker)} - ${html(name)}${html(owner)}</option>`;
     }).join('');
@@ -12841,7 +12841,7 @@ function renderWtsImportModal(data) {
 
   const counts = data.counts || { new: 0, already_imported: 0, possible_duplicate: 0, invalid: 0 };
   const destAcc = data.destination_account || {};
-  const destText = `${destAcc.broker || ''} - ${destAcc.account_name || ''} (${destAcc.owner || '모두'})`;
+  const destText = `${destAcc.broker || ''} - ${maskAccountDisplayLabel(destAcc.account_name || '')} (${destAcc.owner || '모두'})`;
 
   const destEl = document.getElementById('wtsModalDestAccountName');
   if (destEl) destEl.textContent = destText;
@@ -13084,6 +13084,19 @@ function initTossWtsUI() {
 }
 
 // ── 한국투자증권 (KIS) 실현손익 피드 및 선택 가져오기 ────────────────────────
+// Display-only masking for destination account labels.  It deliberately never
+// changes the persisted account name or the value submitted to the server.
+function maskAccountDisplayLabel(value) {
+  if (typeof value !== 'string') return value || '';
+  return value.replace(/[\d*](?:[\d* -]*[\d*])?/g, matched => {
+    const positions = [...matched].map((char, index) => /\d/.test(char) ? index : -1).filter(index => index >= 0);
+    const alreadyMasked = matched.includes('**');
+    if (positions.length < 8 && !alreadyMasked) return matched;
+    const visible = new Set(positions.slice(-4));
+    return [...matched].map((char, index) => /\d/.test(char) && !visible.has(index) ? '*' : char).join('');
+  });
+}
+
 const kisRealizedState = {
   status: null,
   configured: false,
@@ -13439,8 +13452,7 @@ function populateKisDestinationAccounts() {
   accounts.forEach(acc => {
     const id = String(acc.id || '');
     const broker = acc.broker || '';
-    let name = acc.account_name || acc.name || `계좌 ${id}`;
-    name = name.replace(/\b(\d{4})\d{4}(-\d{2})?\b/g, '$1****$2');
+    const name = maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${id}`);
     const owner = acc.owner ? ` (${acc.owner})` : '';
     const label = `[${broker}] ${name}${owner}`;
 
@@ -13524,7 +13536,7 @@ function renderKisPreviewModal(data) {
 
   const destEl = document.getElementById('kisModalDestAccountDisplay');
   if (destEl) {
-    destEl.innerHTML = `귀속 계좌: <strong>[${html(dest.broker || '한국투자증권')}] ${html(dest.account_name || '-')}</strong> (${html(dest.owner || '모두')})`;
+    destEl.innerHTML = `귀속 계좌: <strong>[${html(dest.broker || '한국투자증권')}] ${html(maskAccountDisplayLabel(dest.account_name || '-'))}</strong> (${html(dest.owner || '모두')})`;
   }
 
   const dupWrap = document.getElementById('kisDupOverrideWrap');
@@ -13674,24 +13686,155 @@ async function commitKisImport() {
   }
 }
 
+// ── NH투자증권 (NH) 실현손익 UI ─────────────────────────────────────────────
+// NH keeps its own state so broker tabs cannot share signed rows or preview tickets.
+const nhRealizedState = {
+  status: null, accounts: [], sourceAccountKey: '', mappedDestAccountId: '',
+  loading: false, importing: false, rows: [], selectionTokens: [],
+  selectedIndices: new Set(), importedIndices: new Set(), market: 'kr',
+  previewTicket: null, preview: null,
+};
+window.nhRealizedState = nhRealizedState;
+
+function showNhMessage(message, type = 'info') {
+  const el = document.getElementById('nhMessage');
+  if (!el) return;
+  el.className = `toss-wts-message ${type}`;
+  el.textContent = message;
+  el.style.display = 'block';
+}
+function hideNhMessage() { const el = document.getElementById('nhMessage'); if (el) { el.style.display = 'none'; el.textContent = ''; } }
+function setNhLoading(loading) {
+  nhRealizedState.loading = loading;
+  ['btnCheckNhStatus', 'btnFetchNhFeed'].forEach(id => { const el = document.getElementById(id); if (el) el.disabled = loading || (id === 'btnFetchNhFeed' && !nhRealizedState.sourceAccountKey); });
+}
+function nhSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
+function nhSelectedItems() {
+  return Array.from(nhRealizedState.selectedIndices).sort((a, b) => a - b).map(idx => {
+    const row = nhRealizedState.rows[idx]; const token = nhRealizedState.selectionTokens[idx];
+    return row && token ? { row, selection_token: token } : null;
+  }).filter(Boolean);
+}
+function populateNhSourceAccounts() {
+  const select = document.getElementById('nhSourceAccount'); if (!select) return;
+  const current = select.value; select.innerHTML = '<option value="">원본 계좌 선택...</option>';
+  nhRealizedState.accounts.forEach(account => { const option = document.createElement('option'); option.value = account.source_account_key; option.textContent = account.source_account_label || '마스킹된 NH 계좌'; select.appendChild(option); });
+  select.disabled = nhRealizedState.accounts.length === 0;
+  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
+  else if (nhRealizedState.accounts.length === 1) select.value = nhRealizedState.accounts[0].source_account_key;
+  nhRealizedState.sourceAccountKey = select.value;
+  nhRealizedState.mappedDestAccountId = nhRealizedState.accounts.find(a => a.source_account_key === select.value)?.mapped_destination_account_id || '';
+}
+async function checkNhStatus() {
+  if (nhRealizedState.loading) return;
+  setNhLoading(true); hideNhMessage();
+  try {
+    const res = await fetch('/api/nh/status'); const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw data;
+    nhRealizedState.status = data; nhRealizedState.accounts = Array.isArray(data.accounts) ? data.accounts : [];
+    populateNhSourceAccounts();
+    const status = document.getElementById('nhStatusText'); const banner = document.getElementById('nhBannerText');
+    if (!data.configured) { if (status) status.textContent = '미설정 (API 키 필요)'; showNhMessage('NH투자증권 OpenAPI 설정이 필요합니다.', 'warning'); }
+    else if (!nhRealizedState.accounts.length) { if (status) status.textContent = '계좌 미등록'; showNhMessage('조회 가능한 NH 계좌가 없습니다.', 'warning'); }
+    else { if (status) status.textContent = '계좌 선택 가능'; if (banner) banner.textContent = '마스킹된 원본 계좌를 선택한 뒤 조회하세요. 조회 결과는 읽기 전용입니다.'; }
+  } catch (error) { showNhMessage(nhSafeError(error, 'NH 연동 상태 확인에 실패했습니다.'), 'error'); }
+  finally { setNhLoading(false); updateNhSelectionUI(); }
+}
+function populateNhDestinationAccounts() {
+  const select = document.getElementById('nhDestinationAccount'); if (!select) return;
+  const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
+  const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
+  accounts.forEach(acc => { const option = document.createElement('option'); option.value = String(acc.id || ''); option.textContent = `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`; select.appendChild(option); });
+  const preferred = nhRealizedState.mappedDestAccountId;
+  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
+  else if (preferred && Array.from(select.options).some(o => o.value === String(preferred))) select.value = String(preferred);
+}
+async function fetchNhRealizedFeed() {
+  if (nhRealizedState.loading) return;
+  const market = document.getElementById('nhMarketSelect')?.value || 'kr'; const fromDate = document.getElementById('nhFromDate')?.value; const toDate = document.getElementById('nhToDate')?.value;
+  if (!nhRealizedState.sourceAccountKey) return showNhMessage('마스킹된 NH 원본 계좌를 선택하세요.', 'warning');
+  if (!fromDate || !toDate || fromDate > toDate) return showNhMessage('유효한 시작일과 종료일을 선택하세요.', 'warning');
+  setNhLoading(true); hideNhMessage();
+  try {
+    const res = await fetch('/api/nh/realized-feed/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ market, from_date: fromDate, to_date: toDate, source_account_key: nhRealizedState.sourceAccountKey }) });
+    const data = await res.json().catch(() => ({})); if (!res.ok) throw data;
+    nhRealizedState.rows = Array.isArray(data.rows) ? data.rows : []; nhRealizedState.selectionTokens = Array.isArray(data.selection_tokens) ? data.selection_tokens : []; nhRealizedState.selectedIndices.clear(); nhRealizedState.importedIndices.clear(); nhRealizedState.preview = null; nhRealizedState.previewTicket = null; nhRealizedState.market = data.market || market;
+    const meta = document.getElementById('nhMeta'); if (meta) { meta.textContent = `조회 시장: ${nhRealizedState.market === 'us' ? '해외주식' : '국내주식'} · ${nhRealizedState.rows.length}건`; meta.style.display = 'flex'; }
+    renderNhFeedTable(); updateNhSelectionUI(); if (!nhRealizedState.rows.length) showNhMessage('해당 기간의 실현손익 내역이 없습니다.', 'info');
+  } catch (error) { showNhMessage(nhSafeError(error, 'NH 실현손익 조회에 실패했습니다.'), 'error'); renderNhFeedTable(); }
+  finally { setNhLoading(false); }
+}
+function nhNumber(value, digits = 0) { if (value === null || value === undefined || value === '') return '—'; const number = Number(value); return Number.isFinite(number) ? number.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—'; }
+function renderNhFeedTable() {
+  const tbody = document.getElementById('nhTableBody'); const selectAll = document.getElementById('nhSelectAll'); if (!tbody) return;
+  if (selectAll) selectAll.checked = false;
+  if (!nhRealizedState.rows.length) { tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-empty">조회 버튼을 눌러 NH 실현손익을 조회하세요.</td></tr>'; return; }
+  const overseas = nhRealizedState.market === 'us'; const extra = document.getElementById('nhExpenseColumn'); if (extra) extra.textContent = overseas ? '해외 제비용 합계' : '수수료 / 제세금';
+  tbody.innerHTML = nhRealizedState.rows.map((row, index) => {
+    const imported = nhRealizedState.importedIndices.has(index); const selected = nhRealizedState.selectedIndices.has(index); const pnl = Number(row.pnl); const pnlClass = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
+    const check = imported ? '<span class="toss-wts-imported-badge">완료</span>' : `<input type="checkbox" class="nh-row-check" data-index="${index}" ${selected ? 'checked' : ''}>`;
+    const context = overseas ? `${html(row.country || '—')} / ${html(row.currency || '—')}` : '국내 / KRW';
+    const expense = overseas ? (row.expenses_total == null ? '—' : nhNumber(row.expenses_total, 2)) : `${row.fee == null ? '—' : `수수료 ${nhNumber(row.fee)}`} ${row.tax == null ? '' : `제세금 ${nhNumber(row.tax)}`}`;
+    return `<tr class="${selected ? 'selected' : ''} ${imported ? 'imported-row' : ''}"><td>${check}</td><td>${html(row.date || '')}</td><td><strong>${html(row.name || '')}</strong><br><code>${html(row.code || '')}</code></td><td>${context}</td><td class="num">${nhNumber(row.quantity)}</td><td class="num">${nhNumber(row.buy_amount, overseas ? 2 : 0)}</td><td class="num">${nhNumber(row.sell_amount, overseas ? 2 : 0)}</td><td class="num ${pnlClass}"><strong>${nhNumber(row.pnl, overseas ? 2 : 0)}</strong></td><td class="num">${row.profit_rate == null ? '—' : `${nhNumber(row.profit_rate, 2)}%`}</td><td class="num"><small class="muted">${expense}</small></td></tr>`;
+  }).join('');
+  tbody.querySelectorAll('.nh-row-check').forEach(check => check.addEventListener('change', event => { const index = Number(event.target.dataset.index); event.target.checked ? nhRealizedState.selectedIndices.add(index) : nhRealizedState.selectedIndices.delete(index); updateNhSelectionUI(); }));
+}
+function updateNhSelectionUI() {
+  populateNhDestinationAccounts(); const count = nhRealizedState.selectedIndices.size; const badge = document.getElementById('nhSelectedCountBadge'); const bar = document.getElementById('nhImportBar'); const button = document.getElementById('btnNhImportSelected');
+  if (badge) badge.textContent = `선택 ${count}건`; if (bar) bar.style.display = nhRealizedState.rows.length ? 'flex' : 'none'; if (button) button.disabled = count === 0 || !document.getElementById('nhDestinationAccount')?.value || nhRealizedState.loading || nhRealizedState.importing;
+}
+async function openNhImportPreview() {
+  const accountId = document.getElementById('nhDestinationAccount')?.value; const selectedItems = nhSelectedItems();
+  if (!accountId) return showNhMessage('귀속할 Wealth 계좌를 선택하세요.', 'warning'); if (!selectedItems.length) return;
+  setNhLoading(true); try { const res = await fetch('/api/nh/realized-feed/import-preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ selected_items: selectedItems, account_id: accountId, market: nhRealizedState.market, source_account_key: nhRealizedState.sourceAccountKey }) }); const data = await res.json().catch(() => ({})); if (!res.ok) throw data; nhRealizedState.preview = data; nhRealizedState.previewTicket = data.preview_ticket; renderNhPreviewModal(data); } catch (error) { showNhMessage(nhSafeError(error, 'NH 미리보기 검증에 실패했습니다.'), 'error'); } finally { setNhLoading(false); }
+}
+function renderNhPreviewModal(data) {
+  const counts = data.counts || {}; ['New','Already','Dup','Invalid'].forEach(name => { const key = { New: 'new', Already: 'already_imported', Dup: 'possible_duplicate', Invalid: 'invalid' }[name]; const el = document.getElementById(`nhModalCount${name}`); if (el) el.textContent = String(counts[key] || 0); });
+  const dest = data.destination_account || {}; const display = document.getElementById('nhModalDestAccountDisplay'); if (display) display.innerHTML = `귀속 계좌: <strong>[${html(dest.broker || 'Wealth')}] ${html(maskAccountDisplayLabel(dest.account_name || '-'))}</strong> (${html(dest.owner || '모두')})`;
+  const dup = document.getElementById('nhDupOverrideWrap'); if (dup) dup.style.display = counts.possible_duplicate ? 'block' : 'none'; const check = document.getElementById('nhIncludePossibleDuplicates'); if (check) check.checked = false;
+  const body = document.getElementById('nhModalItemsBody'); if (body) body.innerHTML = (data.items || []).map(item => { const candidate = item.candidate || {}; const labels = { NEW:'신규 등록', ALREADY_IMPORTED:'이미 가져옴', POSSIBLE_DUPLICATE:'중복 의심', INVALID:'유효하지 않음' }; return `<tr><td><span class="badge">${html(labels[item.status] || '유효하지 않음')}</span></td><td>${html(candidate.date || '-')}</td><td>${html(candidate.name || '-')}</td><td class="num">${nhNumber(candidate.quantity)}</td><td class="num">${nhNumber(candidate.pnl, 2)} ${html(candidate.currency || '')}</td></tr>`; }).join('');
+  updateNhCommitButton(); document.getElementById('nhImportModalOverlay').style.display = 'flex';
+}
+function updateNhCommitButton() { const button = document.getElementById('btnNhConfirmCommit'); const counts = nhRealizedState.preview?.counts || {}; const include = !!document.getElementById('nhIncludePossibleDuplicates')?.checked; const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0); if (button) { button.textContent = `${eligible}건 가져오기 완료`; button.disabled = eligible === 0 || nhRealizedState.importing; } }
+function closeNhImportModal() { const overlay = document.getElementById('nhImportModalOverlay'); if (overlay) overlay.style.display = 'none'; }
+async function commitNhImport() {
+  if (nhRealizedState.importing || !nhRealizedState.previewTicket) return; nhRealizedState.importing = true; updateNhCommitButton();
+  const accountId = nhRealizedState.preview?.destination_account?.id || document.getElementById('nhDestinationAccount')?.value;
+  try { const res = await fetch('/api/nh/realized-feed/import', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ selected_items: nhSelectedItems(), account_id: accountId, market: nhRealizedState.market, source_account_key: nhRealizedState.sourceAccountKey, preview_ticket: nhRealizedState.previewTicket, include_possible_duplicates: !!document.getElementById('nhIncludePossibleDuplicates')?.checked }) }); const data = await res.json().catch(() => ({})); if (!res.ok) throw data; nhRealizedState.selectedIndices.forEach(index => nhRealizedState.importedIndices.add(index)); nhRealizedState.selectedIndices.clear(); nhRealizedState.previewTicket = null; closeNhImportModal(); renderNhFeedTable(); updateNhSelectionUI(); showNhMessage(`NH 실현손익 ${data.imported || 0}건을 Wealth 계좌에 가져왔습니다.`, 'success'); if (typeof loadPnlRecords === 'function') loadPnlRecords(); if (typeof loadDashboard === 'function') loadDashboard(); else if (typeof fetchDashboard === 'function') fetchDashboard(); } catch (error) { showNhMessage(nhSafeError(error, 'NH 가져오기에 실패했습니다.'), 'error'); } finally { nhRealizedState.importing = false; updateNhCommitButton(); updateNhSelectionUI(); }
+}
+
 function switchRealizedBroker(broker) {
   const tossCard = document.getElementById('tossWtsCard');
   const kisCard = document.getElementById('kisRealizedCard');
+  const nhCard = document.getElementById('nhRealizedCard');
   const btnToss = document.getElementById('btnTabBrokerToss');
   const btnKis = document.getElementById('btnTabBrokerKis');
+  const btnNh = document.getElementById('btnTabBrokerNh');
 
   if (broker === 'kis') {
     if (tossCard) tossCard.style.display = 'none';
     if (kisCard) kisCard.style.display = 'block';
+    if (nhCard) nhCard.style.display = 'none';
     btnToss?.classList.remove('active');
+    btnNh?.classList.remove('active');
     btnKis?.classList.add('active');
     if (!kisRealizedState.status) {
       checkKisStatus();
     }
+  } else if (broker === 'nh') {
+    if (tossCard) tossCard.style.display = 'none';
+    if (kisCard) kisCard.style.display = 'none';
+    if (nhCard) nhCard.style.display = 'block';
+    btnToss?.classList.remove('active');
+    btnKis?.classList.remove('active');
+    btnNh?.classList.add('active');
+    // Deliberately do not call /api/nh/status here: selecting a broker tab is not a provider action.
   } else {
     if (tossCard) tossCard.style.display = 'block';
     if (kisCard) kisCard.style.display = 'none';
+    if (nhCard) nhCard.style.display = 'none';
     btnKis?.classList.remove('active');
+    btnNh?.classList.remove('active');
     btnToss?.classList.add('active');
   }
 }
@@ -13715,6 +13858,7 @@ function initKisRealizedUI() {
 
   document.getElementById('btnTabBrokerToss')?.addEventListener('click', () => switchRealizedBroker('toss'));
   document.getElementById('btnTabBrokerKis')?.addEventListener('click', () => switchRealizedBroker('kis'));
+  document.getElementById('btnTabBrokerNh')?.addEventListener('click', () => switchRealizedBroker('nh'));
 
   document.getElementById('btnCheckKisStatus')?.addEventListener('click', checkKisStatus);
   document.getElementById('btnFetchKisFeed')?.addEventListener('click', fetchKisRealizedFeed);
@@ -13755,6 +13899,22 @@ function initKisRealizedUI() {
   marketSelect?.addEventListener('change', checkKisFormStale);
   fromInput?.addEventListener('input', checkKisFormStale);
   toInput?.addEventListener('input', checkKisFormStale);
+
+  const nhFrom = document.getElementById('nhFromDate');
+  const nhTo = document.getElementById('nhToDate');
+  const currentYear = new Date().getFullYear();
+  if (nhFrom && !nhFrom.value) nhFrom.value = `${currentYear}-01-01`;
+  if (nhTo && !nhTo.value) nhTo.value = new Date().toISOString().slice(0, 10);
+  document.getElementById('btnCheckNhStatus')?.addEventListener('click', checkNhStatus);
+  document.getElementById('btnFetchNhFeed')?.addEventListener('click', fetchNhRealizedFeed);
+  document.getElementById('nhSourceAccount')?.addEventListener('change', event => { nhRealizedState.sourceAccountKey = event.target.value; nhRealizedState.mappedDestAccountId = nhRealizedState.accounts.find(a => a.source_account_key === event.target.value)?.mapped_destination_account_id || ''; updateNhSelectionUI(); setNhLoading(false); });
+  document.getElementById('nhDestinationAccount')?.addEventListener('change', updateNhSelectionUI);
+  document.getElementById('nhSelectAll')?.addEventListener('change', event => { nhRealizedState.rows.forEach((_, index) => { if (!nhRealizedState.importedIndices.has(index)) event.target.checked ? nhRealizedState.selectedIndices.add(index) : nhRealizedState.selectedIndices.delete(index); }); renderNhFeedTable(); updateNhSelectionUI(); });
+  document.getElementById('btnNhImportSelected')?.addEventListener('click', openNhImportPreview);
+  document.getElementById('btnNhModalClose')?.addEventListener('click', closeNhImportModal);
+  document.getElementById('btnNhModalCancel')?.addEventListener('click', closeNhImportModal);
+  document.getElementById('nhIncludePossibleDuplicates')?.addEventListener('change', updateNhCommitButton);
+  document.getElementById('btnNhConfirmCommit')?.addEventListener('click', commitNhImport);
 }
 
 // ── APP BOOTSTRAP ─────────────────────────────────────────────────────────────

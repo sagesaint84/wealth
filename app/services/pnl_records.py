@@ -16,6 +16,25 @@ from app.services.stock_master import resolve_stock_info
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"
 
+
+class PnlRecordsStorageError(RuntimeError):
+    """Existing realized-P/L storage could not be read safely."""
+
+
+def _load_pnl_records_file(path: Path) -> list[dict[str, Any]]:
+    """Read and structurally validate an existing P/L record file."""
+    try:
+        with open(path, "r", encoding="utf-8") as fp:
+            data = json.load(fp)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise PnlRecordsStorageError("realized P/L storage is unreadable") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("records"), list):
+        raise PnlRecordsStorageError("realized P/L storage has an invalid structure")
+    records = data["records"]
+    if not all(isinstance(record, dict) for record in records):
+        raise PnlRecordsStorageError("realized P/L storage has an invalid record structure")
+    return records
+
 def _get_user_dir(username: str | None = None) -> Path:
     from app.services.user_manager import get_user_data_dir
     return get_user_data_dir(username)
@@ -39,16 +58,26 @@ def _ensure_pnl_file(username: str | None = None) -> Path:
 
 def read_pnl_records(username: str | None = None) -> list[dict[str, Any]]:
     f = _ensure_pnl_file(username)
-    try:
-        with open(f, "r", encoding="utf-8") as fp:
-            data = json.load(fp)
-            return data.get("records", [])
-    except Exception:
+    return _load_pnl_records_file(f)
+
+
+def read_pnl_records_readonly(username: str | None = None) -> list[dict[str, Any]]:
+    """Read records without creating storage; suitable for zero-write previews."""
+    f = _get_pnl_file(username)
+    if not f.exists():
         return []
+    return _load_pnl_records_file(f)
 
 
 def write_pnl_records(records: list[dict[str, Any]], username: str | None = None) -> None:
-    f = _ensure_pnl_file(username)
+    if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
+        raise PnlRecordsStorageError("refusing to write invalid realized P/L records")
+    f = _get_pnl_file(username)
+    if f.exists():
+        # Never overwrite existing malformed/unreadable financial storage.
+        _load_pnl_records_file(f)
+    else:
+        f.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "records": records,
         "updated_at": datetime.now().astimezone().isoformat(),
@@ -68,13 +97,13 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
     raw_fx_pnl = payload.get("fx_pnl_krw")
     if raw_fx_pnl is not None:
         fx_pnl_krw = float(raw_fx_pnl)
-    elif payload.get("source") in ("toss_wts", "kis"):
+    elif payload.get("source") in ("toss_wts", "kis", "nh"):
         fx_pnl_krw = None
     else:
         fx_pnl_krw = 0.0
     
     raw_fx = payload.get("fx_rate")
-    if payload.get("source") in ("toss_wts", "kis") and raw_fx is None:
+    if payload.get("source") in ("toss_wts", "kis", "nh") and raw_fx is None:
         fx_rate = None
     elif currency == "USD":
         if raw_fx is not None and float(raw_fx) > 0:
@@ -85,7 +114,7 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
         fx_rate = 1.0
 
     raw_pnl_krw = payload.get("pnl_krw")
-    if raw_pnl_krw is None and payload.get("source") in ("toss_wts", "kis"):
+    if raw_pnl_krw is None and payload.get("source") in ("toss_wts", "kis", "nh"):
         pnl_krw = None
     elif raw_pnl_krw is not None:
         pnl_krw = float(raw_pnl_krw)
@@ -159,10 +188,14 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
 
     provenance_fields = [
         "source", "source_fingerprint", "source_account_scope", "source_account_key",
-        "source_account_label", "source_scope_verified",
+        "source_account_label", "source_scope_verified", "destination_account_id",
         "imported_by_user_action", "imported_at", "source_meta"
     ]
     for field in provenance_fields:
+        if field in payload:
+            record[field] = payload[field]
+
+    for field in ("quantity", "buy_unit_price", "buy_amount", "sell_unit_price", "sell_amount", "fee", "tax", "expenses_total", "profit_rate"):
         if field in payload:
             record[field] = payload[field]
 
@@ -246,7 +279,7 @@ def update_pnl_record(record_id: str, payload: dict[str, Any], username: str | N
             target[field] = payload[field]
 
     provenance_fields = [
-        "source", "source_fingerprint", "source_account_scope", "source_scope_verified",
+        "source", "source_fingerprint", "source_account_scope", "source_scope_verified", "destination_account_id",
         "imported_by_user_action", "imported_at", "source_meta"
     ]
     for field in provenance_fields:
@@ -311,14 +344,22 @@ def get_pnl_summary(owner: str = "모두", year: int | str | None = None, trade_
             continue
         filtered.append(r)
 
-    total_pnl_krw = sum(float(r.get("pnl_krw", 0.0)) for r in filtered)
-    
-    win_records = [r for r in filtered if float(r.get("pnl_krw", 0.0)) > 0]
-    loss_records = [r for r in filtered if float(r.get("pnl_krw", 0.0)) < 0]
-    
-    total_win_krw = sum(float(r.get("pnl_krw", 0.0)) for r in win_records)
-    total_loss_krw = sum(float(r.get("pnl_krw", 0.0)) for r in loss_records)
-    win_rate = (len(win_records) / len(filtered) * 100) if filtered else 0.0
+    def available_pnl_krw(record: dict[str, Any]) -> float | None:
+        value = record.get("pnl_krw")
+        if value is None or value == "":
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    available_records = [(record, value) for record in filtered if (value := available_pnl_krw(record)) is not None]
+    total_pnl_krw = sum(value for _, value in available_records)
+    win_records = [record for record, value in available_records if value > 0]
+    loss_records = [record for record, value in available_records if value < 0]
+    total_win_krw = sum(value for _, value in available_records if value > 0)
+    total_loss_krw = sum(value for _, value in available_records if value < 0)
+    win_rate = (len(win_records) / len(available_records) * 100) if available_records else 0.0
 
     monthly_schedule = {m: {"month": m, "total_krw": 0.0, "win_krw": 0.0, "loss_krw": 0.0, "items": []} for m in range(1, 13)}
     
@@ -329,12 +370,13 @@ def get_pnl_summary(owner: str = "모두", year: int | str | None = None, trade_
         except (IndexError, ValueError):
             m = 1
         if 1 <= m <= 12:
-            amt_krw = float(r.get("pnl_krw", 0.0))
-            monthly_schedule[m]["total_krw"] += amt_krw
-            if amt_krw > 0:
-                monthly_schedule[m]["win_krw"] += amt_krw
-            elif amt_krw < 0:
-                monthly_schedule[m]["loss_krw"] += amt_krw
+            amt_krw = available_pnl_krw(r)
+            if amt_krw is not None:
+                monthly_schedule[m]["total_krw"] += amt_krw
+                if amt_krw > 0:
+                    monthly_schedule[m]["win_krw"] += amt_krw
+                elif amt_krw < 0:
+                    monthly_schedule[m]["loss_krw"] += amt_krw
             monthly_schedule[m]["items"].append(r)
 
     monthly_list = []
@@ -353,12 +395,13 @@ def get_pnl_summary(owner: str = "모두", year: int | str | None = None, trade_
     for r in filtered:
         y_str = str(r.get("date", ""))[:4]
         if y_str in yearly_dict:
-            amt_krw = float(r.get("pnl_krw", 0.0))
-            yearly_dict[y_str]["total_krw"] += amt_krw
-            if amt_krw > 0:
-                yearly_dict[y_str]["win_krw"] += amt_krw
-            elif amt_krw < 0:
-                yearly_dict[y_str]["loss_krw"] += amt_krw
+            amt_krw = available_pnl_krw(r)
+            if amt_krw is not None:
+                yearly_dict[y_str]["total_krw"] += amt_krw
+                if amt_krw > 0:
+                    yearly_dict[y_str]["win_krw"] += amt_krw
+                elif amt_krw < 0:
+                    yearly_dict[y_str]["loss_krw"] += amt_krw
             yearly_dict[y_str]["items"].append(r)
 
     yearly_list = []

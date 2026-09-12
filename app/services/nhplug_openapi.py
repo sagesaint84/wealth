@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
 import logging
 import os
 import time
@@ -26,11 +28,32 @@ def as_float(value: Any) -> float:
         return 0.0
 
 
+def compute_nh_account_key(act_no: str, secret: str | None = None) -> str:
+    """Return a deterministic opaque identity for an NH source account."""
+    normalized = str(act_no or "").replace("-", "").strip()
+    if not normalized:
+        return ""
+    key = secret if secret is not None else os.getenv("DASHBOARD_SECRET_KEY", "").strip()
+    if not key and os.getenv("WEALTH_ENV", "").strip().lower() == "test":
+        key = os.getenv("WEALTH_TEST_SIGNING_SECRET", "wealth_synthetic_test_secret_for_nh")
+    if not key:
+        raise NhPlugOpenAPIError("DASHBOARD_SECRET_KEY가 설정되지 않아 NH 계좌 식별을 진행할 수 없습니다.")
+    return hmac.new(key.encode("utf-8"), f"nh:{normalized}".encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def mask_nh_account(act_no: str) -> str:
+    """Return a display-only NH account label without exposing act_no."""
+    normalized = str(act_no or "").replace("-", "").strip()
+    if not normalized:
+        return ""
+    return f"{normalized[:4]}****" if len(normalized) > 4 else "****"
+
+
 class NhPlugOpenAPI:
     """NH투자증권(NHPLUG) 읽기 전용 잔고 조회 클라이언트."""
 
     _ALLOWED_HOSTS = {"api.nhplug.com", "moapi.nhplug.com"}
-    _SUCCESS_CODES = {"00000", "00166", "00221", "13578"}
+    _SUCCESS_CODES = {"00000", "00165", "00166", "00218", "00221", "13578"}
     _OVERSEAS_COUNTRIES = {
         "200": ("USD", "NH_US"),
         "070": ("JPY", "NH_JP"),
@@ -50,8 +73,8 @@ class NhPlugOpenAPI:
         self.app_secret = cfg.get("app_secret", "")
         self._validate_url(self.base_url, "NHPLUG_BASE_URL")
         self._validate_url(self.auth_url, "NHPLUG_AUTH_URL")
-        user_dir = Path(__file__).resolve().parents[2] / "data" / "users" / username
-        user_dir.mkdir(parents=True, exist_ok=True)
+        from app.services.user_manager import get_user_data_dir
+        user_dir = get_user_data_dir(username)
         self.token_cache_file = user_dir / "nhplug_token_cache.json"
         self.last_accounts: list[dict[str, Any]] = []
         self.account_cash: dict[str, dict[str, float]] = {}
@@ -141,14 +164,11 @@ class NhPlugOpenAPI:
                     rsp_cd, rsp_msg = "", ""
                 if rsp_cd == "IGW40043" or "token" in rsp_msg.lower() or "토큰" in rsp_msg or response.status_code == 401:
                     token = await self._access_token(client, force_refresh=True)
+                    retry_headers = dict(request_headers)
+                    retry_headers["authorization"] = f"Bearer {token}"
                     response = await client.post(
                         f"{self.base_url}{path}",
-                        headers={
-                            "x-client-id": self.app_key,
-                            "x-client-secret": self.app_secret,
-                            "authorization": f"Bearer {token}",
-                            "content-type": "application/json;charset=utf-8",
-                        },
+                        headers=retry_headers,
                         json={"Input_0": input_0},
                     )
             self._raise_for_response(response)
@@ -162,7 +182,7 @@ class NhPlugOpenAPI:
             response_cts_flag = str(response.headers.get("cts_flag", "")).strip().upper()
         code = str(payload.get("rsp_cd", ""))
         message = str(payload.get("rsp_msg", ""))
-        if code not in self._SUCCESS_CODES and "완료" not in message:
+        if code not in self._SUCCESS_CODES:
             raise NhPlugOpenAPIError(f"나무증권 OpenAPI 응답 오류 ({code or '코드 없음'}): {message or payload}")
         if not response_cts:
             for value in payload.values():
@@ -181,15 +201,111 @@ class NhPlugOpenAPI:
             page = await self._call(path, input_0, cts=cts)
             pages.append(page)
             meta = page.get("_wealth_continuation", {})
-            next_cts = str(meta.get("cts", "")).strip() if isinstance(meta, dict) else ""
-            flag = str(meta.get("flag", "")).upper() if isinstance(meta, dict) else ""
-            if not next_cts or flag == "N":
+            if not isinstance(meta, dict):
+                raise NhPlugOpenAPIError("나무증권 연속조회 상태가 올바르지 않습니다.")
+            raw_cts = meta.get("cts", "")
+            raw_flag = meta.get("flag", "")
+            if not isinstance(raw_cts, str) or not isinstance(raw_flag, str):
+                raise NhPlugOpenAPIError("나무증권 연속조회 상태가 올바르지 않습니다.")
+            next_cts = raw_cts.strip()
+            flag = raw_flag.strip().upper()
+            if flag not in {"", "Y", "N"}:
+                raise NhPlugOpenAPIError("나무증권 연속조회 상태가 올바르지 않습니다.")
+            if flag == "N":
+                return pages
+            if flag == "Y":
+                if not next_cts:
+                    raise NhPlugOpenAPIError("나무증권 연속조회 상태가 올바르지 않습니다.")
+            elif next_cts:
+                raise NhPlugOpenAPIError("나무증권 연속조회 상태가 올바르지 않습니다.")
+            else:
                 return pages
             if next_cts in seen:
-                raise NhPlugOpenAPIError("나무증권 연속조회 키가 반복되었습니다.")
+                return pages
             seen.add(next_cts)
             cts = next_cts
         raise NhPlugOpenAPIError("나무증권 연속조회 한도를 초과했습니다.")
+
+    @staticmethod
+    def _active_realized_row(row: dict[str, Any], sell_amount_field: str, pnl_field: str) -> bool:
+        """Keep sell/realized adjustment rows; missing values are never treated as data."""
+        def nonzero(value: Any) -> bool:
+            if value is None or str(value).strip() == "":
+                return False
+            try:
+                return float(str(value).replace(",", "")) != 0
+            except (TypeError, ValueError):
+                return False
+        return nonzero(row.get("sll_qty")) or nonzero(row.get(sell_amount_field)) or nonzero(row.get(pnl_field))
+
+    async def fetch_realized_profit(self, *, act_no: str, market: str, from_date: str, to_date: str) -> tuple[list[dict[str, Any]], str, str]:
+        """Retrieve official NH realized-P/L rows through the documented two-tier inquiries.
+
+        Returned rows are provider rows enriched only with retrieval context.  Projection,
+        signing, and persistence intentionally remain outside this transport client.
+        """
+        account = str(act_no or "").replace("-", "").strip()
+        if not account:
+            raise NhPlugOpenAPIError("나무증권 계좌번호가 필요합니다.")
+        if market not in {"kr", "us"}:
+            raise NhPlugOpenAPIError("지원하지 않는 NH 실현손익 시장입니다.")
+        key = compute_nh_account_key(account)
+        label = mask_nh_account(account)
+        sta_dt = str(from_date or "").replace("-", "").strip()
+        end_dt = str(to_date or "").replace("-", "").strip()
+
+        if market == "kr":
+            discovery_pages = await self._call_pages(
+                "/krstock/inquiry/v1/dailyPnl",
+                {"act_no": account, "iqr_sta_dt": sta_dt, "iqr_end_dt": end_dt},
+            )
+            dates = sorted({
+                str(row.get("sby_dt", "")).strip()
+                for page in discovery_pages
+                for row in (page.get("Output_1") or [])
+                if isinstance(row, dict) and self._active_realized_row(row, "sll_amt", "pls_amt") and str(row.get("sby_dt", "")).strip()
+            })
+            rows: list[dict[str, Any]] = []
+            for date in dates:
+                pages = await self._call_pages(
+                    "/krstock/inquiry/v1/tradingPnl",
+                    {"act_no": account, "iqr_sta_dt": date, "iqr_end_dt": date},
+                )
+                for page in pages:
+                    for row in page.get("Output_1") or []:
+                        if isinstance(row, dict):
+                            rows.append({**row, "_wealth_date_context": date, "_wealth_market": "kr"})
+            return rows, key, label
+
+        discovery_pages = await self._call_pages(
+            "/gbstock/inquiry/v1/periodPnl",
+            {"act_no": account, "iqr_dit": "1", "sta_orr_dt": sta_dt, "end_orr_dt": end_dt, "fc_sec_trd_nat_cd": "000"},
+        )
+        targets = sorted({
+            (str(row.get("orr_dt", "")).strip(), str(row.get("fc_sec_trd_nat_cd", "")).strip(), str(row.get("trd_cur_cd", "")).strip())
+            for page in discovery_pages
+            for row in (page.get("Output_1") or [])
+            if isinstance(row, dict)
+            and self._active_realized_row(row, "fc_sll_amt", "fc_rzt_pls")
+            and str(row.get("orr_dt", "")).strip()
+            and str(row.get("fc_sec_trd_nat_cd", "")).strip()
+            and str(row.get("trd_cur_cd", "")).strip()
+        })
+        rows = []
+        for date, country, currency in targets:
+            pages = await self._call_pages(
+                "/gbstock/inquiry/v1/periodPnlDetail",
+                {"act_no": account, "iqr_dit": "1", "orr_dt": date, "fc_sec_trd_nat_cd": country, "trd_cur_cd": currency},
+            )
+            for page in pages:
+                # NH contract: detail records are Output_0 arrays, not Output_1.
+                detail_rows = page.get("Output_0") or []
+                if not isinstance(detail_rows, list):
+                    raise NhPlugOpenAPIError("나무증권 해외 실현손익 상세 응답 형식이 올바르지 않습니다.")
+                for row in detail_rows:
+                    if isinstance(row, dict):
+                        rows.append({**row, "_wealth_date_context": date, "_wealth_country_context": country, "_wealth_currency_context": currency, "_wealth_market": "us"})
+        return rows, key, label
 
     async def _accounts(self) -> list[dict[str, Any]]:
         payload = await self._call("/n2/acctinfo", {})

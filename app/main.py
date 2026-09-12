@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import time
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -44,8 +45,8 @@ from app.services.dividend_records import (
 )
 from app.services.pnl_records import (
     create_pnl_record, delete_pnl_record, get_pnl_summary,
-    read_pnl_records, update_pnl_record, import_pnl_file_data,
-    clear_pnl_records, recalculate_pnl_historical_fx
+    read_pnl_records, read_pnl_records_readonly, update_pnl_record, import_pnl_file_data,
+    clear_pnl_records, recalculate_pnl_historical_fx, PnlRecordsStorageError
 )
 from app.services.historical_fx import get_historical_fx_rate, sync_historical_fx
 from app.services.stock_master import sync_stock_master_online
@@ -72,6 +73,12 @@ from app.services.kis_feed import (
     verify_kis_import_preview_ticket,
 )
 from app.services.kis_realized import preview_kis_realized_selection
+from app.services.nh_feed import (
+    build_nh_realized_feed, compute_nh_items_hash,
+    sign_nh_import_preview_ticket, verify_nh_import_preview_ticket,
+)
+from app.services.nh_realized import preview_nh_realized_selection
+from app.services.nhplug_openapi import compute_nh_account_key, mask_nh_account
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -81,6 +88,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 STATIC_DIR = ROOT_DIR / "app" / "static"
 WEALTH_ENV = os.getenv("WEALTH_ENV", "production").strip().lower()
 TESTING = WEALTH_ENV == "test"
+_NH_IMPORT_LOCK = threading.RLock()
 
 
 def load_env_file() -> None:
@@ -98,7 +106,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version="1.1.2")
+app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version="1.1.3")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 _syncing_users: set[str] = set()
@@ -1817,6 +1825,206 @@ async def kis_realized_feed_import(request: Request) -> JSONResponse:
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+# ---------------------------------------------------------------------------
+# NH Realized Profit Feed API
+# ---------------------------------------------------------------------------
+
+async def _resolve_nh_source_account(client: NhPlugOpenAPI, source_key: str) -> tuple[str, str]:
+    """Resolve an opaque client key to a server-side NH account number."""
+    for account in await client._accounts():
+        act_no = str(account.get("acct_no") or account.get("act_no") or "").strip()
+        if act_no and compute_nh_account_key(act_no) == source_key:
+            return act_no, mask_nh_account(act_no)
+    raise HTTPException(status_code=400, detail={"code": "SCOPE_MISMATCH", "message": "NH source account is unavailable"})
+
+
+def _nh_mapping_file(username: str) -> Path:
+    from app.services.user_manager import get_user_data_dir
+    return get_user_data_dir(username) / "nh_account_mapping.json"
+
+
+def _read_nh_mapping(username: str) -> dict[str, str]:
+    path = _nh_mapping_file(username)
+    if not path.exists(): return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+
+def _assert_nh_mapping_compatible(username: str, source_key: str, destination_id: str) -> bool:
+    """Return whether the exact mapping exists; reject a conflicting mapping."""
+    existing = _read_nh_mapping(username).get(source_key)
+    if existing and existing != destination_id:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "DESTINATION_MAPPING_CONFLICT", "message": "NH destination mapping conflicts with this import"},
+        )
+    return existing == destination_id
+
+
+def _write_nh_mapping(username: str, source_key: str, destination_id: str) -> bool:
+    """Persist one non-conflicting mapping atomically; return whether it changed."""
+    if _assert_nh_mapping_compatible(username, source_key, destination_id):
+        return False
+    path = _nh_mapping_file(username)
+    mapping = _read_nh_mapping(username)
+    mapping[source_key] = destination_id
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temp_path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+    return True
+
+
+def _nh_imported_items_match_destination(
+    result: dict[str, Any], current: list[dict[str, Any]], source_key: str, destination_id: str,
+) -> bool:
+    """Prove every selected item is an existing NH row for this source/destination."""
+    items = result.get("items") if isinstance(result, dict) else None
+    if not isinstance(items, list) or not items or any(item.get("status") != "ALREADY_IMPORTED" for item in items):
+        return False
+    records_by_fingerprint = {
+        str(record.get("source_fingerprint")): record
+        for record in current
+        if record.get("source") == "nh" and record.get("source_fingerprint")
+    }
+    for item in items:
+        record = records_by_fingerprint.get(str(item.get("fingerprint") or ""))
+        if (
+            not record
+            or record.get("source") != "nh"
+            or str(record.get("source_account_key") or "") != source_key
+            or str(record.get("destination_account_id") or "") != destination_id
+        ):
+            return False
+    return True
+
+
+def _assert_nh_source_records_destination(
+    current: list[dict[str, Any]], source_key: str, destination_id: str,
+) -> None:
+    """Prevent one opaque NH source from silently spanning destinations."""
+    conflict = any(
+        record.get("source") == "nh"
+        and str(record.get("source_account_key") or "") == source_key
+        and str(record.get("destination_account_id") or "") != destination_id
+        for record in current
+    )
+    if conflict:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "DESTINATION_MAPPING_CONFLICT", "message": "NH source records belong to a different destination"},
+        )
+
+
+def _read_nh_pnl_records_strict(username: str) -> list[dict[str, Any]]:
+    try:
+        return read_pnl_records_readonly(username=username)
+    except PnlRecordsStorageError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "PNL_STORAGE_INVALID", "message": "Realized P/L storage requires review"},
+        ) from exc
+
+
+@app.get("/api/nh/status")
+async def nh_status(request: Request) -> JSONResponse:
+    username = get_current_username(request); client = NhPlugOpenAPI(username=username)
+    if not client.configured:
+        return JSONResponse({"configured": False, "accounts": [], "broker": "NH투자증권"}, headers={"Cache-Control":"no-store"})
+    try:
+        mapping = _read_nh_mapping(username); portfolio = read_portfolio(username=username); valid_ids = {str(a.get("id")) for a in portfolio.get("accounts", [])}
+        accounts=[]
+        for account in await client._accounts():
+            act_no=str(account.get("acct_no") or account.get("act_no") or "").strip()
+            if not act_no: continue
+            key=compute_nh_account_key(act_no); mapped=mapping.get(key)
+            accounts.append({"source_account_key":key,"source_account_label":mask_nh_account(act_no),"mapped_destination_account_id":mapped if mapped in valid_ids else None})
+        return JSONResponse({"configured":True,"accounts":accounts,"broker":"NH투자증권"},headers={"Cache-Control":"no-store"})
+    except NhPlugOpenAPIError:
+        raise HTTPException(status_code=502, detail={"code":"NH_API_ERROR","message":"NH status unavailable"})
+
+
+@app.post("/api/nh/realized-feed/fetch")
+async def nh_realized_feed_fetch(request: Request) -> JSONResponse:
+    username=get_current_username(request); user_id=getattr(request.state,"user_id",None)
+    if not user_id: raise HTTPException(status_code=401,detail={"code":"USER_ID_REQUIRED","message":"Stable user identity required"})
+    body=await request.json(); market=str(body.get("market") or "").lower(); source_key=str(body.get("source_account_key") or "")
+    if market not in {"kr","us"}: raise HTTPException(status_code=400,detail={"code":"INVALID_REQUEST","message":"market must be kr or us"})
+    client=NhPlugOpenAPI(username=username); act_no,label=await _resolve_nh_source_account(client,source_key)
+    try:
+        rows,fetched_key,_=await client.fetch_realized_profit(act_no=act_no,market=market,from_date=str(body.get("from_date") or ""),to_date=str(body.get("to_date") or ""))
+        if fetched_key != source_key: raise HTTPException(status_code=400,detail={"code":"SCOPE_MISMATCH","message":"NH source account changed"})
+        return JSONResponse(build_nh_realized_feed(rows,market=market,source_account_key=source_key,source_account_label=label,user_id=str(user_id)),headers={"Cache-Control":"no-store"})
+    except NhPlugOpenAPIError:
+        raise HTTPException(status_code=502,detail={"code":"NH_API_ERROR","message":"NH realized feed unavailable"})
+
+
+def _nh_destination(username: str, account_id: object) -> dict[str, Any]:
+    if not isinstance(account_id,str) or not account_id.strip(): raise HTTPException(status_code=400,detail={"code":"DESTINATION_INVALID","message":"Explicit destination account is required"})
+    account=next((a for a in read_portfolio(username=username).get("accounts",[]) if str(a.get("id"))==account_id.strip()),None)
+    if not account: raise HTTPException(status_code=400,detail={"code":"DESTINATION_INVALID","message":"Destination account not found"})
+    return account
+
+
+@app.post("/api/nh/realized-feed/import-preview")
+async def nh_realized_feed_import_preview(request: Request) -> JSONResponse:
+    username=get_current_username(request); user_id=getattr(request.state,"user_id",None)
+    if not user_id: raise HTTPException(status_code=401,detail={"code":"USER_ID_REQUIRED","message":"Stable user identity required"})
+    body=await request.json(); selected=body.get("selected_items"); market=str(body.get("market") or "").lower(); key=str(body.get("source_account_key") or "")
+    if not isinstance(selected,list) or not selected or market not in {"kr","us"}: raise HTTPException(status_code=400,detail={"code":"INVALID_REQUEST","message":"Invalid NH preview request"})
+    destination=_nh_destination(username,body.get("account_id")); client=NhPlugOpenAPI(username=username); _,label=await _resolve_nh_source_account(client,key)
+    result=preview_nh_realized_selection(selected,destination,_read_nh_pnl_records_strict(username),user_id=str(user_id),source_account_key=key,source_account_label=label,market=market)
+    result["preview_ticket"]=sign_nh_import_preview_ticket(account_id=str(destination["id"]),items_hash=compute_nh_items_hash(selected),user_id=str(user_id),source_account_key=key,market=market)
+    return JSONResponse(result,headers={"Cache-Control":"no-store"})
+
+
+@app.post("/api/nh/realized-feed/import")
+async def nh_realized_feed_import(request: Request) -> JSONResponse:
+    username=get_current_username(request); user_id=getattr(request.state,"user_id",None)
+    if not user_id: raise HTTPException(status_code=401,detail={"code":"USER_ID_REQUIRED","message":"Stable user identity required"})
+    body=await request.json(); selected=body.get("selected_items"); market=str(body.get("market") or "").lower(); key=str(body.get("source_account_key") or "")
+    if not isinstance(selected,list) or not selected: raise HTTPException(status_code=400,detail={"code":"INVALID_REQUEST","message":"selected_items required"})
+    destination=_nh_destination(username,body.get("account_id")); client=NhPlugOpenAPI(username=username); _,label=await _resolve_nh_source_account(client,key)
+    valid,error=verify_nh_import_preview_ticket(str(body.get("preview_ticket") or ""),account_id=str(destination["id"]),items_hash=compute_nh_items_hash(selected),user_id=str(user_id),source_account_key=key,market=market)
+    if not valid: raise HTTPException(status_code=400,detail={"code":error or "PREVIEW_TICKET_INVALID","message":"NH preview verification failed"})
+    with _NH_IMPORT_LOCK:
+        destination_id=str(destination["id"])
+        mapping_exists=_assert_nh_mapping_compatible(username,key,destination_id)
+        current=_read_nh_pnl_records_strict(username)
+        _assert_nh_source_records_destination(current,key,destination_id)
+        result=preview_nh_realized_selection(selected,destination,current,user_id=str(user_id),source_account_key=key,source_account_label=label,market=market)
+        already_items=[item for item in result["items"] if item.get("status")=="ALREADY_IMPORTED"]
+        if already_items:
+            already_result={"items":already_items}
+            if not _nh_imported_items_match_destination(already_result,current,key,destination_id):
+                raise HTTPException(status_code=409,detail={"code":"DESTINATION_MAPPING_CONFLICT","message":"Imported NH records belong to a different destination"})
+        now=datetime.now().astimezone().isoformat(); imported=0; ids=[]
+        include_possible=bool(body.get("include_possible_duplicates",False))
+        for item in result["items"]:
+            if item["status"]!="NEW" and not (include_possible and item["status"]=="POSSIBLE_DUPLICATE"): continue
+            candidate=dict(item["candidate"]); candidate.update({"source":"nh","source_fingerprint":item["fingerprint"],"source_account_key":key,"source_account_label":label,"source_account_scope":f"nh:{key}","source_scope_verified":True,"destination_account_id":destination_id,"imported_by_user_action":True,"imported_at":now,"source_meta":{"market":market,"country":candidate.get("country"),"classification":candidate.get("classification")}})
+            created=create_pnl_record(candidate,username=username); ids.append(created["id"]); imported+=1
+        repairable=(not mapping_exists and imported==0 and _nh_imported_items_match_destination(result,current,key,destination_id))
+        mapping_status="already_present" if mapping_exists else "not_written"
+        mapping_warning=None
+        mapping_repaired=False
+        if imported or repairable:
+            try:
+                changed=_write_nh_mapping(username,key,destination_id)
+                mapping_status="repaired" if repairable and changed else "persisted" if changed else "already_present"
+                mapping_repaired=bool(repairable and changed)
+            except OSError:
+                mapping_status="warning"
+                mapping_warning="MAPPING_PERSISTENCE_FAILED"
+    return JSONResponse({"selected":len(selected),"imported":imported,"already_imported":result["counts"]["already_imported"],"possible_duplicate_skipped":result["counts"]["possible_duplicate"],"invalid":result["counts"]["invalid"],"imported_ids":ids,"destination_account":{"id":destination.get("id")},"mapping_status":mapping_status,"mapping_warning":mapping_warning,"mapping_repaired":mapping_repaired,"partial_success":bool(imported and mapping_warning)},headers={"Cache-Control":"no-store"})
 
 
 # ---------------------------------------------------------------------------
