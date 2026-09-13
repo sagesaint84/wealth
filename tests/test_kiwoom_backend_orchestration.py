@@ -149,6 +149,71 @@ class KiwoomBackendOrchestrationTests(IsolatedDataTestCase):
         self.assertEqual(replay.json()["imported"], 0)
         self.assertEqual(len(pnl_records.read_pnl_records(self.username)), 1)
 
+    def test_common_ipo_adjustment_preview_import_and_ticket_tamper(self):
+        selected = self.selected("kr")
+        selected[0]["wealth_import"] = {
+            "stock_type": "ipo",
+            "ipo_subscription_fee_krw": 2,
+        }
+        preview = self.preview("kr", selected)
+        self.assertEqual(preview.status_code, 200, preview.text)
+        preview_item = preview.json()["items"][0]
+        self.assertEqual(preview_item["wealth_import"]["stock_type"], "ipo")
+        self.assertEqual(preview_item["wealth_import"]["provider_realized_pnl"], "17")
+        self.assertEqual(preview_item["wealth_import"]["final_wealth_pnl"], "15")
+        self.assertEqual(preview_item["wealth_import"]["memo"], "공모수수료 2원 차감")
+
+        tampered = json.loads(json.dumps(selected))
+        tampered[0]["wealth_import"]["ipo_subscription_fee_krw"] = 3
+        rejected = self.client.post(
+            "/api/kiwoom/realized-feed/import", headers=self.headers(),
+            json={
+                "market": "kr", "source_account_key": self.source_key,
+                "account_id": self.destination["id"], "selected_items": tampered,
+                "preview_ticket": preview.json()["preview_ticket"],
+            },
+        )
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(pnl_records.read_pnl_records_readonly(self.username), [])
+
+        imported = self.client.post(
+            "/api/kiwoom/realized-feed/import", headers=self.headers(),
+            json={
+                "market": "kr", "source_account_key": self.source_key,
+                "account_id": self.destination["id"], "selected_items": selected,
+                "preview_ticket": preview.json()["preview_ticket"],
+            },
+        )
+        self.assertEqual(imported.status_code, 200, imported.text)
+        self.assertEqual(imported.json()["imported"], 1)
+        record = pnl_records.read_pnl_records(self.username)[0]
+        self.assertTrue(record["is_ipo"])
+        self.assertEqual(record["asset_type"], "ipo")
+        self.assertEqual(record["provider_realized_pnl"], "17")
+        self.assertEqual(record["ipo_subscription_fee_krw"], 2)
+        self.assertEqual(record["pnl"], 15)
+        self.assertEqual(record["pnl_krw"], 15)
+        self.assertEqual(record["fee"], "1")
+        self.assertEqual(record["tax"], "2")
+        self.assertEqual(record["memo"], "공모수수료 2원 차감")
+
+        changed_type = json.loads(json.dumps(selected))
+        changed_type[0]["wealth_import"] = {"stock_type": "general", "ipo_subscription_fee_krw": 0}
+        second_preview = self.preview("kr", changed_type)
+        self.assertEqual(second_preview.status_code, 200, second_preview.text)
+        self.assertEqual(second_preview.json()["counts"]["already_imported"], 1)
+        replay = self.client.post(
+            "/api/kiwoom/realized-feed/import", headers=self.headers(),
+            json={
+                "market": "kr", "source_account_key": self.source_key,
+                "account_id": self.destination["id"], "selected_items": changed_type,
+                "preview_ticket": second_preview.json()["preview_ticket"],
+            },
+        )
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertEqual(replay.json()["imported"], 0)
+        self.assertEqual(len(pnl_records.read_pnl_records(self.username)), 1)
+
     def test_overseas_import_preserves_financial_semantics(self):
         selected = self.selected("us")
         payload = self.import_payload("us", selected)

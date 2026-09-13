@@ -111,7 +111,14 @@ class KiwoomRealizedFrontendTests(unittest.TestCase):
         self.assertIsNotNone(selected_items_fn)
         body = selected_items_fn.group("body")
         self.assertIn("const row = kiwoomRealizedState.rows[idx]", body)
-        self.assertIn("{ row, selection_token: token }", body)
+        self.assertIn("brokerImportSelectedItem(kiwoomRealizedState, idx)", body)
+        common_builder = re.search(
+            r"function brokerImportSelectedItem\(state, index\) \{(?P<body>.*?)\n\}",
+            JS, re.DOTALL,
+        )
+        self.assertIsNotNone(common_builder)
+        self.assertIn("row,", common_builder.group("body"))
+        self.assertIn("selection_token: token", common_builder.group("body"))
         self.assertNotIn("buy_amount =", body)
         self.assertNotIn("sell_amount =", body)
         self.assertNotIn("pnl =", body)

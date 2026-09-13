@@ -84,6 +84,12 @@ from app.services.kiwoom_feed import (
     sign_kiwoom_import_preview_ticket, verify_kiwoom_import_preview_ticket,
 )
 from app.services.kiwoom_realized import preview_kiwoom_realized_selection
+from app.services.broker_realized_import import (
+    BrokerRealizedImportError,
+    apply_wealth_import_preferences,
+    compute_wealth_import_items_hash,
+    has_wealth_import_preferences,
+)
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -95,6 +101,32 @@ WEALTH_ENV = os.getenv("WEALTH_ENV", "production").strip().lower()
 TESTING = WEALTH_ENV == "test"
 _NH_IMPORT_LOCK = threading.RLock()
 _KIWOOM_IMPORT_LOCK = threading.RLock()
+
+
+def _broker_import_items_hash(provider_hash: str, selected_items: list[dict[str, Any]]) -> str:
+    if not has_wealth_import_preferences(selected_items):
+        return provider_hash
+    try:
+        return compute_wealth_import_items_hash(provider_hash, selected_items)
+    except BrokerRealizedImportError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": str(exc), "message": "Broker import accounting selection is invalid"},
+        ) from exc
+
+
+def _apply_broker_import_preferences(
+    result: dict[str, Any], selected_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not has_wealth_import_preferences(selected_items):
+        return result
+    try:
+        return apply_wealth_import_preferences(result, selected_items)
+    except BrokerRealizedImportError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": str(exc), "message": "Broker import accounting selection is invalid"},
+        ) from exc
 
 
 def load_env_file() -> None:
@@ -1282,8 +1314,9 @@ async def toss_wts_realized_feed_import_preview(request: Request) -> JSONRespons
         current_generation_id=gen_id,
         profit_rate_basis=profit_rate_basis,
     )
+    preview_result = _apply_broker_import_preferences(preview_result, selected_items)
 
-    items_hash = compute_items_hash(selected_items)
+    items_hash = _broker_import_items_hash(compute_items_hash(selected_items), selected_items)
     preview_ticket = sign_import_preview_ticket(
         account_id=str(destination_account["id"]),
         items_hash=items_hash,
@@ -1366,9 +1399,15 @@ async def toss_wts_realized_feed_import(request: Request) -> JSONResponse:
         )
 
     gen_id = get_current_runtime_generation_id(user_id)
-    items_hash = compute_items_hash(selected_items)
+    items_hash = _broker_import_items_hash(compute_items_hash(selected_items), selected_items)
 
     preview_ticket = body.get("preview_ticket")
+    if has_wealth_import_preferences(selected_items) and not preview_ticket:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "PREVIEW_TICKET_MISSING", "message": "Fresh import preview is required"},
+            headers={"Cache-Control": "no-store"},
+        )
     if preview_ticket:
         valid_ticket, ticket_err = verify_import_preview_ticket(
             preview_ticket,
@@ -1398,6 +1437,7 @@ async def toss_wts_realized_feed_import(request: Request) -> JSONResponse:
         current_generation_id=gen_id,
         profit_rate_basis=profit_rate_basis,
     )
+    classification = _apply_broker_import_preferences(classification, selected_items)
 
     imported_count = 0
     already_imported_count = 0
@@ -1648,8 +1688,9 @@ async def kis_realized_feed_import_preview(request: Request) -> JSONResponse:
         source_account_label=masked_account,
         market=market,
     )
+    preview_result = _apply_broker_import_preferences(preview_result, selected_items)
 
-    items_hash = compute_kis_items_hash(selected_items)
+    items_hash = _broker_import_items_hash(compute_kis_items_hash(selected_items), selected_items)
     preview_ticket = sign_kis_import_preview_ticket(
         account_id=str(destination_account["id"]),
         items_hash=items_hash,
@@ -1721,9 +1762,15 @@ async def kis_realized_feed_import(request: Request) -> JSONResponse:
             headers={"Cache-Control": "no-store"},
         )
 
-    items_hash = compute_kis_items_hash(selected_items)
+    items_hash = _broker_import_items_hash(compute_kis_items_hash(selected_items), selected_items)
 
     preview_ticket = body.get("preview_ticket")
+    if has_wealth_import_preferences(selected_items) and not preview_ticket:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "PREVIEW_TICKET_MISSING", "message": "Fresh import preview is required"},
+            headers={"Cache-Control": "no-store"},
+        )
     if preview_ticket:
         valid_ticket, ticket_err = verify_kis_import_preview_ticket(
             preview_ticket,
@@ -1752,6 +1799,7 @@ async def kis_realized_feed_import(request: Request) -> JSONResponse:
         source_account_label=masked_account,
         market=market,
     )
+    classification = _apply_broker_import_preferences(classification, selected_items)
 
     imported_count = 0
     already_imported_count = 0
@@ -1988,7 +2036,8 @@ async def nh_realized_feed_import_preview(request: Request) -> JSONResponse:
     if not isinstance(selected,list) or not selected or market not in {"kr","us"}: raise HTTPException(status_code=400,detail={"code":"INVALID_REQUEST","message":"Invalid NH preview request"})
     destination=_nh_destination(username,body.get("account_id")); client=NhPlugOpenAPI(username=username); _,label=await _resolve_nh_source_account(client,key)
     result=preview_nh_realized_selection(selected,destination,_read_nh_pnl_records_strict(username),user_id=str(user_id),source_account_key=key,source_account_label=label,market=market)
-    result["preview_ticket"]=sign_nh_import_preview_ticket(account_id=str(destination["id"]),items_hash=compute_nh_items_hash(selected),user_id=str(user_id),source_account_key=key,market=market)
+    result=_apply_broker_import_preferences(result,selected)
+    result["preview_ticket"]=sign_nh_import_preview_ticket(account_id=str(destination["id"]),items_hash=_broker_import_items_hash(compute_nh_items_hash(selected),selected),user_id=str(user_id),source_account_key=key,market=market)
     return JSONResponse(result,headers={"Cache-Control":"no-store"})
 
 
@@ -1999,7 +2048,7 @@ async def nh_realized_feed_import(request: Request) -> JSONResponse:
     body=await request.json(); selected=body.get("selected_items"); market=str(body.get("market") or "").lower(); key=str(body.get("source_account_key") or "")
     if not isinstance(selected,list) or not selected: raise HTTPException(status_code=400,detail={"code":"INVALID_REQUEST","message":"selected_items required"})
     destination=_nh_destination(username,body.get("account_id")); client=NhPlugOpenAPI(username=username); _,label=await _resolve_nh_source_account(client,key)
-    valid,error=verify_nh_import_preview_ticket(str(body.get("preview_ticket") or ""),account_id=str(destination["id"]),items_hash=compute_nh_items_hash(selected),user_id=str(user_id),source_account_key=key,market=market)
+    valid,error=verify_nh_import_preview_ticket(str(body.get("preview_ticket") or ""),account_id=str(destination["id"]),items_hash=_broker_import_items_hash(compute_nh_items_hash(selected),selected),user_id=str(user_id),source_account_key=key,market=market)
     if not valid: raise HTTPException(status_code=400,detail={"code":error or "PREVIEW_TICKET_INVALID","message":"NH preview verification failed"})
     with _NH_IMPORT_LOCK:
         destination_id=str(destination["id"])
@@ -2007,6 +2056,7 @@ async def nh_realized_feed_import(request: Request) -> JSONResponse:
         current=_read_nh_pnl_records_strict(username)
         _assert_nh_source_records_destination(current,key,destination_id)
         result=preview_nh_realized_selection(selected,destination,current,user_id=str(user_id),source_account_key=key,source_account_label=label,market=market)
+        result=_apply_broker_import_preferences(result,selected)
         already_items=[item for item in result["items"] if item.get("status")=="ALREADY_IMPORTED"]
         if already_items:
             already_result={"items":already_items}
@@ -2251,8 +2301,9 @@ async def kiwoom_realized_feed_import_preview(request: Request) -> JSONResponse:
         user_id=str(user_id), source_account_key=source_key,
         source_account_label=label, market=market,
     )
+    result = _apply_broker_import_preferences(result, selected)
     result["preview_ticket"] = sign_kiwoom_import_preview_ticket(
-        account_id=str(destination["id"]), items_hash=compute_kiwoom_items_hash(selected),
+        account_id=str(destination["id"]), items_hash=_broker_import_items_hash(compute_kiwoom_items_hash(selected), selected),
         user_id=str(user_id), source_account_key=source_key, market=market,
     )
     return JSONResponse(result, headers={"Cache-Control": "no-store"})
@@ -2274,7 +2325,7 @@ async def kiwoom_realized_feed_import(request: Request) -> JSONResponse:
     _, label = await _verify_kiwoom_source_context(KiwoomOpenAPI(username=username), source_key)
     valid, error = verify_kiwoom_import_preview_ticket(
         str(body.get("preview_ticket") or ""), account_id=str(destination["id"]),
-        items_hash=compute_kiwoom_items_hash(selected), user_id=str(user_id),
+        items_hash=_broker_import_items_hash(compute_kiwoom_items_hash(selected), selected), user_id=str(user_id),
         source_account_key=source_key, market=market,
     )
     if not valid:
@@ -2291,6 +2342,7 @@ async def kiwoom_realized_feed_import(request: Request) -> JSONResponse:
             selected, destination, current, user_id=str(user_id),
             source_account_key=source_key, source_account_label=label, market=market,
         )
+        result = _apply_broker_import_preferences(result, selected)
         already_items = [item for item in result["items"] if item.get("status") == "ALREADY_IMPORTED"]
         if already_items and not _kiwoom_imported_items_match_destination(
             {"items": already_items}, current, source_key, destination_id,

@@ -195,7 +195,11 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
         if field in payload:
             record[field] = payload[field]
 
-    for field in ("quantity", "buy_unit_price", "buy_amount", "sell_unit_price", "sell_amount", "fee", "tax", "expenses_total", "profit_rate", "country", "exchange"):
+    for field in (
+        "quantity", "buy_unit_price", "buy_amount", "sell_unit_price", "sell_amount",
+        "fee", "tax", "expenses_total", "profit_rate", "country", "exchange",
+        "ipo_subscription_fee_krw", "provider_realized_pnl",
+    ):
         if field in payload:
             record[field] = payload[field]
 
