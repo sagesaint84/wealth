@@ -931,6 +931,28 @@ async function loadMarkets() {
 }
 
 // ── 2. 핵심 요약 렌더링 ──────────────────────────────────────────────────────
+function calculateDashboardDebt(bankAccounts, loanAccounts) {
+  const banks = Array.isArray(bankAccounts) ? bankAccounts : [];
+  const loans = Array.isArray(loanAccounts) ? loanAccounts : [];
+  const totalPureDebt = loans.reduce((acc, loan) => acc + (Number(loan.current_balance) || 0), 0);
+  const representedOverdraftBanks = new Set(
+    loans
+      .filter(loan => (
+        String(loan.loan_type || "") === "minus"
+        && String(loan.overdraft_bank_account_id || "").trim()
+        && (Number(loan.current_balance) || 0) > 0
+      ))
+      .map(loan => `${String(loan.owner || "모두")}\u0000${String(loan.overdraft_bank_account_id).trim()}`)
+  );
+  const totalMinusBankDebt = banks.reduce((acc, bank) => {
+    const balance = Number(bank.balance) || 0;
+    if (balance >= 0) return acc;
+    const relationshipKey = `${String(bank.owner || "모두")}\u0000${String(bank.id || "").trim()}`;
+    return representedOverdraftBanks.has(relationshipKey) ? acc : acc + Math.abs(balance);
+  }, 0);
+  return { totalPureDebt, totalMinusBankDebt };
+}
+
 function renderSummary(data) {
   const s = data.summary || {}, currencies = data.currency_summary || {};
   const krw = currencies.KRW || {}, usd = currencies.USD || {};
@@ -945,7 +967,6 @@ function renderSummary(data) {
   const allREs = data.real_estates || rawRealEstates || [];
 
   const posBanks = curBanks.filter(b => (Number(b.balance) || 0) >= 0);
-  const negBanks = curBanks.filter(b => (Number(b.balance) || 0) < 0);
 
   const totalInvestVal = Number(s.total_value_krw || 0);
   const totalStockVal = s.total_stock_value_krw || (totalInvestVal - Number(s.total_cash_krw || 0));
@@ -954,8 +975,7 @@ function renderSummary(data) {
   const totalAllCash = Number(s.total_cash_krw || 0) + totalPositiveBankVal + totalSavingVal;
   const insuranceTotal = curInsurances.reduce((acc, ins) => acc + (Number(ins.expected_amount) || Number(ins.converted_total_asset) || Number(ins.total_paid_amount) || Number(ins.expected_refund_amount) || Number(ins.accumulated_paid_amount) || 0), 0);
 
-  const totalMinusBankDebt = negBanks.reduce((acc, b) => acc + Math.abs(Number(b.balance) || 0), 0);
-  const totalPureDebt = curLoans.reduce((acc, l) => acc + (Number(l.current_balance) || 0), 0);
+  const { totalMinusBankDebt, totalPureDebt } = calculateDashboardDebt(curBanks, curLoans);
 
   // 부동산 순에퀴티 & 전세보증금 부채 & 평가손익(예상 수익)
   let totalREVal = 0;

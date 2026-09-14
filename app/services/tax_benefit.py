@@ -22,6 +22,37 @@ DEFAULT_MARGINAL_RATES = {
     "over_100m": 38.5,     # 8,800만 ~ 1.5억원 구간 (35% + 3.5%)
 }
 
+PENSION_SAVINGS_CREDIT_LIMIT = 6_000_000.0
+PENSION_COMBINED_CREDIT_LIMIT = 9_000_000.0
+
+
+def _allocate_pension_irp_eligible(
+    entries: list[tuple[Any, str, str, float]],
+) -> dict[Any, float]:
+    """Allocate statutory contribution ceilings independently per taxpayer scope.
+
+    Each entry is (key, taxpayer_scope, kind, contribution), where kind is
+    pension_savings or irp. Pension savings consumes its own 6M ceiling and the
+    shared 9M ceiling first; IRP then consumes only the remaining shared ceiling.
+    """
+    allocations: dict[Any, float] = {key: 0.0 for key, _, _, _ in entries}
+    scopes = dict.fromkeys(scope for _, scope, _, _ in entries)
+    for scope in scopes:
+        pension_remaining = PENSION_SAVINGS_CREDIT_LIMIT
+        combined_remaining = PENSION_COMBINED_CREDIT_LIMIT
+        scoped = [entry for entry in entries if entry[1] == scope]
+        for kind in ("pension_savings", "irp"):
+            for key, _, entry_kind, contribution in scoped:
+                if entry_kind != kind:
+                    continue
+                eligible = min(max(0.0, contribution), combined_remaining)
+                if kind == "pension_savings":
+                    eligible = min(eligible, pension_remaining)
+                    pension_remaining -= eligible
+                combined_remaining -= eligible
+                allocations[key] = eligible
+    return allocations
+
 
 def calculate_yellow_umbrella_benefit(
     monthly_premium: float,
@@ -88,6 +119,8 @@ def calculate_pension_irp_benefit(
     isa_transfer_amount: float = 0.0,
     tax_deductible: bool = True,
     yearly_contributions: list[dict[str, Any]] | None = None,
+    eligible_base_amount: float | None = None,
+    yearly_eligible_amounts: list[float] | None = None,
 ) -> dict[str, Any]:
     """
     개인연금(연금저축) 및 IRP의 세액공제 혜택과 ISA 만기 연금 전환 추가 공제액을 정밀 계산합니다.
@@ -113,6 +146,8 @@ def calculate_pension_irp_benefit(
         base_deduction_target = min(dep, 9_000_000.0)
     else:
         base_deduction_target = 0.0
+    if eligible_base_amount is not None:
+        base_deduction_target = min(base_deduction_target, max(0.0, float(eligible_base_amount)))
 
     isa_deduction_target = min(isa_tr * 0.10, 3_000_000.0)
     total_deduction_target = base_deduction_target + isa_deduction_target
@@ -126,7 +161,7 @@ def calculate_pension_irp_benefit(
     cumulative_deposit = 0
 
     if yearly_contributions:
-        for yc in yearly_contributions:
+        for index, yc in enumerate(yearly_contributions):
             y_year = str(yc.get("year") or "").strip()
             y_dep = float(yc.get("deposit") or 0.0)
             y_deductible = yc.get("is_deductible") not in (False, "false", "0", 0)
@@ -134,6 +169,9 @@ def calculate_pension_irp_benefit(
             y_rate = 16.5 if y_income_level == "low" else 13.2
             y_limit = base_limit if y_deductible else 0.0
             y_ded_target = min(y_dep, y_limit) if y_deductible else 0.0
+            if yearly_eligible_amounts is not None:
+                allocated = yearly_eligible_amounts[index] if index < len(yearly_eligible_amounts) else 0.0
+                y_ded_target = min(y_ded_target, max(0.0, float(allocated)))
             y_tax_saved = math.floor(y_ded_target * (y_rate / 100.0)) if y_deductible else 0.0
 
             yearly_results.append({
@@ -213,15 +251,16 @@ def get_total_tax_benefits(portfolio_data: dict[str, Any], owner: str | None = N
     total_isa_transfer_amount = 0
     total_isa_tax_refund = 0
 
+    pension_candidates: list[dict[str, Any]] = []
     for acc in accounts:
         acc_type = acc.get("account_type") or "general"
         acc_name = (acc.get("account_name") or acc.get("name") or "").lower()
 
         if acc_type == "general":
-            if "연금" in acc_name or "pension" in acc_name:
-                acc_type = "pension_savings"
-            elif "irp" in acc_name or "개인형퇴직" in acc_name:
+            if "irp" in acc_name or "개인형퇴직" in acc_name:
                 acc_type = "irp"
+            elif "연금" in acc_name or "pension" in acc_name:
+                acc_type = "pension_savings"
             elif "isa" in acc_name:
                 acc_type = "isa"
 
@@ -234,23 +273,73 @@ def get_total_tax_benefits(portfolio_data: dict[str, Any], owner: str | None = N
             deposit = float(acc.get("annual_deposit") or 0.0)
             income_lvl = acc.get("income_level") or "low"
             isa_tr = float(acc.get("isa_transfer_amount") or 0.0)
-
-            b = calculate_pension_irp_benefit(
-                deposit, acc_type, income_lvl, isa_tr, tax_deductible=is_tax_deductible, yearly_contributions=acc.get("yearly_contributions")
-            )
-            pension_items.append({
-                "id": acc.get("id"),
-                "account_name": acc.get("name") or acc.get("account_name"),
-                "broker": acc.get("broker"),
-                "owner": acc.get("owner", "모두"),
+            base_kind = "irp" if acc_type.startswith("irp") else "pension_savings"
+            deductible = bool(is_tax_deductible) and not acc_type.endswith("_non_deductible")
+            pension_candidates.append({
+                "account": acc,
                 "account_type": acc_type,
+                "base_kind": base_kind,
+                "owner": str(acc.get("owner") or "모두"),
                 "tax_deductible": is_tax_deductible,
-                "benefit": b,
+                "deductible": deductible,
+                "deposit": deposit,
+                "income_level": income_lvl,
+                "isa_transfer_amount": isa_tr,
+                "yearly_contributions": acc.get("yearly_contributions"),
             })
-            total_pension_deduction += b["base_deduction_target"]
-            total_pension_tax_refund += b["base_tax_refund"]
-            total_isa_transfer_amount += b["isa_transfer_amount"]
-            total_isa_tax_refund += b["isa_tax_refund"]
+
+    current_entries = [
+        (index, item["owner"], item["base_kind"], item["deposit"])
+        for index, item in enumerate(pension_candidates)
+        if item["deductible"]
+    ]
+    current_allocations = _allocate_pension_irp_eligible(current_entries)
+
+    yearly_entries: list[tuple[tuple[int, int], str, str, float]] = []
+    for index, item in enumerate(pension_candidates):
+        if not item["deductible"] or not item["yearly_contributions"]:
+            continue
+        for yearly_index, contribution in enumerate(item["yearly_contributions"]):
+            is_deductible = contribution.get("is_deductible") not in (False, "false", "0", 0)
+            if not is_deductible:
+                continue
+            year = str(contribution.get("year") or "").strip()
+            yearly_entries.append((
+                (index, yearly_index),
+                f'{item["owner"]}\u0000{year}',
+                item["base_kind"],
+                float(contribution.get("deposit") or 0.0),
+            ))
+    yearly_allocations = _allocate_pension_irp_eligible(yearly_entries)
+
+    for index, item in enumerate(pension_candidates):
+        yearly = item["yearly_contributions"]
+        yearly_eligible = None
+        if yearly:
+            yearly_eligible = [
+                yearly_allocations.get((index, yearly_index), 0.0)
+                for yearly_index in range(len(yearly))
+            ]
+        b = calculate_pension_irp_benefit(
+            item["deposit"], item["account_type"], item["income_level"], item["isa_transfer_amount"],
+            tax_deductible=item["tax_deductible"], yearly_contributions=yearly,
+            eligible_base_amount=current_allocations.get(index, 0.0),
+            yearly_eligible_amounts=yearly_eligible,
+        )
+        acc = item["account"]
+        pension_items.append({
+            "id": acc.get("id"),
+            "account_name": acc.get("name") or acc.get("account_name"),
+            "broker": acc.get("broker"),
+            "owner": acc.get("owner", "모두"),
+            "account_type": item["account_type"],
+            "tax_deductible": item["tax_deductible"],
+            "benefit": b,
+        })
+        total_pension_deduction += b["base_deduction_target"]
+        total_pension_tax_refund += b["base_tax_refund"]
+        total_isa_transfer_amount += b["isa_transfer_amount"]
+        total_isa_tax_refund += b["isa_tax_refund"]
 
     grand_total_refund = total_yellow_tax_saved + total_pension_tax_refund + total_isa_tax_refund
     grand_total_cumulative = sum(i["benefit"].get("cumulative_tax_saved", 0) for i in yellow_items) + sum(i["benefit"].get("cumulative_tax_saved", 0) for i in pension_items)
