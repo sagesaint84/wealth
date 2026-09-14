@@ -38,7 +38,7 @@ if (JSON.stringify(before) !== snapshot) process.exit(8);
     def test_realized_detail_uses_local_source_aware_branches(self):
         source = WEALTH_JS.read_text(encoding="utf-8")
         self.assertIn("const wtsFxPnlUnavailable = item.source === 'toss_wts' && item.fx_pnl_krw == null;", source)
-        self.assertIn("const fxRateDisplay = formatOptionalTossWtsFxDisplay(item, item.fx_rate", source)
+        self.assertIn("const fxRateDisplay = formatOptionalRealizedPnlValue(item.fx_rate", source)
         self.assertIn("const fxPnlDisplay = formatOptionalTossWtsFxDisplay(item, item.fx_pnl_krw", source)
         self.assertNotIn("broker === '토스증권'", source[source.index("function formatOptionalTossWtsFxDisplay"):source.index("function formatOptionalTossWtsFxDisplay") + 1200])
 

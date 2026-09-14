@@ -30,7 +30,11 @@ class TossWtsFxRecalculationGuardTests(unittest.TestCase):
         with (
             patch.object(pnl_records, "read_pnl_records", return_value=records),
             patch.object(pnl_records, "write_pnl_records") as write,
-            patch.object(pnl_records, "get_historical_fx_rate", return_value=1300.0) as historical_fx,
+            patch.object(
+                pnl_records,
+                "lookup_historical_fx_strict",
+                return_value=(1300.0, "2026-01-02"),
+            ) as historical_fx,
         ):
             updated = pnl_records.recalculate_pnl_historical_fx(username="synthetic-user")
         return updated, historical_fx, write

@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Any
 import httpx
@@ -121,3 +122,38 @@ def get_historical_fx_rate(target_date: str, fallback: float = 1385.0) -> float:
         return fx_map[sorted_dates[0]]
 
     return fallback
+
+
+def lookup_historical_fx_strict(target_date: str) -> tuple[float, str] | None:
+    """Return a historically valid cached rate without fallback or future data.
+
+    The requested date itself is preferred.  For weekends and holidays, the
+    latest valid cached business date before it is allowed.  This accounting
+    path never performs network I/O and never substitutes a later observation.
+    """
+    text = str(target_date or "").strip()
+    parsed_target = None
+    for date_format in ("%Y-%m-%d", "%Y%m%d"):
+        try:
+            candidate = datetime.datetime.strptime(text, date_format).date()
+        except ValueError:
+            continue
+        if candidate.strftime(date_format) == text:
+            parsed_target = candidate
+            break
+    if parsed_target is None:
+        return None
+
+    eligible: list[tuple[datetime.date, float]] = []
+    for raw_date, raw_rate in load_cached_fx().items():
+        try:
+            rate_date = datetime.datetime.strptime(str(raw_date), "%Y-%m-%d").date()
+            rate = float(raw_rate)
+        except (TypeError, ValueError):
+            continue
+        if rate_date <= parsed_target and math.isfinite(rate) and rate > 0:
+            eligible.append((rate_date, rate))
+    if not eligible:
+        return None
+    rate_date, rate = max(eligible, key=lambda item: item[0])
+    return rate, rate_date.isoformat()

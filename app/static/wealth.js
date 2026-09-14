@@ -50,9 +50,10 @@ async function updateOverviewCardsAllTime(owner = currentOwner) {
   try {
     const pnlRes = await api(`/api/realized-pnl?owner=${encodeURIComponent(owner)}&year=all&trade_type=all`);
     if (pnlRes) {
-      totalPnl = Number(pnlRes.total_pnl_krw || 0);
-      const winRate = Number(pnlRes.win_rate || 0);
-      const recordCount = Number(pnlRes.record_count || 0);
+      const pnlView = buildRealizedPnlDisplaySummary(pnlRes, [], true);
+      totalPnl = pnlView.totalPnlKrw;
+      const winRate = pnlView.winRate;
+      const recordCount = pnlView.recordCount;
 
       const isStockTab = (STOCK_PORTFOLIO_MODE === 'sector');
       if (isStockTab) {
@@ -63,7 +64,7 @@ async function updateOverviewCardsAllTime(owner = currentOwner) {
         }
         const subEl = $("#summaryRealizedPnlSub");
         if (subEl) {
-          subEl.textContent = `승률 ${number(winRate, 1)}% · 총 ${recordCount}건 실현`;
+          subEl.textContent = `승률 ${number(winRate, 1)}% · 총 ${recordCount}건 실현${pnlView.completenessNote ? ` · ${pnlView.completenessNote}` : ''}`;
         }
       }
     }
@@ -953,6 +954,70 @@ function calculateDashboardDebt(bankAccounts, loanAccounts) {
   return { totalPureDebt, totalMinusBankDebt };
 }
 
+function finiteRealizedPnlNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function summarizeRealizedPnlRows(records) {
+  const rows = Array.isArray(records) ? records : [];
+  let totalPnlKrw = 0;
+  let convertedRecordCount = 0;
+  let unconvertedRecordCount = 0;
+  let winCount = 0;
+  let lossCount = 0;
+  rows.forEach(record => {
+    const pnlKrw = finiteRealizedPnlNumber(record?.pnl_krw);
+    if (pnlKrw === null) unconvertedRecordCount += 1;
+    else {
+      totalPnlKrw += pnlKrw;
+      convertedRecordCount += 1;
+    }
+    const nativePnl = finiteRealizedPnlNumber(record?.pnl);
+    const signValue = nativePnl === null ? pnlKrw : nativePnl;
+    if (signValue > 0) winCount += 1;
+    else if (signValue < 0) lossCount += 1;
+  });
+  const classifiedCount = winCount + lossCount;
+  return {
+    totalPnlKrw,
+    convertedRecordCount,
+    unconvertedRecordCount,
+    recordCount: rows.length,
+    winCount,
+    lossCount,
+    winRate: classifiedCount ? (winCount / classifiedCount) * 100 : 0,
+    summaryComplete: unconvertedRecordCount === 0,
+  };
+}
+
+function buildRealizedPnlDisplaySummary(summary = {}, records = [], preferCanonical = true) {
+  const rowSummary = summarizeRealizedPnlRows(records);
+  const canonicalTotal = finiteRealizedPnlNumber(summary?.total_pnl_krw);
+  const canonicalUnconverted = finiteRealizedPnlNumber(summary?.unconverted_record_count);
+  const canonicalConverted = finiteRealizedPnlNumber(summary?.converted_record_count);
+  const canonicalRecordCount = finiteRealizedPnlNumber(summary?.record_count);
+  const canonicalWinRate = finiteRealizedPnlNumber(summary?.win_rate);
+  const useCanonical = preferCanonical && canonicalTotal !== null;
+  const unconvertedRecordCount = useCanonical && canonicalUnconverted !== null
+    ? canonicalUnconverted : rowSummary.unconvertedRecordCount;
+  const summaryComplete = useCanonical && typeof summary?.summary_complete === 'boolean'
+    ? summary.summary_complete : unconvertedRecordCount === 0;
+  return {
+    totalPnlKrw: useCanonical ? canonicalTotal : rowSummary.totalPnlKrw,
+    convertedRecordCount: useCanonical && canonicalConverted !== null ? canonicalConverted : rowSummary.convertedRecordCount,
+    unconvertedRecordCount,
+    recordCount: useCanonical && canonicalRecordCount !== null ? canonicalRecordCount : rowSummary.recordCount,
+    winRate: useCanonical && canonicalWinRate !== null ? canonicalWinRate : rowSummary.winRate,
+    summaryComplete,
+    canonicalUsed: useCanonical,
+    completenessNote: summaryComplete
+      ? ''
+      : (unconvertedRecordCount > 0 ? `미환산 해외 실현손익 ${unconvertedRecordCount}건 포함` : '원화 실현손익 합계 미완성'),
+  };
+}
+
 function renderSummary(data) {
   const s = data.summary || {}, currencies = data.currency_summary || {};
   const krw = currencies.KRW || {}, usd = currencies.USD || {};
@@ -1053,18 +1118,29 @@ function renderSummary(data) {
   const currMonthStr = currMonthNum < 10 ? `0${currMonthNum}` : `${currMonthNum}`;
   const currYearMonthPrefix = `${currFullYear}-${currMonthStr}`;
 
-  let totalRealizedKrw = Number(curRealized.total_realized_profit_krw || curRealized.total_pnl_krw || 0);
+  const realizedView = buildRealizedPnlDisplaySummary(curRealized, pnlRecords, o === '모두');
+  let totalRealizedKrw = realizedView.totalPnlKrw;
   let yearRealizedKrw = 0;
   let monthRealizedKrw = 0;
 
-  if (pnlRecords.length > 0) {
+  if (o === '모두' && realizedView.canonicalUsed) {
+    const yearBucket = (curRealized.yearly_schedule || []).find(item => String(item.year) === currFullYear);
+    const monthBucket = (curRealized.monthly_schedule || []).find(item => Number(item.month) === currMonthNum);
+    yearRealizedKrw = finiteRealizedPnlNumber(yearBucket?.total_krw) ?? 0;
+    monthRealizedKrw = finiteRealizedPnlNumber(monthBucket?.total_krw) ?? 0;
+  } else if (pnlRecords.length > 0) {
     pnlRecords.forEach(r => {
-      const d = String(r.date || '');
-      const p = Number(r.pnl_krw || 0);
-      if (d.startsWith(currFullYear)) yearRealizedKrw += p;
-      if (d.startsWith(currYearMonthPrefix)) monthRealizedKrw += p;
+      const compactDate = String(r.date || '').replaceAll('-', '');
+      const p = finiteRealizedPnlNumber(r.pnl_krw);
+      if (p === null) return;
+      if (compactDate.startsWith(currFullYear)) yearRealizedKrw += p;
+      if (compactDate.startsWith(`${currFullYear}${currMonthStr}`)) monthRealizedKrw += p;
     });
-    totalRealizedKrw = pnlRecords.reduce((sum, r) => sum + Number(r.pnl_krw || 0), 0);
+  }
+
+  const summaryPnlSubEl = $("#summaryRealizedPnlSub");
+  if (summaryPnlSubEl) {
+    summaryPnlSubEl.textContent = `승률 ${number(realizedView.winRate, 1)}% · 총 ${realizedView.recordCount}건 실현${realizedView.completenessNote ? ` · ${realizedView.completenessNote}` : ''}`;
   }
 
   // 5. 총 배당금 및 이자 (연도별/월별 실시간 집계)
@@ -9206,13 +9282,14 @@ function updatePnlYearOptions(years) {
 function renderRealizedPnl(data) {
   if (!data) return;
 
-  const totalPnl = Number(data.total_pnl_krw || 0);
+  const pnlView = buildRealizedPnlDisplaySummary(data, data.records || [], true);
+  const totalPnl = pnlView.totalPnlKrw;
   const totalWin = Number(data.total_win_krw || 0);
   const winCount = Number(data.win_count || 0);
   const totalLoss = Number(data.total_loss_krw || 0);
   const lossCount = Number(data.loss_count || 0);
   const winRate = Number(data.win_rate || 0);
-  const recordCount = Number(data.record_count || 0);
+  const recordCount = pnlView.recordCount;
 
   // 1. 4대 요약 카드
   const totalEl = $("#pnlTotal");
@@ -9220,7 +9297,7 @@ function renderRealizedPnl(data) {
     totalEl.textContent = `${totalPnl > 0 ? '+' : ''}${money(totalPnl)}`;
     totalEl.className = `div-card-val ${totalPnl > 0 ? 'gain' : (totalPnl < 0 ? 'loss' : '')}`;
   }
-  $("#pnlTotalCount") && ($("#pnlTotalCount").textContent = `총 ${recordCount}건 매도`);
+  $("#pnlTotalCount") && ($("#pnlTotalCount").textContent = `총 ${recordCount}건 매도${pnlView.completenessNote ? ` · ${pnlView.completenessNote}` : ''}`);
 
   $("#pnlTotalWin") && ($("#pnlTotalWin").textContent = `+${money(totalWin)}`);
   $("#pnlWinCount") && ($("#pnlWinCount").textContent = `${winCount}건 실현`);
@@ -9383,6 +9460,11 @@ function formatOptionalTossWtsFxDisplay(record, value, formatter) {
   return record?.source === 'toss_wts' && value == null ? '—' : formatter(value);
 }
 
+function formatOptionalRealizedPnlValue(value, formatter) {
+  const parsed = finiteRealizedPnlNumber(value);
+  return parsed === null ? '—' : formatter(parsed);
+}
+
 function renderPnlMonthlyDetail(month = null) {
   const container = $("#pnlMonthlyDetail");
   if (!container || !pnlData) return;
@@ -9400,13 +9482,13 @@ function renderPnlMonthlyDetail(month = null) {
 
   if (month && month >= 1 && month <= 12) {
     const monthStr = String(month).padStart(2, '0');
-    items = records.filter(r => (r.date || '').split('-')[1] === monthStr);
-    const sumKrw = items.reduce((acc, cur) => acc + Number(cur.pnl_krw || 0), 0);
-    title = `📅 ${month}월 매도 실현손익 내역 (${items.length}건 · 합계 ${sumKrw > 0 ? '+' : ''}${money(sumKrw)})`;
+    items = records.filter(r => String(r.date || '').replaceAll('-', '').slice(4, 6) === monthStr);
+    const itemSummary = buildRealizedPnlDisplaySummary({}, items, false);
+    title = `📅 ${month}월 매도 실현손익 내역 (${items.length}건 · 합계 ${itemSummary.totalPnlKrw > 0 ? '+' : ''}${money(itemSummary.totalPnlKrw)}${itemSummary.completenessNote ? ` · ${itemSummary.completenessNote}` : ''})`;
   } else {
     items = [...records];
-    const sumKrw = items.reduce((acc, cur) => acc + Number(cur.pnl_krw || 0), 0);
-    title = `📅 전체 매도 실현손익 내역 (${items.length}건 · 총합 ${sumKrw > 0 ? '+' : ''}${money(sumKrw)})`;
+    const itemSummary = buildRealizedPnlDisplaySummary({}, items, false);
+    title = `📅 전체 매도 실현손익 내역 (${items.length}건 · 총합 ${itemSummary.totalPnlKrw > 0 ? '+' : ''}${money(itemSummary.totalPnlKrw)}${itemSummary.completenessNote ? ` · ${itemSummary.completenessNote}` : ''})`;
   }
 
   if (!items.length) {
@@ -9446,8 +9528,12 @@ function renderPnlMonthlyDetail(month = null) {
       valB = Number(b.pnl || 0);
       return currentPnlSortOrder === 'asc' ? valA - valB : valB - valA;
     } else if (currentPnlSortField === 'pnl_krw') {
-      valA = Number(a.pnl_krw || 0);
-      valB = Number(b.pnl_krw || 0);
+      valA = finiteRealizedPnlNumber(a.pnl_krw);
+      valB = finiteRealizedPnlNumber(b.pnl_krw);
+      if (valA === null || valB === null) {
+        if (valA === valB) return 0;
+        return valA === null ? 1 : -1;
+      }
       return currentPnlSortOrder === 'asc' ? valA - valB : valB - valA;
     }
     return 0;
@@ -9455,16 +9541,18 @@ function renderPnlMonthlyDetail(month = null) {
 
   const rowsHtml = items.map(item => {
     const isUsd = item.currency === 'USD';
-    const pnlVal = Number(item.pnl_krw || 0);
-    const sign = pnlVal > 0 ? '+' : '';
-    const colorClass = pnlVal > 0 ? 'pnl-gain-val' : (pnlVal < 0 ? 'pnl-loss-val' : 'pnl-zero-val');
+    const pnlVal = finiteRealizedPnlNumber(item.pnl_krw);
+    const nativePnlVal = finiteRealizedPnlNumber(item.pnl);
+    const signValue = pnlVal === null ? nativePnlVal : pnlVal;
+    const krwPnlDisplay = formatOptionalRealizedPnlValue(item.pnl_krw, value => `${value > 0 ? '+' : ''}${money(value)}`);
+    const colorClass = signValue > 0 ? 'pnl-gain-val' : (signValue < 0 ? 'pnl-loss-val' : 'pnl-zero-val');
     const origText = isUsd ? `${Number(item.pnl) > 0 ? '+' : ''}$${number(item.pnl, 2)}` : '';
-    const fxPnlVal = Number(item.fx_pnl_krw || 0);
+    const fxPnlVal = finiteRealizedPnlNumber(item.fx_pnl_krw);
     const wtsFxPnlUnavailable = item.source === 'toss_wts' && item.fx_pnl_krw == null;
     const wtsFxPnlZero = item.source === 'toss_wts' && item.fx_pnl_krw === 0;
     const fxPnlDisplay = formatOptionalTossWtsFxDisplay(item, item.fx_pnl_krw, value => `${Number(value) > 0 ? '+' : ''}${money(value)}`);
-    const fxPnlInfo = (isUsd && (wtsFxPnlUnavailable || wtsFxPnlZero || fxPnlVal !== 0)) ? `<br><small style="color:#c4b5fd;">환차손익 ${fxPnlDisplay}</small>` : '';
-    const fxRateDisplay = formatOptionalTossWtsFxDisplay(item, item.fx_rate, value => `${number(value, 1)}원`);
+    const fxPnlInfo = (isUsd && (wtsFxPnlUnavailable || wtsFxPnlZero || (fxPnlVal !== null && fxPnlVal !== 0))) ? `<br><small style="color:#c4b5fd;">환차손익 ${fxPnlDisplay}</small>` : '';
+    const fxRateDisplay = formatOptionalRealizedPnlValue(item.fx_rate, value => `${number(value, 1)}원`);
     const fxInfo = isUsd ? `<br><small style="color:#8da0c7;">환율 ${fxRateDisplay}</small>${fxPnlInfo}` : '';
 
     let typeBadge = '<span class="td-normal-badge">일반거래</span>';
@@ -9486,8 +9574,8 @@ function renderPnlMonthlyDetail(month = null) {
           ${typeBadge}
         </td>
         <td class="center"><span class="td-currency">${html(item.currency || 'KRW')}</span></td>
-        <td class="num td-orig-amt">${isUsd ? origText : sign + money(item.pnl_krw)}${fxInfo}</td>
-        <td class="num ${colorClass}" style="font-size:13.5px;font-weight:700;">${sign}${money(item.pnl_krw)}</td>
+        <td class="num td-orig-amt">${isUsd ? origText : krwPnlDisplay}${fxInfo}</td>
+        <td class="num ${colorClass}" style="font-size:13.5px;font-weight:700;">${krwPnlDisplay}</td>
         <td class="td-memo">${html(item.memo || '-')}</td>
         <td class="center" style="white-space:nowrap;">
           <div class="account-row-actions" style="justify-content:center;">

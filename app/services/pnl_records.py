@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import re
 import uuid
 from datetime import datetime
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any
 import openpyxl
 
-from app.services.historical_fx import get_historical_fx_rate
+from app.services.historical_fx import get_historical_fx_rate, lookup_historical_fx_strict
 from app.services.stock_master import resolve_stock_info
 from app.services.file_import_identity import (
     FILE_IMPORT_FINGERPRINT_FIELD,
@@ -26,6 +27,18 @@ DATA_DIR = ROOT_DIR / "data"
 
 class PnlRecordsStorageError(RuntimeError):
     """Existing realized-P/L storage could not be read safely."""
+
+
+def _finite_optional_float(value: Any, field: str) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be numeric") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field} must be finite")
+    return parsed
 
 
 def _load_pnl_records_file(path: Path) -> list[dict[str, Any]]:
@@ -100,6 +113,8 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
     currency = str(payload.get("currency", "KRW")).upper()
     pnl = float(payload.get("pnl", 0.0))
     date_val = str(payload.get("date", datetime.now().strftime("%Y-%m-%d")))
+    source = str(payload.get("source") or "").strip()
+    source_meta = dict(payload.get("source_meta")) if isinstance(payload.get("source_meta"), dict) else {}
 
     raw_fx_pnl = payload.get("fx_pnl_krw")
     if raw_fx_pnl is not None:
@@ -131,6 +146,28 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
             effective_fx = fx_rate if fx_rate is not None else 1.0
             effective_fx_pnl = fx_pnl_krw if fx_pnl_krw is not None else 0.0
             pnl_krw = round(pnl * effective_fx + effective_fx_pnl, 0) if currency == "USD" else round(pnl, 0)
+
+    if (
+        source == "kiwoom"
+        and currency == "USD"
+        and pnl_krw is None
+        and source_meta.get("api_id") == "ust21530"
+    ):
+        strict_fx = lookup_historical_fx_strict(date_val)
+        if strict_fx is not None:
+            fx_rate, fx_date = strict_fx
+            pnl_krw = round(pnl * fx_rate, 0)
+            source_meta.update({
+                "pnl_krw_semantics": "historical_fx_derived",
+                "fx_date": fx_date,
+                "fx_rate_source": "historical_fx_cache",
+            })
+
+    if source in ("nh", "kiwoom") and currency == "USD":
+        if raw_pnl_krw is not None:
+            source_meta.setdefault("pnl_krw_semantics", "provider")
+        elif pnl_krw is None:
+            source_meta.setdefault("pnl_krw_semantics", "unavailable")
 
     is_ipo = bool(payload.get("is_ipo", False))
     asset_type = str(payload.get("asset_type") or "").strip().lower()
@@ -199,7 +236,9 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
         "imported_by_user_action", "imported_at", "source_meta"
     ]
     for field in provenance_fields:
-        if field in payload:
+        if field == "source_meta" and source_meta:
+            record[field] = source_meta
+        elif field in payload:
             record[field] = payload[field]
 
     for field in (
@@ -226,13 +265,30 @@ def update_pnl_record(record_id: str, payload: dict[str, Any], username: str | N
         return None
 
     currency = str(payload.get("currency", target.get("currency", "KRW"))).upper()
-    pnl = float(payload.get("pnl", target.get("pnl", 0.0)))
-    fx_pnl_krw = float(payload.get("fx_pnl_krw", target.get("fx_pnl_krw", 0.0)))
-    fx_rate = float(payload.get("fx_rate", target.get("fx_rate", 1385.0))) if currency == "USD" else 1.0
-    
-    pnl_krw = float(payload.get("pnl_krw", 0.0))
-    if pnl_krw == 0.0 and (pnl != 0.0 or fx_pnl_krw != 0.0):
-        pnl_krw = round(pnl * fx_rate + fx_pnl_krw, 0) if currency == "USD" else round(pnl, 0)
+    pnl_value = _finite_optional_float(payload.get("pnl", target.get("pnl", 0.0)), "pnl")
+    pnl = pnl_value if pnl_value is not None else 0.0
+    fx_pnl_krw = _finite_optional_float(
+        payload["fx_pnl_krw"] if "fx_pnl_krw" in payload else target.get("fx_pnl_krw"),
+        "fx_pnl_krw",
+    )
+    fx_rate = (
+        _finite_optional_float(payload["fx_rate"] if "fx_rate" in payload else target.get("fx_rate"), "fx_rate")
+        if currency == "USD" else 1.0
+    )
+    pnl_krw = _finite_optional_float(
+        payload["pnl_krw"] if "pnl_krw" in payload else target.get("pnl_krw"),
+        "pnl_krw",
+    )
+    source = str(target.get("source") or payload.get("source") or "").strip()
+    broker_source = source in ("toss_wts", "kis", "nh", "kiwoom")
+    financial_input_changed = any(field in payload for field in ("pnl", "fx_rate", "fx_pnl_krw", "currency"))
+    if not broker_source and "pnl_krw" not in payload and financial_input_changed:
+        pnl_krw = None
+    if pnl_krw is None and not broker_source:
+        if currency == "USD" and fx_rate is not None:
+            pnl_krw = round(pnl * fx_rate + (fx_pnl_krw or 0.0), 0)
+        elif currency != "USD":
+            pnl_krw = round(pnl, 0)
 
     raw_code = str(payload.get("code", target.get("code", ""))).strip()
     raw_name = str(payload.get("name", target.get("name", ""))).strip()
@@ -369,23 +425,34 @@ def get_pnl_summary(owner: str = "모두", year: int | str | None = None, trade_
         filtered.append(r)
 
     def available_pnl_krw(record: dict[str, Any]) -> float | None:
-        value = record.get("pnl_krw")
-        if value is None or value == "":
-            return None
         try:
-            return float(value)
-        except (TypeError, ValueError):
+            return _finite_optional_float(record.get("pnl_krw"), "pnl_krw")
+        except ValueError:
+            return None
+
+    def available_native_pnl(record: dict[str, Any]) -> float | None:
+        try:
+            native = _finite_optional_float(record.get("pnl"), "pnl")
+            if native is not None:
+                return native
+            # Backward compatibility for older/manual rows that predate the
+            # native-P/L field but do have an authoritative KRW amount.
+            return _finite_optional_float(record.get("pnl_krw"), "pnl_krw")
+        except ValueError:
             return None
 
     available_records = [(record, value) for record in filtered if (value := available_pnl_krw(record)) is not None]
+    classified_records = [(record, value) for record in filtered if (value := available_native_pnl(record)) is not None]
     total_pnl_krw = sum(value for _, value in available_records)
-    win_records = [record for record, value in available_records if value > 0]
-    loss_records = [record for record, value in available_records if value < 0]
+    win_records = [record for record, value in classified_records if value > 0]
+    loss_records = [record for record, value in classified_records if value < 0]
     total_win_krw = sum(value for _, value in available_records if value > 0)
     total_loss_krw = sum(value for _, value in available_records if value < 0)
-    win_rate = (len(win_records) / len(available_records) * 100) if available_records else 0.0
+    win_rate = (len(win_records) / len(classified_records) * 100) if classified_records else 0.0
+    converted_record_count = len(available_records)
+    unconverted_record_count = len(filtered) - converted_record_count
 
-    monthly_schedule = {m: {"month": m, "total_krw": 0.0, "win_krw": 0.0, "loss_krw": 0.0, "items": []} for m in range(1, 13)}
+    monthly_schedule = {m: {"month": m, "total_krw": 0.0, "win_krw": 0.0, "loss_krw": 0.0, "converted_record_count": 0, "unconverted_record_count": 0, "summary_complete": True, "items": []} for m in range(1, 13)}
     
     for r in filtered:
         r_date = str(r.get("date", ""))
@@ -398,11 +465,15 @@ def get_pnl_summary(owner: str = "모두", year: int | str | None = None, trade_
         if 1 <= m <= 12:
             amt_krw = available_pnl_krw(r)
             if amt_krw is not None:
+                monthly_schedule[m]["converted_record_count"] += 1
                 monthly_schedule[m]["total_krw"] += amt_krw
                 if amt_krw > 0:
                     monthly_schedule[m]["win_krw"] += amt_krw
                 elif amt_krw < 0:
                     monthly_schedule[m]["loss_krw"] += amt_krw
+            else:
+                monthly_schedule[m]["unconverted_record_count"] += 1
+                monthly_schedule[m]["summary_complete"] = False
             monthly_schedule[m]["items"].append(r)
 
     monthly_list = []
@@ -416,18 +487,22 @@ def get_pnl_summary(owner: str = "모두", year: int | str | None = None, trade_
 
     # 연도별 집계 (오름차순 2022 -> 2026)
     yearly_dict: dict[str, dict[str, Any]] = {
-        y: {"year": y, "total_krw": 0.0, "win_krw": 0.0, "loss_krw": 0.0, "items": []} for y in sorted(available_years)
+        y: {"year": y, "total_krw": 0.0, "win_krw": 0.0, "loss_krw": 0.0, "converted_record_count": 0, "unconverted_record_count": 0, "summary_complete": True, "items": []} for y in sorted(available_years)
     }
     for r in filtered:
         y_str = str(r.get("date", ""))[:4]
         if y_str in yearly_dict:
             amt_krw = available_pnl_krw(r)
             if amt_krw is not None:
+                yearly_dict[y_str]["converted_record_count"] += 1
                 yearly_dict[y_str]["total_krw"] += amt_krw
                 if amt_krw > 0:
                     yearly_dict[y_str]["win_krw"] += amt_krw
                 elif amt_krw < 0:
                     yearly_dict[y_str]["loss_krw"] += amt_krw
+            else:
+                yearly_dict[y_str]["unconverted_record_count"] += 1
+                yearly_dict[y_str]["summary_complete"] = False
             yearly_dict[y_str]["items"].append(r)
 
     yearly_list = []
@@ -452,6 +527,10 @@ def get_pnl_summary(owner: str = "모두", year: int | str | None = None, trade_
         "loss_count": len(loss_records),
         "win_rate": round(win_rate, 1),
         "record_count": len(filtered),
+        "converted_record_count": converted_record_count,
+        "unconverted_record_count": unconverted_record_count,
+        "win_loss_record_count": len(classified_records),
+        "summary_complete": unconverted_record_count == 0,
         "monthly_schedule": monthly_list,
         "yearly_schedule": yearly_list,
         "records": filtered_sorted,
@@ -684,24 +763,48 @@ def import_pnl_file_data(content: bytes, filename: str, fx_rate: float = 1385.0,
 
 
 def recalculate_pnl_historical_fx(username: str | None = None) -> int:
-    """기존에 저장된 매도 실현손익 중 USD 레코드들의 환율과 원화 손익을 매도일자 기준으로 일괄 재계산합니다."""
+    """Safely derive eligible USD records from cached historical FX observations."""
     records = read_pnl_records(username)
     updated_count = 0
     for r in records:
-        # Toss WTS provides its own KRW realized-P/L value.  It must not be
-        # replaced by Wealth's historical-FX reconstruction.
-        if r.get("source") == "toss_wts":
+        source = str(r.get("source") or "").strip()
+        if source == "toss_wts" or str(r.get("currency", "KRW")).upper() != "USD":
             continue
-        if str(r.get("currency", "KRW")).upper() == "USD":
-            d_str = str(r.get("date", ""))
-            if d_str:
-                new_fx = get_historical_fx_rate(d_str, fallback=float(r.get("fx_rate", 1385.0)))
-                pnl = float(r.get("pnl", 0.0))
-                fx_pnl = float(r.get("fx_pnl_krw", 0.0))
-                r["fx_rate"] = new_fx
-                r["pnl_krw"] = round(pnl * new_fx + fx_pnl, 0)
-                r["updated_at"] = datetime.now().astimezone().isoformat()
-                updated_count += 1
+        source_meta = dict(r.get("source_meta")) if isinstance(r.get("source_meta"), dict) else {}
+        semantics = str(source_meta.get("pnl_krw_semantics") or "")
+        if source in ("toss_wts", "kis", "nh", "kiwoom"):
+            # NH's current date is a query/order context, not a verified sale
+            # event date. Other broker sources may carry authoritative KRW.
+            if source != "kiwoom" or source_meta.get("api_id") != "ust21530":
+                continue
+            if r.get("pnl_krw") not in (None, "") and semantics != "historical_fx_derived":
+                continue
+        elif source not in ("", "manual", "spreadsheet"):
+            # Unknown non-file sources are not safe candidates for Wealth FX
+            # reconstruction because their KRW semantics are not established.
+            continue
+
+        strict_fx = lookup_historical_fx_strict(str(r.get("date") or ""))
+        if strict_fx is None:
+            continue
+        try:
+            pnl = _finite_optional_float(r.get("pnl"), "pnl")
+            fx_pnl = _finite_optional_float(r.get("fx_pnl_krw"), "fx_pnl_krw")
+        except ValueError:
+            continue
+        if pnl is None:
+            continue
+        new_fx, fx_date = strict_fx
+        r["fx_rate"] = new_fx
+        r["pnl_krw"] = round(pnl * new_fx + (0.0 if source == "kiwoom" else (fx_pnl or 0.0)), 0)
+        source_meta.update({
+            "pnl_krw_semantics": "historical_fx_derived",
+            "fx_date": fx_date,
+            "fx_rate_source": "historical_fx_cache",
+        })
+        r["source_meta"] = source_meta
+        r["updated_at"] = datetime.now().astimezone().isoformat()
+        updated_count += 1
     if updated_count > 0:
         write_pnl_records(records, username)
     return updated_count
