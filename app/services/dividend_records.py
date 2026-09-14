@@ -12,9 +12,21 @@ import openpyxl
 
 from app.services.historical_fx import get_historical_fx_rate
 from app.services.stock_master import resolve_stock_info
+from app.services.file_import_identity import (
+    FILE_IMPORT_FINGERPRINT_FIELD,
+    build_file_import_fingerprint,
+    canonical_number,
+    canonical_text,
+    retain_new_occurrences,
+)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"
+
+
+class DividendRecordsStorageError(RuntimeError):
+    """Existing dividend storage could not be read safely for an import."""
+
 
 def _get_user_dir(username: str | None = None) -> Path:
     from app.services.user_manager import get_user_data_dir
@@ -45,6 +57,23 @@ def read_dividend_records(username: str | None = None) -> list[dict[str, Any]]:
             return data.get("records", [])
     except Exception:
         return []
+
+
+def _read_dividend_records_for_import(username: str | None = None) -> list[dict[str, Any]]:
+    path = _get_dividend_file(username)
+    if not path.exists():
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as fp:
+            data = json.load(fp)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise DividendRecordsStorageError("dividend storage is unreadable") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("records"), list):
+        raise DividendRecordsStorageError("dividend storage has an invalid structure")
+    records = data["records"]
+    if not all(isinstance(record, dict) for record in records):
+        raise DividendRecordsStorageError("dividend storage has an invalid record structure")
+    return records
 
 
 def write_dividend_records(records: list[dict[str, Any]], username: str | None = None) -> None:
@@ -248,6 +277,13 @@ def _clean_num(val: Any) -> float:
         return 0.0
 
 
+def _optional_num(row: dict[str, Any], names: tuple[str, ...]) -> float | None:
+    for name in names:
+        if name in row and row[name] is not None and str(row[name]).strip() != "":
+            return _clean_num(row[name])
+    return None
+
+
 from datetime import date, datetime, timedelta
 
 
@@ -300,6 +336,29 @@ def _get_stock_name_to_code_map(username: str | None = None) -> dict[str, tuple[
     return mapping
 
 
+def _dividend_file_import_fingerprint(record: dict[str, Any]) -> str | None:
+    stored = record.get(FILE_IMPORT_FINGERPRINT_FIELD)
+    if isinstance(stored, str) and stored.startswith("file-import:dividend:v1:"):
+        return stored
+    if record.get("source"):
+        return None
+    return build_file_import_fingerprint("dividend", {
+        "owner": canonical_text(record.get("owner")),
+        "broker": canonical_text(record.get("broker")),
+        "account_name": canonical_text(record.get("account_name")),
+        "date": canonical_text(record.get("date")),
+        "code": canonical_text(record.get("code")),
+        "name": canonical_text(record.get("name")),
+        "currency": canonical_text(record.get("currency")).upper(),
+        "amount": canonical_number(record.get("amount")),
+        "gross_amount": canonical_number(record.get("gross_amount")),
+        "tax": canonical_number(record.get("tax")),
+        "fee": canonical_number(record.get("fee")),
+        "memo": canonical_text(record.get("memo")),
+        "source_reference": canonical_text(record.get("source_reference")),
+    })
+
+
 def import_dividend_file_data(content: bytes, filename: str, fx_rate: float = 1385.0, username: str | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     
@@ -347,7 +406,7 @@ def import_dividend_file_data(content: bytes, filename: str, fx_rate: float = 13
             if any(r.values()):
                 rows.append({_clean_str(k): v for k, v in r.items() if k})
 
-    existing_records = read_dividend_records(username)
+    existing_records = _read_dividend_records_for_import(username)
     now_iso = datetime.now().astimezone().isoformat()
     imported_records = []
 
@@ -372,8 +431,15 @@ def import_dividend_file_data(content: bytes, filename: str, fx_rate: float = 13
         amount = _clean_num(raw_amt)
         if amount <= 0:
             continue
+        gross_amount = _optional_num(r, ("세전배당금", "총배당금", "gross_amount"))
+        tax = _optional_num(r, ("세금", "원천징수세", "tax"))
+        fee = _optional_num(r, ("수수료", "fee"))
 
         memo = _clean_str(r.get("메모") or r.get("memo") or "")
+        source_reference = _clean_str(
+            r.get("거래ID") or r.get("거래번호") or r.get("참조번호")
+            or r.get("transaction_id") or r.get("reference_id") or ""
+        )
         if broker or account_name:
             extra = f"[{broker} {account_name}]".strip()
             if extra not in memo:
@@ -398,7 +464,18 @@ def import_dividend_file_data(content: bytes, filename: str, fx_rate: float = 13
             "created_at": now_iso,
             "updated_at": now_iso,
         }
+        for field, value in (("gross_amount", gross_amount), ("tax", tax), ("fee", fee)):
+            if value is not None:
+                record[field] = value
+        if source_reference:
+            record["source_reference"] = source_reference
         imported_records.append(record)
+
+    imported_records, _ = retain_new_occurrences(
+        imported_records,
+        existing_records,
+        _dividend_file_import_fingerprint,
+    )
 
     if imported_records:
         existing_records.extend(imported_records)

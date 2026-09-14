@@ -15,6 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from app.services.user_manager import get_user_data_dir
+from app.services.file_import_identity import (
+    FILE_IMPORT_FINGERPRINT_FIELD,
+    build_file_import_fingerprint,
+    canonical_number,
+    canonical_text,
+    retain_new_occurrences,
+)
 
 DEFAULT_CATEGORIES = {
     "expense": [
@@ -57,6 +64,10 @@ class BalanceConflictError(ValueError):
 
 class PersistenceConsistencyError(RuntimeError):
     """Raised when a cross-file rollback cannot restore the previous state."""
+
+
+class LedgerImportStorageError(RuntimeError):
+    """Existing ledger storage could not be read safely for a file import."""
 
 
 def get_ledger_path(username: str | None = None) -> Path:
@@ -104,6 +115,27 @@ def write_ledger(data: dict[str, Any], username: str | None = None) -> None:
     with open(temp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     os.replace(temp_path, path)
+
+
+def _read_ledger_for_file_import(username: str | None = None) -> dict[str, Any]:
+    path = get_ledger_path(username)
+    if not path.exists():
+        return default_ledger_data()
+    try:
+        with open(path, "r", encoding="utf-8") as fp:
+            data = json.load(fp)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise LedgerImportStorageError("ledger storage is unreadable") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("transactions"), list):
+        raise LedgerImportStorageError("ledger storage has an invalid structure")
+    if not all(isinstance(record, dict) for record in data["transactions"]):
+        raise LedgerImportStorageError("ledger storage has an invalid transaction structure")
+    data.setdefault("version", "1.0")
+    data.setdefault("categories", DEFAULT_CATEGORIES)
+    data.setdefault("recurring", [])
+    data.setdefault("cards", [])
+    data.setdefault("budgets", {})
+    return data
 
 
 def get_ledger_summary(
@@ -1026,6 +1058,37 @@ def process_recurring_deductions(
     return processed
 
 
+def _ledger_file_import_fingerprint(record: dict[str, Any]) -> str | None:
+    stored = record.get(FILE_IMPORT_FINGERPRINT_FIELD)
+    if isinstance(stored, str) and stored.startswith("file-import:ledger:v1:"):
+        return stored
+    # Only legacy rows matching the old file-import shape participate. Manual,
+    # card, recurring, and account-linked transactions remain separate sources.
+    if (
+        record.get("source")
+        or "is_settled" in record
+        or record.get("card_id")
+        or record.get("is_recurring")
+        or record.get("account_id")
+    ):
+        return None
+    return build_file_import_fingerprint("ledger", {
+        "date": canonical_text(record.get("date")),
+        "type": canonical_text(record.get("type")),
+        "amount": canonical_number(record.get("amount")),
+        "category": canonical_text(record.get("category")),
+        "owner": canonical_text(record.get("owner")),
+        "pay_method": canonical_text(record.get("pay_method")),
+        "merchant": canonical_text(record.get("merchant")),
+        "memo": canonical_text(record.get("memo")),
+        "transaction_time": canonical_text(record.get("transaction_time")),
+        "balance_after": canonical_number(record.get("balance_after")),
+        "source_institution": canonical_text(record.get("source_institution")),
+        "counterparty": canonical_text(record.get("counterparty")),
+        "source_reference": canonical_text(record.get("source_reference")),
+    })
+
+
 def import_ledger_from_file_bytes(
     file_bytes: bytes,
     filename: str,
@@ -1075,6 +1138,11 @@ def import_ledger_from_file_bytes(
         "owner": -1,
         "pay_method": -1,
         "memo": -1,
+        "time": -1,
+        "balance_after": -1,
+        "source_institution": -1,
+        "counterparty": -1,
+        "source_reference": -1,
     }
 
     for idx, r in enumerate(rows[:6]):
@@ -1093,6 +1161,11 @@ def import_ledger_from_file_bytes(
             col_map["owner"] = next((i for i, c in enumerate(str_row) if any(k in c for k in ["소유자", "이름", "작성자", "owner"])), -1)
             col_map["pay_method"] = next((i for i, c in enumerate(str_row) if any(k in c for k in ["결제", "카드", "수단", "출금처", "통장"])), -1)
             col_map["memo"] = next((i for i, c in enumerate(str_row) if any(k in c for k in ["메모", "비고", "memo", "note"])), -1)
+            col_map["time"] = next((i for i, c in enumerate(str_row) if any(k in c for k in ["거래시간", "승인시간", "time"])), -1)
+            col_map["balance_after"] = next((i for i, c in enumerate(str_row) if any(k in c for k in ["거래후잔액", "잔액", "balance"])), -1)
+            col_map["source_institution"] = next((i for i, c in enumerate(str_row) if any(k in c for k in ["금융기관", "기관", "은행", "issuer", "institution"])), -1)
+            col_map["counterparty"] = next((i for i, c in enumerate(str_row) if any(k in c for k in ["거래상대", "상대방", "counterparty"])), -1)
+            col_map["source_reference"] = next((i for i, c in enumerate(str_row) if any(k in c for k in ["거래ID", "거래번호", "참조번호", "transaction_id", "reference_id"])), -1)
             break
 
     if header_row_idx == -1:
@@ -1168,6 +1241,30 @@ def import_ledger_from_file_bytes(
         if col_map["memo"] != -1 and col_map["memo"] < len(r):
             memo = str(r[col_map["memo"]] or "").strip()
 
+        transaction_time = ""
+        if col_map["time"] != -1 and col_map["time"] < len(r):
+            transaction_time = str(r[col_map["time"]] or "").strip()
+        elif len(raw_date) > 10:
+            transaction_time = raw_date[10:].strip()
+        balance_after = None
+        if col_map["balance_after"] != -1 and col_map["balance_after"] < len(r):
+            balance_cell = r[col_map["balance_after"]]
+            raw_balance = "" if balance_cell is None else str(balance_cell).replace(",", "").replace("₩", "").replace("원", "").strip()
+            if raw_balance:
+                try:
+                    balance_after = float(raw_balance)
+                except ValueError:
+                    balance_after = None
+        source_institution = ""
+        if col_map["source_institution"] != -1 and col_map["source_institution"] < len(r):
+            source_institution = str(r[col_map["source_institution"]] or "").strip()
+        counterparty = ""
+        if col_map["counterparty"] != -1 and col_map["counterparty"] < len(r):
+            counterparty = str(r[col_map["counterparty"]] or "").strip()
+        source_reference = ""
+        if col_map["source_reference"] != -1 and col_map["source_reference"] < len(r):
+            source_reference = str(r[col_map["source_reference"]] or "").strip()
+
         tx = {
             "id": str(uuid.uuid4()),
             "date": clean_date,
@@ -1185,12 +1282,29 @@ def import_ledger_from_file_bytes(
             "is_recurring": False,
             "created_at": datetime.now().isoformat(),
         }
+        if transaction_time:
+            tx["transaction_time"] = transaction_time
+        if balance_after is not None:
+            tx["balance_after"] = balance_after
+        if source_institution:
+            tx["source_institution"] = source_institution
+        if counterparty:
+            tx["counterparty"] = counterparty
+        if source_reference:
+            tx["source_reference"] = source_reference
         tx_list_to_add.append(tx)
         imported_count += 1
 
     if tx_list_to_add:
-        ledger_data = read_ledger(username=username)
+        ledger_data = _read_ledger_for_file_import(username=username)
+        tx_list_to_add, _ = retain_new_occurrences(
+            tx_list_to_add,
+            ledger_data.get("transactions", []),
+            _ledger_file_import_fingerprint,
+        )
+        imported_count = len(tx_list_to_add)
         ledger_data["transactions"].extend(tx_list_to_add)
-        write_ledger(ledger_data, username=username)
+        if tx_list_to_add:
+            write_ledger(ledger_data, username=username)
 
     return imported_count

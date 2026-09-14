@@ -12,6 +12,13 @@ import openpyxl
 
 from app.services.historical_fx import get_historical_fx_rate
 from app.services.stock_master import resolve_stock_info
+from app.services.file_import_identity import (
+    FILE_IMPORT_FINGERPRINT_FIELD,
+    build_file_import_fingerprint,
+    canonical_number,
+    canonical_text,
+    retain_new_occurrences,
+)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT_DIR / "data"
@@ -469,6 +476,13 @@ def _clean_num(val: Any) -> float:
         return 0.0
 
 
+def _optional_num(row: dict[str, Any], names: tuple[str, ...]) -> float | None:
+    for name in names:
+        if name in row and row[name] is not None and str(row[name]).strip() != "":
+            return _clean_num(row[name])
+    return None
+
+
 from datetime import date, datetime, timedelta
 
 
@@ -496,6 +510,35 @@ def _parse_date(val: Any) -> str:
     if m:
         return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
     return datetime.now().strftime("%Y-%m-%d")
+
+
+def _pnl_file_import_fingerprint(record: dict[str, Any]) -> str | None:
+    stored = record.get(FILE_IMPORT_FINGERPRINT_FIELD)
+    if isinstance(stored, str) and stored.startswith("file-import:pnl:v1:"):
+        return stored
+    # Broker API rows have their own signed provider identity and are deliberately
+    # outside file-import reconciliation.
+    if record.get("source"):
+        return None
+    return build_file_import_fingerprint("pnl", {
+        "owner": canonical_text(record.get("owner")),
+        "broker": canonical_text(record.get("broker")),
+        "account_name": canonical_text(record.get("account_name")),
+        "date": canonical_text(record.get("date")),
+        "code": canonical_text(record.get("code")),
+        "name": canonical_text(record.get("name")),
+        "currency": canonical_text(record.get("currency")).upper(),
+        "pnl": canonical_number(record.get("pnl")),
+        "fx_pnl_krw": canonical_number(record.get("fx_pnl_krw")),
+        "quantity": canonical_number(record.get("quantity")),
+        "buy_amount": canonical_number(record.get("buy_amount")),
+        "sell_amount": canonical_number(record.get("sell_amount")),
+        "fee": canonical_number(record.get("fee")),
+        "tax": canonical_number(record.get("tax")),
+        "is_ipo": bool(record.get("is_ipo", False)),
+        "memo": canonical_text(record.get("memo")),
+        "source_reference": canonical_text(record.get("source_reference")),
+    })
 
 
 def import_pnl_file_data(content: bytes, filename: str, fx_rate: float = 1385.0, username: str | None = None) -> list[dict[str, Any]]:
@@ -571,6 +614,12 @@ def import_pnl_file_data(content: bytes, filename: str, fx_rate: float = 1385.0,
         raw_pnl = r.get("실현손익") or r.get("실현 손익") or r.get("손익") or r.get("pnl") or r.get("수익금")
         pnl = _clean_num(raw_pnl)
 
+        quantity = _optional_num(r, ("수량", "매도수량", "quantity"))
+        buy_amount = _optional_num(r, ("매수금액", "취득금액", "purchase_amount", "buy_amount"))
+        sell_amount = _optional_num(r, ("매도금액", "sale_amount", "sell_amount"))
+        fee = _optional_num(r, ("수수료", "fee", "commission"))
+        tax = _optional_num(r, ("세금", "세액", "tax"))
+
         raw_fx_pnl = r.get("환차손익") or r.get("환차손") or r.get("환차익") or r.get("fx_pnl") or r.get("fx_pnl_krw")
         fx_pnl_krw = _clean_num(raw_fx_pnl)
 
@@ -578,6 +627,10 @@ def import_pnl_file_data(content: bytes, filename: str, fx_rate: float = 1385.0,
         is_ipo = raw_ipo in ("Y", "O", "YES", "TRUE", "1", "공모주", "공모")
 
         memo = _clean_str(r.get("메모") or r.get("memo") or "")
+        source_reference = _clean_str(
+            r.get("거래ID") or r.get("거래번호") or r.get("참조번호")
+            or r.get("transaction_id") or r.get("reference_id") or ""
+        )
         if broker or account_name:
             extra = f"[{broker} {account_name}]".strip()
             if extra not in memo:
@@ -604,7 +657,24 @@ def import_pnl_file_data(content: bytes, filename: str, fx_rate: float = 1385.0,
             "created_at": now_iso,
             "updated_at": now_iso,
         }
+        for field, value in (
+            ("quantity", quantity),
+            ("buy_amount", buy_amount),
+            ("sell_amount", sell_amount),
+            ("fee", fee),
+            ("tax", tax),
+        ):
+            if value is not None:
+                record[field] = value
+        if source_reference:
+            record["source_reference"] = source_reference
         imported_records.append(record)
+
+    imported_records, _ = retain_new_occurrences(
+        imported_records,
+        existing_records,
+        _pnl_file_import_fingerprint,
+    )
 
     if imported_records:
         existing_records.extend(imported_records)
