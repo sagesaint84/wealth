@@ -1588,6 +1588,8 @@ function renderClassifications(items) {
 
 function isAccountTaxDeductible(account) {
   if (!account) return true;
+  const accountType = String(account.account_type || "").toLowerCase();
+  if (accountType === "pension_savings_non_deductible" || accountType === "irp_non_deductible") return false;
   const val = account.tax_deductible;
   if (val === false || val === "false" || val === 0 || val === "0") return false;
   if (val === true || val === "true" || val === 1 || val === "1") return true;
@@ -1600,11 +1602,15 @@ function isAccountTaxDeductible(account) {
   return true;
 }
 
+function isContributionTaxDeductible(value) {
+  return !(value === false || value === 0 || value === "0" || String(value).toLowerCase() === "false");
+}
+
 function isTaxAdvantagedAccount(account) {
   if (!account) return false;
   const aType = (account.account_type || "").toLowerCase();
   const aName = (account.name || account.account_name || "").toLowerCase();
-  if (aType === "pension_savings" || aType === "irp" || aType === "isa") return true;
+  if (aType === "pension_savings" || aType === "pension_savings_non_deductible" || aType === "irp" || aType === "irp_non_deductible" || aType === "isa") return true;
   if (aName.includes("연금") || aName.includes("irp") || aName.includes("isa")) return true;
   return false;
 }
@@ -1615,6 +1621,7 @@ function renderAccounts(items) {
   if ($("#securitiesTabCount")) $("#securitiesTabCount").textContent = (items || []).length;
   if (!container) return;
   if (!items || !items.length) { container.innerHTML = '<div class="empty">동기화된 계좌가 없습니다.</div>'; return; }
+  const accountTaxBenefits = calculateOwnerYearPensionTaxBenefits(items);
   const groups = new Map();
   items.forEach((item) => {
     const current = groups.get(item.broker) || { broker: item.broker, count: 0, items: [] };
@@ -1639,8 +1646,13 @@ function renderAccounts(items) {
       if (cashUsd > 0) cashDetailParts.push(`$${number(cashUsd, 2)}`);
       const cashFormatted = cashDetailParts.length ? cashDetailParts.join(" / ") : `₩${number(cashTotalKrw, 0)}`;
 
-      const aName = (account.name || "").toLowerCase();
-      const aType = account.account_type || (aName.includes("연금") ? "pension_savings" : (aName.includes("irp") ? "irp" : (aName.includes("isa") ? "isa" : "general")));
+      const accountType = String(account.account_type || "").toLowerCase();
+      const accountName = String(account.name || account.account_name || "").toLowerCase();
+      const aType = accountType.startsWith("irp") || accountName.includes("irp")
+        ? "irp"
+        : (accountType.startsWith("pension_savings") || accountName.includes("연금")
+          ? "pension_savings"
+          : (accountType === "isa" || accountName.includes("isa") ? "isa" : "general"));
       const isTaxDeductible = isAccountTaxDeductible(account);
 
       let typeBadge = "";
@@ -1663,8 +1675,9 @@ function renderAccounts(items) {
       let taxBenefitBox = "";
       if (aType === "pension_savings" || aType === "irp") {
         const dep = Number(account.annual_deposit) || 0;
-        const isaTr = Number(account.isa_transfer_amount) || 0;
-        const cumSaved = calcAccountCumulativeTaxSaved(account);
+        const ownerKey = String(account.owner || "모두");
+        const currentSaved = accountTaxBenefits.current.byOwner[ownerKey]?.taxSaved || 0;
+        const cumSaved = accountTaxBenefits.cumulative.byOwner[ownerKey]?.taxSaved || 0;
         if (!isTaxDeductible) {
           taxBenefitBox = `
             <div style="margin-top:5px;display:inline-flex;align-items:center;gap:6px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.35);border-radius:6px;padding:3px 8px;font-size:11.5px;color:#34d399;font-weight:600;">
@@ -1674,15 +1687,11 @@ function renderAccounts(items) {
           `;
         } else {
           const rate = account.income_level === "high" ? 13.2 : 16.5;
-          const baseLimit = aType === "pension_savings" ? 6000000 : 9000000;
-          const baseTarget = Math.min(dep, baseLimit);
-          const isaTarget = Math.min(isaTr * 0.10, 3000000);
-          const refund = Math.floor((baseTarget + isaTarget) * (rate / 100));
           const cumText = cumSaved > 0 ? ` · 누적 절세 <strong style="color:#4ade80;font-weight:700;">+₩${number(cumSaved, 0)}</strong>` : '';
           taxBenefitBox = `
             <div style="margin-top:5px;display:inline-flex;align-items:center;gap:6px;background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.35);border-radius:6px;padding:3px 8px;font-size:11.5px;color:#38bdf8;font-weight:600;">
               <span>💎 세액공제 신청</span>
-              <span style="color:#cbd5e1;font-weight:normal;">(납입 ₩${number(dep, 0)} → 예상 환급 <strong style="color:#4ade80;font-weight:700;">+₩${number(refund, 0)}</strong> / ${rate}%${cumText})</span>
+              <span style="color:#cbd5e1;font-weight:normal;">(납입 ₩${number(dep, 0)} · 소유자 합산 예상 환급 <strong style="color:#4ade80;font-weight:700;">+₩${number(currentSaved, 0)}</strong> / ${rate}%${cumText})</span>
             </div>
           `;
         }
@@ -2680,37 +2689,10 @@ function renderInsuranceWithOwner(owner = '모두') {
   }, 0);
 
   // 증권 계좌 연금/IRP 절세액 합산
-  let totalCumulativePensionTaxSaved = 0;
   const secAccounts = (dashboard?.accounts || []).filter(a => o === '모두' || (a.owner || '모두') === o);
-  const pensionTaxSaved = secAccounts.reduce((sum, a) => {
-    const aName = (a.name || '').toLowerCase();
-    const aType = a.account_type || (aName.includes('연금') ? 'pension_savings' : (aName.includes('irp') ? 'irp' : 'general'));
-    if (aType === 'pension_savings' || aType === 'irp') {
-      const isTaxDeductible = isAccountTaxDeductible(a);
-      const dep = Number(a.annual_deposit) || 0;
-      const isaTr = Number(a.isa_transfer_amount) || 0;
-      const rate = a.income_level === 'high' ? 0.132 : 0.165;
-      const baseLimit = aType === 'pension_savings' ? 6000000 : 9000000;
-      const baseTarget = isTaxDeductible ? Math.min(dep, baseLimit) : 0;
-      const isaTarget = Math.min(isaTr * 0.10, 3000000);
-      const refund = Math.floor((baseTarget + isaTarget) * rate);
-
-      const yList = Array.isArray(a.yearly_contributions) ? a.yearly_contributions : [];
-      if (yList.length > 0) {
-        yList.forEach(y => {
-          const isDed = isTaxDeductible && y.is_deductible !== false && String(y.is_deductible) !== 'false';
-          if (isDed) {
-            totalCumulativePensionTaxSaved += Math.floor(Math.min(Number(y.deposit || 0), baseLimit) * rate);
-          }
-        });
-      } else {
-        totalCumulativePensionTaxSaved += isTaxDeductible ? refund : 0;
-      }
-
-      return sum + refund;
-    }
-    return sum;
-  }, 0);
+  const pensionTaxBenefits = calculateOwnerYearPensionTaxBenefits(secAccounts);
+  const pensionTaxSaved = pensionTaxBenefits.current.taxSaved;
+  const totalCumulativePensionTaxSaved = pensionTaxBenefits.cumulative.taxSaved;
 
   const grandTotalTax = yuTaxSaved + pensionTaxSaved;
   const grandCumulativeTax = totalCumulativeYuTaxSaved + totalCumulativePensionTaxSaved;
@@ -2725,45 +2707,39 @@ function renderInsuranceWithOwner(owner = '모두') {
   // 증권 계좌 연금저축 & IRP 카드 생성
   const secPensionAccounts = (dashboard?.accounts || []).filter(a => {
     if (o !== '모두' && (a.owner || '모두') !== o) return false;
-    const aName = (a.name || '').toLowerCase();
-    const aType = a.account_type || (aName.includes('연금') ? 'pension_savings' : (aName.includes('irp') ? 'irp' : 'general'));
-    return aType === 'pension_savings' || aType === 'irp';
+    return isTaxAdvantagedAccount(a) && getTaxCategory(a) !== 'isa';
   });
 
   const pensionCardsHtml = secPensionAccounts.map(a => {
-    const aName = (a.name || '').toLowerCase();
-    const aType = a.account_type || (aName.includes('연금') ? 'pension_savings' : 'irp');
+    const aType = getTaxCategory(a);
     const isTaxDeductible = isAccountTaxDeductible(a);
     const dep = Number(a.annual_deposit) || 0;
-    const isaTr = Number(a.isa_transfer_amount) || 0;
     const rate = a.income_level === 'high' ? 13.2 : 16.5;
-    const baseLimit = aType === 'pension_savings' ? 6000000 : 9000000;
-    const baseTarget = isTaxDeductible ? Math.min(dep, baseLimit) : 0;
-    const isaTarget = Math.min(isaTr * 0.10, 3000000);
-    const totalTarget = baseTarget + isaTarget;
-    const refund = Math.floor(totalTarget * (rate / 100));
+    const ownerKey = String(a.owner || '모두');
+    const ownerCurrent = pensionTaxBenefits.current.byOwner[ownerKey] || { eligibleContribution: 0, isaDeductionTarget: 0, taxSaved: 0 };
+    const ownerCumulative = pensionTaxBenefits.cumulative.byOwner[ownerKey] || { taxSaved: 0 };
+    const totalTarget = ownerCurrent.eligibleContribution + ownerCurrent.isaDeductionTarget;
+    const refund = ownerCurrent.taxSaved;
 
     const typeLabel = aType === 'pension_savings' ? '연금저축' : '개인형 IRP';
     const badgeClass = isTaxDeductible ? 'pension' : 'non-deductible';
     const statusLabel = isTaxDeductible ? '세액공제 신청' : '세액공제 제외(비공제)';
 
     const yearlyContributions = Array.isArray(a.yearly_contributions) ? a.yearly_contributions : [];
-    let cumulativeTaxSaved = 0;
     let yearlyHistoryHtml = '';
 
     if (yearlyContributions.length > 0) {
       const yearlyRows = yearlyContributions.map(yc => {
         const yYear = String(yc.year || '').trim();
         const yDep = Number(yc.deposit || 0);
-        const yDeductible = isTaxDeductible && yc.is_deductible !== false && String(yc.is_deductible) !== 'false';
-        const yTarget = yDeductible ? Math.min(yDep, baseLimit) : 0;
-        const ySaved = yDeductible ? Math.floor(yTarget * (rate / 100)) : 0;
-        if (yDeductible) cumulativeTaxSaved += ySaved;
+        const yDeductible = isTaxDeductible && isContributionTaxDeductible(yc.is_deductible);
+        const ownerYear = pensionTaxBenefits.cumulative.byOwnerYear[`${ownerKey}\u0000${yYear}`] || { taxSaved: 0 };
+        const ySaved = yDeductible ? ownerYear.taxSaved : 0;
 
         return `
           <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 6px;border-radius:4px;font-size:11.5px;margin-bottom:3px;">
             <span><strong>${html(yYear)}년:</strong> 입금 ₩${number(yDep, 0)}</span>
-            <span>➔ ${yDeductible ? `<strong style="color:#4ade80;">절세 ₩${number(ySaved, 0)}</strong>` : '<span style="color:#34d399;font-weight:600;">비공제 (₩0)</span>'}</span>
+            <span>➔ ${yDeductible ? `<strong style="color:#4ade80;">소유자 합산 절세 ₩${number(ySaved, 0)}</strong>` : '<span style="color:#34d399;font-weight:600;">비공제 (₩0)</span>'}</span>
           </div>
         `;
       }).join('');
@@ -2772,13 +2748,11 @@ function renderInsuranceWithOwner(owner = '모두') {
         <div class="insurance-yearly-history" style="margin-top:10px;padding:8px 10px;border:1px solid ${isTaxDeductible ? 'rgba(56,189,248,0.25)' : 'rgba(16,185,129,0.25)'};border-radius:6px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11.5px;">
             <span style="font-weight:700;color:${isTaxDeductible ? '#38bdf8' : '#34d399'};">📅 연도별 절세 이력</span>
-            <span style="font-weight:700;color:#4ade80;font-size:12px;">누적 절세액: ₩${number(cumulativeTaxSaved, 0)}</span>
+            <span style="font-weight:700;color:#4ade80;font-size:12px;">소유자 합산 누적: ₩${number(ownerCumulative.taxSaved, 0)}</span>
           </div>
           ${yearlyRows}
         </div>
       `;
-    } else {
-      cumulativeTaxSaved = isTaxDeductible ? refund : 0;
     }
 
     return `
@@ -2809,17 +2783,17 @@ function renderInsuranceWithOwner(owner = '모두') {
           </div>
           <div class="saving-detail-row" style="grid-column:1/-1;">
             <span class="saving-detail-label">세액공제 한도</span>
-            <span class="saving-detail-val">${isTaxDeductible ? `연 ₩${number(baseLimit, 0)} (소득구간 ${rate}%)` : '<span style="color:#34d399;">비공제 (원금 비과세 인출 대상)</span>'}</span>
+            <span class="saving-detail-val">${isTaxDeductible ? `연금저축 600만 · 소유자 합산 900만 (소득구간 ${rate}%)` : '<span style="color:#34d399;">비공제 (원금 비과세 인출 대상)</span>'}</span>
           </div>
         </div>
 
         <div class="saving-interest-box" style="background:${isTaxDeductible ? 'rgba(56,189,248,0.08)' : 'rgba(16,185,129,0.08)'};border-color:${isTaxDeductible ? 'rgba(56,189,248,0.35)' : 'rgba(16,185,129,0.35)'};margin-top:8px;">
           <div class="saving-interest-row">
-            <span style="color:${isTaxDeductible ? '#38bdf8' : '#34d399'};">세액공제 대상 금액</span>
-            <span style="color:#e2e8f0;font-weight:600;">₩${number(totalTarget, 0)}${isaTarget > 0 ? ` (ISA 전환 추가 ₩${number(isaTarget, 0)})` : ''}</span>
+            <span style="color:${isTaxDeductible ? '#38bdf8' : '#34d399'};">소유자 합산 세액공제 대상</span>
+            <span style="color:#e2e8f0;font-weight:600;">₩${number(totalTarget, 0)}${ownerCurrent.isaDeductionTarget > 0 ? ` (ISA 전환 추가 ₩${number(ownerCurrent.isaDeductionTarget, 0)})` : ''}</span>
           </div>
           <div class="saving-interest-row maturity-row" style="border-top:1px dashed ${isTaxDeductible ? 'rgba(56,189,248,0.3)' : 'rgba(16,185,129,0.3)'};padding-top:4px;margin-top:4px;">
-            <span style="color:${isTaxDeductible ? '#38bdf8' : '#34d399'};">예상 세금 절감(환급)액</span>
+            <span style="color:${isTaxDeductible ? '#38bdf8' : '#34d399'};">소유자 합산 예상 세금 절감(환급)액</span>
             <span style="color:#4ade80;font-size:14px;font-weight:700;">${isTaxDeductible ? `+₩${number(refund, 0)} (${rate}%)` : '₩0 (원금 100% 비과세 인출)'}</span>
           </div>
         </div>
@@ -4974,37 +4948,173 @@ function getTaxCategory(item) {
   const aType = (item.account_type || '').toLowerCase();
   const aName = (item.name || item.account_name || '').toLowerCase();
   if (aType === 'isa' || aName.includes('isa')) return 'isa';
-  if (aType === 'irp' || aName.includes('irp')) return 'irp';
+  if (aType === 'irp' || aType === 'irp_non_deductible' || aName.includes('irp')) return 'irp';
   return 'pension_savings';
 }
 
-function calcAccountCumulativeTaxSaved(a) {
-  if (!a) return 0;
-  const aType = getTaxCategory(a);
-  if (aType !== 'pension_savings' && aType !== 'irp') return 0;
+function calculateOwnerYearPensionTaxBenefits(accounts) {
+  const pensionAccounts = (Array.isArray(accounts) ? accounts : []).filter(a => {
+    return isTaxAdvantagedAccount(a) && getTaxCategory(a) !== 'isa';
+  });
+  const currentYear = String(new Date().getFullYear());
 
-  const defaultRate = a.income_level === 'high' ? 0.132 : 0.165;
-  const baseLimit = aType === 'pension_savings' ? 6000000 : 9000000;
-  const yList = Array.isArray(a.yearly_contributions) ? a.yearly_contributions : [];
+  const rateFor = (incomeLevel, fallback = 'low') => {
+    const level = incomeLevel === 'high' || incomeLevel === 'low' ? incomeLevel : fallback;
+    return level === 'high' ? 0.132 : 0.165;
+  };
+  const safeAmount = value => {
+    const amount = Number(value);
+    return Number.isFinite(amount) ? Math.max(0, amount) : 0;
+  };
+  const emptyTotals = () => ({
+    eligibleContribution: 0,
+    pensionEligibleContribution: 0,
+    irpEligibleContribution: 0,
+    isaDeductionTarget: 0,
+    taxSaved: 0,
+    pensionTaxSaved: 0,
+    irpTaxSaved: 0,
+  });
 
-  if (yList.length > 0) {
-    let sum = 0;
-    yList.forEach(y => {
-      const isDed = y.is_deductible !== false && String(y.is_deductible) !== 'false';
-      if (isDed) {
-        const itemRate = y.income_level === 'high' ? 0.132 : (y.income_level === 'low' ? 0.165 : defaultRate);
-        sum += Math.floor(Math.min(Number(y.deposit || 0), baseLimit) * itemRate);
-      }
+  const allocate = entries => {
+    const totals = emptyTotals();
+    const byOwner = {};
+    const byOwnerYear = {};
+    const grouped = new Map();
+    entries.forEach(entry => {
+      const key = `${entry.owner}\u0000${entry.year}`;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(entry);
     });
-    return sum;
-  } else {
-    if (!isAccountTaxDeductible(a)) return 0;
-    const dep = Number(a.annual_deposit) || 0;
-    const isaTr = Number(a.isa_transfer_amount) || 0;
-    const baseTarget = Math.min(dep, baseLimit);
-    const isaTarget = Math.min(isaTr * 0.10, 3000000);
-    return Math.floor((baseTarget + isaTarget) * defaultRate);
-  }
+
+    grouped.forEach(groupEntries => {
+      let pensionRemaining = 6000000;
+      let combinedRemaining = 9000000;
+      const groupTotals = emptyTotals();
+      for (const category of ['pension_savings', 'irp']) {
+        groupEntries.forEach(entry => {
+          if (entry.category !== category) return;
+          let eligible = Math.min(entry.deposit, combinedRemaining);
+          if (category === 'pension_savings') {
+            eligible = Math.min(eligible, pensionRemaining);
+            pensionRemaining -= eligible;
+          }
+          combinedRemaining -= eligible;
+          const saved = Math.floor(eligible * entry.rate);
+          groupTotals.eligibleContribution += eligible;
+          groupTotals.taxSaved += saved;
+          if (category === 'pension_savings') {
+            groupTotals.pensionEligibleContribution += eligible;
+            groupTotals.pensionTaxSaved += saved;
+          } else {
+            groupTotals.irpEligibleContribution += eligible;
+            groupTotals.irpTaxSaved += saved;
+          }
+        });
+      }
+
+      const first = groupEntries[0];
+      const ownerTotals = byOwner[first.owner] || emptyTotals();
+      Object.keys(groupTotals).forEach(key => {
+        totals[key] += groupTotals[key];
+        ownerTotals[key] += groupTotals[key];
+      });
+      byOwner[first.owner] = ownerTotals;
+      byOwnerYear[`${first.owner}\u0000${first.year}`] = groupTotals;
+    });
+    return { ...totals, byOwner, byOwnerYear };
+  };
+
+  const currentEntries = [];
+  const cumulativeEntries = [];
+  const currentIsaByCategory = { pension_savings: 0, irp: 0 };
+  const cumulativeIsaByCategory = { pension_savings: 0, irp: 0 };
+  const currentIsaByOwner = {};
+  const cumulativeIsaByOwner = {};
+  const currentIsaTargetByOwner = {};
+  const cumulativeIsaTargetByOwner = {};
+
+  pensionAccounts.forEach(account => {
+    const owner = String(account.owner || '모두');
+    const category = getTaxCategory(account);
+    const defaultIncomeLevel = account.income_level === 'high' ? 'high' : 'low';
+    const accountDeductible = isAccountTaxDeductible(account)
+      && !String(account.account_type || '').toLowerCase().endsWith('_non_deductible');
+    const currentRate = rateFor(defaultIncomeLevel);
+    if (accountDeductible) {
+      currentEntries.push({
+        owner,
+        year: currentYear,
+        category,
+        deposit: safeAmount(account.annual_deposit),
+        rate: currentRate,
+      });
+    }
+
+    const isaTarget = Math.min(safeAmount(account.isa_transfer_amount) * 0.10, 3000000);
+    const currentIsaSaved = Math.floor(isaTarget * currentRate);
+    currentIsaByCategory[category] += currentIsaSaved;
+    currentIsaByOwner[owner] = (currentIsaByOwner[owner] || 0) + currentIsaSaved;
+    currentIsaTargetByOwner[owner] = (currentIsaTargetByOwner[owner] || 0) + isaTarget;
+
+    const yearly = Array.isArray(account.yearly_contributions) ? account.yearly_contributions : [];
+    if (yearly.length > 0) {
+      if (!accountDeductible) return;
+      yearly.forEach(contribution => {
+        if (!isContributionTaxDeductible(contribution.is_deductible)) return;
+        cumulativeEntries.push({
+          owner,
+          year: String(contribution.year || '').trim(),
+          category,
+          deposit: safeAmount(contribution.deposit),
+          rate: rateFor(contribution.income_level, defaultIncomeLevel),
+        });
+      });
+    } else {
+      if (accountDeductible) {
+        cumulativeEntries.push({
+          owner,
+          year: currentYear,
+          category,
+          deposit: safeAmount(account.annual_deposit),
+          rate: currentRate,
+        });
+      }
+      cumulativeIsaByCategory[category] += currentIsaSaved;
+      cumulativeIsaByOwner[owner] = (cumulativeIsaByOwner[owner] || 0) + currentIsaSaved;
+      cumulativeIsaTargetByOwner[owner] = (cumulativeIsaTargetByOwner[owner] || 0) + isaTarget;
+    }
+  });
+
+  const current = allocate(currentEntries);
+  const cumulative = allocate(cumulativeEntries);
+  const addIsa = (result, byCategory, byOwner, targetByOwner) => {
+    result.pensionTaxSaved += byCategory.pension_savings;
+    result.irpTaxSaved += byCategory.irp;
+    result.taxSaved += byCategory.pension_savings + byCategory.irp;
+    Object.entries(byOwner).forEach(([owner, saved]) => {
+      if (!result.byOwner[owner]) result.byOwner[owner] = emptyTotals();
+      result.byOwner[owner].taxSaved += saved;
+    });
+    Object.entries(targetByOwner).forEach(([owner, target]) => {
+      if (!result.byOwner[owner]) result.byOwner[owner] = emptyTotals();
+      result.isaDeductionTarget += target;
+      result.byOwner[owner].isaDeductionTarget += target;
+    });
+  };
+  addIsa(current, currentIsaByCategory, currentIsaByOwner, currentIsaTargetByOwner);
+  addIsa(cumulative, cumulativeIsaByCategory, cumulativeIsaByOwner, cumulativeIsaTargetByOwner);
+
+  return { current, cumulative };
+}
+
+function calcAccountCumulativeTaxSaved(account, accounts) {
+  if (!account || !Array.isArray(accounts)) return 0;
+  const category = getTaxCategory(account);
+  if (category !== 'pension_savings' && category !== 'irp') return 0;
+  const owner = String(account.owner || '모두');
+  const benefits = calculateOwnerYearPensionTaxBenefits(accounts);
+  return benefits.cumulative.byOwner[owner]?.taxSaved || 0;
 }
 
 function renderTaxAccountHoldings(owner = currentOwner) {
@@ -5081,7 +5191,8 @@ function renderTaxAccountHoldings(owner = currentOwner) {
   const allStats = calcHoldingStats(taxHoldings);
   const allCash = taxAccounts.reduce((sum, a) => sum + getAccountCash(a), 0);
   const allTotalMarket = allStats.market + allCash;
-  const allCumulativeTaxSaved = taxAccounts.reduce((sum, a) => sum + calcAccountCumulativeTaxSaved(a), 0);
+  const pensionTaxBenefits = calculateOwnerYearPensionTaxBenefits(taxAccounts);
+  const allCumulativeTaxSaved = pensionTaxBenefits.cumulative.taxSaved;
 
   // 카테고리별 통계
   const isaStats = calcHoldingStats(isaHoldings);
@@ -5091,12 +5202,12 @@ function renderTaxAccountHoldings(owner = currentOwner) {
   const irpStats = calcHoldingStats(irpHoldings);
   const irpCash = irpAccounts.reduce((sum, a) => sum + getAccountCash(a), 0);
   const irpTotalMarket = irpStats.market + irpCash;
-  const irpCumulativeTaxSaved = irpAccounts.reduce((sum, a) => sum + calcAccountCumulativeTaxSaved(a), 0);
+  const irpCumulativeTaxSaved = pensionTaxBenefits.cumulative.irpTaxSaved;
 
   const pensionStats = calcHoldingStats(pensionHoldings);
   const pensionCash = pensionAccounts.reduce((sum, a) => sum + getAccountCash(a), 0);
   const pensionTotalMarket = pensionStats.market + pensionCash;
-  const pensionCumulativeTaxSaved = pensionAccounts.reduce((sum, a) => sum + calcAccountCumulativeTaxSaved(a), 0);
+  const pensionCumulativeTaxSaved = pensionTaxBenefits.cumulative.pensionTaxSaved;
 
   // 현재 필터 유효성 검사 (계좌 ID가 현재 가족 구성원 계좌에 없는 경우 'all'로 리셋)
   if (currentTaxAccountFilter.startsWith('acc_')) {
@@ -5390,7 +5501,7 @@ function renderTaxAccountHoldings(owner = currentOwner) {
     if (targetAcc) {
       const cat = getTaxCategory(targetAcc);
       const isDed = isAccountTaxDeductible(targetAcc);
-      const targetTaxSaved = calcAccountCumulativeTaxSaved(targetAcc);
+      const targetTaxSaved = calcAccountCumulativeTaxSaved(targetAcc, taxAccounts);
 
       if (cat === 'isa') {
         filterTaxSavedHtml = `
@@ -5401,7 +5512,7 @@ function renderTaxAccountHoldings(owner = currentOwner) {
       } else if (isDed && targetTaxSaved > 0) {
         filterTaxSavedHtml = `
           <span style="color:#c4b5fd;background:rgba(167,139,250,0.16);border:1px solid rgba(167,139,250,0.35);padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700;">
-            💎 누적 절세액: <strong style="color:#ddd6fe;font-size:12.5px;">₩${number(targetTaxSaved, 0)}</strong>
+            💎 소유자 합산 누적 절세액: <strong style="color:#ddd6fe;font-size:12.5px;">₩${number(targetTaxSaved, 0)}</strong>
           </span>
         `;
       } else if (!isDed) {
@@ -5606,7 +5717,7 @@ function renderTaxAccountHoldings(owner = currentOwner) {
     const cat = getTaxCategory(acct);
     const isDed = isAccountTaxDeductible(acct);
     const isAcctActive = currentTaxAccountFilter === `acc_${acct.id}`;
-    const acctSavedTax = calcAccountCumulativeTaxSaved(acct);
+    const acctSavedTax = calcAccountCumulativeTaxSaved(acct, taxAccounts);
 
     let typeBadge = '';
     if (cat === 'isa') {
@@ -5628,7 +5739,7 @@ function renderTaxAccountHoldings(owner = currentOwner) {
     } else if (isDed && acctSavedTax > 0) {
       taxSavedRowHtml = `
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#ddd6fe;background:rgba(167,139,250,0.09);border:1px solid rgba(167,139,250,0.22);padding:3px 7px;border-radius:4px;margin-top:4px;">
-          <span style="color:#c4b5fd;font-weight:600;">💎 누적 절세액</span>
+          <span style="color:#c4b5fd;font-weight:600;">💎 소유자 합산 누적 절세액</span>
           <strong style="color:#ddd6fe;font-size:12px;font-weight:800;">₩${number(acctSavedTax, 0)}</strong>
         </div>
       `;
@@ -5642,7 +5753,7 @@ function renderTaxAccountHoldings(owner = currentOwner) {
     } else {
       taxSavedRowHtml = `
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:#94a3b8;background:rgba(255,255,255,0.04);padding:3px 7px;border-radius:4px;margin-top:4px;">
-          <span>누적 절세액</span>
+          <span>소유자 합산 누적 절세액</span>
           <span style="color:#cbd5e1;">₩0</span>
         </div>
       `;
