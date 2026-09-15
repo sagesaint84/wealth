@@ -78,7 +78,7 @@ class TossWtsRealizedFeedUiStaticTests(unittest.TestCase):
         self.assertIn('id="btnCheckTossWtsStatus"', HTML)
         self.assertIn(">상태 확인</button>", HTML)
         self.assertIn('id="btnConfirmTossWtsSession"', HTML)
-        self.assertIn(">WTS 세션 확인</button>", HTML)
+        self.assertIn(">WTS 런타임 확인</button>", HTML)
         self.assertIn('id="btnFetchTossWtsFeed"', HTML)
         self.assertIn(">WTS 조회</button>", HTML)
 
@@ -170,7 +170,7 @@ class TossWtsRealizedFeedUiStaticTests(unittest.TestCase):
         """Validate exact required Korean UI strings in JS logic."""
         self.assertIn("선택한 기간에 조회된 실현손익 내역이 없습니다.", JS)
         self.assertIn("이 사용자에게는 토스 WTS 조회 권한이 없습니다.", JS)
-        self.assertIn("WTS 세션 확인이 필요합니다. 먼저 [WTS 세션 확인] 버튼을 눌러주세요.", JS)
+        self.assertIn("WTS 런타임 확인이 필요합니다. 먼저 [WTS 런타임 확인] 버튼을 눌러주세요.", JS)
         self.assertIn("토스 WTS 연동 런타임을 사용할 수 없습니다.", JS)
 
     def test_service_worker_api_caching_isolation(self):

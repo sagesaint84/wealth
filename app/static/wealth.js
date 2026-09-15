@@ -12716,6 +12716,7 @@ const tossWtsState = {
   fetchedBasis: null,     // response.requested.profit_rate_basis
   fetchedFromDate: null,  // response.requested.from_date
   fetchedToDate: null,    // response.requested.to_date
+  providerEffective: null, // actual range sent to the provider CLI
   fetchedAt: null,        // response.fetched_at
 };
 
@@ -12732,6 +12733,12 @@ function hideTossWtsMessage() {
   if (!el) return;
   el.style.display = 'none';
   el.textContent = '';
+}
+
+function clearTossWtsFetchLoadingRow(message = '조회에 실패했습니다. 조건을 확인한 뒤 다시 시도하세요.') {
+  const tbody = document.getElementById('tossWtsTableBody');
+  if (!tbody || !tbody.querySelector('.toss-wts-loading')) return;
+  tbody.innerHTML = `<tr><td colspan="8" class="toss-wts-empty">${html(message)}</td></tr>`;
 }
 
 function updateTossWtsStatusUI(text, stateClass) {
@@ -12792,6 +12799,10 @@ function updateTossWtsMetaUI() {
   const basis = tossWtsState.fetchedBasis || 'KRW';
   const fromDate = tossWtsState.fetchedFromDate || '-';
   const toDate = tossWtsState.fetchedToDate || '-';
+  const effectiveToDate = tossWtsState.providerEffective?.to_date || toDate;
+  const effectiveRangeNote = effectiveToDate !== toDate
+    ? `<span class="toss-wts-meta-sep">·</span><span class="toss-wts-meta-item">실제 조회 종료: <strong>${html(effectiveToDate)}</strong></span>`
+    : '';
   const count = tossWtsState.rows.length;
   const timeStr = tossWtsState.fetchedAt ? new Date(tossWtsState.fetchedAt).toLocaleTimeString('ko-KR') : '';
 
@@ -12799,6 +12810,7 @@ function updateTossWtsMetaUI() {
     <span class="toss-wts-meta-item">조회 기간: <strong>${html(fromDate)} ~ ${html(toDate)}</strong></span>
     <span class="toss-wts-meta-sep">·</span>
     <span class="toss-wts-meta-item">수익률 기준: <strong>${html(basis)}</strong></span>
+    ${effectiveRangeNote}
     ${timeStr ? `<span class="toss-wts-meta-sep">·</span><span class="toss-wts-meta-item">조회 시각: ${html(timeStr)}</span>` : ''}
     <span class="toss-wts-meta-sep">·</span>
     <span class="toss-wts-meta-item"><strong>${count}건</strong></span>
@@ -12826,7 +12838,7 @@ async function checkTossWtsStatus() {
     tossWtsState.status = data;
     if (data.adapter_ready) {
       updateTossWtsStatusUI('준비 완료', 'ready');
-      showTossWtsMessage('토스 WTS 어댑터가 준비되었습니다. 조회를 위해 [WTS 세션 확인]을 진행하세요.', 'info');
+      showTossWtsMessage('토스 WTS 어댑터가 준비되었습니다. 조회를 위해 [WTS 런타임 확인]을 진행하세요.', 'info');
     } else {
       const errMap = {
         NOT_CONFIGURED: 'WTS 비활성',
@@ -12863,24 +12875,24 @@ async function confirmTossWtsSession() {
     }
     if (!res.ok) {
       tossWtsState.confirmed = false;
-      updateTossWtsStatusUI('세션 확인 필요', 'error');
-      showTossWtsMessage('WTS 세션 확인에 실패했습니다.', 'error');
+      updateTossWtsStatusUI('런타임 확인 필요', 'error');
+      showTossWtsMessage('WTS 런타임 확인에 실패했습니다.', 'error');
       return;
     }
     const data = await res.json();
     if (data.confirmed) {
       tossWtsState.confirmed = true;
-      updateTossWtsStatusUI('세션 확인 완료', 'confirmed');
-      showTossWtsMessage('WTS 세션이 확인되었습니다. 실현손익 조회가 가능합니다.', 'success');
+      updateTossWtsStatusUI('런타임 확인 완료', 'confirmed');
+      showTossWtsMessage('WTS 로컬 런타임이 확인되었습니다. 실현손익 조회가 가능합니다.', 'success');
     } else {
       tossWtsState.confirmed = false;
-      updateTossWtsStatusUI('세션 확인 필요', 'error');
-      showTossWtsMessage('WTS 세션 확인에 실패했습니다.', 'error');
+      updateTossWtsStatusUI('런타임 확인 필요', 'error');
+      showTossWtsMessage('WTS 런타임 확인에 실패했습니다.', 'error');
     }
   } catch (err) {
     tossWtsState.confirmed = false;
     updateTossWtsStatusUI('연결 상태 확인 불가', 'error');
-    showTossWtsMessage('WTS 세션 확인 중 네트워크 오류가 발생했습니다.', 'error');
+    showTossWtsMessage('WTS 런타임 확인 중 네트워크 오류가 발생했습니다.', 'error');
   } finally {
     setTossWtsLoading(false);
   }
@@ -12922,27 +12934,48 @@ async function fetchTossWtsRealizedFeed() {
       }),
     });
 
+    let errorCode = null;
+    if (!res.ok) {
+      try {
+        const errorPayload = await res.json();
+        errorCode = errorPayload?.detail?.code || errorPayload?.code || null;
+      } catch (err) {
+        errorCode = null;
+      }
+    }
+
     if (res.status === 403) {
+      clearTossWtsFetchLoadingRow('조회 권한이 없습니다.');
       showTossWtsMessage('이 사용자에게는 토스 WTS 조회 권한이 없습니다.', 'error');
       updateTossWtsMetaUI();
       return;
     }
     if (res.status === 409) {
-      showTossWtsMessage("WTS 세션 확인이 필요합니다. 먼저 [WTS 세션 확인] 버튼을 눌러주세요.", 'error');
+      clearTossWtsFetchLoadingRow('WTS 런타임 확인이 필요합니다.');
+      showTossWtsMessage("WTS 런타임 확인이 필요합니다. 먼저 [WTS 런타임 확인] 버튼을 눌러주세요.", 'error');
       updateTossWtsMetaUI();
       return;
     }
     if (res.status === 502 || res.status === 503) {
-      showTossWtsMessage('토스 WTS 연동 런타임을 사용할 수 없습니다.', 'error');
+      const timezoneConflict = errorCode === 'TOSSCTL_DATE_TIMEZONE_CONFLICT';
+      clearTossWtsFetchLoadingRow(timezoneConflict ? '오늘 데이터는 오전 9시 이후 조회할 수 있습니다.' : undefined);
+      showTossWtsMessage(
+        timezoneConflict
+          ? 'WTS CLI 날짜 제한으로 오늘 데이터는 오전 9시 이후 조회할 수 있습니다.'
+          : '토스 WTS 연동 런타임을 사용할 수 없습니다.',
+        'error',
+      );
       updateTossWtsMetaUI();
       return;
     }
     if (res.status === 400) {
+      clearTossWtsFetchLoadingRow('조회 요청 조건이 유효하지 않습니다.');
       showTossWtsMessage('조회 요청 파라미터가 유효하지 않습니다.', 'error');
       updateTossWtsMetaUI();
       return;
     }
     if (!res.ok) {
+      clearTossWtsFetchLoadingRow();
       showTossWtsMessage(`토스 WTS 조회 중 오류가 발생했습니다. (${res.status})`, 'error');
       updateTossWtsMetaUI();
       return;
@@ -12957,6 +12990,10 @@ async function fetchTossWtsRealizedFeed() {
     tossWtsState.fetchedBasis = tossWtsState.lastRequested.profit_rate_basis;
     tossWtsState.fetchedFromDate = tossWtsState.lastRequested.from_date;
     tossWtsState.fetchedToDate = tossWtsState.lastRequested.to_date;
+    tossWtsState.providerEffective = data.provider_effective || {
+      from_date: tossWtsState.fetchedFromDate,
+      to_date: tossWtsState.fetchedToDate,
+    };
     tossWtsState.fetchedAt = data.fetched_at;
     const sortedFeed = sortBrokerRealizedFeedRows(data.rows || [], data.selection_tokens || []);
     tossWtsState.rows = sortedFeed.rows;
@@ -12966,12 +13003,20 @@ async function fetchTossWtsRealizedFeed() {
     tossWtsState.importPreferences.clear();
     tossWtsState.previewTicket = null;
 
-    hideTossWtsMessage();
+    if (data.date_compatibility?.adjusted) {
+      showTossWtsMessage(
+        `WTS CLI 날짜 제한으로 현재 ${tossWtsState.providerEffective.to_date}까지 조회했습니다. 오늘 데이터는 오전 9시 이후 조회할 수 있습니다.`,
+        'info',
+      );
+    } else {
+      hideTossWtsMessage();
+    }
     populateWtsAccounts();
     renderTossWtsFeedTable(tossWtsState.rows, tossWtsState.fetchedBasis, 'ok');
     updateTossWtsMetaUI();
     updateWtsSelectionUI();
   } catch (err) {
+    clearTossWtsFetchLoadingRow();
     showTossWtsMessage('토스 WTS 조회 중 네트워크 오류가 발생했습니다.', 'error');
     updateTossWtsMetaUI();
   } finally {

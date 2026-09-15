@@ -12,14 +12,19 @@ import math
 import os
 import subprocess
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+import re
 from typing import Any
 
 from app.services.network_policy import is_test_mode
 
 
 EXPECTED_TOSSCTL_VERSION = "v0.50.3"
+TOSSCTL_DATE_TIMEZONE_CONFLICT = "TOSSCTL_DATE_TIMEZONE_CONFLICT"
+_AFFECTED_DATE_VALIDATION_VERSIONS = frozenset({"v0.50.3", "0.50.3"})
+_SEOUL = timezone(timedelta(hours=9), name="Asia/Seoul")
+_ISO_DATE_IN_TEXT = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 DEFAULT_TIMEOUT_SECONDS = 20
 _AUTH_STATUS = "AUTH_STATUS"
 _PROFIT_OVERVIEW = "PROFIT_OVERVIEW"
@@ -45,6 +50,7 @@ ERROR_CODES = frozenset(
         "ACCESS_DENIED",
         "TOSSCTL_TIMEOUT",
         "NONZERO_EXIT",
+        TOSSCTL_DATE_TIMEZONE_CONFLICT,
         "INVALID_JSON",
         "UNSUPPORTED_COMMAND",
         "TEST_MODE_DISABLED",
@@ -59,6 +65,58 @@ class TossWtsAdapterError(RuntimeError):
     def __init__(self, code: str):
         self.code = code
         super().__init__(code)
+
+
+def resolve_tossctl_profit_daily_range(
+    from_date: str,
+    to_date: str,
+    *,
+    expected_version: str = EXPECTED_TOSSCTL_VERSION,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Resolve the CLI-safe range without changing the user's requested dates.
+
+    tossctl v0.50.3 compares a UTC-midnight parsed date with the current instant.
+    Before 09:00 KST, Korean today is therefore rejected. Only that affected
+    contract is adjusted, and no future/fictional data is produced.
+    """
+    try:
+        parsed_from = date.fromisoformat(from_date)
+        parsed_to = date.fromisoformat(to_date)
+    except (TypeError, ValueError) as exc:
+        raise TossWtsAdapterError("INVALID_SCHEMA") from exc
+    if parsed_from > parsed_to:
+        raise TossWtsAdapterError("INVALID_SCHEMA")
+
+    instant = now or datetime.now(timezone.utc)
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise ValueError("now must be timezone-aware")
+    kst_today = instant.astimezone(_SEOUL).date()
+    utc_today = instant.astimezone(timezone.utc).date()
+    if parsed_to > kst_today:
+        raise TossWtsAdapterError("INVALID_SCHEMA")
+
+    adjusted = (
+        expected_version.strip() in _AFFECTED_DATE_VALIDATION_VERSIONS
+        and parsed_to == kst_today
+        and kst_today > utc_today
+    )
+    effective_to = utc_today if adjusted else parsed_to
+    if parsed_from > effective_to:
+        raise TossWtsAdapterError(TOSSCTL_DATE_TIMEZONE_CONFLICT)
+    return {
+        "requested_from_date": from_date,
+        "requested_to_date": to_date,
+        "effective_from_date": from_date,
+        "effective_to_date": effective_to.isoformat(),
+        "date_range_adjusted": adjusted,
+        "compatibility_code": TOSSCTL_DATE_TIMEZONE_CONFLICT if adjusted else None,
+    }
+
+
+def _is_known_tossctl_future_date_rejection(stderr: object) -> bool:
+    text = stderr if isinstance(stderr, str) else ""
+    return "미래입니다" in text and _ISO_DATE_IN_TEXT.search(text) is not None
 
 
 def _enabled_from_environment() -> bool:
@@ -175,14 +233,30 @@ class TossWtsAdapter:
         normalized_from, normalized_to, normalized_currency = self._validate_profit_daily_request(
             from_date, to_date, currency
         )
+        query_range = resolve_tossctl_profit_daily_range(
+            normalized_from,
+            normalized_to,
+            expected_version=self._config.expected_version,
+        )
         self._require_ready()
         if is_test_mode():
             raise TossWtsAdapterError("TEST_MODE_DISABLED")
         payload = self._run_json(
             _PROFIT_DAILY,
-            ("--from", normalized_from, "--to", normalized_to, "--currency", normalized_currency),
+            (
+                "--from", query_range["effective_from_date"],
+                "--to", query_range["effective_to_date"],
+                "--currency", normalized_currency,
+            ),
         )
-        return self._normalize_profit_daily(payload, normalized_from, normalized_to, normalized_currency)
+        result = self._normalize_profit_daily(
+            payload,
+            query_range["effective_from_date"],
+            query_range["effective_to_date"],
+            normalized_currency,
+        )
+        result.update(query_range)
+        return result
 
     def _require_ready(self) -> dict[str, Any]:
         status = self.get_local_status()
@@ -219,6 +293,8 @@ class TossWtsAdapter:
         except OSError as exc:
             raise TossWtsAdapterError("NONZERO_EXIT") from exc
         if completed.returncode != 0:
+            if operation == _PROFIT_DAILY and _is_known_tossctl_future_date_rejection(completed.stderr):
+                raise TossWtsAdapterError(TOSSCTL_DATE_TIMEZONE_CONFLICT)
             raise TossWtsAdapterError("NONZERO_EXIT")
         try:
             parsed = json.loads(completed.stdout)
@@ -296,7 +372,7 @@ class TossWtsAdapter:
             parsed_to = date.fromisoformat(to_date)
         except ValueError as exc:
             raise TossWtsAdapterError("INVALID_SCHEMA") from exc
-        if parsed_from > parsed_to or parsed_to > date.today():
+        if parsed_from > parsed_to:
             raise TossWtsAdapterError("INVALID_SCHEMA")
         if currency not in _PROFIT_DAILY_CURRENCIES:
             raise TossWtsAdapterError("INVALID_SCHEMA")

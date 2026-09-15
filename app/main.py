@@ -1217,6 +1217,17 @@ async def toss_wts_realized_feed_fetch(request: Request) -> JSONResponse:
             user_id=str(user_id) if user_id else None,
             generation_id=gen_id,
         )
+        effective_from = str(raw_result.get("effective_from_date") or raw_result.get("from") or from_date)
+        effective_to = str(raw_result.get("effective_to_date") or raw_result.get("to") or to_date)
+        adjusted = bool(raw_result.get("date_range_adjusted"))
+        feed_response["provider_effective"] = {
+            "from_date": effective_from,
+            "to_date": effective_to,
+        }
+        feed_response["date_compatibility"] = {
+            "adjusted": adjusted,
+            "code": raw_result.get("compatibility_code") if adjusted else None,
+        }
         return JSONResponse(
             status_code=200,
             content=feed_response,

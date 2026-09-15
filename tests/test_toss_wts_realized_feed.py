@@ -248,6 +248,11 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
                 "profit_rate_basis": "KRW",
             },
         )
+        self.assertEqual(
+            payload["provider_effective"],
+            {"from_date": "2026-01-01", "to_date": "2026-01-10"},
+        )
+        self.assertEqual(payload["date_compatibility"], {"adjusted": False, "code": None})
         self.assertEqual(payload["fetched_at"], "2026-01-10T15:00:00Z")
         self.assertEqual(payload["state"], "ok")
         self.assertEqual(len(payload["rows"]), 2)
@@ -584,7 +589,12 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
         user_id = generate_user_id()
         user_record = {"username": "user-a", "id": user_id, "role": "user", "must_change_password": False}
 
-        for error_code in ("WTS_NOT_LOGGED_IN", "TOSSCTL_NOT_FOUND", "COMMAND_TIMEOUT"):
+        for error_code in (
+            "WTS_NOT_LOGGED_IN",
+            "TOSSCTL_NOT_FOUND",
+            "COMMAND_TIMEOUT",
+            "TOSSCTL_DATE_TIMEZONE_CONFLICT",
+        ):
             with patch.dict(os.environ, self._env_for(user_id), clear=False), \
                  patch("app.services.user_manager.get_user_by_name", return_value=user_record):
                 confirm_wts_feed_runtime_session(user_id)
