@@ -53,4 +53,17 @@ dist/
 build/
 .next/
 
+# 브로커/프로바이더 런타임 인증 캐시 (data/ 외부에 생성될 경우 대비)
+*_token_cache.json
+openapi_config.json
 
+# 브라우저 자동화 / 세션 상태 (방어적 보호)
+session/
+storage-state/
+cookies/
+*.cookie
+*.session
+
+# 프로브/감사 결과 출력 형식
+*.ndjson
+*.out
