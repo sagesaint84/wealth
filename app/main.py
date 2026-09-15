@@ -241,7 +241,34 @@ app.router.lifespan_context = app_lifespan
 # 로그인 / 멀티유저 인증
 # ---------------------------------------------------------------------------
 
-SECRET_KEY = os.getenv("DASHBOARD_SECRET_KEY", "").strip() or "asset_dashboard_secret_key_default"
+def _resolve_session_secret() -> str:
+    """Resolve the session signing secret - fail closed in all environments.
+
+    Priority:
+    1. DASHBOARD_SECRET_KEY environment variable (all environments).
+    2. WEALTH_TEST_SIGNING_SECRET (test environment only, explicit opt-in).
+    3. Raise RuntimeError - no built-in fallback exists.
+    """
+    value = os.getenv("DASHBOARD_SECRET_KEY", "").strip()
+    if value:
+        return value
+    if TESTING:
+        test_value = os.getenv("WEALTH_TEST_SIGNING_SECRET", "").strip()
+        if test_value:
+            return test_value
+        raise RuntimeError(
+            "WEALTH_TEST_SIGNING_SECRET is required in test mode when "
+            "DASHBOARD_SECRET_KEY is not set. "
+            "Set it in tests/__init__.py or via environment."
+        )
+    raise RuntimeError(
+        "DASHBOARD_SECRET_KEY is required but not set. "
+        "Set a private random value in your .env file. "
+        "The application cannot start without a signing secret."
+    )
+
+
+SECRET_KEY = _resolve_session_secret()
 SESSION_MAX_AGE = 60 * 60 * 24 * 14  # 14일 동안 로그인 유지
 COOKIE_NAME = "dashboard_session_v2"
 

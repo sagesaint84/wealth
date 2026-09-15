@@ -10,6 +10,12 @@ import os
 import socket
 
 os.environ.setdefault("WEALTH_ENV", "test")
+# Explicit test-only signing secret.  Only used when DASHBOARD_SECRET_KEY is
+# absent and WEALTH_ENV=test.  Never used by production runtime.
+os.environ.setdefault(
+    "WEALTH_TEST_SIGNING_SECRET",
+    "wealth-test-suite-signing-secret-not-for-production",
+)
 
 _original_connect = socket.socket.connect
 _original_connect_ex = socket.socket.connect_ex

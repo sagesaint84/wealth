@@ -17,6 +17,11 @@ from app.services import ledger, portfolio, user_manager, user_openapi
 # The package-level guard is intentionally also installed here so tests that
 # import this helper directly (outside package discovery) get the same policy.
 os.environ.setdefault("WEALTH_ENV", "test")
+# Explicit test-only signing secret — mirrors tests/__init__.py.
+os.environ.setdefault(
+    "WEALTH_TEST_SIGNING_SECRET",
+    "wealth-test-suite-signing-secret-not-for-production",
+)
 
 _original_socket_connect = socket.socket.connect
 _original_socket_connect_ex = socket.socket.connect_ex
