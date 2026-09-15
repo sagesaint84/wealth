@@ -10,6 +10,15 @@ from typing import Any
 
 import httpx
 
+from app.services.broker_holdings_sync import (
+    BrokerHoldingsResult,
+    DOMESTIC_MARKET,
+    OVERSEAS_MARKET,
+    ProviderHoldingScope,
+    optional_finite_number,
+    required_finite_number,
+    required_text,
+)
 from app.services.network_policy import require_external_network
 
 
@@ -124,7 +133,7 @@ class KBOpenAPI:
                 raise KBOpenAPIError("KB OpenAPI 응답이 올바른 JSON이 아닙니다.") from exc
         return self._normalize_response(payload, require_data_body=require_data_body)
 
-    async def sync_holdings(self) -> list[dict[str, Any]]:
+    async def sync_holdings(self) -> BrokerHoldingsResult:
         domestic, overseas = await asyncio.gather(
             self.call("/api/v1/ssqm1801", {"inq_clsf": "0", "mkt_tm_ccd": "1", "is_no": "", "nxt_key": ""}, require_data_body=True),
             self.call("/api/v1/spqm2226", {"std_crncy_f": "2", "exch_r_aplc_f": "2", "fee_clsf": "0", "cn_f": "0", "nxt_key": "", "mktpr_aplc_clsf": ""}, require_data_body=True),
@@ -133,23 +142,49 @@ class KBOpenAPI:
         overseas_rows = overseas.get("Record2")
         if not isinstance(domestic_rows, list) or not isinstance(overseas_rows, list):
             raise KBOpenAPIError("KB OpenAPI 잔고 응답의 보유종목 목록 형식이 올바르지 않습니다.")
+        for label, body in (("국내", domestic), ("해외", overseas)):
+            continuation = body.get("nxt_key")
+            if continuation is not None and str(continuation).strip() not in {"", "0"}:
+                raise KBOpenAPIError(f"KB OpenAPI {label} 잔고 응답에 처리되지 않은 연속조회 상태가 있습니다.")
         records: list[dict[str, Any]] = []
         for row in domestic_rows:
             if not isinstance(row, dict):
                 raise KBOpenAPIError("KB OpenAPI 국내 보유종목 항목 형식이 올바르지 않습니다.")
-            code = str(row.get("is_no", ""))[-6:]
-            qty = max(0.0, as_float(row.get("gnrl_q", 0)) - as_float(row.get("sll_q", 0) or row.get("tdy_sll_q", 0)))
+            try:
+                code = required_text(row, "is_no")[-6:]
+                gross_qty = required_finite_number(row, "gnrl_q")
+                sell_key = "sll_q" if row.get("sll_q") is not None else "tdy_sll_q"
+                sold_qty = optional_finite_number(row, sell_key)
+            except ValueError as exc:
+                raise KBOpenAPIError(f"KB OpenAPI 국내 보유종목 항목 형식이 올바르지 않습니다: {exc}") from exc
+            qty = max(0.0, gross_qty - sold_qty)
             if qty <= 0:
                 continue
             records.append({"code": code, "name": row.get("is_nm", code), "quantity": qty, "avg_price": 0, "current_price": 0, "currency": "KRW", "market": "KRX"})
         for row in overseas_rows:
             if not isinstance(row, dict):
                 raise KBOpenAPIError("KB OpenAPI 해외 보유종목 항목 형식이 올바르지 않습니다.")
-            qty = max(0.0, as_float(row.get("frgn_hld_q_p6", 0)) - as_float(row.get("sll_q", 0) or row.get("tdy_sll_q", 0)))
+            try:
+                code = required_text(row, "is_cd")
+                gross_qty = required_finite_number(row, "frgn_hld_q_p6")
+                sell_key = "sll_q" if row.get("sll_q") is not None else "tdy_sll_q"
+                sold_qty = optional_finite_number(row, sell_key)
+                currency = required_text(row, "crncy_clsf_nm")
+                market = required_text(row, "mkt_clsf")
+            except ValueError as exc:
+                raise KBOpenAPIError(f"KB OpenAPI 해외 보유종목 항목 형식이 올바르지 않습니다: {exc}") from exc
+            qty = max(0.0, gross_qty - sold_qty)
             if qty <= 0:
                 continue
-            records.append({"code": row.get("is_cd", ""), "name": row.get("is_nm", ""), "quantity": qty, "avg_price": as_float(row.get("byng_avr_prc_p4")), "current_price": as_float(row.get("now_prc_p4")), "currency": row.get("crncy_clsf_nm", "USD"), "market": row.get("mkt_clsf", "")})
-        return [row for row in records if row["code"] and row["quantity"] > 0]
+            records.append({"code": code, "name": row.get("is_nm", ""), "quantity": qty, "avg_price": as_float(row.get("byng_avr_prc_p4")), "current_price": as_float(row.get("now_prc_p4")), "currency": currency, "market": market})
+        return BrokerHoldingsResult.authoritative_result(
+            records,
+            (
+                ProviderHoldingScope("kb_primary", DOMESTIC_MARKET),
+                ProviderHoldingScope("kb_primary", OVERSEAS_MARKET),
+            ),
+            cash_valid=False,
+        )
 
     async def refresh_prices(self, holdings: list[dict[str, Any]]) -> tuple[dict[str, float], list[str]]:
         prices: dict[str, float] = {}

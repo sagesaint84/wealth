@@ -24,6 +24,12 @@ from app.services.nhplug_openapi import NhPlugOpenAPI, NhPlugOpenAPIError
 from app.services.toss_openapi import TossOpenAPI, TossOpenAPIError
 from app.services.kis_openapi import KISOpenAPI, KISOpenAPIError
 from app.services.kiwoom_openapi import KiwoomOpenAPI, KiwoomOpenAPIError
+from app.services.broker_holdings_sync import (
+    BrokerHoldingsResult,
+    HoldingsResultState,
+    replace_holdings_in_scopes,
+    resolve_scopes,
+)
 from app.services.network_policy import is_test_mode
 from app.services.web_finance import (
     get_web_market_overview,
@@ -170,6 +176,29 @@ def _sync_error_status(error: Exception) -> str:
     if isinstance(error, (HTTPException, KBOpenAPIError, TossOpenAPIError, NhPlugOpenAPIError, KISOpenAPIError, KiwoomOpenAPIError)):
         return "API_ERROR"
     return "INTERNAL_ERROR"
+
+
+def _unverified_holdings_response(broker: str, records: object) -> dict:
+    state = (
+        records.state.value
+        if isinstance(records, BrokerHoldingsResult)
+        else HoldingsResultState.UNKNOWN_EMPTY.value
+    )
+    return {
+        "broker": broker,
+        "status": "SCOPE_UNVERIFIED",
+        "message": "잔고 응답의 계좌·시장 범위를 확인할 수 없어 기존 보유종목을 유지했습니다.",
+        "count": 0,
+        "holdings_valid": False,
+        "holdings_state": state,
+        "cash_valid": records.cash_valid if isinstance(records, BrokerHoldingsResult) else False,
+        "cash_updated": False,
+        "data_preserved": True,
+    }
+
+
+def _holdings_success_status(records: BrokerHoldingsResult) -> str:
+    return "CONFIRMED_EMPTY" if records.state == HoldingsResultState.AUTHORITATIVE_EMPTY else "SUCCESS"
 
 
 def _mark_sync_success(data: dict, broker: str) -> None:
@@ -3270,12 +3299,25 @@ async def sync_kb(request: Request = None) -> dict:
         records = await client.sync_holdings()
     except KBOpenAPIError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
+        return _unverified_holdings_response("KB증권", records)
     data = read_portfolio(username=username)
 
     # 1. 고유 키(kb_primary) 또는 기존 KB 동기화 계좌 찾기
-    existing = next((a for a in data["accounts"] if a.get("broker") == "KB증권" and (a.get("account_key") == "kb_primary" or a.get("source") == "kb_api")), None)
+    primary_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and a.get("account_key") == "kb_primary"]
+    if len(primary_matches) > 1:
+        return _unverified_holdings_response("KB증권", records)
+    existing = primary_matches[0] if primary_matches else None
     if not existing:
-        existing = next((a for a in data["accounts"] if a.get("broker") == "KB증권" and ("KB" in a.get("name", "") or a.get("name") == "KB OpenAPI 동기화 계좌")), None)
+        source_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and a.get("source") == "kb_api"]
+        if len(source_matches) > 1:
+            return _unverified_holdings_response("KB증권", records)
+        existing = source_matches[0] if source_matches else None
+    if not existing:
+        name_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and ("KB" in a.get("name", "") or a.get("name") == "KB OpenAPI 동기화 계좌")]
+        if len(name_matches) > 1:
+            return _unverified_holdings_response("KB증권", records)
+        existing = name_matches[0] if name_matches else None
 
     if existing:
         account_id = existing["id"]
@@ -3297,6 +3339,9 @@ async def sync_kb(request: Request = None) -> dict:
         })
 
     holdings = [normalize_holding(record, account_id, "KB증권", account_name, "kb_api") for record in records]
+    scopes = resolve_scopes(records.scopes, {"kb_primary": (account_id, account_name)})
+    if scopes is None:
+        return _unverified_holdings_response("KB증권", records)
     prices, warnings = await client.refresh_prices(holdings)
     for holding in holdings:
         price = prices.get(holding["id"])
@@ -3304,10 +3349,12 @@ async def sync_kb(request: Request = None) -> dict:
             holding["current_price"] = price
             if holding["avg_price"] == 0:
                 holding["avg_price"] = price
-    upsert_holdings(data, holdings, replace_source="kb_api")
+    replace_holdings_in_scopes(data, holdings, source="kb_api", scopes=scopes)
     _mark_sync_success(data, "kb")
     write_portfolio(data, username=username)
-    return {"broker": "KB증권", "status": "SUCCESS", "message": f"KB증권 보유종목 {len(holdings)}개를 동기화했습니다.", "count": len(holdings), "holdings_valid": True, "cash_valid": False, "data_preserved": False, "warnings": warnings[:10]}
+    status = _holdings_success_status(records)
+    message = "KB증권 보유종목이 0개로 확인되었습니다." if not holdings else f"KB증권 보유종목 {len(holdings)}개를 동기화했습니다."
+    return {"broker": "KB증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": False, "cash_updated": False, "data_preserved": False, "warnings": warnings[:10]}
 
 
 @app.post("/api/sync/toss")
@@ -3321,6 +3368,8 @@ async def sync_toss(request: Request = None) -> dict:
         toss_accounts = client.last_accounts
     except TossOpenAPIError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
+        return _unverified_holdings_response("토스증권", records)
     data = read_portfolio(username=username)
     cash = data["settings"].setdefault("toss_cash", {})
     cash_balances = data["settings"].setdefault("cash_balances", {})
@@ -3328,25 +3377,28 @@ async def sync_toss(request: Request = None) -> dict:
     def resolve_toss_account(data_accounts, seq, acct_no, default_name):
         seq_str = str(seq) if seq is not None else ""
         suffix = str(acct_no)[-4:] if acct_no else ""
-        # 1) account_key 또는 seq_str 일치
-        for a in data_accounts:
-            if a.get("broker") == "토스증권" and (
-                (seq_str and a.get("account_key") == seq_str) or 
-                (suffix and a.get("account_no") == suffix)
-            ):
-                return a
-        # 2) 이름에 suffix나 토스증권이 매칭되는 계좌
-        for a in data_accounts:
-            if a.get("broker") == "토스증권" and (
-                (suffix and suffix in a.get("name", "")) or 
-                a.get("name") == default_name or
-                (a.get("source") == "toss_api")
-            ):
-                return a
-        return None
+        broker_accounts = [a for a in data_accounts if a.get("broker") == "토스증권"]
+        exact = [a for a in broker_accounts if seq_str and a.get("account_key") == seq_str]
+        if len(exact) == 1:
+            return exact[0], True
+        if len(exact) > 1:
+            return None, False
+        suffix_matches = [a for a in broker_accounts if suffix and a.get("account_no") == suffix]
+        if len(suffix_matches) == 1:
+            return suffix_matches[0], True
+        if len(suffix_matches) > 1:
+            return None, False
+        name_matches = [
+            a for a in broker_accounts
+            if (suffix and suffix in a.get("name", "")) or a.get("name") == default_name
+        ]
+        if len(name_matches) == 1:
+            return name_matches[0], True
+        return None, True
 
     toss_map = {}
     cash_failures = 0
+    cash_successes = 0
     for account in toss_accounts:
         seq = account.get("accountSeq")
         seq_str = str(seq) if seq is not None else ""
@@ -3354,7 +3406,9 @@ async def sync_toss(request: Request = None) -> dict:
         suffix = account_no[-4:] if account_no else ""
         account_name_default = f"토스증권 계좌 {suffix}" if suffix else (f"토스증권 계좌 {seq}" if seq is not None else "토스증권")
         
-        existing = resolve_toss_account(data["accounts"], seq, account_no, account_name_default)
+        existing, account_scope_verified = resolve_toss_account(data["accounts"], seq, account_no, account_name_default)
+        if not account_scope_verified:
+            return _unverified_holdings_response("토스증권", records)
         if existing:
             account_id = existing["id"]
             account_name = existing["name"]  # 사용자가 변경한 이름을 100% 보존!
@@ -3384,6 +3438,7 @@ async def sync_toss(request: Request = None) -> dict:
                 bp = await client.get_buying_power(int(seq))
                 cash[str(seq)] = bp
                 cash_balances[account_id] = bp
+                cash_successes += 1
             except TossOpenAPIError:
                 cash_failures += 1
 
@@ -3395,22 +3450,19 @@ async def sync_toss(request: Request = None) -> dict:
         if acct_key in toss_map:
             account_id, account_name = toss_map[acct_key]
         else:
-            existing = resolve_toss_account(data["accounts"], None, None, record.get("account_name", "토스증권"))
-            if existing:
-                account_id = existing["id"]
-                account_name = existing["name"]
-            else:
-                account_id = get_or_add_account(data, "토스증권", record["account_name"], "toss_api")
-                account_name = record["account_name"]
+            return _unverified_holdings_response("토스증권", records)
         holdings.append(normalize_holding(record, account_id, "토스증권", account_name, "toss_api"))
 
-    upsert_holdings(data, holdings, replace_source="toss_api")
+    scopes = resolve_scopes(records.scopes, toss_map)
+    if scopes is None:
+        return _unverified_holdings_response("토스증권", records)
+    replace_holdings_in_scopes(data, holdings, source="toss_api", scopes=scopes)
     _mark_sync_success(data, "toss")
     write_portfolio(data, username=username)
-    status = "PARTIAL_SUCCESS" if cash_failures else "SUCCESS"
-    message = f"토스증권 보유종목 {len(holdings)}개를 동기화했습니다."
+    status = "PARTIAL_SUCCESS" if cash_failures else _holdings_success_status(records)
+    message = "토스증권 보유종목이 0개로 확인되었습니다." if not holdings else f"토스증권 보유종목 {len(holdings)}개를 동기화했습니다."
     message += " 예수금 조회 실패 계좌의 기존 데이터는 유지했습니다." if cash_failures else " 예수금도 동기화했습니다."
-    return {"broker": "토스증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "cash_valid": not cash_failures, "data_preserved": bool(cash_failures)}
+    return {"broker": "토스증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": not cash_failures, "cash_updated": bool(cash_successes), "data_preserved": bool(cash_failures)}
 
 
 @app.post("/api/sync/namoo")
@@ -3426,21 +3478,31 @@ async def sync_namoo(request: Request = None) -> dict:
         if "IGW42903" in detail or "거래건수를 초과" in detail:
             detail = "나무증권 API 호출 한도를 초과했습니다(IGW42903). 잠시 후 다시 시도하거나 나무 OpenAPI 포털에서 호출 한도·계정별 제한을 확인해 주세요. 인증키 오류가 아닙니다."
         raise HTTPException(429 if "IGW42903" in str(exc) else 400, detail) from exc
+    if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
+        return _unverified_holdings_response("NH투자증권(나무)", records)
     data = read_portfolio(username=username)
     cash_balances = data["settings"].setdefault("cash_balances", {})
 
     def resolve_namoo_account(data_accounts, acct_no, default_name):
         suffix = str(acct_no)[-4:] if acct_no else ""
-        # 1) account_key 또는 account_no 고유 식별자 우선 일치
-        for a in data_accounts:
-            if a.get("broker") == "NH투자증권(나무)" and (a.get("account_key") == suffix or a.get("account_no") == str(acct_no)):
-                return a
-        # 2) 계좌 이름에 suffix(예: 3861)가 포함되어 있거나 기존 기본 이름과 일치하는 계좌
-        if suffix:
-            for a in data_accounts:
-                if a.get("broker") == "NH투자증권(나무)" and (suffix in a.get("name", "") or a.get("name") == default_name):
-                    return a
-        return None
+        broker_accounts = [a for a in data_accounts if a.get("broker") == "NH투자증권(나무)"]
+        exact = [a for a in broker_accounts if a.get("account_no") == str(acct_no)]
+        if len(exact) == 1:
+            return exact[0], True
+        if len(exact) > 1:
+            return None, False
+        suffix_matches = [a for a in broker_accounts if suffix and a.get("account_key") == suffix]
+        if len(suffix_matches) == 1:
+            return suffix_matches[0], True
+        if len(suffix_matches) > 1:
+            return None, False
+        name_matches = [
+            a for a in broker_accounts
+            if (suffix and suffix in a.get("name", "")) or a.get("name") == default_name
+        ]
+        if len(name_matches) == 1:
+            return name_matches[0], True
+        return None, True
 
     account_map = {}  # acct_no -> (account_id, account_name)
     for account in client.last_accounts:
@@ -3448,7 +3510,9 @@ async def sync_namoo(request: Request = None) -> dict:
         default_name = client._account_name(account)
         suffix = account_no[-4:] if account_no else ""
         if account_no:
-            existing = resolve_namoo_account(data["accounts"], account_no, default_name)
+            existing, account_scope_verified = resolve_namoo_account(data["accounts"], account_no, default_name)
+            if not account_scope_verified:
+                return _unverified_holdings_response("NH투자증권(나무)", records)
             if existing:
                 account_id = existing["id"]
                 account_name = existing["name"]  # 사용자가 변경한 이름을 100% 보존!
@@ -3479,20 +3543,19 @@ async def sync_namoo(request: Request = None) -> dict:
         if acct_key in account_map:
             account_id, account_name = account_map[acct_key]
         else:
-            existing = resolve_namoo_account(data["accounts"], acct_key, record.get("account_name", "나무증권 계좌"))
-            if existing:
-                account_id = existing["id"]
-                account_name = existing["name"]
-            else:
-                account_id = get_or_add_account(data, "NH투자증권(나무)", record.get("account_name", "나무증권 계좌"), "nhplug_api")
-                account_name = record.get("account_name", "나무증권 계좌")
+            return _unverified_holdings_response("NH투자증권(나무)", records)
         holdings.append(normalize_holding(record, account_id, "NH투자증권(나무)", account_name, "nhplug_api"))
 
-    upsert_holdings(data, holdings, replace_source="nhplug_api")
+    scopes = resolve_scopes(records.scopes, account_map)
+    if scopes is None:
+        return _unverified_holdings_response("NH투자증권(나무)", records)
+    replace_holdings_in_scopes(data, holdings, source="nhplug_api", scopes=scopes)
     data["settings"]["cash_balances"] = cash_balances
     _mark_sync_success(data, "nh")
     write_portfolio(data, username=username)
-    return {"broker": "NH투자증권(나무)", "status": "SUCCESS", "message": f"나무증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다.", "count": len(holdings), "holdings_valid": True, "cash_valid": True, "data_preserved": False}
+    status = _holdings_success_status(records)
+    message = "나무증권 보유종목이 0개로 확인되어 예수금만 동기화했습니다." if not holdings else f"나무증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다."
+    return {"broker": "NH투자증권(나무)", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False}
 
 
 @app.post("/api/sync/kis")
@@ -3507,19 +3570,31 @@ async def sync_kis(request: Request = None) -> dict:
         records = await client.sync_holdings()
     except KISOpenAPIError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
+        return _unverified_holdings_response("한국투자증권", records)
     data = read_portfolio(username=username)
     cash_balances = data["settings"].setdefault("cash_balances", {})
 
     def resolve_kis_account(data_accounts, acct_no, default_name):
         suffix = str(acct_no)[-4:] if acct_no else ""
-        for a in data_accounts:
-            if a.get("broker") == "한국투자증권" and (a.get("account_key") == suffix or a.get("account_no") == str(acct_no)):
-                return a
-        if suffix:
-            for a in data_accounts:
-                if a.get("broker") == "한국투자증권" and (suffix in a.get("name", "") or a.get("name") == default_name):
-                    return a
-        return None
+        broker_accounts = [a for a in data_accounts if a.get("broker") == "한국투자증권"]
+        exact = [a for a in broker_accounts if a.get("account_no") == str(acct_no)]
+        if len(exact) == 1:
+            return exact[0], True
+        if len(exact) > 1:
+            return None, False
+        suffix_matches = [a for a in broker_accounts if suffix and a.get("account_key") == suffix]
+        if len(suffix_matches) == 1:
+            return suffix_matches[0], True
+        if len(suffix_matches) > 1:
+            return None, False
+        name_matches = [
+            a for a in broker_accounts
+            if (suffix and suffix in a.get("name", "")) or a.get("name") == default_name
+        ]
+        if len(name_matches) == 1:
+            return name_matches[0], True
+        return None, True
 
     account_map = {}
     for account in client.last_accounts:
@@ -3527,7 +3602,9 @@ async def sync_kis(request: Request = None) -> dict:
         default_name = account.get("account_name", f"한국투자증권 ({account_no[:4]}****)")
         suffix = account_no[-4:] if account_no else ""
         if account_no:
-            existing = resolve_kis_account(data["accounts"], account_no, default_name)
+            existing, account_scope_verified = resolve_kis_account(data["accounts"], account_no, default_name)
+            if not account_scope_verified:
+                return _unverified_holdings_response("한국투자증권", records)
             if existing:
                 account_id = existing["id"]
                 account_name = existing["name"]  # 사용자 지정 이름 100% 보존
@@ -3559,19 +3636,19 @@ async def sync_kis(request: Request = None) -> dict:
         if acct_no in account_map:
             account_id, account_name = account_map[acct_no]
         else:
-            first_acct = next(iter(account_map.values()), None)
-            if first_acct:
-                account_id, account_name = first_acct
-            else:
-                account_id = get_or_add_account(data, "한국투자증권", "한국투자증권 계좌", "kis_api")
-                account_name = "한국투자증권 계좌"
+            return _unverified_holdings_response("한국투자증권", records)
         holdings.append(normalize_holding(record, account_id, "한국투자증권", account_name, "kis_api"))
 
-    upsert_holdings(data, holdings, replace_source="kis_api")
+    scopes = resolve_scopes(records.scopes, account_map)
+    if scopes is None:
+        return _unverified_holdings_response("한국투자증권", records)
+    replace_holdings_in_scopes(data, holdings, source="kis_api", scopes=scopes)
     data["settings"]["cash_balances"] = cash_balances
     _mark_sync_success(data, "kis")
     write_portfolio(data, username=username)
-    return {"broker": "한국투자증권", "status": "SUCCESS", "message": f"한국투자증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다.", "count": len(holdings), "holdings_valid": True, "cash_valid": True, "data_preserved": False}
+    status = _holdings_success_status(records)
+    message = "한국투자증권 보유종목이 0개로 확인되어 예수금만 동기화했습니다." if not holdings else f"한국투자증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다."
+    return {"broker": "한국투자증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False}
 
 
 @app.post("/api/sync/kiwoom")
@@ -3584,19 +3661,31 @@ async def sync_kiwoom(request: Request = None) -> dict:
         records = await client.sync_holdings()
     except KiwoomOpenAPIError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
+        return _unverified_holdings_response("키움증권", records)
     data = read_portfolio(username=username)
     cash_balances = data["settings"].setdefault("cash_balances", {})
 
     def resolve_kiwoom_account(data_accounts, acct_no, default_name):
         suffix = str(acct_no)[-4:] if acct_no else ""
-        for a in data_accounts:
-            if a.get("broker") == "키움증권" and (a.get("account_key") == suffix or a.get("account_no") == str(acct_no)):
-                return a
-        if suffix:
-            for a in data_accounts:
-                if a.get("broker") == "키움증권" and (suffix in a.get("name", "") or a.get("name") == default_name):
-                    return a
-        return None
+        broker_accounts = [a for a in data_accounts if a.get("broker") == "키움증권"]
+        exact = [a for a in broker_accounts if a.get("account_no") == str(acct_no)]
+        if len(exact) == 1:
+            return exact[0], True
+        if len(exact) > 1:
+            return None, False
+        suffix_matches = [a for a in broker_accounts if suffix and a.get("account_key") == suffix]
+        if len(suffix_matches) == 1:
+            return suffix_matches[0], True
+        if len(suffix_matches) > 1:
+            return None, False
+        name_matches = [
+            a for a in broker_accounts
+            if (suffix and suffix in a.get("name", "")) or a.get("name") == default_name
+        ]
+        if len(name_matches) == 1:
+            return name_matches[0], True
+        return None, True
 
     account_map = {}
     for account in client.last_accounts:
@@ -3604,7 +3693,9 @@ async def sync_kiwoom(request: Request = None) -> dict:
         default_name = account.get("account_name", f"키움증권 ({account_no[:4]}****)")
         suffix = account_no[-4:] if account_no else ""
         if account_no:
-            existing = resolve_kiwoom_account(data["accounts"], account_no, default_name)
+            existing, account_scope_verified = resolve_kiwoom_account(data["accounts"], account_no, default_name)
+            if not account_scope_verified:
+                return _unverified_holdings_response("키움증권", records)
             if existing:
                 account_id = existing["id"]
                 account_name = existing["name"]  # 사용자 지정 이름 100% 보존
@@ -3636,22 +3727,19 @@ async def sync_kiwoom(request: Request = None) -> dict:
         if acct_no in account_map:
             account_id, account_name = account_map[acct_no]
         else:
-            first_acct = next(iter(account_map.values()), None)
-            if first_acct:
-                account_id, account_name = first_acct
-            else:
-                account_id = get_or_add_account(data, "키움증권", "키움증권 계좌", "kiwoom_api")
-                account_name = "키움증권 계좌"
+            return _unverified_holdings_response("키움증권", records)
         holdings.append(normalize_holding(record, account_id, "키움증권", account_name, "kiwoom_api"))
 
-    # v1.0.9 uses Kiwoom's documented domestic API. Preserve any legacy USD
-    # holdings until an official overseas adapter is implemented and validated.
-    data["holdings"] = [h for h in data["holdings"] if not (h.get("source") == "kiwoom_api" and str(h.get("currency", "KRW")).upper() == "KRW")]
-    upsert_holdings(data, holdings)
+    scopes = resolve_scopes(records.scopes, account_map)
+    if scopes is None:
+        return _unverified_holdings_response("키움증권", records)
+    replace_holdings_in_scopes(data, holdings, source="kiwoom_api", scopes=scopes)
     data["settings"]["cash_balances"] = cash_balances
     _mark_sync_success(data, "kiwoom")
     write_portfolio(data, username=username)
-    return {"broker": "키움증권", "status": "SUCCESS", "message": f"키움증권 국내 보유종목 {len(holdings)}개 및 KRW 예수금을 동기화했습니다.", "count": len(holdings), "holdings_valid": True, "cash_valid": True, "data_preserved": False}
+    status = _holdings_success_status(records)
+    message = "키움증권 국내 보유종목이 0개로 확인되어 KRW 예수금만 동기화했습니다." if not holdings else f"키움증권 국내 보유종목 {len(holdings)}개 및 KRW 예수금을 동기화했습니다."
+    return {"broker": "키움증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False}
 
 
 @app.post("/api/fx/refresh")
@@ -3790,8 +3878,9 @@ async def sync_all_accounts(request: Request) -> dict:
     finally:
         _syncing_users.discard(username)
 
-    succeeded = [r for r in broker_results if r["status"] in {"SUCCESS", "PARTIAL_SUCCESS"}]
-    errors = [f"{r['broker']}: {r['message']}" for r in broker_results if r["status"] not in {"SUCCESS", "PARTIAL_SUCCESS", "CONFIG_REQUIRED"}]
+    successful_statuses = {"SUCCESS", "CONFIRMED_EMPTY", "PARTIAL_SUCCESS"}
+    succeeded = [r for r in broker_results if r["status"] in successful_statuses]
+    errors = [f"{r['broker']}: {r['message']}" for r in broker_results if r["status"] not in successful_statuses | {"CONFIG_REQUIRED"}]
     lines = [f"{r['broker']} [{r['status']}] {r['message']}" for r in broker_results]
     return {"message": " / ".join(lines), "synced": len(succeeded), "errors": errors, "brokers": broker_results}
 

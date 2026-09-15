@@ -11,6 +11,14 @@ from typing import Any
 
 import httpx
 
+from app.services.broker_holdings_sync import (
+    ALL_MARKETS,
+    BrokerHoldingsResult,
+    HoldingsResultState,
+    ProviderHoldingScope,
+    required_finite_number,
+    required_text,
+)
 from app.services.network_policy import require_external_network
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -50,6 +58,15 @@ class TossOpenAPI:
     @property
     def configured(self) -> bool:
         return bool(self.client_id and self.client_secret)
+
+    @staticmethod
+    def _require_complete_collection(value: Any, label: str) -> None:
+        if not isinstance(value, dict):
+            return
+        for key in ("nextCursor", "next_cursor", "next", "hasNext", "hasMore"):
+            marker = value.get(key)
+            if marker not in (None, "", False, 0, "0", "N", "false", "False"):
+                raise TossOpenAPIError(f"토스증권 {label} 응답에 처리되지 않은 연속조회 상태가 있습니다.")
 
     async def _access_token(self, client: httpx.AsyncClient) -> str:
         if not self.configured:
@@ -102,41 +119,63 @@ class TossOpenAPI:
             raise TossOpenAPIError("토스증권 API 응답에 result가 없습니다.")
         return payload["result"]
 
-    async def sync_holdings(self) -> list[dict[str, Any]]:
+    async def sync_holdings(self) -> BrokerHoldingsResult:
         accounts = await self._get("/api/v1/accounts")
         if isinstance(accounts, dict):
+            self._require_complete_collection(accounts, "계좌")
             accounts = accounts.get("items") if "items" in accounts else accounts.get("accounts")
         if not isinstance(accounts, list):
             raise TossOpenAPIError("토스증권 계좌 응답 형식이 올바르지 않습니다.")
         self.last_accounts = accounts
+        if not accounts:
+            return BrokerHoldingsResult(
+                state=HoldingsResultState.ACCOUNT_SCOPE_UNVERIFIED,
+                cash_valid=False,
+            )
         records: list[dict[str, Any]] = []
+        scopes: list[ProviderHoldingScope] = []
         for account in accounts:
             if not isinstance(account, dict):
                 raise TossOpenAPIError("토스증권 계좌 항목 형식이 올바르지 않습니다.")
             account_seq = account.get("accountSeq")
             if account_seq is None:
-                continue
+                raise TossOpenAPIError("토스증권 계좌 항목에 accountSeq가 없습니다.")
+            try:
+                account_seq = int(account_seq)
+            except (TypeError, ValueError) as exc:
+                raise TossOpenAPIError("토스증권 계좌 항목의 accountSeq 형식이 올바르지 않습니다.") from exc
             overview = await self._get("/api/v1/holdings", account_seq=int(account_seq))
             if isinstance(overview, list):
                 overview = {"items": overview}
             if not isinstance(overview, dict) or not isinstance(overview.get("items"), list):
                 raise TossOpenAPIError("토스증권 보유종목 응답 형식이 올바르지 않습니다.")
+            self._require_complete_collection(overview, "보유종목")
             account_no = str(account.get("accountNo", ""))
             account_name = f"토스증권 계좌 {account_no[-4:]}" if account_no else f"토스증권 계좌 {account_seq}"
+            scopes.append(ProviderHoldingScope(str(account_seq), ALL_MARKETS))
             for item in overview.get("items", []):
-                country = item.get("marketCountry", "")
+                if not isinstance(item, dict):
+                    raise TossOpenAPIError("토스증권 보유종목 항목 형식이 올바르지 않습니다.")
+                try:
+                    code = required_text(item, "symbol")
+                    quantity = required_finite_number(item, "quantity")
+                    country = required_text(item, "marketCountry").upper()
+                    currency = required_text(item, "currency").upper()
+                except ValueError as exc:
+                    raise TossOpenAPIError(f"토스증권 보유종목 항목 형식이 올바르지 않습니다: {exc}") from exc
                 records.append({
                     "account_key": str(account_seq),
                     "account_name": account_name,
-                    "code": item.get("symbol", ""),
+                    "code": code,
                     "name": item.get("name", ""),
-                    "quantity": as_float(item.get("quantity")),
+                    "quantity": quantity,
                     "avg_price": as_float(item.get("averagePurchasePrice")),
                     "current_price": as_float(item.get("lastPrice")),
-                    "currency": item.get("currency", "KRW"),
+                    "currency": currency,
                     "market": "KRX" if country == "KR" else "TOSS_US",
                 })
-        return [record for record in records if record["code"] and record["quantity"] > 0]
+        normalized = [record for record in records if record["quantity"] > 0]
+        return BrokerHoldingsResult.authoritative_result(normalized, scopes, cash_valid=False)
 
     async def get_buying_power(self, account_seq: int) -> dict[str, float]:
         res: dict[str, float] = {"KRW": 0.0, "USD": 0.0}

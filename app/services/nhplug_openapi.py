@@ -12,6 +12,14 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.services.broker_holdings_sync import (
+    BrokerHoldingsResult,
+    DOMESTIC_MARKET,
+    ProviderHoldingScope,
+    optional_finite_number,
+    required_finite_number,
+    required_text,
+)
 from app.services.network_policy import require_external_network
 
 logger = logging.getLogger(__name__)
@@ -193,7 +201,13 @@ class NhPlugOpenAPI:
         payload["_wealth_continuation"] = {"cts": response_cts, "flag": response_cts_flag}
         return payload
 
-    async def _call_pages(self, path: str, input_0: dict[str, Any]) -> list[dict[str, Any]]:
+    async def _call_pages(
+        self,
+        path: str,
+        input_0: dict[str, Any],
+        *,
+        require_complete_scope: bool = False,
+    ) -> list[dict[str, Any]]:
         pages: list[dict[str, Any]] = []
         cts = ""
         seen: set[str] = set()
@@ -221,6 +235,8 @@ class NhPlugOpenAPI:
             else:
                 return pages
             if next_cts in seen:
+                if require_complete_scope:
+                    raise NhPlugOpenAPIError("나무증권 연속조회 키가 반복되었습니다.")
                 return pages
             seen.add(next_cts)
             cts = next_cts
@@ -309,9 +325,13 @@ class NhPlugOpenAPI:
 
     async def _accounts(self) -> list[dict[str, Any]]:
         payload = await self._call("/n2/acctinfo", {})
-        accounts = payload.get("Output_0", [])
+        if "Output_0" not in payload:
+            raise NhPlugOpenAPIError("나무증권 계좌 목록 응답에 Output_0이 없습니다.")
+        accounts = payload.get("Output_0")
         if not isinstance(accounts, list):
             raise NhPlugOpenAPIError("나무증권 계좌 목록 응답 형식이 올바르지 않습니다.")
+        if not all(isinstance(account, dict) for account in accounts):
+            raise NhPlugOpenAPIError("나무증권 계좌 목록 항목 형식이 올바르지 않습니다.")
         allowed_types = {"03"} if self.is_mock else {"01", "02"}
         return [account for account in accounts if str(account.get("acct_type", "")) in allowed_types]
 
@@ -320,8 +340,9 @@ class NhPlugOpenAPI:
         account_no = str(account.get("acct_no", ""))
         return f"나무증권 계좌 {account_no[-4:]}" if account_no else "나무증권 계좌"
 
-    async def sync_holdings(self) -> list[dict[str, Any]]:
+    async def sync_holdings(self) -> BrokerHoldingsResult:
         records: list[dict[str, Any]] = []
+        scopes: list[ProviderHoldingScope] = []
         self.account_cash = {}
         self.last_accounts = await self._accounts()
         if not self.last_accounts:
@@ -334,12 +355,18 @@ class NhPlugOpenAPI:
             domestic_pages = await self._call_pages(
                 "/krstock/inquiry/v1/balance",
                 {"act_no": account_no, "bnc_bse_cd": "5", "ltg_aot_dit_cd": "9", "aet_bse": "2", "qut_dit_cd": "UNT"},
+                require_complete_scope=True,
             )
             domestic = domestic_pages[0]
-            out_0 = domestic.get("Output_0") or {}
-            domestic_items = [item for page in domestic_pages for item in (page.get("Output_1") or [])]
-            if not isinstance(out_0, dict) or not isinstance(domestic_items, list):
+            out_0 = domestic.get("Output_0")
+            if not isinstance(out_0, dict):
                 raise NhPlugOpenAPIError("나무증권 국내 잔고 응답 형식이 올바르지 않습니다.")
+            domestic_items: list[dict[str, Any]] = []
+            for page in domestic_pages:
+                if "Output_1" not in page or not isinstance(page.get("Output_1"), list):
+                    raise NhPlugOpenAPIError("나무증권 국내 잔고 응답의 Output_1 형식이 올바르지 않습니다.")
+                domestic_items.extend(page["Output_1"])
+            scopes.append(ProviderHoldingScope(account_no, DOMESTIC_MARKET))
             
             # 예수금: D+2 결제반영 추정 예수금(nxt2_dd_dca) 또는 원장 예수금(dca) 우선
             krw_cash = 0.0
@@ -365,20 +392,24 @@ class NhPlugOpenAPI:
                 if not isinstance(item, dict):
                     raise NhPlugOpenAPIError("나무증권 국내 보유종목 항목 형식이 올바르지 않습니다.")
                 # 수량: 체결기준 잔여수량(rsdl_qty)이 최우선 (당일 매도 체결 시 0으로 반영)
-                qty = None
-                if item.get("rsdl_qty") is not None and str(item.get("rsdl_qty")).strip() != "":
-                    qty = as_float(item.get("rsdl_qty"))
-                elif item.get("itg_bnc_qty") is not None:
-                    itg = as_float(item.get("itg_bnc_qty"))
-                    ny = as_float(item.get("ny_stl_qty", 0))
-                    qty = itg + ny if item.get("ny_stl_qty") is not None else itg
-                else:
-                    qty = as_float(item.get("hldg_qty") or item.get("qty", 0))
+                try:
+                    code = required_text(item, "iem_cd")
+                    if item.get("rsdl_qty") is not None and str(item.get("rsdl_qty")).strip() != "":
+                        qty = required_finite_number(item, "rsdl_qty")
+                    elif item.get("itg_bnc_qty") is not None and str(item.get("itg_bnc_qty")).strip() != "":
+                        qty = required_finite_number(item, "itg_bnc_qty")
+                        if item.get("ny_stl_qty") is not None:
+                            qty += optional_finite_number(item, "ny_stl_qty")
+                    elif item.get("hldg_qty") is not None and str(item.get("hldg_qty")).strip() != "":
+                        qty = required_finite_number(item, "hldg_qty")
+                    else:
+                        qty = required_finite_number(item, "qty")
+                except ValueError as exc:
+                    raise NhPlugOpenAPIError(f"나무증권 국내 보유종목 항목 형식이 올바르지 않습니다: {exc}") from exc
 
-                if qty is None or qty <= 0:
+                if qty <= 0:
                     continue
 
-                code = str(item.get("iem_cd", "")).strip()
                 name = str(item.get("iem_nm", "")).strip() or code
                 avg_price = as_float(item.get("phs_pr", 0))
                 current_price = as_float(item.get("now_pr", 0)) or avg_price
@@ -400,12 +431,18 @@ class NhPlugOpenAPI:
                     overseas_pages = await self._call_pages(
                         "/gbstock/inquiry/v1/balance",
                         {"act_no": account_no, "qut_iqr_dit_cd": "9", "fc_sec_trd_nat_cd": country_code, "cur_cd": "KRW", "xns_dit_cd": "1"},
+                        require_complete_scope=True,
                     )
                     overseas = overseas_pages[0]
-                    ov_out0 = overseas.get("Output_0") or {}
-                    overseas_items = [item for page in overseas_pages for item in (page.get("Output_1") or [])]
-                    if not isinstance(ov_out0, dict) or not isinstance(overseas_items, list):
+                    ov_out0 = overseas.get("Output_0")
+                    if not isinstance(ov_out0, dict):
                         raise NhPlugOpenAPIError("나무증권 해외 잔고 응답 형식이 올바르지 않습니다.")
+                    overseas_items: list[dict[str, Any]] = []
+                    for page in overseas_pages:
+                        if "Output_1" not in page or not isinstance(page.get("Output_1"), list):
+                            raise NhPlugOpenAPIError("나무증권 해외 잔고 응답의 Output_1 형식이 올바르지 않습니다.")
+                        overseas_items.extend(page["Output_1"])
+                    scopes.append(ProviderHoldingScope(account_no, market))
                     if currency == "USD":
                         for k in ("fc_dca", "fc_ny_stl_xcl_amt", "fc_aet_amt"):
                             val = ov_out0.get(k)
@@ -419,22 +456,27 @@ class NhPlugOpenAPI:
                     for item in overseas_items:
                         if not isinstance(item, dict):
                             raise NhPlugOpenAPIError("나무증권 해외 보유종목 항목 형식이 올바르지 않습니다.")
-                        ov_qty = None
-                        for k in ("cns_bse_bnc_qty", "fc_cns_bse_bnc_qty", "rsdl_qty"):
-                            if item.get(k) is not None and str(item.get(k)).strip() != "":
-                                ov_qty = as_float(item.get(k))
-                                break
-                        if ov_qty is None:
-                            if item.get("itg_bnc_qty") is not None:
-                                itg = as_float(item.get("itg_bnc_qty"))
-                                ny = as_float(item.get("ny_stl_qty") or item.get("fc_ny_stl_qty", 0))
-                                ov_qty = itg + ny if (item.get("ny_stl_qty") is not None or item.get("fc_ny_stl_qty") is not None) else itg
-                            else:
-                                ov_qty = as_float(item.get("hldg_qty") or item.get("qty", 0))
+                        try:
+                            ov_code = required_text(item, "iem_cd")
+                            ov_qty = None
+                            for key in ("cns_bse_bnc_qty", "fc_cns_bse_bnc_qty", "rsdl_qty"):
+                                if item.get(key) is not None and str(item.get(key)).strip() != "":
+                                    ov_qty = required_finite_number(item, key)
+                                    break
+                            if ov_qty is None and item.get("itg_bnc_qty") is not None and str(item.get("itg_bnc_qty")).strip() != "":
+                                ov_qty = required_finite_number(item, "itg_bnc_qty")
+                                if item.get("ny_stl_qty") is not None:
+                                    ov_qty += optional_finite_number(item, "ny_stl_qty")
+                                elif item.get("fc_ny_stl_qty") is not None:
+                                    ov_qty += optional_finite_number(item, "fc_ny_stl_qty")
+                            if ov_qty is None:
+                                key = "hldg_qty" if item.get("hldg_qty") is not None else "qty"
+                                ov_qty = required_finite_number(item, key)
+                        except ValueError as exc:
+                            raise NhPlugOpenAPIError(f"나무증권 해외 보유종목 항목 형식이 올바르지 않습니다: {exc}") from exc
 
-                        if ov_qty is None or ov_qty <= 0:
+                        if ov_qty <= 0:
                             continue
-                        ov_code = str(item.get("iem_cd", "")).strip()
                         ov_name = str(item.get("iem_nm") or item.get("oss_iem_eng_nm", "")).strip() or ov_code
                         ov_avg = as_float(item.get("fc_avg_phs_pr", 0))
                         ov_curr = as_float(item.get("fc_sec_end_pr", 0)) or ov_avg
@@ -460,4 +502,5 @@ class NhPlugOpenAPI:
                         raise
                     raise NhPlugOpenAPIError("나무증권 해외 잔고 처리 중 오류가 발생했습니다.") from e
 
-        return [record for record in records if record["code"] and record["quantity"] > 0]
+        normalized = [record for record in records if record["quantity"] > 0]
+        return BrokerHoldingsResult.authoritative_result(normalized, scopes, cash_valid=True)

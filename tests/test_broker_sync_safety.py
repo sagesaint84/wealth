@@ -11,6 +11,13 @@ from app.services.kis_openapi import KISOpenAPI, KISOpenAPIError
 from app.services.kiwoom_openapi import KiwoomOpenAPI, KiwoomOpenAPIError
 from app.services.nhplug_openapi import NhPlugOpenAPI, NhPlugOpenAPIError
 from app.services.toss_openapi import TossOpenAPI, TossOpenAPIError
+from app.services.broker_holdings_sync import (
+    ALL_MARKETS,
+    BrokerHoldingsResult,
+    DOMESTIC_MARKET,
+    OVERSEAS_MARKET,
+    ProviderHoldingScope,
+)
 from regression_support import authenticated_request, empty_portfolio, import_main_without_loading_real_env
 
 
@@ -215,7 +222,15 @@ class EndpointDataProtectionTests(unittest.IsolatedAsyncioTestCase):
 
         class ZeroKB:
             configured = True
-            async def sync_holdings(self): return []
+            async def sync_holdings(self):
+                return BrokerHoldingsResult.authoritative_result(
+                    [],
+                    (
+                        ProviderHoldingScope("kb_primary", DOMESTIC_MARKET),
+                        ProviderHoldingScope("kb_primary", OVERSEAS_MARKET),
+                    ),
+                    cash_valid=False,
+                )
             async def refresh_prices(self, holdings): return {}, []
 
         written = {}
@@ -223,7 +238,7 @@ class EndpointDataProtectionTests(unittest.IsolatedAsyncioTestCase):
              patch.object(main, "read_portfolio", return_value=deepcopy(data)), \
              patch.object(main, "write_portfolio", side_effect=lambda value, **_: written.update(value)):
             result = await main.sync_kb(authenticated_request())
-        self.assertEqual(result["status"], "SUCCESS")
+        self.assertEqual(result["status"], "CONFIRMED_EMPTY")
         self.assertEqual([h["id"] for h in written["holdings"]], ["other"])
         self.assertIn("kb", written["settings"]["sync_last_success"])
 
@@ -246,7 +261,11 @@ class EndpointDataProtectionTests(unittest.IsolatedAsyncioTestCase):
             configured = True
             last_accounts = [{"accountSeq": 7, "accountNo": "0000000007"}]
             async def sync_holdings(self):
-                return [{"account_key": "7", "account_name": "토스", "code": "QQQM", "name": "Synthetic", "quantity": 1, "currency": "USD"}]
+                return BrokerHoldingsResult.authoritative_result(
+                    [{"account_key": "7", "account_name": "토스", "code": "QQQM", "name": "Synthetic", "quantity": 1, "currency": "USD", "market": "TOSS_US"}],
+                    (ProviderHoldingScope("7", ALL_MARKETS),),
+                    cash_valid=False,
+                )
             async def get_buying_power(self, _):
                 raise TossOpenAPIError("synthetic cash failure")
 

@@ -14,6 +14,14 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.services.broker_holdings_sync import (
+    BrokerHoldingsResult,
+    DOMESTIC_MARKET,
+    ProviderHoldingScope,
+    optional_finite_number,
+    required_finite_number,
+    required_text,
+)
 from app.services.network_policy import require_external_network
 
 logger = logging.getLogger(__name__)
@@ -256,13 +264,16 @@ class KISOpenAPI:
 
         parsed_holdings: list[dict[str, Any]] = []
         for item in holdings:
-            hldg = as_float(item.get("hldg_qty", 0))
-            sll = as_float(item.get("thdt_sll_qty", 0))
+            try:
+                code = required_text(item, "pdno")
+                hldg = required_finite_number(item, "hldg_qty")
+                sll = optional_finite_number(item, "thdt_sll_qty")
+            except ValueError as exc:
+                raise KISOpenAPIError(f"한국투자증권 국내 보유종목 항목 형식이 올바르지 않습니다: {exc}") from exc
             qty = max(0.0, hldg - sll) if sll > 0 else hldg
             if qty <= 0:
                 continue
 
-            code = str(item.get("pdno", "")).strip()
             name = str(item.get("prdt_name", "")).strip() or code
             avg_price = as_float(item.get("pchs_avg_pric", 0))
             current_price = as_float(item.get("prpr", 0)) or avg_price
@@ -346,12 +357,15 @@ class KISOpenAPI:
         for item in raw_items:
             if not isinstance(item, dict):
                 raise KISOpenAPIError("한국투자증권 해외 보유종목 항목 형식이 올바르지 않습니다.")
-            ovrs_cblc = as_float(item.get("ovrs_cblc_qty", 0))
-            sll = as_float(item.get("thdt_sll_qty", 0))
+            try:
+                code = required_text(item, "ovrs_pdno")
+                ovrs_cblc = required_finite_number(item, "ovrs_cblc_qty")
+                sll = optional_finite_number(item, "thdt_sll_qty")
+            except ValueError as exc:
+                raise KISOpenAPIError(f"한국투자증권 해외 보유종목 항목 형식이 올바르지 않습니다: {exc}") from exc
             qty = max(0.0, ovrs_cblc - sll) if sll > 0 else ovrs_cblc
             if qty <= 0:
                 continue
-            code = str(item.get("ovrs_pdno", "")).strip()
             name = str(item.get("ovrs_item_name", "")).strip() or code
             avg_price = as_float(item.get("pchs_avg_pric", 0))
             current_price = as_float(item.get("now_pric2", 0)) or avg_price
@@ -376,7 +390,7 @@ class KISOpenAPI:
 
         return holdings, cash_usd
 
-    async def sync_holdings(self) -> list[dict[str, Any]]:
+    async def sync_holdings(self) -> BrokerHoldingsResult:
         require_external_network("KIS OpenAPI")
         """한국투자증권 국내 및 해외 주식 잔고와 예수금을 일괄 조회합니다."""
         if not self.configured:
@@ -407,8 +421,17 @@ class KISOpenAPI:
             self.account_cash = {
                 full_acc_no: {"KRW": cash_krw, "USD": cash_usd}
             }
+            for holding in all_holdings:
+                holding["account_number"] = full_acc_no
 
-            return all_holdings
+            return BrokerHoldingsResult.authoritative_result(
+                all_holdings,
+                (
+                    ProviderHoldingScope(full_acc_no, DOMESTIC_MARKET),
+                    ProviderHoldingScope(full_acc_no, "US"),
+                ),
+                cash_valid=True,
+            )
 
     async def fetch_domestic_period_trade_profit(
         self,

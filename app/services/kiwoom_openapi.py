@@ -16,6 +16,13 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.services.broker_holdings_sync import (
+    BrokerHoldingsResult,
+    DOMESTIC_MARKET,
+    ProviderHoldingScope,
+    required_finite_number,
+    required_text,
+)
 from app.services.network_policy import require_external_network
 
 
@@ -394,10 +401,13 @@ class KiwoomOpenAPI:
             raise KiwoomOpenAPIError("키움증권 예수금 응답에 entr가 없습니다.")
         holdings: list[dict[str, Any]] = []
         for item in rows:
-            qty = as_float(item.get("rmnd_qty"))
+            try:
+                raw_code = required_text(item, "stk_cd")
+                qty = required_finite_number(item, "rmnd_qty")
+            except ValueError as exc:
+                raise KiwoomOpenAPIError(f"키움증권 보유종목 항목 형식이 올바르지 않습니다: {exc}") from exc
             if qty <= 0:
                 continue
-            raw_code = str(item.get("stk_cd", "")).strip()
             code = raw_code[1:] if len(raw_code) == 7 and raw_code[0] in {"A", "J", "Q"} else raw_code
             if not code:
                 raise KiwoomOpenAPIError("키움증권 보유종목 응답에 종목코드가 없습니다.")
@@ -408,7 +418,7 @@ class KiwoomOpenAPI:
             })
         return holdings, as_float(deposit["entr"])
 
-    async def sync_holdings(self) -> list[dict[str, Any]]:
+    async def sync_holdings(self) -> BrokerHoldingsResult:
         require_external_network("Kiwoom OpenAPI")
         if not self.configured:
             raise KiwoomOpenAPIError("키움증권 AppKey/AppSecret이 설정되지 않았습니다.")
@@ -421,4 +431,8 @@ class KiwoomOpenAPI:
         self.account_cash = {account_no: {"KRW": cash_krw}}
         for holding in holdings:
             holding["account_number"] = account_no
-        return holdings
+        return BrokerHoldingsResult.authoritative_result(
+            holdings,
+            (ProviderHoldingScope(account_no, DOMESTIC_MARKET),),
+            cash_valid=True,
+        )
