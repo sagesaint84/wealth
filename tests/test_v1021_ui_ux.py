@@ -7,9 +7,10 @@ CSS = (ROOT / "app/static/wealth-layout.css").read_text(encoding="utf-8")
 HTML = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
 
 
-def test_quick_access_order_and_routes():
-    assert LAYOUT.index('<strong>주식 투자</strong>') < LAYOUT.index('<strong>자산 계좌</strong>') < LAYOUT.index('<strong>손익·배당</strong>') < LAYOUT.index('<strong>가계부</strong>')
-    assert 'href="#invest"' in LAYOUT and 'href="#assets"' in LAYOUT and 'href="#income"' in LAYOUT and 'href="#ledger"' in LAYOUT
+def test_quick_access_removed_and_routes_preserved():
+    assert 'wealth-shortcuts' not in LAYOUT
+    assert 'wealth-home-secondary' not in LAYOUT
+    assert 'href="#invest"' in LAYOUT and 'href="#assets"' in LAYOUT and 'href="#income"' in LAYOUT
 
 
 def test_home_summary_is_non_visual_legacy_and_portfolio_prominent():
@@ -18,7 +19,8 @@ def test_home_summary_is_non_visual_legacy_and_portfolio_prominent():
 
 
 def test_home_kpi_secondary_rows_simplified():
-    assert "['수익률', 'wealthAssetExpectedRate'" in LAYOUT
+    assert "['부동산 기대수익', 'wealthAssetPropertyExpected'" in LAYOUT
+    assert "['주식 기대수익', 'wealthAssetStockExpected'" in LAYOUT
     assert "['일간 수익', 'wealthAssetDayDetail'" not in LAYOUT
     assert "['연간', 'wealthAssetYearDetail'" not in LAYOUT
     assert "['월간', 'wealthAssetMonthDetail'" not in LAYOUT

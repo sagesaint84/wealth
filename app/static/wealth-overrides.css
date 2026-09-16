@@ -972,8 +972,7 @@
 
 /* ── 탭 버튼 규격 표준화 (높이 29px, 글자 11.5px, 둥글기 7px) ───────────── */
 .family-tab,
-.heatmap-tab,
-.account-cat-tab {
+.heatmap-tab {
   height: 29px !important;
   min-height: 29px !important;
   padding: 0 9px !important;
@@ -3192,8 +3191,6 @@ dialog.dialog .dialog-actions {
   border: 1px solid #27365c;
   border-radius: 7px;
   padding: 6px 13px;
-  font-size: 12.5px;
-  font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
 }

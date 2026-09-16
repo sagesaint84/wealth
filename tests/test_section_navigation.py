@@ -29,7 +29,7 @@ class SectionNavigationTests(unittest.TestCase):
     def test_income_tabs_are_siblings_of_content_panels(self):
         self.assertNotIn('id="incomeTabs"', self.html)
         tabs_move = self.layout_js.index("page('income').append(incomeTabs)")
-        pnl_move = self.layout_js.index("['realizedPnlPanel', 'dividendPanel']")
+        pnl_move = self.layout_js.index("['realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel']")
         self.assertLess(tabs_move, pnl_move)
         self.assertNotIn("realizedPnlPanel.append", self.layout_js)
         self.assertNotIn("dividendPanel.append", self.layout_js)
@@ -37,8 +37,10 @@ class SectionNavigationTests(unittest.TestCase):
     def test_income_tabs_toggle_existing_panels(self):
         self.assertIn('data-income="pnl"', self.layout_js)
         self.assertIn('data-income="dividend"', self.layout_js)
+        self.assertIn('data-income="ledger"', self.layout_js)
         self.assertIn("realizedPnlPanel", self.js)
         self.assertIn("dividendPanel", self.js)
+        self.assertIn("ledgerSectionPanel", self.js)
         self.assertIn("wealth-income-hidden", self.css)
 
     def test_shared_section_tab_visual_language_and_mobile_overflow(self):

@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {bucketTotals,historyView} = require('../app/static/wealth-planning-model.js');
+const {bucketTotals,bucketAllocationComparison,historyView} = require('../app/static/wealth-planning-model.js');
 const state = {buckets:[{id:'growth'},{id:'income'}],accounts:{a:'growth',b:'income'},holdings:{h1:'income',h2:''}};
 const view = {accounts:[{id:'a',cash_krw:100,cash_usd:1},{id:'b',cash_krw:200}],fxRates:{USD:1300},
   holdings:[{id:'h1',account_id:'a',code:'SAME',market_value_krw:500},{id:'h2',account_id:'b',code:'SAME',market_value_krw:800}]};
@@ -20,6 +20,30 @@ test('missing USD FX blocks totals rather than treating foreign cash as zero',()
 });
 test('calculation does not mutate account, holding or classification data',()=>{
   const before=JSON.stringify({state,view});bucketTotals(state,view);assert.equal(JSON.stringify({state,view}),before);
+});
+test('target allocation stays user-defined and fills only the unallocated remainder',()=>{
+  const configured={...state,buckets:[{id:'growth',name:'성장',target:60},{id:'income',name:'배당',target:20}]};
+  const result=bucketAllocationComparison(configured,view);
+  assert.equal(result.targetConfigured,true);assert.equal(result.targetTotal,80);
+  assert.deepEqual(result.target.map(item=>[item.name,item.value]),[['성장',60],['배당',20],['미배정',20]]);
+  assert.equal(result.target.reduce((sum,item)=>sum+item.value,0),100);
+});
+test('current allocation preserves the existing total and includes unclassified assets',()=>{
+  const configured={...state,buckets:[{id:'growth',name:'성장',target:60},{id:'income',name:'배당',target:40}]};
+  const result=bucketAllocationComparison(configured,view);
+  assert.equal(result.total,2900);
+  assert.equal(result.current.find(item=>item.name==='미분류').value,800);
+  assert.equal(Math.round(result.current.reduce((sum,item)=>sum+item.percent,0)*1e9)/1e9,100);
+});
+test('zero targets remain an unconfigured target rather than fabricated allocation',()=>{
+  const result=bucketAllocationComparison({buckets:[{id:'growth',name:'성장',target:0}],accounts:{},holdings:{}},view);
+  assert.equal(result.targetConfigured,false);assert.deepEqual(result.target,[]);
+});
+test('owner scope changes current allocation without rewriting global targets',()=>{
+  const configured={...state,buckets:[{id:'growth',name:'성장',target:55},{id:'income',name:'배당',target:45}]};
+  const all=bucketAllocationComparison(configured,view);
+  const owner=bucketAllocationComparison(configured,{...view,accounts:[view.accounts[0]]});
+  assert.deepEqual(owner.target,all.target);assert.equal(owner.total,1900);assert.notDeepEqual(owner.current,all.current);
 });
 
 test('history empty state disables selection actions',()=>{

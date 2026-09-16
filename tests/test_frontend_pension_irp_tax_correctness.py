@@ -92,6 +92,49 @@ process.stdout.write(JSON.stringify(result));
                 ])
                 self.assertEqual(result["current"]["eligibleContribution"], expected)
 
+    def test_account_allocations_reconcile_for_required_owner_cases(self) -> None:
+        scenarios = {
+            "pension-only": [self.account("p", "A", "pension_savings", 4_000_000)],
+            "irp-only": [self.account("i", "A", "irp", 9_000_000)],
+            "combined-below": [
+                self.account("p", "A", "pension_savings", 4_000_000),
+                self.account("i", "A", "irp", 2_000_000),
+            ],
+            "combined-over": [
+                self.account("p", "A", "pension_savings", 6_000_000),
+                self.account("i", "A", "irp", 9_000_000),
+            ],
+            "multiple-pension": [
+                self.account("p1", "A", "pension_savings", 4_000_000),
+                self.account("p2", "A", "pension_savings", 4_000_000),
+            ],
+            "multiple-irp": [
+                self.account("i1", "A", "irp", 6_000_000),
+                self.account("i2", "A", "irp", 6_000_000),
+            ],
+            "deductible-and-nondeductible": [
+                self.account("p1", "A", "pension_savings", 6_000_000),
+                self.account("p2", "A", "pension_savings_non_deductible", 10_000_000),
+                self.account("i", "A", "irp", 3_000_000),
+            ],
+            "different-owners": [
+                self.account("pa", "A", "pension_savings", 6_000_000),
+                self.account("ia", "A", "irp", 9_000_000),
+                self.account("pb", "B", "pension_savings", 6_000_000),
+                self.account("ib", "B", "irp", 9_000_000),
+            ],
+        }
+        for name, accounts in scenarios.items():
+            with self.subTest(name=name):
+                frontend = self.run_frontend(accounts)
+                by_account = frontend["cumulative"]["byAccount"]
+                allocated_sum = sum(item["taxSaved"] for item in by_account.values())
+                self.assertEqual(allocated_sum, frontend["cumulative"]["taxSaved"])
+                for owner, owner_totals in frontend["cumulative"]["byOwner"].items():
+                    owner_ids = {str(account["id"]) for account in accounts if str(account.get("owner") or "모두") == owner}
+                    owner_allocated = sum(by_account.get(account_id, {}).get("taxSaved", 0) for account_id in owner_ids)
+                    self.assertEqual(owner_allocated, owner_totals["taxSaved"])
+
     def test_multiple_accounts_aggregate_before_category_and_combined_caps(self) -> None:
         result = self.run_frontend([
             self.account("pension-1", "A", "pension_savings", 4_000_000),
@@ -196,6 +239,15 @@ process.stdout.write(JSON.stringify(result));
         self.assertEqual(frontend["current"]["eligibleContribution"], backend_current_eligible)
         self.assertEqual(frontend["current"]["taxSaved"], backend_current_saved)
         self.assertEqual(frontend["cumulative"]["taxSaved"], backend["grand_total_cumulative_tax_benefit"])
+        backend_by_account = {
+            str(item["id"]): item["benefit"]["cumulative_tax_saved"]
+            for item in backend["pension_irp"]["items"]
+        }
+        frontend_by_account = {
+            account_id: item["taxSaved"]
+            for account_id, item in frontend["cumulative"]["byAccount"].items()
+        }
+        self.assertEqual(frontend_by_account, backend_by_account)
 
     def test_frontend_yearly_history_matches_backend_owner_year_allocation(self) -> None:
         accounts = [

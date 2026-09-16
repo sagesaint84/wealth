@@ -1212,6 +1212,8 @@ function renderSummary(data) {
   const stockPurchaseCost = Math.max(0, totalStockVal - (Number(s.profit_krw) || 0));
   const totalCombinedCost = stockPurchaseCost + totalREPurchaseVal;
   const combinedReturnRate = totalCombinedCost > 0 ? ((totalExpectedProfit / totalCombinedCost) * 100) : 0;
+  // Reuse the same property return rule already shown by the real-estate view.
+  const realEstateReturnRate = totalREPurchaseVal > 0 ? (totalREProfit / totalREPurchaseVal) * 100 : 0;
 
   const isStockTab = (STOCK_PORTFOLIO_MODE === 'sector');
 
@@ -1414,6 +1416,8 @@ function renderSummary(data) {
   window.dispatchEvent(new CustomEvent('wealth:summary', { detail: {
     owner: o, netWorth, debt: totalAllDebt, cash: totalAllCash,
     invest: totalInvestAssets, expected: totalExpectedProfit, expectedRate: combinedReturnRate,
+    propertyExpected: totalREProfit, propertyExpectedRate: realEstateReturnRate,
+    stockExpected: Number(s.profit_krw) || 0, stockExpectedRate: Number(s.return_rate) || 0,
     realized: combinedRealizedKrw, safe: totalSafeAssets,
     stock: totalStockVal, property: totalREInvestEquity,
     deposits: totalTenantDepositVal, insurance: insuranceTotal,
@@ -1677,12 +1681,13 @@ function renderAccounts(items) {
         const dep = Number(account.annual_deposit) || 0;
         const ownerKey = String(account.owner || "모두");
         const currentSaved = accountTaxBenefits.current.byOwner[ownerKey]?.taxSaved || 0;
-        const cumSaved = accountTaxBenefits.cumulative.byOwner[ownerKey]?.taxSaved || 0;
+        const accountKey = String(account.id || '');
+        const cumSaved = accountTaxBenefits.cumulative.byAccount[accountKey]?.taxSaved || 0;
         if (!isTaxDeductible) {
           taxBenefitBox = `
             <div style="margin-top:5px;display:inline-flex;align-items:center;gap:6px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.35);border-radius:6px;padding:3px 8px;font-size:11.5px;color:#34d399;font-weight:600;">
               <span>🌿 비공제 계좌</span>
-              <span style="color:#cbd5e1;font-weight:normal;">(납입 ₩${number(dep, 0)} · 원금 비과세 인출 대상${cumSaved > 0 ? ` · 누적 절세 <strong style="color:#4ade80;">+₩${number(cumSaved, 0)}</strong>` : ''})</span>
+              <span style="color:#cbd5e1;font-weight:normal;">(납입 ₩${number(dep, 0)} · 원금 비과세 인출 대상)</span>
             </div>
           `;
         } else {
@@ -2566,24 +2571,31 @@ function openIntegratedBankDialog() {
 let rawInsuranceAccounts = [];
 let currentAccountCategory = 'securities'; // 'securities' | 'banking' | 'insurance'
 
-// 손익·배당은 기존 두 panel과 renderer를 공유하며 화면만 전환합니다.
+// 머니 로그는 기존 세 panel과 renderer를 공유하며 화면만 전환합니다.
 let currentIncomeTab = 'pnl';
-function setIncomeTab(tab) {
-  currentIncomeTab = tab === 'dividend' ? 'dividend' : 'pnl';
+function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
+  currentIncomeTab = ['pnl', 'dividend', 'ledger'].includes(tab) ? tab : 'pnl';
   document.getElementById('realizedPnlPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'pnl');
   document.getElementById('dividendPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'dividend');
+  document.getElementById('ledgerSectionPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'ledger');
   document.querySelectorAll('#incomeTabs .income-tab').forEach(button => {
     const active = button.dataset.income === currentIncomeTab;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   });
+  if (updateHash) {
+    const hash = currentIncomeTab === 'pnl' ? '#income' : `#${currentIncomeTab}`;
+    history.replaceState(null, '', hash);
+  }
+  if (loadContent && currentIncomeTab === 'ledger' && currentUserProfile && currentUserProfile.username !== 'admin') loadLedger();
 }
+window.setIncomeTab = setIncomeTab;
 
 document.getElementById('incomeTabs')?.addEventListener('click', event => {
   const tab = event.target.closest('.income-tab');
   if (tab) setIncomeTab(tab.dataset.income);
 });
-setIncomeTab('pnl');
+setIncomeTab(document.querySelector('.wealth-workspace')?.dataset.incomeTab || (location.hash === '#ledger' ? 'ledger' : 'pnl'), { updateHash: false, loadContent: false });
 
 const INSURANCE_TYPE_LABELS = {
   protection: "보장성보험",
@@ -4980,6 +4992,7 @@ function calculateOwnerYearPensionTaxBenefits(accounts) {
     const totals = emptyTotals();
     const byOwner = {};
     const byOwnerYear = {};
+    const byAccount = {};
     const grouped = new Map();
     entries.forEach(entry => {
       const key = `${entry.owner}\u0000${entry.year}`;
@@ -5001,14 +5014,22 @@ function calculateOwnerYearPensionTaxBenefits(accounts) {
           }
           combinedRemaining -= eligible;
           const saved = Math.floor(eligible * entry.rate);
+          if (!byAccount[entry.accountKey]) byAccount[entry.accountKey] = emptyTotals();
+          const accountTotals = byAccount[entry.accountKey];
           groupTotals.eligibleContribution += eligible;
           groupTotals.taxSaved += saved;
+          accountTotals.eligibleContribution += eligible;
+          accountTotals.taxSaved += saved;
           if (category === 'pension_savings') {
             groupTotals.pensionEligibleContribution += eligible;
             groupTotals.pensionTaxSaved += saved;
+            accountTotals.pensionEligibleContribution += eligible;
+            accountTotals.pensionTaxSaved += saved;
           } else {
             groupTotals.irpEligibleContribution += eligible;
             groupTotals.irpTaxSaved += saved;
+            accountTotals.irpEligibleContribution += eligible;
+            accountTotals.irpTaxSaved += saved;
           }
         });
       }
@@ -5022,7 +5043,7 @@ function calculateOwnerYearPensionTaxBenefits(accounts) {
       byOwner[first.owner] = ownerTotals;
       byOwnerYear[`${first.owner}\u0000${first.year}`] = groupTotals;
     });
-    return { ...totals, byOwner, byOwnerYear };
+    return { ...totals, byOwner, byOwnerYear, byAccount };
   };
 
   const currentEntries = [];
@@ -5033,8 +5054,11 @@ function calculateOwnerYearPensionTaxBenefits(accounts) {
   const cumulativeIsaByOwner = {};
   const currentIsaTargetByOwner = {};
   const cumulativeIsaTargetByOwner = {};
+  const currentIsaByAccount = {};
+  const cumulativeIsaByAccount = {};
 
   pensionAccounts.forEach(account => {
+    const accountKey = String(account.id || '');
     const owner = String(account.owner || '모두');
     const category = getTaxCategory(account);
     const defaultIncomeLevel = account.income_level === 'high' ? 'high' : 'low';
@@ -5045,6 +5069,7 @@ function calculateOwnerYearPensionTaxBenefits(accounts) {
       currentEntries.push({
         owner,
         year: currentYear,
+        accountKey,
         category,
         deposit: safeAmount(account.annual_deposit),
         rate: currentRate,
@@ -5056,6 +5081,11 @@ function calculateOwnerYearPensionTaxBenefits(accounts) {
     currentIsaByCategory[category] += currentIsaSaved;
     currentIsaByOwner[owner] = (currentIsaByOwner[owner] || 0) + currentIsaSaved;
     currentIsaTargetByOwner[owner] = (currentIsaTargetByOwner[owner] || 0) + isaTarget;
+    currentIsaByAccount[accountKey] = {
+      category,
+      saved: (currentIsaByAccount[accountKey]?.saved || 0) + currentIsaSaved,
+      target: (currentIsaByAccount[accountKey]?.target || 0) + isaTarget,
+    };
 
     const yearly = Array.isArray(account.yearly_contributions) ? account.yearly_contributions : [];
     if (yearly.length > 0) {
@@ -5065,6 +5095,7 @@ function calculateOwnerYearPensionTaxBenefits(accounts) {
         cumulativeEntries.push({
           owner,
           year: String(contribution.year || '').trim(),
+          accountKey,
           category,
           deposit: safeAmount(contribution.deposit),
           rate: rateFor(contribution.income_level, defaultIncomeLevel),
@@ -5075,6 +5106,7 @@ function calculateOwnerYearPensionTaxBenefits(accounts) {
         cumulativeEntries.push({
           owner,
           year: currentYear,
+          accountKey,
           category,
           deposit: safeAmount(account.annual_deposit),
           rate: currentRate,
@@ -5083,12 +5115,17 @@ function calculateOwnerYearPensionTaxBenefits(accounts) {
       cumulativeIsaByCategory[category] += currentIsaSaved;
       cumulativeIsaByOwner[owner] = (cumulativeIsaByOwner[owner] || 0) + currentIsaSaved;
       cumulativeIsaTargetByOwner[owner] = (cumulativeIsaTargetByOwner[owner] || 0) + isaTarget;
+      cumulativeIsaByAccount[accountKey] = {
+        category,
+        saved: (cumulativeIsaByAccount[accountKey]?.saved || 0) + currentIsaSaved,
+        target: (cumulativeIsaByAccount[accountKey]?.target || 0) + isaTarget,
+      };
     }
   });
 
   const current = allocate(currentEntries);
   const cumulative = allocate(cumulativeEntries);
-  const addIsa = (result, byCategory, byOwner, targetByOwner) => {
+  const addIsa = (result, byCategory, byOwner, targetByOwner, byAccount) => {
     result.pensionTaxSaved += byCategory.pension_savings;
     result.irpTaxSaved += byCategory.irp;
     result.taxSaved += byCategory.pension_savings + byCategory.irp;
@@ -5101,9 +5138,20 @@ function calculateOwnerYearPensionTaxBenefits(accounts) {
       result.isaDeductionTarget += target;
       result.byOwner[owner].isaDeductionTarget += target;
     });
+    Object.entries(byAccount).forEach(([accountKey, allocation]) => {
+      if (!result.byAccount[accountKey]) result.byAccount[accountKey] = emptyTotals();
+      const accountTotals = result.byAccount[accountKey];
+      accountTotals.isaDeductionTarget += allocation.target;
+      accountTotals.taxSaved += allocation.saved;
+      if (allocation.category === 'pension_savings') {
+        accountTotals.pensionTaxSaved += allocation.saved;
+      } else {
+        accountTotals.irpTaxSaved += allocation.saved;
+      }
+    });
   };
-  addIsa(current, currentIsaByCategory, currentIsaByOwner, currentIsaTargetByOwner);
-  addIsa(cumulative, cumulativeIsaByCategory, cumulativeIsaByOwner, cumulativeIsaTargetByOwner);
+  addIsa(current, currentIsaByCategory, currentIsaByOwner, currentIsaTargetByOwner, currentIsaByAccount);
+  addIsa(cumulative, cumulativeIsaByCategory, cumulativeIsaByOwner, cumulativeIsaTargetByOwner, cumulativeIsaByAccount);
 
   return { current, cumulative };
 }
@@ -14940,4 +14988,7 @@ if (document.readyState === 'loading') {
 window.addEventListener('wealth:view', ({ detail }) => {
   if (detail === 'invest' && dashboard) requestAnimationFrame(() => renderHeatmaps(dashboard));
   if (detail === 'ledger' && currentUserProfile && currentUserProfile.username !== 'admin') loadLedger();
+});
+window.addEventListener('wealth:role', ({ detail }) => {
+  if (!detail.isAdminUser && currentIncomeTab === 'ledger') loadLedger();
 });

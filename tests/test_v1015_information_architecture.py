@@ -13,7 +13,7 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
         cls.html = (root / "app/static/index.html").read_text(encoding="utf-8")
 
     def test_stock_page_is_named_stock_status_and_toggle_removed(self):
-        self.assertIn("invest: ['투자', '주식 현황'", self.layout)
+        self.assertIn("invest: ['주식 투자', '주식 현황'", self.layout)
         self.assertNotIn('id="allocTabs"', self.html)
         self.assertIn("const STOCK_PORTFOLIO_MODE = 'sector'", self.js)
         self.assertNotIn("currentAllocTab", self.js)
@@ -24,8 +24,8 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
         home_end = self.layout.index('${Object.keys(views)', home_start)
         home = self.layout[home_start:home_end]
         self.assertLess(home.index('class="wealth-home-grid"'), home.index('id="homeAssetPortfolioPanel"'))
-        self.assertLess(home.index('id="homeAssetPortfolioPanel"'), home.index('class="wealth-home-secondary"'))
-        self.assertIn("home.querySelector('.wealth-home-secondary').before(historyPanel)", self.planning)
+        self.assertLess(home.index('id="homeAssetPortfolioPanel"'), home.index('id="wealthMarketSlot"'))
+        self.assertIn("(home.querySelector('#wealthMarketSlot') || home).before(historyPanel)", self.planning)
         for metric in ("wealthAssetNetWorth", "wealthAssetInvest", "wealthAssetExpected", "wealthAssetRealized", "wealthAssetSafe"):
             self.assertIn(metric, self.layout)
         for detail in (
@@ -62,7 +62,7 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
 
     def test_home_allocation_keeps_legacy_asset_details(self):
         for label in (
-            "부동산 순에퀴티", "은행 예수금 포함", "예상 수령액/해약환급금",
+            "부동산 순자산", "은행 예수금 포함", "예상 수령액/해약환급금",
             "holding_count", "return_rate", "market_value_krw",
         ):
             self.assertIn(label, self.layout)

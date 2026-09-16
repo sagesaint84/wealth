@@ -23,13 +23,45 @@
     });
     return { totals, total: [...totals.values()].reduce((a, b) => a + b, 0) };
   }
+  function bucketAllocationComparison(state, view) {
+    const { totals, total } = bucketTotals(state, view);
+    const buckets = state.buckets.map(bucket => ({
+      id: String(bucket.id),
+      name: String(bucket.name || ''),
+      purpose: String(bucket.purpose || ''),
+      target: Number(bucket.target || 0),
+      value: totals.get(bucket.id) || 0,
+    }));
+    const targetTotal = buckets.reduce((sum, bucket) => sum + bucket.target, 0);
+    const targetConfigured = targetTotal > 0;
+    const target = targetConfigured ? buckets.map(bucket => ({
+      id: bucket.id, name: bucket.name, value: bucket.target,
+    })) : [];
+    if (targetConfigured && targetTotal < 100) {
+      target.push({ id: '__unallocated__', name: '미배정', value: 100 - targetTotal });
+    }
+    const current = buckets.map(bucket => ({
+      id: bucket.id,
+      name: bucket.name,
+      value: bucket.value,
+      percent: total > 0 ? bucket.value / total * 100 : 0,
+    }));
+    const unclassified = totals.get('') || 0;
+    current.push({
+      id: '__unclassified__',
+      name: '미분류',
+      value: unclassified,
+      percent: total > 0 ? unclassified / total * 100 : 0,
+    });
+    return { buckets, current, target, total, targetTotal, targetConfigured };
+  }
   function historyView(history, owner, days, selectedDate, now=Date.now()) {
     const cutoff=now-days*86400000;
     const records=history.filter(r=>r.owner===owner && (!days || Date.parse(r.date+'T23:59:59+09:00')>=cutoff)).sort((a,b)=>a.date.localeCompare(b.date));
     const selected=records.find(r=>r.date===selectedDate) || records.at(-1) || null;
     return {records,selectedDate:selected?.date || '',canEdit:!!selected};
   }
-  const model = { bucketTotals, historyView };
+  const model = { bucketTotals, bucketAllocationComparison, historyView };
   if (typeof module !== 'undefined' && module.exports) module.exports = model;
   else root.WealthPlanningModel = model;
 })(typeof window !== 'undefined' ? window : this);

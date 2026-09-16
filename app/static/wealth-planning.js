@@ -6,6 +6,12 @@
   if (!home || !invest) return;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const won = value => `${Math.round(value).toLocaleString('ko-KR')}원`;
+  const BUCKET_PRESETS = [
+    ['코어','장기 핵심 자산'], ['성장','성장 중심 자산'], ['배당','배당과 현금흐름 자산'],
+    ['섹터','산업군 중심 자산'], ['테마','테마 중심 자산'], ['전술','전술적 운용 자산'],
+    ['방어','변동성 방어 자산'], ['현금','투자 대기 자금'],
+  ];
+  const BUCKET_COLORS = ['#788cf0','#61b9a9','#d19a66','#a886db','#cf788b','#6da2c9','#9aa66c','#b68463'];
   let state = null, summary = null, portfolioView = null, editorView = null, editorRevision = null, range = '1Y', dirty = false, syncBlocked = false;
   window.addEventListener('beforeunload', e => { if(dirty || editingRecord) { e.preventDefault(); e.returnValue = ''; } });
   const historyPanel = document.createElement('article');
@@ -13,8 +19,8 @@
   historyPanel.innerHTML = `<div class="wealth-section-heading wealth-history-heading"><div><p class="wealth-eyebrow">NET WORTH HISTORY</p><h3>순자산 추이</h3><p class="wealth-history-description">확인해 저장한 날짜별 순자산 기록입니다.</p></div></div>
     <p class="wealth-help wealth-history-help">자금 입출금·자산 등록도 반영되므로 투자수익률과는 다릅니다.</p>
     <div class="wealth-periods compact-record-tabs" aria-label="순자산 조회 기간"><button type="button" class="heatmap-tab" data-period="1D">일간</button><button type="button" class="heatmap-tab" data-period="1W">주간</button><button type="button" class="heatmap-tab" data-period="1M">월간</button><button type="button" class="heatmap-tab active" data-period="1Y">연간</button><button type="button" class="heatmap-tab" data-period="ALL">전체</button></div>
-    <p id="wealthHistoryStatus" class="wealth-help" role="status">기록을 불러오는 중입니다.</p><div id="wealthHistorySummary" class="wealth-history-summary" aria-label="순자산 요약"></div><div id="wealthHistoryPlot"></div><details id="wealthHistoryDetails" class="wealth-history-details"></details>`;
-  home.querySelector('.wealth-home-secondary').before(historyPanel);
+    <p id="wealthHistoryStatus" class="wealth-help" role="status">기록을 불러오는 중입니다.</p><div id="wealthHistorySummary" class="wealth-history-summary" aria-label="순자산 요약"></div><div class="wealth-history-main"><div id="wealthHistoryPlot"></div><details id="wealthHistoryDetails" class="wealth-history-details" open></details></div>`;
+  (home.querySelector('#wealthMarketSlot') || home).before(historyPanel);
   const historyManager = document.createElement('div');
   historyManager.className='wealth-history-selection';
   historyManager.innerHTML='<p id="wealthHistoryEditStatus" class="wealth-help" role="status"></p>';
@@ -94,11 +100,11 @@
   const bucketPanel = document.createElement('article');
   bucketPanel.className = 'wealth-bucket-panel wealth-composition';
   bucketPanel.innerHTML = `<h3>전략 버킷</h3><p class="wealth-help">증권 보유종목과 예수금을 목적별로 관리합니다. 계좌 기본 분류보다 보유내역별 예외가 우선하며, 같은 종목도 계좌별로 구분됩니다. 미분류도 전체 비중에 포함됩니다. 목표는 사용자 공통 설정이며 현재 비중은 선택한 가족 범위 기준입니다.</p><div id="wealthBucketSummary"></div>
-    <details id="wealthBucketEditor"><summary>버킷과 분류 관리</summary><form id="wealthBucketForm"><div id="wealthBucketRows"></div><button id="wealthAddBucket" type="button" class="button secondary">버킷 추가</button><h4>계좌별 기본 버킷</h4><div id="wealthAccountAssignments"></div><h4>보유내역별 예외</h4><p class="wealth-help">동기화로 보유내역 ID가 바뀌면 기존 예외를 자동 추정하지 않습니다. 분류를 다시 확인하세요.</p><div id="wealthHoldingAssignments"></div><div class="wealth-editor-actions"><button type="submit" class="button primary">분류 저장</button><button type="button" id="wealthReloadPlanning" class="button secondary">다시 불러오기</button></div></form></details><p id="wealthBucketStatus" class="wealth-help" role="status"></p>`;
+    <details id="wealthBucketEditor"><summary>버킷과 분류 관리</summary><form id="wealthBucketForm"><div class="wealth-bucket-presets"><strong>추천 버킷</strong><p class="wealth-help">필요한 항목만 선택하세요. 저장 전에는 실제 분류가 변경되지 않습니다.</p><div id="wealthBucketPresetButtons" class="wealth-bucket-preset-buttons"></div></div><div id="wealthBucketRows"></div><button id="wealthAddBucket" type="button" class="button secondary">+ 사용자 정의 버킷</button><p id="wealthBucketTargetStatus" class="wealth-bucket-target-status" role="status"></p><h4>계좌별 기본 버킷</h4><div id="wealthAccountAssignments"></div><h4>보유내역별 예외</h4><p class="wealth-help">동기화로 보유내역 ID가 바뀌면 기존 예외를 자동 추정하지 않습니다. 분류를 다시 확인하세요.</p><div id="wealthHoldingAssignments"></div><div class="wealth-editor-actions"><button type="submit" class="button primary">분류 저장</button><button type="button" id="wealthReloadPlanning" class="button secondary">다시 불러오기</button></div></form></details><p id="wealthBucketStatus" class="wealth-help" role="status"></p>`;
   invest.append(bucketPanel);
   const nav = document.createElement('div'); nav.className = 'wealth-invest-tabs';
   nav.setAttribute('aria-label','투자 화면 선택');
-  nav.innerHTML = '<button type="button" data-invest="overview" aria-pressed="true">포트폴리오</button><button type="button" data-invest="heatmap">히트맵</button><button type="button" data-invest="records">주식기록</button><button type="button" data-invest="buckets">전략 버킷</button><button type="button" data-invest="tax_accounts">절세계좌</button><button type="button" data-invest="holdings">보유종목</button>';
+  nav.innerHTML = '<button type="button" data-invest="overview" aria-pressed="true">📊 포트폴리오</button><button type="button" data-invest="heatmap">🗺️ 히트맵</button><button type="button" data-invest="records">🗓️ 주식기록</button><button type="button" data-invest="buckets">🎯 전략 버킷</button><button type="button" data-invest="tax_accounts">🧾 절세계좌</button><button type="button" data-invest="holdings">📋 보유종목</button>';
   invest.prepend(nav);
   function selectTab(tab) {
     ['summaryPanel','assetHeatmapPanel','holdingsPanel'].forEach(id => document.getElementById(id).classList.toggle('wealth-invest-hidden', !((tab === 'overview' && id === 'summaryPanel') || (tab === 'heatmap' && id === 'assetHeatmapPanel') || (tab === 'holdings' && id === 'holdingsPanel'))));
@@ -150,17 +156,39 @@
     summaryBox.innerHTML=`<div><span>기간 시작</span><strong>${won(firstValue)}</strong></div><div><span>최근 기록</span><strong>${won(latestValue)}</strong></div><div><span>최저 / 최고</span><strong>${won(minValue)} · ${won(maxValue)}</strong></div><div><span>기간 증감</span><strong class="${latestValue-firstValue >= 0 ? 'is-positive' : 'is-negative'}">${latestValue-firstValue >= 0 ? '+' : ''}${won(latestValue-firstValue)}</strong></div>`;
     const lo=Math.min(...values), hi=Math.max(...values), span=hi-lo || Math.max(Math.abs(hi)*0.05,1);
     const first=Date.parse(records[0].date), duration=Date.parse(records.at(-1).date)-first || 1;
-    const width=Math.max(plot.clientWidth || 800,250), left=16, right=width-16, lineTop=28, lineBottom=125, barBaseline=205;
+    const containerWidth = plot.clientWidth || 800;
+    const width = containerWidth;
+    const pad = Math.max(48, Math.min(64, Math.round(width * 0.06)));
+    const left = pad, right = width - pad, lineTop = 48, lineBottom = 137, barBaseline = 202;
     const points=records.map(r=>[records.length === 1 ? width/2 : left+(Date.parse(r.date)-first)/duration*(right-left), lineBottom-(r.net_worth-lo)/span*(lineBottom-lineTop)]);
     const deltas=records.map((r,i)=>i ? (Number(r.net_worth)||0)-(Number(records[i-1].net_worth)||0) : 0), maxDelta=Math.max(...deltas.map(v=>Math.abs(v)),1);
-    const barWidth=Math.max(6,Math.min(24,(right-left)/Math.max(records.length*2,1)));
+    const barWidth=Math.max(3,Math.min(24,(right-left)/Math.max(records.length*2,1)));
     const bars=records.map((r,i)=>{if(!i || !deltas[i])return '';const height=Math.abs(deltas[i])/maxDelta*42, y=deltas[i]>0?barBaseline-height:barBaseline;return `<rect class="wealth-history-bar ${deltas[i]>0?'is-positive':'is-negative'}" x="${points[i][0]-barWidth/2}" y="${y}" width="${barWidth}" height="${height}" rx="2"><title>${esc(r.date)} · 전 기록 대비 변화 ${deltas[i]>0?'+':''}${won(deltas[i])}</title></rect>`;}).join('');
-    plot.innerHTML = `<div class="wealth-history-chart-card"><div class="wealth-history-legend" aria-label="그래프 범례"><span><i class="legend-line"></i>순자산</span><span><i class="legend-positive"></i>순자산 증가</span><span><i class="legend-negative"></i>순자산 감소</span></div><svg class="wealth-history-chart" viewBox="0 0 ${width} 240" role="img" aria-label="날짜별 순자산과 전 기록 대비 변화 추이"><path d="M${left} ${barBaseline}H${right}" stroke="currentColor" opacity=".2"/><path d="M${left} ${lineBottom}H${right}" stroke="currentColor" opacity=".12" stroke-dasharray="2 4"/>${bars}<polyline points="${points.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#9b8afb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>${points.map((p,i)=>`<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="#9b8afb"><title>${esc(records[i].date)} · 순자산 ${won(records[i].net_worth)}${i?' · 전 기록 대비 '+(deltas[i]>0?'+':'')+won(deltas[i]):' · 비교할 이전 기록 없음'}</title></circle>`).join('')}<text x="${left}" y="232" fill="currentColor" font-size="11">${esc(records[0].date)}</text><text x="${right}" y="232" text-anchor="end" fill="currentColor" font-size="11">${esc(records.at(-1).date)}</text></svg></div>`;
+    const showLabels = new Array(records.length).fill(false);
+    if (records.length === 1) {
+      showLabels[0] = true;
+    } else if (records.length > 1) {
+      showLabels[0] = true;
+      showLabels[records.length - 1] = true;
+      const minSpacing = 64;
+      let lastX = points[0][0];
+      const lastIdx = records.length - 1;
+      const endX = points[lastIdx][0];
+      for (let i = 1; i < lastIdx; i++) {
+        if (points[i][0] - lastX >= minSpacing && endX - points[i][0] >= minSpacing) {
+          showLabels[i] = true;
+          lastX = points[i][0];
+        }
+      }
+    }
+    const pointLabels=points.map((p,i)=>`<g class="wealth-history-point"><circle cx="${p[0]}" cy="${p[1]}" r="4" fill="#9b8afb" stroke="#0e162b" stroke-width="2"><title>${esc(records[i].date)} · 순자산 ${won(records[i].net_worth)}${i?' · 전 기록 대비 '+(deltas[i]>0?'+':'')+won(deltas[i]):' · 비교할 이전 기록 없음'}</title></circle>${showLabels[i] ? `<text x="${p[0]}" y="${Math.max(16,p[1]-10)}" fill="#f3f5ff" font-size="10" font-weight="700" text-anchor="middle">${won(records[i].net_worth)}</text><text x="${p[0]}" y="232" fill="currentColor" font-size="10" text-anchor="middle">${esc(records[i].date)}</text>` : ''}</g>`).join('');
+    plot.innerHTML = `<div class="wealth-history-chart-card"><div class="wealth-history-legend" aria-label="그래프 범례"><span><i class="legend-line"></i>순자산</span><span><i class="legend-positive"></i>순자산 증가</span><span><i class="legend-negative"></i>순자산 감소</span></div><svg class="wealth-history-chart" viewBox="0 0 ${width} 250" style="width:100%;height:250px;display:block" role="img" aria-label="날짜별 순자산과 전 기록 대비 변화 추이"><path d="M${left} ${barBaseline}H${right}" stroke="currentColor" opacity=".2"/><path d="M${left} ${lineBottom}H${right}" stroke="currentColor" opacity=".12" stroke-dasharray="2 4"/>${bars}<polyline points="${points.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#9b8afb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>${pointLabels}</svg></div>`;
     renderHistoryDetails(details, records);
   }
   function renderHistoryDetails(details, records) {
     const disabled = !state || !summary || syncBlocked ? ' disabled' : '';
-    details.innerHTML = `<summary><span>기록 상세 보기</span><span>${records.length}개 <button type="button" class="button primary tiny" data-history-action="wealthSaveSnapshot"${disabled}>기록</button><button type="button" class="button secondary tiny" data-history-action="wealthAddHistory"${disabled}>추가</button></span></summary>${records.length ? `<div class="table-wrap"><table><thead><tr><th>날짜</th><th>총자산</th><th>총부채</th><th>순자산</th><th>구분</th><th>메모</th><th>작업</th></tr></thead><tbody>${records.map(r=>`<tr><td>${esc(r.date)}</td><td>${r.assets == null ? '미입력' : won(r.assets)}</td><td>${r.debt == null ? '미입력' : won(r.debt)}</td><td>${won(r.net_worth)}</td><td>${r.source==='manual'?'직접 입력':'현재 자산 기록'}</td><td class="wealth-history-note">${esc(r.memo || '—')}</td><td><button type="button" class="button secondary tiny" data-history-edit="${esc(r.date)}">수정</button><button type="button" class="button text danger tiny" data-history-delete="${esc(r.date)}">삭제</button></td></tr>`).join('')}</tbody></table></div>` : ''}`;
+    const recordCards=[...records].reverse().map(r=>`<article class="wealth-history-record"><div class="wealth-history-record-head"><time datetime="${esc(r.date)}">${esc(r.date)}</time><strong>${won(r.net_worth)}</strong></div><p class="wealth-history-record-amounts"><span class="record-asset">총자산 ${r.assets == null ? '미입력' : won(r.assets)}</span><span class="record-debt">총부채 ${r.debt == null ? '미입력' : won(r.debt)}</span></p><div class="wealth-history-record-note"><span class="record-source">구분 · ${r.source==='manual'?'직접 입력':'현재 자산 기록'}</span><span class="record-memo">메모 · ${esc(r.memo || '없음')}</span></div><div class="wealth-history-record-actions"><button type="button" class="button secondary tiny" data-history-edit="${esc(r.date)}">수정</button><button type="button" class="button text danger tiny" data-history-delete="${esc(r.date)}">삭제</button></div></article>`).join('');
+    details.innerHTML = `<summary><span>기록 상세 보기</span><span>${records.length}개 <button type="button" class="button primary tiny" data-history-action="wealthSaveSnapshot"${disabled}>기록</button><button type="button" class="button secondary tiny" data-history-action="wealthAddHistory"${disabled}>추가</button></span></summary>${records.length ? `<div class="wealth-history-record-list">${recordCards}</div>` : ''}`;
   }
   function filterHistoryPeriod(records, period) {
     if (!records.length || period === 'ALL') return records;
@@ -200,18 +228,73 @@
     catch(error) { document.getElementById('wealthHistoryStatus').textContent=error.message; }
     finally { snapshotButton.disabled=syncBlocked; }
   }
+  function bucketColor(id) {
+    if(id === '__unclassified__') return '#697386';
+    if(id === '__unallocated__') return '#35415b';
+    let hash=0;
+    for(const char of String(id)) hash=((hash*31)+char.codePointAt(0))>>>0;
+    return BUCKET_COLORS[hash%BUCKET_COLORS.length];
+  }
+  function donutGradient(items, valueField) {
+    let cursor=0;
+    const segments=items.filter(item=>Number(item[valueField])>0).map(item=>{
+      const start=cursor;
+      cursor+=Number(item[valueField]);
+      return `${bucketColor(item.id)} ${start}% ${Math.min(cursor,100)}%`;
+    });
+    return segments.length ? `conic-gradient(${segments.join(',')})` : 'var(--surface-2)';
+  }
+  function allocationLegend(items, valueField, showAmount=false) {
+    return items.map(item=>`<div class="wealth-bucket-legend-row" style="--bucket-color:${bucketColor(item.id)}"><span>${esc(item.name)}</span><strong>${Number(item[valueField]||0).toFixed(1)}%</strong>${showAmount?`<small>${won(item.value)}</small>`:''}</div>`).join('');
+  }
   function renderBucketSummary() {
     if(!state || !portfolioView) return;
     let result;
-    try { result=window.WealthPlanningModel.bucketTotals(state,portfolioView); }
+    try { result=window.WealthPlanningModel.bucketAllocationComparison(state,portfolioView); }
     catch(error) { document.getElementById('wealthBucketSummary').textContent=error.message; return; }
-    const {totals,total}=result;
-    document.getElementById('wealthBucketSummary').innerHTML = `<p class="wealth-help">${esc(portfolioView.owner)} · 증권 평가액과 예수금 ${won(total)} · 매매 주문은 실행하지 않습니다.</p><div class="wealth-bucket-cards">${[...state.buckets,{id:'',name:'미분류',purpose:'버킷이 지정되지 않은 보유내역과 예수금',target:null}].map(b=>{const value=totals.get(b.id)||0,pct=total ? value/total*100 : 0;return `<article><h4>${esc(b.name)}</h4><p>${esc(b.purpose)}</p><strong>${won(value)}</strong><p>현재 ${pct.toFixed(1)}%${b.target === null ? '' : ` / 목표 ${b.target}% · 차이 ${(pct-b.target).toFixed(1)}%p`}</p></article>`;}).join('')}</div>`;
+    const {buckets,current,target,total,targetTotal,targetConfigured}=result;
+    const targetPanel=targetConfigured
+      ? `<div class="wealth-bucket-chart-row"><div class="wealth-bucket-donut" role="img" aria-label="목표 비중: ${target.map(item=>`${esc(item.name)} ${Number(item.value).toFixed(1)}%`).join(', ')}" style="background:${donutGradient(target,'value')}"><span>목표 합계</span><strong>100%</strong></div><div class="wealth-bucket-legend">${allocationLegend(target,'value')}</div></div>`
+      : '<div class="wealth-bucket-empty"><strong>목표 비중이 아직 설정되지 않았습니다.</strong><span>추천 버킷을 선택하거나 사용자 정의 버킷의 목표를 입력하세요.</span></div>';
+    const currentPanel=total>0
+      ? `<div class="wealth-bucket-chart-row"><div class="wealth-bucket-donut" role="img" aria-label="현재 비중: ${current.map(item=>`${esc(item.name)} ${Number(item.percent).toFixed(1)}%`).join(', ')}" style="background:${donutGradient(current,'percent')}"><span>현재 합계</span><strong>100%</strong></div><div class="wealth-bucket-legend">${allocationLegend(current,'percent',true)}</div></div>`
+      : '<div class="wealth-bucket-empty"><strong>표시할 현재 증권 자산이 없습니다.</strong><span>선택한 가족 범위의 보유종목과 예수금을 확인하세요.</span></div>';
+    const cards=[...buckets,{id:'__unclassified__',name:'미분류',purpose:'버킷이 지정되지 않은 보유내역과 예수금',target:null,value:current.find(item=>item.id==='__unclassified__')?.value||0}];
+    document.getElementById('wealthBucketSummary').innerHTML = `<p class="wealth-help">${esc(portfolioView.owner)} · 증권 평가액과 예수금 ${won(total)} · 매매 주문은 실행하지 않습니다.</p><div class="wealth-bucket-comparison"><section><h4>목표 비중</h4><p>사용자 공통 전략 · 설정 합계 ${targetTotal.toFixed(1)}%</p>${targetPanel}</section><section><h4>현재 비중</h4><p>${esc(portfolioView.owner)} 범위 · 미분류 포함</p>${currentPanel}</section></div><div class="wealth-bucket-cards">${cards.map(b=>{const currentItem=current.find(item=>item.id===b.id),pct=currentItem?.percent||0,value=currentItem?.value||0;return `<article style="--bucket-color:${bucketColor(b.id)}"><h4>${esc(b.name)}</h4><p>${esc(b.purpose)}</p><strong>${won(value)}</strong><p>현재 ${pct.toFixed(1)}%${b.target === null ? '' : ` / 목표 ${b.target}% · 차이 ${(pct-b.target).toFixed(1)}%p`}</p></article>`;}).join('')}</div>`;
   }
   function bucketRow(bucket) {
     const row=document.createElement('div'); row.className='wealth-bucket-edit-row'; row.dataset.id=bucket.id;
     row.innerHTML=`<label>이름<input name="bucketName" maxlength="50" required value="${esc(bucket.name)}"></label><label>목적<input name="purpose" maxlength="200" value="${esc(bucket.purpose)}"></label><label>목표 %<input name="target" type="number" min="0" max="100" step="0.1" value="${bucket.target}" required></label><button type="button" class="button secondary" data-remove-bucket>제거</button>`;
     return row;
+  }
+  function renderPresetButtons() {
+    const names=new Set(draftBuckets().map(bucket=>bucket.name.trim()).filter(Boolean));
+    document.getElementById('wealthBucketPresetButtons').innerHTML=BUCKET_PRESETS.map(([name])=>`<button type="button" class="wealth-bucket-preset${names.has(name)?' active':''}" data-bucket-preset="${esc(name)}" aria-pressed="${names.has(name)}">${esc(name)}</button>`).join('');
+  }
+  function draftTargetValidation() {
+    const inputs=[...document.querySelectorAll('.wealth-bucket-edit-row [name="target"]')];
+    const values=inputs.map(input=>input.value.trim()===''?NaN:Number(input.value));
+    if(values.some(value=>!Number.isFinite(value)||value<0||value>100)) return {valid:false,total:NaN,message:'각 목표 비중은 0% 이상 100% 이하로 입력하세요.'};
+    const total=values.reduce((sum,value)=>sum+value,0);
+    if(total>100.000001) return {valid:false,total,message:`목표 비중 합계가 ${total.toFixed(1)}%입니다. 100% 이하로 조정해주세요.`};
+    return {valid:true,total,message:total===100?'목표 비중 합계 100.0%입니다.':`목표 비중 합계 ${total.toFixed(1)}% · 미배정 ${(100-total).toFixed(1)}%`};
+  }
+  function renderDraftTargetStatus() {
+    const validation=draftTargetValidation(),status=document.getElementById('wealthBucketTargetStatus');
+    status.textContent=validation.message;
+    status.classList.toggle('invalid',!validation.valid);
+    return validation;
+  }
+  function addDraftBucket(name='',purpose='') {
+    const buckets=draftBuckets();
+    if(buckets.length>=30) return;
+    if(name && buckets.some(bucket=>bucket.name.trim()===name)) {
+      document.getElementById('wealthBucketStatus').textContent=`‘${name}’ 버킷이 이미 있습니다.`;
+      return;
+    }
+    markDirty();
+    document.getElementById('wealthBucketRows').append(bucketRow({id:crypto.randomUUID(),name,purpose,target:0}));
+    renderPresetButtons();renderDraftTargetStatus();renderAssignments();
   }
   function renderEditor() {
     if(!state || !portfolioView) return;
@@ -221,7 +304,7 @@
     document.getElementById('wealthAccountAssignments').replaceChildren();
     document.getElementById('wealthHoldingAssignments').replaceChildren();
     const rows=document.getElementById('wealthBucketRows'); rows.replaceChildren(...state.buckets.map(bucketRow));
-    renderAssignments();
+    renderPresetButtons();renderDraftTargetStatus();renderAssignments();
   }
   function draftBuckets() { return [...document.querySelectorAll('.wealth-bucket-edit-row')].map(row=>({id:row.dataset.id,name:row.querySelector('[name="bucketName"]').value,purpose:row.querySelector('[name="purpose"]').value,target:Number(row.querySelector('[name="target"]').value)})); }
   function renderAssignments() {
@@ -235,14 +318,17 @@
       holder.querySelectorAll('select').forEach(s=>{const value=previous.has(s.dataset.id)?previous.get(s.dataset.id):state[field][s.dataset.id]; if(value!==undefined && [...s.options].some(o=>o.value===value)) s.value=value;});
     }
   }
-  document.getElementById('wealthBucketForm').addEventListener('input',e=>{markDirty();if(e.target.name==='bucketName')renderAssignments();});
-  document.getElementById('wealthBucketForm').addEventListener('change',e=>{markDirty();if(e.target.name==='bucketName')renderAssignments();});
-  document.getElementById('wealthAddBucket').addEventListener('click',()=>{if(draftBuckets().length>=30)return;markDirty();document.getElementById('wealthBucketRows').append(bucketRow({id:crypto.randomUUID(),name:'',purpose:'',target:0}));renderAssignments();});
-  document.getElementById('wealthBucketRows').addEventListener('click',e=>{if(e.target.hasAttribute('data-remove-bucket')){e.target.closest('.wealth-bucket-edit-row').remove();markDirty();renderAssignments();}});
+  document.getElementById('wealthBucketForm').addEventListener('input',e=>{markDirty();renderDraftTargetStatus();if(e.target.name==='bucketName'){renderPresetButtons();renderAssignments();}});
+  document.getElementById('wealthBucketForm').addEventListener('change',e=>{markDirty();renderDraftTargetStatus();if(e.target.name==='bucketName'){renderPresetButtons();renderAssignments();}});
+  document.getElementById('wealthBucketPresetButtons').addEventListener('click',e=>{const button=e.target.closest('[data-bucket-preset]');if(!button)return;const preset=BUCKET_PRESETS.find(([name])=>name===button.dataset.bucketPreset);if(preset)addDraftBucket(...preset);});
+  document.getElementById('wealthAddBucket').addEventListener('click',()=>addDraftBucket());
+  document.getElementById('wealthBucketRows').addEventListener('click',e=>{if(e.target.hasAttribute('data-remove-bucket')){e.target.closest('.wealth-bucket-edit-row').remove();markDirty();renderPresetButtons();renderDraftTargetStatus();renderAssignments();}});
   document.getElementById('wealthReloadPlanning').addEventListener('click',()=>{if(!dirty || confirm('저장하지 않은 분류 변경을 버리고 다시 불러올까요?'))load(true);});
   document.getElementById('wealthBucketForm').addEventListener('submit',async e=>{
     e.preventDefault(); if(!state)return;
     const button=e.submitter; button.disabled=true;
+    const targetValidation=renderDraftTargetStatus();
+    if(!targetValidation.valid){document.getElementById('wealthBucketStatus').textContent=targetValidation.message;button.disabled=false;return;}
     const buckets=draftBuckets(), ids=new Set(buckets.map(b=>b.id));
     const payload={revision:editorRevision,buckets,accounts:{...state.accounts},holdings:{...state.holdings}};
     for(const field of ['accounts','holdings']) for(const key of Object.keys(payload[field])) if(payload[field][key] && !ids.has(payload[field][key])) delete payload[field][key];

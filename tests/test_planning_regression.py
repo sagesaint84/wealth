@@ -113,6 +113,27 @@ class PlanningTests(IsolatedDataTestCase):
                 planning.mutate('A','buckets',payload)
         self.assertEqual(planning.read_planning('A')['revision'],0)
 
+    def test_target_percentages_persist_at_existing_boundary_and_remainder_values(self):
+        zero = planning.mutate('A', 'buckets', {
+            'revision': 0, 'buckets': [{'id': 'core', 'name': '코어', 'target': 0}],
+            'accounts': {}, 'holdings': {},
+        })
+        self.assertEqual(zero['buckets'][0]['target'], 0)
+        full = planning.mutate('A', 'buckets', {
+            'revision': 1, 'buckets': [{'id': 'core', 'name': '코어', 'target': 100}],
+            'accounts': {}, 'holdings': {},
+        })
+        self.assertEqual(full['buckets'][0]['target'], 100)
+        partial = planning.mutate('A', 'buckets', {
+            'revision': 2,
+            'buckets': [
+                {'id': 'core', 'name': '코어', 'target': 60},
+                {'id': 'growth', 'name': '성장', 'target': 20},
+            ],
+            'accounts': {}, 'holdings': {},
+        })
+        self.assertEqual(sum(bucket['target'] for bucket in partial['buckets']), 80)
+
     def test_portfolio_backup_roundtrip_preserves_planning(self):
         planning.mutate('A','snapshot',self.snapshot())
         main=import_main_without_loading_real_env()
