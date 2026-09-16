@@ -296,7 +296,9 @@ technique as the official KB `openapi_test_defaults.py` (UDP socket to 8.8.8.8 f
 | Account 9+2 derivation live validated | YES (fetch succeeded) |
 | PROVIDER_TO_FEED_EQUAL | YES |
 | FEED_PNL_EQUALS_PNL_KRW | YES |
-| Financial writes | 0 (read-only probes only) |
+| Canonical comparison | BASELINE_HASH_UNAVAILABLE |
+| Financial writes during validation | 0 (read-only probes only) |
+| Observed financial mutation | NONE DETECTED |
 
 ### Updated Capability Classification
 

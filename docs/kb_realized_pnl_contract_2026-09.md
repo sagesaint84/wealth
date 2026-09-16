@@ -377,10 +377,12 @@ A live `SSQM2442` call with runtime-derived `dataHeader` returned:
 - **`nxt_key` whitespace-only terminal**: **`LIVE_VALIDATED`** — observed 24-space string in successful SSQM2442 response; `is_terminal_nxt_key()` returns `True`.
 - No second page request was triggered.
 
-### 9.8 Financial Writes
+### 9.8 Financial Writes & Canonical Data Safety
 
 - All validation probes were **read-only**.
-- `FINANCIAL_WRITES = 0`
+- Canonical comparison: **`BASELINE_HASH_UNAVAILABLE`** (no static baseline hash manifest tracked; `data/` is gitignored).
+- Financial writes during validation: **`0`**.
+- Observed financial mutation: **`NONE DETECTED`**.
 - No live import was performed.
 
 ### 9.9 Updated Status
