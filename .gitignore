@@ -67,3 +67,9 @@ cookies/
 # í”„ë¡œë¸Œ/ê°ì‚¬ ê²°ê³¼ ì¶œë ¥ í˜•ì‹
 *.ndjson
 *.out
+
+# ¿î¿µ ÀÚµ¿È­ ·ÎÄÃ/¼­¹ö Àü¿ë ¼³Á¤ ¹× Toss ·±Å¸ÀÓ
+ops/wealth-automation.env
+wealth-automation.env
+toss-wts/
+session.json

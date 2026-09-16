@@ -1,0 +1,5 @@
+# Example production schedule (server local timezone: Asia/Seoul)
+# Check/extend Toss session first, then run the Wealth daily close.
+
+55 20 * * * /usr/local/sbin/toss-session-check.sh
+0 21 * * * /usr/local/sbin/wealth-daily-close.sh
