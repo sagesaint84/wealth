@@ -276,3 +276,124 @@ The overseas decision (`NOT_CURRENTLY_AVAILABLE`) is not reopened by this audit.
 | C6 | Pagination terminal | empty-string listed as verified | only all-whitespace 24-char verified; others defensive |
 | C7 | `gds_no='01'` | Mapping fact | Sample value only; not formally fixed |
 | C8 | API label | `실현손익현황` | `일자별실현손익상세` |
+---
+
+## 9. Live Runtime Validation — 2026-09-16
+
+> **Amendment**: Added by live provider validation session (2026-09-16).
+> Supersedes any `PENDING_LIVE_VALIDATION` or `RUNTIME_POC_INCONCLUSIVE` markers in prior sections.
+
+### 9.1 TR Request dataHeader — Live-Validated Requirement
+
+**Official KB sample default** (from `kbsecurities/kb-openapi` → `common.py`):
+```python
+DEFAULT_TR_DATA_HEADER = {"ipAddr": "", "macAddr": ""}
+```
+The comment in that file states: "When called from a server/backend, empty values are allowed."
+
+**Live direct API behavior** observed in this environment (direct call to `https://developer.kbsec.com:32484`):
+
+| dataHeader configuration | processCode | processFlag | dataBody |
+|:---|:---|:---|:---|
+| `ipAddr=""`, `macAddr=""` | `9999` | `B` | `null` |
+| No `dataHeader` key at all | N/A (Spring HTTP 500) | N/A | N/A |
+| `ipAddr=<local outbound IP>`, `macAddr=""` | `9999` | `B` | `null` |
+| `ipAddr=<local outbound IP>`, `macAddr=<local MAC>` | `0011` | `A` | OBJECT |
+
+**Conclusion**: For direct calls to the KB developer portal in this environment, both `ipAddr` AND `macAddr` must be non-empty for TR calls to succeed.
+
+**Important distinction**:
+- This document does NOT claim the official KB sample is wrong.
+- The official sample may work correctly within the KB test portal proxy, where the proxy fills in real network information before forwarding to the backend.
+- For **direct server-to-KB-API calls**, the live evidence shows that populated runtime values are required.
+- Wealth now derives both fields at runtime using the same technique as the official KB backend sample (`openapi_test_defaults.py`): UDP socket connect to 8.8.8.8 for local IP, `uuid.getnode()` for MAC.
+
+**Wealth implementation**: `KBOpenAPI._data_header()` — derives both fields at runtime. No hard-coded values.
+
+### 9.2 KB Response Envelope — Two-Layer Status Semantics (Live-Verified)
+
+KB TR responses use a **two-layer status system**:
+
+```json
+{
+  "dataHeader": {
+    "resultCode": "200",       // outer envelope — always "200" on HTTP 200
+    "resultMessage": "성공",   // outer — always "성공" on HTTP 200
+    "processCode": "0011",     // business-layer code (SUCCESS observed live)
+    "processFlag": "A",        // "A" = provider business success (observed live)
+    "processMessage": "..."    // human-readable status detail
+  },
+  "dataBody": { ... }          // present only when processFlag == "A"
+}
+```
+
+**Live-observed status pairs**:
+
+| Condition | processCode | processFlag | dataBody |
+|:---|:---|:---|:---|
+| TR call succeeded (SSQM2442, SZQM0771) | `0011` | `A` | OBJECT |
+| TR validation failure (blank ipAddr/macAddr) | `9999` | `B` | `null` |
+
+**Critical rule**: `resultCode="200"` alone does **NOT** indicate business success. `processFlag="A"` is the authoritative success indicator.
+
+**Wealth implementation**: `KBOpenAPI._check_provider_status()` — called before any `dataBody` inspection in both `_parse_realized_response()` (SSQM2442 path) and `_normalize_response()` (generic TR path).
+
+### 9.3 SSQM2442 Live Success — Confirmed (2026-09-16)
+
+A live `SSQM2442` call with runtime-derived `dataHeader` returned:
+
+- **HTTP**: `200`
+- **resultCode**: `"200"`
+- **processCode**: `"0011"`
+- **processFlag**: `"A"`
+- **dataBody**: OBJECT (all summary fields present)
+- **Record1**: PRESENT (2 rows in H1 2025 window)
+- **nxt_key**: 24-space whitespace string → terminal (no second page)
+- **rlztn_pl**: PRESENT in all rows
+
+**All fields verified present at runtime**:
+`trd_dt`, `trd_dl_ccd`, `shrt_is_cd`, `is_nm`, `dtls_ccls_q`, `ccls_uprc`, `b_uprc`, `s_amt`, `b_amt`, `fee`, `svrl_tx`, `rlztn_pl`, `yld`, `dcml_dl_f`, `crdt_typ_cd`, `stnd_is_cd`
+
+### 9.4 Trade Direction — Runtime Verified
+
+| Code | Direction | Evidence |
+|:---|:---|:---|
+| `trd_dl_ccd = "01"` | Sell (realization event) | RUNTIME_VERIFIED — row with rlztn_pl, sell row filtered by `is_realized_sale_row()` |
+| `trd_dl_ccd = "02"` | Buy (cost acquisition) | RUNTIME_VERIFIED — excluded by feed builder as non-realization |
+
+### 9.5 Account Number Derivation — Live Verified
+
+- Derivation: `gnl_ac_no = account11[:3] + account11[5:]` (9 digits), `gds_no = account11[3:5]` (2 digits)
+- Status: **`LIVE_VALIDATED`** — SSQM2442 succeeded using derived values.
+
+### 9.6 rlztn_pl Provider→Feed Preservation
+
+- **`PROVIDER_TO_FEED_EQUAL: YES`** — `canonical_kb_number(rlztn_pl)` equals `feed_row["pnl"]`
+- **`FEED_PNL_EQUALS_PNL_KRW: YES`** — confirmed for domestic (KRW) rows
+- **Net/gross semantics**: Still `PROVIDER_AUTHORITATIVE_UNVERIFIED` — official docs do not define whether `rlztn_pl` is gross or net. Wealth preserves the provider value without re-subtracting `fee` or `svrl_tx`.
+
+### 9.7 Pagination — Runtime Verified
+
+- **`nxt_key` whitespace-only terminal**: **`LIVE_VALIDATED`** — observed 24-space string in successful SSQM2442 response; `is_terminal_nxt_key()` returns `True`.
+- No second page request was triggered.
+
+### 9.8 Financial Writes
+
+- All validation probes were **read-only**.
+- `FINANCIAL_WRITES = 0`
+- No live import was performed.
+
+### 9.9 Updated Status
+
+| Classification | Prior | Current |
+|:---|:---|:---|
+| `SSQM2442` live execution | `PENDING_LIVE_VALIDATION` | `LIVE_VALIDATED` |
+| TR dataHeader contract | `OFFICIAL_SAMPLE_DEFAULT_BLANK` | `RUNTIME_NON_EMPTY_REQUIRED_FOR_DIRECT_CALLS` |
+| processCode/processFlag semantics | `UNKNOWN` | `LIVE_VALIDATED (0011/A=success, 9999/B=failure)` |
+| Account 9+2 derivation | `PENDING_LIVE_VALIDATION` | `LIVE_VALIDATED` |
+| Trade side discriminator | `CONTRACT_ONLY` | `RUNTIME_VERIFIED (01=sell, 02=buy)` |
+| rlztn_pl provider→feed | `PENDING_LIVE_VALIDATION` | `LIVE_VALIDATED (equal)` |
+| rlztn_pl netness | `NOT_VERIFIED` | `PROVIDER_AUTHORITATIVE_UNVERIFIED (unchanged)` |
+| Wealth capability | `KB_IMPLEMENTATION_STATUS_FIX_COMPLETE_PROVIDER_POC_PENDING` | `KB_REALIZED_PNL_READY_WITH_LIMITATIONS` |
+
+**Remaining limitation**: `rlztn_pl` gross/net semantics not officially documented. Wealth preserves provider value authoritatively.

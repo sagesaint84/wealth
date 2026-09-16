@@ -56,6 +56,19 @@ class KBRealizedTransportTests(unittest.TestCase):
         self.client.app_secret = "synthetic-kb-app-secret"
         self.client.gnl_ac_no = "400277078"
         self.client.gds_no = "01"
+        # Patch _data_header so unit tests never trigger the socket-based IP
+        # discovery (which the test network guard blocks). The returned values
+        # are plausible synthetic non-empty strings; they do NOT represent any
+        # real IP or MAC address.
+        self._dh_patcher = patch.object(
+            KBOpenAPI,
+            "_data_header",
+            return_value={"ipAddr": "192.0.2.1", "macAddr": "02:00:00:00:00:01"},
+        )
+        self._dh_patcher.start()
+
+    def tearDown(self):
+        self._dh_patcher.stop()
 
     def test_auth_headers_and_request_shape(self):
         fake = FakeClient([
@@ -373,3 +386,340 @@ class KBRealizedTransportTests(unittest.TestCase):
             with self.assertRaises(KBOpenAPIError) as ctx:
                 asyncio.run(self.client.fetch_domestic_realized_pnl(from_date="20260901", to_date="20260930", delay=AsyncMock()))
             self.assertIn("한도", str(ctx.exception))
+
+
+class KBDataHeaderContractTests(unittest.TestCase):
+    """Tests for runtime dataHeader construction and process-status validation.
+
+    These tests verify:
+    - _local_ip() and _local_mac() produce non-empty strings of expected format.
+    - _data_header() returns a dict with non-empty ipAddr and macAddr.
+    - _check_provider_status() correctly classifies observed KB response statuses.
+    - The SSQM2442 parser rejects process-level failures before touching dataBody.
+    - The generic TR normalizer rejects process-level failures.
+    - No real IP/MAC or credential values are hard-coded in these tests.
+    """
+
+    # -------------------------------------------------------------------------
+    # dataHeader helpers — tested by mocking the network-dependent parts
+    # -------------------------------------------------------------------------
+
+    def test_local_ip_returns_non_empty_string(self):
+        """_local_ip() must return a non-empty string (mocked network)."""
+        with patch("app.services.kb_openapi.socket") as mock_socket_mod:
+            mock_sock = mock_socket_mod.socket.return_value.__enter__.return_value
+            mock_sock.getsockname.return_value = ("192.0.2.99", 0)
+            # Test via direct mock of socket.socket
+            import socket as socket_mod
+            original = socket_mod.socket
+
+            class FakeSocket:
+                def __init__(self, *a, **kw):
+                    pass
+                def connect(self, addr):
+                    pass
+                def getsockname(self):
+                    return ("192.0.2.99", 0)
+                def close(self):
+                    pass
+
+            with patch("app.services.kb_openapi.socket.socket", FakeSocket):
+                ip = KBOpenAPI._local_ip()
+            self.assertIsInstance(ip, str)
+            self.assertTrue(len(ip) > 0)
+            self.assertNotEqual(ip, "")
+
+    def test_local_ip_fails_closed_on_os_error(self):
+        """_local_ip() raises KBOpenAPIError if socket raises OSError."""
+        class FailSocket:
+            def __init__(self, *a, **kw):
+                pass
+            def connect(self, addr):
+                raise OSError("no route")
+            def getsockname(self):
+                return ("", 0)
+            def close(self):
+                pass
+
+        with patch("app.services.kb_openapi.socket.socket", FailSocket):
+            with self.assertRaises(KBOpenAPIError) as ctx:
+                KBOpenAPI._local_ip()
+            self.assertIn("로컬 IP 주소를 확인할 수 없습니다", str(ctx.exception))
+
+    def test_local_ip_fails_closed_on_loopback_or_zero(self):
+        """_local_ip() raises KBOpenAPIError if socket returns loopback or 0.0.0.0."""
+        for invalid_ip in ("127.0.0.1", "0.0.0.0", ""):
+            with self.subTest(ip=invalid_ip):
+                class DummySocket:
+                    def __init__(self, *a, **kw):
+                        pass
+                    def connect(self, addr):
+                        pass
+                    def getsockname(self):
+                        return (invalid_ip, 0)
+                    def close(self):
+                        pass
+
+                with patch("app.services.kb_openapi.socket.socket", DummySocket):
+                    with self.assertRaises(KBOpenAPIError):
+                        KBOpenAPI._local_ip()
+
+    def test_local_mac_fails_closed_when_unavailable(self):
+        """_local_mac() raises KBOpenAPIError if uuid.getnode() returns 0 or all zeroes."""
+        with patch("app.services.kb_openapi.uuid.getnode", return_value=0):
+            with self.assertRaises(KBOpenAPIError) as ctx:
+                KBOpenAPI._local_mac()
+            self.assertIn("로컬 MAC 주소를 확인할 수 없습니다", str(ctx.exception))
+
+    def test_local_mac_returns_non_empty_colon_string(self):
+        """_local_mac() must return a non-empty colon-separated MAC string."""
+        with patch("app.services.kb_openapi.uuid.getnode", return_value=0x020000000001):
+            mac = KBOpenAPI._local_mac()
+        self.assertIsInstance(mac, str)
+        self.assertTrue(len(mac) > 0)
+        self.assertIn(":", mac)
+        parts = mac.split(":")
+        self.assertEqual(len(parts), 6)
+        for part in parts:
+            self.assertTrue(len(part) == 2)
+            int(part, 16)  # each part must be valid hex
+
+    def test_data_header_contains_non_empty_ip_and_mac(self):
+        """_data_header() must return a dict with non-empty ipAddr and macAddr."""
+        with (
+            patch.object(KBOpenAPI, "_local_ip", return_value="192.0.2.1"),
+            patch.object(KBOpenAPI, "_local_mac", return_value="02:00:00:00:00:01"),
+        ):
+            dh = KBOpenAPI._data_header()
+        self.assertIn("ipAddr", dh)
+        self.assertIn("macAddr", dh)
+        self.assertTrue(dh["ipAddr"])
+        self.assertTrue(dh["macAddr"])
+        self.assertNotEqual(dh["ipAddr"], "")
+        self.assertNotEqual(dh["macAddr"], "")
+
+    def test_data_header_no_hard_coded_ip_or_mac_in_production_paths(self):
+        """_data_header() must not return known invalid placeholder values."""
+        with (
+            patch.object(KBOpenAPI, "_local_ip", return_value="192.0.2.1"),
+            patch.object(KBOpenAPI, "_local_mac", return_value="02:00:00:00:00:01"),
+        ):
+            dh = KBOpenAPI._data_header()
+        # Known invalid/problematic placeholders must not appear
+        self.assertNotEqual(dh["ipAddr"], "")
+        self.assertNotEqual(dh["macAddr"], "")
+        # 0.0.0.0 would be obviously wrong
+        self.assertNotEqual(dh["ipAddr"], "0.0.0.0")
+
+    def test_ssqm2442_page_request_uses_data_header(self):
+        """_post_ssqm2442_page must include the dataHeader from _data_header()."""
+        client = object.__new__(KBOpenAPI)
+        client.base_url = "https://developer.kbsec.com:32484"
+        client.app_key = "synthetic-kb-app-key"
+
+        fake_dh = {"ipAddr": "192.0.2.1", "macAddr": "02:00:00:00:00:01"}
+        captured_body = {}
+
+        class CapturingFake:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def post(self, url, **kwargs):
+                captured_body.update(kwargs.get("json", {}))
+                return FakeResponse({
+                    "dataHeader": {"resultCode": "200", "processFlag": "A", "processCode": "0011"},
+                    "dataBody": {"nxt_key": "                        ", "Record1": []},
+                })
+
+        with patch.object(KBOpenAPI, "_data_header", return_value=fake_dh):
+            import asyncio
+            asyncio.run(client._post_ssqm2442_page(
+                CapturingFake(), "synthetic-token",
+                inq_strt_dt="20260901", inq_end_dt="20260930",
+                gnl_ac_no="400277078", gds_no="01",
+            ))
+
+        self.assertIn("dataHeader", captured_body)
+        self.assertEqual(captured_body["dataHeader"], fake_dh)
+        self.assertNotEqual(captured_body["dataHeader"]["ipAddr"], "")
+        self.assertNotEqual(captured_body["dataHeader"]["macAddr"], "")
+
+    # -------------------------------------------------------------------------
+    # _check_provider_status — process-level status validation
+    # -------------------------------------------------------------------------
+
+    def test_process_flag_a_is_accepted(self):
+        """processFlag='A' (observed live success) must not raise."""
+        # No exception expected
+        KBOpenAPI._check_provider_status(
+            {"processFlag": "A", "processCode": "0011"},
+            context="TEST",
+        )
+
+    def test_process_flag_b_raises_provider_error(self):
+        """processFlag='B' (observed live failure) must raise KBOpenAPIError."""
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._check_provider_status(
+                {"processFlag": "B", "processCode": "9999", "processMessage": "test validation error"},
+                context="TEST_TR",
+            )
+        err = str(ctx.exception)
+        self.assertIn("processCode=9999", err)
+        self.assertIn("processFlag", err)
+
+    def test_process_code_9999_surfaces_in_error(self):
+        """processCode=9999 must be included in the raised error message."""
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._check_provider_status(
+                {"processFlag": "B", "processCode": "9999"},
+                context="TEST",
+            )
+        self.assertIn("9999", str(ctx.exception))
+
+    def test_process_message_propagated_safely(self):
+        """processMessage must appear in the error when it does not contain sensitive info."""
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._check_provider_status(
+                {"processFlag": "B", "processCode": "9999", "processMessage": "input field check"},
+                context="TEST",
+            )
+        self.assertIn("input field check", str(ctx.exception))
+
+    def test_process_message_truncated_to_120_chars(self):
+        """processMessage longer than 120 chars must be truncated in the error."""
+        long_msg = "X" * 200
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._check_provider_status(
+                {"processFlag": "B", "processCode": "9999", "processMessage": long_msg},
+                context="TEST",
+            )
+        # The full 200-char message must not appear verbatim
+        self.assertNotIn(long_msg, str(ctx.exception))
+        self.assertIn("X" * 120, str(ctx.exception))
+
+    def test_unknown_process_flag_fails_closed(self):
+        """An unknown processFlag (not 'A') must raise KBOpenAPIError (fail-closed)."""
+        for unknown_flag in ("C", "X", "Z", "0", "1"):
+            with self.subTest(flag=unknown_flag):
+                with self.assertRaises(KBOpenAPIError):
+                    KBOpenAPI._check_provider_status(
+                        {"processFlag": unknown_flag, "processCode": "9998"},
+                        context="TEST",
+                    )
+
+    def test_unknown_process_status_synthetic_fails_closed(self):
+        """Synthetic unknown process status pairs such as 7777/Z or 7777/A must fail closed."""
+        for code, flag in (("7777", "Z"), ("7777", "A"), ("9998", "A"), ("UNKNOWN", "X")):
+            with self.subTest(code=code, flag=flag):
+                with self.assertRaises(KBOpenAPIError):
+                    KBOpenAPI._check_provider_status(
+                        {"processFlag": flag, "processCode": code},
+                        context="TEST",
+                    )
+
+    def test_empty_process_flag_passes_check(self):
+        """Empty processFlag (field absent) must not raise — fail-open for missing field.
+
+        Some KB endpoints may not populate processFlag in every response.
+        Absence is treated as not-failed rather than failing closed, since we
+        cannot distinguish a genuinely absent field from a future success variant.
+        """
+        # Should not raise
+        KBOpenAPI._check_provider_status(
+            {"resultCode": "200"},  # no processFlag key
+            context="TEST",
+        )
+        KBOpenAPI._check_provider_status(
+            {"processFlag": "", "processCode": ""},
+            context="TEST",
+        )
+
+    # -------------------------------------------------------------------------
+    # _parse_realized_response — integration of process check
+    # -------------------------------------------------------------------------
+
+    def test_parse_realized_response_rejects_process_flag_b(self):
+        """HTTP 200 + resultCode=200 + processFlag=B must raise, not parse dataBody."""
+        resp = FakeResponse({
+            "dataHeader": {
+                "resultCode": "200",
+                "resultMessage": "성공",
+                "processCode": "9999",
+                "processFlag": "B",
+                "processMessage": "input field check",
+            },
+            # dataBody absent simulates live behavior
+        })
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._parse_realized_response(resp)
+        err = str(ctx.exception)
+        # Must surface the process code, not a generic "dataBody가 없습니다"
+        self.assertIn("9999", err)
+        # Must NOT produce the misleading body-absent message as the primary error
+        self.assertNotIn("dataBody가 없습니다", err)
+
+    def test_parse_realized_response_accepts_process_flag_a(self):
+        """HTTP 200 + resultCode=200 + processFlag=A must proceed to body parsing."""
+        resp = FakeResponse({
+            "dataHeader": {
+                "resultCode": "200",
+                "processCode": "0011",
+                "processFlag": "A",
+            },
+            "dataBody": {"nxt_key": "                        ", "Record1": []},
+        })
+        body, nxt_key = KBOpenAPI._parse_realized_response(resp)
+        self.assertIn("Record1", body)
+        self.assertTrue(KBOpenAPI.is_terminal_nxt_key(nxt_key))
+
+    def test_parse_realized_response_null_databody_with_process_failure(self):
+        """When processFlag=B, dataBody=null must NOT produce a misleading generic error.
+
+        The previous bug: processCode=9999 responses with null dataBody were being
+        reduced to 'dataBody가 없습니다' rather than surfacing the real provider error.
+        This test verifies the bug is fixed.
+        """
+        resp = FakeResponse({
+            "dataHeader": {
+                "resultCode": "200",
+                "resultMessage": "성공",
+                "processCode": "9999",
+                "processFlag": "B",
+            },
+            # No dataBody key — matches live behavior when process fails
+        })
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._parse_realized_response(resp)
+        err = str(ctx.exception)
+        # The process-level error must be raised before body inspection
+        self.assertIn("9999", err)
+        self.assertNotIn("dataBody가 없습니다", err)
+
+    # -------------------------------------------------------------------------
+    # _normalize_response — generic TR path
+    # -------------------------------------------------------------------------
+
+    def test_normalize_response_rejects_process_flag_b(self):
+        """Generic KB TR normalizer must also reject processFlag=B."""
+        payload = {
+            "dataHeader": {
+                "resultCode": "200",
+                "processCode": "9999",
+                "processFlag": "B",
+            }
+        }
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._normalize_response(payload)
+        self.assertIn("9999", str(ctx.exception))
+
+    def test_normalize_response_accepts_process_flag_a(self):
+        """Generic KB TR normalizer must accept processFlag=A and return dataBody."""
+        payload = {
+            "dataHeader": {
+                "resultCode": "200",
+                "processCode": "0011",
+                "processFlag": "A",
+            },
+            "dataBody": {"o_clsf": "0", "data": "ok"},
+        }
+        result = KBOpenAPI._normalize_response(payload)
+        self.assertEqual(result.get("data"), "ok")

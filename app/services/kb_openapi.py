@@ -11,9 +11,11 @@ import logging
 import os
 from pathlib import Path
 import re
+import socket
 import time
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlparse
+import uuid
 
 import httpx
 
@@ -131,8 +133,105 @@ class KBOpenAPI:
             raise KBOpenAPIError(f"{setting}은 KB증권 공식 HTTPS 개발자 주소(developer.kbsec.com)여야 합니다.")
 
     @staticmethod
-    def _payload(data_body: dict[str, Any]) -> dict[str, Any]:
-        return {"dataHeader": {"ipAddr": "", "macAddr": ""}, "dataBody": data_body}
+    def _local_ip() -> str:
+        """Determine local outbound IP using the official KB sample technique.
+
+        Connects a UDP socket to 8.8.8.8:80 (no packet is sent) to discover
+        the local interface IP that the OS would use for outbound connections.
+        This replicates the technique used in the official KB openapi_test_defaults.py.
+        Raises KBOpenAPIError if the local IP cannot be determined.
+        """
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect(("8.8.8.8", 80))
+            ip = str(sock.getsockname()[0] or "").strip()
+            if not ip or ip == "0.0.0.0" or ip.startswith("127."):
+                raise KBOpenAPIError("KB OpenAPI 요청에 필요한 로컬 IP 주소를 확인할 수 없습니다.")
+            return ip
+        except OSError as exc:
+            raise KBOpenAPIError("KB OpenAPI 요청에 필요한 로컬 IP 주소를 확인할 수 없습니다.") from exc
+        finally:
+            sock.close()
+
+    @staticmethod
+    def _local_mac() -> str:
+        """Return local MAC address using the official KB sample technique (uuid.getnode).
+
+        Format: XX:XX:XX:XX:XX:XX (uppercase hex, colon-separated).
+        This replicates the technique in the official KB openapi_test_defaults.py.
+        Raises KBOpenAPIError if a usable MAC address cannot be determined.
+        """
+        try:
+            node = uuid.getnode()
+        except Exception as exc:
+            raise KBOpenAPIError("KB OpenAPI 요청에 필요한 로컬 MAC 주소를 확인할 수 없습니다.") from exc
+        if not node:
+            raise KBOpenAPIError("KB OpenAPI 요청에 필요한 로컬 MAC 주소를 확인할 수 없습니다.")
+        mac = ":".join(f"{(node >> shift) & 0xFF:02X}" for shift in range(40, -1, -8))
+        if not mac or mac == "00:00:00:00:00:00":
+            raise KBOpenAPIError("KB OpenAPI 요청에 필요한 로컬 MAC 주소를 확인할 수 없습니다.")
+        return mac
+
+    @classmethod
+    def _data_header(cls) -> dict[str, str]:
+        """Build the KB TR dataHeader with real local IP and MAC.
+
+        KB's TR gateway requires non-empty ipAddr and macAddr in the dataHeader
+        for all TR calls (confirmed by live provider testing: processCode=9999
+        is returned when either field is blank). The official KB sample backend
+        (openapi_test_defaults.py) populates both using the same socket/uuid
+        technique implemented here.
+        """
+        ip = cls._local_ip()
+        mac = cls._local_mac()
+        if not ip or not mac:
+            raise KBOpenAPIError("KB OpenAPI 요청에 필요한 네트워크 식별 정보(ipAddr/macAddr)가 누락되었습니다.")
+        return {"ipAddr": ip, "macAddr": mac}
+
+    @classmethod
+    def _payload(cls, data_body: dict[str, Any]) -> dict[str, Any]:
+        return {"dataHeader": cls._data_header(), "dataBody": data_body}
+
+    @staticmethod
+    def _check_provider_status(data_header: dict[str, Any], context: str = "KB OpenAPI") -> None:
+        """Verify KB provider process-level status fields.
+
+        KB TR responses always set resultCode="200" in the outer envelope even
+        for business/process failures. The actual success indicator is
+        processFlag="A" with processCode="0011" (verified live on SSQM2442 and SZQM0771).
+        processFlag="B" with processCode="9999" indicates provider validation
+        rejection and must NOT be treated as an empty/no-data result.
+
+        Raises KBOpenAPIError with sanitized provider process information.
+        """
+        process_flag = str(data_header.get("processFlag") or "").strip()
+        process_code = str(data_header.get("processCode") or "").strip()
+        process_msg  = str(data_header.get("processMessage") or "").strip()
+
+        # If both fields are absent/empty (e.g. non-TR or legacy/synthetic fixtures), allow.
+        if not process_flag and not process_code:
+            return
+
+        # Explicit failure states
+        if process_flag == "B" or process_code == "9999":
+            detail = f"processCode={process_code}"
+            if process_msg:
+                detail += f", message={process_msg[:120]}"
+            raise KBOpenAPIError(
+                f"{context} 제공자 처리 오류: {detail} "
+                f"(processFlag={process_flag!r} — 성공 시 'A' 예상)"
+            )
+
+        # Verified live success state: processFlag == "A" and processCode in {"0011", ""}
+        # Any other explicit state is unknown and fails closed.
+        if process_flag != "A" or (process_code and process_code != "0011"):
+            detail = f"processCode={process_code}"
+            if process_msg:
+                detail += f", message={process_msg[:120]}"
+            raise KBOpenAPIError(
+                f"{context} 제공자 알 수 없는 처리 상태: {detail} "
+                f"(processFlag={process_flag!r} — 성공 시 'A'/'0011' 예상)"
+            )
 
     async def _access_token(self, client: httpx.AsyncClient, force_refresh: bool = False) -> str:
         if not self.configured:
@@ -180,6 +279,12 @@ class KBOpenAPI:
     def _normalize_response(payload: Any, *, require_data_body: bool = False) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise KBOpenAPIError("KB OpenAPI 응답 형식이 올바르지 않습니다.")
+        # Check provider process-level status before touching dataBody.
+        # KB TR responses can return resultCode="200" with processFlag="B"/
+        # processCode="9999" for platform validation failures where dataBody is absent.
+        data_header = payload.get("dataHeader")
+        if isinstance(data_header, dict):
+            KBOpenAPI._check_provider_status(data_header, context="KB OpenAPI TR")
         if require_data_body and "dataBody" not in payload:
             raise KBOpenAPIError("KB OpenAPI가 잔고 데이터 없이 상태 응답만 반환했습니다.")
         body = payload.get("dataBody", payload)
@@ -315,12 +420,14 @@ class KBOpenAPI:
     def _parse_realized_response(response: httpx.Response) -> tuple[dict[str, Any], str]:
         """Parse official KB SSQM2442 response envelope.
 
-        Requires:
-        - HTTP 200
-        - valid JSON
-        - dataHeader.resultCode == "200"
-        - dataBody is dict
-        - extracts nxt_key from dataBody
+        Validation order (mandatory):
+        1. HTTP transport success (status 200)
+        2. valid JSON
+        3. dataHeader presence
+        4. dataHeader.resultCode == "200"
+        5. dataHeader.processFlag == "A" (provider business success)
+        6. dataBody is dict (only after process-level success is established)
+        7. nxt_key presence and type
 
         Returns: (dataBody, raw_nxt_key)
         """
@@ -344,6 +451,12 @@ class KBOpenAPI:
             msg = str(data_header.get("resultMessage") or "").strip()
             proc_code = str(data_header.get("processCode") or "").strip()
             raise KBOpenAPIError(f"KB증권 API 조회 실패 (code={result_code}/{proc_code}): {msg}")
+
+        # Check provider process-level status BEFORE inspecting dataBody.
+        # resultCode="200" alone does NOT indicate business success — the
+        # provider also sets processFlag="B"/processCode="9999" for validation
+        # failures, in which case dataBody is absent (null).
+        KBOpenAPI._check_provider_status(data_header, context="KB증권 SSQM2442")
 
         data_body = payload.get("dataBody")
         if not isinstance(data_body, dict):
@@ -397,7 +510,7 @@ class KBOpenAPI:
             }
 
         body = {
-            "dataHeader": {"ipAddr": "", "macAddr": ""},
+            "dataHeader": self._data_header(),
             "dataBody": {
                 "inq_strt_dt": inq_strt_dt,
                 "inq_end_dt": inq_end_dt,

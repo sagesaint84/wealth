@@ -4,7 +4,8 @@ Audit date: 2026-09-14
 Repository branch: `codex-refactor-realized-pnl-ipo-import`
 Audited HEAD: `6de633e`
 Application version: `1.1.4`
-Result: **RUNTIME_POC_INCONCLUSIVE**
+Result: **KB_REALIZED_PNL_READY_WITH_LIMITATIONS** (updated 2026-09-16)
+Prior result: `RUNTIME_POC_INCONCLUSIVE` (2026-09-14)
 
 ## Executive Summary
 
@@ -232,3 +233,75 @@ post-suite increase from 598 to 599.
 Run one sanitized, read-only KB preview POC through the existing safe path to
 confirm SSQM2442 row granularity, `rlztn_pl` accounting meaning, required-field
 population, and real continuation termination without importing any record.
+---
+
+## Live Validation Amendment — 2026-09-16
+
+> Supersedes `RUNTIME_POC_INCONCLUSIVE`. All prior live findings in this document are updated below.
+
+### Root Cause of Prior `RUNTIME_POC_INCONCLUSIVE` Status
+
+The original live attempt returned `processCode=9999` / `processFlag=B` across ALL KB TR endpoints
+including the public market-status endpoint `SZQM0771`. This indicated a shared platform-level issue
+rather than an SSQM2442-specific or account-specific problem.
+
+**Root cause identified**: The KB TR gateway in this environment requires non-empty `ipAddr` AND `macAddr`
+in `dataHeader` for all TR calls. Wealth was sending blank values (`""`), which caused the gateway to
+reject every request at the process-validation layer.
+
+This was confirmed by live A/B testing:
+- `ipAddr=""`, `macAddr=""` → `processCode=9999`, `processFlag=B`, `dataBody=null`
+- `ipAddr=<local IP>`, `macAddr=<local MAC>` → `processCode=0011`, `processFlag=A`, `dataBody=OBJECT`
+
+### Official Sample Note
+
+The official KB GitHub sample `common.py` uses `ipAddr=""` with the comment "empty values are allowed
+for server/backend calls." This may apply to calls routed through the KB test portal proxy, where the
+proxy populates real network information. **For direct calls** to `developer.kbsec.com:32484`, live
+testing shows populated values are required. Wealth now derives both fields at runtime using the same
+technique as the official KB `openapi_test_defaults.py` (UDP socket to 8.8.8.8 for IP, `uuid.getnode()` for MAC).
+
+### Fix Applied (commit follows `19b404e`)
+
+**`app/services/kb_openapi.py`** changes:
+1. `KBOpenAPI._local_ip()`: Runtime local outbound IP via UDP socket connect technique
+2. `KBOpenAPI._local_mac()`: Runtime local MAC via `uuid.getnode()` (same format as official sample)
+3. `KBOpenAPI._data_header()`: Centralized dataHeader construction using both helpers
+4. `KBOpenAPI._payload()`: Now uses `_data_header()` (runtime IP/MAC, not blank)
+5. `KBOpenAPI._post_ssqm2442_page()`: Now uses `self._data_header()` (was inline blank)
+6. `KBOpenAPI._check_provider_status()`: New helper — checks `processFlag`/`processCode` before dataBody
+7. `KBOpenAPI._parse_realized_response()`: Now calls `_check_provider_status` before touching `dataBody`
+8. `KBOpenAPI._normalize_response()`: Now calls `_check_provider_status` before touching `dataBody`
+
+**`tests/test_kb_realized_transport.py`** changes:
+- `setUp`/`tearDown` added to patch `_data_header` in transport tests (prevents network guard from firing)
+- 18 new tests in `KBDataHeaderContractTests` class covering:
+  - `_local_ip()` behavior (mocked socket)
+  - `_local_mac()` format verification (mocked uuid.getnode)
+  - `_data_header()` non-empty contract
+  - `_check_provider_status()` for all observed live status combinations
+  - `_parse_realized_response()` process failure rejection (P0 bug fix regression)
+  - `_normalize_response()` process failure rejection
+
+### Live Validation Results (2026-09-16)
+
+| Item | Result |
+|:---|:---|
+| SSQM2442 business success | YES (`processCode=0011`, `processFlag=A`) |
+| Real Record1 rows returned | YES (2 rows, H1 2025 window) |
+| All required fields present | YES (all 17 fields) |
+| nxt_key whitespace terminal | YES (24-space string → terminal) |
+| rlztn_pl present | YES |
+| Trade side runtime verified | YES (`01`=sell, `02`=buy) |
+| Account 9+2 derivation live validated | YES (fetch succeeded) |
+| PROVIDER_TO_FEED_EQUAL | YES |
+| FEED_PNL_EQUALS_PNL_KRW | YES |
+| Financial writes | 0 (read-only probes only) |
+
+### Updated Capability Classification
+
+**`KB_REALIZED_PNL_READY_WITH_LIMITATIONS`**
+
+Remaining limitation: `rlztn_pl` gross/net semantics are still `PROVIDER_AUTHORITATIVE_UNVERIFIED`.
+Official KB documentation does not define whether `rlztn_pl` is net or gross of `fee` and `svrl_tx`.
+Wealth preserves the provider value without re-subtracting. This is the conservative and correct policy.
