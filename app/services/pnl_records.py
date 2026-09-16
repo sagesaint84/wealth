@@ -119,13 +119,13 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
     raw_fx_pnl = payload.get("fx_pnl_krw")
     if raw_fx_pnl is not None:
         fx_pnl_krw = float(raw_fx_pnl)
-    elif payload.get("source") in ("toss_wts", "kis", "nh", "kiwoom"):
+    elif payload.get("source") in ("toss_wts", "kis", "nh", "kiwoom", "kb"):
         fx_pnl_krw = None
     else:
         fx_pnl_krw = 0.0
     
     raw_fx = payload.get("fx_rate")
-    if payload.get("source") in ("toss_wts", "kis", "nh", "kiwoom") and raw_fx is None:
+    if payload.get("source") in ("toss_wts", "kis", "nh", "kiwoom", "kb") and raw_fx is None:
         fx_rate = None
     elif currency == "USD":
         if raw_fx is not None and float(raw_fx) > 0:
@@ -136,7 +136,7 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
         fx_rate = 1.0
 
     raw_pnl_krw = payload.get("pnl_krw")
-    if raw_pnl_krw is None and payload.get("source") in ("toss_wts", "kis", "nh", "kiwoom"):
+    if raw_pnl_krw is None and payload.get("source") in ("toss_wts", "kis", "nh", "kiwoom", "kb"):
         pnl_krw = None
     elif raw_pnl_krw is not None:
         pnl_krw = float(raw_pnl_krw)
@@ -280,7 +280,7 @@ def update_pnl_record(record_id: str, payload: dict[str, Any], username: str | N
         "pnl_krw",
     )
     source = str(target.get("source") or payload.get("source") or "").strip()
-    broker_source = source in ("toss_wts", "kis", "nh", "kiwoom")
+    broker_source = source in ("toss_wts", "kis", "nh", "kiwoom", "kb")
     financial_input_changed = any(field in payload for field in ("pnl", "fx_rate", "fx_pnl_krw", "currency"))
     if not broker_source and "pnl_krw" not in payload and financial_input_changed:
         pnl_krw = None
@@ -772,7 +772,7 @@ def recalculate_pnl_historical_fx(username: str | None = None) -> int:
             continue
         source_meta = dict(r.get("source_meta")) if isinstance(r.get("source_meta"), dict) else {}
         semantics = str(source_meta.get("pnl_krw_semantics") or "")
-        if source in ("toss_wts", "kis", "nh", "kiwoom"):
+        if source in ("toss_wts", "kis", "nh", "kiwoom", "kb"):
             # NH's current date is a query/order context, not a verified sale
             # event date. Other broker sources may carry authoritative KRW.
             if source != "kiwoom" or source_meta.get("api_id") != "ust21530":

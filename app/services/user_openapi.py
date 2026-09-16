@@ -41,6 +41,8 @@ def get_user_openapi_config(username: str) -> dict[str, dict[str, str]]:
             "kb": {
                 "app_key": os.getenv("KB_OPENAPI_APP_KEY", "").strip(),
                 "app_secret": os.getenv("KB_OPENAPI_APP_SECRET", "").strip(),
+                "gnl_ac_no": os.getenv("KB_OPENAPI_ACCOUNT_NO", "").strip(),
+                "gds_no": os.getenv("KB_OPENAPI_PRODUCT_NO", "").strip(),
             },
             "nh": {
                 "app_key": os.getenv("NHPLUG_APP_KEY", "").strip(),
@@ -61,7 +63,7 @@ def get_user_openapi_config(username: str) -> dict[str, dict[str, str]]:
 
     return {
         "toss": {"app_key": "", "app_secret": ""},
-        "kb": {"app_key": "", "app_secret": ""},
+        "kb": {"app_key": "", "app_secret": "", "gnl_ac_no": "", "gds_no": ""},
         "nh": {"app_key": "", "app_secret": ""},
         "kis": {"app_key": "", "app_secret": "", "account_no": ""},
         "kiwoom": {"app_key": "", "app_secret": "", "account_no": ""},
@@ -72,7 +74,9 @@ def delete_user_broker_openapi(username: str, broker: str) -> dict[str, Any]:
     """특정 증권사의 OpenAPI 키, 시크릿 및 캐시 토큰을 완전히 삭제합니다."""
     current = get_user_openapi_config(username)
     if broker in current:
-        if broker in ("kis", "kiwoom"):
+        if broker == "kb":
+            current[broker] = {"app_key": "", "app_secret": "", "gnl_ac_no": "", "gds_no": ""}
+        elif broker in ("kis", "kiwoom"):
             current[broker] = {"app_key": "", "app_secret": "", "account_no": ""}
         else:
             current[broker] = {"app_key": "", "app_secret": ""}
@@ -102,6 +106,37 @@ def delete_user_broker_openapi(username: str, broker: str) -> dict[str, Any]:
     return current
 
 
+# WEALTH_DERIVED_ACCOUNT_CONTEXT_PENDING_LIVE_VALIDATION:
+# KB Securities customer-facing account numbers are 11 digits (e.g. OOO-91-OOOOOO).
+# Internal OpenAPI structures use a 9-digit gnl_ac_no and 2-digit gds_no.
+# The structures are compatible with:
+#   11-digit account: AAA BB CCCCCC
+#   gnl_ac_no = AAA + CCCCCC (9 digits: account11[:3] + account11[5:])
+#   gds_no    = BB (2 digits: account11[3:5])
+# This derivation is a Wealth account-format policy supported by current
+# KB customer-facing account-format evidence and the OpenAPI sample shape.
+# It remains pending live SSQM2442 validation.
+
+
+def _validate_and_derive_kb_account(val: str) -> tuple[str, str, str]:
+    """Validate 11-digit KB account number and derive (account11, gnl_ac_no, gds_no).
+
+    Accepts exactly 11 ASCII digits after trimming whitespace and removing hyphens.
+    Preserves leading zeroes as strings.
+    """
+    cleaned = str(val or "").strip()
+    if not cleaned:
+        return "", "", ""
+    # Strip hyphens
+    no_dashes = cleaned.replace("-", "")
+    if not (no_dashes.isdigit() and len(no_dashes) == 11):
+        raise ValueError("KB증권 계좌번호 11자리를 확인하세요.")
+    account11 = no_dashes
+    gnl_ac_no = account11[:3] + account11[5:]
+    gds_no = account11[3:5]
+    return account11, gnl_ac_no, gds_no
+
+
 def save_user_openapi_config(username: str, update_data: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """사용자의 OpenAPI 설정을 저장합니다. 마스킹된 값(****)이나 빈 시크릿은 기존 값을 보존합니다."""
     current = get_user_openapi_config(username)
@@ -114,7 +149,9 @@ def save_user_openapi_config(username: str, update_data: dict[str, dict[str, Any
             # 1) 명시적 삭제 플래그가 있는 경우
             if b_data.get("delete") is True:
                 delete_user_broker_openapi(username, broker)
-                if broker in ("kis", "kiwoom"):
+                if broker == "kb":
+                    current[broker] = {"app_key": "", "app_secret": "", "gnl_ac_no": "", "gds_no": ""}
+                elif broker in ("kis", "kiwoom"):
                     current[broker] = {"app_key": "", "app_secret": "", "account_no": ""}
                 else:
                     current[broker] = {"app_key": "", "app_secret": ""}
@@ -142,6 +179,26 @@ def save_user_openapi_config(username: str, update_data: dict[str, dict[str, Any
                 elif new_acc == "":
                     current[broker]["account_no"] = ""
 
+            # KB SSQM2442 account context is server-side configuration.
+            # Accepts 11-digit account number (via account_no or gnl_ac_no) and derives gnl_ac_no and gds_no.
+            if broker == "kb":
+                input_acct = None
+                if "account_no" in b_data:
+                    input_acct = str(b_data.get("account_no", "")).strip()
+                elif "gnl_ac_no" in b_data:
+                    input_acct = str(b_data.get("gnl_ac_no", "")).strip()
+
+                if input_acct is not None:
+                    if input_acct and "*" not in input_acct:
+                        account11, gnl_ac_no, gds_no = _validate_and_derive_kb_account(input_acct)
+                        current[broker]["account11"] = account11
+                        current[broker]["gnl_ac_no"] = gnl_ac_no
+                        current[broker]["gds_no"] = gds_no
+                    elif input_acct == "":
+                        current[broker]["account11"] = ""
+                        current[broker]["gnl_ac_no"] = ""
+                        current[broker]["gds_no"] = ""
+
     file_path = _get_user_openapi_file(username)
     file_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info("사용자 %s의 OpenAPI 설정 저장 완료", username)
@@ -150,6 +207,8 @@ def save_user_openapi_config(username: str, update_data: dict[str, dict[str, Any
 
 def get_masked_user_openapi_config(username: str) -> dict[str, dict[str, Any]]:
     """UI 표시용 마스킹된 OpenAPI 설정 반환"""
+    from app.services.kb_openapi import mask_kb_account
+
     cfg = get_user_openapi_config(username)
     masked: dict[str, dict[str, Any]] = {}
 
@@ -179,5 +238,16 @@ def get_masked_user_openapi_config(username: str) -> dict[str, dict[str, Any]]:
             "has_account_no": bool(acc),
             "configured": bool(key and sec),
         }
+        if broker == "kb":
+            kb_acct = b_cfg.get("gnl_ac_no", "")
+            kb_prod = b_cfg.get("gds_no", "")
+            account11 = b_cfg.get("account11", "")
+            masked[broker]["has_provider_account"] = bool(kb_acct)
+            masked[broker]["has_product_number"] = bool(kb_prod)
+            masked[broker]["account_no"] = mask_kb_account(account11 or kb_acct, kb_prod) if (account11 or kb_acct) else ""
+            masked[broker]["has_account_no"] = bool(kb_acct or account11)
+            masked[broker]["realized_configured"] = bool(
+                key and sec and kb_acct and kb_prod
+            )
 
     return masked

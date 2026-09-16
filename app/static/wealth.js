@@ -10652,6 +10652,7 @@ async function openUserOpenApiModal() {
   const tossSec = document.getElementById('openapiTossSecret');
   const kbKey = document.getElementById('openapiKbKey');
   const kbSec = document.getElementById('openapiKbSecret');
+  const kbAcc = document.getElementById('openapiKbAccountNo');
   const nhKey = document.getElementById('openapiNhKey');
   const nhSec = document.getElementById('openapiNhSecret');
   const kisKey = document.getElementById('openapiKisKey');
@@ -10665,6 +10666,7 @@ async function openUserOpenApiModal() {
   if (tossSec) tossSec.value = '';
   if (kbKey) kbKey.value = '';
   if (kbSec) kbSec.value = '';
+  if (kbAcc) kbAcc.value = '';
   if (nhKey) nhKey.value = '';
   if (nhSec) nhSec.value = '';
   if (kisKey) kisKey.value = '';
@@ -10716,9 +10718,11 @@ async function openUserOpenApiModal() {
       if (kbDelBtn) kbDelBtn.style.display = 'inline-flex';
       if (kbKey) kbKey.value = config.kb.app_key || '';
       if (kbSec) kbSec.placeholder = '******** (등록됨 - 변경 시만 입력)';
+      if (kbAcc) kbAcc.placeholder = config.kb.account_no ? `${config.kb.account_no} (등록됨 - 변경 시만 입력)` : '하이픈 없이 11자리 계좌번호를 입력하세요.';
     } else {
       if (kbDelBtn) kbDelBtn.style.display = 'none';
       if (kbSec) kbSec.placeholder = 'KB App Secret 입력';
+      if (kbAcc) kbAcc.placeholder = (config.kb && config.kb.account_no) ? `${config.kb.account_no} (등록됨 - 변경 시만 입력)` : '하이픈 없이 11자리 계좌번호를 입력하세요.';
     }
 
     // NH (나무)
@@ -10802,6 +10806,7 @@ async function handleSaveUserOpenApi(e) {
     kb: {
       app_key: (document.getElementById('openapiKbKey')?.value || '').trim(),
       app_secret: (document.getElementById('openapiKbSecret')?.value || '').trim(),
+      account_no: (document.getElementById('openapiKbAccountNo')?.value || '').trim(),
     },
     nh: {
       app_key: (document.getElementById('openapiNhKey')?.value || '').trim(),
@@ -13591,6 +13596,15 @@ function getBrokerContextByOverlayId(overlayId) {
       commitButtonId: 'btnKiwoomConfirmCommit',
     };
   }
+  if (overlayId === 'kbImportModalOverlay') {
+    return {
+      brokerKey: 'kb',
+      state: kbRealizedState,
+      optionsContainerId: 'kbImportOptions',
+      refreshPreview: openKbImportPreview,
+      commitButtonId: 'btnKbConfirmCommit',
+    };
+  }
   return null;
 }
 
@@ -14833,54 +14847,378 @@ function initKiwoomRealizedUI() {
   document.getElementById('btnKiwoomConfirmCommit')?.addEventListener('click', commitKiwoomImport);
 }
 
+// ── KB증권 (KB Securities) 실현손익 UI ──────────────────────────────────────
+const kbRealizedState = {
+  status: null, accounts: [], sourceAccountKey: '', mappedDestAccountId: '',
+  loading: false, importing: false, rows: [], selectionTokens: [],
+  selectedIndices: new Set(), importedIndices: new Set(), market: 'kr',
+  importPreferences: new Map(),
+  previewTicket: null, preview: null,
+};
+window.kbRealizedState = kbRealizedState;
+
+function showKbMessage(message, type = 'info') {
+  const el = document.getElementById('kbMessage');
+  if (!el) return;
+  el.className = `toss-wts-message ${type}`;
+  el.textContent = message;
+  el.style.display = 'block';
+}
+function hideKbMessage() { const el = document.getElementById('kbMessage'); if (el) { el.style.display = 'none'; el.textContent = ''; } }
+function setKbLoading(loading) {
+  kbRealizedState.loading = loading;
+  ['btnCheckKbStatus', 'btnFetchKbFeed'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = loading || (id === 'btnFetchKbFeed' && !kbRealizedState.sourceAccountKey);
+  });
+}
+function kbSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
+function kbSelectedItems() {
+  return Array.from(kbRealizedState.selectedIndices).sort((a, b) => a - b).map(idx => {
+    const row = kbRealizedState.rows[idx]; const token = kbRealizedState.selectionTokens[idx];
+    return row && token ? brokerImportSelectedItem(kbRealizedState, idx) : null;
+  }).filter(Boolean);
+}
+function populateKbSourceAccounts() {
+  const select = document.getElementById('kbSourceAccount'); if (!select) return;
+  const current = select.value; select.innerHTML = '<option value="">원본 계좌 선택...</option>';
+  kbRealizedState.accounts.forEach(account => {
+    const option = document.createElement('option');
+    option.value = account.source_account_key;
+    option.textContent = account.source_account_label || '마스킹된 KB 계좌';
+    select.appendChild(option);
+  });
+  select.disabled = kbRealizedState.accounts.length === 0;
+  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
+  else if (kbRealizedState.accounts.length === 1) select.value = kbRealizedState.accounts[0].source_account_key;
+  kbRealizedState.sourceAccountKey = select.value;
+  kbRealizedState.mappedDestAccountId = kbRealizedState.accounts.find(a => a.source_account_key === select.value)?.mapped_destination_account_id || '';
+}
+async function checkKbStatus() {
+  if (kbRealizedState.loading) return;
+  setKbLoading(true); hideKbMessage();
+  try {
+    const res = await fetch('/api/kb/status'); const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw data;
+    kbRealizedState.status = data; kbRealizedState.accounts = Array.isArray(data.accounts) ? data.accounts : [];
+    populateKbSourceAccounts();
+    const status = document.getElementById('kbStatusText'); const banner = document.getElementById('kbBannerText');
+    if (!data.configured) {
+      if (status) status.textContent = '미설정 (API 키 필요)';
+      showKbMessage('KB증권 OpenAPI 설정이 필요합니다.', 'warning');
+    } else if (!kbRealizedState.accounts.length) {
+      if (status) status.textContent = '계좌 미등록';
+      showKbMessage('조회 가능한 KB 계좌가 없습니다.', 'warning');
+    } else {
+      if (status) status.textContent = '계좌 선택 가능';
+      if (banner) banner.textContent = '마스킹된 원본 계좌를 선택한 뒤 조회하세요. 국내주식 실현손익만 지원되며 결과는 읽기 전용입니다.';
+    }
+  } catch (error) {
+    showKbMessage(kbSafeError(error, 'KB 연동 상태 확인에 실패했습니다.'), 'error');
+  } finally {
+    setKbLoading(false);
+    updateKbSelectionUI();
+  }
+}
+function populateKbDestinationAccounts() {
+  const select = document.getElementById('kbDestinationAccount'); if (!select) return;
+  const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
+  const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
+  accounts.forEach(acc => {
+    const option = document.createElement('option');
+    option.value = String(acc.id || '');
+    option.textContent = `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`;
+    select.appendChild(option);
+  });
+  const preferred = kbRealizedState.mappedDestAccountId;
+  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
+  else if (preferred && Array.from(select.options).some(o => o.value === String(preferred))) select.value = String(preferred);
+}
+async function fetchKbRealizedFeed() {
+  if (kbRealizedState.loading) return;
+  const market = document.getElementById('kbMarketSelect')?.value || 'kr';
+  if (market !== 'kr') {
+    return showKbMessage('KB 해외주식 실현손익은 현재 Open API에서 지원되지 않습니다.', 'warning');
+  }
+  const fromDate = document.getElementById('kbFromDate')?.value;
+  const toDate = document.getElementById('kbToDate')?.value;
+  if (!kbRealizedState.sourceAccountKey) return showKbMessage('마스킹된 KB 원본 계좌를 선택하세요.', 'warning');
+  if (!fromDate || !toDate || fromDate > toDate) return showKbMessage('유효한 시작일과 종료일을 선택하세요.', 'warning');
+  setKbLoading(true); hideKbMessage();
+  try {
+    const res = await fetch('/api/kb/realized-feed/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ market: 'kr', from_date: fromDate, to_date: toDate, source_account_key: kbRealizedState.sourceAccountKey })
+    });
+    const data = await res.json().catch(() => ({})); if (!res.ok) throw data;
+    const sortedFeed = sortBrokerRealizedFeedRows(data.rows || [], data.selection_tokens || []);
+    kbRealizedState.rows = sortedFeed.rows;
+    kbRealizedState.selectionTokens = sortedFeed.selectionTokens;
+    kbRealizedState.selectedIndices.clear();
+    kbRealizedState.importedIndices.clear();
+    kbRealizedState.importPreferences.clear();
+    kbRealizedState.previewTicket = null;
+    kbRealizedState.preview = null;
+    kbRealizedState.market = 'kr';
+    const meta = document.getElementById('kbMeta');
+    if (meta) {
+      meta.textContent = `조회 시장: 국내주식 · ${kbRealizedState.rows.length}건`;
+      meta.style.display = 'flex';
+    }
+    renderKbFeedTable();
+    updateKbSelectionUI();
+    if (!kbRealizedState.rows.length) showKbMessage('해당 기간의 실현손익 내역이 없습니다.', 'info');
+  } catch (error) {
+    showKbMessage(kbSafeError(error, 'KB 실현손익 조회에 실패했습니다.'), 'error');
+    renderKbFeedTable();
+  } finally {
+    setKbLoading(false);
+  }
+}
+function kbNumber(value, digits = 0) {
+  if (value === null || value === undefined || value === '') return '—';
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—';
+}
+function renderKbFeedTable() {
+  const tbody = document.getElementById('kbTableBody');
+  const selectAll = document.getElementById('kbSelectAll');
+  if (!tbody) return;
+  if (selectAll) selectAll.checked = false;
+  if (!kbRealizedState.rows.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-empty">조회 버튼을 눌러 KB 실현손익을 조회하세요.</td></tr>';
+    return;
+  }
+  const extra = document.getElementById('kbExpenseColumn');
+  if (extra) extra.textContent = '수수료 / 제세금';
+  tbody.innerHTML = kbRealizedState.rows.map((row, index) => {
+    const imported = kbRealizedState.importedIndices.has(index);
+    const selected = kbRealizedState.selectedIndices.has(index);
+    const pnl = Number(row.pnl);
+    const pnlClass = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
+    const check = imported ? '<span class="toss-wts-imported-badge">완료</span>' : `<input type="checkbox" class="kb-row-check" data-index="${index}" ${selected ? 'checked' : ''}>`;
+    const context = '국내 / KRW';
+    const expense = `${row.fee == null ? '—' : `수수료 ${kbNumber(row.fee)}`} ${row.tax == null ? '' : `제세금 ${kbNumber(row.tax)}`}`;
+    return `<tr class="${selected ? 'selected' : ''} ${imported ? 'imported-row' : ''}">` +
+      `<td>${check}</td>` +
+      `<td>${html(row.date || '')}</td>` +
+      `<td><strong>${html(row.name || '')}</strong><br><code>${html(row.code || '')}</code></td>` +
+      `<td>${context}</td>` +
+      `<td class="num">${kbNumber(row.quantity)}</td>` +
+      `<td class="num">${kbNumber(row.buy_amount, 0)}</td>` +
+      `<td class="num">${kbNumber(row.sell_amount, 0)}</td>` +
+      `<td class="num ${pnlClass}"><strong>${kbNumber(row.pnl, 0)}</strong></td>` +
+      `<td class="num">${row.profit_rate == null ? '—' : `${kbNumber(row.profit_rate, 2)}%`}</td>` +
+      `<td class="num"><small class="muted">${expense}</small></td>` +
+    `</tr>`;
+  }).join('');
+  tbody.querySelectorAll('.kb-row-check').forEach(check => check.addEventListener('change', event => {
+    const index = Number(event.target.dataset.index);
+    event.target.checked ? kbRealizedState.selectedIndices.add(index) : kbRealizedState.selectedIndices.delete(index);
+    updateKbSelectionUI();
+  }));
+}
+function updateKbSelectionUI() {
+  populateKbDestinationAccounts();
+  const count = kbRealizedState.selectedIndices.size;
+  const badge = document.getElementById('kbSelectedCountBadge');
+  const bar = document.getElementById('kbImportBar');
+  const button = document.getElementById('btnKbImportSelected');
+  if (badge) badge.textContent = `선택 ${count}건`;
+  if (bar) bar.style.display = kbRealizedState.rows.length ? 'flex' : 'none';
+  if (button) button.disabled = count === 0 || !document.getElementById('kbDestinationAccount')?.value || kbRealizedState.loading || kbRealizedState.importing;
+  renderBrokerImportOptions(kbRealizedState, 'kbImportOptions', 'kb');
+}
+async function openKbImportPreview() {
+  const accountId = document.getElementById('kbDestinationAccount')?.value;
+  const selectedItems = kbSelectedItems();
+  if (!accountId) return showKbMessage('귀속할 Wealth 계좌를 선택하세요.', 'warning');
+  if (!selectedItems.length) return;
+  setKbLoading(true);
+  hideKbMessage();
+  try {
+    const res = await fetch('/api/kb/realized-feed/import-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        selected_items: selectedItems,
+        account_id: accountId,
+        market: 'kr',
+        source_account_key: kbRealizedState.sourceAccountKey
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      kbRealizedState.previewTicket = null;
+      updateKbCommitButton();
+      throw data;
+    }
+    kbRealizedState.preview = data;
+    kbRealizedState.previewTicket = data.preview_ticket;
+    renderKbPreviewModal(data);
+  } catch (error) {
+    kbRealizedState.previewTicket = null;
+    updateKbCommitButton();
+    showKbMessage(kbSafeError(error, 'KB 미리보기 검증에 실패했습니다.'), 'error');
+  } finally {
+    setKbLoading(false);
+  }
+}
+function renderKbPreviewModal(data) {
+  const counts = data.counts || {};
+  ['New', 'Already', 'Dup', 'Invalid'].forEach(name => {
+    const key = { New: 'new', Already: 'already_imported', Dup: 'possible_duplicate', Invalid: 'invalid' }[name];
+    const el = document.getElementById(`kbModalCount${name}`);
+    if (el) el.textContent = String(counts[key] || 0);
+  });
+  const dest = data.destination_account || {};
+  const display = document.getElementById('kbModalDestAccountDisplay');
+  if (display) display.innerHTML = `귀속 계좌: <strong>[${html(dest.broker || 'Wealth')}] ${html(maskAccountDisplayLabel(dest.account_name || '-'))}</strong> (${html(dest.owner || '모두')})`;
+  const dup = document.getElementById('kbDupOverrideWrap');
+  if (dup) dup.style.display = counts.possible_duplicate ? 'block' : 'none';
+  const check = document.getElementById('kbIncludePossibleDuplicates');
+  if (check) check.checked = false;
+  const body = document.getElementById('kbModalItemsBody');
+  if (body) {
+    body.innerHTML = (data.items || []).map(item => {
+      const candidate = item.candidate || {};
+      return `<tr><td><span class="badge">${html(brokerPreviewStatusLabel(item.status))}</span></td><td>${html(candidate.date || '-')}</td><td>${html(candidate.name || '-')}</td><td class="num">${kbNumber(candidate.quantity)}</td><td class="num">${kbNumber(candidate.pnl, 0)} ${html(candidate.currency || 'KRW')}</td></tr>`;
+    }).join('');
+  }
+  updateKbCommitButton();
+  renderBrokerImportPreviewDetails(data, 'kbImportModalOverlay');
+  document.getElementById('kbImportModalOverlay').style.display = 'flex';
+}
+function updateKbCommitButton() {
+  const button = document.getElementById('btnKbConfirmCommit');
+  const counts = kbRealizedState.preview?.counts || {};
+  const include = !!document.getElementById('kbIncludePossibleDuplicates')?.checked;
+  const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0);
+  if (button) {
+    button.textContent = `${eligible}건 가져오기 완료`;
+    button.disabled = eligible === 0 || !kbRealizedState.previewTicket || kbRealizedState.importing;
+  }
+}
+function closeKbImportModal() {
+  const overlay = document.getElementById('kbImportModalOverlay');
+  if (overlay) overlay.style.display = 'none';
+  kbRealizedState.preview = null;
+  kbRealizedState.previewTicket = null;
+}
+async function commitKbImport() {
+  if (kbRealizedState.importing || !kbRealizedState.previewTicket) return;
+  kbRealizedState.importing = true;
+  updateKbCommitButton();
+  const accountId = kbRealizedState.preview?.destination_account?.id || document.getElementById('kbDestinationAccount')?.value;
+  try {
+    const res = await fetch('/api/kb/realized-feed/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        selected_items: kbSelectedItems(),
+        account_id: accountId,
+        market: 'kr',
+        source_account_key: kbRealizedState.sourceAccountKey,
+        preview_ticket: kbRealizedState.previewTicket,
+        include_possible_duplicates: !!document.getElementById('kbIncludePossibleDuplicates')?.checked
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw data;
+    kbRealizedState.selectedIndices.forEach(index => kbRealizedState.importedIndices.add(index));
+    kbRealizedState.selectedIndices.clear();
+    kbRealizedState.previewTicket = null;
+    closeKbImportModal();
+    renderKbFeedTable();
+    updateKbSelectionUI();
+    if (data.partial_success || data.mapping_warning === 'MAPPING_PERSISTENCE_FAILED') {
+      showKbMessage(`KB 실현손익 ${data.imported || 0}건 가져오기를 완료했으나, 계좌 매핑 저장에 실패했습니다. 재시도 시 손익 중복 없이 매핑을 복구할 수 있습니다.`, 'warning');
+    } else if (data.mapping_repaired) {
+      showKbMessage(`KB 실현손익 ${data.imported || 0}건을 가져오고 계좌 매핑을 복구했습니다.`, 'success');
+    } else {
+      showKbMessage(`KB 실현손익 ${data.imported || 0}건을 Wealth 계좌에 가져왔습니다.`, 'success');
+    }
+    if (typeof loadPnlRecords === 'function') loadPnlRecords();
+    if (typeof loadDashboard === 'function') loadDashboard();
+    else if (typeof fetchDashboard === 'function') fetchDashboard();
+  } catch (error) {
+    showKbMessage(kbSafeError(error, 'KB 가져오기에 실패했습니다.'), 'error');
+  } finally {
+    kbRealizedState.importing = false;
+    updateKbCommitButton();
+    updateKbSelectionUI();
+  }
+}
+function initKbRealizedUI() {
+  const kbFrom = document.getElementById('kbFromDate');
+  const kbTo = document.getElementById('kbToDate');
+  const currentYear = new Date().getFullYear();
+  if (kbFrom && !kbFrom.value) kbFrom.value = `${currentYear}-01-01`;
+  if (kbTo && !kbTo.value) kbTo.value = new Date().toISOString().slice(0, 10);
+  document.getElementById('btnTabBrokerKb')?.addEventListener('click', () => switchRealizedBroker('kb'));
+  document.getElementById('btnCheckKbStatus')?.addEventListener('click', checkKbStatus);
+  document.getElementById('btnFetchKbFeed')?.addEventListener('click', fetchKbRealizedFeed);
+  document.getElementById('kbSourceAccount')?.addEventListener('change', event => {
+    kbRealizedState.sourceAccountKey = event.target.value;
+    kbRealizedState.mappedDestAccountId = kbRealizedState.accounts.find(a => a.source_account_key === event.target.value)?.mapped_destination_account_id || '';
+    updateKbSelectionUI();
+    setKbLoading(false);
+  });
+  document.getElementById('kbDestinationAccount')?.addEventListener('change', updateKbSelectionUI);
+  document.getElementById('kbSelectAll')?.addEventListener('change', event => {
+    kbRealizedState.rows.forEach((_, index) => {
+      if (!kbRealizedState.importedIndices.has(index)) {
+        event.target.checked ? kbRealizedState.selectedIndices.add(index) : kbRealizedState.selectedIndices.delete(index);
+      }
+    });
+    renderKbFeedTable();
+    updateKbSelectionUI();
+  });
+  document.getElementById('btnKbImportSelected')?.addEventListener('click', openKbImportPreview);
+  document.getElementById('btnKbModalClose')?.addEventListener('click', closeKbImportModal);
+  document.getElementById('btnKbModalCancel')?.addEventListener('click', closeKbImportModal);
+  document.getElementById('kbIncludePossibleDuplicates')?.addEventListener('change', updateKbCommitButton);
+  document.getElementById('btnKbConfirmCommit')?.addEventListener('click', commitKbImport);
+  document.getElementById('kbMarketSelect')?.addEventListener('change', () => {
+    const val = document.getElementById('kbMarketSelect')?.value;
+    if (val !== 'kr') {
+      showKbMessage('KB 해외주식 실현손익은 현재 Open API에서 지원되지 않습니다.', 'warning');
+    } else {
+      hideKbMessage();
+    }
+  });
+}
+
 function switchRealizedBroker(broker) {
   const tossCard = document.getElementById('tossWtsCard');
   const kisCard = document.getElementById('kisRealizedCard');
   const nhCard = document.getElementById('nhRealizedCard');
   const kiwoomCard = document.getElementById('kiwoomRealizedCard');
+  const kbCard = document.getElementById('kbRealizedCard');
   const btnToss = document.getElementById('btnTabBrokerToss');
   const btnKis = document.getElementById('btnTabBrokerKis');
   const btnNh = document.getElementById('btnTabBrokerNh');
   const btnKiwoom = document.getElementById('btnTabBrokerKiwoom');
+  const btnKb = document.getElementById('btnTabBrokerKb');
+
+  [btnToss, btnKis, btnNh, btnKiwoom, btnKb].forEach(btn => btn?.classList.remove('active'));
+  [tossCard, kisCard, nhCard, kiwoomCard, kbCard].forEach(card => { if (card) card.style.display = 'none'; });
 
   if (broker === 'kis') {
-    if (tossCard) tossCard.style.display = 'none';
     if (kisCard) kisCard.style.display = 'block';
-    if (nhCard) nhCard.style.display = 'none';
-    if (kiwoomCard) kiwoomCard.style.display = 'none';
-    btnToss?.classList.remove('active');
-    btnNh?.classList.remove('active');
-    btnKiwoom?.classList.remove('active');
     btnKis?.classList.add('active');
-    // Broker-tab selection is presentation-only; status/fetch remain explicit actions.
   } else if (broker === 'nh') {
-    if (tossCard) tossCard.style.display = 'none';
-    if (kisCard) kisCard.style.display = 'none';
     if (nhCard) nhCard.style.display = 'block';
-    if (kiwoomCard) kiwoomCard.style.display = 'none';
-    btnToss?.classList.remove('active');
-    btnKis?.classList.remove('active');
-    btnKiwoom?.classList.remove('active');
     btnNh?.classList.add('active');
-    // Deliberately do not call /api/nh/status here: selecting a broker tab is not a provider action.
   } else if (broker === 'kiwoom') {
-    if (tossCard) tossCard.style.display = 'none';
-    if (kisCard) kisCard.style.display = 'none';
-    if (nhCard) nhCard.style.display = 'none';
     if (kiwoomCard) kiwoomCard.style.display = 'block';
-    btnToss?.classList.remove('active');
-    btnKis?.classList.remove('active');
-    btnNh?.classList.remove('active');
     btnKiwoom?.classList.add('active');
-    // Deliberately do not call /api/kiwoom/status here: selecting a broker tab is not a provider action.
+  } else if (broker === 'kb') {
+    if (kbCard) kbCard.style.display = 'block';
+    btnKb?.classList.add('active');
   } else {
     if (tossCard) tossCard.style.display = 'block';
-    if (kisCard) kisCard.style.display = 'none';
-    if (nhCard) nhCard.style.display = 'none';
-    if (kiwoomCard) kiwoomCard.style.display = 'none';
-    btnKis?.classList.remove('active');
-    btnNh?.classList.remove('active');
-    btnKiwoom?.classList.remove('active');
     btnToss?.classList.add('active');
   }
 }
@@ -14976,6 +15314,7 @@ async function bootstrap() {
   initTossWtsUI();
   initKisRealizedUI();
   initKiwoomRealizedUI();
+  initKbRealizedUI();
   await initAuthSession();
 }
 
