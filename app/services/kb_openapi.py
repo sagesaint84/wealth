@@ -290,9 +290,6 @@ class KBOpenAPI:
         body = payload.get("dataBody", payload)
         if not isinstance(body, dict):
             raise KBOpenAPIError("KB OpenAPI dataBody 형식이 올바르지 않습니다.")
-        code = str(body.get("o_clsf", body.get("clsfP", "0")))
-        if code not in {"", "0", "00"}:
-            raise KBOpenAPIError("KB OpenAPI 업무 응답이 실패했습니다.")
         return body
 
     async def call(self, endpoint: str, data_body: dict[str, Any], *, require_data_body: bool = False) -> dict[str, Any]:

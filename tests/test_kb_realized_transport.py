@@ -711,15 +711,60 @@ class KBDataHeaderContractTests(unittest.TestCase):
             KBOpenAPI._normalize_response(payload)
         self.assertIn("9999", str(ctx.exception))
 
-    def test_normalize_response_accepts_process_flag_a(self):
-        """Generic KB TR normalizer must accept processFlag=A and return dataBody."""
+    def test_normalize_response_accepts_process_flag_a_and_preserves_o_clsf_sc(self):
+        """0011/A + o_clsf='SC' (official KB TR pattern e.g. SZQM0771) must succeed and preserve o_clsf."""
         payload = {
             "dataHeader": {
                 "resultCode": "200",
                 "processCode": "0011",
                 "processFlag": "A",
             },
-            "dataBody": {"o_clsf": "0", "data": "ok"},
+            "dataBody": {"o_clsf": "SC", "now_dt": "20260622", "o_msg": "정상 조회되었습니다."},
         }
         result = KBOpenAPI._normalize_response(payload)
-        self.assertEqual(result.get("data"), "ok")
+        self.assertEqual(result.get("o_clsf"), "SC")
+        self.assertEqual(result.get("now_dt"), "20260622")
+
+    def test_normalize_response_rejects_process_flag_b_even_with_o_clsf_sc(self):
+        """9999/B + o_clsf='SC' must fail due to provider process failure regardless of o_clsf."""
+        payload = {
+            "dataHeader": {
+                "resultCode": "200",
+                "processCode": "9999",
+                "processFlag": "B",
+                "processMessage": "입력값 확인 필요",
+            },
+            "dataBody": {"o_clsf": "SC"},
+        }
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._normalize_response(payload)
+        self.assertIn("9999", str(ctx.exception))
+
+    def test_normalize_response_preserves_clsfp_on_success(self):
+        """0011/A + arbitrary synthetic non-empty clsfP (market data TRs) must succeed and preserve clsfP."""
+        for sample_clsfp in ("SC", "01", "CUSTOM"):
+            with self.subTest(clsfP=sample_clsfp):
+                payload = {
+                    "dataHeader": {
+                        "resultCode": "200",
+                        "processCode": "0011",
+                        "processFlag": "A",
+                    },
+                    "dataBody": {"clsfP": sample_clsfp, "now_prc": "50000"},
+                }
+                result = KBOpenAPI._normalize_response(payload)
+                self.assertEqual(result.get("clsfP"), sample_clsfp)
+                self.assertEqual(result.get("now_prc"), "50000")
+
+    def test_normalize_response_rejects_unknown_process_status(self):
+        """Unknown process status through _normalize_response must fail closed."""
+        payload = {
+            "dataHeader": {
+                "resultCode": "200",
+                "processCode": "7777",
+                "processFlag": "Z",
+            },
+            "dataBody": {"o_clsf": "SC"},
+        }
+        with self.assertRaises(KBOpenAPIError):
+            KBOpenAPI._normalize_response(payload)
