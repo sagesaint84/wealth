@@ -348,7 +348,7 @@
           <div class="toolbar" style="margin-left:auto;">
             <span id="recordCount" class="muted">0개 기록</span>
             <button id="snapshotButton" class="button secondary compact" type="button" title="오늘 스냅샷 저장">기록</button>
-            <button id="addRecordButton" class="button secondary compact" type="button" title="자산기록 직접 추가">추가</button>
+            <button id="addRecordButton" class="button secondary compact" type="button" title="주식기록 직접 추가">추가</button>
           </div>
         </div>
         <div class="records-grid">
@@ -1417,7 +1417,32 @@
         </div>
       </form>
     </dialog>
-    <dialog id="assetRecordDialog" class="dialog"><form id="assetRecordForm" method="dialog"><div class="dialog-head"><h2 id="assetRecordDialogTitle">자산기록 추가</h2><button value="cancel" class="close" aria-label="닫기">×</button></div><p class="dialog-description">하루 한 번의 자산기록을 저장하고, 필요하면 나중에 직접 수정할 수 있습니다.</p><div class="form-grid record-form-grid"><label>날짜<input name="date" type="date" required /></label><label>총 투자자산<input name="total_value_krw" type="number" min="0" step="any" required /></label><label>총 매입금액<input name="total_cost_krw" type="number" min="0" step="any" required /></label><label>총 수익<input name="profit_krw" type="number" step="any" /></label><label>수익률<input name="return_rate" type="number" step="any" /></label><label>일간 수익<input name="day_profit_krw" type="number" step="any" /></label><label>원화 자산<input name="krw_value_krw" type="number" min="0" step="any" /></label><label>달러 자산 환산<input name="usd_value_krw" type="number" min="0" step="any" /></label><label>보유 종목 수<input name="holding_count" type="number" min="0" step="1" /></label><label>메모<input name="memo" /></label><label>구성원<select name="owner"><option value="모두">모두</option><option value="아빠">아빠</option><option value="엄마">엄마</option><option value="자녀">자녀</option></select></label></div><div class="dialog-actions"><button class="button secondary" value="cancel" type="button">취소</button><button class="button primary" type="submit">저장</button></div></form></dialog>
+    <dialog id="assetRecordDialog" class="dialog">
+      <form id="assetRecordForm" method="dialog">
+        <div class="dialog-head">
+          <h2 id="assetRecordDialogTitle">주식기록 추가</h2>
+          <button value="cancel" class="close" aria-label="닫기">×</button>
+        </div>
+        <p class="dialog-description">하루 한 번의 주식기록을 저장하고, 필요하면 나중에 직접 수정할 수 있습니다.</p>
+        <div class="form-grid record-form-grid">
+          <label>날짜<input name="date" type="date" required /></label>
+          <label>총주식자산<input name="total_value_krw" type="number" min="0" step="any" required /></label>
+          <label>총매입금액<input name="total_cost_krw" type="number" min="0" step="any" required /></label>
+          <label>총수익<input name="profit_krw" type="number" step="any" /></label>
+          <label>수익률<input name="return_rate" type="number" step="any" /></label>
+          <label>일간수익<input name="day_profit_krw" type="number" step="any" /></label>
+          <label>원화자산<input name="krw_value_krw" type="number" min="0" step="any" /></label>
+          <label>달러자산환산<input name="usd_value_krw" type="number" min="0" step="any" /></label>
+          <label>보유종목수<input name="holding_count" type="number" min="0" step="1" /></label>
+          <label>메모<input name="memo" /></label>
+          <label>구성원<select name="owner"><option value="모두">모두</option><option value="아빠">아빠</option><option value="엄마">엄마</option><option value="자녀">자녀</option></select></label>
+        </div>
+        <div class="dialog-actions">
+          <button class="button secondary" value="cancel" type="button">취소</button>
+          <button class="button primary" type="submit">저장</button>
+        </div>
+      </form>
+    </dialog>
 
     <!-- 계좌 예수금 직접 입력/수정 다이얼로그 (원화 & 달러 통합) -->
     <dialog id="accountCashDialog" class="dialog">

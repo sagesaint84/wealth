@@ -5959,9 +5959,9 @@ function openAssetRecordDialog(record = null) {
   if (!form) return;
   form.reset();
   form.dataset.recordId = record?.id || "";
-  $("#assetRecordDialogTitle") && ($("#assetRecordDialogTitle").textContent = record ? "자산기록 수정" : "자산기록 추가");
+  $("#assetRecordDialogTitle") && ($("#assetRecordDialogTitle").textContent = record ? "주식기록 수정" : "주식기록 추가");
   form.date.value = record?.date || new Date().toISOString().slice(0, 10);
-  form.total_value_krw.value = record?.total_value_krw ?? "";
+  form.total_value_krw.value = record?.total_value_krw ?? record?.total_assets_krw ?? "";
   if (form.total_assets_krw) form.total_assets_krw.value = record?.total_assets_krw ?? record?.total_value_krw ?? "";
   if (form.total_debt_krw) form.total_debt_krw.value = record?.total_debt_krw ?? "";
   if (form.net_worth_krw) form.net_worth_krw.value = record?.net_worth_krw ?? ((Number(record?.total_assets_krw ?? record?.total_value_krw) || 0) - (Number(record?.total_debt_krw) || 0));
@@ -7467,11 +7467,19 @@ $("#assetRecordForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.currentTarget;
   const payload = Object.fromEntries(new FormData(form));
+  const isPresent = v => v !== null && v !== undefined && String(v).trim() !== "" && !Number.isNaN(Number(String(v).replace(/,/g, "")));
+  if (!isPresent(payload.total_value_krw) && isPresent(payload.total_assets_krw)) {
+    payload.total_value_krw = payload.total_assets_krw;
+  }
+  if (!isPresent(payload.total_assets_krw) && isPresent(payload.total_value_krw)) {
+    payload.total_assets_krw = payload.total_value_krw;
+  }
+  if (!isPresent(payload.net_worth_krw)) {
+    payload.net_worth_krw = (Number(payload.total_assets_krw) || 0) - (Number(payload.total_debt_krw) || 0);
+  }
   ["total_value_krw", "total_assets_krw", "total_debt_krw", "net_worth_krw", "total_cost_krw", "profit_krw", "return_rate", "day_profit_krw", "krw_value_krw", "usd_value_krw", "holding_count"].forEach(key => {
-    payload[key] = Number(payload[key] || 0);
+    payload[key] = isPresent(payload[key]) ? Number(String(payload[key]).replace(/,/g, "")) : 0;
   });
-  payload.total_value_krw = payload.total_value_krw || payload.total_assets_krw;
-  payload.net_worth_krw = (Number(payload.total_assets_krw) || 0) - (Number(payload.total_debt_krw) || 0);
   payload.memo = payload.memo || "";
   payload.owner = payload.owner || currentOwner || "모두";
   try {

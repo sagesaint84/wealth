@@ -66,20 +66,6 @@
   splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-profit'), [['부동산 기대수익', 'wealthAssetPropertyExpected', '—'], ['주식 기대수익', 'wealthAssetStockExpected', '—']]);
   splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-realized'), [['매매차익', 'wealthAssetTradeDetail', '—'], ['배당/이자', 'wealthAssetDividendDetail', '—']]);
   splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-safe'), [['예수금 및 예금', 'wealthAssetSafeDetail', '—'], ['임차보증금', 'wealthAssetDepositDetail', '—'], ['보험', 'wealthAssetInsuranceDetail', '—']]);
-  const recordForm = document.getElementById('assetRecordForm');
-  if (recordForm) {
-    const grid = recordForm.querySelector('.record-form-grid');
-    const dateInput = grid?.querySelector('[name="date"]');
-    if (grid && dateInput && !grid.querySelector('[name="total_assets_krw"]')) {
-      const make = (name, label, attrs = {}) => { const wrap = document.createElement('label'); wrap.textContent = label; const input = document.createElement('input'); input.name = name; input.type = attrs.type || 'number'; input.step = 'any'; if (attrs.readOnly) input.readOnly = true; wrap.append(input); dateInput.closest('label')?.after(wrap); return input; };
-      const assets = make('total_assets_krw', '총자산', { });
-      const debt = make('total_debt_krw', '총부채', { });
-      const net = make('net_worth_krw', '순자산', { readOnly: true });
-      const updateNet = () => { net.value = String((Number(assets.value) || 0) - (Number(debt.value) || 0)); };
-      assets.addEventListener('input', updateNet); debt.addEventListener('input', updateNet);
-      recordForm.addEventListener('reset', () => setTimeout(updateNet));
-    }
-  }
   document.body.classList.add('wealth-layout');
   const page = key => layout.querySelector(`[data-wealth-page="${key}"]`);
   const move = (id, target) => { const node = document.getElementById(id); if (node) target.append(node); };
