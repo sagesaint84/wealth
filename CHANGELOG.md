@@ -1,5 +1,13 @@
 # Wealth 변경 이력
 
+## Wealth v1.2.5 — Stock Record Accuracy and Performance Semantics — 2026-09-18
+
+- **주식기록 성과 계산 의미 정돈**: 주식기록의 `total_value_krw`를 예수금을 제외한 순수 보유 주식/ETF 시장 평가액 기준으로 통일했습니다.
+- **예수금 이동에 따른 일간손익 왜곡 방지**: 입출금, 공모주 청약 증거금, 분할매수 및 매도 후 현금화가 `day_profit_krw`의 투자 수익/손실로 오인되지 않도록 현재 보유 종목의 당일 가격변동 손익(`holding_day_gain`)을 사용합니다.
+- **Dashboard 기존 계약 유지**: 종합 대시보드의 총자산은 기존과 동일하게 주식 평가액과 전체 예수금을 포함하며, 주식기록과 의미를 명확히 분리했습니다.
+- **당일 등락률 우선순위 안정화**: 최신 `0.0%` 보합 데이터를 유효값으로 보존하고, 값이 `None`인 경우에만 다음 데이터 소스로 fallback하도록 정리했습니다.
+- **주식기록 UI 개선 및 회귀 검증 강화**: 주식기록 dialog 동작을 개선하고 관련 계산·UI 회귀 테스트를 확장했으며 전체 858개 테스트를 통과했습니다.
+
 ## Wealth v1.2.4 — Strategy Bucket Color Clarity — 2026-09-17
 
 - **전략 버킷 semantic color 체계 도입**: 추천 버킷에는 고정 semantic color mapping을 적용하고, 사용자 정의 버킷은 기존 deterministic hash 기반 색상 fallback을 유지합니다.
