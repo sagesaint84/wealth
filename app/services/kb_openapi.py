@@ -275,6 +275,23 @@ class KBOpenAPI:
                 detail = response.text
             raise KBOpenAPIError(f"KB OpenAPI 요청 실패 ({response.status_code}): {detail}")
 
+    _EMPTY_BALANCE_CRITERIA: dict[str, str] = {
+        "8092": "잔고 내역이 존재하지 않습니다",
+        "1861": "조회할 자료가 없습니다",
+    }
+
+    @classmethod
+    def _is_empty_balance_response(cls, data_header: dict[str, Any]) -> bool:
+        process_flag = str(data_header.get("processFlag") or "").strip()
+        process_code = str(data_header.get("processCode") or "").strip()
+        process_msg = str(data_header.get("processMessage") or "").strip()
+        if process_flag != "A":
+            return False
+        expected_msg = cls._EMPTY_BALANCE_CRITERIA.get(process_code)
+        if not expected_msg:
+            return False
+        return expected_msg in process_msg
+
     @staticmethod
     def _is_empty_balance_8092(data_header: dict[str, Any]) -> bool:
         process_flag = str(data_header.get("processFlag") or "").strip()
@@ -300,7 +317,15 @@ class KBOpenAPI:
         # processCode="9999" for platform validation failures where dataBody is absent.
         data_header = payload.get("dataHeader")
         if isinstance(data_header, dict):
-            if empty_record_key and KBOpenAPI._is_empty_balance_8092(data_header):
+            if empty_record_key and KBOpenAPI._is_empty_balance_response(data_header):
+                data_body = payload.get("dataBody")
+                if isinstance(data_body, dict):
+                    records = data_body.get(empty_record_key)
+                    if bool(records):
+                        code = str(data_header.get("processCode") or "").strip()
+                        raise KBOpenAPIError(
+                            f"KB OpenAPI 빈 잔고 응답({code})에 비어있지 않은 {empty_record_key} 데이터가 포함되어 있어 모순 응답으로 거부되었습니다."
+                        )
                 return {empty_record_key: [], "nxt_key": ""}
             KBOpenAPI._check_provider_status(data_header, context="KB OpenAPI TR")
         if require_data_body and "dataBody" not in payload:

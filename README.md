@@ -1,346 +1,300 @@
 # Wealth
 
-Wealth는 개인과 가족이 보유한 금융자산, 부동산, 부채, 투자 성과와 생활 거래를 한곳에서 관리하는 self-hosted 자산관리 웹 애플리케이션입니다.
+Wealth는 개인과 가족이 보유한 금융자산, 부동산, 부채, 투자 성과와 생활 가계부를 한곳에서 통합 관리하는 self-hosted 자산관리 웹 애플리케이션입니다.
 
-데이터는 별도 데이터베이스가 아닌 서버의 `data/` 디렉터리에 JSON 파일로 저장됩니다. 여러 계정을 만들 수 있으며, 일반 사용자는 자신의 사용자 디렉터리에 저장된 데이터만 조회하고 관리합니다.
+데이터는 외부 클라우드나 별도 데이터베이스가 아닌 서버 로컬의 `data/` 디렉터리에 사용자별 JSON 파일로 안전하게 저장됩니다. 다중 사용자 및 가족 단위 자산 관리를 지원하며, 일반 사용자는 자신의 권한 내 데이터만 안전하게 조회하고 관리합니다.
 
-> 실제 금융정보와 증권사 credential을 다루는 애플리케이션입니다. 인터넷에 직접 공개하지 말고, 운영 전 반드시 강한 비밀번호와 고유한 세션 secret을 설정하세요.
+> [!CAUTION]
+> **실제 금융정보와 증권사 API 인증정보(Credential)를 다루는 애플리케이션입니다.**
+> 인터넷에 임의로 직접 노출하지 마시고, 운영 전 반드시 강력한 세션 서명 키(`DASHBOARD_SECRET_KEY`)와 안전한 비밀번호를 설정하세요.
 
-## 주요 기능
+---
 
-### 화면 구성
+## 1. 주요 기능
 
-- **홈**: 순자산, 현금·예적금, 등록 부채, 자산 구성, 관리 바로가기와 시장지수
-- **투자**: 기존 포트폴리오 요약, 히트맵, 보유종목, 자산 기록
-- **자산·계좌**: 증권, 은행·예적금·대출, 보험, 부동산
-- **손익·배당**: 실현손익과 배당 내역
-- **가계부**: 수입·지출, 카드 관리, 고정지출
-- **설정**: 가족, 증권사 연결, 비밀번호, 백업·복원과 테마
+### A. 주식 투자 및 포트폴리오
+- **국내/해외 주식 및 ETF 관리**: KRX 국내주식 및 미국(US) 등 해외주식의 보유종목, 수량, 매입단가, 현재가, 평가금액 통합 관리
+- **실시간 시세 및 환율 갱신**: 네이버 금융, 구글 파이낸스 및 웹 금융 데이터를 통한 주식 현재가, 시장지수(코스피/코스닥/S&P500/나스닥) 및 원/달러(USD/KRW) 환율 갱신
+- **시각화 히트맵 & 자산배분**: 보유종목별 평가금액 및 수익률 기반 트리맵(Heatmap), 시장·통화·자산군별 배분 비중 차트
+- **전략 버킷 (Strategy Buckets)**: 사용자 정의 투자 목적/전략별 버킷 관리, 목표 비중 실시간 검증(합계 100% 한도), 카드별 색상 액센트 및 계좌 기본값/예외 종목 매핑 지원
+- **절세계좌 세액공제 관리**: 연금저축 및 IRP(개인형 퇴직연금) 계좌의 소유자별·과세연도별 세액공제 한도 적용 및 누적 절세액 계산
 
-PC에서는 왼쪽 메뉴, 모바일에서는 하단 메뉴를 사용합니다. 가족 조회 범위는 화면 상단에서 선택하며 기존 owner 처리 규칙은 유지됩니다. 홈의 금액은 기존 포트폴리오 계산 결과를 표시하며, 새로운 순자산 이력이나 카드 청구기간 계산은 추가하지 않습니다.
+### B. 종합 자산 관리 (Net Worth)
+- **다양한 자산군 통합**: 증권, 은행 계좌(수시입출금, 예·적금), 대출(부채), 보험(보장성/저축성), 부동산 통합 관리
+- **마이너스통장 안전 상계**: `overdraft_bank_account_id`로 지정된 마이너스통장의 마이너스 잔고는 부채와 은행 잔고 간의 이중계상을 방지하도록 안전하게 상계 처리
+- **부동산 및 KB시세 연동**: 보유 부동산의 시세 등록 및 KB부동산 시세 연계, 담보대출/전세보증금 부채 연동 관리
+- **순자산 스냅샷 (Net Worth History)**: '오늘 기록' 및 '과거 기록 추가/수정'을 통한 일자별 총자산·총부채·순자산·환율 스냅샷 보존 및 반응형 순자산 추이 차트 제공
 
-마이너스통장 자동 상계는 `overdraft_bank_account_id`를 명시적으로 설정한 KRW 계좌에만 적용합니다. 기존 `linked_account_id`는 이자 출금계좌 의미를 유지합니다. 과거 v2 거래 및 marker 없는 legacy 거래는 기존 안전 정책을 유지하며 자동 migration하지 않습니다.
+### C. 머니 로그 (Money Log)
+- **일원화된 탭 내비게이션**: 실현손익, 배당금, 가계부 탭을 하나의 화면에서 유기적으로 탐색하고 URL 해시와 연동
+- **매도 실현손익**: 국내/해외 매도 실현손익 기록, 수익률 및 제비용(수수료/제세금) 관리, 외화 손익의 원통화 보존 및 역사적 환율(Historical FX) 기반 원화 환산
+- **배당 및 이자 내역**: 국내/해외 주식 배당금 및 은행 예적금 이자 수령 내역 관리, 세전/세후 배당 및 월별/연도별 배당 흐름 집계
+- **생활 가계부 (Ledger)**: 수입/지출 내역 기록, 카테고리 관리, 신용카드 결제일/결제계좌 연동 및 고정지출 관리
 
-### 순자산 기록과 전략 버킷
+### D. 데이터 가져오기 (Import) & 중복 방지
+- **파일 가져오기 (Excel/CSV)**: 주요 증권사(삼성, 신한, 미래에셋, KB, KIS, 토스, 키움 등)의 잔고/거래 엑셀 파일 및 뱅크샐러드 등의 가계부 CSV 가져오기
+- **멱등성 및 지문(Fingerprint) 검증**: `file_import_identity.py`를 통한 정규화 지문 검증으로 동일 파일 중복 가져오기 방지
+- **실현손익 선택 가져오기 (Selective Import)**: 증권사 API 피드에서 사용자가 원하는 항목을 선택하여 가져오는 사전 미리보기(Preview-before-write) 파이프라인 및 HMAC 서명/티켓 기반 Replay 방지 적용
 
-- 상단 **시세 갱신**은 시세 갱신, **계좌 동기화**는 설정된 증권사의 잔고·보유종목 동기화입니다. OpenAPI 인증정보는 설정에서 관리합니다.
-- 홈의 **순자산 추이 → 오늘 기록**으로 현재 조회 범위의 값을 확인 후 저장합니다. 일자 기준은 한국 시간이며 같은 날짜/조회 범위는 명시적으로 확인한 경우만 교체됩니다. 자동 일일 수집이 아니므로 미기록 날짜나 과거 값을 생성하지 않습니다.
-- 기록은 당시 총자산·총부채·순자산·환율을 보존합니다. 순자산 증감은 입출금/자산 등록을 포함하므로 투자수익률이 아닙니다. 외부 금융기관이 검증한 결산 기록이 아니라 사용자가 확인한 화면 값입니다.
-- 투자 메뉴의 **전략 버킷 → 버킷과 분류 관리**에서 이름·목적·목표 비중을 설정합니다. 초기 버킷이나 분류는 강제로 생성하지 않습니다. 목표 비중 합계는 100% 이하여야 합니다.
-- 계좌 기본 버킷을 지정한 뒤 필요한 보유내역만 예외 지정합니다. `계좌 기본값 사용`과 `명시적 미분류`를 구분합니다. 증권 예수금은 계좌 기본 버킷에 포함되고, 주식은 각 보유내역당 한 번만 집계됩니다.
-- 대상은 증권 보유종목과 예수금입니다. 은행·부동산·보험은 초기 전략 버킷 대상이 아닙니다. 목표 설정은 사용자 공통이고 평가 비중은 선택한 가족 범위 기준입니다.
-- 자동 매매나 잔고 변경은 없습니다. 분류는 ID에 연결되므로 동기화로 ID가 바뀐 경우 이전 분류를 추정해 옮기지 않습니다.
-- 데이터는 `portfolio.json`의 optional `settings.wealth_planning`에 저장되어 기존 JSON 백업/복원에 포함됩니다. 과거 데이터 migration은 없습니다.
+---
 
-### 안전한 화면 미리보기
+## 2. 화면 구성 및 UI/UX
 
-```powershell
-.\.venv\Scripts\python.exe tests/ui_preview.py
-```
+- **데스크톱 & 모바일 반응형 내비게이션**: PC 환경에서는 좌측 사이드바, 모바일 환경에서는 하단 내비게이션 바로 최적화된 동선 제공
+- **가족/소유자 필터**: 상단 헤더에서 가족 구성원 전체 또는 개별 소유자별 자산 범위를 즉시 전환하여 조회
+- **2차 서브 내비게이션**: 자산(증권/은행/보험/부동산), 머니 로그(실현손익/배당/가계부) 등 2차 탭의 타이포그래피 표준화
+- **설정 화면**: 가족 구성원 관리, 사용자별 증권사 OpenAPI 인증정보 등록, 비밀번호 변경, JSON 데이터 백업/복원, 다크/라이트 테마 전환 및 현재 앱 버전 표시
+- **안전한 화면 미리보기 (Preview Server)**:
+  ```powershell
+  .\.venv\Scripts\python.exe tests/ui_preview.py
+  ```
+  `http://127.0.0.1:8765`에서 가상 데이터로 화면 UI를 안전하게 체험할 수 있습니다 (실제 데이터 및 `.env` 접근 불가).
 
-`http://127.0.0.1:8765`에서 완전히 가상인 데이터로 화면을 확인할 수 있습니다. 이 서버는 실제 앱·`.env`·사용자 데이터에 접근하지 않고 저장 요청을 거절합니다. 실제 운영 서버로 사용하지 마세요.
+---
 
-### 기존 자산관리 기능
+## 3. 지원 증권사 및 OpenAPI 기능 현황
 
-- 주요 시장지수, 원/달러 환율 및 보유종목 시세 조회
-- 전체 자산, 부채, 순자산 및 투자자산 요약
-- 국내·해외 주식과 ETF 보유종목 및 계좌 관리
-- 자산 배분 차트와 보유종목 히트맵
-- 은행 계좌, 예·적금, 보험, 대출 및 부동산 관리
-- 자산 스냅샷과 기간별 자산 추이 기록
-- 매도 실현손익과 배당·이자 내역 관리
-- 수입·지출, 고정거래, 카드와 결제계좌를 포함한 가계부
-- 가족 구성원별 자산 소유자 구분
-- 관리자 계정의 사용자 생성, 비밀번호 초기화 및 사용자 삭제
-- 토스증권, KB증권, NH투자증권, 한국투자증권, 키움증권 OpenAPI 연동
-- 보유종목, 배당, 실현손익 및 가계부 Excel/CSV 가져오기
-- JSON 데이터 백업과 복원
-- 반응형 화면, 테마 전환 및 PWA 설치 지원
+Wealth는 실제 검증된 증권사 공식 OpenAPI 및 전용 어댑터를 통해 데이터를 연동합니다. 주문, 청약, 이체 등 자산 변경을 수반하는 API는 보안상 일절 지원하지 않으며 오직 **조회 전용(Read-Only)**으로만 동작합니다.
 
-## Wealth 1.0.1 보안 변경
+| 증권사 | 보유종목 (Holdings) | 예수금 (Cash) | 실현손익 (Realized P/L) | 해외주식 (Overseas) | 배당금 (Dividend) | 연동 방식 및 비고 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **토스증권 (Toss)** | 지원 | 지원 | 지원 (선택 가져오기) | 지원 (보유/손익) | 미지원 | OpenAPI 잔고 조회 + Toss WTS(`tossctl`) 실현손익 피드 연동 |
+| **KB증권** | 지원 | 미지원 | 지원 (선택 가져오기) | 부분 지원 (보유만) | 미지원 | 잔고조회 `8092`/`1861` 빈 계좌 안전 처리, 국내 실현손익(`SSQM2442`) |
+| **NH투자증권 (나무)** | 지원 | 지원 | 지원 (선택 가져오기) | 지원 (보유/손익) | 미지원 | 공식 OpenAPI 기반 국내/해외 잔고 및 기간별 실현손익 연동 |
+| **한국투자증권 (KIS)** | 지원 | 지원 | 지원 (선택 가져오기) | 지원 (보유/손익) | 미지원 | 공식 OpenAPI 기반 국내/해외 잔고 및 기간별 실현손익 연동 |
+| **키움증권 (Kiwoom)** | 부분 지원 (국내) | 지원 | 지원 (선택 가져오기) | 부분 지원 (손익만) | 미지원 | 국내 잔고/예수금 동기화, 토큰 만료 자동 복구, 국내/해외 실현손익 |
 
-1. `/api/export`는 로그인한 사용자만 호출할 수 있습니다.
-2. 인증정보가 없는 요청은 기본 사용자로 대체되지 않고 `401 Unauthorized`를 반환합니다.
-3. export는 세션에 기록된 현재 사용자의 일반 자산 데이터만 읽습니다.
-4. 백업에는 OpenAPI App Key, App Secret, access/refresh token, token cache, 비밀번호 해시 또는 세션 secret을 포함하지 않습니다.
-5. 일반 데이터 내부에 token, secret, password, credential 성격의 필드가 중첩되어 있어도 export 전에 제거합니다.
-6. `.dockerignore`가 환경파일, 사용자 데이터, 개인 문서와 개발 임시파일을 Docker build context에서 제외합니다.
+> [!NOTE]
+> - 배당금의 경우 공식 API 지원 계약이 검증된 브로커에 한해 차후 확장을 검토 중이며, 현재는 엑셀/CSV 파일 가져오기 및 수동 등록으로 정확하게 관리됩니다.
+> - 토스 WTS 연동은 `tossctl` 로컬 브릿지를 통한 선택적 피드 가져오기로 동작합니다.
 
-새 백업 형식은 `2.2`이며 `backup_policy` 값은 `general_data_only`입니다. 백업에는 다음 데이터가 포함됩니다.
+---
 
-- 포트폴리오와 계좌 및 보유종목
-- 자산 스냅샷
-- 배당·이자 내역
-- 매도 실현손익
-- 가계부
+## 4. 증권사 연동 안전 모델 (Fail-Closed Sync)
 
-OpenAPI 설정은 별도로 다시 구성해야 합니다. 기존에 생성한 구버전 백업은 credential이 포함되어 있을 수 있으므로 민감파일로 취급하세요.
+Wealth는 단순히 API 응답에서 `holdings = []`가 반환되었다는 이유만으로 기존 사용자 잔고를 삭제하지 않습니다.
 
-## 기술 구성
+1. **상태 머신 분류**:
+   - `SUCCESS`: 정상적으로 보유종목 및 예수금 동기화 완료
+   - `CONFIRMED_EMPTY` (`AUTHORITATIVE_EMPTY`): 증권사 제공자가 공식 비즈니스 코드로 "해당 계좌에 잔고가 없음"을 명확히 확증한 경우에만 보유종목을 비움
+   - `API_ERROR`: 네트워크 실패, 세션 만료, 알 수 없는 오류 코드, 스키마 불일치 등
+2. **기존 데이터 보존 (Fail-Closed Data Preservation)**:
+   - 동기화 중 오류나 비정상 상태가 감지되면 즉시 동기화를 중단하고 기존 등록된 포트폴리오 데이터를 그대로 유지(`data_preserved = True`)합니다.
+3. **KB증권 빈 잔고 호환성**:
+   - 잔고조회 전용 화이트리스트 TR(`/api/v1/ssqm1801`, `/api/v1/spqm2226`)에서만 실제 빈 계좌 응답 코드(`8092` "잔고 내역이 존재하지 않습니다", `1861` "조회할 자료가 없습니다")를 authoritative empty로 인정합니다.
+   - 비잔고 TR(실현손익 등)에서는 8092/1861 수신 시 오류로 fail-closed 처리됩니다.
+   - 빈 잔고 코드임에도 실제 레코드가 포함된 비정상/모순 응답은 즉시 거부됩니다.
+4. **키움증권 토큰 자동 복구**:
+   - 읽기 요청 중 토큰 무효화(`8005: Token이 유효하지 않습니다` 또는 HTTP 401) 발생 시, 즉시 토큰을 강제 재발급(`force_refresh=True`)하고 요청을 1회 자동 재시도합니다.
+   - 키움 공식 `expires_dt` 필드를 직접 파싱하여 토큰 캐시 만료 시각을 정밀하게 관리합니다.
+5. **계좌번호 보호 및 무결성**:
+   - OpenAPI 응답 및 화면에 표시되는 계좌번호는 마스킹(`XXXX****-YY`) 처리되며, 시스템 내부에서는 `HMAC-SHA256` 불투명 계좌 키를 사용합니다.
+   - 피드에서 실현손익을 선택하여 가져올 때 행 단위 HMAC 서명(`selection_token`)과 커밋 티켓(`preview_ticket`)을 검증하여 파라미터 변조 및 중복 저장을 원천 차단합니다.
 
-| 영역 | 구성 |
-| --- | --- |
-| Backend | Python, FastAPI, Uvicorn |
-| Frontend | 정적 HTML, CSS, Vanilla JavaScript |
-| Storage | 사용자별 JSON 파일 |
-| Authentication | 서명된 HttpOnly 세션 쿠키, PBKDF2-HMAC-SHA256 비밀번호 해시 |
-| Import | `openpyxl`, CSV |
-| External data | 증권사 OpenAPI, 웹 시세·환율 데이터 |
-| Deployment | Docker Compose, GitHub Actions, GHCR |
+---
 
-애플리케이션 진입점은 `app/main.py`이며, 기본 포트는 `4829`입니다.
-
-## 프로젝트 구조
-
-```text
-wealth/
-├─ app/
-│  ├─ main.py                   # FastAPI 앱, 인증 및 API 엔드포인트
-│  ├─ services/                 # 자산·손익·배당·가계부·OpenAPI 서비스
-│  └─ static/
-│     ├─ index.html             # 대시보드 화면
-│     ├─ wealth.js              # 화면 상태, 렌더링 및 API 호출
-│     ├─ wealth.css             # 기본 스타일
-│     ├─ wealth-overrides.css   # 테마와 반응형 보완 스타일
-│     ├─ manifest.json          # PWA manifest
-│     └─ sw.js                  # Service Worker
-├─ data/                        # 실행 중 생성되는 사용자 데이터
-├─ tests/                       # 표준 unittest 회귀 테스트
-├─ Dockerfile
-├─ docker-compose.yml
-├─ docker-compose.ghcr.yml
-├─ requirements.txt
-└─ CHANGELOG.md
-```
-
-대표적인 사용자 데이터는 다음 위치에 저장됩니다.
-
-```text
-data/
-├─ users.json
-└─ users/<username>/
-   ├─ portfolio.json
-   ├─ asset_records.json
-   ├─ dividend_records.json
-   ├─ realized_pnl_records.json
-   ├─ ledger.json
-   ├─ openapi_config.json
-   └─ *_token_cache.json
-```
-
-`openapi_config.json`과 token cache에는 민감정보가 포함될 수 있습니다. `data/` 전체의 접근권한과 백업 위치를 보호해야 합니다.
-
-## 로컬 실행
+## 5. 설치 및 로컬 실행
 
 ### 요구사항
-
 - Python 3.11 이상
-- Windows PowerShell 또는 호환 셸
+- Windows PowerShell 또는 Linux/macOS 셸
 
-### 설치
-
+### 1) 소스코드 설치
 ```powershell
+# 가상환경 생성 및 활성화
 py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1   # Linux/macOS: source .venv/bin/activate
+
+# 의존성 패키지 설치
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-### 필수 보안 설정
-
-프로젝트 루트에 `.env`를 만들고 최소한 다음 값을 설정합니다. 실제 값은 저장소에 commit하지 마세요.
-
-신규 설치는 먼저 안전한 템플릿을 복사하세요.
+### 2) 필수 환경변수 설정
+프로젝트 루트에 `.env.example`을 복사하여 `.env`를 생성합니다.
 
 ```bash
 cp .env.example .env
-chmod 600 .env
 ```
 
+`.env` 파일에 최소한 다음 값을 설정해야 합니다.
 ```dotenv
-DASHBOARD_SECRET_KEY=<충분히 길고 무작위인 세션 서명 키>
-DASHBOARD_PASSWORD=<초기 일반 사용자 비밀번호>
+# [필수] 애플리케이션 세션 서명 키 (누락 시 서버가 시작되지 않습니다)
+DASHBOARD_SECRET_KEY=your-random-secret-key-here
+
+# [선택] 최초 관리자 비밀번호 (미설정 시 기본값 안내 후 첫 로그인 시 변경 요구)
+DASHBOARD_PASSWORD=your-admin-password
 ```
 
-세션 키는 다음과 같이 생성할 수 있습니다.
-
+무작위 세션 키 생성 예시:
 ```powershell
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-OpenAPI credential은 로그인 후 화면의 OpenAPI 설정에서 사용자별로 등록할 수 있습니다. 기존 `sagesaint` 계정은 사용자 설정 파일이 없을 때 아래 환경변수를 fallback으로 지원합니다.
-
-| 증권사 | 환경변수 |
-| --- | --- |
-| 토스증권 | `TOSSINVEST_CLIENT_ID`, `TOSSINVEST_CLIENT_SECRET` |
-| KB증권 | `KB_OPENAPI_APP_KEY`, `KB_OPENAPI_APP_SECRET` |
-| NH투자증권 | `NHPLUG_APP_KEY`, `NHPLUG_APP_SECRET` |
-| 한국투자증권 | `KIS_APP_KEY`, `KIS_APP_SECRET`, `KIS_ACCOUNT_NO` |
-| 키움증권 | `KIWOOM_APP_KEY`, `KIWOOM_APP_SECRET`, `KIWOOM_ACCOUNT_NO` |
-
-### 실행
-
+### 3) 실행
 ```powershell
 python -m uvicorn app.main:app --host 127.0.0.1 --port 4829
 ```
+Windows에서는 `대시보드_실행.cmd`를 더블클릭하여 바로 실행할 수도 있습니다.
+웹 브라우저에서 `http://127.0.0.1:4829`에 접속합니다.
 
-Windows에서는 `대시보드_실행.cmd`를 실행할 수도 있습니다. 브라우저에서 `http://127.0.0.1:4829`에 접속합니다.
+---
 
-최초 데이터 디렉터리 생성 시 관리자 계정이 만들어지며 첫 로그인 후 비밀번호 변경이 요구됩니다. 초기 설정을 마친 뒤에는 모든 기본 비밀번호를 즉시 변경하세요.
+## 6. Docker 및 운영 배포
 
-## Docker 실행
+Wealth는 Docker Compose를 통한 손쉬운 컨테이너 실행을 지원합니다.
 
-Docker Compose는 호스트의 `data/`를 `/app/data`에 마운트하고 `.env`를 Compose `env_file`로 컨테이너 환경변수에 전달합니다. `.env` 자체는 컨테이너에 파일로 마운트되지 않으며 이미지에도 포함되지 않습니다. `.env`가 없으면 Compose가 실행 전에 오류를 표시하므로 먼저 템플릿을 복사해야 합니다.
+### A. 로컬 Docker 빌드 및 실행
+- Docker 서비스명: `dashboard`
+- 컨테이너명: `wealth`
+- 포트: `4829:4829`
+- 데이터 볼륨: 호스트의 `./data`를 컨테이너 내부 `/app/data`로 바인드 마운트
 
 ```bash
+# 컨테이너 빌드 및 백그라운드 실행
 docker compose up -d --build
+
+# 로그 확인 (서비스명 dashboard 지정)
 docker compose logs -f dashboard
-```
 
-실행 전 최종 설정을 확인하려면 다음을 사용합니다.
-
-```bash
+# 설정 검증
 docker compose config
-```
 
-중지하려면 다음을 실행합니다.
-
-```bash
+# 컨테이너 중지 (데이터는 호스트 ./data에 보존됨)
 docker compose down
 ```
 
-`docker compose down`은 bind mount로 연결된 호스트의 `data/`를 삭제하지 않습니다. 운영 데이터를 삭제하려면 별도로 명시적인 백업과 확인 절차를 거치세요.
-
-## GHCR 이미지 사용
-
-GitHub Actions는 `main` 브랜치 push 시 `linux/amd64`와 `linux/arm64` 이미지를 빌드해 다음 위치로 게시하도록 구성되어 있습니다.
+### B. GHCR 공식 이미지 배포
+GitHub Container Registry(GHCR)에 빌드된 공식 멀티아키텍처(`linux/amd64`, `linux/arm64`) 이미지를 사용합니다.
 
 ```text
 ghcr.io/sagesaint84/wealth:latest
 ```
 
-배포 호스트에서는 다음과 같이 이미지를 갱신할 수 있습니다.
-
+운영 서버 배포 시:
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.ghcr.yml pull
-docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+# GHCR 이미지 pull 및 컨테이너 실행
+docker compose -f docker-compose.ghcr.yml -f docker-compose.override.yml pull
+docker compose -f docker-compose.ghcr.yml -f docker-compose.override.yml up -d
 ```
 
-## 데이터 백업과 복원
+> [!TIP]
+> 배포 시 `docker-compose.override.yml`을 활용하여 호스트별 포트, 볼륨 및 재시작 정책을 유연하게 오버라이드할 수 있습니다.
 
-로그인 후 화면의 데이터 백업 기능으로 현재 사용자의 일반 자산 데이터를 JSON 파일로 내려받을 수 있습니다. 복원은 같은 화면에서 백업 JSON을 업로드하여 수행합니다.
+---
 
-- 백업 파일은 개인 금융정보를 포함하므로 암호화된 저장장치에 보관하세요.
-- 1.0.1 이후 생성한 백업에는 OpenAPI credential과 token이 포함되지 않습니다.
-- 복원 대상은 업로드를 수행한 현재 로그인 사용자입니다.
-- 복원 전에는 현재 데이터를 별도로 백업하는 것이 좋습니다.
-- 과거 버전의 백업은 OpenAPI 설정을 포함할 수 있습니다.
+## 7. 환경변수 가이드
 
-## 테스트
+사용 가능한 환경변수 템플릿은 [`.env.example`](.env.example)에 정의되어 있습니다.
 
-추가 dependency 없이 Python 표준 `unittest`로 실행합니다.
+| 변수명 | 필수 여부 | 기본값 / 예시 | 설명 |
+| :--- | :---: | :--- | :--- |
+| `DASHBOARD_SECRET_KEY` | **필수** | *(무작위 32자 이상)* | 세션 쿠키 서명용 비밀키. **누락 시 앱 실행 거부** |
+| `DASHBOARD_PASSWORD` | 선택 | *(초기 비밀번호)* | 최초 설치 시 관리자 계정 초기 비밀번호 |
+| `TOSSINVEST_CLIENT_ID` | 선택 | - | 토스증권 OpenAPI Client ID (기본 사용자 fallback) |
+| `TOSSINVEST_CLIENT_SECRET` | 선택 | - | 토스증권 OpenAPI Client Secret |
+| `KB_OPENAPI_APP_KEY` | 선택 | - | KB증권 OpenAPI App Key |
+| `KB_OPENAPI_APP_SECRET` | 선택 | - | KB증권 OpenAPI App Secret |
+| `NHPLUG_APP_KEY` | 선택 | - | NH투자증권 OpenAPI App Key |
+| `NHPLUG_APP_SECRET` | 선택 | - | NH투자증권 OpenAPI App Secret |
+| `KIS_APP_KEY` | 선택 | - | 한국투자증권 OpenAPI App Key |
+| `KIS_APP_SECRET` | 선택 | - | 한국투자증권 OpenAPI App Secret |
+| `KIS_ACCOUNT_NO` | 선택 | - | 한국투자증권 계좌번호 |
+| `KIWOOM_APP_KEY` | 선택 | - | 키움증권 OpenAPI App Key |
+| `KIWOOM_APP_SECRET` | 선택 | - | 키움증권 OpenAPI App Secret |
+| `KIWOOM_ACCOUNT_NO` | 선택 | - | 키움증권 계좌번호 |
+| `WEALTH_TOSS_WTS_ENABLED` | 선택 | `false` | 토스 WTS 읽기 전용 피드 어댑터 활성화 여부 |
+| `WEALTH_TOSSCTL_PATH` | 선택 | `/usr/local/bin/tossctl` | `tossctl` 바이너리 실행 경로 |
+| `WEALTH_TOSSCTL_CONFIG_DIR` | 선택 | - | `tossctl` 세션 설정 디렉터리 경로 |
+| `WEALTH_TOSSCTL_EXPECTED_VERSION` | 선택 | `v0.50.3` | `tossctl` 고정 검증 버전 (임의 변경 금지) |
+| `WEALTH_TOSS_WTS_FEED_ALLOWED_USER_ID` | 선택 | - | WTS 피드 접근이 허용된 사용자의 UUID (`data/users.json`) |
+
+> 증권사 OpenAPI 인증키는 시스템 환경변수에 넣지 않고도, 로그인 후 웹 UI의 **[설정] → [OpenAPI 설정]**에서 사용자별로 안전하게 직접 등록할 수 있습니다.
+
+---
+
+## 8. 데이터 저장 및 보안 정책
+
+### 파일시스템 구조
+데이터는 호스트 파일시스템의 `data/` 디렉터리에 계정별로 격리되어 저장됩니다.
+```text
+data/
+├─ users.json                  # 사용자 계정, 비밀번호 해시, 권한 메타데이터
+└─ users/<username>/
+   ├─ portfolio.json           # 포트폴리오, 계좌, 보유종목, 전략 버킷 설정
+   ├─ asset_records.json       # 순자산 이력 및 시점별 스냅샷 기록
+   ├─ dividend_records.json    # 배당금 및 이자 수령 기록
+   ├─ realized_pnl_records.json# 매도 실현손익 기록
+   ├─ ledger.json              # 수입/지출 가계부 및 신용카드 데이터
+   ├─ openapi_config.json      # 사용자별 증권사 API 인증정보 (호스트 보호 필요)
+   └─ *_token_cache.json       # 브로커 API 발급 토큰 캐시
+```
+
+### 보안 및 백업 원칙
+1. **백업 내 민감정보 배제 (v2.2 규격)**:
+   - 웹 UI의 데이터 백업(`general_data_only`) 기능은 순수 자산·거래 내역만 JSON으로 내보냅니다.
+   - OpenAPI App Key, App Secret, 세션 Secret, 토큰 캐시, 비밀번호 해시는 백업 파일에 **일절 포함되지 않습니다**.
+2. **세션 보안**:
+   - 브라우저 쿠키는 `HttpOnly` 및 `SameSite=Lax` 속성이 적용되며, `itsdangerous` 기반의 URLSafe 서명을 검증합니다.
+   - `DASHBOARD_SECRET_KEY`가 설정되지 않은 경우 서버 시작 자체가 차단되어 기본 키를 사용하는 취약점을 방지합니다.
+3. **호스트 보안 책임**:
+   - `data/` 디렉터리와 `.env` 파일은 호스트의 파일 권한(`chmod 600`) 및 볼륨 암호화로 보호해야 합니다.
+   - Git 저장소에는 실제 `.env`, `data/`, 개인 엑셀 파일이 포함되지 않도록 `.gitignore` 및 `.dockerignore`가 엄격히 적용되어 있습니다.
+
+---
+
+## 9. 자동화 및 서버 운영 (`ops/`)
+
+저장소의 `ops/` 디렉터리에는 정기 마감 및 세션 관리를 위한 스크립트 템플릿이 포함되어 있습니다.
+- `ops/crontab.example`: 일일 자동화 cron 스케줄 예시
+- `ops/wealth-daily-close.sh`: 장 마감 후 시세 갱신, 증권사 동기화, 일일 순자산 스냅샷을 기록하는 일일 마감 자동화 스크립트
+- `ops/toss-session-check.sh`: Toss WTS 어댑터 세션 상태 점검 및 갱신 스크립트
+- `ops/wealth-automation.env.example`: 자동화 전용 환경변수 템플릿
+
+---
+
+## 10. 개발 및 테스트
+
+Python 표준 `unittest` 기반으로 실행되며 외부 테스트 러너 종속성 없이 즉시 검증할 수 있습니다.
 
 ```powershell
-python -m unittest discover -s tests -v
+# 전체 단위 및 회귀 테스트 실행 (820+ 테스트)
+.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
+
+# 브로커 동기화 안전성 테스트
+.venv\Scripts\python.exe -m unittest discover -s tests -p "test_broker_sync_safety.py"
+
+# 릴리스 버전 정합성 테스트
+.venv\Scripts\python.exe -m unittest discover -s tests -p "test_release_version.py"
 ```
 
-현재 회귀 테스트는 다음을 검증합니다.
+### 핵심 테스트 영역
+- **금융 계산 무결성**: 마이너스통장 부채 상계, 연금/IRP 세액공제 한도, 외화 실현손익 환산, 평가금액 집계 검증
+- **브로커 동기화 안전성**: Fail-closed 원칙, authoritative empty 판정, 모순 응답 차단, KB 8092/1861 호환성 검증
+- **토큰 자동 복구**: 키움증권 8005/401 만료 시 자동 재시도 및 공식 `expires_dt` 파싱 검증
+- **가져오기 멱등성**: CSV/Excel 및 실현손익 피드 가져오기 시 중복 방지 및 HMAC 서명 검증
+- **버전 정합성**: 백엔드, 프론트엔드 메타, 정적 캐시, Service Worker 및 문서 버전 일치 검증
 
-- 미인증 export 차단
-- 기본 사용자 fallback 차단
-- 사용자 간 export 격리
-- export credential 제거와 일반 자산 데이터 보존
-- credential 없는 백업 복원
-- Docker build context의 민감파일 제외
+---
 
-## 보안 운영 지침
+## 11. 버전 및 변경 이력
 
-- `.env`, `data/`, 실제 Excel/CSV 및 export 백업을 Git에 추가하지 마세요.
-- 서비스는 가능하면 localhost 또는 신뢰할 수 있는 내부망에서만 실행하세요.
-- 외부 접근이 필요하면 인증된 HTTPS reverse proxy와 네트워크 접근제어를 사용하세요.
-- `DASHBOARD_SECRET_KEY`를 환경마다 다르게 설정하고 정기적으로 교체하세요.
-- OpenAPI 권한은 필요한 범위로 제한하고 사용하지 않는 키는 폐기하세요.
-- 호스트의 `data/` 디렉터리와 Docker volume을 파일 권한 및 디스크 암호화로 보호하세요.
-- 로그, 장애 보고서 또는 화면 캡처에 계좌번호와 credential을 포함하지 마세요.
-- OpenAPI 호출 시 credential과 계좌정보는 해당 증권사 API로 전송됩니다. 각 증권사의 이용약관과 보안정책을 확인하세요.
+현재 애플리케이션 버전은 **Wealth v1.2.3**입니다.
 
-### 현재 보안 경계
+### 최근 릴리스 요약
+- **v1.2.3 (2026-09-17)**: KB증권 OpenAPI 실제 빈 잔고 응답(`1861 / 조회할 자료가 없습니다`) 안전 처리, 비어있지 않은 데이터 모순 응답 방어 및 회귀 테스트 확장
+- **v1.2.2 (2026-09-17)**: KB증권 빈 잔고(`8092`) 처리, 키움증권 토큰 무효화(`8005`/HTTP 401) 자동 복구 및 공식 `expires_dt` 관리, 설정 화면 앱 버전 표시
+- **v1.2.1 (2026-09-16)**: 머니 로그 통합 탭 내비게이션, 전략 버킷 목표 비중 실시간 검증 및 프리셋, 2차 탭 반응형 타이포그래피 표준화
+- **v1.2.0 (2026-09-15)**: 마이너스통장 이중계상 방지, 연금저축/IRP 세액공제 한도 적용, 파일 가져오기 멱등화, 브로커 동기화 fail-closed 강화, 세션 시크릿 키 필수화
+- **v1.1.4 (2026-09-13)**: 키움증권 공식 OpenAPI 실현손익(국내/해외) 선택 가져오기 연동
+- **v1.1.3 (2026-09-13)**: NH투자증권 공식 OpenAPI 실현손익(국내/해외) 선택 가져오기 연동
+- **v1.1.2 (2026-09-12)**: 한국투자증권(KIS) 공식 OpenAPI 실현손익(국내/해외) 선택 가져오기 연동
+- **v1.1.1 (2026-09-12)**: 토스 WTS 실현손익 선택 가져오기 연동
 
-- OpenAPI credential과 token cache는 호스트 파일시스템에 평문 JSON으로 저장됩니다.
-- `DASHBOARD_SECRET_KEY`가 없으면 애플리케이션 내 기본값을 사용하므로 운영에서는 반드시 환경변수를 설정해야 합니다.
-- 세션 쿠키는 HttpOnly 및 SameSite=Lax이지만 현재 `Secure` 속성을 명시하지 않습니다.
-- `.dockerignore`는 이미지 포함을 방지하지만 호스트 파일 자체를 암호화하거나 삭제하지는 않습니다.
-- 이 애플리케이션은 금융기관 수준의 보안 저장소나 비밀관리 시스템을 제공하지 않습니다.
+전체 상세 변경 기록은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
 
-## 버전
+---
 
-현재 앱 버전은 **Wealth v1.2.2**입니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
+## 12. 주의사항
 
-### 증권사 연동 신뢰성 및 계좌 동기화 개선 (v1.2.2)
-
-- KB증권 OpenAPI 잔고 없음(8092) 응답에 대한 authoritative empty 안전 처리
-- 키움증권 OpenAPI 토큰 만료(8005 / HTTP 401) 시 1회 강제 갱신 및 자동 복구
-- 키움증권 공식 `expires_dt` 기반 토큰 만료 관리
-- 설정 화면 앱 버전 표시 및 정적 자원 버전 동기화
-
-### UI/UX 개선 및 반응형 내비게이션 표준화 (v1.2.1)
-
-- 홈 대시보드 자산 포트폴리오 기대수익 지표 분리 및 정보 밀도 최적화
-- 머니 로그(실현손익·배당·가계부) 통합 탭 내비게이션 및 URL 해시 연동
-- 전략 버킷 프리셋, 목표 비중 실시간 검증 및 버킷 색상 액센트 표준화
-- 개별 연금저축/IRP 절세 계좌 누적 절세액 표시 정확성 보장
-- 순자산 이력 레코드 카드 시각 위계 개편 및 차트 가로 스크롤 완전 제거
-- 데스크톱/모바일 2차 내비게이션 탭 타이포그래피 표준화 (14px 650 / 13px 650)
-
-### 금융 정확성 및 계좌 동기화 안전성 (v1.2.0)
-
-- 마이너스통장 부채 이중계상 방지 및 소유자·과세연도별 연금저축/IRP 세액공제 한도 적용
-- 파일 기반 실현손익·배당·가계부 가져오기 멱등화
-- 모호한 증권사 잔고 응답에 대한 fail-closed 처리와 계좌·시장 범위별 보유종목 교체
-- 외화 실현손익의 원통화/원화 환산 상태 보존 및 불완전 요약 표시
-- Toss WTS KST/UTC 현재일 조회 호환 처리
-
-### 키움증권 공식 OpenAPI 실현손익 연동 (v1.1.4)
-
-- 키움증권 공식 OpenAPI(국내 `ka10073`, 해외 `ust21530`) 기반 기간별 실현손익 실시간 조회 및 선택 가져오기 파이프라인
-- HMAC-SHA256 불투명 계좌 키, 계좌번호 마스킹 처리 및 미검증 스코프 투명 공개(`source_scope_verified: False`)
-- 행 단위 HMAC 서명 토큰 및 브라우저 JSON 정규화 불변성(`_canonical_num_str`)을 통한 위변조 방지
-- 사전 미리보기(preview-before-write) 및 커밋 시점 중복 방지(replay protection)를 통한 데이터 무결성 보장
-- 검증된 동작 특성에 기반한 국내 장기 조회 시 보수적 3개월 단위 자동 분할 수집(conservative three-calendar-month chunks)
-- 해외 실현손익 정상 빈 결과 봉투 처리 및 환율 미제공 시 원화 손익 무조작(`pnl_krw = None`) 원칙 준수
-- 주식 주문, 공모주 청약, 배당금 연동 기능은 포함되지 않습니다.
-
-### NH투자증권 공식 OpenAPI 실현손익 연동 (v1.1.3)
-
-- NH투자증권 공식 OpenAPI(국내 `krstockInquiryTradingPnl`, 해외 `gbstockInquiryTradingPnl`) 기반 기간별 실현손익 실시간 조회 및 선택 가져오기 파이프라인
-- 검증된 계좌 스코프, HMAC-SHA256 불투명 계좌 키, 계좌번호 마스킹 처리로 민감 정보 노출 방지
-- 행 단위 HMAC 서명 토큰 및 브라우저 JSON 정규화 불변성(`_canonical_num_str`)을 통한 위변조 방지
-- 사전 미리보기(preview-before-write) 및 커밋 시점 중복 방지(replay protection)를 통한 데이터 무결성 보장
-- 해외 실현손익의 `expenses_total` 안전 합산 및 환율 미제공 시 원화 손익 무조작(`pnl_krw = None`) 원칙 준수
-- 주식 주문, 공모주 청약, 배당금 연동 기능은 포함되지 않습니다.
-
-### 한국투자증권(KIS) 실현손익 연동 (v1.1.2)
-
-- 한국투자증권 공식 OpenAPI 기반 기간별 실현손익(국내/해외) 실시간 조회 및 선택 가져오기 파이프라인
-- 검증된 계좌 스코프, HMAC-SHA256 불투명 계좌 키, 계좌번호 마스킹 처리로 민감 정보 노출 방지
-- 행 단위 HMAC 서명 토큰 및 브라우저 JSON 정규화 불변성(`_canonical_num_str`)을 통한 위변조 방지
-- 사전 미리보기(preview-before-write) 및 커밋 시점 중복 방지(replay protection)를 통한 데이터 무결성 보장
-- 국내 공식 매수금액 필드(`buy_amt`) 우선 매핑 및 공모주/대체입고의 매수금액 0원 정상 보존
-- 주식 주문, 공모주 청약, 배당금 연동 기능은 포함되지 않습니다.
-
-### 토스 WTS 실현손익 선택 가져오기 (v1.1.1)
-
-- 조회된 토스 WTS 실현손익 피드에서 원하는 항목을 선택하여 Wealth 계좌로 명시적 가져오기(selective import) 지원
-- 서명 토큰 검증, 다중 세트 중복 가져오기 방지 및 대상 계좌 귀속 기능 제공
-- WTS 계좌 스코프 검증 미비에 따른 경고(`source_scope_verified=False`) 보존
-- 토스 배당금 연동은 제공자 계약 확인 전까지 차단(`WTS_DIVIDEND_RECORD_CONTRACT_BLOCKER`) 유지
-- 상세 설정 방법은 `.env.example`의 `WEALTH_TOSS_WTS_*` 항목을 참고하세요.
-
-Linux에서 브랜치를 Docker로 설치하거나 갱신하려면 [브랜치 설치 안내](docs/linux-branch-install.md)를 확인하세요. GHCR `latest`는 main 기준이며 `codex-refactor`는 직접 빌드해야 합니다.
-
-순자산 추이의 ‘과거 기록 추가’에서는 날짜·순자산(음수 가능)·메모를 직접 입력합니다. 미래 날짜와 동일 가족/날짜 중복은 저장하지 않습니다. 수동 기록의 총자산·총부채는 추정하지 않고 ‘미입력’으로 표시합니다. ‘선택 기록 수정’에서 날짜·금액·메모를 정정할 수 있으며 가족·당시 환율과 실제 계좌 잔고는 변경하지 않습니다. 오늘 기록은 기존 현재 자산 계산을 사용합니다.
-
-버킷 편집 중 가족 필터를 바꾸어도 편집 대상은 유지되며, 미저장 안내가 표시됩니다. 단일 서버 프로세스에서 일반 계좌 저장이 새 planning 정보를 덮어쓰지 않도록 보호합니다. 모든 금융 데이터의 동시 저장이나 여러 worker의 원자성을 보장하는 것은 아닙니다.
-
-## 주의사항
-
-Wealth는 개인 자산관리 보조 도구입니다. 표시되는 시세, 수익률, 세금 및 자산 평가는 지연되거나 실제 금융기관 자료와 다를 수 있으며 투자·세무·법률 자문을 제공하지 않습니다. 중요한 의사결정 전에는 원본 금융기관 자료와 전문가의 판단을 확인하세요.
+Wealth는 개인의 자산 관리를 돕기 위한 보조 도구입니다. 화면에 표시되는 시세, 자산 평가, 수익률 및 절세 계산 금액은 지연되거나 실제 금융기관의 정산 자료와 차이가 발생할 수 있으며, 어떠한 경우에도 투자·세무·법률 자문을 대신하지 않습니다. 금융 거래 및 세무 신고 전에는 반드시 금융기관 원본 자료와 전문가의 조언을 확인하시기 바랍니다.

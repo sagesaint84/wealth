@@ -1,5 +1,13 @@
 # Wealth 변경 이력
 
+## Wealth v1.2.3 — KB Empty Balance Compatibility — 2026-09-17
+
+- **KB증권 OpenAPI 빈 잔고 호환성 확장 (1861 Authoritative Empty)**: KB OpenAPI 실계좌 잔고조회에서 관찰된 빈 잔고 비즈니스 응답(`processCode: "1861"`, `processFlag: "A"`, "조회할 자료가 없습니다")을 감지하여 정상 `CONFIRMED_EMPTY` 상태로 안전하게 처리합니다.
+- **잔고조회 화이트리스트 TR 한정 적용**: 국내 잔고(`ssqm1801`, `Record1`)와 해외 잔고(`spqm2226`, `Record2`)에서 `allow_empty_balance=True`로 명시 호출된 경우에만 허용하며, 전역 상태 검증(`_check_provider_status`)이나 비잔고 TR(실현손익 `ssqm2442`, 계좌조회 `szqm0771` 등)에는 fail-closed 원칙을 엄격히 유지합니다.
+- **기존 8092 안전 처리 및 하위 호환성 유지**: 기존 빈 계좌 코드(`8092` + "해당 계좌의 잔고 내역이 존재하지 않습니다") 처리를 완벽히 유지합니다.
+- **비어있지 않은 데이터 모순 응답(Contradiction) 방어**: 1861 또는 8092 응답 헤더가 수신되었더라도 `dataBody`에 실제 보유종목 레코드가 존재하는 경우 빈 잔고로 덮어쓰지 않고 즉시 거부(`KBOpenAPIError`)하여 fail-closed 처리합니다.
+- **데이터 보존 정책 및 회귀 검증**: 네트워크 장애나 비정상 응답 시 기존 포트폴리오를 유지하며, 18개 신규 회귀 테스트를 포함하여 총 55개 브로커 안전성 테스트로 동작을 검증했습니다.
+
 ## Wealth v1.2.2 — Broker Sync Reliability — 2026-09-17
 
 - **KB증권 잔고 없음 안전 처리 (8092 Authoritative Empty)**: KB OpenAPI의 잔고조회 TR(`/api/v1/ssqm1801`, `/api/v1/spqm2226`)에서 실제 빈 계좌가 반환하는 정상 비즈니스 코드(`processCode: 8092`, `processFlag: A`, "해당 계좌의 잔고 내역이 존재하지 않습니다")를 감지하여 `CONFIRMED_EMPTY` 상태로 안전하게 인식합니다. 잔고조회가 아닌 일반 TR이나 다른 실패 사유에는 fail-closed 원칙을 엄격히 유지합니다.

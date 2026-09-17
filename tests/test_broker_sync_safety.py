@@ -332,8 +332,8 @@ class EndpointDataProtectionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class KBEmptyBalanceRegressionTests(unittest.IsolatedAsyncioTestCase):
-    def make_8092_payload(self, *, flag="A", code="8092", message="해당 계좌의 잔고 내역이 존재하지 않습니다."):
-        return {
+    def make_8092_payload(self, *, flag="A", code="8092", message="해당 계좌의 잔고 내역이 존재하지 않습니다.", body=None):
+        payload = {
             "dataHeader": {
                 "resultCode": "200",
                 "processCode": code,
@@ -341,6 +341,22 @@ class KBEmptyBalanceRegressionTests(unittest.IsolatedAsyncioTestCase):
                 "processMessage": message,
             }
         }
+        if body is not None:
+            payload["dataBody"] = body
+        return payload
+
+    def make_1861_payload(self, *, flag="A", code="1861", message="조회할 자료가 없습니다.", body=None):
+        payload = {
+            "dataHeader": {
+                "resultCode": "200",
+                "processCode": code,
+                "processFlag": flag,
+                "processMessage": message,
+            }
+        }
+        if body is not None:
+            payload["dataBody"] = body
+        return payload
 
     def make_domestic_payload(self, records=()):
         return {
@@ -389,6 +405,50 @@ class KBEmptyBalanceRegressionTests(unittest.IsolatedAsyncioTestCase):
         payload = self.make_8092_payload(message="전산 시스템 점검 중입니다.")
         with self.assertRaises(KBOpenAPIError):
             KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record1")
+
+    def test_normalize_response_rejects_8092_with_contradictory_nonempty_records(self):
+        payload = self.make_8092_payload(body={"Record1": [self.make_domestic_row()]})
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record1")
+        self.assertIn("모순", str(ctx.exception))
+
+    def test_normalize_response_accepts_1861_when_allowed_for_domestic(self):
+        payload = self.make_1861_payload()
+        res = KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record1")
+        self.assertEqual(res, {"Record1": [], "nxt_key": ""})
+
+    def test_normalize_response_accepts_1861_when_allowed_for_overseas(self):
+        payload = self.make_1861_payload()
+        res = KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record2")
+        self.assertEqual(res, {"Record2": [], "nxt_key": ""})
+
+    def test_normalize_response_rejects_1861_when_empty_not_allowed(self):
+        payload = self.make_1861_payload()
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key=None)
+        self.assertIn("1861", str(ctx.exception))
+
+    def test_normalize_response_rejects_1861_when_flag_not_a(self):
+        payload = self.make_1861_payload(flag="B")
+        with self.assertRaises(KBOpenAPIError):
+            KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record1")
+
+    def test_normalize_response_rejects_1861_when_message_different(self):
+        payload = self.make_1861_payload(message="전산 시스템 점검 중입니다.")
+        with self.assertRaises(KBOpenAPIError):
+            KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record1")
+
+    def test_normalize_response_rejects_1861_with_contradictory_nonempty_domestic_records(self):
+        payload = self.make_1861_payload(body={"Record1": [self.make_domestic_row()]})
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record1")
+        self.assertIn("모순", str(ctx.exception))
+
+    def test_normalize_response_rejects_1861_with_contradictory_nonempty_overseas_records(self):
+        payload = self.make_1861_payload(body={"Record2": [self.make_overseas_row()]})
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record2")
+        self.assertIn("모순", str(ctx.exception))
 
     def test_call_rejects_allow_empty_balance_on_unsupported_endpoint(self):
         client = KBOpenAPI.__new__(KBOpenAPI)
@@ -508,6 +568,122 @@ class KBEmptyBalanceRegressionTests(unittest.IsolatedAsyncioTestCase):
 
         async def fake_post(_url, **_kwargs):
             return FakeResponse(self.make_8092_payload())
+
+        written = {}
+        with patch("app.services.kb_openapi.require_external_network"), \
+             patch("httpx.AsyncClient.post", side_effect=fake_post), \
+             patch.object(main, "KBOpenAPI", return_value=client), \
+             patch.object(main, "read_portfolio", return_value=deepcopy(data)), \
+             patch.object(main, "write_portfolio", side_effect=lambda val, **_: written.update(val)):
+            res = await main.sync_kb(authenticated_request())
+
+        self.assertEqual(res["status"], "CONFIRMED_EMPTY")
+        self.assertEqual(res["count"], 0)
+        self.assertEqual(len(written["holdings"]), 0)
+
+    async def test_9_domestic_1861_empty_and_overseas_normal_empty(self):
+        result = await self._run_sync_holdings_with_responses(
+            self.make_1861_payload(),
+            self.make_overseas_payload([]),
+        )
+        self.assertEqual(result.state, HoldingsResultState.AUTHORITATIVE_EMPTY)
+        self.assertTrue(result.authoritative)
+        self.assertEqual(len(result), 0)
+
+    async def test_10_overseas_1861_empty_and_domestic_normal_empty(self):
+        result = await self._run_sync_holdings_with_responses(
+            self.make_domestic_payload([]),
+            self.make_1861_payload(),
+        )
+        self.assertEqual(result.state, HoldingsResultState.AUTHORITATIVE_EMPTY)
+        self.assertTrue(result.authoritative)
+        self.assertEqual(len(result), 0)
+
+    async def test_11_domestic_1861_and_overseas_nonempty(self):
+        result = await self._run_sync_holdings_with_responses(
+            self.make_1861_payload(),
+            self.make_overseas_payload([self.make_overseas_row("AAPL")]),
+        )
+        self.assertEqual(result.state, HoldingsResultState.CONFIRMED_NONEMPTY)
+        self.assertTrue(result.authoritative)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["code"], "AAPL")
+        self.assertEqual(result[0]["market"], "US")
+
+    async def test_12_overseas_1861_and_domestic_nonempty(self):
+        result = await self._run_sync_holdings_with_responses(
+            self.make_domestic_payload([self.make_domestic_row("005930")]),
+            self.make_1861_payload(),
+        )
+        self.assertEqual(result.state, HoldingsResultState.CONFIRMED_NONEMPTY)
+        self.assertTrue(result.authoritative)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["code"], "005930")
+        self.assertEqual(result[0]["market"], "KRX")
+
+    async def test_13_both_domestic_and_overseas_1861(self):
+        result = await self._run_sync_holdings_with_responses(
+            self.make_1861_payload(),
+            self.make_1861_payload(),
+        )
+        self.assertEqual(result.state, HoldingsResultState.AUTHORITATIVE_EMPTY)
+        self.assertTrue(result.authoritative)
+        self.assertEqual(len(result), 0)
+
+    async def test_14_mixed_8092_and_1861(self):
+        result = await self._run_sync_holdings_with_responses(
+            self.make_1861_payload(),
+            self.make_8092_payload(),
+        )
+        self.assertEqual(result.state, HoldingsResultState.AUTHORITATIVE_EMPTY)
+        self.assertTrue(result.authoritative)
+        self.assertEqual(len(result), 0)
+
+    async def test_15_process_flag_not_a_raises_error_1861(self):
+        with self.assertRaises(KBOpenAPIError):
+            await self._run_sync_holdings_with_responses(
+                self.make_1861_payload(flag="B"),
+                self.make_overseas_payload([]),
+            )
+
+    async def test_16_different_process_message_raises_error_1861(self):
+        with self.assertRaises(KBOpenAPIError):
+            await self._run_sync_holdings_with_responses(
+                self.make_1861_payload(message="서버 내부 오류가 발생했습니다."),
+                self.make_overseas_payload([]),
+            )
+
+    async def test_17_general_tr_1861_fails_closed(self):
+        client = KBOpenAPI.__new__(KBOpenAPI)
+        client.base_url = "https://mock.kbsec.com"
+        client.app_key = "test_key"
+        client._payload = lambda b: b
+        client._access_token = AsyncMock(return_value="mock_token")
+
+        async def fake_post(_url, **_kwargs):
+            return FakeResponse(self.make_1861_payload())
+
+        with patch("app.services.kb_openapi.require_external_network"), \
+             patch("httpx.AsyncClient.post", side_effect=fake_post):
+            with self.assertRaises(KBOpenAPIError):
+                await client.call("/api/v1/szqm0771", {})
+
+    async def test_route_sync_kb_with_both_1861_results_in_confirmed_empty(self):
+        main = import_main_without_loading_real_env()
+        data = empty_portfolio(
+            accounts=[{"id": "a1", "broker": "KB증권", "name": "KB", "source": "kb_api", "account_key": "kb_primary"}],
+            holdings=[holding("old_kb_stock", "kb_api", "a1", "005930", "KRX")],
+        )
+        client = KBOpenAPI.__new__(KBOpenAPI)
+        client.base_url = "https://mock.kbsec.com"
+        client.app_key = "test_key"
+        client.app_secret = "test_secret"
+        client._payload = lambda b: b
+        client._access_token = AsyncMock(return_value="mock_token")
+        client.refresh_prices = AsyncMock(return_value=({}, []))
+
+        async def fake_post(_url, **_kwargs):
+            return FakeResponse(self.make_1861_payload())
 
         written = {}
         with patch("app.services.kb_openapi.require_external_network"), \
