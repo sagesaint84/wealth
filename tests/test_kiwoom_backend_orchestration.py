@@ -217,14 +217,18 @@ class KiwoomBackendOrchestrationTests(IsolatedDataTestCase):
     def test_overseas_import_preserves_financial_semantics(self):
         selected = self.selected("us")
         payload = self.import_payload("us", selected)
-        response = self.client.post("/api/kiwoom/realized-feed/import", headers=self.headers(), json=payload)
+        with patch.object(pnl_records, "lookup_historical_fx_strict", return_value=(1300.0, "2026-09-02")):
+            response = self.client.post("/api/kiwoom/realized-feed/import", headers=self.headers(), json=payload)
         self.assertEqual(response.status_code, 200, response.text)
         record = pnl_records.read_pnl_records(self.username)[0]
         self.assertEqual(record["currency"], "USD")
         self.assertEqual(record["expenses_total"], "3")
         self.assertEqual(record["pnl"], 17.0)
         self.assertNotEqual(record["pnl"], 14.0)
-        for field in ("fee", "tax", "pnl_krw", "fx_rate"):
+        self.assertEqual(record["pnl_krw"], 22100.0)
+        self.assertEqual(record["fx_rate"], 1300.0)
+        self.assertEqual(record["source_meta"]["pnl_krw_semantics"], "historical_fx_derived")
+        for field in ("fee", "tax"):
             self.assertIsNone(record[field])
         self.assertEqual(record["country"], "United States")
         self.assertEqual(record["exchange"], "Synthetic Exchange")

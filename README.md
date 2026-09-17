@@ -273,7 +273,14 @@ python -m unittest discover -s tests -v
 
 ## 버전
 
-현재 앱 버전은 **Wealth v1.2.1**입니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
+현재 앱 버전은 **Wealth v1.2.2**입니다. 변경 내역은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
+
+### 증권사 연동 신뢰성 및 계좌 동기화 개선 (v1.2.2)
+
+- KB증권 OpenAPI 잔고 없음(8092) 응답에 대한 authoritative empty 안전 처리
+- 키움증권 OpenAPI 토큰 만료(8005 / HTTP 401) 시 1회 강제 갱신 및 자동 복구
+- 키움증권 공식 `expires_dt` 기반 토큰 만료 관리
+- 설정 화면 앱 버전 표시 및 정적 자원 버전 동기화
 
 ### UI/UX 개선 및 반응형 내비게이션 표준화 (v1.2.1)
 

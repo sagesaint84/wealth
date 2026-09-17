@@ -15,6 +15,7 @@ from app.services.broker_holdings_sync import (
     ALL_MARKETS,
     BrokerHoldingsResult,
     DOMESTIC_MARKET,
+    HoldingsResultState,
     OVERSEAS_MARKET,
     ProviderHoldingScope,
 )
@@ -47,6 +48,23 @@ class FakeClient:
     async def post(self, url, **kwargs):
         self.requests.append(("POST", url, kwargs))
         return self.posts.pop(0)
+
+
+def holding(identifier, source, account_id, code, market, currency="KRW", quantity=1):
+    return {
+        "id": identifier,
+        "source": source,
+        "accountId": account_id,
+        "account_id": account_id,
+        "code": code,
+        "name": code,
+        "quantity": quantity,
+        "avg_price": 1,
+        "current_price": 1,
+        "currency": currency,
+        "market": market,
+    }
+
 
 
 class AdapterContractTests(unittest.IsolatedAsyncioTestCase):
@@ -312,6 +330,196 @@ class EndpointDataProtectionTests(unittest.IsolatedAsyncioTestCase):
         finally:
             main._syncing_users.discard(username)
 
+
+class KBEmptyBalanceRegressionTests(unittest.IsolatedAsyncioTestCase):
+    def make_8092_payload(self, *, flag="A", code="8092", message="해당 계좌의 잔고 내역이 존재하지 않습니다."):
+        return {
+            "dataHeader": {
+                "resultCode": "200",
+                "processCode": code,
+                "processFlag": flag,
+                "processMessage": message,
+            }
+        }
+
+    def make_domestic_payload(self, records=()):
+        return {
+            "dataHeader": {"resultCode": "200", "processCode": "0011", "processFlag": "A"},
+            "dataBody": {"Record1": list(records), "nxt_key": ""},
+        }
+
+    def make_overseas_payload(self, records=()):
+        return {
+            "dataHeader": {"resultCode": "200", "processCode": "0011", "processFlag": "A"},
+            "dataBody": {"Record2": list(records), "nxt_key": ""},
+        }
+
+    def make_domestic_row(self, code="005930", qty="10"):
+        return {"is_no": f"A{code}", "is_nm": "삼성전자", "gnrl_q": qty, "sll_q": "0"}
+
+    def make_overseas_row(self, code="AAPL", qty="5"):
+        return {
+            "is_cd": code, "is_nm": "Apple", "frgn_hld_q_p6": qty, "sll_q": "0",
+            "crncy_clsf_nm": "USD", "mkt_clsf": "US",
+            "byng_avr_prc_p4": "150.0", "now_prc_p4": "200.0",
+        }
+
+    def test_normalize_response_accepts_8092_when_allowed_for_domestic(self):
+        payload = self.make_8092_payload()
+        res = KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record1")
+        self.assertEqual(res, {"Record1": [], "nxt_key": ""})
+
+    def test_normalize_response_accepts_8092_when_allowed_for_overseas(self):
+        payload = self.make_8092_payload()
+        res = KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record2")
+        self.assertEqual(res, {"Record2": [], "nxt_key": ""})
+
+    def test_normalize_response_rejects_8092_when_empty_not_allowed(self):
+        payload = self.make_8092_payload()
+        with self.assertRaises(KBOpenAPIError) as ctx:
+            KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key=None)
+        self.assertIn("8092", str(ctx.exception))
+
+    def test_normalize_response_rejects_8092_when_flag_not_a(self):
+        payload = self.make_8092_payload(flag="B")
+        with self.assertRaises(KBOpenAPIError):
+            KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record1")
+
+    def test_normalize_response_rejects_8092_when_message_different(self):
+        payload = self.make_8092_payload(message="전산 시스템 점검 중입니다.")
+        with self.assertRaises(KBOpenAPIError):
+            KBOpenAPI._normalize_response(payload, require_data_body=True, empty_record_key="Record1")
+
+    def test_call_rejects_allow_empty_balance_on_unsupported_endpoint(self):
+        client = KBOpenAPI.__new__(KBOpenAPI)
+        with self.assertRaises(KBOpenAPIError):
+            import asyncio
+            asyncio.run(client.call("/api/v1/szqm0771", {}, allow_empty_balance=True))
+
+    async def _run_sync_holdings_with_responses(self, domestic_payload, overseas_payload):
+        client = KBOpenAPI.__new__(KBOpenAPI)
+        client.base_url = "https://mock.kbsec.com"
+        client.app_key = "test_key"
+        client._payload = lambda b: b
+        client._access_token = AsyncMock(return_value="mock_token")
+
+        async def fake_post(url, **_kwargs):
+            if "/api/v1/ssqm1801" in url:
+                return FakeResponse(domestic_payload)
+            if "/api/v1/spqm2226" in url:
+                return FakeResponse(overseas_payload)
+            raise ValueError(f"unexpected url {url}")
+
+        with patch("app.services.kb_openapi.require_external_network"), \
+             patch("httpx.AsyncClient.post", side_effect=fake_post):
+            return await client.sync_holdings()
+
+    async def test_1_domestic_8092_empty_and_overseas_normal_empty(self):
+        result = await self._run_sync_holdings_with_responses(
+            self.make_8092_payload(),
+            self.make_overseas_payload([]),
+        )
+        self.assertEqual(result.state, HoldingsResultState.AUTHORITATIVE_EMPTY)
+        self.assertTrue(result.authoritative)
+        self.assertEqual(len(result), 0)
+
+    async def test_2_overseas_8092_empty_and_domestic_normal_empty(self):
+        result = await self._run_sync_holdings_with_responses(
+            self.make_domestic_payload([]),
+            self.make_8092_payload(),
+        )
+        self.assertEqual(result.state, HoldingsResultState.AUTHORITATIVE_EMPTY)
+        self.assertTrue(result.authoritative)
+        self.assertEqual(len(result), 0)
+
+    async def test_3_domestic_8092_and_overseas_nonempty(self):
+        result = await self._run_sync_holdings_with_responses(
+            self.make_8092_payload(),
+            self.make_overseas_payload([self.make_overseas_row("AAPL")]),
+        )
+        self.assertEqual(result.state, HoldingsResultState.CONFIRMED_NONEMPTY)
+        self.assertTrue(result.authoritative)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["code"], "AAPL")
+        self.assertEqual(result[0]["market"], "US")
+
+    async def test_4_overseas_8092_and_domestic_nonempty(self):
+        result = await self._run_sync_holdings_with_responses(
+            self.make_domestic_payload([self.make_domestic_row("005930")]),
+            self.make_8092_payload(),
+        )
+        self.assertEqual(result.state, HoldingsResultState.CONFIRMED_NONEMPTY)
+        self.assertTrue(result.authoritative)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["code"], "005930")
+        self.assertEqual(result[0]["market"], "KRX")
+
+    async def test_5_both_domestic_and_overseas_8092(self):
+        result = await self._run_sync_holdings_with_responses(
+            self.make_8092_payload(),
+            self.make_8092_payload(),
+        )
+        self.assertEqual(result.state, HoldingsResultState.AUTHORITATIVE_EMPTY)
+        self.assertTrue(result.authoritative)
+        self.assertEqual(len(result), 0)
+
+    async def test_6_process_flag_not_a_raises_error(self):
+        with self.assertRaises(KBOpenAPIError):
+            await self._run_sync_holdings_with_responses(
+                self.make_8092_payload(flag="B"),
+                self.make_overseas_payload([]),
+            )
+
+    async def test_7_different_process_message_raises_error(self):
+        with self.assertRaises(KBOpenAPIError):
+            await self._run_sync_holdings_with_responses(
+                self.make_8092_payload(message="서버 내부 오류가 발생했습니다."),
+                self.make_overseas_payload([]),
+            )
+
+    async def test_8_general_tr_8092_fails_closed(self):
+        client = KBOpenAPI.__new__(KBOpenAPI)
+        client.base_url = "https://mock.kbsec.com"
+        client.app_key = "test_key"
+        client._payload = lambda b: b
+        client._access_token = AsyncMock(return_value="mock_token")
+
+        async def fake_post(_url, **_kwargs):
+            return FakeResponse(self.make_8092_payload())
+
+        with patch("app.services.kb_openapi.require_external_network"), \
+             patch("httpx.AsyncClient.post", side_effect=fake_post):
+            with self.assertRaises(KBOpenAPIError):
+                await client.call("/api/v1/szqm0771", {})
+
+    async def test_route_sync_kb_with_both_8092_results_in_confirmed_empty(self):
+        main = import_main_without_loading_real_env()
+        data = empty_portfolio(
+            accounts=[{"id": "a1", "broker": "KB증권", "name": "KB", "source": "kb_api", "account_key": "kb_primary"}],
+            holdings=[holding("old_kb_stock", "kb_api", "a1", "005930", "KRX")],
+        )
+        client = KBOpenAPI.__new__(KBOpenAPI)
+        client.base_url = "https://mock.kbsec.com"
+        client.app_key = "test_key"
+        client.app_secret = "test_secret"
+        client._payload = lambda b: b
+        client._access_token = AsyncMock(return_value="mock_token")
+        client.refresh_prices = AsyncMock(return_value=({}, []))
+
+        async def fake_post(_url, **_kwargs):
+            return FakeResponse(self.make_8092_payload())
+
+        written = {}
+        with patch("app.services.kb_openapi.require_external_network"), \
+             patch("httpx.AsyncClient.post", side_effect=fake_post), \
+             patch.object(main, "KBOpenAPI", return_value=client), \
+             patch.object(main, "read_portfolio", return_value=deepcopy(data)), \
+             patch.object(main, "write_portfolio", side_effect=lambda val, **_: written.update(val)):
+            res = await main.sync_kb(authenticated_request())
+
+        self.assertEqual(res["status"], "CONFIRMED_EMPTY")
+        self.assertEqual(res["count"], 0)
+        self.assertEqual(len(written["holdings"]), 0)
 
 if __name__ == "__main__":
     unittest.main()

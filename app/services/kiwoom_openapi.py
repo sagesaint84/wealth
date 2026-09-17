@@ -9,7 +9,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlparse
@@ -30,12 +30,15 @@ class KiwoomOpenAPIError(RuntimeError):
     pass
 
 
+_KST = timezone(timedelta(hours=9))
+TOKEN_SAFETY_MARGIN_SECONDS = 60.0
 KIWOOM_REALIZED_MAX_PAGES = 10
 KIWOOM_DOMESTIC_SAFE_CHUNK_MONTHS = 3
 _KIWOOM_NO_DATA_MARKER = "_kiwoom_ust21530_no_data"
 _UST21530_NO_DATA_CODE = Decimal("20")
 _UST21530_NO_DATA_SUBCODE = "571758"
 _UST21530_NO_DATA_MESSAGE = "조회내역이 없습니다"
+
 
 
 def compute_kiwoom_account_key(acct_no: str, secret: str | None = None) -> str:
@@ -114,22 +117,97 @@ class KiwoomOpenAPI:
             return self.account_no, ""
         return "", ""
 
+    @staticmethod
+    def _parse_token_expires_at(body: dict[str, Any]) -> float:
+        raw_dt = str(body.get("expires_dt") or "").strip()
+        if raw_dt:
+            if not (len(raw_dt) == 14 and raw_dt.isdigit()):
+                raise KiwoomOpenAPIError("키움증권 토큰 응답의 expires_dt 형식이 올바르지 않습니다.")
+            try:
+                dt = datetime.strptime(raw_dt, "%Y%m%d%H%M%S").replace(tzinfo=_KST)
+            except ValueError as exc:
+                raise KiwoomOpenAPIError("키움증권 토큰 응답의 expires_dt 날짜 형식이 올바르지 않습니다.") from exc
+            return dt.timestamp() - TOKEN_SAFETY_MARGIN_SECONDS
+
+        if "expires_in" in body and body.get("expires_in") is not None:
+            try:
+                expires_in = float(body["expires_in"])
+            except (ValueError, TypeError) as exc:
+                raise KiwoomOpenAPIError("키움증권 토큰 응답의 만료 정보 형식이 올바르지 않습니다.") from exc
+            if expires_in <= 0:
+                raise KiwoomOpenAPIError("키움증권 토큰 응답의 만료 정보가 올바르지 않습니다.")
+            return time.time() + min(expires_in, 86400.0) - TOKEN_SAFETY_MARGIN_SECONDS
+
+        raise KiwoomOpenAPIError("키움증권 토큰 응답에 만료 정보(expires_dt)가 없습니다.")
+
+    @staticmethod
+    def _is_token_invalid_response(payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        return_code = payload.get("return_code")
+        if return_code is None:
+            return False
+        try:
+            is_error = Decimal(str(return_code).strip()) != 0
+        except (InvalidOperation, ValueError, TypeError):
+            is_error = True
+        if not is_error:
+            return False
+
+        message = str(payload.get("return_msg") or "")
+        code_str = str(return_code).strip()
+        has_token_msg = "Token이 유효하지 않습니다" in message or "토큰이 유효하지 않습니다" in message
+        has_8005 = "8005" in message or code_str == "8005"
+        return has_token_msg and has_8005
+
+    @staticmethod
+    def _api_headers(access_token: str, api_id: str, *, cont_yn: str = "", next_key: str = "") -> dict[str, str]:
+        headers = {
+            "Content-Type": "application/json;charset=UTF-8",
+            "authorization": f"Bearer {access_token}",
+            "api-id": api_id,
+        }
+        if cont_yn:
+            headers["cont-yn"] = cont_yn
+        if next_key:
+            headers["next-key"] = next_key
+        return headers
+
+    @classmethod
+    def _check_auth_error(cls, response: httpx.Response) -> tuple[bool, Any | None]:
+        if response.status_code == 401:
+            return True, None
+        if not response.is_error:
+            try:
+                candidate = response.json()
+            except ValueError:
+                return False, None
+            if isinstance(candidate, dict) and cls._is_token_invalid_response(candidate):
+                return True, candidate
+            return False, candidate
+        return False, None
+
     async def _access_token(self, client: httpx.AsyncClient, force_refresh: bool = False) -> str:
         if not self.configured:
             raise KiwoomOpenAPIError("키움증권 AppKey 또는 AppSecret이 설정되지 않았습니다.")
         if not force_refresh:
-            if self._token and self._token.expires_at > time.time() + 60:
+            if getattr(self, "_token", None) and self._token.expires_at > time.time() + 60:
                 return self._token.value
             try:
-                cached = json.loads(self.token_cache_file.read_text(encoding="utf-8"))
-                if (cached.get("app_key_prefix") == self.app_key[:8]
-                        and float(cached.get("expires_at", 0)) > time.time() + 60
-                        and cached.get("access_token")):
-                    self._token = Token(str(cached["access_token"]), float(cached["expires_at"]))
-                    return self._token.value
-            except (OSError, ValueError, TypeError):
+                if hasattr(self, "token_cache_file") and self.token_cache_file:
+                    cached = json.loads(self.token_cache_file.read_text(encoding="utf-8"))
+                    if (cached.get("app_key_prefix") == self.app_key[:8]
+                            and float(cached.get("expires_at", 0)) > time.time() + 60
+                            and cached.get("access_token")):
+                        self._token = Token(str(cached["access_token"]), float(cached["expires_at"]))
+                        return self._token.value
+            except (OSError, ValueError, TypeError, AttributeError):
                 pass
-        self.token_cache_file.unlink(missing_ok=True)
+        if hasattr(self, "token_cache_file") and self.token_cache_file:
+            try:
+                self.token_cache_file.unlink(missing_ok=True)
+            except OSError:
+                pass
         response = await client.post(
             f"{self.base_url}/oauth2/token",
             json={"grant_type": "client_credentials", "appkey": self.app_key, "secretkey": self.app_secret},
@@ -140,17 +218,28 @@ class KiwoomOpenAPI:
             body = response.json()
         except ValueError as exc:
             raise KiwoomOpenAPIError("키움증권 토큰 응답이 올바른 JSON이 아닙니다.") from exc
+        if not isinstance(body, dict):
+            raise KiwoomOpenAPIError("키움증권 토큰 응답 형식이 올바르지 않습니다.")
+        if "return_code" in body:
+            try:
+                code_val = Decimal(str(body["return_code"]).strip())
+                if code_val != 0:
+                    raise KiwoomOpenAPIError(f"키움증권 토큰 발급 실패: {body.get('return_msg') or '인증 오류'}")
+            except (InvalidOperation, ValueError):
+                pass
         token = body.get("token") or body.get("access_token")
         if not token:
             raise KiwoomOpenAPIError("키움증권 토큰 응답에 token이 없습니다.")
-        self._token = Token(str(token), time.time() + as_float(body.get("expires_in", 86400)))
-        try:
-            self.token_cache_file.write_text(json.dumps({
-                "app_key_prefix": self.app_key[:8], "access_token": token,
-                "expires_at": self._token.expires_at,
-            }), encoding="utf-8")
-        except (OSError, ValueError, TypeError):
-            pass
+        expires_at = self._parse_token_expires_at(body)
+        self._token = Token(str(token), expires_at)
+        if hasattr(self, "token_cache_file") and self.token_cache_file:
+            try:
+                self.token_cache_file.write_text(json.dumps({
+                    "app_key_prefix": self.app_key[:8], "access_token": token,
+                    "expires_at": self._token.expires_at,
+                }), encoding="utf-8")
+            except (OSError, ValueError, TypeError):
+                pass
         return str(token)
 
     @staticmethod
@@ -160,24 +249,33 @@ class KiwoomOpenAPI:
 
     async def _post_api(self, client: httpx.AsyncClient, token: str, api_id: str,
                         body: dict[str, Any], *, cont_yn: str = "", next_key: str = "") -> tuple[dict[str, Any], str, str]:
-        headers = {"Content-Type": "application/json;charset=UTF-8", "authorization": f"Bearer {token}", "api-id": api_id}
-        if cont_yn:
-            headers["cont-yn"] = cont_yn
-        if next_key:
-            headers["next-key"] = next_key
-        response = await client.post(f"{self.base_url}/api/dostk/acnt", headers=headers, json=body)
+        url = f"{self.base_url}/api/dostk/acnt"
+        headers = self._api_headers(token, api_id, cont_yn=cont_yn, next_key=next_key)
+        response = await client.post(url, headers=headers, json=body)
+
+        is_auth_error, payload = self._check_auth_error(response)
+        if is_auth_error:
+            token = await self._access_token(client, force_refresh=True)
+            headers = self._api_headers(token, api_id, cont_yn=cont_yn, next_key=next_key)
+            response = await client.post(url, headers=headers, json=body)
+            payload = None
+
         self._raise_for_response(response)
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise KiwoomOpenAPIError("키움증권 API 응답이 올바른 JSON이 아닙니다.") from exc
+        if payload is None:
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise KiwoomOpenAPIError("키움증권 API 응답이 올바른 JSON이 아닙니다.") from exc
         if not isinstance(payload, dict):
             raise KiwoomOpenAPIError("키움증권 API 응답 형식이 올바르지 않습니다.")
         if "return_code" not in payload:
             raise KiwoomOpenAPIError("키움증권 API 응답에 업무 결과 코드가 없습니다.")
         if as_float(payload.get("return_code", 0)) != 0:
+            if self._is_token_invalid_response(payload):
+                raise KiwoomOpenAPIError(f"키움증권 API 인증 오류: {payload.get('return_msg') or 'Token이 유효하지 않습니다'}")
             raise KiwoomOpenAPIError(f"키움증권 API 업무 오류: {payload.get('return_msg') or '조회 실패'}")
-        return payload, response.headers.get("cont-yn", ""), response.headers.get("next-key", "")
+        return payload, str(response.headers.get("cont-yn", "")), str(response.headers.get("next-key", ""))
+
 
     async def fetch_account_number(self, client: httpx.AsyncClient, token: str) -> str:
         body, _, _ = await self._post_api(client, token, "ka00001", {})
@@ -263,23 +361,14 @@ class KiwoomOpenAPI:
         self, client: httpx.AsyncClient, token: str, path: str, api_id: str,
         body: dict[str, Any], *, cont_yn: str = "", next_key: str = "",
     ) -> tuple[dict[str, Any], str, str, str]:
-        """Post one page, retrying the exact continuation request once on HTTP 401."""
-        def headers_for(access_token: str) -> dict[str, str]:
-            headers = {
-                "Content-Type": "application/json;charset=UTF-8",
-                "authorization": f"Bearer {access_token}",
-                "api-id": api_id,
-            }
-            if cont_yn:
-                headers["cont-yn"] = cont_yn
-            if next_key:
-                headers["next-key"] = next_key
-            return headers
-
-        response = await client.post(f"{self.base_url}{path}", headers=headers_for(token), json=body)
-        if response.status_code == 401:
+        """Post one page, retrying the exact continuation request once on HTTP 401 or token-invalid."""
+        headers = self._api_headers(token, api_id, cont_yn=cont_yn, next_key=next_key)
+        response = await client.post(f"{self.base_url}{path}", headers=headers, json=body)
+        is_auth_error, _ = self._check_auth_error(response)
+        if is_auth_error:
             token = await self._access_token(client, force_refresh=True)
-            response = await client.post(f"{self.base_url}{path}", headers=headers_for(token), json=body)
+            headers = self._api_headers(token, api_id, cont_yn=cont_yn, next_key=next_key)
+            response = await client.post(f"{self.base_url}{path}", headers=headers, json=body)
         payload, response_cont_yn, response_next_key = self._parse_realized_response(response, api_id=api_id)
         return payload, response_cont_yn, response_next_key, token
 
@@ -379,11 +468,14 @@ class KiwoomOpenAPI:
     async def fetch_domestic_balance(self, client: httpx.AsyncClient, token: str) -> tuple[list[dict[str, Any]], float]:
         rows: list[dict[str, Any]] = []
         cont_yn = next_key = ""
+        current_token = token
         for _ in range(20):
             body, cont_yn, next_key = await self._post_api(
-                client, token, "kt00018", {"qry_tp": "1", "dmst_stex_tp": "KRX"},
+                client, current_token, "kt00018", {"qry_tp": "1", "dmst_stex_tp": "KRX"},
                 cont_yn="Y" if cont_yn == "Y" else "", next_key=next_key,
             )
+            if getattr(self, "_token", None) and self._token.value:
+                current_token = self._token.value
             page = body.get("acnt_evlt_remn_indv_tot")
             if not isinstance(page, list):
                 raise KiwoomOpenAPIError("키움증권 잔고 응답의 acnt_evlt_remn_indv_tot 형식이 올바르지 않습니다.")
@@ -396,7 +488,9 @@ class KiwoomOpenAPI:
                 raise KiwoomOpenAPIError("키움증권 잔고 연속조회 키가 없습니다.")
         else:
             raise KiwoomOpenAPIError("키움증권 잔고 연속조회 한도를 초과했습니다.")
-        deposit, _, _ = await self._post_api(client, token, "kt00001", {"qry_tp": "2"})
+        if getattr(self, "_token", None) and self._token.value:
+            current_token = self._token.value
+        deposit, _, _ = await self._post_api(client, current_token, "kt00001", {"qry_tp": "2"})
         if "entr" not in deposit:
             raise KiwoomOpenAPIError("키움증권 예수금 응답에 entr가 없습니다.")
         holdings: list[dict[str, Any]] = []
@@ -425,6 +519,8 @@ class KiwoomOpenAPI:
         async with httpx.AsyncClient(timeout=15.0) as client:
             token = await self._access_token(client)
             account_no = await self.fetch_account_number(client, token)
+            if getattr(self, "_token", None) and self._token.value:
+                token = self._token.value
             holdings, cash_krw = await self.fetch_domestic_balance(client, token)
         masked = f"{account_no[:4]}****"
         self.last_accounts = [{"account_number": account_no, "account_name": f"키움증권 ({masked})"}]

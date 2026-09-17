@@ -15302,8 +15302,17 @@ function initKisRealizedUI() {
 }
 
 // ── APP BOOTSTRAP ─────────────────────────────────────────────────────────────
+function initAppVersion() {
+  const metaVer = document.querySelector('meta[name="application-version"]')?.content;
+  const verEl = document.getElementById('appVersionDisplay');
+  if (verEl && metaVer) {
+    verEl.textContent = `앱 버전 v${metaVer}`;
+  }
+}
+
 async function bootstrap() {
   initAppTheme();
+  initAppVersion();
   initCollapsedSections();
   initSavingsListeners();
   initLedgerListeners();

@@ -276,7 +276,23 @@ class KBOpenAPI:
             raise KBOpenAPIError(f"KB OpenAPI 요청 실패 ({response.status_code}): {detail}")
 
     @staticmethod
-    def _normalize_response(payload: Any, *, require_data_body: bool = False) -> dict[str, Any]:
+    def _is_empty_balance_8092(data_header: dict[str, Any]) -> bool:
+        process_flag = str(data_header.get("processFlag") or "").strip()
+        process_code = str(data_header.get("processCode") or "").strip()
+        process_msg = str(data_header.get("processMessage") or "").strip()
+        return (
+            process_flag == "A"
+            and process_code == "8092"
+            and "잔고 내역이 존재하지 않습니다" in process_msg
+        )
+
+    @staticmethod
+    def _normalize_response(
+        payload: Any,
+        *,
+        require_data_body: bool = False,
+        empty_record_key: str | None = None,
+    ) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise KBOpenAPIError("KB OpenAPI 응답 형식이 올바르지 않습니다.")
         # Check provider process-level status before touching dataBody.
@@ -284,6 +300,8 @@ class KBOpenAPI:
         # processCode="9999" for platform validation failures where dataBody is absent.
         data_header = payload.get("dataHeader")
         if isinstance(data_header, dict):
+            if empty_record_key and KBOpenAPI._is_empty_balance_8092(data_header):
+                return {empty_record_key: [], "nxt_key": ""}
             KBOpenAPI._check_provider_status(data_header, context="KB OpenAPI TR")
         if require_data_body and "dataBody" not in payload:
             raise KBOpenAPIError("KB OpenAPI가 잔고 데이터 없이 상태 응답만 반환했습니다.")
@@ -292,7 +310,22 @@ class KBOpenAPI:
             raise KBOpenAPIError("KB OpenAPI dataBody 형식이 올바르지 않습니다.")
         return body
 
-    async def call(self, endpoint: str, data_body: dict[str, Any], *, require_data_body: bool = False) -> dict[str, Any]:
+    async def call(
+        self,
+        endpoint: str,
+        data_body: dict[str, Any],
+        *,
+        require_data_body: bool = False,
+        allow_empty_balance: bool = False,
+    ) -> dict[str, Any]:
+        empty_record_key: str | None = None
+        if allow_empty_balance:
+            if endpoint == "/api/v1/ssqm1801":
+                empty_record_key = "Record1"
+            elif endpoint == "/api/v1/spqm2226":
+                empty_record_key = "Record2"
+            else:
+                raise KBOpenAPIError(f"KB OpenAPI 잔고 빈 응답 허용 대상이 아닌 엔드포인트입니다: {endpoint}")
         require_external_network("KB OpenAPI")
         async with httpx.AsyncClient(timeout=15.0) as client:
             token = await self._access_token(client)
@@ -306,12 +339,26 @@ class KBOpenAPI:
                 payload = response.json()
             except ValueError as exc:
                 raise KBOpenAPIError("KB OpenAPI 응답이 올바른 JSON이 아닙니다.") from exc
-        return self._normalize_response(payload, require_data_body=require_data_body)
+        return self._normalize_response(
+            payload,
+            require_data_body=require_data_body,
+            empty_record_key=empty_record_key,
+        )
 
     async def sync_holdings(self) -> BrokerHoldingsResult:
         domestic, overseas = await asyncio.gather(
-            self.call("/api/v1/ssqm1801", {"inq_clsf": "0", "mkt_tm_ccd": "1", "is_no": "", "nxt_key": ""}, require_data_body=True),
-            self.call("/api/v1/spqm2226", {"std_crncy_f": "2", "exch_r_aplc_f": "2", "fee_clsf": "0", "cn_f": "0", "nxt_key": "", "mktpr_aplc_clsf": ""}, require_data_body=True),
+            self.call(
+                "/api/v1/ssqm1801",
+                {"inq_clsf": "0", "mkt_tm_ccd": "1", "is_no": "", "nxt_key": ""},
+                require_data_body=True,
+                allow_empty_balance=True,
+            ),
+            self.call(
+                "/api/v1/spqm2226",
+                {"std_crncy_f": "2", "exch_r_aplc_f": "2", "fee_clsf": "0", "cn_f": "0", "nxt_key": "", "mktpr_aplc_clsf": ""},
+                require_data_body=True,
+                allow_empty_balance=True,
+            ),
         )
         domestic_rows = domestic.get("Record1")
         overseas_rows = overseas.get("Record2")
