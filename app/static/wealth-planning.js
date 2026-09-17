@@ -11,7 +11,25 @@
     ['섹터','산업군 중심 자산'], ['테마','테마 중심 자산'], ['전술','전술적 운용 자산'],
     ['방어','변동성 방어 자산'], ['현금','투자 대기 자금'],
   ];
-  const BUCKET_COLORS = ['#788cf0','#61b9a9','#d19a66','#a886db','#cf788b','#6da2c9','#9aa66c','#b68463'];
+  const BUCKET_PRESET_COLORS = {
+    '코어': '#5FC5D9',
+    '성장': '#A8C95B',
+    '배당': '#7F78E8',
+    '섹터': '#A886DB',
+    '테마': '#CF788B',
+    '전술': '#D19A66',
+    '방어': '#82966A',
+    '현금': '#5A9FE8',
+    'core': '#5FC5D9',
+    'growth': '#A8C95B',
+    'dividend': '#7F78E8',
+    'sector': '#A886DB',
+    'theme': '#CF788B',
+    'tactical': '#D19A66',
+    'defensive': '#82966A',
+    'cash': '#5A9FE8',
+  };
+  const BUCKET_COLORS = ['#5FC5D9','#A8C95B','#7F78E8','#A886DB','#CF788B','#D19A66','#82966A','#5A9FE8'];
   let state = null, summary = null, portfolioView = null, editorView = null, editorRevision = null, range = '1Y', dirty = false, syncBlocked = false;
   window.addEventListener('beforeunload', e => { if(dirty || editingRecord) { e.preventDefault(); e.returnValue = ''; } });
   const historyPanel = document.createElement('article');
@@ -231,6 +249,22 @@
   function bucketColor(id) {
     if(id === '__unclassified__') return '#697386';
     if(id === '__unallocated__') return '#35415b';
+    if(id && typeof id === 'object') {
+      if(id.id === '__unclassified__') return '#697386';
+      if(id.id === '__unallocated__') return '#35415b';
+      if(id.name && BUCKET_PRESET_COLORS[String(id.name).trim()]) return BUCKET_PRESET_COLORS[String(id.name).trim()];
+      id = id.id || id.name || '';
+    }
+    const key = String(id || '').trim();
+    if(BUCKET_PRESET_COLORS[key]) return BUCKET_PRESET_COLORS[key];
+    const item = state?.buckets?.find(b => String(b.id) === key);
+    if(item && BUCKET_PRESET_COLORS[String(item.name || '').trim()]) {
+      return BUCKET_PRESET_COLORS[String(item.name || '').trim()];
+    }
+    const draftRow = typeof document !== 'undefined' && document.querySelector ? document.querySelector(`.wealth-bucket-edit-row[data-id="${key}"] [name="bucketName"]`) : null;
+    if(draftRow && BUCKET_PRESET_COLORS[String(draftRow.value || '').trim()]) {
+      return BUCKET_PRESET_COLORS[String(draftRow.value || '').trim()];
+    }
     let hash=0;
     for(const char of String(id)) hash=((hash*31)+char.codePointAt(0))>>>0;
     return BUCKET_COLORS[hash%BUCKET_COLORS.length];
@@ -269,7 +303,7 @@
   }
   function renderPresetButtons() {
     const names=new Set(draftBuckets().map(bucket=>bucket.name.trim()).filter(Boolean));
-    document.getElementById('wealthBucketPresetButtons').innerHTML=BUCKET_PRESETS.map(([name])=>`<button type="button" class="wealth-bucket-preset${names.has(name)?' active':''}" data-bucket-preset="${esc(name)}" aria-pressed="${names.has(name)}">${esc(name)}</button>`).join('');
+    document.getElementById('wealthBucketPresetButtons').innerHTML=BUCKET_PRESETS.map(([name])=>`<button type="button" class="wealth-bucket-preset${names.has(name)?' active':''}" data-bucket-preset="${esc(name)}" aria-pressed="${names.has(name)}" style="--bucket-color:${bucketColor(name)}"><i class="wealth-bucket-preset-dot"></i>${esc(name)}</button>`).join('');
   }
   function draftTargetValidation() {
     const inputs=[...document.querySelectorAll('.wealth-bucket-edit-row [name="target"]')];

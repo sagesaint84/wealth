@@ -1,5 +1,13 @@
 # Wealth 변경 이력
 
+## Wealth v1.2.4 — Strategy Bucket Color Clarity — 2026-09-17
+
+- **전략 버킷 semantic color 체계 도입**: 추천 버킷에는 고정 semantic color mapping을 적용하고, 사용자 정의 버킷은 기존 deterministic hash 기반 색상 fallback을 유지합니다.
+- **배당/현금 및 전술/방어 색상 식별성 개선**: 유사한 블루 계열이던 '배당'(인디고 바이올렛 `#7F78E8`)과 '현금'(스카이블루 `#5A9FE8`), 그리고 유사한 웜 톤이던 '전술'(웜 앰버 `#D19A66`)과 '방어'(뮤트 세이지 올리브 `#82966A`)의 색조(Hue)를 대폭 분리하여 한눈에 식별 가능하도록 개선했습니다.
+- **추천 버킷에 color swatch 추가**: 전략 버킷 편집 영역의 추천 버킷 칩에 실제 배정될 색상의 미니 컬러 스와치 dot(`<i class="wealth-bucket-preset-dot">`)을 추가하여 선택 단계에서 색상을 즉시 인지할 수 있도록 했습니다.
+- **동일 색상 source 일관성 보장**: 추천 버킷 칩, 목표 비중 도넛, 현재 비중 도넛, 범례, 버킷 카드의 액센트 라인에 동일한 `--bucket-color` 소스가 주입되도록 보장했습니다.
+- **미분류/미배정 neutral 스타일 및 Asset Allocation 기존 팔레트 유지**: 미분류(`#697386`) 및 미배정(`#35415b`) 스타일을 보존하고, 종합 자산 및 홈 Asset Allocation 도넛은 v1.2.3 기존의 9색 팔레트를 온전히 유지했습니다.
+
 ## Wealth v1.2.3 — KB Empty Balance Compatibility — 2026-09-17
 
 - **KB증권 OpenAPI 빈 잔고 호환성 확장 (1861 Authoritative Empty)**: KB OpenAPI 실계좌 잔고조회에서 관찰된 빈 잔고 비즈니스 응답(`processCode: "1861"`, `processFlag: "A"`, "조회할 자료가 없습니다")을 감지하여 정상 `CONFIRMED_EMPTY` 상태로 안전하게 처리합니다.

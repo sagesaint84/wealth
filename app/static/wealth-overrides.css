@@ -5677,6 +5677,24 @@ dialog.dialog .dialog-actions {
   background: rgba(255, 255, 255, 0.15) !important;
 }
 
+/* ── 전략 버킷 추천 칩(Preset) 컬러 스와치 ── */
+.wealth-bucket-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wealth-bucket-preset-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bucket-color, currentColor);
+  flex-shrink: 0;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+
 
 
 
