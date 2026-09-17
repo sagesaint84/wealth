@@ -5870,8 +5870,9 @@ function render(data) {
   }}));
 }
 
-async function loadDashboard() {
-  const data = await api("/api/dashboard");
+async function loadDashboard(recordSnapshots = false) {
+  const suffix = recordSnapshots ? "?record_snapshots=true" : "";
+  const data = await api(`/api/dashboard${suffix}`);
   rawDashboard = data;
   dashboard = data;
   try {
@@ -7161,38 +7162,9 @@ $("#clearAllHoldingsBtn")?.addEventListener("click", (e) => {
 });
 $("#addRecordButton")?.addEventListener("click", () => openAssetRecordDialog());
 
-// 2. 오늘 기록 저장
+// 2. 오늘 주식기록 저장 — 서버 canonical 계산으로 모든 owner를 한 번에 기록
 $("#snapshotButton")?.addEventListener("click", (e) => action(e.currentTarget, async () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const dayStr = String(now.getDate()).padStart(2, '0');
-  const today = `${year}-${month}-${dayStr}`;
-
-  const s = dashboard?.summary || {};
-  const day = dashboard?.day_change || {};
-  const currency = dashboard?.currency_summary || {};
-
-  const payload = {
-    date: today,
-    total_value_krw: Number(s.total_value_krw || 0),
-    total_cost_krw: Number(s.total_cost_krw || 0),
-    profit_krw: Number(s.profit_krw || 0),
-    return_rate: Number(s.return_rate || 0),
-    day_profit_krw: Number(day.change_krw || 0),
-    krw_value_krw: Number(currency.KRW?.market_value_krw || 0),
-    usd_value_krw: Number(currency.USD?.market_value_krw || 0),
-    holding_count: Number(s.holding_count || 0),
-    source: "snapshot",
-    memo: currentOwner === '모두' ? "오늘 스냅샷" : `${currentOwner} 스냅샷`,
-    owner: currentOwner || "모두",
-  };
-
-  return await api("/api/asset-records", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  return await api("/api/asset-records/snapshot", { method: "POST" });
 }, async () => {
   await loadAssetRecords(currentOwner);
 }));
@@ -10407,8 +10379,36 @@ async function applyUserRoleView(me) {
 
 async function loadAssetDataForUser() {
   const o = currentOwner || '모두';
+  let priceRefreshSucceeded = false;
   try { await loadFamilyMembers(); } catch (e) {}
-  try { await loadDashboard(); } catch (e) { toast(e.message || "대시보드를 불러오지 못했습니다.", true); }
+
+  // 접속 시 먼저 최신 시세/환율을 반영한다. 성공한 경우에만 당일 자동 스냅샷을 기록한다.
+  try {
+    await api("/api/refresh-prices", { method: "POST" });
+    priceRefreshSucceeded = true;
+  } catch (e) {
+    toast(e.message || "접속 시 시세 갱신에 실패해 자동 기록을 건너뜁니다.", true);
+  }
+
+  try {
+    await loadDashboard(priceRefreshSucceeded);
+  } catch (e) {
+    toast(e.message || "대시보드를 불러오지 못했습니다.", true);
+  }
+
+  if (priceRefreshSucceeded) {
+    try {
+      await api("/api/planning/snapshot-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "auto" }),
+      });
+      window.dispatchEvent(new CustomEvent('wealth:planning-refresh'));
+    } catch (e) {
+      toast(e.message || "접속 시 순자산 자동 기록에 실패했습니다.", true);
+    }
+  }
+
   try { await loadMarkets(); } catch (e) {}
   try { await loadAssetRecords(o); } catch (e) {}
   try { await loadDividends(o); } catch (e) {}

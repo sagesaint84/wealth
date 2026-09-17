@@ -161,7 +161,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-APP_VERSION = "1.2.5"
+APP_VERSION = "1.2.6"
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -769,63 +769,83 @@ def get_family_members(data: dict) -> list:
     return data.get("settings", {}).get("family_members", list(DEFAULT_FAMILY_MEMBERS))
 
 
-def auto_save_all_owner_snapshots(data: dict[str, Any], username: str | None = None) -> None:
+def _snapshot_target_owners(data: dict) -> list[str]:
+    """Return all configured/discovered owners, always including '모두'."""
+    candidates = list(get_family_members(data) or DEFAULT_FAMILY_MEMBERS)
+    for key in ("accounts", "bank_accounts", "savings_accounts", "insurance_accounts", "loan_accounts"):
+        for item in data.get(key, []) or []:
+            owner = str(item.get("owner") or "").strip()
+            if owner and owner != "모두":
+                candidates.append(owner)
+    for item in data.get("real_estates", []) or []:
+        for ownership in item.get("ownerships") or []:
+            owner = str(ownership.get("owner") or "").strip()
+            if owner and owner != "모두":
+                candidates.append(owner)
+        owner = str(item.get("owner") or "").strip()
+        if owner and owner != "모두" and owner in DEFAULT_FAMILY_MEMBERS:
+            candidates.append(owner)
+    return ["모두"] + list(dict.fromkeys(owner for owner in candidates if owner and owner != "모두"))
+
+
+def auto_save_all_owner_snapshots(
+    data: dict[str, Any],
+    username: str | None = None,
+    source: str = "auto",
+    memo: str = "자동 기록",
+) -> list[dict[str, Any]]:
     """
-    대시보드 접속 또는 조회 시 '모두' 및 모든 가족 구성원('아빠', '엄마', '자녀' 등)의
-    당일 주식기록(스냅샷)을 실시간 평가액으로 자동 갱신 및 신규 생성합니다.
-    예수금/외부 현금흐름을 엄격히 배제하고 순수 보유 주식/ETF 등의 시장 평가액과
-    가격 변동 손익만을 canonical snapshot으로 기록합니다.
+    '모두' 및 모든 가족 구성원의 당일 주식기록을 동일한 canonical 계산으로 upsert합니다.
+    보유종목이 없는 owner도 0원 스냅샷을 남겨 전체 owner의 날짜 축을 일관되게 유지합니다.
     """
-    if not data or not data.get("summary"):
-        return
+    if not data:
+        return []
 
     today = datetime.now().astimezone().date().isoformat()
     fx_rates = data.get("fx_rates")
+    accounts = data.get("accounts", []) or []
+    all_holdings = data.get("holdings", []) or []
+    saved: list[dict[str, Any]] = []
 
-    raw_members = get_family_members(data) or list(DEFAULT_FAMILY_MEMBERS)
-    account_owners = [
-        a.get("owner")
-        for a in data.get("accounts", [])
-        if a.get("owner") and a.get("owner") != "모두"
-    ]
-    target_owners = ["모두"] + list(dict.fromkeys(raw_members + account_owners))
-
-    for owner in target_owners:
+    for owner in _snapshot_target_owners(data):
         if owner == "모두":
-            if data["summary"]["holding_count"] or data["summary"].get("total_stock_value_krw") or data["summary"]["total_value_krw"]:
-                snapshot_all = build_stock_record_from_holdings(
-                    data.get("holdings", []),
-                    owner="모두",
-                    today=today,
-                    source="auto",
-                    memo="자동 기록",
-                    fx_rates=fx_rates,
-                )
-                upsert_asset_record(snapshot_all, by_date=True, username=username)
+            owned_holdings = all_holdings
         else:
-            owned_accounts = [a for a in data.get("accounts", []) if (a.get("owner") or "모두") == owner]
-            owned_acc_ids = {a["id"] for a in owned_accounts}
+            owned_accounts = [a for a in accounts if (a.get("owner") or "모두") == owner]
+            owned_acc_ids = {a.get("id") for a in owned_accounts if a.get("id")}
             owned_holdings = [
-                h for h in data.get("holdings", [])
+                h for h in all_holdings
                 if h.get("account_id") in owned_acc_ids or h.get("owner") == owner
             ]
 
-            if not owned_accounts and not owned_holdings:
-                continue
+        payload = build_stock_record_from_holdings(
+            owned_holdings,
+            owner=owner,
+            today=today,
+            source=source,
+            memo=memo,
+            fx_rates=fx_rates,
+        )
+        saved.append(upsert_asset_record(payload, by_date=True, username=username))
 
-            snapshot_owner = build_stock_record_from_holdings(
-                owned_holdings,
-                owner=owner,
-                today=today,
-                source="auto",
-                memo="자동 기록",
-                fx_rates=fx_rates,
-            )
-            upsert_asset_record(snapshot_owner, by_date=True, username=username)
+    return saved
+
+
+def save_all_owner_net_worth_snapshots(
+    data: dict[str, Any],
+    username: str,
+    source: str = "auto",
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Calculate and atomically save current net-worth snapshots for all owners."""
+    from app.services.planning import build_net_worth_snapshot, upsert_current_snapshots
+
+    snapshots = [build_net_worth_snapshot(data, owner) for owner in _snapshot_target_owners(data)]
+    state = upsert_current_snapshots(username, snapshots, source=source)
+    return state, snapshots
 
 
 @app.get("/api/dashboard")
-async def dashboard(request: Request) -> dict:
+async def dashboard(request: Request, record_snapshots: bool = False) -> dict:
     username = get_current_username(request)
     if username == "admin":
         return {
@@ -860,7 +880,8 @@ async def dashboard(request: Request) -> dict:
     data["actual_dividend_records"] = read_dividend_records(username=username)
     data["dividend_summary"] = get_actual_dividend_summary(owner="모두", username=username)
 
-    auto_save_all_owner_snapshots(data, username=username)
+    if record_snapshots:
+        auto_save_all_owner_snapshots(data, username=username, source="auto", memo="접속 자동 기록")
     return data
 
 
@@ -3535,6 +3556,13 @@ async def save_planning(operation: str, request: Request) -> dict:
     if not isinstance(payload, dict):
         raise HTTPException(400, "입력 형식이 올바르지 않습니다.")
     try:
+        if operation == "snapshot-all":
+            source = str(payload.get("source") or "user_confirmed")
+            if source not in {"auto", "user_confirmed"}:
+                raise ValueError("기록 출처를 확인하세요.")
+            data = await dashboard(request, record_snapshots=False)
+            state, _snapshots = save_all_owner_net_worth_snapshots(data, username, source=source)
+            return state
         return mutate(username, operation, payload)
     except PlanningConflict as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -3582,23 +3610,18 @@ async def remove_asset_record(record_id: str, request: Request) -> dict:
 async def snapshot_asset_record(request: Request) -> dict:
     username = get_current_username(request)
     data = get_dashboard(username=username)
-    holdings = data.get("holdings", [])
-    if not holdings:
-        raise HTTPException(400, "저장할 보유자산이 없습니다.")
-    record_payload = build_stock_record_from_holdings(
-        holdings,
-        owner="모두",
-        today=datetime.now().astimezone().date().isoformat(),
+    records = auto_save_all_owner_snapshots(
+        data,
+        username=username,
         source="snapshot",
         memo="수동 스냅샷",
-        fx_rates=data.get("fx_rates"),
     )
-    record = upsert_asset_record(
-        record_payload,
-        by_date=True,
-        username=username,
-    )
-    return {"message": "오늘 자산을 기록했습니다.", "record": record}
+    record_all = next((record for record in records if (record.get("owner") or "모두") == "모두"), None)
+    return {
+        "message": f"오늘 주식기록을 모든 가족 범위({len(records)}개)에 저장했습니다.",
+        "record": record_all,
+        "records": records,
+    }
 
 
 @app.post("/api/sync/kb")

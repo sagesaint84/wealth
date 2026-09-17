@@ -149,6 +149,7 @@
     catch(error) { document.getElementById('wealthHistoryStatus').textContent = error.message; document.getElementById('wealthBucketStatus').textContent = error.message; }
   }
   window.addEventListener('wealth:role', ({detail}) => { if(!detail.isAdminUser) load(); });
+  window.addEventListener('wealth:planning-refresh', () => load());
   window.addEventListener('wealth:summary', ({detail}) => { summary = detail; renderHistory(); });
   window.addEventListener('wealth:portfolio', ({detail}) => {
     portfolioView = detail; renderBucketSummary();
@@ -238,11 +239,12 @@
   window.addEventListener('resize',()=>{if(!home.hidden)requestAnimationFrame(renderHistory);});
   async function saveSnapshot(snapshotButton) {
     if(!state || !summary || syncBlocked) return;
-    const date = new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-    const exists=state.history.some(r=>r.date === date && r.owner === summary.owner);
-    if(!confirm(`${summary.owner === '모두' ? '전체 가족' : summary.owner}의 현재 순자산 ${won(summary.netWorth)}을 기록할까요?\n${exists ? '기존 기록을 교체합니다.' : '확인한 현재 값만 저장합니다.'}\n등록 자산과 최근 동기화 결과를 확인하세요.`)) return;
+    if(!confirm(`모두 · 아빠 · 엄마 · 자녀 등 모든 가족 범위의 현재 순자산을 기록할까요?\n오늘 같은 범위의 기록이 있으면 최신 값으로 교체합니다.\n등록 자산과 최근 동기화 결과를 확인하세요.`)) return;
     snapshotButton.disabled=true;
-    try { state=await request('/snapshot',{revision:state.revision,owner:summary.owner,assets:summary.netWorth+summary.debt,debt:summary.debt,net_worth:summary.netWorth,fx_rates:summary.fxRates,valuation_at:summary.updatedAt,replace:exists}); renderHistory(); }
+    try {
+      state=await request('/snapshot-all',{source:'user_confirmed'});
+      renderHistory();
+    }
     catch(error) { document.getElementById('wealthHistoryStatus').textContent=error.message; }
     finally { snapshotButton.disabled=syncBlocked; }
   }

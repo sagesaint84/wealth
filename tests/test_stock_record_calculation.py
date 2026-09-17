@@ -315,6 +315,7 @@ class StockRecordCalculationTests(IsolatedDataTestCase):
         self.assertIn("모두", by_owner)
         self.assertIn("아빠", by_owner)
         self.assertIn("엄마", by_owner)
+        self.assertIn("자녀", by_owner)
 
         # 모두: 주식 평가액만 104,600,000 (예수금 26.3M 미포함)
         self.assertEqual(by_owner["모두"]["total_value_krw"], 104_600_000)
@@ -327,6 +328,10 @@ class StockRecordCalculationTests(IsolatedDataTestCase):
         # 엄마: 주식 평가액만 22,000,000 (예수금 5.0M 미포함)
         self.assertEqual(by_owner["엄마"]["total_value_krw"], 22_000_000)
         self.assertEqual(by_owner["엄마"]["day_profit_krw"], 0.0)
+
+        # 자녀: 보유종목이 없어도 0원 기록을 생성하여 owner별 날짜 축을 유지
+        self.assertEqual(by_owner["자녀"]["total_value_krw"], 0.0)
+        self.assertEqual(by_owner["자녀"]["holding_count"], 0)
 
     def test_snapshot_api_endpoint_integration(self) -> None:
         """/api/asset-records/snapshot 엔드포인트가 순수 주식기록을 반환/저장하는지 검증."""
@@ -344,7 +349,112 @@ class StockRecordCalculationTests(IsolatedDataTestCase):
         self.assertEqual(rec["krw_value_krw"], 102_000_000)
         self.assertEqual(rec["usd_value_krw"], 2_600_000)
         self.assertEqual(rec["source"], "snapshot")
+        by_owner = {r.get("owner"): r for r in res["records"]}
+        self.assertEqual(set(by_owner), {"모두", "아빠", "엄마", "자녀"})
+        self.assertEqual(by_owner["아빠"]["total_value_krw"], 82_600_000)
+        self.assertEqual(by_owner["엄마"]["total_value_krw"], 22_000_000)
+        self.assertEqual(by_owner["자녀"]["total_value_krw"], 0.0)
+        self.assertTrue(all(r.get("source") == "snapshot" for r in res["records"]))
 
+
+    def test_all_owner_net_worth_snapshots_include_zero_owner(self) -> None:
+        """순자산 자동 기록도 모두/가족 구성원 전체를 동일 날짜에 저장해야 함."""
+        import app.main as main_mod
+
+        dash = portfolio.get_dashboard(username="test_user")
+        dash.update({
+            "bank_accounts": [],
+            "savings_accounts": [],
+            "insurance_accounts": [],
+            "loan_accounts": [],
+            "real_estates": [],
+        })
+        state, snapshots = main_mod.save_all_owner_net_worth_snapshots(
+            dash,
+            "test_user",
+            source="auto",
+        )
+
+        by_owner = {item["owner"]: item for item in snapshots}
+        self.assertEqual(set(by_owner), {"모두", "아빠", "엄마", "자녀"})
+        self.assertEqual(by_owner["모두"]["assets"], 130_900_000)
+        self.assertEqual(by_owner["아빠"]["assets"], 103_900_000)
+        self.assertEqual(by_owner["엄마"]["assets"], 27_000_000)
+        self.assertEqual(by_owner["자녀"]["assets"], 0.0)
+        self.assertTrue(all(item["debt"] == 0 for item in snapshots))
+
+        today_records = [r for r in state["history"] if r.get("source") == "auto"]
+        self.assertEqual({r.get("owner") for r in today_records}, {"모두", "아빠", "엄마", "자녀"})
+
+
+    def test_net_worth_snapshot_real_estate_single_owner_uses_full_share(self) -> None:
+        """ownerships 배열이 없어도 owner 단독 부동산은 해당 owner에게 100% 반영되어야 함."""
+        from app.services.planning import build_net_worth_snapshot
+
+        dash = portfolio.get_dashboard(username="test_user")
+        dash.update({
+            "accounts": [],
+            "holdings": [],
+            "bank_accounts": [],
+            "savings_accounts": [],
+            "insurance_accounts": [],
+            "loan_accounts": [],
+            "real_estates": [{
+                "id": "re-dad",
+                "owner": "아빠",
+                "property_type": "own",
+                "current_price": 100_000_000,
+            }],
+        })
+
+        rec_all = build_net_worth_snapshot(dash, "모두")
+        rec_dad = build_net_worth_snapshot(dash, "아빠")
+        rec_mom = build_net_worth_snapshot(dash, "엄마")
+        self.assertEqual(rec_all["assets"], 100_000_000)
+        self.assertEqual(rec_dad["assets"], 100_000_000)
+        self.assertEqual(rec_mom["assets"], 0.0)
+
+
+    def test_auto_and_manual_snapshot_financial_values_match(self) -> None:
+        """Auto and manual snapshots must have identical financial values for the same dashboard state."""
+        import asyncio
+        import app.main as main_mod
+        from regression_support import authenticated_request
+
+        owner_all = "\ubaa8\ub450"
+        dash = portfolio.get_dashboard(username="test_user")
+
+        main_mod.auto_save_all_owner_snapshots(dash, username="test_user")
+        records = asset_records.list_asset_records(username="test_user")
+        auto_rec = next(
+            r for r in records
+            if r.get("owner") == owner_all and r.get("source") == "auto"
+        )
+
+        req = authenticated_request("test_user")
+        manual_rec = asyncio.run(main_mod.snapshot_asset_record(req))["record"]
+
+        financial_fields = (
+            "total_value_krw",
+            "total_cost_krw",
+            "profit_krw",
+            "return_rate",
+            "day_profit_krw",
+            "krw_value_krw",
+            "usd_value_krw",
+            "holding_count",
+        )
+        for field in financial_fields:
+            self.assertEqual(
+                auto_rec[field],
+                manual_rec[field],
+                f"auto/manual mismatch: {field}",
+            )
+
+        self.assertEqual(auto_rec["owner"], owner_all)
+        self.assertEqual(manual_rec["owner"], owner_all)
+        self.assertEqual(auto_rec["source"], "auto")
+        self.assertEqual(manual_rec["source"], "snapshot")
 
     def test_day_change_rate_authoritative_zero_preserved_without_fallback(self) -> None:
         """current rate가 0.0일 때 stored/fallback 5.0으로 덮어쓰지 않고 0.0을 유지해야 함."""
