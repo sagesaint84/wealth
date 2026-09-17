@@ -373,12 +373,14 @@ def get_dashboard(data: dict[str, Any] | None = None, username: str | None = Non
         daily_map = data.get("settings", {}).get("daily_price_changes", {})
         p_info = period_rates_data.get(code_sym) or period_rates_data.get(name_sym) or {}
         day_rate = p_info.get("1D")
-        if day_rate is None or to_number(day_rate) == 0.0:
+        if day_rate is None:
             map_rate = daily_map.get(code_sym)
             if map_rate is None:
                 map_rate = daily_map.get(name_sym)
             if map_rate is not None:
                 day_rate = map_rate
+        if day_rate is None and item.get("day_change_rate") is not None:
+            day_rate = item.get("day_change_rate")
 
         final_day_rate = to_number(day_rate, 0.0)
         item["day_change_rate"] = final_day_rate
@@ -614,12 +616,14 @@ def get_dashboard(data: dict[str, Any] | None = None, username: str | None = Non
             "return_rate": profit / total_stock_cost * 100 if total_stock_cost else 0,
             "holding_count": len(enriched),
             "account_count": len(account_list),
+            "holding_day_gain": holding_day_gain,
         },
         "day_change": {
             "date": previous_date,
             "value_krw": previous_value,
             "change_krw": day_change,
             "change_rate": day_change / previous_value * 100 if day_change is not None and previous_value else None,
+            "holding_day_gain": holding_day_gain,
         },
         "accounts": account_list,
         "holdings": enriched,

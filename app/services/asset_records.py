@@ -146,3 +146,75 @@ def delete_asset_record(record_id: str, username: str | None = None) -> bool:
     write_asset_records(data, username)
     return True
 
+
+def build_stock_record_from_holdings(
+    holdings: list[dict[str, Any]],
+    owner: str = "모두",
+    today: str | None = None,
+    source: str = "auto",
+    memo: str = "자동 기록",
+    fx_rates: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    """
+    주식기록(asset_records) canonical snapshot 생성 헬퍼.
+    예수금/외부 현금흐름을 엄격히 배제하고 순수 보유 주식/ETF 등의 시장 평가액과
+    가격 변동 손익만을 기록합니다.
+    """
+    today_str = today or datetime.now().astimezone().date().isoformat()
+    rates = fx_rates or {"KRW": 1.0, "USD": 1385.0}
+    stock_value_krw = 0.0
+    stock_cost_krw = 0.0
+    krw_value_krw = 0.0
+    usd_value_krw = 0.0
+    day_profit_krw = 0.0
+
+    for h in holdings:
+        curr = (h.get("currency") or "KRW").upper()
+        rate = float(h.get("fx_rate") or rates.get(curr, 1.0 if curr == "KRW" else 1385.0))
+
+        m_val = h.get("market_value_krw")
+        if m_val is None:
+            qty = float(h.get("quantity") or 0.0)
+            price = float(h.get("current_price") or 0.0)
+            m_val = qty * price * rate
+        else:
+            m_val = float(m_val)
+
+        c_val = h.get("cost_value_krw")
+        if c_val is None:
+            qty = float(h.get("quantity") or 0.0)
+            avg = float(h.get("avg_price") or 0.0)
+            c_val = qty * avg * rate
+        else:
+            c_val = float(c_val)
+
+        stock_value_krw += m_val
+        stock_cost_krw += c_val
+
+        if curr == "KRW":
+            krw_value_krw += m_val
+        else:
+            usd_value_krw += m_val
+
+        r = float(h.get("day_change_rate") or 0.0)
+        if r != 0 and (100.0 + r) > 0:
+            day_profit_krw += m_val * (r / (100.0 + r))
+
+    profit_krw = stock_value_krw - stock_cost_krw
+    return_rate = (profit_krw / stock_cost_krw * 100.0) if stock_cost_krw > 0 else 0.0
+
+    return {
+        "date": today_str,
+        "total_value_krw": round(stock_value_krw, 2),
+        "total_cost_krw": round(stock_cost_krw, 2),
+        "profit_krw": round(profit_krw, 2),
+        "return_rate": round(return_rate, 2),
+        "day_profit_krw": round(day_profit_krw, 2),
+        "krw_value_krw": round(krw_value_krw, 2),
+        "usd_value_krw": round(usd_value_krw, 2),
+        "holding_count": len(holdings),
+        "currency": "KRW",
+        "source": source,
+        "memo": memo,
+        "owner": owner,
+    }
