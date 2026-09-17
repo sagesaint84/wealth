@@ -1,5 +1,11 @@
 # Wealth 변경 이력
 
+## Wealth v1.2.7 — Docker Build Security Hardening — 2026-09-18
+
+- **Docker build context에서 toss-wts/ 제외**: `.dockerignore`에 `toss-wts/`를 추가하여 Toss WTS 실행파일 및 세션 설정 파일이 Docker 이미지 레이어에 복사되는 것을 원천 차단했습니다.
+- **운영 호스트 분리 및 bind mount 유지**: Toss WTS 실행파일/세션 config는 서버 호스트 디렉터리에 그대로 유지되며, 컨테이너에서는 기존 bind mount(`/docker/wealth/toss-wts/bin/tossctl -> /opt/toss-wts/tossctl`, `/docker/wealth/toss-wts/config -> /opt/toss-wts/config`) 경로를 그대로 사용합니다.
+- **애플리케이션 자산 계산 로직 불변**: 이번 변경은 빌드 컨텍스트 보안 최적화로, 기존 자산/스냅샷 계산 로직 및 API 동작에는 영향이 없습니다.
+
 ## Wealth v1.2.6 — All-Owner Snapshot Coordination and Daily Close Automation — 2026-09-18
 
 - **전 가족 구성원 일괄 스냅샷 체계**: 주식기록 및 순자산기록 저장 시 선택된 단일 구성원에 국한되지 않고 '모두', '아빠', '엄마', '자녀' 등 등록된 모든 구성원의 스냅샷을 한 번에 계산·생성하여 날짜 축을 동기화합니다.

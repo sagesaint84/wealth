@@ -161,7 +161,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-APP_VERSION = "1.2.6"
+APP_VERSION = "1.2.7"
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
