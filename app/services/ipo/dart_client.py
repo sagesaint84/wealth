@@ -183,7 +183,7 @@ class DartClient:
         self,
         api_key: str | None = None,
         timeout_seconds: float = 15.0,
-        user_agent: str = "Wealth/1.2.7 (OpenDART Client)",
+        user_agent: str = "Wealth/1.3.0 (OpenDART Client)",
     ):
         self.api_key = (api_key or os.environ.get("DART_API_KEY", "")).strip()
         self.timeout_seconds = timeout_seconds

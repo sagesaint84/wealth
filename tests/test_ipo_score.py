@@ -44,6 +44,20 @@ class IpoScoreTests(unittest.TestCase):
         self.assertEqual(determine_grade(0.0), "E")
         self.assertIsNone(determine_grade(None))
 
+    def test_spac_does_not_receive_general_company_score(self):
+        target = make_sample_ipo()
+        target["listing_track"] = "spac"
+
+        res = calculate_wealth_ipo_score(target, [])
+
+        self.assertEqual(res["status"], "NOT_APPLICABLE")
+        self.assertFalse(res["is_calculating"])
+        self.assertIsNone(res["score"])
+        self.assertIsNone(res["grade"])
+        self.assertEqual(res["score_label"], "별도평가")
+        self.assertEqual(res["component_scores"], {})
+        self.assertEqual(res["feature_scores"], {})
+
     def test_full_features_score_calculation(self):
         target = make_sample_ipo()
         cohort = [

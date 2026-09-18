@@ -41,6 +41,26 @@ def calculate_wealth_ipo_score(
     - Output status remains 'BETA' until backtest dataset proves PASS.
     """
     ipo_copy = dict(current_ipo)
+
+    # SPACs require a separate evaluation framework.
+    # Never apply the general-company Wealth IPO Score to listing_track="spac".
+    if ipo_copy.get("listing_track") == "spac":
+        return {
+            "score": None,
+            "grade": None,
+            "coverage": None,
+            "confidence_level": "not_applicable",
+            "status": "NOT_APPLICABLE",
+            "is_calculating": False,
+            "reason": "SPAC requires a separate evaluation framework",
+            "core_missing": [],
+            "component_scores": {},
+            "feature_scores": {},
+            "score_label": "별도평가",
+            "score_as_of": None,
+            "score_version": "v1.0",
+        }
+
     features = dict(ipo_copy.get("features", {}) or {})
 
     # Compute derived features (pricing_discipline, tradable_market_cap_krw)

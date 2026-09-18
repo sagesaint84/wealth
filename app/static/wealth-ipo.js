@@ -106,10 +106,17 @@
 
       // Score display logic (Section 1D, Section 19)
       const scoreObj = ipo.score;
-      const isCalculating = !scoreObj || scoreObj.is_calculating || scoreObj.score === null || scoreObj.score === undefined || (scoreObj.core_missing && scoreObj.core_missing.length > 0) || (scoreObj.coverage !== undefined && scoreObj.coverage < 75);
+      const isSpacScore = !!scoreObj && scoreObj.status === 'NOT_APPLICABLE';
+      const isCalculating = !isSpacScore && (!scoreObj || scoreObj.is_calculating || scoreObj.score === null || scoreObj.score === undefined || (scoreObj.core_missing && scoreObj.core_missing.length > 0) || (scoreObj.coverage !== undefined && scoreObj.coverage < 75));
 
       let scoreBoxHtml = '';
-      if (isCalculating) {
+      if (isSpacScore) {
+        scoreBoxHtml = `
+          <div class="ipo-score-box">
+            <span class="ipo-score-title">Wealth IPO Score · BETA</span>
+            <strong class="ipo-score-val beta-score">별도평가</strong>
+          </div>`;
+      } else if (isCalculating) {
         scoreBoxHtml = `
           <div class="ipo-score-box">
             <span class="ipo-score-title">Wealth IPO Score · BETA</span>
