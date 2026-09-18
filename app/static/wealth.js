@@ -2571,23 +2571,31 @@ function openIntegratedBankDialog() {
 let rawInsuranceAccounts = [];
 let currentAccountCategory = 'securities'; // 'securities' | 'banking' | 'insurance'
 
-// 머니 로그는 기존 세 panel과 renderer를 공유하며 화면만 전환합니다.
-let currentIncomeTab = 'pnl';
+// 머니 로그는 캘린더, 실현손익, 배당·이자, 가계부, 공모주 패널을 공유하며 화면만 전환합니다.
+let currentIncomeTab = 'calendar';
 function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
-  currentIncomeTab = ['pnl', 'dividend', 'ledger'].includes(tab) ? tab : 'pnl';
+  const isKnownTab = ['calendar', 'pnl', 'dividend', 'ledger', 'ipo'].includes(tab);
+  const _legacyCheck = ['pnl', 'dividend', 'ledger'].includes(tab);
+  currentIncomeTab = isKnownTab ? tab : 'calendar';
+  document.getElementById('calendarPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'calendar');
   document.getElementById('realizedPnlPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'pnl');
   document.getElementById('dividendPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'dividend');
   document.getElementById('ledgerSectionPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'ledger');
+  document.getElementById('ipoPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'ipo');
   document.querySelectorAll('#incomeTabs .income-tab').forEach(button => {
     const active = button.dataset.income === currentIncomeTab;
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   });
   if (updateHash) {
-    const hash = currentIncomeTab === 'pnl' ? '#income' : `#${currentIncomeTab}`;
+    const hash = currentIncomeTab === 'calendar' ? '#income' : (currentIncomeTab === 'pnl' ? '#income' : `#${currentIncomeTab}`);
     history.replaceState(null, '', hash);
   }
-  if (loadContent && currentIncomeTab === 'ledger' && currentUserProfile && currentUserProfile.username !== 'admin') loadLedger();
+  if (loadContent) {
+    if (currentIncomeTab === 'calendar') window.loadCalendar?.();
+    if (currentIncomeTab === 'ledger' && currentUserProfile && currentUserProfile.username !== 'admin') loadLedger();
+    if (currentIncomeTab === 'ipo') window.loadIpoSchedule?.();
+  }
 }
 window.setIncomeTab = setIncomeTab;
 
@@ -2595,7 +2603,7 @@ document.getElementById('incomeTabs')?.addEventListener('click', event => {
   const tab = event.target.closest('.income-tab');
   if (tab) setIncomeTab(tab.dataset.income);
 });
-setIncomeTab(document.querySelector('.wealth-workspace')?.dataset.incomeTab || (location.hash === '#ledger' ? 'ledger' : 'pnl'), { updateHash: false, loadContent: false });
+setIncomeTab(document.querySelector('.wealth-workspace')?.dataset.incomeTab || (location.hash === '#ledger' ? 'ledger' : 'calendar'), { updateHash: false, loadContent: false });
 
 const INSURANCE_TYPE_LABELS = {
   protection: "보장성보험",
@@ -10189,7 +10197,9 @@ const SECTION_MAP = {
   market: '#marketPanel',
   accounts: '#accountsPanel',
   holdings: '#holdingsPanel',
-  ledger: '#ledgerSectionPanel'
+  ledger: '#ledgerSectionPanel',
+  calendar: '#calendarPanel',
+  ipo: '#ipoPanel'
 };
 
 function getCollapsedSections() {

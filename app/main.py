@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -1015,6 +1015,86 @@ async def download_sample_holdings():
         filename="샘플_타증권사_보유종목.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+# ---------------------------------------------------------------------------
+# MoneyLog Unified Calendar API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/moneylog/calendar")
+async def get_moneylog_calendar(
+    request: Request,
+    from_date: str = Query(..., alias="from"),
+    to_date: str = Query(..., alias="to"),
+    owner: str = "모두",
+) -> dict:
+    """Return unified calendar events for realized PnL, dividends, interest, ledger, and IPOs."""
+    username = get_current_username(request)
+    try:
+        from app.services.ipo.calendar import build_moneylog_calendar_events
+        events = build_moneylog_calendar_events(username, from_date, to_date, owner)
+        return {
+            "from": from_date,
+            "to": to_date,
+            "owner": owner,
+            "events": events,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# IPO Subsystem API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/ipo/market")
+async def get_ipo_market(request: Request) -> dict:
+    """Return canonical IPO market records and schedule."""
+    _ = get_current_username(request)
+    from app.services.ipo.store import read_market_store
+    return read_market_store()
+
+
+@app.get("/api/ipo/applications")
+async def get_ipo_applications(request: Request) -> dict:
+    """Return user family IPO applications and revision."""
+    username = get_current_username(request)
+    from app.services.ipo.applications import get_user_applications
+    return get_user_applications(username)
+
+
+@app.put("/api/ipo/applications/{ipo_id}")
+async def put_ipo_application(ipo_id: str, request: Request) -> dict:
+    """Update family application status for a specific IPO with revision locking."""
+    username = get_current_username(request)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Invalid request body")
+
+    applied_owners = body.get("applied_owners")
+    revision = body.get("revision")
+    if applied_owners is None or revision is None:
+        raise HTTPException(status_code=400, detail="'applied_owners' and 'revision' are required.")
+
+    from app.services.ipo.applications import (
+        update_user_application,
+        ApplicationRevisionConflict,
+        InvalidApplicationError,
+    )
+    try:
+        result = update_user_application(
+            username=username,
+            ipo_id=ipo_id,
+            applied_owners=applied_owners,
+            client_revision=int(revision),
+        )
+        return result
+    except ApplicationRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except InvalidApplicationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

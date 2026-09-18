@@ -6,8 +6,10 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -31,11 +33,204 @@ class KISOpenAPIError(RuntimeError):
     pass
 
 
+KIS_IPO_PUB_OFFER_PATH = "/uapi/domestic-stock/v1/ksdinfo/pub-offer"
+KIS_IPO_PUB_OFFER_TR_ID = "HHKDB669108C0"
+KIS_LIST_INFO_PATH = "/uapi/domestic-stock/v1/ksdinfo/list-info"
+KIS_LIST_INFO_TR_ID = "HHKDB669107C0"
+KIS_STOCK_INFO_PATH = "/uapi/domestic-stock/v1/quotations/search-stock-info"
+KIS_STOCK_INFO_TR_ID = "CTPF1002R"
+KIS_SCHEDULE_MAX_PAGES = 10
+
+
+def _normalize_kis_yyyymmdd(value: Any, *, field: str, allow_blank: bool = True) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        if allow_blank:
+            return None
+        raise KISOpenAPIError(f"한국투자증권 {field} 값이 비어 있습니다.")
+    digits = re.sub(r"[^0-9]", "", raw)
+    if len(digits) != 8:
+        raise KISOpenAPIError(f"한국투자증권 {field} 날짜 형식이 올바르지 않습니다: {raw}")
+    try:
+        parsed = datetime.strptime(digits, "%Y%m%d")
+    except ValueError as exc:
+        raise KISOpenAPIError(f"한국투자증권 {field} 날짜가 올바르지 않습니다: {raw}") from exc
+    return parsed.strftime("%Y-%m-%d")
+
+
+def _normalize_kis_query_date(value: str, *, field: str) -> str:
+    normalized = _normalize_kis_yyyymmdd(value, field=field, allow_blank=False)
+    assert normalized is not None
+    return normalized.replace("-", "")
+
+
+def _normalize_kis_date_range(value: Any, *, field: str) -> tuple[str | None, str | None]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None, None
+    parts = [part.strip() for part in re.split(r"\s*~\s*", raw) if part.strip()]
+    if len(parts) == 1:
+        date_value = _normalize_kis_yyyymmdd(parts[0], field=field, allow_blank=False)
+        return date_value, date_value
+    if len(parts) != 2:
+        raise KISOpenAPIError(f"한국투자증권 {field} 기간 형식이 올바르지 않습니다: {raw}")
+    start = _normalize_kis_yyyymmdd(parts[0], field=f"{field} 시작일", allow_blank=False)
+    end = _normalize_kis_yyyymmdd(parts[1], field=f"{field} 종료일", allow_blank=False)
+    if start and end and start > end:
+        raise KISOpenAPIError(f"한국투자증권 {field} 시작일이 종료일보다 늦습니다: {raw}")
+    return start, end
+
+
+def _optional_kis_number(value: Any, *, field: str) -> float | None:
+    raw = str(value or "").replace(",", "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise KISOpenAPIError(f"한국투자증권 {field} 숫자 형식이 올바르지 않습니다: {value}") from exc
+
+
+def _split_kis_lead_managers(value: Any) -> list[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    result: list[str] = []
+    for item in re.split(r"[,/·ㆍ\n]+", raw):
+        name = item.strip()
+        if name and name not in result:
+            result.append(name)
+    return result
+
+
+def _kis_listing_track(company_name: str) -> str:
+    compact = re.sub(r"\s+", "", str(company_name or "")).upper()
+    return "spac" if ("스팩" in compact or "기업인수목적" in compact or "SPAC" in compact) else "general"
+
+
+def normalize_kis_ipo_subscription_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize one KIS KSD public-offering row to the Wealth IPO schedule contract.
+
+    Completely blank placeholder rows are ignored. Any non-blank row that is missing the
+    core company/code/subscription contract fails closed instead of becoming partial data.
+    """
+    if not isinstance(row, dict):
+        raise KISOpenAPIError("한국투자증권 공모주청약일정 항목 형식이 올바르지 않습니다.")
+    if not any(str(v or "").strip() for v in row.values()):
+        return None
+
+    company_name = str(row.get("isin_name") or "").strip()
+    stock_code = str(row.get("sht_cd") or "").strip()
+    subscr_raw = str(row.get("subscr_dt") or "").strip()
+    if not company_name or not stock_code or not subscr_raw:
+        raise KISOpenAPIError("한국투자증권 공모주청약일정 핵심 필드(isin_name/sht_cd/subscr_dt)가 누락되었습니다.")
+
+    subscription_start, subscription_end = _normalize_kis_date_range(subscr_raw, field="청약기간")
+    payment_date = _normalize_kis_yyyymmdd(row.get("pay_dt"), field="납입일")
+    refund_date = _normalize_kis_yyyymmdd(row.get("refund_dt"), field="환불일")
+    expected_listing_date = _normalize_kis_yyyymmdd(row.get("list_dt"), field="상장일")
+    final_offer_price = _optional_kis_number(row.get("fix_subscr_pri"), field="확정공모가")
+    lead_managers = _split_kis_lead_managers(row.get("lead_mgr"))
+
+    return {
+        "company_name": company_name,
+        "stock_code": stock_code,
+        "listing_track": _kis_listing_track(company_name),
+        "subscription_start": subscription_start,
+        "subscription_end": subscription_end,
+        "payment_date": payment_date,
+        "refund_date": refund_date,
+        "expected_listing_date": expected_listing_date,
+        "final_offer_price": final_offer_price,
+        "lead_managers": lead_managers,
+        "sources": {
+            "kis": {
+                "schedule_source": "ksdinfo_pub_offer",
+                "record_date": _normalize_kis_yyyymmdd(row.get("record_date"), field="기준일"),
+                "pub_bf_cap": _optional_kis_number(row.get("pub_bf_cap"), field="공모전자본금"),
+                "pub_af_cap": _optional_kis_number(row.get("pub_af_cap"), field="공모후자본금"),
+                "assign_stk_qty": _optional_kis_number(row.get("assign_stk_qty"), field="배정주식수"),
+            }
+        },
+    }
+
+
+def normalize_kis_listing_schedule_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize one KIS KSD listing-info row. Blank placeholder rows are ignored."""
+    if not isinstance(row, dict):
+        raise KISOpenAPIError("한국투자증권 상장정보일정 항목 형식이 올바르지 않습니다.")
+    if not any(str(v or "").strip() for v in row.values()):
+        return None
+
+    stock_code = str(row.get("sht_cd") or "").strip()
+    company_name = str(row.get("isin_name") or "").strip()
+    list_dt = _normalize_kis_yyyymmdd(row.get("list_dt"), field="상장/등록일", allow_blank=False)
+    if not stock_code or not company_name:
+        raise KISOpenAPIError("한국투자증권 상장정보일정 핵심 필드(isin_name/sht_cd)가 누락되었습니다.")
+
+    return {
+        "stock_code": stock_code,
+        "company_name": company_name,
+        "listing_date": list_dt,
+        "stock_kind": str(row.get("stk_kind") or "").strip(),
+        "issue_type": str(row.get("issue_type") or "").strip(),
+        "issue_stock_qty": _optional_kis_number(row.get("issue_stk_qty"), field="상장주식수"),
+        "total_issue_stock_qty": _optional_kis_number(row.get("tot_issue_stk_qty"), field="총발행주식수"),
+        "issue_price": _optional_kis_number(row.get("issue_price"), field="발행가"),
+    }
+
+
 def as_float(value: Any) -> float:
     try:
         return float(str(value).replace(",", ""))
     except (TypeError, ValueError):
         return 0.0
+
+
+def normalize_kis_stock_info_response(
+    body: Any,
+    *,
+    requested_stock_code: str,
+) -> dict[str, Any]:
+    """Normalize KIS domestic stock basic info (CTPF1002R)."""
+    if not isinstance(body, dict):
+        raise KISOpenAPIError("한국투자증권 주식기본조회 응답 형식이 올바르지 않습니다.")
+    if "rt_cd" not in body:
+        raise KISOpenAPIError("한국투자증권 주식기본조회 응답에 업무 결과 코드가 없습니다.")
+    if str(body.get("rt_cd")) != "0":
+        raise KISOpenAPIError(
+            f"한국투자증권 주식기본조회 응답 오류: {body.get('msg1') or body.get('msg_cd') or '업무 오류'}"
+        )
+
+    output = body.get("output")
+    if not isinstance(output, dict):
+        raise KISOpenAPIError("한국투자증권 주식기본조회 output 응답 형식이 올바르지 않습니다.")
+
+    mket_id_cd = str(output.get("mket_id_cd") or "").strip().upper()
+    if not mket_id_cd:
+        raise KISOpenAPIError("한국투자증권 주식기본조회 시장코드(mket_id_cd)가 누락되었습니다.")
+
+    raw_pdno = str(output.get("pdno") or "").strip()
+    prdt_name = str(output.get("prdt_name") or "").strip()
+    issue_price = _optional_kis_number(output.get("issu_pric"), field="발행가")
+
+    if mket_id_cd == "KSQ":
+        raw_listing_date = output.get("kosdaq_mket_lstg_dt")
+    elif mket_id_cd == "STK":
+        raw_listing_date = output.get("scts_mket_lstg_dt")
+    else:
+        raw_listing_date = None
+
+    listing_date = _normalize_kis_yyyymmdd(raw_listing_date, field="상장일", allow_blank=True)
+
+    return {
+        "stock_code": requested_stock_code,
+        "product_code": raw_pdno,
+        "company_name": prdt_name,
+        "market_code": mket_id_cd,
+        "listing_date": listing_date,
+        "issue_price": issue_price,
+    }
 
 
 @dataclass
@@ -55,7 +250,7 @@ def compute_kis_account_key(cano: str, prdt_cd: str, secret: str | None = None) 
 
 
 class KISOpenAPI:
-    """한국투자증권 (KIS) Open Trading API 읽기 전용 잔고 조회 클라이언트.
+    """한국투자증권 (KIS) Open Trading API 읽기 전용 클라이언트.
     
     공식 레포지토리: https://github.com/koreainvestment/open-trading-api
     """
@@ -201,6 +396,181 @@ class KISOpenAPI:
             except ValueError:
                 detail = response.text
             raise KISOpenAPIError(f"한국투자증권 API 요청 실패 ({response.status_code}): {detail}")
+
+    @staticmethod
+    def _validate_ksdinfo_body(body: Any, label: str) -> dict[str, Any]:
+        if not isinstance(body, dict):
+            raise KISOpenAPIError(f"한국투자증권 {label} 응답 형식이 올바르지 않습니다.")
+        if "rt_cd" not in body:
+            raise KISOpenAPIError(f"한국투자증권 {label} 응답에 업무 결과 코드가 없습니다.")
+        if str(body.get("rt_cd")) != "0":
+            raise KISOpenAPIError(
+                f"한국투자증권 {label} 응답 오류: {body.get('msg1') or body.get('msg_cd') or '업무 오류'}"
+            )
+        output1 = body.get("output1")
+        if not isinstance(output1, list):
+            raise KISOpenAPIError(f"한국투자증권 {label} output1 응답 형식이 올바르지 않습니다.")
+        return body
+
+    async def _fetch_ksdinfo_pages(
+        self,
+        client: httpx.AsyncClient,
+        token: str,
+        *,
+        path: str,
+        tr_id: str,
+        from_date: str,
+        to_date: str,
+        stock_code: str = "",
+        label: str,
+        max_pages: int = KIS_SCHEDULE_MAX_PAGES,
+    ) -> list[dict[str, Any]]:
+        f_dt = _normalize_kis_query_date(from_date, field="조회 시작일")
+        t_dt = _normalize_kis_query_date(to_date, field="조회 종료일")
+        if f_dt > t_dt:
+            raise KISOpenAPIError("한국투자증권 일정 조회 시작일이 종료일보다 늦습니다.")
+        if max_pages < 1:
+            raise KISOpenAPIError("한국투자증권 일정 조회 페이지 한도가 올바르지 않습니다.")
+
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "Authorization": f"Bearer {token}",
+            "appkey": self.app_key,
+            "appsecret": self.app_secret,
+            "tr_id": tr_id,
+            "custtype": "P",
+        }
+        params = {
+            "SHT_CD": str(stock_code or "").strip(),
+            "CTS": "",
+            "F_DT": f_dt,
+            "T_DT": t_dt,
+        }
+
+        rows: list[dict[str, Any]] = []
+        for _ in range(max_pages):
+            response = await client.get(f"{self.base_url}{path}", headers=headers, params=params)
+            self._raise_for_response(response)
+            try:
+                body = self._validate_ksdinfo_body(response.json(), label)
+            except ValueError as exc:
+                raise KISOpenAPIError(f"한국투자증권 {label} 응답이 올바른 JSON이 아닙니다.") from exc
+
+            for row in body["output1"]:
+                if not isinstance(row, dict):
+                    raise KISOpenAPIError(f"한국투자증권 {label} 항목 형식이 올바르지 않습니다.")
+                rows.append(row)
+
+            continuation = str(response.headers.get("tr_cont", "")).upper().strip()
+            # The official KSD schedule examples recurse only when tr_cont == "M".
+            if continuation != "M":
+                return rows
+            headers["tr_cont"] = "N"
+            await asyncio.sleep(0.05)
+
+        raise KISOpenAPIError(f"한국투자증권 {label} 연속조회 한도를 초과했습니다.")
+
+    async def fetch_ipo_subscription_schedule(
+        self,
+        from_date: str,
+        to_date: str,
+        stock_code: str = "",
+    ) -> list[dict[str, Any]]:
+        """Fetch and normalize KSD public-offering subscription schedules (SPAC included)."""
+        require_external_network("KIS OpenAPI")
+        if not self.configured:
+            raise KISOpenAPIError("한국투자증권 AppKey/AppSecret이 설정되지 않았습니다.")
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            token = await self._access_token(client)
+            rows = await self._fetch_ksdinfo_pages(
+                client, token, path=KIS_IPO_PUB_OFFER_PATH, tr_id=KIS_IPO_PUB_OFFER_TR_ID,
+                from_date=from_date, to_date=to_date, stock_code=stock_code, label="공모주청약일정",
+            )
+
+        normalized: list[dict[str, Any]] = []
+        for row in rows:
+            item = normalize_kis_ipo_subscription_row(row)
+            if item is not None:
+                normalized.append(item)
+        return normalized
+
+    async def fetch_listing_schedule(
+        self,
+        from_date: str,
+        to_date: str,
+        stock_code: str = "",
+    ) -> list[dict[str, Any]]:
+        """Fetch KSD listing-information events. This is not an IPO-only universe."""
+        require_external_network("KIS OpenAPI")
+        if not self.configured:
+            raise KISOpenAPIError("한국투자증권 AppKey/AppSecret이 설정되지 않았습니다.")
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            token = await self._access_token(client)
+            rows = await self._fetch_ksdinfo_pages(
+                client, token, path=KIS_LIST_INFO_PATH, tr_id=KIS_LIST_INFO_TR_ID,
+                from_date=from_date, to_date=to_date, stock_code=stock_code, label="상장정보일정",
+            )
+
+        normalized: list[dict[str, Any]] = []
+        for row in rows:
+            item = normalize_kis_listing_schedule_row(row)
+            if item is not None:
+                normalized.append(item)
+        return normalized
+
+    async def fetch_multiple_domestic_stock_info(
+        self,
+        stock_codes: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch multiple domestic stock basic infos within a single client/token session (CTPF1002R)."""
+        require_external_network("KIS OpenAPI")
+        if not self.configured:
+            raise KISOpenAPIError("한국투자증권 AppKey/AppSecret이 설정되지 않았습니다.")
+
+        results: dict[str, dict[str, Any]] = {}
+        if not stock_codes:
+            return results
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            token = await self._access_token(client)
+            headers = {
+                "Content-Type": "application/json; charset=utf-8",
+                "Authorization": f"Bearer {token}",
+                "appkey": self.app_key,
+                "appsecret": self.app_secret,
+                "tr_id": KIS_STOCK_INFO_TR_ID,
+                "custtype": "P",
+            }
+            for code in stock_codes:
+                clean_code = str(code or "").strip()
+                if not clean_code:
+                    continue
+                params = {
+                    "PRDT_TYPE_CD": "300",
+                    "PDNO": clean_code,
+                }
+                response = await client.get(f"{self.base_url}{KIS_STOCK_INFO_PATH}", headers=headers, params=params)
+                self._raise_for_response(response)
+                try:
+                    body = response.json()
+                except ValueError as exc:
+                    raise KISOpenAPIError("한국투자증권 주식기본조회 응답이 올바른 JSON이 아닙니다.") from exc
+                results[clean_code] = normalize_kis_stock_info_response(body, requested_stock_code=clean_code)
+
+        return results
+
+    async def fetch_domestic_stock_info(
+        self,
+        stock_code: str,
+    ) -> dict[str, Any]:
+        """Fetch and normalize basic domestic stock information (CTPF1002R)."""
+        clean_code = str(stock_code or "").strip()
+        if not clean_code:
+            raise KISOpenAPIError("종목코드가 비어 있습니다.")
+        results = await self.fetch_multiple_domestic_stock_info([clean_code])
+        if clean_code not in results:
+            raise KISOpenAPIError(f"한국투자증권 주식기본조회 결과를 찾을 수 없습니다: {clean_code}")
+        return results[clean_code]
 
     async def fetch_domestic_balance(self, client: httpx.AsyncClient, token: str) -> tuple[list[dict[str, Any]], float]:
         """국내주식 잔고 및 예수금 조회 (TTTC8434R / VTTC8434R)"""

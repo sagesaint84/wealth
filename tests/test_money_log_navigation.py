@@ -26,18 +26,20 @@ class MoneyLogNavigationTests(unittest.TestCase):
         self.assertIn("filter(key => key !== 'settings')", self.layout)
         self.assertIn(".wealth-nav-bottom { display: contents; }", self.css)
 
-    def test_money_log_has_exactly_three_primary_tabs(self):
+    def test_money_log_has_primary_tabs(self):
         tab_block = self.layout[self.layout.index("incomeTabs.innerHTML"):self.layout.index("page('income').append(incomeTabs)")]
-        self.assertEqual(tab_block.count('class="income-tab'), 3)
+        self.assertEqual(tab_block.count('class="income-tab'), 5)
+        self.assertIn('data-income="calendar"', tab_block)
         self.assertIn('data-income="pnl"', tab_block)
         self.assertIn('data-income="dividend"', tab_block)
         self.assertIn('data-income="ledger"', tab_block)
-        for label in ("실현손익", "배당·이자", "가계부"):
+        self.assertIn('data-income="ipo"', tab_block)
+        for label in ("캘린더", "실현손익", "배당·이자", "가계부", "공모주"):
             self.assertIn(label, tab_block)
 
     def test_existing_financial_panels_are_moved_without_replacement(self):
-        self.assertIn("['realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel'].forEach", self.layout)
-        for panel_id in ("realizedPnlPanel", "dividendPanel", "ledgerSectionPanel"):
+        self.assertIn("['calendarPanel', 'realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel', 'ipoPanel'].forEach", self.layout)
+        for panel_id in ("calendarPanel", "realizedPnlPanel", "dividendPanel", "ledgerSectionPanel", "ipoPanel"):
             with self.subTest(panel_id=panel_id):
                 self.assertEqual(self.html.count(f'id="{panel_id}"'), 1)
         for owner_tabs in ("pnlFamilyTabs", "dividendFamilyTabs", "ledgerFamilyTabs"):

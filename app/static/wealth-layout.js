@@ -111,11 +111,13 @@
   incomeTabs.setAttribute('role', 'tablist');
   incomeTabs.setAttribute('aria-label', '머니 로그 항목 선택');
   incomeTabs.innerHTML = `
-    <button type="button" class="income-tab active" data-income="pnl" role="tab" aria-selected="true">📈 실현손익</button>
+    <button type="button" class="income-tab active" data-income="calendar" role="tab" aria-selected="true">📅 캘린더</button>
+    <button type="button" class="income-tab" data-income="pnl" role="tab" aria-selected="false">📈 실현손익</button>
     <button type="button" class="income-tab" data-income="dividend" role="tab" aria-selected="false">💰 배당·이자</button>
-    <button type="button" class="income-tab" data-income="ledger" role="tab" aria-selected="false">🧾 가계부</button>`;
+    <button type="button" class="income-tab" data-income="ledger" role="tab" aria-selected="false">🧾 가계부</button>
+    <button type="button" class="income-tab" data-income="ipo" role="tab" aria-selected="false">🔔 공모주</button>`;
   page('income').append(incomeTabs);
-  ['realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel'].forEach(id => move(id, page('income')));
+  ['calendarPanel', 'realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel', 'ipoPanel'].forEach(id => move(id, page('income')));
   // Preserve delegated edit/delete handlers while placing destructive actions
   // behind an explicit disclosure. Renderers may replace the lists at any time.
   const accountsPanel = document.getElementById('accountsPanel');
@@ -173,7 +175,8 @@
   function navigate(focus = false) {
     const requested = location.hash.slice(1);
     const legacyMoneyLogTabs = { ledger: 'ledger', dividend: 'dividend', pnl: 'pnl' };
-    const key = Object.hasOwn(legacyMoneyLogTabs, requested)
+    const allMoneyLogTabs = { ...legacyMoneyLogTabs, calendar: 'calendar', ipo: 'ipo' };
+    const key = Object.hasOwn(allMoneyLogTabs, requested)
       ? 'income'
       : (Object.hasOwn(views, requested) ? requested : 'home');
     layout.querySelectorAll('[data-wealth-page]').forEach(node => { node.hidden = node.dataset.wealthPage !== key; });
@@ -191,7 +194,7 @@
     activeView = key;
     layout.dataset.activeView = key;
     if (key === 'income') {
-      const incomeTab = legacyMoneyLogTabs[requested] || 'pnl';
+      const incomeTab = allMoneyLogTabs[requested] || 'calendar';
       layout.dataset.incomeTab = incomeTab;
       window.setIncomeTab?.(incomeTab, { updateHash: false });
     }

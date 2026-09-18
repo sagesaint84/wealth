@@ -592,6 +592,30 @@
         </div>
       </section>
 
+      <!-- 5-1. 통합 캘린더 -->
+      <section id="calendarPanel" class="panel calendar-panel">
+        <div class="panel-head calendar-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
+          <div>
+            <p class="eyebrow">FINANCIAL CALENDAR</p>
+            <h2>통합 캘린더</h2>
+          </div>
+          <div class="calendar-controls">
+            <button type="button" id="calendarPrevMonthBtn" class="calendar-nav-btn" aria-label="이전달">◀ 이전</button>
+            <span id="calendarCurrentMonthLabel" class="calendar-month-label">2026년 9월</span>
+            <button type="button" id="calendarNextMonthBtn" class="calendar-nav-btn" aria-label="다음달">다음 ▶</button>
+            <button type="button" id="calendarTodayBtn" class="calendar-today-btn">오늘</button>
+          </div>
+        </div>
+        <div id="calendarGridWrapper" class="calendar-grid-wrapper"></div>
+        <div id="calendarDetailPanel" class="calendar-detail-panel" hidden>
+          <div class="calendar-detail-head">
+            <h3 id="calendarDetailDateLabel">상세 내역</h3>
+            <button type="button" id="calendarDetailCloseBtn" class="calendar-detail-close-btn" aria-label="닫기">✕</button>
+          </div>
+          <div id="calendarDetailList" class="calendar-detail-list"></div>
+        </div>
+      </section>
+
       <!-- 6. 실현손익 -->
       <section id="realizedPnlPanel" class="panel dividend-panel pnl-panel">
         <div class="panel-head dividend-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
@@ -1307,6 +1331,21 @@
               <!-- JS 렌더링 -->
             </div>
           </div>
+        </div>
+      </section>
+      <!-- 5-2. 공모주 -->
+      <section id="ipoPanel" class="panel ipo-panel" style="margin-top:18px;">
+        <div class="panel-head ipo-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
+          <div>
+            <p class="eyebrow">IPO SCHEDULE &amp; SCORE</p>
+            <h2>공모주 <small style="font-size:12px;color:var(--muted,#94a3b8);font-weight:normal;">Wealth IPO Subsystem</small></h2>
+          </div>
+          <div class="ipo-toolbar" style="margin-left:auto;display:flex;gap:8px;">
+            <button type="button" id="ipoRefreshBtn" class="btn btn-sm btn-outline">새로고침</button>
+          </div>
+        </div>
+        <div id="ipoListWrapper" class="ipo-list-wrapper">
+          <p class="empty-text" style="padding:24px;text-align:center;">공모주 일정을 불러오는 중입니다...</p>
         </div>
       </section>
     </div>
@@ -3252,6 +3291,8 @@
 
     <script src="/static/wealth-layout.js?v=1.2.7"></script>
     <script src="/static/wealth.js?v=1.2.7"></script>
+    <script src="/static/wealth-calendar.js?v=1.2.7"></script>
+    <script src="/static/wealth-ipo.js?v=1.2.7"></script>
     <script src="/static/wealth-planning-model.js?v=1.2.7"></script>
     <script src="/static/wealth-planning.js?v=1.2.7"></script>
   </body>

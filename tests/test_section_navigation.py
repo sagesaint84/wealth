@@ -29,7 +29,7 @@ class SectionNavigationTests(unittest.TestCase):
     def test_income_tabs_are_siblings_of_content_panels(self):
         self.assertNotIn('id="incomeTabs"', self.html)
         tabs_move = self.layout_js.index("page('income').append(incomeTabs)")
-        pnl_move = self.layout_js.index("['realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel']")
+        pnl_move = self.layout_js.index("['calendarPanel', 'realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel', 'ipoPanel']")
         self.assertLess(tabs_move, pnl_move)
         self.assertNotIn("realizedPnlPanel.append", self.layout_js)
         self.assertNotIn("dividendPanel.append", self.layout_js)

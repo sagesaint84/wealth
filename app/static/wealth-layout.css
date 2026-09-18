@@ -825,3 +825,497 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
   gap: 10px;
   background: var(--surface-2, #1e293b);
 }
+
+/* ── MoneyLog Unified Calendar ──────────────────────────────── */
+.calendar-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.calendar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.calendar-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.calendar-month-label {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text, #f8fafc);
+  min-width: 110px;
+  text-align: center;
+}
+.calendar-nav-btn, .calendar-today-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line, #334155);
+  background: var(--surface-2, #1e293b);
+  color: var(--text, #f8fafc);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.calendar-nav-btn:hover, .calendar-today-btn:hover {
+  background: var(--surface-3, #334155);
+  border-color: var(--workspace-accent, #6366f1);
+}
+.wealth-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  background: var(--line, #334155);
+  padding: 4px;
+  border-radius: 10px;
+}
+.cal-cell {
+  background: var(--panel, #0f172a);
+  min-height: 85px;
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: none;
+  border-radius: 6px;
+  text-align: left;
+  position: relative;
+  overflow: hidden;
+}
+.cal-head-cell {
+  min-height: 32px;
+  justify-content: center;
+  align-items: center;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--muted, #94a3b8);
+  background: var(--surface-2, #1e293b);
+}
+.cal-empty-cell {
+  background: var(--surface-1, #090d16);
+  opacity: 0.4;
+  cursor: default;
+}
+.cal-day-cell {
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.cal-day-cell:hover {
+  background: var(--surface-2, #1e293b);
+}
+.cal-day-cell.is-selected {
+  outline: 2px solid var(--workspace-accent, #6366f1);
+  background: color-mix(in srgb, var(--workspace-accent, #6366f1) 15%, var(--panel, #0f172a));
+}
+.cal-day-cell.is-today .cal-day-number {
+  color: #38bdf8;
+  font-weight: 800;
+}
+.cal-day-number {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+  line-height: 1;
+}
+.cal-head-cell.is-sun, .cal-day-cell.is-sun .cal-day-number {
+  color: #f87171;
+}
+.cal-head-cell.is-sat, .cal-day-cell.is-sat .cal-day-number {
+  color: #60a5fa;
+}
+.cal-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+  width: 100%;
+}
+.cal-badge {
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+.cal-badge.tone-profit {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+.cal-badge.tone-loss {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+.cal-badge.tone-dividend {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+}
+.cal-badge.tone-interest {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
+.cal-badge.tone-expense {
+  background: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+}
+.cal-badge.tone-income {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+.cal-badge.tone-ipo {
+  background: rgba(249, 115, 22, 0.15);
+  color: #fb923c;
+}
+
+/* Calendar detail panel */
+.calendar-detail-panel {
+  border: 1px solid var(--line, #334155);
+  background: var(--surface-2, #1e293b);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.calendar-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--line, #334155);
+  padding-bottom: 10px;
+}
+.calendar-detail-head h3 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text, #f8fafc);
+}
+.calendar-detail-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted, #94a3b8);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.calendar-detail-close-btn:hover {
+  color: var(--text, #f8fafc);
+}
+.calendar-event-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.calendar-event-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--panel, #0f172a);
+  border: 1px solid var(--line, #334155);
+  border-radius: 8px;
+  padding: 10px 14px;
+  gap: 12px;
+}
+.event-item-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.event-icon {
+  font-size: 18px;
+}
+.event-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.event-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.event-title {
+  font-size: 13.5px;
+  color: var(--text, #f8fafc);
+}
+.event-type-badge {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-3, #334155);
+  color: var(--muted, #94a3b8);
+}
+.event-owner-badge {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--workspace-accent, #6366f1) 20%, var(--surface-2, #1e293b));
+  color: var(--workspace-accent, #818cf8);
+}
+.event-meta {
+  font-size: 11.5px;
+  color: var(--muted, #94a3b8);
+}
+.event-amount {
+  font-size: 14px;
+  white-space: nowrap;
+}
+.text-profit { color: #f87171; }
+.text-loss { color: #60a5fa; }
+.text-ipo { color: #fb923c; }
+
+.cal-ipo-app-section {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface-2, #1e293b);
+  border: 1px solid var(--line, #334155);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cal-ipo-app-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.cal-ipo-app-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted, #94a3b8);
+}
+
+@media (max-width: 760px) {
+  .cal-cell {
+    min-height: 55px;
+    padding: 3px 2px;
+  }
+  .cal-day-number {
+    font-size: 10px;
+  }
+  .cal-badge {
+    font-size: 8px;
+    padding: 1px 2px;
+  }
+  .calendar-event-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .event-amount {
+    align-self: flex-end;
+  }
+}
+
+/* ── IPO Subsystem Styling ──────────────────────────────────── */
+.ipo-cards-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+}
+.ipo-card {
+  background: var(--panel, #0f172a);
+  border: 1px solid var(--line, #334155);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ipo-card:hover {
+  border-color: var(--workspace-accent, #6366f1);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+.ipo-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px;
+  border-bottom: 1px solid var(--line, #334155);
+  background: var(--surface-2, #1e293b);
+  gap: 10px;
+}
+.ipo-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ipo-company-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text, #f8fafc);
+}
+.ipo-market-badge {
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  font-weight: 600;
+}
+.ipo-code-badge {
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface-3, #334155);
+  color: var(--muted, #94a3b8);
+  font-family: monospace;
+}
+.ipo-score-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.ipo-score-title {
+  font-size: 10px;
+  color: var(--muted, #94a3b8);
+  text-transform: uppercase;
+}
+.ipo-score-val {
+  font-size: 13.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.ipo-score-val.beta-score {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+}
+.ipo-score-val.score-a {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.15);
+}
+.ipo-score-val.score-b {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.15);
+}
+.ipo-score-val.score-c {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+}
+.ipo-score-val.score-d, .ipo-score-val.score-e {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+.ipo-score-header-val {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.ipo-score-coverage {
+  font-size: 11px;
+  color: var(--muted, #94a3b8);
+}
+.ipo-score-components {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+.ipo-comp-pill {
+  font-size: 10px;
+  background: var(--surface-3, #334155);
+  color: var(--muted, #cbd5e1);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.ipo-card-body {
+  padding: 16px;
+  flex: 1;
+}
+.ipo-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.ipo-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ipo-info-item.full-row {
+  grid-column: 1 / -1;
+}
+.info-label {
+  font-size: 11.5px;
+  color: var(--muted, #94a3b8);
+}
+.info-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #f8fafc);
+}
+.info-value.highlight-sub {
+  color: #38bdf8;
+}
+.ipo-card-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line, #334155);
+  background: var(--surface-2, #1e293b);
+}
+.ipo-family-app-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ipo-family-app-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.family-app-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #94a3b8);
+}
+.ipo-all-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--workspace-accent, #818cf8);
+  cursor: pointer;
+}
+.ipo-family-members-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ipo-member-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--text, #f8fafc);
+  cursor: pointer;
+  background: var(--panel, #0f172a);
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line, #334155);
+  transition: border-color 0.15s ease;
+}
+.ipo-member-checkbox-label:hover {
+  border-color: var(--workspace-accent, #6366f1);
+}
+.ipo-member-chk, .ipo-all-chk {
+  accent-color: var(--workspace-accent, #6366f1);
+  cursor: pointer;
+}
