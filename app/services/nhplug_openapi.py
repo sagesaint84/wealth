@@ -4,7 +4,10 @@ import json
 import hashlib
 import hmac
 import logging
+import math
 import os
+import asyncio
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -27,6 +30,34 @@ logger = logging.getLogger(__name__)
 
 class NhPlugOpenAPIError(RuntimeError):
     pass
+
+
+class NhPlugRateLimitError(NhPlugOpenAPIError):
+    """NH provider rejected a read request because its shared quota is exhausted."""
+
+    def __init__(self, code: str = "", retry_after: float | None = None) -> None:
+        self.provider_code = code
+        self.retry_after = retry_after
+        suffix = f" ({code})" if code else ""
+        super().__init__(f"나무증권 API 호출 한도를 초과했습니다{suffix}. 잠시 후 다시 시도해 주세요.")
+
+
+# NH limits apply to the application credential, not to a client object.  The
+# reservation lock is deliberately synchronous and held only while updating
+# timestamps, so it is safe to share across independently-created clients.
+_nh_rate_lock = threading.Lock()
+_nh_next_request_at = 0.0
+_nh_cooldown_until = 0.0
+
+
+def _nh_positive_setting(name: str, default: float, *, minimum: float = 0.0) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(value):
+        return default
+    return max(minimum, value)
 
 
 def as_float(value: Any) -> float:
@@ -114,6 +145,7 @@ class NhPlugOpenAPI:
             except (OSError, ValueError, TypeError):
                 pass
         self.token_cache_file.unlink(missing_ok=True)
+        await self._rate_gate()
         response = await client.post(
             f"{self.auth_url}/oauth2/token",
             params={
@@ -145,6 +177,46 @@ class NhPlugOpenAPI:
                 detail = response.text
             raise NhPlugOpenAPIError(f"나무증권 OpenAPI 요청 실패 ({response.status_code}): {detail}")
 
+    @staticmethod
+    def _rate_limit_details(response: httpx.Response) -> tuple[bool, str, float | None]:
+        """Classify both HTTP and NH business-envelope rate-limit responses."""
+        code = ""
+        try:
+            body = response.json()
+            if isinstance(body, dict):
+                code = str(body.get("rsp_cd", body.get("code", ""))).strip()
+        except (ValueError, TypeError):
+            pass
+        retry_after: float | None = None
+        try:
+            retry_after = float(str(response.headers.get("Retry-After", "")).strip())
+            if not math.isfinite(retry_after) or retry_after < 0:
+                retry_after = None
+        except (TypeError, ValueError):
+            pass
+        return response.status_code == 429 or code in {"IGW42902", "IGW42903"}, code, retry_after
+
+    async def _rate_gate(self) -> None:
+        """Reserve a process-wide NH request slot immediately before HTTP I/O."""
+        global _nh_next_request_at
+        interval = _nh_positive_setting("WEALTH_NH_MIN_CALL_INTERVAL_SEC", 0.35, minimum=0.25)
+        while True:
+            now = time.monotonic()
+            with _nh_rate_lock:
+                blocked_until = max(_nh_next_request_at, _nh_cooldown_until)
+                if now >= blocked_until:
+                    _nh_next_request_at = now + interval
+                    return
+            await asyncio.sleep(blocked_until - now)
+
+    @staticmethod
+    def _activate_rate_limit_cooldown(retry_after: float | None) -> None:
+        global _nh_cooldown_until
+        fallback = _nh_positive_setting("WEALTH_NH_RATE_LIMIT_COOLDOWN_SEC", 5.0)
+        delay = max(fallback, retry_after or 0.0)
+        with _nh_rate_lock:
+            _nh_cooldown_until = max(_nh_cooldown_until, time.monotonic() + delay)
+
     async def _call(self, path: str, input_0: dict[str, Any], *, cts: str = "") -> dict[str, Any]:
         require_external_network("NH/Namuh OpenAPI")
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -157,28 +229,40 @@ class NhPlugOpenAPI:
             }
             if cts:
                 request_headers["cts"] = cts
-            response = await client.post(
-                f"{self.base_url}{path}",
-                headers=request_headers,
-                json={"Input_0": input_0},
-            )
-            # 만약 캐시된 토큰이 무효화되었거나 401/IGW40043 오류인 경우, 토큰을 즉시 재발급받아 1회 재시도
-            if response.status_code in (400, 401):
-                try:
-                    err_payload = response.json()
-                    rsp_cd = str(err_payload.get("rsp_cd", ""))
-                    rsp_msg = str(err_payload.get("rsp_msg", ""))
-                except Exception:
-                    rsp_cd, rsp_msg = "", ""
-                if rsp_cd == "IGW40043" or "token" in rsp_msg.lower() or "토큰" in rsp_msg or response.status_code == 401:
-                    token = await self._access_token(client, force_refresh=True)
-                    retry_headers = dict(request_headers)
-                    retry_headers["authorization"] = f"Bearer {token}"
-                    response = await client.post(
-                        f"{self.base_url}{path}",
-                        headers=retry_headers,
-                        json={"Input_0": input_0},
-                    )
+            retries = int(_nh_positive_setting("WEALTH_NH_RATE_LIMIT_MAX_RETRIES", 1.0, minimum=0.0))
+            retries = min(retries, 1)  # read-only transport: never retry more than once
+            for attempt in range(retries + 1):
+                await self._rate_gate()
+                response = await client.post(
+                    f"{self.base_url}{path}", headers=request_headers, json={"Input_0": input_0}
+                )
+                rate_limited, rate_code, retry_after = self._rate_limit_details(response)
+                if rate_limited:
+                    self._activate_rate_limit_cooldown(retry_after)
+                    if attempt < retries:
+                        continue
+                    raise NhPlugRateLimitError(rate_code or "IGW42903", retry_after)
+                # Cached-token recovery remains a single retry, but never handles 429.
+                if response.status_code in (400, 401):
+                    try:
+                        err_payload = response.json()
+                        rsp_cd = str(err_payload.get("rsp_cd", ""))
+                        rsp_msg = str(err_payload.get("rsp_msg", ""))
+                    except Exception:
+                        rsp_cd, rsp_msg = "", ""
+                    if rsp_cd == "IGW40043" or "token" in rsp_msg.lower() or "토큰" in rsp_msg or response.status_code == 401:
+                        token = await self._access_token(client, force_refresh=True)
+                        request_headers = dict(request_headers)
+                        request_headers["authorization"] = f"Bearer {token}"
+                        await self._rate_gate()
+                        response = await client.post(
+                            f"{self.base_url}{path}", headers=request_headers, json={"Input_0": input_0}
+                        )
+                        rate_limited, rate_code, retry_after = self._rate_limit_details(response)
+                        if rate_limited:
+                            self._activate_rate_limit_cooldown(retry_after)
+                            raise NhPlugRateLimitError(rate_code or "IGW42903", retry_after)
+                break
             self._raise_for_response(response)
             try:
                 payload = response.json()
