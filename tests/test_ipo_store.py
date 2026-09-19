@@ -87,6 +87,29 @@ class IpoStoreTests(unittest.TestCase):
         self.assertEqual(saved2["features"]["secondary_sale_ratio"]["value"], 0.0)
         self.assertEqual(saved2["features"]["secondary_sale_ratio"]["status"], "ok")
 
+    def test_blank_listing_dates_do_not_clear_existing_dates(self):
+        upsert_ipo_record({
+            "ipo_id": "ipo_listing_dates",
+            "company_name": "상장일기업",
+            "stock_code": "234567",
+            "expected_listing_date": "2026-09-29",
+            "actual_listing_date": "2026-10-01",
+        })
+
+        preserved, _ = upsert_ipo_record({
+            "stock_code": "234567",
+            "expected_listing_date": "",
+            "actual_listing_date": None,
+        })
+        self.assertEqual(preserved["expected_listing_date"], "2026-09-29")
+        self.assertEqual(preserved["actual_listing_date"], "2026-10-01")
+
+        updated, _ = upsert_ipo_record({
+            "stock_code": "234567",
+            "actual_listing_date": "2026-10-02",
+        })
+        self.assertEqual(updated["actual_listing_date"], "2026-10-02")
+
     def test_atomic_upsert_concurrent_threads(self):
         # Concurrently upsert records to verify thread safety
         errors = []

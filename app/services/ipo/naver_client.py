@@ -1,7 +1,7 @@
 """Wealth NAVER IPO Client.
 
-Fetches completed IPO listing records from NAVER domestic market IPO progress endpoint.
-Used strictly for corroborating actual listing dates (lcalDate) when ipoStatus == "상장".
+Fetches IPO progress records for expected-listing enrichment and completed
+listing records for corroborating actual listing dates.
 """
 
 from __future__ import annotations
@@ -120,6 +120,62 @@ def parse_naver_ipo_listing_json(raw_json_str: str | dict[str, Any]) -> list[dic
     return results
 
 
+def parse_naver_ipo_progress_json(raw_json_str: str | dict[str, Any]) -> list[dict[str, Any]]:
+    """Parse unfiltered NAVER IPO progress payloads for valid expected dates.
+
+    The progress endpoint returns several status-specific ``*List`` containers
+    when ``IpoProgressType`` is omitted.  A blank ``lcalDate`` is normal for
+    IPO stages without an announced listing date, so those rows are retained
+    by NAVER but excluded from expected-listing enrichment.  Nonblank invalid
+    values and invalid IPO codes are rejected at item scope: they can never
+    become inferred dates, but one malformed secondary row must not discard
+    otherwise valid progress rows.
+    """
+    try:
+        data = json.loads(raw_json_str) if isinstance(raw_json_str, str) else raw_json_str
+    except Exception as exc:
+        raise NaverIpoClientError("NAVER IPO response is not valid JSON") from exc
+    if not isinstance(data, dict):
+        raise NaverIpoClientError("NAVER IPO response root must be a dict")
+
+    containers = [(key, value) for key, value in data.items() if key.endswith("List")]
+    if not containers:
+        raise NaverIpoClientError("NAVER IPO progress response missing list containers")
+
+    results: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for key, rows in containers:
+        if not isinstance(rows, list):
+            raise NaverIpoClientError(f"{key} must be a list")
+        for item in rows:
+            if not isinstance(item, dict):
+                raise NaverIpoClientError(f"{key} item must be dict, got: {type(item).__name__}")
+            try:
+                stock_code = normalize_naver_ipo_code(item.get("ipoCode"))
+            except NaverIpoClientError:
+                continue
+            lcal_date = str(item.get("lcalDate") or "").strip()
+            if not lcal_date:
+                continue
+            if not _DATE_PATTERN.match(lcal_date):
+                continue
+            try:
+                datetime.strptime(lcal_date, "%Y-%m-%d")
+            except ValueError:
+                continue
+            signature = (stock_code, lcal_date)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            results.append({
+                "stock_code": stock_code,
+                "raw_ipo_code": item.get("ipoCode"),
+                "company_name": str(item.get("compName") or "").strip(),
+                "expected_listing_date": lcal_date,
+            })
+    return results
+
+
 class NaverIpoClient:
     """Client for NAVER Finance domestic IPO progress API."""
 
@@ -213,3 +269,27 @@ class NaverIpoClient:
             client.close()
 
         return all_listings
+
+    def fetch_ipo_progress_items(self, *, page_size: int = 100) -> list[dict[str, Any]]:
+        """Fetch current IPO progress without ``IpoProgressType`` filtering."""
+        require_external_network("NAVER IPO")
+        if page_size < 1 or page_size > 100:
+            raise NaverIpoClientError(f"Invalid page_size: {page_size}")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (compatible; Wealth-NAVER-IPO/1.0)",
+            "Referer": "https://stock.naver.com/market/stock/kr/ipo/recent",
+        }
+        try:
+            with httpx.Client(timeout=15.0, follow_redirects=False) as client:
+                resp = client.get(
+                    f"{self.base_url}{NAVER_IPO_PROGRESS_PATH}",
+                    params={"startIdx": 0, "pageSize": page_size},
+                    headers=headers,
+                )
+        except Exception as exc:
+            raise NaverIpoClientError(f"NAVER progress request failed: {exc}") from exc
+        if resp.status_code != 200:
+            raise NaverIpoClientError(f"NAVER progress HTTP error {resp.status_code}")
+        if not resp.text.strip():
+            raise NaverIpoClientError("Empty response body from NAVER IPO progress endpoint")
+        return parse_naver_ipo_progress_json(resp.text)

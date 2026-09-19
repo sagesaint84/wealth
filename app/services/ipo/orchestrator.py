@@ -230,6 +230,43 @@ def _enrich_kis_expected_listing_dates(
     return len(planned), unresolved
 
 
+def _enrich_kis_expected_listing_dates_from_naver(
+    subscription_items: list[dict[str, Any]], naver_items: list[dict[str, Any]]
+) -> tuple[int, int]:
+    """Fill blank KIS listing dates only from one exact NAVER stock-code match."""
+    by_code: dict[str, list[dict[str, Any]]] = {}
+    for item in naver_items:
+        code = str(item.get("stock_code") or "").strip()
+        if code:
+            by_code.setdefault(code, []).append(item)
+
+    planned: list[tuple[dict[str, Any], dict[str, Any], str]] = []
+    unresolved = 0
+    for item in subscription_items:
+        if item.get("expected_listing_date"):
+            continue
+        matches = by_code.get(str(item.get("stock_code") or "").strip(), [])
+        if len(matches) != 1:
+            unresolved += 1
+            continue
+        expected = str(matches[0].get("expected_listing_date") or "")[:10]
+        if not expected:
+            unresolved += 1
+            continue
+        planned.append((item, matches[0], expected))
+
+    observed_at = datetime.now(KST).isoformat()
+    for item, match, expected in planned:
+        item["expected_listing_date"] = expected
+        item.setdefault("sources", {})["naver_progress"] = {
+            "schedule_source": "ipo_progress",
+            "ipo_code": match.get("raw_ipo_code"),
+            "expected_listing_date": expected,
+            "observed_at": observed_at,
+        }
+    return len(planned), unresolved
+
+
 def _run_kis_schedule_fetch(kis: KISOpenAPI, from_date: str, to_date: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Run KIS async schedule calls from the synchronous daily pipeline."""
     async def _fetch() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -288,7 +325,7 @@ def run_ipo_daily_pipeline(
 
     # Check KIS/KIND
     sources_status["kis"] = "source_unavailable (credentials_missing)" if not kis.configured else "pending"
-    sources_status["kind"] = "fallback_not_used"
+    sources_status["kind"] = "not_requested (market_only)" if market_only else "fallback_not_used"
 
     # Check KRX & NAVER
     sources_status["krx"] = "pending"
@@ -325,18 +362,20 @@ def run_ipo_daily_pipeline(
             blank_listing_count = sum(1 for item in subscription_items if not item.get("expected_listing_date"))
             if subscription_items and blank_listing_count:
                 try:
-                    kind_from, kind_to = _kind_filing_window(target_date_str)
-                    enriched_count, unresolved_count = _enrich_kis_expected_listing_dates(
-                        kind, subscription_items, from_date=kind_from, to_date=kind_to
+                    naver_progress = naver.fetch_ipo_progress_items()
+                    enriched_count, unresolved_count = _enrich_kis_expected_listing_dates_from_naver(
+                        subscription_items, naver_progress
                     )
-                    sources_status["kind"] = (
-                        f"enrichment_ok (filled={enriched_count}, unresolved={unresolved_count})"
+                    sources_status["naver_progress"] = (
+                        f"sync_ok (items={len(naver_progress)}, filled={enriched_count}, unresolved={unresolved_count})"
                     )
                 except ExternalNetworkDisabled:
-                    sources_status["kind"] = "enrichment_unavailable (external_network_disabled)"
+                    sources_status["naver_progress"] = "source_unavailable (external_network_disabled)"
                 except Exception as e:
-                    logger.warning("KIND expected-listing enrichment error: %s", e)
-                    sources_status["kind"] = f"enrichment_error ({e})"
+                    logger.warning("NAVER expected-listing enrichment error: %s", e)
+                    sources_status["naver_progress"] = f"source_error ({e})"
+            else:
+                sources_status["naver_progress"] = "not_requested (kis_listing_dates_present)"
 
             review_required_count = 0
             for item in subscription_items:
@@ -360,7 +399,7 @@ def run_ipo_daily_pipeline(
             logger.warning("KIS IPO schedule sync error: %s", e)
             sources_status["kis"] = f"source_error ({e})"
 
-    use_kind_fallback = (not kis_sync_ok) or (kis_sync_ok and not subscription_items)
+    use_kind_fallback = not market_only and ((not kis_sync_ok) or (kis_sync_ok and not subscription_items))
     if use_kind_fallback:
         try:
             kind_from, kind_to = _kind_filing_window(target_date_str)
@@ -561,10 +600,6 @@ def run_ipo_daily_pipeline(
             stock_code = str(ipo.get("stock_code") or "").strip()
             if not stock_code:
                 continue
-            if ipo.get("actual_listing_date"):
-                # existing actual protected, do not overwrite or re-query
-                continue
-
             candidates.append(ipo)
 
             krx_matches = krx_by_code.get(stock_code, [])

@@ -157,7 +157,8 @@ class IpoOrchestratorTests(unittest.TestCase):
         )
 
         self.assertIn("sync_ok", result["sources"]["kis"])
-        self.assertIn("enrichment_ok", result["sources"]["kind"])
+        self.assertEqual(result["sources"]["kind"], "fallback_not_used")
+        mock_kind.fetch_pubofr_schedule_items.assert_not_called()
         mock_kis.fetch_ipo_subscription_schedule.assert_awaited_once_with("2026-09-01", "2026-10-31")
         mock_kis.fetch_listing_schedule.assert_awaited_once_with("2026-09-01", "2026-10-31")
 
@@ -165,10 +166,10 @@ class IpoOrchestratorTests(unittest.TestCase):
         spac = next(it for it in saved["ipos"] if it.get("stock_code") == "0200G0")
         self.assertEqual(spac["listing_track"], "spac")
         self.assertEqual(spac["subscription_start"], "2026-09-10")
-        self.assertEqual(spac.get("expected_listing_date"), "2026-09-22")
+        self.assertIsNone(spac.get("expected_listing_date"))
         self.assertIsNone(spac.get("actual_listing_date"))
         self.assertEqual(spac["sources"]["kis"]["schedule_source"], "ksdinfo_pub_offer")
-        self.assertEqual(spac["sources"]["kind"]["matched_company_name"], "한국제17호스팩")
+        self.assertNotIn("kind", spac.get("sources", {}))
         self.assertEqual(len(spac["sources"]["kis"]["listing_events"]), 2)
         self.assertEqual(
             {event["issue_type"] for event in spac["sources"]["kis"]["listing_events"]},
@@ -277,7 +278,8 @@ class IpoOrchestratorTests(unittest.TestCase):
             kis_client=mock_kis, kind_client=mock_kind, target_date_str="2026-09-18", dry_run=True
         )
 
-        self.assertIn("unresolved=1", result["sources"]["kind"])
+        self.assertEqual(result["sources"]["kind"], "fallback_not_used")
+        mock_kind.fetch_pubofr_schedule_items.assert_not_called()
         saved = read_market_store()
         ipo = next(it for it in saved["ipos"] if it.get("stock_code") == "468670")
         self.assertIsNone(ipo.get("expected_listing_date"))
@@ -671,8 +673,8 @@ class IpoOrchestratorTests(unittest.TestCase):
         cand = next(it for it in saved["ipos"] if it.get("stock_code") == "777770")
         self.assertIsNone(cand.get("actual_listing_date"))
 
-    def test_stage5_1_existing_actual_present_preserve_no_overwrite(self):
-        # 10. Existing actual present -> preserve / no overwrite
+    def test_stage5_1_existing_actual_updates_from_valid_confirmation(self):
+        # A fresh, KRX-confirmed actual date may replace an older actual date.
         market = read_market_store()
         market["ipos"].append({
             "ipo_id": "test_existing",
@@ -707,7 +709,7 @@ class IpoOrchestratorTests(unittest.TestCase):
 
         saved = read_market_store()
         cand = next(it for it in saved["ipos"] if it.get("stock_code") == "666660")
-        self.assertEqual(cand["actual_listing_date"], "2026-09-01")  # preserved!
+        self.assertEqual(cand["actual_listing_date"], "2026-09-05")
 
     def test_stage5_1_sources_kind_preserved(self):
         # 13. sources.kind preserved

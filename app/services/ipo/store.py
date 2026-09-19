@@ -112,6 +112,14 @@ def upsert_ipo_record(incoming: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         if matched is not None:
             # Merge incoming into matched
             for k, v in incoming.items():
+                if k in {"expected_listing_date", "actual_listing_date"}:
+                    # A missing/blank fresh source value is never a deletion signal
+                    # for listing dates. Other fields intentionally retain their
+                    # existing merge semantics.
+                    incoming_date = str(v or "").strip()
+                    existing_date = str(matched.get(k) or "").strip()
+                    if not incoming_date and existing_date:
+                        continue
                 if k == "features" and isinstance(v, dict):
                     existing_feats = matched.setdefault("features", {})
                     for feat_name, new_feat in v.items():

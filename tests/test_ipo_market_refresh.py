@@ -5,7 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -75,14 +75,14 @@ class IpoMarketRefreshTests(unittest.TestCase):
         empty_kis.fetch_ipo_subscription_schedule.side_effect = empty_schedule
         empty_kis.fetch_listing_schedule.side_effect = empty_schedule
         broken_kind = MagicMock()
-        broken_kind.fetch_pubofr_schedule_items.side_effect = RuntimeError("KIND down")
         result = run_ipo_daily_pipeline(
             kis_client=empty_kis, kind_client=broken_kind,
             target_date_str="2026-09-18", market_only=True,
         )
         self.assertEqual(result["status"], "preserved")
         self.assertIn("sync_ok", result["sources"]["kis"])
-        self.assertIn("source_error", result["sources"]["kind"])
+        self.assertEqual(result["sources"]["kind"], "not_requested (market_only)")
+        broken_kind.fetch_pubofr_schedule_items.assert_not_called()
         self.assertEqual(self.market_file.read_bytes(), before)
 
     def test_empty_store_bootstraps_spac_from_primary_schedule(self):
@@ -202,6 +202,67 @@ class IpoMarketRefreshTests(unittest.TestCase):
                 self.assertEqual(result["status"], "ok")
                 self.assertIn("source_error", result["sources"][client_name.removesuffix("_client")])
                 self.assertTrue(any(ipo.get("company_name") == "신규일정" for ipo in read_market_store()["ipos"]))
+
+    def test_naver_progress_enriches_only_blank_kis_listing_dates(self):
+        kis = MagicMock(); kis.configured = True
+        kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=[
+            {"company_name": "빅웨이브로보틱스", "stock_code": "111111", "expected_listing_date": None},
+            {"company_name": "브릴스", "stock_code": "468670", "expected_listing_date": "2026-09-30"},
+        ])
+        kis.fetch_listing_schedule = AsyncMock(return_value=[])
+        naver = MagicMock()
+        naver.fetch_ipo_progress_items.return_value = [
+            {"stock_code": "111111", "raw_ipo_code": "A111111", "expected_listing_date": "2026-09-29"},
+            {"stock_code": "468670", "raw_ipo_code": "A468670", "expected_listing_date": "2026-10-01"},
+        ]
+        naver.fetch_completed_listings.return_value = []
+        kind = MagicMock()
+        result = run_ipo_daily_pipeline(kis_client=kis, naver_client=naver, kind_client=kind, target_date_str="2026-09-18", market_only=True)
+        saved = {ipo["stock_code"]: ipo for ipo in read_market_store()["ipos"] if ipo.get("stock_code")}
+        self.assertEqual(saved["111111"]["expected_listing_date"], "2026-09-29")
+        self.assertEqual(saved["468670"]["expected_listing_date"], "2026-09-30")
+        self.assertIn("filled=1", result["sources"]["naver_progress"])
+        kind.fetch_pubofr_schedule_items.assert_not_called()
+
+    def test_naver_progress_failure_preserves_existing_expected_date(self):
+        self.market_file.write_text(json.dumps({"schema_version": 1, "ipos": [{"ipo_id": "existing", "company_name": "기존", "stock_code": "222222", "expected_listing_date": "2026-09-29"}]}), encoding="utf-8")
+        kis = MagicMock(); kis.configured = True
+        kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=[{"company_name": "기존", "stock_code": "222222", "expected_listing_date": None}])
+        kis.fetch_listing_schedule = AsyncMock(return_value=[])
+        naver = MagicMock(); naver.fetch_ipo_progress_items.side_effect = RuntimeError("NAVER down"); naver.fetch_completed_listings.return_value = []
+        run_ipo_daily_pipeline(kis_client=kis, naver_client=naver, target_date_str="2026-09-18", market_only=True)
+        self.assertEqual(read_market_store()["ipos"][0]["expected_listing_date"], "2026-09-29")
+
+    def test_blank_naver_progress_value_preserves_existing_expected_date(self):
+        self.market_file.write_text(json.dumps({"schema_version": 1, "ipos": [{"ipo_id": "existing", "company_name": "기존", "stock_code": "222222", "expected_listing_date": "2026-09-29"}]}), encoding="utf-8")
+        kis = MagicMock(); kis.configured = True
+        kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=[{"company_name": "기존", "stock_code": "222222", "expected_listing_date": None}])
+        kis.fetch_listing_schedule = AsyncMock(return_value=[])
+        naver = MagicMock(); naver.fetch_ipo_progress_items.return_value = []; naver.fetch_completed_listings.return_value = []
+        run_ipo_daily_pipeline(kis_client=kis, naver_client=naver, target_date_str="2026-09-18", market_only=True)
+        self.assertEqual(read_market_store()["ipos"][0]["expected_listing_date"], "2026-09-29")
+
+    def test_progress_identity_mismatch_does_not_enrich_and_registry_retains_missing_records(self):
+        self.market_file.write_text(json.dumps({"schema_version": 1, "ipos": [
+            {"ipo_id": code, "company_name": code, "stock_code": code, "expected_listing_date": "2026-09-29"}
+            for code in ("111111", "222222", "333333")
+        ]}), encoding="utf-8")
+        kis = MagicMock(); kis.configured = True
+        fresh = [
+            {"company_name": code, "stock_code": code, "expected_listing_date": "2026-10-01"}
+            for code in ("111111", "333333", "444444")
+        ]
+        kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=fresh)
+        kis.fetch_listing_schedule = AsyncMock(return_value=[])
+        naver = MagicMock()
+        naver.fetch_ipo_progress_items.return_value = [{"stock_code": "999999", "expected_listing_date": "2026-10-15"}]
+        naver.fetch_completed_listings.return_value = []
+        for _ in range(2):
+            run_ipo_daily_pipeline(kis_client=kis, naver_client=naver, target_date_str="2026-09-18", market_only=True)
+        saved = read_market_store()["ipos"]
+        self.assertEqual({item.get("stock_code") for item in saved if item.get("stock_code")}, {"111111", "222222", "333333", "444444"})
+        self.assertEqual(len([item for item in saved if item.get("stock_code") == "444444"]), 1)
+        self.assertEqual(next(item for item in saved if item.get("stock_code") == "222222")["expected_listing_date"], "2026-09-29")
 
     def test_market_get_remains_read_only(self):
         token = main._serializer.dumps({"user": self.username, "role": "user"})

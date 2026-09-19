@@ -13,6 +13,7 @@ from app.services.ipo.naver_client import (
     NaverIpoClientError,
     normalize_naver_ipo_code,
     parse_naver_ipo_listing_json,
+    parse_naver_ipo_progress_json,
 )
 from app.services.network_policy import ExternalNetworkDisabled
 
@@ -39,6 +40,64 @@ SAMPLE_LISTING_PAYLOAD = {
 
 
 class NaverIpoClientTests(unittest.TestCase):
+    def test_progress_parser_uses_unfiltered_container_and_validates_dates(self):
+        payload = {"subscriptionList": [{"ipoCode": "A468670", "compName": "브릴스", "lcalDate": "2026-10-01"}]}
+        rows = parse_naver_ipo_progress_json(payload)
+        self.assertEqual(rows[0]["stock_code"], "468670")
+        self.assertEqual(rows[0]["expected_listing_date"], "2026-10-01")
+        self.assertEqual(
+            parse_naver_ipo_progress_json({"subscriptionList": [{"ipoCode": "A468670", "lcalDate": "2026-02-30"}]}),
+            [],
+        )
+
+    def test_progress_parser_treats_blank_dates_as_normal_non_candidates(self):
+        valid = {"ipoCode": "A468670", "compName": "브릴스", "lcalDate": "2026-10-01"}
+        for blank in (None, "", "   "):
+            with self.subTest(blank=blank):
+                rows = parse_naver_ipo_progress_json({"subscriptionList": [valid, {"ipoCode": "A111111", "lcalDate": blank}]})
+                self.assertEqual([row["stock_code"] for row in rows], ["468670"])
+
+    def test_progress_parser_mixed_valid_and_blank_rows_keeps_all_candidates(self):
+        valid_rows = [
+            {"ipoCode": f"A{index:06d}", "lcalDate": f"2026-10-{index:02d}"}
+            for index in range(1, 11)
+        ]
+        blank_rows = [{"ipoCode": f"B{index:06d}", "lcalDate": None} for index in range(100)]
+        rows = parse_naver_ipo_progress_json({"subscriptionList": [*blank_rows[:33], *valid_rows[:3], *blank_rows[33:67], *valid_rows[3:], *blank_rows[67:]]})
+        self.assertEqual(len(rows), 10)
+        self.assertEqual(rows[0]["expected_listing_date"], "2026-10-01")
+
+    def test_progress_parser_rejects_malformed_and_invalid_code_items_only(self):
+        rows = parse_naver_ipo_progress_json({"subscriptionList": [
+            {"ipoCode": "A468670", "lcalDate": "2026-10-01"},
+            {"ipoCode": "A111111", "lcalDate": "2026/09/29"},
+            {"ipoCode": "A222222", "lcalDate": "foo"},
+            {"ipoCode": "A333333", "lcalDate": "2026-13-99"},
+            {"ipoCode": "invalid", "lcalDate": "2026-10-02"},
+        ]})
+        self.assertEqual([(row["stock_code"], row["expected_listing_date"]) for row in rows], [("468670", "2026-10-01")])
+
+    def test_progress_parser_known_expected_listing_samples(self):
+        payload = {"subscriptionList": [
+            {"ipoCode": "A111111", "compName": "빅웨이브로보틱스", "lcalDate": "2026-09-29"},
+            {"ipoCode": "A222222", "compName": "글로벌테크놀로지", "lcalDate": "2026-09-29"},
+            {"ipoCode": "A333333", "compName": "덕산넵코어스", "lcalDate": "2026-09-30"},
+            {"ipoCode": "A468670", "compName": "브릴스", "lcalDate": "2026-10-01"},
+        ]}
+        self.assertEqual(
+            [row["expected_listing_date"] for row in parse_naver_ipo_progress_json(payload)],
+            ["2026-09-29", "2026-09-29", "2026-09-30", "2026-10-01"],
+        )
+
+    @patch("app.services.ipo.naver_client.require_external_network")
+    @patch("httpx.Client")
+    def test_progress_request_omits_listing_filter(self, mock_client_cls, _mock_require_net):
+        mock_http = MagicMock()
+        mock_client_cls.return_value.__enter__.return_value = mock_http
+        mock_http.get.return_value = MagicMock(status_code=200, text=json.dumps({"subscriptionList": [{"ipoCode": "A468670", "lcalDate": "2026-10-01"}]}))
+        rows = NaverIpoClient().fetch_ipo_progress_items()
+        self.assertEqual(rows[0]["stock_code"], "468670")
+        self.assertEqual(mock_http.get.call_args.kwargs["params"], {"startIdx": 0, "pageSize": 100})
     def test_01_code_normalization_exact_a_prefix_removal(self):
         self.assertEqual(normalize_naver_ipo_code("A0197V0"), "0197V0")
         self.assertEqual(normalize_naver_ipo_code("A468670"), "468670")
