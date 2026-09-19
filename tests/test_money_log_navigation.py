@@ -9,6 +9,7 @@ class MoneyLogNavigationTests(unittest.TestCase):
         cls.html = (root / "app/static/index.html").read_text(encoding="utf-8")
         cls.layout = (root / "app/static/wealth-layout.js").read_text(encoding="utf-8")
         cls.js = (root / "app/static/wealth.js").read_text(encoding="utf-8")
+        cls.calendar = (root / "app/static/wealth-calendar.js").read_text(encoding="utf-8")
         cls.css = (root / "app/static/wealth-layout.css").read_text(encoding="utf-8")
 
     def test_primary_navigation_uses_five_requested_labels(self):
@@ -69,6 +70,15 @@ class MoneyLogNavigationTests(unittest.TestCase):
         self.assertIn("['머니 로그', '머니 로그', '실현손익, 배당·이자, 수입·지출 내역을 한곳에서 확인하세요.']", self.layout)
         self.assertIn("overflow-x: auto", self.css)
         self.assertIn("white-space: nowrap", self.css)
+
+    def test_calendar_initially_loads_only_when_restored_as_active_moneylog_tab(self):
+        self.assertIn("workspace?.dataset.activeView === 'income'", self.calendar)
+        self.assertIn("!calendarPanel.classList.contains('wealth-income-hidden')", self.calendar)
+        self.assertIn("if (isCalendarPanelActive()) {\n    loadCalendar();\n  }", self.calendar)
+        self.assertIn("window.loadCalendar = loadCalendar;", self.calendar)
+        self.assertIn("setIncomeTab(document.querySelector('.wealth-workspace')?.dataset.incomeTab", self.js)
+        self.assertIn("{ updateHash: false, loadContent: false }", self.js)
+        self.assertIn("if (currentIncomeTab === 'calendar') window.loadCalendar?.();", self.js)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,14 @@
   let userApplications = {};
   let familyMembers = ['아빠', '엄마', '자녀'];
 
+  function isCalendarPanelActive() {
+    const workspace = document.querySelector('.wealth-workspace');
+    const calendarPanel = document.getElementById('calendarPanel');
+    return workspace?.dataset.activeView === 'income'
+      && calendarPanel
+      && !calendarPanel.classList.contains('wealth-income-hidden');
+  }
+
   function formatMoney(num) {
     if (num === null || num === undefined || isNaN(num)) return '—';
     return Math.round(num).toLocaleString('ko-KR');
@@ -543,4 +551,10 @@
   });
 
   window.loadCalendar = loadCalendar;
+  // Layout/hash restoration runs before this module is loaded.  When it has
+  // already made MoneyLog's calendar visible, perform the same lazy load the
+  // normal tab activation would perform.
+  if (isCalendarPanelActive()) {
+    loadCalendar();
+  }
 })();
