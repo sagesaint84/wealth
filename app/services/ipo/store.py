@@ -1,6 +1,6 @@
 import json
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -189,16 +189,6 @@ def get_ipo_calendar_events(
 
     events: list[dict[str, Any]] = []
 
-    # Non-listing date event mappings
-    base_date_events = [
-        ("demand_forecast_start", "ipo_demand_start", "수요예측 시작"),
-        ("demand_forecast_end", "ipo_demand_end", "수요예측 마감"),
-        ("subscription_start", "ipo_subscription_start", "청약 시작"),
-        ("subscription_end", "ipo_subscription_end", "청약 마감"),
-        ("payment_date", "ipo_payment", "납입일"),
-        ("refund_date", "ipo_refund", "환불일"),
-    ]
-
     for ipo in store.get("ipos", []):
         ipo_id = ipo.get("ipo_id") or ""
         company = ipo.get("company_name") or "공모주"
@@ -219,36 +209,44 @@ def get_ipo_calendar_events(
             "market": ipo.get("market"),
             "offer_price": ipo.get("final_offer_price"),
             "lead_managers": ipo.get("lead_managers", []),
+            "subscription_start": ipo.get("subscription_start"),
+            "subscription_end": ipo.get("subscription_end"),
             "applied_owners": applied_owners,
             "target_owners": target_owners,
             "all_applied": all_applied,
             "is_applied_by_owner": is_applied_by_owner,
         }
 
-        # 1. Base schedule events
-        for date_key, ev_type, label in base_date_events:
-            raw_val = ipo.get(date_key)
-            if not raw_val:
-                continue
-            date_str = str(raw_val)[:10]
-            if not (from_date <= date_str <= to_date):
-                continue
-
-            event_id = f"{ev_type}:{ipo_id}:{date_str}"
-            if any(e["id"] == event_id for e in events):
-                continue
-
-            events.append({
-                "id": event_id,
-                "date": date_str,
-                "type": ev_type,
-                "subtype": "공모주",
-                "owner": "모두",
-                "title": f"🎯 {company} {label}",
-                "amount_krw": None,
-                "source_id": ipo_id,
-                "meta": dict(meta_base),
-            })
+        # Project every day of the canonical subscription period. Payment,
+        # refund, and demand-forecast dates remain persisted but are not part
+        # of the integrated calendar projection.
+        # the company even when its start date is outside the visible month.
+        # Invalid or inverted canonical dates are ignored rather than guessed.
+        sub_start = str(ipo.get("subscription_start") or "")[:10]
+        sub_end = str(ipo.get("subscription_end") or "")[:10]
+        try:
+            start_day = datetime.strptime(sub_start, "%Y-%m-%d").date()
+            end_day = datetime.strptime(sub_end, "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            start_day = end_day = None
+        if start_day is not None and end_day is not None and start_day <= end_day:
+            visible_start = max(start_day, datetime.strptime(from_date, "%Y-%m-%d").date())
+            visible_end = min(end_day, datetime.strptime(to_date, "%Y-%m-%d").date())
+            current_day = visible_start
+            while current_day <= visible_end:
+                date_str = current_day.isoformat()
+                events.append({
+                    "id": f"ipo_subscription:{ipo_id}:{date_str}",
+                    "date": date_str,
+                    "type": "ipo_subscription",
+                    "subtype": "공모주",
+                    "owner": "모두",
+                    "title": f"🎯 {company} 청약",
+                    "amount_krw": None,
+                    "source_id": ipo_id,
+                    "meta": dict(meta_base),
+                })
+                current_day += timedelta(days=1)
 
         # 2. Listing event (Actual listing date takes precedence over expected listing date)
         actual_listing = ipo.get("actual_listing_date")
@@ -262,6 +260,11 @@ def get_ipo_calendar_events(
         elif expected_listing:
             listing_date = str(expected_listing)[:10]
             listing_status = "expected"
+
+        try:
+            datetime.strptime(listing_date or "", "%Y-%m-%d")
+        except ValueError:
+            listing_date = None
 
         if listing_date and (from_date <= listing_date <= to_date):
             label = "신규상장" if listing_status == "actual" else "상장예정"

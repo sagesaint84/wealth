@@ -943,34 +943,70 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
   text-overflow: ellipsis;
   line-height: 1.2;
 }
-.cal-badge.tone-profit {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-}
-.cal-badge.tone-loss {
-  background: rgba(59, 130, 246, 0.15);
-  color: #60a5fa;
-}
-.cal-badge.tone-dividend {
-  background: rgba(234, 179, 8, 0.15);
-  color: #facc15;
-}
+.calendar-legend, .cal-badge { --calendar-profit-bg: rgba(239, 68, 68, 0.15); --calendar-profit-fg: #f87171; --calendar-loss-bg: rgba(68, 138, 255, 0.15); --calendar-loss-fg: #448AFF; --calendar-dividend-bg: rgba(255, 224, 130, 0.15); --calendar-dividend-fg: #FFE082; --calendar-income-bg: rgba(255, 171, 64, 0.15); --calendar-income-fg: #FFAB40; --calendar-expense-bg: rgba(77, 240, 255, 0.14); --calendar-expense-fg: #4DF0FF; --calendar-subscription-bg: rgba(105, 240, 174, 0.14); --calendar-subscription-fg: #69F0AE; --calendar-listing-bg: rgba(179, 136, 255, 0.16); --calendar-listing-fg: #B388FF; }
+.cal-badge.tone-profit { background: var(--calendar-profit-bg); color: var(--calendar-profit-fg); }
+.cal-badge.tone-loss { background: var(--calendar-loss-bg); color: var(--calendar-loss-fg); }
+.cal-badge.tone-dividend { background: var(--calendar-dividend-bg); color: var(--calendar-dividend-fg); }
 .cal-badge.tone-interest {
   background: rgba(168, 85, 247, 0.15);
   color: #c084fc;
 }
-.cal-badge.tone-expense {
-  background: rgba(100, 116, 139, 0.2);
-  color: #94a3b8;
+.cal-badge.tone-expense { background: var(--calendar-expense-bg); color: var(--calendar-expense-fg); }
+.cal-badge.tone-income { background: var(--calendar-income-bg); color: var(--calendar-income-fg); }
+.cal-badge.tone-neutral { color: var(--muted, #94a3b8); }
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 8px 2px 12px;
+  color: var(--muted, #94a3b8);
+  font-size: 10px;
 }
-.cal-badge.tone-income {
-  background: rgba(34, 197, 94, 0.15);
-  color: #4ade80;
+.calendar-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
+.calendar-legend-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .9;
+}
+.calendar-legend-item.tone-ipo-subscription { color: var(--calendar-subscription-fg); }
+.calendar-legend-item.tone-ipo-listing { color: var(--calendar-listing-fg); }
+.calendar-legend-item.tone-profit { color: var(--calendar-profit-fg); }
+.calendar-legend-item.tone-loss { color: var(--calendar-loss-fg); }
+.calendar-legend-item.tone-dividend { color: var(--calendar-dividend-fg); }
+.calendar-legend-item.tone-income { color: var(--calendar-income-fg); }
+.calendar-legend-item.tone-expense { color: var(--calendar-expense-fg); }
 .cal-badge.tone-ipo {
   background: rgba(249, 115, 22, 0.15);
   color: #fb923c;
 }
+.cal-badge.tone-ipo-subscription {
+  background: var(--calendar-subscription-bg);
+  color: var(--calendar-subscription-fg);
+}
+.cal-badge.tone-ipo-listing {
+  background: var(--calendar-listing-bg);
+  color: var(--calendar-listing-fg);
+}
+.cal-ipo-name-chip {
+  display: inline-block;
+  max-width: min(12em, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.cal-ipo-name-chip + .cal-ipo-name-chip::before {
+  content: ' · ';
+  opacity: .7;
+}
+.cal-ipo-overflow { margin-left: 3px; }
 
 /* Calendar detail panel */
 .calendar-detail-panel {
@@ -1073,6 +1109,8 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 .text-profit { color: #f87171; }
 .text-loss { color: #60a5fa; }
 .text-ipo { color: #fb923c; }
+.text-ipo-subscription { color: #60a5fa; }
+.text-ipo-listing { color: #4ade80; }
 
 .cal-ipo-app-section {
   margin-top: 8px;
@@ -1171,6 +1209,46 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
   background: var(--surface-3, #334155);
   color: var(--muted, #94a3b8);
   font-family: monospace;
+}
+.ipo-status-badges {
+  display: flex;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+.ipo-toolbar {
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.ipo-subscription-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.ipo-subscription-status.status-예정 {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+.ipo-subscription-status.status-중 {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+}
+.ipo-subscription-status.status-마감 {
+  background: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+}
+@media (max-width: 560px) {
+  .ipo-head {
+    align-items: flex-start;
+  }
+  .ipo-toolbar {
+    width: 100%;
+    margin-left: 0;
+  }
+  .ipo-toolbar .button {
+    width: 100%;
+  }
 }
 .ipo-score-box {
   display: flex;

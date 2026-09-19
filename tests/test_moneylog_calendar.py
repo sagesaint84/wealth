@@ -25,6 +25,9 @@ class MoneylogCalendarTests(unittest.TestCase):
             patch("app.services.ledger.get_user_data_dir", return_value=self.data_dir),
             patch("app.services.pnl_records._get_user_dir", return_value=self.data_dir),
             patch("app.services.dividend_records._get_user_dir", return_value=self.data_dir),
+            # Calendar unit tests own their event fixtures; do not depend on a
+            # live, process-shared IPO market snapshot.
+            patch("app.services.ipo.store.read_market_store", return_value={"schema_version": 1, "ipos": []}),
         ]
         for p in self.patches:
             p.start()
@@ -274,6 +277,27 @@ class MoneylogCalendarTests(unittest.TestCase):
             self.assertEqual(listing_evs[0]["date"], "2026-09-22")
             self.assertEqual(listing_evs[0]["meta"]["listing_status"], "actual")
 
+    def test_calendar_ipo_projection_excludes_payment_and_refund(self):
+        fake_market = {
+            "schema_version": 1,
+            "ipos": [{
+                "ipo_id": "ipo-schedule",
+                "company_name": "일정테스트",
+                "subscription_start": "2026-09-15",
+                "subscription_end": "2026-09-16",
+                "payment_date": "2026-09-18",
+                "refund_date": "2026-09-18",
+                "expected_listing_date": "2026-09-29",
+            }],
+        }
+        with patch("app.services.ipo.store.read_market_store", return_value=fake_market):
+            events = build_moneylog_calendar_events(self.username, "2026-09-01", "2026-09-30", "모두")
+        self.assertEqual(
+            [(event["date"], event["type"]) for event in events if event.get("source_id") == "ipo-schedule"],
+            [("2026-09-15", "ipo_subscription"), ("2026-09-16", "ipo_subscription"), ("2026-09-29", "ipo_listing")],
+        )
+        self.assertFalse(any(event["type"] in {"ipo_payment", "ipo_refund"} for event in events))
+
     def test_calendar_owner_all_requires_all_applied(self):
         fake_market = {
             "schema_version": 1,
@@ -297,12 +321,12 @@ class MoneylogCalendarTests(unittest.TestCase):
         with patch("app.services.ipo.store.read_market_store", return_value=fake_market):
             with patch("app.services.ipo.applications.get_user_applications", return_value=partial_apps):
                 evs_modu = build_moneylog_calendar_events(self.username, "2026-09-01", "2026-09-30", "모두")
-                sub_ev = next(e for e in evs_modu if e["type"] == "ipo_subscription_start")
+                sub_ev = next(e for e in evs_modu if e["type"] == "ipo_subscription")
                 self.assertFalse(sub_ev["meta"]["is_applied_by_owner"])
 
                 # Direct query for 아빠 should be True
                 evs_appa = build_moneylog_calendar_events(self.username, "2026-09-01", "2026-09-30", "아빠")
-                sub_ev_appa = next(e for e in evs_appa if e["type"] == "ipo_subscription_start")
+                sub_ev_appa = next(e for e in evs_appa if e["type"] == "ipo_subscription")
                 self.assertTrue(sub_ev_appa["meta"]["is_applied_by_owner"])
 
 

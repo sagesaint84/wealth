@@ -2,10 +2,44 @@
 (() => {
   'use strict';
 
+  const dateParts = (value) => {
+    const match = typeof value === 'string' ? value.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const candidate = new Date(Date.UTC(year, month - 1, day));
+    if (candidate.getUTCFullYear() !== year || candidate.getUTCMonth() !== month - 1 || candidate.getUTCDate() !== day) return null;
+    return { year, month, day, value };
+  };
+
+  const todayKst = (now = new Date()) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(now).reduce((result, part) => {
+      if (part.type !== 'literal') result[part.type] = part.value;
+      return result;
+    }, {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  };
+
+  const subscriptionStatus = (ipo, today = todayKst()) => {
+    const start = dateParts(ipo?.subscription_start);
+    const end = dateParts(ipo?.subscription_end);
+    const current = dateParts(today);
+    if (!start || !end || !current || start.value > end.value) return null;
+    if (current.value < start.value) return '예정';
+    if (current.value <= end.value) return '중';
+    return '마감';
+  };
+
+  window.WealthIpoDate = { dateParts, todayKst, subscriptionStatus };
+
   let currentRevision = 0;
   let familyMembers = ['아빠', '엄마', '자녀'];
   let userApplications = {};
   let marketIpos = [];
+  let refreshInFlight = false;
 
   function formatMoney(num) {
     if (num === null || num === undefined || isNaN(num)) return '—';
@@ -53,6 +87,40 @@
     }
   }
 
+  async function refreshIpoSchedule() {
+    if (refreshInFlight) return;
+    const button = document.getElementById('ipoRefreshBtn');
+    const wrapper = document.getElementById('ipoListWrapper');
+    refreshInFlight = true;
+    if (button) {
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.textContent = '갱신 중…';
+    }
+    try {
+      const res = await fetch('/api/ipo/market/refresh', { method: 'POST' });
+      if (!res.ok) throw new Error(`Server returned HTTP ${res.status}`);
+      const data = await res.json();
+      marketIpos = Array.isArray(data.market?.ipos) ? data.market.ipos : marketIpos;
+      renderIpoList();
+    } catch (err) {
+      console.error('Failed to refresh IPO market data:', err);
+      if (wrapper) {
+        const message = document.createElement('p');
+        message.className = 'empty-text ipo-refresh-error';
+        message.textContent = '공모주 일정 동기화에 실패했습니다. 기존 데이터를 유지합니다.';
+        wrapper.prepend(message);
+      }
+    } finally {
+      refreshInFlight = false;
+      if (button) {
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+        button.textContent = '새로고침';
+      }
+    }
+  }
+
   function renderIpoList() {
     const wrapper = document.getElementById('ipoListWrapper');
     if (!wrapper) return;
@@ -85,6 +153,7 @@
         ? `${ipo.demand_forecast_start} ~ ${ipo.demand_forecast_end}`
         : '미정';
       const listingDate = ipo.actual_listing_date || ipo.expected_listing_date || '미정';
+      const subStatus = subscriptionStatus(ipo);
       const managers = (ipo.lead_managers && ipo.lead_managers.length > 0)
         ? ipo.lead_managers.join(', ')
         : '미정';
@@ -106,7 +175,7 @@
 
       // Score display logic (Section 1D, Section 19)
       const scoreObj = ipo.score;
-      const isSpacScore = !!scoreObj && scoreObj.status === 'NOT_APPLICABLE';
+      const isSpacScore = ipo.listing_track === 'spac' || (!!scoreObj && scoreObj.status === 'NOT_APPLICABLE');
       const isCalculating = !isSpacScore && (!scoreObj || scoreObj.is_calculating || scoreObj.score === null || scoreObj.score === undefined || (scoreObj.core_missing && scoreObj.core_missing.length > 0) || (scoreObj.coverage !== undefined && scoreObj.coverage < 75));
 
       let scoreBoxHtml = '';
@@ -120,7 +189,7 @@
         scoreBoxHtml = `
           <div class="ipo-score-box">
             <span class="ipo-score-title">Wealth IPO Score · BETA</span>
-            <strong class="ipo-score-val beta-score">산정중</strong>
+              <strong class="ipo-score-val beta-score">점수 산정중</strong>
           </div>`;
       } else {
         const numScore = Number(scoreObj.score);
@@ -159,6 +228,9 @@
               <h3 class="ipo-company-name">${escapeHtml(ipo.company_name)}</h3>
               ${ipo.market ? `<span class="ipo-market-badge">${escapeHtml(ipo.market)}</span>` : ''}
               ${ipo.stock_code ? `<span class="ipo-code-badge">${escapeHtml(ipo.stock_code)}</span>` : ''}
+            </div>
+            <div class="ipo-status-badges">
+              ${subStatus ? `<span class="ipo-subscription-status status-${escapeHtml(subStatus)}">청약${escapeHtml(subStatus)}</span>` : ''}
             </div>
             ${scoreBoxHtml}
           </div>
@@ -322,6 +394,6 @@
     }
   });
 
-  document.getElementById('ipoRefreshBtn')?.addEventListener('click', loadIpoSchedule);
+  document.getElementById('ipoRefreshBtn')?.addEventListener('click', refreshIpoSchedule);
   window.loadIpoSchedule = loadIpoSchedule;
 })();

@@ -2,8 +2,20 @@
 (() => {
   'use strict';
 
-  let currentYear = new Date().getFullYear();
-  let currentMonth = new Date().getMonth() + 1; // 1-12
+  const getKstToday = () => {
+    const value = window.WealthIpoDate?.todayKst?.();
+    if (value) return value;
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date()).reduce((result, part) => {
+      if (part.type !== 'literal') result[part.type] = part.value;
+      return result;
+    }, {});
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  };
+  const initialKst = getKstToday().split('-').map(Number);
+  let currentYear = initialKst[0];
+  let currentMonth = initialKst[1]; // 1-12
   let selectedDate = null;
   let calendarEvents = [];
   let currentOwner = '모두';
@@ -75,7 +87,7 @@
     if (!wrapper) return;
 
     const { lastDay, firstDayOfWeek } = getMonthDateRange(currentYear, currentMonth);
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = getKstToday();
 
     // Group events by date string
     const eventsByDate = {};
@@ -146,9 +158,11 @@
 
       let badgesHtml = '';
       if (hasPnl) {
-        const sign = pnlSum >= 0 ? '+' : '';
-        const tone = pnlSum >= 0 ? 'tone-profit' : 'tone-loss';
-        badgesHtml += `<div class="cal-badge ${tone}" title="실현손익: ${sign}${formatMoney(pnlSum)}원">📈 ${sign}${formatMoney(pnlSum)}</div>`;
+        const sign = pnlSum > 0 ? '+' : '';
+        const tone = pnlSum > 0 ? 'tone-profit' : (pnlSum < 0 ? 'tone-loss' : 'tone-neutral');
+        const label = pnlSum > 0 ? '수익' : (pnlSum < 0 ? '손실' : '실현손익');
+        const cue = pnlSum > 0 ? '➕ ' : (pnlSum < 0 ? '➖ ' : '');
+        badgesHtml += `<div class="cal-badge ${tone}" title="${label}: ${sign}${formatMoney(pnlSum)}원">${cue}${label} ${sign}${formatMoney(pnlSum)}</div>`;
       }
       if (hasDiv) {
         badgesHtml += `<div class="cal-badge tone-dividend" title="배당: +${formatMoney(divSum)}원">💰 배당 +${formatMoney(divSum)}</div>`;
@@ -162,9 +176,17 @@
       if (hasInc) {
         badgesHtml += `<div class="cal-badge tone-income" title="수입: +${formatMoney(incSum)}원">💵 수입 +${formatMoney(incSum)}</div>`;
       }
-      if (ipoEvents.length > 0) {
-        badgesHtml += `<div class="cal-badge tone-ipo" title="공모주 일정 ${ipoEvents.length}건">🎯 공모주 (${ipoEvents.length})</div>`;
-      }
+      const ipoSubscriptions = ipoEvents.filter(ev => ev.type && ev.type.startsWith('ipo_subscription'));
+      const ipoListings = ipoEvents.filter(ev => ev.type === 'ipo_listing');
+      const renderIpoNames = (events, tone, icon, label) => {
+        const names = [...new Map(events.map(ev => [ev.meta?.ipo_id || ev.id, ev.meta?.company_name || '공모주'])).values()];
+        if (!names.length) return '';
+        const visible = names.slice(0, 3).map(name => `<span class="cal-ipo-name-chip" title="${escapeHtml(name)}">${escapeHtml(name)}</span>`).join('');
+        const overflow = names.length > 3 ? `<span class="cal-ipo-overflow">+${names.length - 3}</span>` : '';
+        return `<div class="cal-badge ${tone}" title="${escapeHtml(label)} ${names.join(', ')}">${icon} ${visible}${overflow}</div>`;
+      };
+      badgesHtml += renderIpoNames(ipoSubscriptions, 'tone-ipo-subscription', '🎯', '청약');
+      badgesHtml += renderIpoNames(ipoListings, 'tone-ipo-listing', '🚀', '상장');
 
       html += `
         <button type="button" class="cal-cell cal-day-cell ${isSun} ${isSat} ${isToday} ${isSelected}" data-date="${dayStr}">
@@ -180,7 +202,16 @@
       html += '<div class="cal-cell cal-empty-cell" aria-hidden="true"></div>';
     }
 
-    html += '</div>';
+    html += `</div>
+      <div class="calendar-legend" aria-label="캘린더 범례">
+        <span class="calendar-legend-item tone-ipo-subscription"><i class="calendar-legend-dot"></i>청약</span>
+        <span class="calendar-legend-item tone-ipo-listing"><i class="calendar-legend-dot"></i>상장</span>
+        <span class="calendar-legend-item tone-profit"><i class="calendar-legend-dot"></i>수익</span>
+        <span class="calendar-legend-item tone-loss"><i class="calendar-legend-dot"></i>손실</span>
+        <span class="calendar-legend-item tone-dividend"><i class="calendar-legend-dot"></i>배당</span>
+        <span class="calendar-legend-item tone-income"><i class="calendar-legend-dot"></i>수입</span>
+        <span class="calendar-legend-item tone-expense"><i class="calendar-legend-dot"></i>지출</span>
+      </div>`;
     wrapper.innerHTML = html;
 
     wrapper.querySelectorAll('.cal-day-cell').forEach(btn => {
@@ -245,9 +276,19 @@
         toneClass = 'text-profit';
         amountFormatted = `+${formatMoney(ev.amount_krw)} 원`;
       } else if (ev.type && ev.type.startsWith('ipo_')) {
-        icon = '🎯';
-        typeLabel = '공모주 일정';
-        toneClass = 'text-ipo';
+        const isListing = ev.type === 'ipo_listing';
+        icon = isListing ? '🚀' : '🎯';
+        const ipoTypeLabels = {
+          ipo_subscription_start: '청약',
+          ipo_subscription: '청약',
+          ipo_subscription_end: '청약',
+          ipo_payment: '납입',
+          ipo_refund: '환불',
+          ipo_demand_start: '수요예측',
+          ipo_demand_end: '수요예측',
+        };
+        typeLabel = isListing ? (ev.meta?.listing_status === 'actual' ? '상장' : '상장예정') : (ipoTypeLabels[ev.type] || '공모주 일정');
+        toneClass = isListing ? 'text-ipo-listing' : 'text-ipo-subscription';
         amountFormatted = ev.meta?.offer_price ? `${formatMoney(ev.meta.offer_price)} 원` : '';
       }
 
@@ -482,9 +523,9 @@
   });
 
   document.getElementById('calendarTodayBtn')?.addEventListener('click', () => {
-    const now = new Date();
-    currentYear = now.getFullYear();
-    currentMonth = now.getMonth() + 1;
+    const [year, month] = getKstToday().split('-').map(Number);
+    currentYear = year;
+    currentMonth = month;
     loadCalendar();
   });
 

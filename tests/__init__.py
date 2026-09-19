@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import os
 import socket
+import hashlib
+from pathlib import Path
+import unittest
 
 os.environ.setdefault("WEALTH_ENV", "test")
 # Explicit test-only signing secret.  Only used when DASHBOARD_SECRET_KEY is
@@ -42,3 +45,30 @@ def _guarded_connect_ex(self, address):
 
 socket.socket.connect = _guarded_connect
 socket.socket.connect_ex = _guarded_connect_ex
+
+
+def _market_store_sha256() -> str | None:
+    path = Path(__file__).resolve().parents[1] / "data" / "ipo" / "market.json"
+    if not path.exists():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# Keep presentation/calendar tests honest: they must never rewrite the real
+# production snapshot while exercising mocked market data.
+_original_testcase_run = unittest.TestCase.run
+
+
+def _guarded_testcase_run(self, result=None):
+    before = _market_store_sha256()
+    outcome = _original_testcase_run(self, result)
+    after = _market_store_sha256()
+    if before != after:
+        raise AssertionError(
+            "Tests must not mutate data/ipo/market.json "
+            f"(before={before}, after={after})"
+        )
+    return outcome
+
+
+unittest.TestCase.run = _guarded_testcase_run

@@ -1055,6 +1055,36 @@ async def get_ipo_market(request: Request) -> dict:
     return read_market_store()
 
 
+@app.post("/api/ipo/market/refresh")
+async def refresh_ipo_market(request: Request) -> JSONResponse:
+    """Refresh shared market schedules without notification or user application effects."""
+    username = get_current_username(request)
+    from app.services.ipo.orchestrator import refresh_ipo_market as sync_ipo_market
+    from app.services.ipo.store import read_market_store
+    try:
+        result = await asyncio.to_thread(sync_ipo_market, username=username)
+    except Exception as exc:
+        logger.exception("IPO market refresh failed")
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "IPO_MARKET_REFRESH_FAILED",
+                "message": "공모주 일정 동기화에 실패했습니다. 기존 데이터를 유지합니다.",
+            },
+            headers={"Cache-Control": "no-store"},
+        ) from exc
+    if result.get("status") == "preserved":
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "IPO_MARKET_REFRESH_FAILED",
+                "message": "공모주 일정 동기화에 실패했습니다. 기존 데이터를 유지합니다.",
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+    return JSONResponse({"market": read_market_store(), "refresh": result}, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/ipo/applications")
 async def get_ipo_applications(request: Request) -> dict:
     """Return user family IPO applications and revision."""
@@ -4540,5 +4570,3 @@ async def upload_ledger_file(
         return {"message": f"총 {count}건의 거래 내역을 성공적으로 등록했습니다.", "count": count}
     except Exception as e:
         raise HTTPException(400, f"파일 처리 중 오류가 발생했습니다: {str(e)}")
-
-

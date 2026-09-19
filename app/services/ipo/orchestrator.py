@@ -265,6 +265,7 @@ def run_ipo_daily_pipeline(
     username: str | None = None,
     kis_client: KISOpenAPI | None = None,
     naver_client: NaverIpoClient | None = None,
+    market_only: bool = False,
 ) -> dict[str, Any]:
     """Runs the daily IPO refresh and notification pipeline."""
     if not target_date_str:
@@ -295,11 +296,13 @@ def run_ipo_daily_pipeline(
 
     # 2. discovery/schedule source: KIS primary, KIND fallback
     kis_sync_ok = False
+    market_schedule_rows_synced = False
     schedule_from, schedule_to = _kis_schedule_window(target_date_str)
     if kis.configured:
         try:
             subscription_items, listing_items = _run_kis_schedule_fetch(kis, schedule_from, schedule_to)
             kis_sync_ok = True
+            market_schedule_rows_synced = bool(subscription_items)
 
             subscription_by_code: dict[str, dict[str, Any]] = {}
             listing_events_by_code: dict[str, list[dict[str, Any]]] = {}
@@ -366,6 +369,7 @@ def run_ipo_daily_pipeline(
                 item for item in parsed_items
                 if _kind_item_relevant_to_schedule(item, schedule_from, schedule_to)
             ]
+            market_schedule_rows_synced = bool(items)
             sources_status["kind"] = f"sync_ok (relevant={len(items)}, parsed={len(parsed_items)})"
             observed_at = datetime.now(KST).isoformat()
             for item in items:
@@ -384,8 +388,11 @@ def run_ipo_daily_pipeline(
             logger.warning("KIND sync error: %s", e)
             sources_status["kind"] = f"source_error ({e})"
 
-    # 3 & 4. DART structured / filings & parsed features
-    if not dart.is_configured():
+    # 3 & 4. DART structured / filings & parsed features.  Interactive market
+    # refreshes intentionally exclude this expensive enrichment and all user data.
+    if market_only:
+        sources_status["dart"] = "not_requested (market_only)"
+    elif not dart.is_configured():
         sources_status["dart"] = "source_unavailable (api_key_missing)"
     else:
         try:
@@ -636,30 +643,48 @@ def run_ipo_daily_pipeline(
         score_res = calculate_wealth_ipo_score(ipo, ipos)
         ipo["score"] = score_res
 
-    # 9. Untouched application freeze (only for closed subscriptions)
+    # 9. Untouched application freeze (only for closed subscriptions).
+    # This is a daily-pipeline domain action, never a market-only refresh action.
     frozen_count = 0
-    for ipo in ipos:
-        ipo_id = ipo.get("ipo_id")
-        sub_end = ipo.get("subscription_end")
-        if ipo_id and sub_end and sub_end < target_date_str:
-            try:
-                frozen = freeze_untouched_ipo_application(username=username, ipo_id=ipo_id)
-                if frozen:
-                    frozen_count += 1
-            except Exception as e:
-                logger.warning("Failed to freeze untouched app for %s: %s", ipo_id, e)
+    if not market_only:
+        for ipo in ipos:
+            ipo_id = ipo.get("ipo_id")
+            sub_end = ipo.get("subscription_end")
+            if ipo_id and sub_end and sub_end < target_date_str:
+                try:
+                    frozen = freeze_untouched_ipo_application(username=username, ipo_id=ipo_id)
+                    if frozen:
+                        frozen_count += 1
+                except Exception as e:
+                    logger.warning("Failed to freeze untouched app for %s: %s", ipo_id, e)
 
     # 10. Schedule / score change detection & 11. Notification candidates
-    apps = get_user_applications(username=username)
-    notif = notifier or IpoTelegramNotifier()
-    notifications = notif.check_and_notify_events(
-        ipos,
-        applications=apps,
-        target_date_str=target_date_str,
-        dry_run=dry_run,
-    )
+    notifications: list[dict[str, Any]] = []
+    if not market_only:
+        apps = get_user_applications(username=username)
+        notif = notifier or IpoTelegramNotifier()
+        notifications = notif.check_and_notify_events(
+            ipos,
+            applications=apps,
+            target_date_str=target_date_str,
+            dry_run=dry_run,
+        )
 
     # 12. Atomic market save (only if we have market store)
+    # A failed or unexpectedly empty primary/fallback schedule refresh must not
+    # touch an already-populated snapshot merely by updating its timestamp.
+    if market_only and not market_schedule_rows_synced:
+        return {
+            "status": "preserved",
+            "target_date": target_date_str,
+            "dry_run": dry_run,
+            "market_only": True,
+            "sources": sources_status,
+            "total_ipos": len(ipos),
+            "frozen_applications_count": 0,
+            "notifications_sent_count": 0,
+            "notifications_sent": [],
+        }
     market["updated_at"] = datetime.now().astimezone().isoformat()
     market["ipos"] = ipos
     write_market_store(market)
@@ -669,9 +694,19 @@ def run_ipo_daily_pipeline(
         "status": "ok",
         "target_date": target_date_str,
         "dry_run": dry_run,
+        "market_only": market_only,
         "sources": sources_status,
         "total_ipos": len(ipos),
         "frozen_applications_count": frozen_count,
         "notifications_sent_count": len(notifications),
         "notifications_sent": notifications,
     }
+
+
+def refresh_ipo_market(*, username: str | None = None, target_date_str: str | None = None) -> dict[str, Any]:
+    """Refresh only shared IPO market data; never notify or mutate applications."""
+    return run_ipo_daily_pipeline(
+        username=username,
+        target_date_str=target_date_str,
+        market_only=True,
+    )
