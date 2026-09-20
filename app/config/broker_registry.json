@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "purpose": "Wealth canonical broker registry",
+  "id_policy": {
+    "scope": "internal_wealth_identifier",
+    "format": "lowercase_ascii_short_id",
+    "note": "broker_id values are Wealth-internal canonical identifiers, not MyData, CODEF, or provider institution codes. External provider codes belong in separate namespaces."
+  },
+  "brokers": [
+    {"broker_id": "kis", "display_name": "한국투자증권", "aliases": ["한투", "KIS"]},
+    {"broker_id": "nh", "display_name": "NH투자증권", "aliases": ["나무", "NAMUH", "QV", "NH투자증권(나무)", "나무증권"]},
+    {"broker_id": "kiwoom", "display_name": "키움증권", "aliases": ["키움", "영웅문"]},
+    {"broker_id": "kb", "display_name": "KB증권", "aliases": ["M-able", "마블", "현대증권", "KB Securities"]},
+    {"broker_id": "toss", "display_name": "토스증권", "aliases": ["토스", "Toss Invest"]},
+    {"broker_id": "mirae", "display_name": "미래에셋증권", "aliases": ["미래에셋대우", "대우증권"]},
+    {"broker_id": "samsung", "display_name": "삼성증권", "aliases": ["mPOP"]},
+    {"broker_id": "hana", "display_name": "하나증권", "aliases": ["하나금융투자"]},
+    {"broker_id": "shinhan", "display_name": "신한투자증권", "aliases": ["신한금융투자"]},
+    {"broker_id": "daishin", "display_name": "대신증권", "aliases": ["CREON", "CYBOS"]},
+    {"broker_id": "yuanta", "display_name": "유안타증권", "aliases": ["동양증권"]},
+    {"broker_id": "sk", "display_name": "SK증권", "aliases": ["SK"]},
+    {"broker_id": "eugene", "display_name": "유진투자증권", "aliases": ["유진"]},
+    {"broker_id": "db", "display_name": "DB증권", "aliases": ["DB금융투자", "동부증권"]},
+    {"broker_id": "ibk", "display_name": "IBK투자증권", "aliases": ["IBK"]},
+    {"broker_id": "kyobo", "display_name": "교보증권", "aliases": ["교보"]},
+    {"broker_id": "hyundai", "display_name": "현대차증권", "aliases": ["현대차투자증권", "HMC투자증권"]},
+    {"broker_id": "ls", "display_name": "LS증권", "aliases": ["이베스트투자증권", "eBEST"]},
+    {"broker_id": "im", "display_name": "iM증권", "aliases": ["하이투자증권"]},
+    {"broker_id": "bnk", "display_name": "BNK투자증권", "aliases": ["BNK"]}
+  ]
+}

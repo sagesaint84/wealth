@@ -1397,3 +1397,38 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
   accent-color: var(--workspace-accent, #6366f1);
   cursor: pointer;
 }
+.ipo-applicant-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ipo-filter-toolbar { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+.ipo-filter.active { border-color: var(--workspace-accent, #818cf8); color: var(--text, #f8fafc); }
+.ipo-user-status { font-size: 11px; color: var(--muted, #94a3b8); border: 1px solid var(--line, #334155); border-radius: 999px; padding: 2px 6px; }
+.ipo-applicant-account {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border: 1px solid var(--line, #334155);
+  border-radius: 6px;
+  background: var(--panel, #0f172a);
+}
+.ipo-applicant-account-title,
+.ipo-applicant-account-status {
+  font-size: 12px;
+  color: var(--muted, #94a3b8);
+}
+.ipo-applicant-account-title { font-weight: 600; color: var(--text, #f8fafc); }
+.ipo-applicant-account select { min-width: 112px; }
+.ipo-allocation-control {
+  width: 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  border-top: 1px solid var(--line, #334155); padding-top: 6px;
+}
+.ipo-allocation-control label, .ipo-allocation-summary { font-size: 12px; color: var(--muted, #94a3b8); }
+.ipo-allocation-quantity { width: 70px; }
+.ipo-sale-candidate { min-width: 130px; }
+.ipo-sale-match-quantity { width: 58px; }
+.ipo-sale-links { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+.ipo-sale-link-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted, #94a3b8); }

@@ -420,13 +420,18 @@ class KiwoomOpenAPI:
 
     async def get_realized_source_account_state(self) -> tuple[str, str]:
         """Return only the opaque key and masked label for the current token scope."""
+        _, source_key, source_label = await self.get_realized_source_account_context()
+        return source_key, source_label
+
+    async def get_realized_source_account_context(self) -> tuple[str, str, str]:
+        """Resolve account scope for server-side matching without exposing acctNo."""
         require_external_network("Kiwoom OpenAPI account scope")
         if not self.configured:
             raise KiwoomOpenAPIError("키움증권 AppKey/AppSecret이 설정되지 않았습니다.")
         async with httpx.AsyncClient(timeout=20.0) as client:
             token = await self._access_token(client)
-            _, source_key, source_label, _ = await self.discover_realized_source_account(client, token)
-            return source_key, source_label
+            account_no, source_key, source_label, _ = await self.discover_realized_source_account(client, token)
+            return account_no, source_key, source_label
 
     async def fetch_realized_profit(
         self, *, market: str, from_date: str, to_date: str, stock_code: str | None = None,

@@ -35,6 +35,10 @@ from app.services.broker_holdings_sync import (
     replace_holdings_in_scopes,
     resolve_scopes,
 )
+from app.services.broker_account_resolution import (
+    resolve_realized_destination_candidates,
+    validate_realized_destination,
+)
 from app.services.network_policy import is_test_mode
 from app.services.web_finance import (
     get_web_market_overview,
@@ -62,7 +66,8 @@ from app.services.dividend_records import (
 from app.services.pnl_records import (
     create_pnl_record, delete_pnl_record, get_pnl_summary,
     read_pnl_records, read_pnl_records_readonly, update_pnl_record, import_pnl_file_data,
-    clear_pnl_records, recalculate_pnl_historical_fx, PnlRecordsStorageError
+    clear_pnl_records, recalculate_pnl_historical_fx, PnlRecordsStorageError,
+    PnlRecordLinkedToIpoError, PnlRecordsLinkedToIpoError,
 )
 from app.services.historical_fx import get_historical_fx_rate, sync_historical_fx
 from app.services.stock_master import sync_stock_master_online
@@ -116,6 +121,7 @@ STATIC_DIR = ROOT_DIR / "app" / "static"
 WEALTH_ENV = os.getenv("WEALTH_ENV", "production").strip().lower()
 TESTING = WEALTH_ENV == "test"
 _NH_IMPORT_LOCK = threading.RLock()
+_KIS_IMPORT_LOCK = threading.RLock()
 _KIWOOM_IMPORT_LOCK = threading.RLock()
 _KB_IMPORT_LOCK = threading.RLock()
 
@@ -130,6 +136,66 @@ def _broker_import_items_hash(provider_hash: str, selected_items: list[dict[str,
             status_code=400,
             detail={"code": str(exc), "message": "Broker import accounting selection is invalid"},
         ) from exc
+
+
+def _realized_destination_resolution(
+    username: str,
+    provider: str,
+    *,
+    provider_account_identity: object = None,
+    mapped_destination_account_id: object = None,
+):
+    """Resolve a provider source only to same-broker Wealth accounts."""
+    accounts = read_portfolio(username=username).get("accounts", [])
+    return resolve_realized_destination_candidates(
+        provider,
+        accounts,
+        provider_account_identity=provider_account_identity,
+        mapped_destination_account_id=mapped_destination_account_id,
+    )
+
+
+def _realized_destination_payload(resolution: Any) -> dict[str, Any]:
+    return {
+        "candidate_account_ids": list(resolution.candidate_account_ids),
+        "auto_selected_account_id": resolution.auto_selected_account_id,
+        "destination_resolution": resolution.reason,
+        "mapping_status": resolution.mapping_status,
+    }
+
+
+def _require_realized_destination(
+    username: str,
+    provider: str,
+    account_id: object,
+    *,
+    provider_account_identity: object = None,
+    mapped_destination_account_id: object = None,
+) -> dict[str, Any]:
+    if not isinstance(account_id, str) or not account_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "DESTINATION_INVALID", "message": "Explicit destination account is required"},
+        )
+    accounts = read_portfolio(username=username).get("accounts", [])
+    try:
+        account, _ = validate_realized_destination(
+            provider,
+            accounts,
+            account_id,
+            provider_account_identity=provider_account_identity,
+            mapped_destination_account_id=mapped_destination_account_id,
+        )
+        return account
+    except ValueError as exc:
+        code = str(exc)
+        if code in {"CROSS_BROKER_MAPPING", "DESTINATION_MAPPING_CONFLICT", "DESTINATION_IDENTITY_CONFLICT"}:
+            status = 409
+            message = "Source account destination mapping conflicts with this import"
+        else:
+            status = 400
+            message = "Destination account must belong to the same broker"
+        raise HTTPException(status_code=status, detail={"code": code, "message": message}) from exc
 
 
 def _apply_broker_import_preferences(
@@ -285,7 +351,7 @@ SESSION_MAX_AGE = 60 * 60 * 24 * 14  # 14일 동안 로그인 유지
 COOKIE_NAME = "dashboard_session_v2"
 
 _serializer = URLSafeTimedSerializer(SECRET_KEY)
-PUBLIC_PATHS = {"/login", "/change-password-init", "/sw.js", "/manifest.json", "/favicon.ico"}
+PUBLIC_PATHS = {"/login", "/change-password-init", "/sw.js", "/manifest.json", "/favicon.ico", "/api/integrations/telegram/webhook"}
 
 _SENSITIVE_EXPORT_KEYS = {
     "accesstoken",
@@ -1050,9 +1116,10 @@ async def get_moneylog_calendar(
 @app.get("/api/ipo/market")
 async def get_ipo_market(request: Request) -> dict:
     """Return canonical IPO market records and schedule."""
-    _ = get_current_username(request)
-    from app.services.ipo.store import read_market_store
-    return read_market_store()
+    username = get_current_username(request)
+    from app.services.ipo.store import read_market_store_read_only
+    from app.services.ipo.presentation import present_market_store
+    return present_market_store(username, read_market_store_read_only())
 
 
 @app.post("/api/ipo/market/refresh")
@@ -1064,6 +1131,13 @@ async def refresh_ipo_market(request: Request) -> JSONResponse:
     try:
         result = await asyncio.to_thread(sync_ipo_market, username=username)
     except Exception as exc:
+        from app.services.ipo.orchestrator import IpoRefreshAlreadyRunning
+        if isinstance(exc, IpoRefreshAlreadyRunning):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "IPO_REFRESH_ALREADY_RUNNING"},
+                headers={"Cache-Control": "no-store"},
+            ) from exc
         logger.exception("IPO market refresh failed")
         raise HTTPException(
             status_code=502,
@@ -1082,7 +1156,25 @@ async def refresh_ipo_market(request: Request) -> JSONResponse:
             },
             headers={"Cache-Control": "no-store"},
         )
-    return JSONResponse({"market": read_market_store(), "refresh": result}, headers={"Cache-Control": "no-store"})
+    from app.services.ipo.presentation import present_market_store
+    return JSONResponse({"market": present_market_store(username, read_market_store()), "refresh": result}, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/integrations/telegram/webhook")
+async def telegram_ipo_webhook(request: Request) -> dict:
+    """Provider-authenticated Telegram IPO action ingress."""
+    from app.services.ipo.telegram_interactive import handle_update, interactive_config
+    if interactive_config() is None:
+        raise HTTPException(status_code=503, detail={"code": "TELEGRAM_INTERACTIVE_DISABLED"})
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    try:
+        update = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_TELEGRAM_UPDATE"}) from exc
+    result = handle_update(update, secret)
+    if result == "unauthorized":
+        raise HTTPException(status_code=403, detail={"code": "TELEGRAM_UNAUTHORIZED"})
+    return {"status": result}
 
 
 @app.get("/api/ipo/applications")
@@ -1127,6 +1219,236 @@ async def put_ipo_application(ipo_id: str, request: Request) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _ipo_market_record(ipo_id: str) -> dict[str, Any]:
+    from app.services.ipo.store import read_market_store
+    market = read_market_store()
+    ipo = next((item for item in market.get("ipos", []) if str(item.get("ipo_id") or "") == ipo_id), None)
+    if not isinstance(ipo, dict):
+        raise HTTPException(status_code=404, detail={"code": "IPO_NOT_FOUND", "message": "IPO schedule not found"})
+    return ipo
+
+
+def _ipo_source_brokers(ipo_id: str) -> list[dict[str, str]]:
+    """Return only canonical brokers explicitly named by this market IPO."""
+    from app.services.broker_registry import get_display_name, normalize_broker
+    ipo = _ipo_market_record(ipo_id)
+    managers = ipo.get("lead_managers")
+    if not isinstance(managers, list):
+        managers = []
+    brokers: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for manager in managers:
+        broker_id = normalize_broker(str(manager))
+        if broker_id and broker_id not in seen:
+            seen.add(broker_id)
+            brokers.append({"broker_id": broker_id, "display_name": get_display_name(broker_id) or broker_id})
+    return brokers
+
+
+def _ipo_source_broker_ids(ipo_id: str) -> set[str]:
+    return {item["broker_id"] for item in _ipo_source_brokers(ipo_id)}
+
+
+def _validate_ipo_source_broker(ipo_id: str, broker_value: object) -> str | None:
+    from app.services.broker_registry import normalize_broker
+
+    broker_id = normalize_broker(str(broker_value) if broker_value is not None else None)
+    if broker_id is None:
+        return None
+    if broker_id not in _ipo_source_broker_ids(ipo_id):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "IPO_BROKER_NOT_AVAILABLE", "message": "Broker is not an IPO lead manager"},
+        )
+    return broker_id
+
+
+@app.get("/api/ipo/applications/{ipo_id}/broker-options")
+async def get_ipo_application_broker_options(ipo_id: str, request: Request) -> dict:
+    """Return canonical broker options declared by the market schedule only."""
+    get_current_username(request)
+    return {"ipo_id": ipo_id, "brokers": _ipo_source_brokers(ipo_id)}
+
+
+@app.get("/api/ipo/applications/{ipo_id}/account-candidates")
+async def get_ipo_application_account_candidates(
+    ipo_id: str,
+    request: Request,
+    owner: str,
+    broker: str,
+    remap: bool = False,
+) -> dict:
+    """Return backend-authorized, sanitized account candidates for one applicant."""
+    username = get_current_username(request)
+    broker_id = _validate_ipo_source_broker(ipo_id, broker)
+    if broker_id is None:
+        return {
+            "ipo_id": ipo_id,
+            "owner": owner,
+            "broker_id": None,
+            "candidates": [],
+            "auto_selected_account_id": None,
+            "resolution_status": "BROKER_UNKNOWN",
+            "mapping_status": "not_checked",
+        }
+    from app.services.ipo.applications import InvalidApplicationError, resolve_user_application_account
+    try:
+        resolution = resolve_user_application_account(
+            username, ipo_id, owner, broker_id, ignore_existing_mapping=remap,
+        )
+    except InvalidApplicationError as exc:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_APPLICANT", "message": str(exc)}) from exc
+    return {
+        "ipo_id": ipo_id,
+        "owner": owner,
+        "broker_id": resolution.broker_id,
+        "candidates": list(resolution.candidates),
+        "auto_selected_account_id": resolution.auto_selected_account_id,
+        "resolution_status": resolution.resolution_status,
+        "mapping_status": resolution.mapping_status,
+    }
+
+
+@app.put("/api/ipo/applications/{ipo_id}/applicants/{owner}/account")
+async def put_ipo_application_account(ipo_id: str, owner: str, request: Request) -> dict:
+    """Persist an applicant's canonical Wealth UUID after broker validation."""
+    username = get_current_username(request)
+    body = await request.json()
+    if not isinstance(body, dict) or "broker" not in body or "account_id" not in body or "revision" not in body:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST", "message": "broker, account_id, and revision are required"})
+    broker_id = _validate_ipo_source_broker(ipo_id, body.get("broker"))
+    if broker_id is None:
+        raise HTTPException(status_code=400, detail={"code": "BROKER_UNKNOWN", "message": "Broker is unknown"})
+    from app.services.ipo.applications import (
+        ApplicationAccountMappingConflict,
+        ApplicationRevisionConflict,
+        InvalidApplicationError,
+        set_user_application_account,
+    )
+    try:
+        return set_user_application_account(
+            username, ipo_id, owner, broker_id, body.get("account_id"), int(body["revision"]),
+        )
+    except ApplicationRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail={"code": "REVISION_CONFLICT", "message": str(exc)}) from exc
+    except ApplicationAccountMappingConflict as exc:
+        raise HTTPException(status_code=409, detail={"code": "MAPPING_CONFLICT", "message": "Applicant account mapping conflicts"}) from exc
+    except InvalidApplicationError as exc:
+        code = str(exc)
+        status = 400
+        raise HTTPException(status_code=status, detail={"code": code, "message": "Applicant account is invalid"}) from exc
+
+
+@app.put("/api/ipo/applications/{ipo_id}/applicants/{owner}/account/remap")
+async def remap_ipo_application_account(ipo_id: str, owner: str, request: Request) -> dict:
+    """Explicit, compare-and-swap remap for a previously bound applicant UUID."""
+    username = get_current_username(request)
+    body = await request.json()
+    required = {"broker", "account_id", "expected_current_account_id", "revision"}
+    if not isinstance(body, dict) or not required.issubset(body):
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST", "message": "remap fields are required"})
+    broker_id = _validate_ipo_source_broker(ipo_id, body.get("broker"))
+    if broker_id is None:
+        raise HTTPException(status_code=400, detail={"code": "BROKER_UNKNOWN", "message": "Broker is unknown"})
+    from app.services.ipo.applications import (
+        ApplicationAccountMappingConflict,
+        ApplicationRevisionConflict,
+        InvalidApplicationError,
+        remap_user_application_account,
+    )
+    try:
+        return remap_user_application_account(
+            username, ipo_id, owner, broker_id, body.get("account_id"),
+            body.get("expected_current_account_id"), int(body["revision"]),
+        )
+    except ApplicationRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail={"code": "REVISION_CONFLICT", "message": str(exc)}) from exc
+    except ApplicationAccountMappingConflict as exc:
+        raise HTTPException(status_code=409, detail={"code": "MAPPING_CONFLICT", "message": "Applicant account mapping conflicts"}) from exc
+    except InvalidApplicationError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc), "message": "Applicant account is invalid"}) from exc
+
+
+def _ipo_listing_date(ipo: dict[str, Any]) -> str | None:
+    value = ipo.get("actual_listing_date") or ipo.get("expected_listing_date")
+    value = str(value or "").strip()
+    return value if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) else None
+
+
+@app.put("/api/ipo/applications/{ipo_id}/applicants/{owner}/allocation")
+async def put_ipo_applicant_allocation(ipo_id: str, owner: str, request: Request) -> dict:
+    username = get_current_username(request); body = await request.json(); ipo = _ipo_market_record(ipo_id)
+    if not isinstance(body, dict) or "quantity" not in body or "revision" not in body:
+        raise HTTPException(400, detail={"code": "INVALID_REQUEST", "message": "quantity and revision are required"})
+    from app.services.ipo.allocation import AllocationConflict, set_allocation
+    from app.services.ipo.applications import ApplicationRevisionConflict, InvalidApplicationError
+    try:
+        return set_allocation(username, ipo_id, owner, body["quantity"], ipo.get("final_offer_price"), int(body["revision"]))
+    except ApplicationRevisionConflict as exc:
+        raise HTTPException(409, detail={"code": "REVISION_CONFLICT", "message": str(exc)}) from exc
+    except AllocationConflict as exc:
+        raise HTTPException(409, detail={"code": str(exc), "message": "Allocation conflicts with linked sales"}) from exc
+    except InvalidApplicationError as exc:
+        raise HTTPException(400, detail={"code": str(exc), "message": "Allocation is invalid"}) from exc
+
+
+@app.get("/api/ipo/applications/{ipo_id}/applicants/{owner}/allocation")
+async def get_ipo_applicant_allocation(ipo_id: str, owner: str, request: Request) -> dict:
+    username = get_current_username(request); ipo = _ipo_market_record(ipo_id)
+    from app.services.ipo.allocation import allocation_summary
+    try:
+        return allocation_summary(username, ipo_id, owner, str(ipo.get("stock_code") or ""), _ipo_listing_date(ipo))
+    except InvalidApplicationError as exc:
+        raise HTTPException(400, detail={"code": str(exc), "message": "Allocation is unavailable"}) from exc
+
+
+@app.get("/api/ipo/applications/{ipo_id}/applicants/{owner}/allocation/sale-candidates")
+async def get_ipo_allocation_sale_candidates(ipo_id: str, owner: str, request: Request) -> dict:
+    username = get_current_username(request); ipo = _ipo_market_record(ipo_id)
+    from app.services.ipo.allocation import sale_candidates
+    from app.services.ipo.applications import InvalidApplicationError
+    try:
+        return {"candidates": sale_candidates(username, ipo_id, owner, str(ipo.get("stock_code") or ""), _ipo_listing_date(ipo))}
+    except InvalidApplicationError as exc:
+        raise HTTPException(400, detail={"code": str(exc), "message": "Sale candidates are unavailable"}) from exc
+
+
+@app.post("/api/ipo/applications/{ipo_id}/applicants/{owner}/allocation/links")
+async def link_ipo_applicant_sale(ipo_id: str, owner: str, request: Request) -> dict:
+    username = get_current_username(request); body = await request.json(); ipo = _ipo_market_record(ipo_id)
+    if not isinstance(body, dict) or not {"pnl_record_id", "matched_quantity", "revision"}.issubset(body):
+        raise HTTPException(400, detail={"code": "INVALID_REQUEST", "message": "sale link fields are required"})
+    from app.services.ipo.allocation import AllocationConflict, link_sale
+    from app.services.ipo.applications import ApplicationRevisionConflict, InvalidApplicationError
+    try:
+        return link_sale(username, ipo_id, owner, str(body["pnl_record_id"]), body["matched_quantity"], int(body["revision"]), str(ipo.get("stock_code") or ""), _ipo_listing_date(ipo))
+    except ApplicationRevisionConflict as exc:
+        raise HTTPException(409, detail={"code": "REVISION_CONFLICT", "message": str(exc)}) from exc
+    except AllocationConflict as exc:
+        raise HTTPException(409, detail={"code": str(exc), "message": "Sale link conflicts"}) from exc
+    except InvalidApplicationError as exc:
+        raise HTTPException(400, detail={"code": str(exc), "message": "Sale link is invalid"}) from exc
+
+
+@app.delete("/api/ipo/applications/{ipo_id}/applicants/{owner}/allocation/links/{pnl_record_id}")
+async def unlink_ipo_applicant_sale(ipo_id: str, owner: str, pnl_record_id: str, request: Request) -> dict:
+    """Explicitly remove only an IPO-to-ledger relation after revision validation."""
+    username = get_current_username(request)
+    body = await request.json()
+    if not isinstance(body, dict) or "revision" not in body:
+        raise HTTPException(400, detail={"code": "INVALID_REQUEST", "message": "revision is required"})
+    from app.services.ipo.allocation import unlink_sale
+    from app.services.ipo.applications import ApplicationRevisionConflict, InvalidApplicationError
+    try:
+        return unlink_sale(username, ipo_id, owner, pnl_record_id, int(body["revision"]))
+    except ApplicationRevisionConflict as exc:
+        raise HTTPException(409, detail={"code": "REVISION_CONFLICT", "message": str(exc)}) from exc
+    except InvalidApplicationError as exc:
+        code = str(exc)
+        raise HTTPException(404 if code == "LINK_NOT_FOUND" else 400,
+                            detail={"code": code, "message": "Sale link is unavailable"}) from exc
+
+
 # ---------------------------------------------------------------------------
 # Realized PnL API
 # ---------------------------------------------------------------------------
@@ -1162,7 +1484,10 @@ async def edit_realized_pnl(record_id: str, request: Request) -> dict:
 async def remove_realized_pnl(record_id: str, request: Request) -> dict:
     """Delete a realized PnL record."""
     username = get_current_username(request)
-    ok = delete_pnl_record(record_id, username=username)
+    try:
+        ok = delete_pnl_record(record_id, username=username)
+    except PnlRecordLinkedToIpoError as exc:
+        raise HTTPException(status_code=409, detail={"code": "PNL_RECORD_LINKED_TO_IPO", "message": "Unlink the IPO sale before deleting this P&L record"}) from exc
     if not ok:
         raise HTTPException(status_code=404, detail="실현손익 기록을 찾을 수 없습니다.")
     return {"message": "실현손익 기록이 삭제되었습니다."}
@@ -1172,7 +1497,10 @@ async def remove_realized_pnl(record_id: str, request: Request) -> dict:
 async def clear_realized_pnl_endpoint(request: Request) -> dict:
     """Clear all realized PnL records."""
     username = get_current_username(request)
-    clear_pnl_records(username=username)
+    try:
+        clear_pnl_records(username=username)
+    except PnlRecordsLinkedToIpoError as exc:
+        raise HTTPException(status_code=409, detail={"code": "PNL_RECORDS_LINKED_TO_IPO", "message": "Unlink IPO sales before clearing realized P&L"}) from exc
     return {"message": "모든 매도 실현손익 기록이 삭제되었습니다."}
 
 
@@ -1652,6 +1980,47 @@ async def toss_wts_realized_feed_import(request: Request) -> JSONResponse:
 # KIS Realized Profit Feed API
 # ---------------------------------------------------------------------------
 
+def _kis_mapping_file(username: str) -> Path:
+    from app.services.user_manager import get_user_data_dir
+    return get_user_data_dir(username) / "kis_account_mapping.json"
+
+
+def _read_kis_mapping(username: str) -> dict[str, str]:
+    path = _kis_mapping_file(username)
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+
+def _assert_kis_mapping_compatible(username: str, source_key: str, destination_id: str) -> bool:
+    existing = _read_kis_mapping(username).get(source_key)
+    if existing and existing != destination_id:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "DESTINATION_MAPPING_CONFLICT", "message": "KIS destination mapping conflicts with this import"},
+        )
+    return existing == destination_id
+
+
+def _write_kis_mapping(username: str, source_key: str, destination_id: str) -> bool:
+    if _assert_kis_mapping_compatible(username, source_key, destination_id):
+        return False
+    path = _kis_mapping_file(username)
+    mapping = _read_kis_mapping(username)
+    mapping[source_key] = destination_id
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temp_path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+    return True
+
 @app.get("/api/kis/status")
 async def kis_status(request: Request) -> JSONResponse:
     """Read-only KIS OpenAPI readiness status and account scope."""
@@ -1661,20 +2030,11 @@ async def kis_status(request: Request) -> JSONResponse:
     source_account_key = client.get_source_account_key() if cano else ""
     masked_account = client.get_masked_account()
 
-    mapped_account_id = None
-    if source_account_key:
-        from app.services.user_manager import get_user_data_dir
-        user_dir = get_user_data_dir(username)
-        mapping_file = user_dir / "kis_account_mapping.json"
-        if mapping_file.exists():
-            try:
-                mapping_data = json.loads(mapping_file.read_text(encoding="utf-8"))
-                candidate_dest = mapping_data.get(source_account_key)
-                portfolio = read_portfolio(username=username)
-                if any(str(a.get("id")) == str(candidate_dest) for a in portfolio.get("accounts", [])):
-                    mapped_account_id = str(candidate_dest)
-            except Exception:
-                pass
+    mapped_account_id = _read_kis_mapping(username).get(source_account_key) if source_account_key else None
+    resolution = _realized_destination_resolution(
+        username, "kis", provider_account_identity=f"{cano}{prdt_cd}" if cano else None,
+        mapped_destination_account_id=mapped_account_id,
+    )
 
     return JSONResponse(
         status_code=200,
@@ -1685,7 +2045,8 @@ async def kis_status(request: Request) -> JSONResponse:
             "source_account_key": source_account_key,
             "source_account_label": masked_account,
             "source_scope_verified": bool(cano),
-            "mapped_destination_account_id": mapped_account_id,
+            "mapped_destination_account_id": resolution.auto_selected_account_id if resolution.mapping_status == "valid" else None,
+            **_realized_destination_payload(resolution),
             "is_virtual": client.is_virtual,
             "broker": "한국투자증권",
         },
@@ -1807,16 +2168,6 @@ async def kis_realized_feed_import_preview(request: Request) -> JSONResponse:
             headers={"Cache-Control": "no-store"},
         )
 
-    portfolio = read_portfolio(username=username)
-    accounts = portfolio.get("accounts", [])
-    destination_account = next((a for a in accounts if str(a.get("id")) == account_id.strip()), None)
-    if not destination_account:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "INVALID_ACCOUNT", "message": "Destination account not found in user portfolio"},
-            headers={"Cache-Control": "no-store"},
-        )
-
     client = KISOpenAPI(username=username)
     source_account_key = client.get_source_account_key()
     masked_account = client.get_masked_account()
@@ -1826,6 +2177,12 @@ async def kis_realized_feed_import_preview(request: Request) -> JSONResponse:
             detail={"code": "ACCOUNT_REQUIRED", "message": "한국투자증권 계좌 설정이 필요합니다."},
             headers={"Cache-Control": "no-store"},
         )
+    cano, prdt_cd = client._parse_account_no()
+    destination_account = _require_realized_destination(
+        username, "kis", account_id,
+        provider_account_identity=f"{cano}{prdt_cd}" if cano else None,
+        mapped_destination_account_id=_read_kis_mapping(username).get(source_account_key),
+    )
 
     existing_records = read_pnl_records(username=username)
     market = str(body.get("market") or "kr").strip().lower()
@@ -1893,16 +2250,6 @@ async def kis_realized_feed_import(request: Request) -> JSONResponse:
             headers={"Cache-Control": "no-store"},
         )
 
-    portfolio = read_portfolio(username=username)
-    accounts = portfolio.get("accounts", [])
-    destination_account = next((a for a in accounts if str(a.get("id")) == account_id.strip()), None)
-    if not destination_account:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "INVALID_ACCOUNT", "message": "Destination account not found in user portfolio"},
-            headers={"Cache-Control": "no-store"},
-        )
-
     client = KISOpenAPI(username=username)
     source_account_key = client.get_source_account_key()
     masked_account = client.get_masked_account()
@@ -1912,6 +2259,12 @@ async def kis_realized_feed_import(request: Request) -> JSONResponse:
             detail={"code": "ACCOUNT_REQUIRED", "message": "한국투자증권 계좌 설정이 필요합니다."},
             headers={"Cache-Control": "no-store"},
         )
+    cano, prdt_cd = client._parse_account_no()
+    destination_account = _require_realized_destination(
+        username, "kis", account_id,
+        provider_account_identity=f"{cano}{prdt_cd}" if cano else None,
+        mapped_destination_account_id=_read_kis_mapping(username).get(source_account_key),
+    )
 
     items_hash = _broker_import_items_hash(compute_kis_items_hash(selected_items), selected_items)
 
@@ -1939,6 +2292,15 @@ async def kis_realized_feed_import(request: Request) -> JSONResponse:
 
     include_possible_duplicates = bool(body.get("include_possible_duplicates", False))
     market = str(body.get("market") or "kr").strip().lower()
+
+    # Validate an existing binding before any financial record is created.  KIS
+    # imports used to overwrite this mapping after the import completed.
+    with _KIS_IMPORT_LOCK:
+        _assert_kis_mapping_compatible(
+            username,
+            source_account_key,
+            str(destination_account["id"]),
+        )
 
     fresh_existing = read_pnl_records(username=username)
     classification = preview_kis_realized_selection(
@@ -1984,6 +2346,8 @@ async def kis_realized_feed_import(request: Request) -> JSONResponse:
         candidate_payload["source_account_label"] = masked_account
         candidate_payload["source_account_scope"] = f"kis:{source_account_key}"
         candidate_payload["source_scope_verified"] = True
+        candidate_payload["account_id"] = str(destination_account["id"])
+        candidate_payload["destination_account_id"] = str(destination_account["id"])
         candidate_payload["imported_by_user_action"] = True
         candidate_payload["imported_at"] = now_iso
 
@@ -1991,22 +2355,10 @@ async def kis_realized_feed_import(request: Request) -> JSONResponse:
         imported_ids.append(created["id"])
         imported_count += 1
 
-    # Persist destination mapping: source_account_key -> destination_account_id
+    # Do not silently remap a verified KIS source to another Wealth account.
     if source_account_key and destination_account.get("id"):
-        try:
-            from app.services.user_manager import get_user_data_dir
-            user_dir = get_user_data_dir(username)
-            mapping_file = user_dir / "kis_account_mapping.json"
-            mapping: dict[str, Any] = {}
-            if mapping_file.exists():
-                try:
-                    mapping = json.loads(mapping_file.read_text(encoding="utf-8"))
-                except Exception:
-                    mapping = {}
-            mapping[source_account_key] = str(destination_account["id"])
-            mapping_file.write_text(json.dumps(mapping, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        with _KIS_IMPORT_LOCK:
+            _write_kis_mapping(username, source_account_key, str(destination_account["id"]))
 
     return JSONResponse(
         status_code=200,
@@ -2145,13 +2497,21 @@ async def nh_status(request: Request) -> JSONResponse:
     if not client.configured:
         return JSONResponse({"configured": False, "accounts": [], "broker": "NH투자증권"}, headers={"Cache-Control":"no-store"})
     try:
-        mapping = _read_nh_mapping(username); portfolio = read_portfolio(username=username); valid_ids = {str(a.get("id")) for a in portfolio.get("accounts", [])}
+        mapping = _read_nh_mapping(username)
         accounts=[]
         for account in await client._accounts():
             act_no=str(account.get("acct_no") or account.get("act_no") or "").strip()
             if not act_no: continue
-            key=compute_nh_account_key(act_no); mapped=mapping.get(key)
-            accounts.append({"source_account_key":key,"source_account_label":mask_nh_account(act_no),"mapped_destination_account_id":mapped if mapped in valid_ids else None})
+            key=compute_nh_account_key(act_no)
+            resolution=_realized_destination_resolution(
+                username, "nh", provider_account_identity=act_no,
+                mapped_destination_account_id=mapping.get(key),
+            )
+            accounts.append({
+                "source_account_key":key,"source_account_label":mask_nh_account(act_no),
+                "mapped_destination_account_id":resolution.auto_selected_account_id if resolution.mapping_status == "valid" else None,
+                **_realized_destination_payload(resolution),
+            })
         return JSONResponse({"configured":True,"accounts":accounts,"broker":"NH투자증권"},headers={"Cache-Control":"no-store"})
     except NhPlugOpenAPIError:
         raise HTTPException(status_code=502, detail={"code":"NH_API_ERROR","message":"NH status unavailable"})
@@ -2172,11 +2532,12 @@ async def nh_realized_feed_fetch(request: Request) -> JSONResponse:
         raise HTTPException(status_code=502,detail={"code":"NH_API_ERROR","message":"NH realized feed unavailable"})
 
 
-def _nh_destination(username: str, account_id: object) -> dict[str, Any]:
-    if not isinstance(account_id,str) or not account_id.strip(): raise HTTPException(status_code=400,detail={"code":"DESTINATION_INVALID","message":"Explicit destination account is required"})
-    account=next((a for a in read_portfolio(username=username).get("accounts",[]) if str(a.get("id"))==account_id.strip()),None)
-    if not account: raise HTTPException(status_code=400,detail={"code":"DESTINATION_INVALID","message":"Destination account not found"})
-    return account
+def _nh_destination(username: str, account_id: object, source_key: str, act_no: str) -> dict[str, Any]:
+    return _require_realized_destination(
+        username, "nh", account_id,
+        provider_account_identity=act_no,
+        mapped_destination_account_id=_read_nh_mapping(username).get(source_key),
+    )
 
 
 @app.post("/api/nh/realized-feed/import-preview")
@@ -2185,7 +2546,8 @@ async def nh_realized_feed_import_preview(request: Request) -> JSONResponse:
     if not user_id: raise HTTPException(status_code=401,detail={"code":"USER_ID_REQUIRED","message":"Stable user identity required"})
     body=await request.json(); selected=body.get("selected_items"); market=str(body.get("market") or "").lower(); key=str(body.get("source_account_key") or "")
     if not isinstance(selected,list) or not selected or market not in {"kr","us"}: raise HTTPException(status_code=400,detail={"code":"INVALID_REQUEST","message":"Invalid NH preview request"})
-    destination=_nh_destination(username,body.get("account_id")); client=NhPlugOpenAPI(username=username); _,label=await _resolve_nh_source_account(client,key)
+    client=NhPlugOpenAPI(username=username); act_no,label=await _resolve_nh_source_account(client,key)
+    destination=_nh_destination(username,body.get("account_id"),key,act_no)
     result=preview_nh_realized_selection(selected,destination,_read_nh_pnl_records_strict(username),user_id=str(user_id),source_account_key=key,source_account_label=label,market=market)
     result=_apply_broker_import_preferences(result,selected)
     result["preview_ticket"]=sign_nh_import_preview_ticket(account_id=str(destination["id"]),items_hash=_broker_import_items_hash(compute_nh_items_hash(selected),selected),user_id=str(user_id),source_account_key=key,market=market)
@@ -2198,7 +2560,8 @@ async def nh_realized_feed_import(request: Request) -> JSONResponse:
     if not user_id: raise HTTPException(status_code=401,detail={"code":"USER_ID_REQUIRED","message":"Stable user identity required"})
     body=await request.json(); selected=body.get("selected_items"); market=str(body.get("market") or "").lower(); key=str(body.get("source_account_key") or "")
     if not isinstance(selected,list) or not selected: raise HTTPException(status_code=400,detail={"code":"INVALID_REQUEST","message":"selected_items required"})
-    destination=_nh_destination(username,body.get("account_id")); client=NhPlugOpenAPI(username=username); _,label=await _resolve_nh_source_account(client,key)
+    client=NhPlugOpenAPI(username=username); act_no,label=await _resolve_nh_source_account(client,key)
+    destination=_nh_destination(username,body.get("account_id"),key,act_no)
     valid,error=verify_nh_import_preview_ticket(str(body.get("preview_ticket") or ""),account_id=str(destination["id"]),items_hash=_broker_import_items_hash(compute_nh_items_hash(selected),selected),user_id=str(user_id),source_account_key=key,market=market)
     if not valid: raise HTTPException(status_code=400,detail={"code":error or "PREVIEW_TICKET_INVALID","message":"NH preview verification failed"})
     with _NH_IMPORT_LOCK:
@@ -2217,7 +2580,7 @@ async def nh_realized_feed_import(request: Request) -> JSONResponse:
         include_possible=bool(body.get("include_possible_duplicates",False))
         for item in result["items"]:
             if item["status"]!="NEW" and not (include_possible and item["status"]=="POSSIBLE_DUPLICATE"): continue
-            candidate=dict(item["candidate"]); candidate.update({"source":"nh","source_fingerprint":item["fingerprint"],"source_account_key":key,"source_account_label":label,"source_account_scope":f"nh:{key}","source_scope_verified":True,"destination_account_id":destination_id,"imported_by_user_action":True,"imported_at":now,"source_meta":{"market":market,"country":candidate.get("country"),"classification":candidate.get("classification")}})
+            candidate=dict(item["candidate"]); candidate.update({"source":"nh","source_fingerprint":item["fingerprint"],"source_account_key":key,"source_account_label":label,"source_account_scope":f"nh:{key}","source_scope_verified":True,"account_id":destination_id,"destination_account_id":destination_id,"imported_by_user_action":True,"imported_at":now,"source_meta":{"market":market,"country":candidate.get("country"),"classification":candidate.get("classification")}})
             created=create_pnl_record(candidate,username=username); ids.append(created["id"]); imported+=1
         repairable=(not mapping_exists and imported==0 and _nh_imported_items_match_destination(result,current,key,destination_id))
         mapping_status="already_present" if mapping_exists else "not_written"
@@ -2288,22 +2651,11 @@ def _write_kb_mapping(username: str, source_key: str, destination_id: str) -> bo
     return True
 
 
-def _kb_destination(username: str, account_id: object) -> dict[str, Any]:
-    if not isinstance(account_id, str) or not account_id.strip():
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "DESTINATION_INVALID", "message": "Explicit destination account is required"},
-        )
-    account = next(
-        (item for item in read_portfolio(username=username).get("accounts", []) if str(item.get("id")) == account_id.strip()),
-        None,
+def _kb_destination(username: str, account_id: object, source_key: str) -> dict[str, Any]:
+    return _require_realized_destination(
+        username, "kb", account_id,
+        mapped_destination_account_id=_read_kb_mapping(username).get(source_key),
     )
-    if not account:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "DESTINATION_INVALID", "message": "Destination account not found"},
-        )
-    return account
 
 
 def _read_kb_pnl_records_strict(username: str) -> list[dict[str, Any]]:
@@ -2383,12 +2735,14 @@ async def kb_status(request: Request) -> JSONResponse:
         )
     source_key, label = client.get_realized_source_account_state()
     mapping = _read_kb_mapping(username)
-    valid_ids = {str(item.get("id")) for item in read_portfolio(username=username).get("accounts", [])}
-    mapped = mapping.get(source_key)
+    resolution = _realized_destination_resolution(
+        username, "kb", mapped_destination_account_id=mapping.get(source_key),
+    )
     account = {
         "source_account_key": source_key,
         "source_account_label": label,
-        "mapped_destination_account_id": mapped if mapped in valid_ids else None,
+        "mapped_destination_account_id": resolution.auto_selected_account_id if resolution.mapping_status == "valid" else None,
+        **_realized_destination_payload(resolution),
         "source_scope_verified": False,
     }
     return JSONResponse(
@@ -2450,8 +2804,8 @@ async def kb_realized_feed_import_preview(request: Request) -> JSONResponse:
     if not isinstance(selected, list) or not selected or market not in {"kr", "domestic"}:
         raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST", "message": "Invalid KB preview request"})
     market = "kr"
-    destination = _kb_destination(username, body.get("account_id"))
     _, label = _verify_kb_source_context(KBOpenAPI(username=username), source_key)
+    destination = _kb_destination(username, body.get("account_id"), source_key)
     result = preview_kb_realized_selection(
         selected, destination, _read_kb_pnl_records_strict(username),
         user_id=str(user_id), source_account_key=source_key,
@@ -2481,8 +2835,8 @@ async def kb_realized_feed_import(request: Request) -> JSONResponse:
     if not isinstance(selected, list) or not selected or market not in {"kr", "domestic"}:
         raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST", "message": "Invalid KB import request"})
     market = "kr"
-    destination = _kb_destination(username, body.get("account_id"))
     _, label = _verify_kb_source_context(KBOpenAPI(username=username), source_key)
+    destination = _kb_destination(username, body.get("account_id"), source_key)
     valid, error = verify_kb_import_preview_ticket(
         str(body.get("preview_ticket") or ""), account_id=str(destination["id"]),
         items_hash=_broker_import_items_hash(compute_kb_items_hash(selected), selected),
@@ -2531,6 +2885,7 @@ async def kb_realized_feed_import(request: Request) -> JSONResponse:
                 "source_account_key": source_key,
                 "source_account_scope": f"kb:{source_key}",
                 "source_scope_verified": False,
+                "account_id": destination_id,
                 "destination_account_id": destination_id,
                 "imported_by_user_action": True,
                 "imported_at": now,
@@ -2625,22 +2980,12 @@ def _write_kiwoom_mapping(username: str, source_key: str, destination_id: str) -
     return True
 
 
-def _kiwoom_destination(username: str, account_id: object) -> dict[str, Any]:
-    if not isinstance(account_id, str) or not account_id.strip():
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "DESTINATION_INVALID", "message": "Explicit destination account is required"},
-        )
-    account = next(
-        (item for item in read_portfolio(username=username).get("accounts", []) if str(item.get("id")) == account_id.strip()),
-        None,
+def _kiwoom_destination(username: str, account_id: object, source_key: str, acct_no: str) -> dict[str, Any]:
+    return _require_realized_destination(
+        username, "kiwoom", account_id,
+        provider_account_identity=acct_no,
+        mapped_destination_account_id=_read_kiwoom_mapping(username).get(source_key),
     )
-    if not account:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "DESTINATION_INVALID", "message": "Destination account not found"},
-        )
-    return account
 
 
 def _read_kiwoom_pnl_records_strict(username: str) -> list[dict[str, Any]]:
@@ -2692,9 +3037,9 @@ def _kiwoom_imported_items_match_destination(
 
 async def _verify_kiwoom_source_context(
     client: KiwoomOpenAPI, source_key: str,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     try:
-        current_key, label = await client.get_realized_source_account_state()
+        account_no, current_key, label = await client.get_realized_source_account_context()
     except KiwoomOpenAPIError as exc:
         raise HTTPException(
             status_code=502,
@@ -2705,7 +3050,7 @@ async def _verify_kiwoom_source_context(
             status_code=400,
             detail={"code": "SCOPE_MISMATCH", "message": "Kiwoom source account changed"},
         )
-    return current_key, label
+    return account_no, current_key, label
 
 
 @app.get("/api/kiwoom/status")
@@ -2718,14 +3063,17 @@ async def kiwoom_status(request: Request) -> JSONResponse:
             headers={"Cache-Control": "no-store"},
         )
     try:
-        source_key, label = await client.get_realized_source_account_state()
+        account_no, source_key, label = await client.get_realized_source_account_context()
         mapping = _read_kiwoom_mapping(username)
-        valid_ids = {str(item.get("id")) for item in read_portfolio(username=username).get("accounts", [])}
-        mapped = mapping.get(source_key)
+        resolution = _realized_destination_resolution(
+            username, "kiwoom", provider_account_identity=account_no,
+            mapped_destination_account_id=mapping.get(source_key),
+        )
         account = {
             "source_account_key": source_key,
             "source_account_label": label,
-            "mapped_destination_account_id": mapped if mapped in valid_ids else None,
+            "mapped_destination_account_id": resolution.auto_selected_account_id if resolution.mapping_status == "valid" else None,
+            **_realized_destination_payload(resolution),
             "source_scope_verified": False,
         }
         return JSONResponse(
@@ -2782,8 +3130,8 @@ async def kiwoom_realized_feed_import_preview(request: Request) -> JSONResponse:
     source_key = str(body.get("source_account_key") or "")
     if not isinstance(selected, list) or not selected or market not in {"kr", "us"}:
         raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST", "message": "Invalid Kiwoom preview request"})
-    destination = _kiwoom_destination(username, body.get("account_id"))
-    _, label = await _verify_kiwoom_source_context(KiwoomOpenAPI(username=username), source_key)
+    account_no, _, label = await _verify_kiwoom_source_context(KiwoomOpenAPI(username=username), source_key)
+    destination = _kiwoom_destination(username, body.get("account_id"), source_key, account_no)
     result = preview_kiwoom_realized_selection(
         selected, destination, _read_kiwoom_pnl_records_strict(username),
         user_id=str(user_id), source_account_key=source_key,
@@ -2809,8 +3157,8 @@ async def kiwoom_realized_feed_import(request: Request) -> JSONResponse:
     source_key = str(body.get("source_account_key") or "")
     if not isinstance(selected, list) or not selected or market not in {"kr", "us"}:
         raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST", "message": "Invalid Kiwoom import request"})
-    destination = _kiwoom_destination(username, body.get("account_id"))
-    _, label = await _verify_kiwoom_source_context(KiwoomOpenAPI(username=username), source_key)
+    account_no, _, label = await _verify_kiwoom_source_context(KiwoomOpenAPI(username=username), source_key)
+    destination = _kiwoom_destination(username, body.get("account_id"), source_key, account_no)
     valid, error = verify_kiwoom_import_preview_ticket(
         str(body.get("preview_ticket") or ""), account_id=str(destination["id"]),
         items_hash=_broker_import_items_hash(compute_kiwoom_items_hash(selected), selected), user_id=str(user_id),
@@ -2860,6 +3208,7 @@ async def kiwoom_realized_feed_import(request: Request) -> JSONResponse:
                 "source_account_label": label,
                 "source_account_scope": f"kiwoom:{source_key}",
                 "source_scope_verified": False,
+                "account_id": destination_id,
                 "destination_account_id": destination_id,
                 "imported_by_user_action": True,
                 "imported_at": now,
@@ -3348,20 +3697,24 @@ async def rename_family_member(old_name: str, request: Request) -> dict:
     new_name = (body.get("name") or "").strip()
     if not new_name:
         raise HTTPException(400, "새 이름을 입력해 주세요.")
-    data = read_portfolio(username=username)
-    members = get_family_members(data)
-    if old_name not in members:
-        raise HTTPException(404, "구성원을 찾지 못했습니다.")
-    if new_name in members and new_name != old_name:
-        raise HTTPException(409, "이미 존재하는 이름입니다.")
-    members = [new_name if m == old_name else m for m in members]
-    data.setdefault("settings", {})["family_members"] = members
-    # Update all accounts with old_name owner -> new_name
-    for acct in data.get("accounts", []):
-        if acct.get("owner") == old_name:
-            acct["owner"] = new_name
-    write_portfolio(data, username=username)
-    return {"members": members, "message": f"'{old_name}' -> '{new_name}'으로 이름을 변경했습니다."}
+    from app.services.family_members import (
+        FamilyMemberRenameError,
+        IpoApplicantRenameCollision,
+        rename_family_member_references,
+    )
+    try:
+        result = rename_family_member_references(username, old_name, new_name)
+    except FamilyMemberRenameError as exc:
+        code = str(exc)
+        if isinstance(exc, IpoApplicantRenameCollision):
+            raise HTTPException(409, detail={"code": "IPO_APPLICANT_RENAME_COLLISION", "message": "IPO applicant rename conflicts"}) from exc
+        if code == "FAMILY_MEMBER_NOT_FOUND":
+            raise HTTPException(404, "구성원을 찾지 못했습니다.") from exc
+        if code == "FAMILY_MEMBER_EXISTS":
+            raise HTTPException(409, "이미 존재하는 이름입니다.") from exc
+        raise HTTPException(400, "가족 구성원 이름을 변경할 수 없습니다.") from exc
+    return {"members": result["members"], "ipo_revision": result["ipo_revision"],
+            "message": f"'{old_name}' -> '{new_name}'으로 이름을 변경했습니다."}
 
 @app.delete("/api/family-members/{member_name}")
 async def delete_family_member(member_name: str, request: Request) -> dict:

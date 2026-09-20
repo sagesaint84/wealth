@@ -26,6 +26,7 @@ class KiwoomBackendOrchestrationTests(IsolatedDataTestCase):
         self.user_id = generate_user_id()
         self.source_key = "a" * 64
         self.source_label = "******7890"
+        self.provider_account_no = "1234567890"
         self.destination = {
             "id": "kiwoom-destination", "broker": "키움증권",
             "name": "Synthetic account", "account_name": "Synthetic account", "owner": "본인",
@@ -42,8 +43,9 @@ class KiwoomBackendOrchestrationTests(IsolatedDataTestCase):
                 "kiwoom": {"app_key": "SYNTHETIC", "app_secret": "SYNTHETIC"},
             }),
             patch(
-                "app.services.kiwoom_openapi.KiwoomOpenAPI.get_realized_source_account_state",
-                new_callable=AsyncMock, return_value=(self.source_key, self.source_label),
+                "app.services.kiwoom_openapi.KiwoomOpenAPI.get_realized_source_account_context",
+                new_callable=AsyncMock,
+                return_value=(self.provider_account_no, self.source_key, self.source_label),
             ),
         ]
         for patcher in self.extra_patchers:
@@ -118,6 +120,16 @@ class KiwoomBackendOrchestrationTests(IsolatedDataTestCase):
         self.assertFalse(fetched.json()["source_scope_verified"])
         self.assertNotIn("acctNo", fetched.text)
 
+    def test_cross_broker_destination_is_rejected(self):
+        foreign = {"id": "foreign-kis", "broker": "한국투자증권", "name": "not Kiwoom"}
+        portfolio.write_portfolio(
+            {"accounts": [self.destination, foreign], "holdings": [], "settings": {"fx_rates": {"KRW": 1.0}}},
+            self.username,
+        )
+        response = self.preview("kr", destination_id=foreign["id"])
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"]["code"], "DESTINATION_BROKER_MISMATCH")
+
     def test_domestic_preview_import_repreview_replay_and_provenance(self):
         selected = self.selected("kr")
         pnl_file = pnl_records._get_pnl_file(self.username)
@@ -134,6 +146,8 @@ class KiwoomBackendOrchestrationTests(IsolatedDataTestCase):
         self.assertEqual(len(records), 1)
         record = records[0]
         self.assertEqual(record["source"], "kiwoom")
+        self.assertEqual(record["account_id"], self.destination["id"])
+        self.assertEqual(record["destination_account_id"], self.destination["id"])
         self.assertFalse(record["source_scope_verified"])
         self.assertEqual(record["pnl"], 17.0)
         self.assertEqual(record["buy_amount"], "20")
@@ -324,8 +338,9 @@ class KiwoomBackendOrchestrationTests(IsolatedDataTestCase):
         self.assertFalse(self.main._kiwoom_mapping_file(self.username).exists())
 
         with patch(
-            "app.services.kiwoom_openapi.KiwoomOpenAPI.get_realized_source_account_state",
-            new_callable=AsyncMock, return_value=("different-source", self.source_label),
+            "app.services.kiwoom_openapi.KiwoomOpenAPI.get_realized_source_account_context",
+            new_callable=AsyncMock,
+            return_value=(self.provider_account_no, "different-source", self.source_label),
         ):
             mismatch = self.preview("kr", selected)
         self.assertEqual(mismatch.status_code, 400)

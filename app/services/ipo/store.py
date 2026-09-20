@@ -12,6 +12,11 @@ DATA_DIR = ROOT_DIR / "data" / "ipo"
 
 _STORE_LOCK = threading.RLock()
 
+_CRITICAL_RETAINED_FIELDS = {
+    "lead_managers", "final_offer_price", "expected_listing_date",
+    "actual_listing_date", "stock_code", "corp_code",
+}
+
 
 class IpoStorageError(RuntimeError):
     """Raised when IPO market store is corrupt or unreadable."""
@@ -62,9 +67,38 @@ def _read_market_store_unlocked() -> dict[str, Any]:
     return data
 
 
-def _write_market_store_unlocked(data: dict[str, Any]) -> None:
+def read_market_store_read_only() -> dict[str, Any]:
+    """Read the market snapshot without bootstrapping a missing file."""
+    with _STORE_LOCK:
+        f = get_market_file()
+        if not f.exists():
+            return default_market_store()
+        return _read_market_store_unlocked()
+
+
+def validate_market_store(data: dict[str, Any]) -> None:
     if not isinstance(data, dict) or not isinstance(data.get("ipos"), list):
         raise IpoStorageError("Refusing to write invalid IPO market store")
+    seen_ids: set[str] = set()
+    seen_stock_codes: set[str] = set()
+    for item in data["ipos"]:
+        if not isinstance(item, dict):
+            raise IpoStorageError("IPO market store contains a non-object IPO record")
+        ipo_id = item.get("ipo_id")
+        if not isinstance(ipo_id, str) or not ipo_id.strip():
+            raise IpoStorageError("IPO market store contains an IPO record without ipo_id")
+        if ipo_id in seen_ids:
+            raise IpoStorageError("IPO market store contains duplicate ipo_id")
+        seen_ids.add(ipo_id)
+        stock_code = str(item.get("stock_code") or "").strip()
+        if stock_code:
+            if stock_code in seen_stock_codes:
+                raise IpoStorageError("IPO market store contains duplicate stock_code")
+            seen_stock_codes.add(stock_code)
+
+
+def _write_market_store_unlocked(data: dict[str, Any]) -> None:
+    validate_market_store(data)
 
     f = get_market_file()
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -72,9 +106,13 @@ def _write_market_store_unlocked(data: dict[str, Any]) -> None:
     data.setdefault("schema_version", 1)
 
     temp_path = f.with_suffix(".tmp")
-    with open(temp_path, "w", encoding="utf-8") as fp:
-        json.dump(data, fp, ensure_ascii=False, indent=2)
-    temp_path.replace(f)
+    try:
+        with open(temp_path, "w", encoding="utf-8") as fp:
+            json.dump(data, fp, ensure_ascii=False, indent=2, allow_nan=False)
+        temp_path.replace(f)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
 
 
 def read_market_store() -> dict[str, Any]:
@@ -101,74 +139,75 @@ def upsert_ipo_record(incoming: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     """
     with _STORE_LOCK:
         store = _read_market_store_unlocked()
-        existing_list = store.get("ipos", [])
-
-        matched, review_required = find_matching_ipo(incoming, existing_list)
+        target_record, review_required = merge_ipo_record(store, incoming)
         if review_required:
-            return incoming, True
-
-        now_iso = datetime.now().astimezone().isoformat()
-
-        if matched is not None:
-            # Merge incoming into matched
-            for k, v in incoming.items():
-                if k in {"expected_listing_date", "actual_listing_date"}:
-                    # A missing/blank fresh source value is never a deletion signal
-                    # for listing dates. Other fields intentionally retain their
-                    # existing merge semantics.
-                    incoming_date = str(v or "").strip()
-                    existing_date = str(matched.get(k) or "").strip()
-                    if not incoming_date and existing_date:
-                        continue
-                if k == "features" and isinstance(v, dict):
-                    existing_feats = matched.setdefault("features", {})
-                    for feat_name, new_feat in v.items():
-                        if not isinstance(new_feat, dict):
-                            existing_feats[feat_name] = new_feat
-                            continue
-
-                        new_status = new_feat.get("status")
-                        old_feat = existing_feats.get(feat_name)
-                        # Protect existing good feature
-                        if (
-                            isinstance(old_feat, dict)
-                            and old_feat.get("status") == "ok"
-                            and old_feat.get("value") is not None
-                            and new_status in ("parse_error", "source_error", "schema_mismatch")
-                        ):
-                            # Preserve existing good value and status, but record source status/warning if provided
-                            if "source_status" in new_feat:
-                                old_feat["source_status"] = new_feat["source_status"]
-                        else:
-                            existing_feats[feat_name] = new_feat
-                elif v is not None or k not in matched:
-                    if isinstance(v, dict) and isinstance(matched.get(k), dict):
-                        matched[k].update(v)
-                    else:
-                        matched[k] = v
-
-            matched["updated_at"] = now_iso
-            target_record = matched
-        else:
-            rec_dict = dict(incoming)
-            if not rec_dict.get("ipo_id"):
-                rec_dict["ipo_id"] = generate_ipo_id(
-                    company_name=rec_dict.get("company_name", ""),
-                    stock_code=rec_dict.get("stock_code"),
-                    corp_code=rec_dict.get("corp_code"),
-                    subscription_start=rec_dict.get("subscription_start"),
-                )
-            rec_dict.setdefault("listing_track", "general")
-            rec_dict.setdefault("lead_managers", [])
-            rec_dict.setdefault("features", {})
-            rec_dict.setdefault("score", {})
-            rec_dict.setdefault("sources", {})
-            rec_dict["updated_at"] = now_iso
-            existing_list.append(rec_dict)
-            target_record = rec_dict
-
+            return target_record, True
         _write_market_store_unlocked(store)
         return target_record, False
+
+
+def merge_ipo_record(store: dict[str, Any], incoming: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Merge one source item into an in-memory store; never writes to disk."""
+    existing_list = store.get("ipos", [])
+
+    matched, review_required = find_matching_ipo(incoming, existing_list)
+    if review_required:
+        return incoming, True
+
+    now_iso = datetime.now().astimezone().isoformat()
+
+    if matched is not None:
+        canonical_ipo_id = matched.get("ipo_id")
+        for k, v in incoming.items():
+            if k == "ipo_id":
+                continue
+            if k in _CRITICAL_RETAINED_FIELDS:
+                existing_value = matched.get(k)
+                incoming_blank = (not v) if k == "lead_managers" else (v is None or (isinstance(v, str) and not v.strip()) or (k == "final_offer_price" and v == 0))
+                if incoming_blank and existing_value not in (None, "", []):
+                    continue
+            if k == "features" and isinstance(v, dict):
+                existing_feats = matched.setdefault("features", {})
+                for feat_name, new_feat in v.items():
+                    if not isinstance(new_feat, dict):
+                        existing_feats[feat_name] = new_feat
+                        continue
+                    new_status = new_feat.get("status")
+                    old_feat = existing_feats.get(feat_name)
+                    if (isinstance(old_feat, dict) and old_feat.get("status") == "ok"
+                            and old_feat.get("value") is not None
+                            and new_status in ("parse_error", "source_error", "schema_mismatch")):
+                        if "source_status" in new_feat:
+                            old_feat["source_status"] = new_feat["source_status"]
+                    else:
+                        existing_feats[feat_name] = new_feat
+            elif v is not None or k not in matched:
+                if isinstance(v, dict) and isinstance(matched.get(k), dict):
+                    matched[k].update(v)
+                else:
+                    matched[k] = v
+
+        matched["ipo_id"] = canonical_ipo_id
+        matched["updated_at"] = now_iso
+        target_record = matched
+    else:
+        rec_dict = dict(incoming)
+        if not rec_dict.get("ipo_id"):
+            rec_dict["ipo_id"] = generate_ipo_id(
+                company_name=rec_dict.get("company_name", ""),
+                stock_code=rec_dict.get("stock_code"),
+                corp_code=rec_dict.get("corp_code"),
+                subscription_start=rec_dict.get("subscription_start"),
+            )
+        rec_dict.setdefault("listing_track", "general")
+        rec_dict.setdefault("lead_managers", [])
+        rec_dict.setdefault("features", {})
+        rec_dict.setdefault("score", {})
+        rec_dict.setdefault("sources", {})
+        rec_dict["updated_at"] = now_iso
+        existing_list.append(rec_dict)
+        target_record = rec_dict
+    return target_record, False
 
 
 def get_ipo_calendar_events(

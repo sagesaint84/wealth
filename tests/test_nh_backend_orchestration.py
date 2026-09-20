@@ -62,6 +62,16 @@ class NhBackendOrchestrationTests(IsolatedDataTestCase):
             response=self.client.post("/api/nh/realized-feed/fetch",headers=self.headers(),json={"market":"kr","source_account_key":self.source_key,"from_date":"20260101","to_date":"20260131"})
         self.assertEqual(response.status_code,200); self.assertNotIn(self.account_no,response.text)
 
+    def test_cross_broker_destination_is_rejected(self):
+        foreign = {"id":"foreign-kiwoom","broker":"키움증권","name":"not NH"}
+        portfolio.write_portfolio({"accounts":[self.destination, foreign],"holdings":[],"settings":{"fx_rates":{"KRW":1.0}}},self.username)
+        response = self.client.post("/api/nh/realized-feed/import-preview", headers=self.headers(), json={
+            "market":"kr", "source_account_key":self.source_key, "account_id":foreign["id"],
+            "selected_items":self.selected("kr"),
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"]["code"], "DESTINATION_BROKER_MISMATCH")
+
     def test_domestic_preview_import_repreview_and_replay(self):
         selected=self.selected("kr"); pnl_file=pnl_records._get_pnl_file(self.username); self.assertFalse(pnl_file.exists())
         preview=self.preview("kr",selected); self.assertEqual(preview.status_code,200); pdata=preview.json()
@@ -71,6 +81,8 @@ class NhBackendOrchestrationTests(IsolatedDataTestCase):
         imported=self.client.post("/api/nh/realized-feed/import",headers=self.headers(),json=payload); self.assertEqual(imported.json()["imported"],1)
         records=pnl_records.read_pnl_records(self.username); self.assertEqual(len(records),1); rec=records[0]
         self.assertEqual(rec["source"],"nh"); self.assertTrue(rec["source_scope_verified"]); self.assertNotIn("selection_token",rec); self.assertNotIn("preview_ticket",rec)
+        self.assertEqual(rec["account_id"], self.destination["id"])
+        self.assertEqual(rec["destination_account_id"], self.destination["id"])
         self.assertNotIn(self.account_no,json.dumps(rec))
         self.assertEqual(self.main._read_nh_mapping(self.username)[self.source_key],self.destination["id"])
         self.assertEqual(self.preview("kr",selected).json()["counts"]["already_imported"],1)

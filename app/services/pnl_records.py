@@ -29,6 +29,14 @@ class PnlRecordsStorageError(RuntimeError):
     """Existing realized-P/L storage could not be read safely."""
 
 
+class PnlRecordLinkedToIpoError(RuntimeError):
+    """Raised instead of silently breaking an IPO allocation relation."""
+
+
+class PnlRecordsLinkedToIpoError(RuntimeError):
+    """Raised instead of partially clearing realized P/L linked to IPOs."""
+
+
 def _finite_optional_float(value: Any, field: str) -> float | None:
     if value is None or value == "":
         return None
@@ -214,6 +222,7 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
         "is_ipo": is_ipo,
         "owner": str(payload.get("owner", "모두")).strip(),
         "broker": str(payload.get("broker", "")).strip(),
+        "account_id": str(payload.get("account_id", "")).strip(),
         "account_name": str(payload.get("account_name", "")).strip(),
         "memo": str(payload.get("memo", "")).strip(),
         "created_at": now_iso,
@@ -358,13 +367,19 @@ def update_pnl_record(record_id: str, payload: dict[str, Any], username: str | N
 
 
 def delete_pnl_record(record_id: str, username: str | None = None) -> bool:
-    records = read_pnl_records(username)
-    initial_len = len(records)
-    records = [r for r in records if r.get("id") != record_id]
-    if len(records) < initial_len:
-        write_pnl_records(records, username)
+    # The IPO application and the ledger must be inspected under the same
+    # portfolio lock used by link/unlink.  Never cascade-remove a relation.
+    from app.services import portfolio
+    from app.services.ipo.link_integrity import linked_pnl_reference_counts_from_file
+    with portfolio._LOCK:
+        records = read_pnl_records(username)
+        if not any(str(r.get("id") or "") == str(record_id) for r in records):
+            return False
+        references = linked_pnl_reference_counts_from_file(portfolio._get_portfolio_file(username))
+        if references.get(str(record_id), 0):
+            raise PnlRecordLinkedToIpoError("PNL_RECORD_LINKED_TO_IPO")
+        write_pnl_records([r for r in records if r.get("id") != record_id], username)
         return True
-    return False
 
 
 def is_real_estate_pnl_record(r: dict[str, Any]) -> bool:
@@ -382,9 +397,16 @@ def is_real_estate_pnl_record(r: dict[str, Any]) -> bool:
 
 def clear_pnl_records(username: str | None = None) -> None:
     """주식/공모주 실현손익만 초기화하고, 부동산 매도 기록은 안전하게 보존합니다."""
-    records = read_pnl_records(username)
-    preserved = [r for r in records if is_real_estate_pnl_record(r)]
-    write_pnl_records(preserved, username)
+    from app.services import portfolio
+    from app.services.ipo.link_integrity import linked_pnl_reference_counts_from_file
+    with portfolio._LOCK:
+        records = read_pnl_records(username)
+        removable_ids = {str(r.get("id") or "") for r in records if not is_real_estate_pnl_record(r)}
+        references = linked_pnl_reference_counts_from_file(portfolio._get_portfolio_file(username))
+        if removable_ids.intersection(references):
+            raise PnlRecordsLinkedToIpoError("PNL_RECORDS_LINKED_TO_IPO")
+        preserved = [r for r in records if is_real_estate_pnl_record(r)]
+        write_pnl_records(preserved, username)
 
 
 def _parse_pnl_summary_date(value: Any) -> datetime | None:

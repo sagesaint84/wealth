@@ -110,6 +110,37 @@ class IpoStoreTests(unittest.TestCase):
         })
         self.assertEqual(updated["actual_listing_date"], "2026-10-02")
 
+    def test_identity_upgrade_keeps_existing_ipo_id_and_critical_values(self):
+        upsert_ipo_record({
+            "ipo_id": "ipo_corp_identity", "company_name": "안정기업", "corp_code": "00123456",
+            "final_offer_price": 20000, "lead_managers": ["증권사"],
+        })
+        saved, review = upsert_ipo_record({
+            "ipo_id": "ipo_new_stock_identity", "company_name": "안정기업", "corp_code": "00123456",
+            "stock_code": "123456", "final_offer_price": 0, "lead_managers": [],
+        })
+        self.assertFalse(review)
+        self.assertEqual(saved["ipo_id"], "ipo_corp_identity")
+        self.assertEqual(saved["stock_code"], "123456")
+        self.assertEqual(saved["final_offer_price"], 20000)
+        self.assertEqual(saved["lead_managers"], ["증권사"])
+
+    def test_duplicate_ipo_id_is_rejected_before_write(self):
+        with self.assertRaises(IpoStorageError):
+            write_market_store({"schema_version": 1, "ipos": [
+                {"ipo_id": "same"}, {"ipo_id": "same"},
+            ]})
+
+    def test_nan_serialization_fails_without_replacing_existing_store(self):
+        write_market_store({"schema_version": 1, "ipos": [{"ipo_id": "existing"}]})
+        before = self.market_file.read_bytes()
+        with self.assertRaises(ValueError):
+            write_market_store({"schema_version": 1, "ipos": [
+                {"ipo_id": "candidate", "final_offer_price": float("nan")},
+            ]})
+        self.assertEqual(self.market_file.read_bytes(), before)
+        self.assertFalse(self.market_file.with_suffix(".tmp").exists())
+
     def test_atomic_upsert_concurrent_threads(self):
         # Concurrently upsert records to verify thread safety
         errors = []

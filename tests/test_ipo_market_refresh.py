@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.services import portfolio
-from app.services.ipo.orchestrator import refresh_ipo_market, run_ipo_daily_pipeline
+from app.services.ipo.orchestrator import IpoRefreshAlreadyRunning, refresh_ipo_market, run_ipo_daily_pipeline
 from app.services.ipo.store import read_market_store
 
 
@@ -153,6 +153,15 @@ class IpoMarketRefreshTests(unittest.TestCase):
         self.assertEqual(response.headers.get("cache-control"), "no-store")
         self.assertEqual(response.json()["detail"]["code"], "IPO_MARKET_REFRESH_FAILED")
         self.assertEqual(response.json()["detail"]["message"], "공모주 일정 동기화에 실패했습니다. 기존 데이터를 유지합니다.")
+
+    def test_refresh_api_lock_conflict_is_409_and_not_cacheable(self):
+        token = main._serializer.dumps({"user": self.username, "role": "user"})
+        with patch("app.services.ipo.orchestrator.refresh_ipo_market", side_effect=IpoRefreshAlreadyRunning()), \
+             patch("app.services.user_manager.get_user_by_name", return_value={"username": self.username, "role": "user"}):
+            response = TestClient(main.app).post("/api/ipo/market/refresh", headers={"Cookie": f"{main.COOKIE_NAME}={token}"})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.headers.get("cache-control"), "no-store")
+        self.assertEqual(response.json()["detail"]["code"], "IPO_REFRESH_ALREADY_RUNNING")
 
     def test_refresh_api_preserved_primary_failure_returns_502_without_changing_store(self):
         token = main._serializer.dumps({"user": self.username, "role": "user"})

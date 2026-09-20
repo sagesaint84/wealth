@@ -298,7 +298,11 @@ class BrokerRealizedSecondChanceModalContractTests(IsolatedDataTestCase):
         with patch.dict(os.environ, {"WEALTH_ENV": "test", "WEALTH_TEST_SIGNING_SECRET": "synthetic-second-chance-secret", "DASHBOARD_SECRET_KEY": "synthetic-second-chance-secret"}, clear=False), \
              patch("app.services.user_manager.get_user_by_name", return_value={"username": username, "id": user_id, "role": "user", "must_change_password": False}), \
              patch.object(user_openapi, "get_user_openapi_config", return_value={"kiwoom": {"app_key": "SYN", "app_secret": "SYN"}}), \
-             patch("app.services.kiwoom_openapi.KiwoomOpenAPI.get_realized_source_account_state", new_callable=AsyncMock, return_value=(source_key, "******1234")):
+             patch(
+                 "app.services.kiwoom_openapi.KiwoomOpenAPI.get_realized_source_account_context",
+                 new_callable=AsyncMock,
+                 return_value=("1234567890", source_key, "******1234"),
+             ):
 
 
             raw_row = {

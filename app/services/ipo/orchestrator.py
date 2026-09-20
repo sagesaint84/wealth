@@ -20,8 +20,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
 import asyncio
+import copy
+from contextlib import contextmanager
 import logging
+import os
 import re
+import threading
 from typing import Any
 
 KST = timezone(timedelta(hours=9))
@@ -49,11 +53,56 @@ from app.services.ipo.notifier import IpoTelegramNotifier
 from app.services.ipo.score import calculate_wealth_ipo_score
 from app.services.ipo.store import (
     read_market_store,
-    upsert_ipo_record,
+    merge_ipo_record,
     write_market_store,
 )
 
 logger = logging.getLogger(__name__)
+_REFRESH_THREAD_LOCK = threading.Lock()
+
+
+class IpoRefreshAlreadyRunning(RuntimeError):
+    pass
+
+
+@contextmanager
+def _refresh_file_lock():
+    """Non-blocking advisory lock shared by API and host-process refreshes."""
+    if not _REFRESH_THREAD_LOCK.acquire(blocking=False):
+        raise IpoRefreshAlreadyRunning("IPO_REFRESH_ALREADY_RUNNING")
+    from app.services.ipo.store import get_ipo_data_dir
+    path = get_ipo_data_dir() / "market.refresh.lock"
+    handle = None
+    try:
+        handle = open(path, "a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+                handle.seek(0)
+                if handle.tell() == 0:
+                    handle.write(b"0")
+                    handle.flush()
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise IpoRefreshAlreadyRunning("IPO_REFRESH_ALREADY_RUNNING") from exc
+        yield
+    finally:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                handle.seek(0); msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        if handle is not None:
+            handle.close()
+        _REFRESH_THREAD_LOCK.release()
 
 
 def _kis_schedule_window(target_date_str: str) -> tuple[str, str]:
@@ -304,11 +353,29 @@ def run_ipo_daily_pipeline(
     naver_client: NaverIpoClient | None = None,
     market_only: bool = False,
 ) -> dict[str, Any]:
+    with _refresh_file_lock():
+        return _run_ipo_daily_pipeline(
+            kind_client=kind_client, krx_client=krx_client, dart_client=dart_client,
+            notifier=notifier, target_date_str=target_date_str, dry_run=dry_run,
+            username=username, kis_client=kis_client, naver_client=naver_client,
+            market_only=market_only,
+        )
+
+
+def _run_ipo_daily_pipeline(
+    kind_client: KindClient | None = None, krx_client: KrxClient | None = None,
+    dart_client: DartClient | None = None, notifier: IpoTelegramNotifier | None = None,
+    target_date_str: str | None = None, dry_run: bool = False, username: str | None = None,
+    kis_client: KISOpenAPI | None = None, naver_client: NaverIpoClient | None = None,
+    market_only: bool = False,
+) -> dict[str, Any]:
     """Runs the daily IPO refresh and notification pipeline."""
     if not target_date_str:
         target_date_str = datetime.now(KST).strftime("%Y-%m-%d")
 
     sources_status: dict[str, str] = {}
+    # Refresh always reconciles one immutable in-memory snapshot and writes once.
+    market = copy.deepcopy(read_market_store())
 
     # 1. Source availability check
     kind = kind_client or KindClient()
@@ -385,7 +452,7 @@ def run_ipo_daily_pipeline(
                     sources = item.setdefault("sources", {})
                     kis_source = sources.setdefault("kis", {})
                     kis_source["listing_events"] = events
-                _, review_required = upsert_ipo_record(item)
+                _, review_required = merge_ipo_record(market, item)
                 review_required_count += int(review_required)
 
             sources_status["kis"] = (
@@ -420,7 +487,7 @@ def run_ipo_daily_pipeline(
                     "kind_bz_procs_no": item.get("kind_bz_procs_no"),
                     "observed_at": observed_at,
                 }
-                upsert_ipo_record(item)
+                merge_ipo_record(market, item)
         except ExternalNetworkDisabled:
             sources_status["kind"] = "source_unavailable (external_network_disabled)"
         except Exception as e:
@@ -436,7 +503,7 @@ def run_ipo_daily_pipeline(
     else:
         try:
             # Check market store for candidate IPOs needing DART filing/feature sync
-            existing_store = read_market_store()
+            existing_store = market
             candidates = [
                 ipo for ipo in existing_store.get("ipos", [])
                 if ipo.get("corp_code")
@@ -525,7 +592,7 @@ def run_ipo_daily_pipeline(
                             "dart": dart_meta,
                         },
                     }
-                    upsert_ipo_record(update_payload)
+                    merge_ipo_record(market, update_payload)
                     dart_sync_count += 1
 
             if dart_sync_count > 0:
@@ -576,7 +643,6 @@ def run_ipo_daily_pipeline(
         sources_status["naver"] = f"source_error ({e})"
 
     # 6. Reconcile: load existing market store (NEVER overwrite with empty if sources fail)
-    market = read_market_store()
     ipos = market.get("ipos", [])
 
     if krx_fetch_ok and naver_fetch_ok:

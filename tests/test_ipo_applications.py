@@ -8,7 +8,11 @@ from fastapi.testclient import TestClient
 
 import app.main as main
 from app.services.ipo.applications import (
+    ApplicationAccountMappingConflict,
     get_user_applications,
+    resolve_user_application_account,
+    remap_user_application_account,
+    set_user_application_account,
     update_user_application,
     ApplicationRevisionConflict,
     InvalidApplicationError,
@@ -39,7 +43,12 @@ class IpoApplicationsTests(unittest.TestCase):
                 "family_members": ["아빠", "엄마", "자녀"],
                 "ipo": {"revision": 0, "applications": {}},
             },
-            "accounts": [],
+            "accounts": [
+                {"id": "mirae-general", "broker": "미래에셋증권", "account_name": "일반", "owner": "아빠", "account_type": "general"},
+                {"id": "mirae-isa", "broker": "미래에셋대우", "account_name": "ISA", "owner": "아빠", "account_type": "isa"},
+                {"id": "kb-account", "broker": "KB증권", "account_name": "KB", "owner": "아빠"},
+                {"id": "hyundai-account", "broker": "현대차증권", "account_name": "현대차", "owner": "엄마"},
+            ],
             "holdings": [],
         }
         write_portfolio(initial_portfolio, username=self.username)
@@ -229,6 +238,112 @@ class IpoApplicationsTests(unittest.TestCase):
                 json={"applied_owners": ["모두"], "revision": 1},
             )
             self.assertEqual(bad_resp.status_code, 400)
+
+    def test_applicant_account_resolution_and_persistence_are_broker_scoped(self):
+        update_user_application(self.username, "ipo_mirae", ["아빠"], 0)
+        result = resolve_user_application_account(
+            self.username, "ipo_mirae", "아빠", "미래에셋대우",
+        )
+        self.assertEqual(result.broker_id, "mirae")
+        self.assertEqual(result.resolution_status, "AMBIGUOUS_ACCOUNT")
+        self.assertEqual({item["account_id"] for item in result.candidates}, {"mirae-general", "mirae-isa"})
+        self.assertNotIn("kb-account", {item["account_id"] for item in result.candidates})
+
+        saved = set_user_application_account(
+            self.username, "ipo_mirae", "아빠", "mirae", "mirae-isa", 1,
+        )
+        self.assertEqual(saved["account_id"], "mirae-isa")
+        app = get_user_applications(self.username)["applications"]["ipo_mirae"]
+        self.assertEqual(app["applicants"]["아빠"], {"broker_id": "mirae", "account_id": "mirae-isa"})
+
+        with self.assertRaises(ApplicationAccountMappingConflict):
+            set_user_application_account(
+                self.username, "ipo_mirae", "아빠", "mirae", "mirae-general", 2,
+            )
+
+    def test_applicant_account_rejects_cross_broker_and_preserves_hyundai_kb_distinction(self):
+        update_user_application(self.username, "ipo_hyundai", ["엄마"], 0)
+        with self.assertRaisesRegex(InvalidApplicationError, "DESTINATION_BROKER_MISMATCH"):
+            set_user_application_account(
+                self.username, "ipo_hyundai", "엄마", "현대차증권", "kb-account", 1,
+            )
+        result = resolve_user_application_account(
+            self.username, "ipo_hyundai", "엄마", "현대차증권",
+        )
+        self.assertEqual(result.broker_id, "hyundai")
+        self.assertEqual(result.auto_selected_account_id, "hyundai-account")
+
+    def test_explicit_remap_requires_compare_and_swap_and_keeps_other_applicants_intact(self):
+        update_user_application(self.username, "ipo_mirae", ["아빠", "엄마"], 0)
+        set_user_application_account(self.username, "ipo_mirae", "아빠", "mirae", "mirae-isa", 1)
+        set_user_application_account(self.username, "ipo_mirae", "엄마", "hyundai", "hyundai-account", 2)
+        with self.assertRaises(ApplicationAccountMappingConflict):
+            set_user_application_account(self.username, "ipo_mirae", "아빠", "mirae", "mirae-general", 3)
+        with self.assertRaises(ApplicationAccountMappingConflict):
+            remap_user_application_account(self.username, "ipo_mirae", "아빠", "mirae", "mirae-general", "wrong", 3)
+        remapped = remap_user_application_account(
+            self.username, "ipo_mirae", "아빠", "mirae", "mirae-general", "mirae-isa", 3,
+        )
+        self.assertEqual(remapped["resolution_status"], "REMAPPED")
+        self.assertEqual(remapped["revision"], 4)
+        same = remap_user_application_account(
+            self.username, "ipo_mirae", "아빠", "mirae", "mirae-general", "mirae-general", 4,
+        )
+        self.assertEqual(same["revision"], 4)
+        with self.assertRaises(ApplicationRevisionConflict):
+            remap_user_application_account(
+                self.username, "ipo_mirae", "아빠", "mirae", "mirae-isa", "mirae-general", 3,
+            )
+        with self.assertRaisesRegex(InvalidApplicationError, "DESTINATION_BROKER_MISMATCH"):
+            remap_user_application_account(
+                self.username, "ipo_mirae", "아빠", "mirae", "kb-account", "mirae-general", 4,
+            )
+        app = get_user_applications(self.username)["applications"]["ipo_mirae"]
+        self.assertEqual(app["applicants"]["아빠"]["account_id"], "mirae-general")
+        self.assertEqual(app["applicants"]["엄마"]["account_id"], "hyundai-account")
+
+    def test_account_candidate_api_and_persistence_endpoint_revalidate_market_broker(self):
+        client = TestClient(main.app)
+        token = main._serializer.dumps({"user": self.username, "role": "user"})
+        headers = {"Cookie": f"{main.COOKIE_NAME}={token}"}
+        fake_user = {"username": self.username, "role": "user"}
+        market = {"ipos": [{"ipo_id": "ipo_api_mirae", "lead_managers": ["미래에셋증권"]}]}
+        with patch("app.services.user_manager.get_user_by_name", return_value=fake_user), \
+             patch("app.services.ipo.store.read_market_store", return_value=market):
+            apply = client.put(
+                "/api/ipo/applications/ipo_api_mirae", headers=headers,
+                json={"applied_owners": ["아빠"], "revision": 0},
+            )
+            self.assertEqual(apply.status_code, 200)
+            brokers = client.get(
+                "/api/ipo/applications/ipo_api_mirae/broker-options",
+                headers=headers,
+            )
+            self.assertEqual(brokers.status_code, 200)
+            self.assertEqual(brokers.json()["brokers"], [{"broker_id": "mirae", "display_name": "미래에셋증권"}])
+            candidates = client.get(
+                "/api/ipo/applications/ipo_api_mirae/account-candidates?owner=%EC%95%84%EB%B9%A0&broker=%EB%AF%B8%EB%9E%98%EC%97%90%EC%85%8B%EB%8C%80%EC%9A%B0",
+                headers=headers,
+            )
+            self.assertEqual(candidates.status_code, 200)
+            self.assertEqual(candidates.json()["broker_id"], "mirae")
+            self.assertEqual(len(candidates.json()["candidates"]), 2)
+            self.assertNotIn("account_no", str(candidates.json()))
+
+            cross = client.put(
+                "/api/ipo/applications/ipo_api_mirae/applicants/%EC%95%84%EB%B9%A0/account",
+                headers=headers,
+                json={"broker": "미래에셋증권", "account_id": "kb-account", "revision": 1},
+            )
+            self.assertEqual(cross.status_code, 400)
+            self.assertEqual(cross.json()["detail"]["code"], "DESTINATION_BROKER_MISMATCH")
+            wrong_broker = client.put(
+                "/api/ipo/applications/ipo_api_mirae/applicants/%EC%95%84%EB%B9%A0/account/remap",
+                headers=headers,
+                json={"broker": "KB증권", "account_id": "kb-account", "expected_current_account_id": "mirae-isa", "revision": 1},
+            )
+            self.assertEqual(wrong_broker.status_code, 400)
+            self.assertEqual(wrong_broker.json()["detail"]["code"], "IPO_BROKER_NOT_AVAILABLE")
 
 
 if __name__ == "__main__":

@@ -9300,7 +9300,9 @@ async function openDividendRecordDialog(record = null) {
         </option>
       `).join('');
 
-    const matchedAcct = accounts.find(a => (record?.broker && a.broker === record.broker && record?.account_name && a.name === record.account_name) || (record?.account_id && a.id === record.account_id));
+    const matchedAcct = accounts.find(a => record?.account_id && a.id === record.account_id)
+      || accounts.find(a => record?.destination_account_id && a.id === record.destination_account_id)
+      || accounts.find(a => record?.broker && a.broker === record.broker && record?.account_name && a.name === record.account_name);
     acctSel.value = matchedAcct ? matchedAcct.id : "";
   }
 
@@ -9870,7 +9872,9 @@ async function openPnlRecordDialog(record = null) {
         </option>
       `).join('');
 
-    const matchedAcct = accounts.find(a => (record?.broker && a.broker === record.broker && record?.account_name && a.name === record.account_name) || (record?.account_id && a.id === record.account_id));
+    const matchedAcct = accounts.find(a => record?.account_id && a.id === record.account_id)
+      || accounts.find(a => record?.destination_account_id && a.id === record.destination_account_id)
+      || accounts.find(a => record?.broker && a.broker === record.broker && record?.account_name && a.name === record.account_name);
     acctSel.value = matchedAcct ? matchedAcct.id : "";
   }
 
@@ -13927,7 +13931,7 @@ async function checkKisStatus() {
     kisRealizedState.maskedAccount = data.masked_account || '';
     kisRealizedState.sourceAccountKey = data.source_account_key || '';
     kisRealizedState.sourceAccountLabel = data.source_account_label || data.masked_account || '';
-    kisRealizedState.mappedDestAccountId = data.mapped_destination_account_id || '';
+    kisRealizedState.mappedDestAccountId = data.auto_selected_account_id || data.mapped_destination_account_id || '';
 
     const bannerEl = document.getElementById('kisBannerText');
     if (!data.configured) {
@@ -14144,6 +14148,29 @@ function updateKisSelectionUI() {
   renderBrokerImportOptions(kisRealizedState, 'kisImportOptions', 'kis');
 }
 
+function realizedBrokerId(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (['kis', '한국투자증권', '한투'].includes(text)) return 'kis';
+  if (['nh', 'nh투자증권', '나무', 'namuh', 'qv', 'nh투자증권(나무)', '나무증권'].includes(text)) return 'nh';
+  if (['kiwoom', '키움증권', '키움', '영웅문'].includes(text)) return 'kiwoom';
+  if (['kb', 'kb증권', 'm-able', '마블', '현대증권', 'kb securities'].includes(text)) return 'kb';
+  return '';
+}
+
+function realizedDestinationAccounts(accounts, provider, candidateIds) {
+  const allowedIds = Array.isArray(candidateIds) ? new Set(candidateIds.map(String)) : null;
+  return accounts.filter(account => (
+    realizedBrokerId(account.broker) === provider
+    && (!allowedIds || allowedIds.has(String(account.id || '')))
+  ));
+}
+
+function setRealizedDestinationEmptyMessage(select) {
+  if (select && select.options.length === 1) {
+    select.options[0].textContent = '해당 증권사 계좌를 먼저 등록하세요.';
+  }
+}
+
 function populateKisDestinationAccounts() {
   const select = document.getElementById('kisDestinationAccount');
   if (!select) return;
@@ -14159,7 +14186,7 @@ function populateKisDestinationAccounts() {
   const localMapped = key ? localStorage.getItem('kis_account_map_' + key) : null;
   const mappedId = kisRealizedState.mappedDestAccountId || localMapped;
 
-  accounts.forEach(acc => {
+  realizedDestinationAccounts(accounts, 'kis', kisRealizedState.status?.candidate_account_ids).forEach(acc => {
     const id = String(acc.id || '');
     const broker = acc.broker || '';
     const name = maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${id}`);
@@ -14171,6 +14198,7 @@ function populateKisDestinationAccounts() {
     opt.textContent = label;
     select.appendChild(opt);
   });
+  setRealizedDestinationEmptyMessage(select);
 
   // First use: DO NOT auto-select based on broker name or single account.
   // Require explicit choice unless a verified persistent mapping exists.
@@ -14412,7 +14440,8 @@ function populateNhSourceAccounts() {
   if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
   else if (nhRealizedState.accounts.length === 1) select.value = nhRealizedState.accounts[0].source_account_key;
   nhRealizedState.sourceAccountKey = select.value;
-  nhRealizedState.mappedDestAccountId = nhRealizedState.accounts.find(a => a.source_account_key === select.value)?.mapped_destination_account_id || '';
+  const sourceAccount = nhRealizedState.accounts.find(a => a.source_account_key === select.value);
+  nhRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
 }
 async function checkNhStatus() {
   if (nhRealizedState.loading) return;
@@ -14433,7 +14462,9 @@ function populateNhDestinationAccounts() {
   const select = document.getElementById('nhDestinationAccount'); if (!select) return;
   const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
   const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
-  accounts.forEach(acc => { const option = document.createElement('option'); option.value = String(acc.id || ''); option.textContent = `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`; select.appendChild(option); });
+  const source = nhRealizedState.accounts.find(a => a.source_account_key === nhRealizedState.sourceAccountKey);
+  realizedDestinationAccounts(accounts, 'nh', source?.candidate_account_ids).forEach(acc => { const option = document.createElement('option'); option.value = String(acc.id || ''); option.textContent = `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`; select.appendChild(option); });
+  setRealizedDestinationEmptyMessage(select);
   const preferred = nhRealizedState.mappedDestAccountId;
   if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
   else if (preferred && Array.from(select.options).some(o => o.value === String(preferred))) select.value = String(preferred);
@@ -14575,7 +14606,8 @@ function populateKiwoomSourceAccounts() {
   if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
   else if (kiwoomRealizedState.accounts.length === 1) select.value = kiwoomRealizedState.accounts[0].source_account_key;
   kiwoomRealizedState.sourceAccountKey = select.value;
-  kiwoomRealizedState.mappedDestAccountId = kiwoomRealizedState.accounts.find(a => a.source_account_key === select.value)?.mapped_destination_account_id || '';
+  const sourceAccount = kiwoomRealizedState.accounts.find(a => a.source_account_key === select.value);
+  kiwoomRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
 }
 async function checkKiwoomStatus() {
   if (kiwoomRealizedState.loading) return;
@@ -14607,12 +14639,14 @@ function populateKiwoomDestinationAccounts() {
   const select = document.getElementById('kiwoomDestinationAccount'); if (!select) return;
   const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
   const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
-  accounts.forEach(acc => {
+  const source = kiwoomRealizedState.accounts.find(a => a.source_account_key === kiwoomRealizedState.sourceAccountKey);
+  realizedDestinationAccounts(accounts, 'kiwoom', source?.candidate_account_ids).forEach(acc => {
     const option = document.createElement('option');
     option.value = String(acc.id || '');
     option.textContent = `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`;
     select.appendChild(option);
   });
+  setRealizedDestinationEmptyMessage(select);
   const preferred = kiwoomRealizedState.mappedDestAccountId;
   if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
   else if (preferred && Array.from(select.options).some(o => o.value === String(preferred))) select.value = String(preferred);
@@ -14844,7 +14878,8 @@ function initKiwoomRealizedUI() {
   document.getElementById('btnFetchKiwoomFeed')?.addEventListener('click', fetchKiwoomRealizedFeed);
   document.getElementById('kiwoomSourceAccount')?.addEventListener('change', event => {
     kiwoomRealizedState.sourceAccountKey = event.target.value;
-    kiwoomRealizedState.mappedDestAccountId = kiwoomRealizedState.accounts.find(a => a.source_account_key === event.target.value)?.mapped_destination_account_id || '';
+    const sourceAccount = kiwoomRealizedState.accounts.find(a => a.source_account_key === event.target.value);
+    kiwoomRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
     updateKiwoomSelectionUI();
     setKiwoomLoading(false);
   });
@@ -14910,7 +14945,8 @@ function populateKbSourceAccounts() {
   if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
   else if (kbRealizedState.accounts.length === 1) select.value = kbRealizedState.accounts[0].source_account_key;
   kbRealizedState.sourceAccountKey = select.value;
-  kbRealizedState.mappedDestAccountId = kbRealizedState.accounts.find(a => a.source_account_key === select.value)?.mapped_destination_account_id || '';
+  const sourceAccount = kbRealizedState.accounts.find(a => a.source_account_key === select.value);
+  kbRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
 }
 async function checkKbStatus() {
   if (kbRealizedState.loading) return;
@@ -14942,12 +14978,14 @@ function populateKbDestinationAccounts() {
   const select = document.getElementById('kbDestinationAccount'); if (!select) return;
   const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
   const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
-  accounts.forEach(acc => {
+  const source = kbRealizedState.accounts.find(a => a.source_account_key === kbRealizedState.sourceAccountKey);
+  realizedDestinationAccounts(accounts, 'kb', source?.candidate_account_ids).forEach(acc => {
     const option = document.createElement('option');
     option.value = String(acc.id || '');
     option.textContent = `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`;
     select.appendChild(option);
   });
+  setRealizedDestinationEmptyMessage(select);
   const preferred = kbRealizedState.mappedDestAccountId;
   if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
   else if (preferred && Array.from(select.options).some(o => o.value === String(preferred))) select.value = String(preferred);
@@ -15179,7 +15217,8 @@ function initKbRealizedUI() {
   document.getElementById('btnFetchKbFeed')?.addEventListener('click', fetchKbRealizedFeed);
   document.getElementById('kbSourceAccount')?.addEventListener('change', event => {
     kbRealizedState.sourceAccountKey = event.target.value;
-    kbRealizedState.mappedDestAccountId = kbRealizedState.accounts.find(a => a.source_account_key === event.target.value)?.mapped_destination_account_id || '';
+    const sourceAccount = kbRealizedState.accounts.find(a => a.source_account_key === event.target.value);
+    kbRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
     updateKbSelectionUI();
     setKbLoading(false);
   });
@@ -15309,7 +15348,7 @@ function initKisRealizedUI() {
   if (nhTo && !nhTo.value) nhTo.value = new Date().toISOString().slice(0, 10);
   document.getElementById('btnCheckNhStatus')?.addEventListener('click', checkNhStatus);
   document.getElementById('btnFetchNhFeed')?.addEventListener('click', fetchNhRealizedFeed);
-  document.getElementById('nhSourceAccount')?.addEventListener('change', event => { nhRealizedState.sourceAccountKey = event.target.value; nhRealizedState.mappedDestAccountId = nhRealizedState.accounts.find(a => a.source_account_key === event.target.value)?.mapped_destination_account_id || ''; updateNhSelectionUI(); setNhLoading(false); });
+  document.getElementById('nhSourceAccount')?.addEventListener('change', event => { const sourceAccount = nhRealizedState.accounts.find(a => a.source_account_key === event.target.value); nhRealizedState.sourceAccountKey = event.target.value; nhRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || ''; updateNhSelectionUI(); setNhLoading(false); });
   document.getElementById('nhDestinationAccount')?.addEventListener('change', updateNhSelectionUI);
   document.getElementById('nhSelectAll')?.addEventListener('change', event => { nhRealizedState.rows.forEach((_, index) => { if (!nhRealizedState.importedIndices.has(index)) event.target.checked ? nhRealizedState.selectedIndices.add(index) : nhRealizedState.selectedIndices.delete(index); }); renderNhFeedTable(); updateNhSelectionUI(); });
   document.getElementById('btnNhImportSelected')?.addEventListener('click', openNhImportPreview);

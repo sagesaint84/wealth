@@ -71,6 +71,7 @@ class IpoRecord:
 class FamilyIpoApplication:
     target_owners: list[str] = field(default_factory=list)
     applied_owners: list[str] = field(default_factory=list)
+    applicants: dict[str, dict[str, Any]] = field(default_factory=dict)
     target_frozen_at: str | None = None
     updated_at: str = field(default_factory=lambda: datetime.now().astimezone().isoformat())
 
@@ -82,6 +83,7 @@ class FamilyIpoApplication:
         return cls(
             target_owners=list(data.get("target_owners") or []),
             applied_owners=list(data.get("applied_owners") or []),
+            applicants=dict(data.get("applicants") or {}),
             target_frozen_at=data.get("target_frozen_at"),
             updated_at=str(data.get("updated_at") or datetime.now().astimezone().isoformat()),
         )

@@ -131,6 +131,16 @@ class KBBackendOrchestrationTests(IsolatedDataTestCase):
                 self.assertFalse(data["configured"])
                 self.assertEqual(data["accounts"], [])
 
+    def test_cross_broker_destination_is_rejected(self):
+        foreign = {"id": "foreign-nh", "broker": "NH투자증권", "name": "not KB"}
+        portfolio.write_portfolio(
+            {"accounts": [self.destination, foreign], "holdings": [], "settings": {"fx_rates": {"KRW": 1.0}}},
+            self.username,
+        )
+        response = self.preview(destination_id=foreign["id"])
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"]["code"], "DESTINATION_BROKER_MISMATCH")
+
     def test_fetch_is_transient_signed_and_leak_free(self):
         with patch(
             "app.services.kb_openapi.KBOpenAPI.fetch_domestic_realized_pnl",
@@ -169,6 +179,8 @@ class KBBackendOrchestrationTests(IsolatedDataTestCase):
         self.assertEqual(len(records), 1)
         record = records[0]
         self.assertEqual(record["source"], "kb")
+        self.assertEqual(record["account_id"], self.destination["id"])
+        self.assertEqual(record["destination_account_id"], self.destination["id"])
         self.assertFalse(record["source_scope_verified"])
         self.assertEqual(record["pnl"], 17)
         self.assertEqual(record["fee"], "1")

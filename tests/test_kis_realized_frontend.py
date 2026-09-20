@@ -68,6 +68,14 @@ class KisRealizedFrontendTests(unittest.TestCase):
         self.assertIn("partial_success", JS)
         self.assertIn("mapping_repaired", JS)
 
+    def test_destination_options_use_broker_scoped_candidates(self) -> None:
+        self.assertIn("function realizedDestinationAccounts(accounts, provider, candidateIds)", JS)
+        self.assertIn("realizedBrokerId(account.broker) === provider", JS)
+        self.assertIn("candidate_account_ids", JS)
+        self.assertIn("해당 증권사 계좌를 먼저 등록하세요.", JS)
+        for provider in ("'kis'", "'nh'", "'kiwoom'", "'kb'"):
+            self.assertIn(f"realizedDestinationAccounts(accounts, {provider}", JS)
+
     def test_shared_layout_remains_responsive(self) -> None:
         self.assertIn(".toss-wts-controls", LAYOUT_CSS)
         self.assertIn("flex-wrap: wrap", LAYOUT_CSS)

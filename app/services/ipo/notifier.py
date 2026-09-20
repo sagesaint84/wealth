@@ -19,6 +19,8 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import threading
+import os
+from contextlib import contextmanager
 from typing import Any
 from urllib import parse, request
 
@@ -27,10 +29,53 @@ logger = logging.getLogger(__name__)
 KST = timezone(timedelta(hours=9))
 NOTIFICATION_STATE_FILE = Path(__file__).resolve().parent.parent.parent.parent / "data" / "ipo" / "notification_state.json"
 _NOTIFIER_LOCK = threading.RLock()
+_NOTIFIER_PROCESS_LOCK = threading.Lock()
 
 
 class IpoNotifierStateError(RuntimeError):
     """Raised when notification_state.json is corrupt or unreadable."""
+
+
+class IpoNotificationAlreadyRunning(RuntimeError):
+    pass
+
+
+@contextmanager
+def notification_state_lock(state_path: Path):
+    """Non-blocking lock for every notification-state read/send/write transaction."""
+    if not _NOTIFIER_PROCESS_LOCK.acquire(blocking=False):
+        raise IpoNotificationAlreadyRunning("IPO_NOTIFICATION_ALREADY_RUNNING")
+    handle = None
+    try:
+        lock_path = state_path.with_suffix(".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(lock_path, "a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+                if lock_path.stat().st_size == 0:
+                    handle.write(b"0"); handle.flush()
+                handle.seek(0); msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise IpoNotificationAlreadyRunning("IPO_NOTIFICATION_ALREADY_RUNNING") from exc
+        yield
+    finally:
+        try:
+            if handle is not None:
+                if os.name == "nt":
+                    import msvcrt
+                    handle.seek(0); msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        if handle is not None:
+            handle.close()
+        _NOTIFIER_PROCESS_LOCK.release()
 
 
 class IpoTelegramNotifier:
@@ -73,7 +118,7 @@ class IpoTelegramNotifier:
                 json.dump(state, f, ensure_ascii=False, indent=2)
             tmp_path.replace(self.state_path)
 
-    def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
+    def send_message(self, text: str, parse_mode: str = "HTML", reply_markup: dict[str, Any] | None = None) -> bool:
         if not self.is_configured():
             logger.info("Telegram not configured. Message skipped: %s", text[:50])
             return False
@@ -85,6 +130,8 @@ class IpoTelegramNotifier:
             "parse_mode": parse_mode,
             "disable_web_page_preview": True,
         }
+        if reply_markup is not None:
+            payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False, separators=(",", ":"))
         data = parse.urlencode(payload).encode("utf-8")
         req = request.Request(url, data=data, method="POST")
 
@@ -99,7 +146,25 @@ class IpoTelegramNotifier:
                 time.sleep(1.0 * (attempt + 1))
         return False
 
+    def answer_callback_query(self, callback_query_id: str, text: str = "") -> bool:
+        if not self.is_configured() or not callback_query_id:
+            return False
+        payload = parse.urlencode({"callback_query_id": callback_query_id, "text": text}).encode("utf-8")
+        try:
+            with request.urlopen(request.Request(f"https://api.telegram.org/bot{self.bot_token}/answerCallbackQuery", data=payload, method="POST"), timeout=10) as resp:
+                return resp.status == 200
+        except Exception:
+            logger.warning("Telegram callback acknowledgement failed")
+            return False
+
     def check_and_notify_events(
+        self, ipos: list[dict[str, Any]], applications: dict[str, Any] | None = None,
+        target_date_str: str | None = None, dry_run: bool = False,
+    ) -> list[str]:
+        with notification_state_lock(self.state_path):
+            return self._check_and_notify_events_unlocked(ipos, applications, target_date_str, dry_run)
+
+    def _check_and_notify_events_unlocked(
         self,
         ipos: list[dict[str, Any]],
         applications: dict[str, Any] | None = None,

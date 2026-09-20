@@ -233,6 +233,8 @@ class KISRealizedImportTests(IsolatedDataTestCase):
         records = pnl_records.read_pnl_records(username=self.username)
         self.assertEqual(len(records), 1)
         rec = records[0]
+        self.assertEqual(rec["account_id"], self.acc1["id"])
+        self.assertEqual(rec["destination_account_id"], self.acc1["id"])
         self.assertEqual(rec["code"], "005930")
         self.assertEqual(rec["name"], "삼성전자")
         self.assertEqual(rec["pnl"], 140000.0)
@@ -445,7 +447,7 @@ class KISRealizedImportTests(IsolatedDataTestCase):
             headers=self._cookie_header(),
         )
         self.assertEqual(res.status_code, 400)
-        self.assertIn("DESTINATION_ACCOUNT_CHANGED", res.json()["detail"]["code"])
+        self.assertEqual(res.json()["detail"]["code"], "DESTINATION_BROKER_MISMATCH")
 
 
 if __name__ == "__main__":

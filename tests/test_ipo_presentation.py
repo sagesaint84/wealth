@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -23,7 +24,14 @@ globalThis.CustomEvent = function CustomEvent() {{}};
 eval({json.dumps(source)});
 process.stdout.write(String({expression}));
 """
-    return subprocess.check_output(["node", "-e", script], cwd=ROOT, text=True, encoding="utf-8").strip()
+    # Keep large browser assets out of Windows' command-line length limit.
+    with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as handle:
+        handle.write(script)
+        script_path = handle.name
+    try:
+        return subprocess.check_output(["node", script_path], cwd=ROOT, text=True, encoding="utf-8").strip()
+    finally:
+        Path(script_path).unlink(missing_ok=True)
 
 
 class IpoPresentationTests(unittest.TestCase):
@@ -100,6 +108,18 @@ class IpoPresentationTests(unittest.TestCase):
         self.assertIn("button.disabled = false;", ipo)
         self.assertIn("refreshInFlight = false;", ipo)
         self.assertIn("marketIpos = Array.isArray(data.market?.ipos) ? data.market.ipos : marketIpos", ipo)
+
+    def test_ipo_account_controls_use_backend_broker_and_candidate_resolution(self):
+        ipo = (ROOT / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")
+        self.assertIn("/broker-options", ipo)
+        self.assertIn("/account-candidates?owner=", ipo)
+        self.assertIn("/applicants/${encodeURIComponent(owner)}/account", ipo)
+        self.assertIn("/account/remap", ipo)
+        self.assertIn("expected_current_account_id", ipo)
+        self.assertIn("계좌 변경", ipo)
+        self.assertIn("AUTO_SELECTED", ipo)
+        self.assertIn("AMBIGUOUS_ACCOUNT", ipo)
+        self.assertNotIn("realizedBrokerId", ipo)
 
     def test_calendar_detail_uses_canonical_ipo_event_labels_and_tooltips(self):
         calendar = (ROOT / "app" / "static" / "wealth-calendar.js").read_text(encoding="utf-8")
