@@ -54,19 +54,41 @@ def _market_store_sha256() -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-# Keep presentation/calendar tests honest: they must never rewrite the real
-# production snapshot while exercising mocked market data.
+def _users_tree_signature() -> tuple[tuple[str, bool, int], ...]:
+    path = Path(__file__).resolve().parents[1] / "data" / "users"
+    if not path.exists():
+        return ()
+    items = []
+    for p in path.rglob("*"):
+        rel = p.relative_to(path).as_posix()
+        is_d = p.is_dir()
+        sz = 0 if is_d else p.stat().st_size
+        items.append((rel, is_d, sz))
+    return tuple(sorted(items))
+
+
+# Keep presentation/calendar/all tests honest: they must never rewrite the real
+# production snapshot or repository data/users while exercising test cases.
 _original_testcase_run = unittest.TestCase.run
 
 
 def _guarded_testcase_run(self, result=None):
-    before = _market_store_sha256()
+    before_market = _market_store_sha256()
+    before_users = _users_tree_signature()
     outcome = _original_testcase_run(self, result)
-    after = _market_store_sha256()
-    if before != after:
+    after_market = _market_store_sha256()
+    after_users = _users_tree_signature()
+    if before_market != after_market:
         raise AssertionError(
             "Tests must not mutate data/ipo/market.json "
-            f"(before={before}, after={after})"
+            f"(before={before_market}, after={after_market})"
+        )
+    if before_users != after_users:
+        added = set(after_users) - set(before_users)
+        removed = set(before_users) - set(after_users)
+        raise AssertionError(
+            f"Tests must not mutate repository data/users/ "
+            f"(added={sorted(list(added))}, removed={sorted(list(removed))})"
         )
     return outcome
 

@@ -1,4 +1,5 @@
-import io,json,unittest
+import io,json,tempfile,unittest
+from pathlib import Path
 from urllib.parse import parse_qs
 from unittest.mock import patch
 from app.services.telegram_config import TelegramConfig
@@ -46,6 +47,13 @@ class TelegramManagementTests(unittest.TestCase):
   with patch('app.services.system_settings.get_effective_system_settings',return_value={'telegram_webhook_owner':'alice'}),patch('app.services.telegram_config.resolve_telegram_config',return_value=self.cfg()):self.assertEqual(interactive_config()[3],'alice')
 
 class TelegramManagementApiTests(unittest.TestCase):
+ def setUp(self):
+  self._tmp=tempfile.TemporaryDirectory(prefix='wealth-tg-mgmt-');self.addCleanup(self._tmp.cleanup)
+  self._users=Path(self._tmp.name)/'users'
+  def _get_user_dir(u=None):
+   p=self._users/(u or 'alice').strip();p.mkdir(parents=True,exist_ok=True);return p
+  p=patch('app.services.user_manager.get_user_data_dir',side_effect=_get_user_dir)
+  p.start();self.addCleanup(p.stop)
  def client(self,role='admin'):
   client=TestClient(app);client.cookies.set(COOKIE_NAME,_serializer.dumps({'user':'alice'}));user=patch('app.services.user_manager.get_user_by_name',return_value={'username':'alice','id':'1','role':role});user.start();self.addCleanup(user.stop);return client
  def test_system_patch_is_admin_only(self):

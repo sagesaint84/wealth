@@ -45,10 +45,13 @@ class IpoOrchestratorTests(unittest.TestCase):
 
         self.patch_pf = patch.object(portfolio, "_get_portfolio_file", return_value=self.portfolio_file)
         self.patch_market = patch("app.services.ipo.store.get_market_file", return_value=self.market_file)
+        self.patch_ipo_dir = patch("app.services.ipo.store.get_ipo_data_dir", return_value=self.temp_path)
         self.patch_pf.start()
         self.patch_market.start()
+        self.patch_ipo_dir.start()
 
     def tearDown(self):
+        self.patch_ipo_dir.stop()
         self.patch_market.stop()
         self.patch_pf.stop()
         self.temp_dir.cleanup()

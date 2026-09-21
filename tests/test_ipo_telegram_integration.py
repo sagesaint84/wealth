@@ -15,8 +15,23 @@ ENV={"TELEGRAM_WEBHOOK_SECRET":"test-secret","TELEGRAM_ALLOWED_USER_ID":"111","T
 def callback(a="opaqueAction_123"):
     return {"callback_query":{"id":"callback-1","from":{"id":111},"message":{"chat":{"id":222}},"data":f"ipoa:{a}"}}
 
-class TelegramEndpointTests(unittest.TestCase):
+class _IsolatedTelegramTestCase(unittest.TestCase):
     def setUp(self):
+        super().setUp()
+        self._tg_tmp = tempfile.TemporaryDirectory(prefix="wealth-tg-iso-")
+        self.addCleanup(self._tg_tmp.cleanup)
+        self._tg_users = Path(self._tg_tmp.name) / "users"
+        def _get_user_dir(u=None):
+            p = self._tg_users / (u or "alice").strip()
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+        self._user_dir_patch = patch("app.services.user_manager.get_user_data_dir", side_effect=_get_user_dir)
+        self._user_dir_patch.start()
+        self.addCleanup(self._user_dir_patch.stop)
+
+class TelegramEndpointTests(_IsolatedTelegramTestCase):
+    def setUp(self):
+        super().setUp()
         self.p=patch.dict(os.environ,ENV,clear=False); self.p.start(); self.addCleanup(self.p.stop); self.client=TestClient(app)
         self.portfolio={"revision":7,"applications":{"ipo-1":{"applied_owners":[]}},"account_id":"acct","broker_id":"broker","allocation":{"links":[]},"pnl_records":[{"id":"pnl"}],"MoneyLog":[{"id":"log"}]}
         self.action={"action_id":"opaqueAction_123","username":"alice","ipo_id":"ipo-1","owner":"아빠","action_type":"MARK_IPO_APPLIED","source_channel":"telegram"}
@@ -64,8 +79,10 @@ class TelegramEndpointTests(unittest.TestCase):
             self.assertEqual(self.post(body,"STORED_SECRET").status_code,200)
             self.assertEqual(self.post(body,"test-secret").status_code,403)
 
-class TelegramFreeTextTests(unittest.TestCase):
-    def setUp(self):self.p=patch.dict(os.environ,ENV,clear=False);self.p.start();self.addCleanup(self.p.stop)
+class TelegramFreeTextTests(_IsolatedTelegramTestCase):
+    def setUp(self):
+        super().setUp()
+        self.p=patch.dict(os.environ,ENV,clear=False);self.p.start();self.addCleanup(self.p.stop)
     def update(self,text,user=111,chat=222):return {"message":{"from":{"id":user},"chat":{"id":chat},"text":text}}
     def test_one_match_is_scoped_to_alice(self):
         apps={"applications":{"a":{"target_owners":["아빠"],"applied_owners":[]}}}; mark=MagicMock(return_value={"status":"applied"})
@@ -79,8 +96,9 @@ class TelegramFreeTextTests(unittest.TestCase):
         for text in ("아빠 청약","아빠 완료","청약 완료","아빠 청약 완료해줘","아빠 청약 완료?"):self.assertEqual(handle_update(self.update(text),"test-secret"),"ignored")
         self.assertEqual(handle_update(self.update("아빠 청약 완료",9),"test-secret"),"unauthorized");self.assertEqual(handle_update(self.update("아빠 청약 완료",chat=9),"test-secret"),"unauthorized");mark.assert_not_called()
 
-class TelegramReminderAndMetadataTests(unittest.TestCase):
+class TelegramReminderAndMetadataTests(_IsolatedTelegramTestCase):
     def setUp(self):
+        super().setUp()
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.p=patch.dict(os.environ,ENV,clear=False);self.p.start();self.addCleanup(self.p.stop)
         self.notifier=IpoTelegramNotifier(bot_token="x",chat_id="y",state_path=Path(self.tmp.name)/"state.json");self.market={"ipos":[{"ipo_id":"ipo","company_name":"회사","subscription_start":"2026-09-20","subscription_end":"2026-09-21","lead_managers":["증권사"]}]};self.apps={"family_members":["아빠","엄마"],"applications":{"ipo":{"applied_owners":[]}}}
     def test_buttons_are_opaque_bounded_and_scoped(self):

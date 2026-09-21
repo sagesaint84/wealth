@@ -27,8 +27,14 @@ class IpoMarketRefreshTests(unittest.TestCase):
         self.portfolio_file.write_text(json.dumps({"settings": {"family_members": ["아빠", "엄마", "자녀"], "ipo": {"revision": 7, "applications": {"existing": {"applied_owners": ["아빠"], "target_owners": ["아빠", "엄마", "자녀"]}}}}}, ensure_ascii=False), encoding="utf-8")
         self.market_patch = patch("app.services.ipo.store.get_market_file", return_value=self.market_file)
         self.portfolio_patch = patch.object(portfolio, "_get_portfolio_file", return_value=self.portfolio_file)
-        self.market_patch.start(); self.portfolio_patch.start()
-        self.addCleanup(self.market_patch.stop); self.addCleanup(self.portfolio_patch.stop)
+        self.ipo_dir_patch = patch("app.services.ipo.store.get_ipo_data_dir", return_value=root)
+        def _get_user_dir(u=None):
+            p = root / "users" / (u or "fixture_default").strip()
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+        self.user_dir_patch = patch("app.services.user_manager.get_user_data_dir", side_effect=_get_user_dir)
+        self.market_patch.start(); self.portfolio_patch.start(); self.ipo_dir_patch.start(); self.user_dir_patch.start()
+        self.addCleanup(self.market_patch.stop); self.addCleanup(self.portfolio_patch.stop); self.addCleanup(self.ipo_dir_patch.stop); self.addCleanup(self.user_dir_patch.stop)
 
     def test_market_only_pipeline_never_notifies_or_mutates_applications(self):
         notifier = MagicMock()

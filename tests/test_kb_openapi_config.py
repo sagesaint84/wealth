@@ -96,6 +96,10 @@ class TestKBOpenAPIFlow(unittest.TestCase):
         self.fixture_users = Path(self.temp_dir.name) / "users"
         self.username = "synthetic-kb-cfg-user"
         self.user_id = generate_user_id()
+        def _fixture_user_dir(u=None):
+            p = self.fixture_users / (u or "fixture_default").strip()
+            p.mkdir(parents=True, exist_ok=True)
+            return p
         self.patchers = [
             patch.dict("os.environ", {"DASHBOARD_SECRET_KEY": "synthetic-kb-test-secret", "WEALTH_TEST_SIGNING_SECRET": "synthetic-kb-test-secret"}, clear=False),
             patch.object(user_openapi, "USERS_DIR", self.fixture_users),
@@ -103,6 +107,7 @@ class TestKBOpenAPIFlow(unittest.TestCase):
             patch("app.services.user_manager.get_user_by_name", return_value={
                 "username": self.username, "id": self.user_id, "role": "user", "must_change_password": False,
             }),
+            patch("app.services.user_manager.get_user_data_dir", side_effect=_fixture_user_dir),
         ]
         for patcher in self.patchers:
             patcher.start()
