@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import subprocess
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -18,14 +17,20 @@ import re
 from typing import Any
 
 from app.services.network_policy import is_test_mode
+from app.services.system_settings import (
+    DEFAULT_TOSS_WTS_EXPECTED_VERSION,
+    DEFAULT_TOSS_WTS_TIMEOUT_SECONDS,
+    SystemSettingsError,
+    resolve_toss_wts_settings,
+)
 
 
-EXPECTED_TOSSCTL_VERSION = "v0.50.3"
+EXPECTED_TOSSCTL_VERSION = DEFAULT_TOSS_WTS_EXPECTED_VERSION
 TOSSCTL_DATE_TIMEZONE_CONFLICT = "TOSSCTL_DATE_TIMEZONE_CONFLICT"
 _AFFECTED_DATE_VALIDATION_VERSIONS = frozenset({"v0.50.3", "0.50.3"})
 _SEOUL = timezone(timedelta(hours=9), name="Asia/Seoul")
 _ISO_DATE_IN_TEXT = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
-DEFAULT_TIMEOUT_SECONDS = 20
+DEFAULT_TIMEOUT_SECONDS = DEFAULT_TOSS_WTS_TIMEOUT_SECONDS
 _AUTH_STATUS = "AUTH_STATUS"
 _PROFIT_OVERVIEW = "PROFIT_OVERVIEW"
 _PROFIT_DAILY = "PROFIT_DAILY"
@@ -119,17 +124,6 @@ def _is_known_tossctl_future_date_rejection(stderr: object) -> bool:
     return "미래입니다" in text and _ISO_DATE_IN_TEXT.search(text) is not None
 
 
-def _enabled_from_environment() -> bool:
-    return os.getenv("WEALTH_TOSS_WTS_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _timeout_from_environment() -> int:
-    try:
-        return max(1, int(os.getenv("WEALTH_TOSSCTL_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS))))
-    except ValueError:
-        return DEFAULT_TIMEOUT_SECONDS
-
-
 @dataclass(frozen=True)
 class TossWtsConfig:
     enabled: bool
@@ -140,14 +134,16 @@ class TossWtsConfig:
 
     @classmethod
     def from_environment(cls) -> "TossWtsConfig":
-        executable = os.getenv("WEALTH_TOSSCTL_PATH", "").strip()
-        config_dir = os.getenv("WEALTH_TOSSCTL_CONFIG_DIR", "").strip()
+        try:
+            effective = resolve_toss_wts_settings()
+        except SystemSettingsError:
+            return cls(False, None, None, EXPECTED_TOSSCTL_VERSION, DEFAULT_TIMEOUT_SECONDS)
         return cls(
-            enabled=_enabled_from_environment(),
-            executable=Path(executable).expanduser() if executable else None,
-            config_dir=Path(config_dir).expanduser() if config_dir else None,
-            expected_version=os.getenv("WEALTH_TOSSCTL_EXPECTED_VERSION", EXPECTED_TOSSCTL_VERSION).strip() or EXPECTED_TOSSCTL_VERSION,
-            timeout_seconds=_timeout_from_environment(),
+            enabled=bool(effective["enabled"]),
+            executable=Path(str(effective["executable"])),
+            config_dir=Path(str(effective["config_dir"])),
+            expected_version=str(effective["expected_version"]),
+            timeout_seconds=int(effective["timeout_seconds"]),
         )
 
 

@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.services.secure_files import atomic_write_private_json
+
 from app.services.broker_holdings_sync import (
     BrokerHoldingsResult,
     DOMESTIC_MARKET,
@@ -233,10 +235,10 @@ class KiwoomOpenAPI:
         self._token = Token(str(token), expires_at)
         if hasattr(self, "token_cache_file") and self.token_cache_file:
             try:
-                self.token_cache_file.write_text(json.dumps({
+                atomic_write_private_json(self.token_cache_file, {
                     "app_key_prefix": self.app_key[:8], "access_token": token,
                     "expires_at": self._token.expires_at,
-                }), encoding="utf-8")
+                })
             except (OSError, ValueError, TypeError):
                 pass
         return str(token)

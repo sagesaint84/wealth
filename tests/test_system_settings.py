@@ -74,3 +74,54 @@ class SystemSettingsTests(unittest.TestCase):
   self.assertEqual(loaded['version'], 1)
   self.assertIsNone(loaded['automation_owner'])
   self.assertEqual(loaded['telegram_webhook_owner'], 'alice')
+
+ def test_existing_v1_shapes_and_toss_settings_are_compatible(self):
+  for document in (
+   {'version':1,'public_base_url':None,'telegram_webhook_owner':None},
+   {'version':1,'public_base_url':None,'telegram_webhook_owner':None,'automation_owner':'alice'},
+  ):
+   self.path.write_text(json.dumps(document),encoding='utf-8')
+   self.assertIsNone(s.load_system_settings(path=self.path)['toss_wts'])
+  allowed='123e4567-e89b-42d3-a456-426614174000'
+  s.patch_system_settings({'toss_wts':{
+   'enabled':True,'executable':str(Path(self.tmp.name)/'tossctl'),
+   'config_dir':str(Path(self.tmp.name)/'config'),'expected_version':'v0.50.3',
+   'timeout_seconds':25,'allowed_user_id':allowed}},path=self.path)
+  value=s.resolve_toss_wts_settings(path=self.path)
+  self.assertTrue(value['enabled'])
+  self.assertEqual(value['allowed_user_id'],allowed)
+  self.assertTrue(all(source=='stored' for source in value['sources'].values()))
+
+ def test_toss_stored_precedence_legacy_fallback_and_defaults(self):
+  env={
+   'WEALTH_TOSS_WTS_ENABLED':'1','WEALTH_TOSSCTL_PATH':str(Path(self.tmp.name)/'env-tossctl'),
+   'WEALTH_TOSSCTL_CONFIG_DIR':str(Path(self.tmp.name)/'env-config'),
+   'WEALTH_TOSSCTL_EXPECTED_VERSION':'v9.9.9','WEALTH_TOSSCTL_TIMEOUT_SECONDS':'31',
+   'WEALTH_TOSS_WTS_FEED_ALLOWED_USER_ID':'123e4567-e89b-42d3-a456-426614174001'}
+  with patch.dict(os.environ,env,clear=False):
+   fallback=s.resolve_toss_wts_settings(path=self.path)
+   self.assertTrue(fallback['enabled']);self.assertEqual(fallback['expected_version'],'v9.9.9')
+   self.assertEqual(fallback['sources']['enabled'],'environment')
+   s.patch_system_settings({'toss_wts':{'enabled':False,'timeout_seconds':7}},path=self.path)
+   stored=s.resolve_toss_wts_settings(path=self.path)
+   self.assertFalse(stored['enabled']);self.assertEqual(stored['timeout_seconds'],7)
+   self.assertEqual(stored['sources']['enabled'],'stored')
+  self.path.unlink()
+  names=list(env)
+  clean=dict(os.environ)
+  for name in names:clean.pop(name,None)
+  with patch.dict(os.environ,clean,clear=True):
+   defaults=s.resolve_toss_wts_settings(path=self.path)
+   self.assertFalse(defaults['enabled'])
+   self.assertEqual(defaults['executable'],'/opt/toss-wts/tossctl')
+   self.assertEqual(defaults['config_dir'],'/opt/toss-wts/config')
+
+ def test_toss_strict_validation(self):
+  good={'enabled':False,'executable':str(Path(self.tmp.name)/'tossctl'),'config_dir':str(Path(self.tmp.name)/'config'),'expected_version':'v0.50.3','timeout_seconds':20,'allowed_user_id':None}
+  for patch_value in (
+   {**good,'enabled':'true'}, {**good,'timeout_seconds':0},
+   {**good,'expected_version':'latest'}, {**good,'allowed_user_id':'not-a-user'},
+   {**good,'unexpected':True},
+  ):
+   with self.assertRaises(s.SystemSettingsError):
+    s.patch_system_settings({'toss_wts':patch_value},path=self.path)

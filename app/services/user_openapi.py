@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from app.services.secure_files import atomic_write_private_json
+
 logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -17,6 +19,11 @@ def _get_user_openapi_file(username: str) -> Path:
     user_dir = USERS_DIR / username
     user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir / "openapi_config.json"
+
+
+def _write_openapi_config(file_path: Path, value: dict[str, Any]) -> None:
+    """Atomically persist credential-bearing config with restrictive POSIX mode."""
+    atomic_write_private_json(file_path, value, indent=2)
 
 
 def get_user_openapi_config(username: str) -> dict[str, dict[str, str]]:
@@ -82,7 +89,7 @@ def delete_user_broker_openapi(username: str, broker: str) -> dict[str, Any]:
             current[broker] = {"app_key": "", "app_secret": ""}
 
     file_path = _get_user_openapi_file(username)
-    file_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_openapi_config(file_path, current)
 
     # 토큰 캐시 파일도 함께 삭제하여 깨끗하게 초기화
     user_dir = USERS_DIR / username
@@ -200,7 +207,7 @@ def save_user_openapi_config(username: str, update_data: dict[str, dict[str, Any
                         current[broker]["gds_no"] = ""
 
     file_path = _get_user_openapi_file(username)
-    file_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_openapi_config(file_path, current)
     logger.info("사용자 %s의 OpenAPI 설정 저장 완료", username)
     return current
 

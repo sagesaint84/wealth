@@ -19,6 +19,8 @@ import uuid
 
 import httpx
 
+from app.services.secure_files import atomic_write_private_json
+
 from app.services.broker_holdings_sync import (
     BrokerHoldingsResult,
     DOMESTIC_MARKET,
@@ -259,8 +261,7 @@ class KBOpenAPI:
             raise KBOpenAPIError("KB OpenAPI 토큰 응답에 access_token이 없습니다.")
         self._token = Token(token, now + as_float(body.get("expires_in", 86400)))
         try:
-            self.token_cache_file.parent.mkdir(parents=True, exist_ok=True)
-            self.token_cache_file.write_text(json.dumps({"app_key_prefix": self.app_key[:8], "access_token": token, "expires_at": self._token.expires_at}), encoding="utf-8")
+            atomic_write_private_json(self.token_cache_file, {"app_key_prefix": self.app_key[:8], "access_token": token, "expires_at": self._token.expires_at})
         except (OSError, ValueError, TypeError):
             pass
         return token

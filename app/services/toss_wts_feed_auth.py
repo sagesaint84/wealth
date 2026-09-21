@@ -1,7 +1,7 @@
 """Static deployment authorization layer for Toss WTS feed access.
 
 This module determines whether a given Wealth stable user identity matches
-the deployment-configured allowed stable user identifier.
+the data-first (or legacy environment) allowed stable user identifier.
 
 It deliberately does not perform runtime session confirmation, provider transport,
 user storage lookups, or route guard wiring.
@@ -10,8 +10,8 @@ user storage lookups, or route guard wiring.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 
+from app.services.system_settings import SystemSettingsError, resolve_toss_wts_settings
 from app.services.user_identity import validate_user_id
 
 WEALTH_TOSS_WTS_FEED_ALLOWED_USER_ID = "WEALTH_TOSS_WTS_FEED_ALLOWED_USER_ID"
@@ -52,13 +52,16 @@ class WtsFeedStaticAuthDecision:
 
 
 def _get_allowed_user_id() -> tuple[str | None, str | None]:
-    """Read and strictly validate the configured allowed stable user ID.
+    """Resolve and strictly validate the configured allowed stable user ID.
 
     Returns a tuple of (allowed_user_id, error_code). Exactly one element is None.
-    Does not log, mutate, or normalize the environment value.
+    Does not log or mutate the configured value.
     """
-    raw_allowed = os.environ.get(WEALTH_TOSS_WTS_FEED_ALLOWED_USER_ID)
-    if raw_allowed is None or raw_allowed == "":
+    try:
+        raw_allowed = resolve_toss_wts_settings()["allowed_user_id"]
+    except SystemSettingsError:
+        return None, INVALID_CONFIGURATION
+    if raw_allowed is None:
         return None, NOT_CONFIGURED
 
     try:
@@ -72,7 +75,7 @@ def check_wts_feed_static_authorization(
 ) -> WtsFeedStaticAuthDecision:
     """Check whether *user_id* matches the deployment-configured allowed stable user ID.
 
-    Reads WEALTH_TOSS_WTS_FEED_ALLOWED_USER_ID from the process environment.
+    Reads the stored system setting first, then the legacy environment fallback.
     Applies exact string equality against strictly validated canonical UUID4 IDs.
     Returns a privacy-safe WtsFeedStaticAuthDecision.
     """

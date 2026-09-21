@@ -6,4 +6,6 @@ services:
       - "4829:4829"
     volumes:
       - ./data:/app/data
+      - ./toss-wts/bin/tossctl:/opt/toss-wts/tossctl:ro
+      - ./toss-wts/config:/opt/toss-wts/config
     restart: unless-stopped

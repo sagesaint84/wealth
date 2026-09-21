@@ -3,15 +3,38 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from app.services.settings import SettingsError, settings_lock
+from app.services.user_identity import validate_user_id
 
 SYSTEM_SETTINGS_FILE = (
     Path(__file__).resolve().parents[2] / "data" / "system" / "settings.json"
 )
+
+DEFAULT_TOSS_WTS_EXECUTABLE = "/opt/toss-wts/tossctl"
+DEFAULT_TOSS_WTS_CONFIG_DIR = "/opt/toss-wts/config"
+DEFAULT_TOSS_WTS_EXPECTED_VERSION = "v0.50.3"
+DEFAULT_TOSS_WTS_TIMEOUT_SECONDS = 20
+_TOSS_VERSION_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
+_SYSTEM_KEYS = {
+    "version",
+    "public_base_url",
+    "telegram_webhook_owner",
+    "automation_owner",
+    "toss_wts",
+}
+_TOSS_KEYS = {
+    "enabled",
+    "executable",
+    "config_dir",
+    "expected_version",
+    "timeout_seconds",
+    "allowed_user_id",
+}
 
 
 class SystemSettingsError(SettingsError):
@@ -70,18 +93,62 @@ def normalize_automation_owner(value: object) -> str | None:
     return owner
 
 
+def _normalize_absolute_path(value: object, code: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise SystemSettingsError(code)
+    normalized = value.strip()
+    path = Path(normalized).expanduser()
+    if not path.is_absolute() and not normalized.startswith("/"):
+        raise SystemSettingsError(code)
+    return normalized if normalized.startswith("/") else str(path)
+
+
+def _validate_toss_wts(data: object) -> dict:
+    if not isinstance(data, dict) or set(data) - _TOSS_KEYS:
+        raise SystemSettingsError("TOSS_WTS_SETTINGS_INVALID")
+    enabled = data.get("enabled", False)
+    if type(enabled) is not bool:
+        raise SystemSettingsError("TOSS_WTS_SETTINGS_INVALID")
+    executable = _normalize_absolute_path(
+        data.get("executable", DEFAULT_TOSS_WTS_EXECUTABLE),
+        "TOSS_WTS_EXECUTABLE_INVALID",
+    )
+    config_dir = _normalize_absolute_path(
+        data.get("config_dir", DEFAULT_TOSS_WTS_CONFIG_DIR),
+        "TOSS_WTS_CONFIG_DIR_INVALID",
+    )
+    expected_version = data.get(
+        "expected_version", DEFAULT_TOSS_WTS_EXPECTED_VERSION
+    )
+    if not isinstance(expected_version, str) or not _TOSS_VERSION_RE.fullmatch(
+        expected_version.strip()
+    ):
+        raise SystemSettingsError("TOSS_WTS_VERSION_INVALID")
+    timeout = data.get("timeout_seconds", DEFAULT_TOSS_WTS_TIMEOUT_SECONDS)
+    if type(timeout) is not int or not 1 <= timeout <= 300:
+        raise SystemSettingsError("TOSS_WTS_TIMEOUT_INVALID")
+    allowed = data.get("allowed_user_id")
+    if allowed in (None, ""):
+        allowed = None
+    else:
+        try:
+            allowed = validate_user_id(allowed)
+        except ValueError as exc:
+            raise SystemSettingsError("TOSS_WTS_ALLOWED_USER_INVALID") from exc
+    return {
+        "enabled": enabled,
+        "executable": executable,
+        "config_dir": config_dir,
+        "expected_version": expected_version.strip(),
+        "timeout_seconds": timeout,
+        "allowed_user_id": allowed,
+    }
+
+
 def _validate(data: object) -> dict:
     if not isinstance(data, dict) or data.get("version") != 1:
         raise SystemSettingsError("SYSTEM_SETTINGS_INVALID")
-    keys = set(data)
-    allowed_v1_legacy = {"version", "public_base_url", "telegram_webhook_owner"}
-    allowed_v1_current = {
-        "version",
-        "public_base_url",
-        "telegram_webhook_owner",
-        "automation_owner",
-    }
-    if keys not in (allowed_v1_legacy, allowed_v1_current):
+    if set(data) - _SYSTEM_KEYS:
         raise SystemSettingsError("SYSTEM_SETTINGS_INVALID")
 
     url = normalize_public_base_url(data.get("public_base_url"))
@@ -100,6 +167,11 @@ def _validate(data: object) -> dict:
             webhook_owner.strip() if isinstance(webhook_owner, str) else None
         ),
         "automation_owner": auto_owner,
+        "toss_wts": (
+            _validate_toss_wts(data["toss_wts"])
+            if data.get("toss_wts") is not None
+            else None
+        ),
     }
 
 
@@ -162,6 +234,78 @@ def get_effective_system_settings(*, path: Path | None = None) -> dict:
     }
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise SystemSettingsError("TOSS_WTS_ENABLED_INVALID")
+
+
+def resolve_toss_wts_settings(
+    *, path: Path | None = None, stored: dict | None = None
+) -> dict:
+    """Resolve stored Toss WTS settings, then legacy env, then safe defaults."""
+    if stored is None:
+        stored = load_system_settings(path=path)
+    stored_wts = stored.get("toss_wts") if stored else None
+    env_values = {
+        "enabled": os.getenv("WEALTH_TOSS_WTS_ENABLED"),
+        "executable": os.getenv("WEALTH_TOSSCTL_PATH"),
+        "config_dir": os.getenv("WEALTH_TOSSCTL_CONFIG_DIR"),
+        "expected_version": os.getenv("WEALTH_TOSSCTL_EXPECTED_VERSION"),
+        "timeout_seconds": os.getenv("WEALTH_TOSSCTL_TIMEOUT_SECONDS"),
+        "allowed_user_id": os.getenv("WEALTH_TOSS_WTS_FEED_ALLOWED_USER_ID"),
+    }
+    defaults = {
+        "enabled": False,
+        "executable": DEFAULT_TOSS_WTS_EXECUTABLE,
+        "config_dir": DEFAULT_TOSS_WTS_CONFIG_DIR,
+        "expected_version": DEFAULT_TOSS_WTS_EXPECTED_VERSION,
+        "timeout_seconds": DEFAULT_TOSS_WTS_TIMEOUT_SECONDS,
+        "allowed_user_id": None,
+    }
+    result: dict[str, object] = {}
+    sources: dict[str, str] = {}
+    for key, default in defaults.items():
+        if stored_wts is not None and key in stored_wts:
+            result[key], sources[key] = stored_wts[key], "stored"
+            continue
+        raw = env_values[key]
+        if raw is None or raw == "":
+            result[key], sources[key] = default, "default"
+            continue
+        if key == "enabled":
+            value = _env_bool("WEALTH_TOSS_WTS_ENABLED", False)
+        elif key == "timeout_seconds":
+            try:
+                value = int(str(raw).strip())
+            except ValueError as exc:
+                raise SystemSettingsError("TOSS_WTS_TIMEOUT_INVALID") from exc
+            if not 1 <= value <= 300:
+                raise SystemSettingsError("TOSS_WTS_TIMEOUT_INVALID")
+        elif key in {"executable", "config_dir"}:
+            value = _normalize_absolute_path(
+                str(raw), f"TOSS_WTS_{key.upper()}_INVALID"
+            )
+        elif key == "expected_version":
+            value = str(raw).strip()
+            if not _TOSS_VERSION_RE.fullmatch(value):
+                raise SystemSettingsError("TOSS_WTS_VERSION_INVALID")
+        else:
+            try:
+                value = validate_user_id(raw)
+            except ValueError as exc:
+                raise SystemSettingsError("TOSS_WTS_ALLOWED_USER_INVALID") from exc
+        result[key], sources[key] = value, "environment"
+    result["sources"] = sources
+    return result
+
+
 def patch_system_settings(
     patch: dict, *, path: Path | None = None, validate_user: bool = True
 ) -> dict:
@@ -169,6 +313,7 @@ def patch_system_settings(
         "public_base_url",
         "telegram_webhook_owner",
         "automation_owner",
+        "toss_wts",
     }:
         raise SystemSettingsError("SYSTEM_SETTINGS_PATCH_INVALID")
     if "automation_owner" in patch:
@@ -197,8 +342,17 @@ def patch_system_settings(
                     "public_base_url": None,
                     "telegram_webhook_owner": None,
                     "automation_owner": None,
+                    "toss_wts": None,
                 }
-                candidate = _validate({**current, **patch})
+                merged = {**current, **patch}
+                if "toss_wts" in patch:
+                    if not isinstance(patch["toss_wts"], dict):
+                        raise SystemSettingsError("TOSS_WTS_SETTINGS_INVALID")
+                    merged["toss_wts"] = {
+                        **(current.get("toss_wts") or {}),
+                        **patch["toss_wts"],
+                    }
+                candidate = _validate(merged)
                 tmp = p.with_suffix(".tmp")
                 try:
                     p.parent.mkdir(parents=True, exist_ok=True)

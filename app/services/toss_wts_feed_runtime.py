@@ -30,7 +30,7 @@ import os
 from pathlib import Path
 import threading
 
-from app.services.toss_wts_adapter import EXPECTED_TOSSCTL_VERSION
+from app.services.toss_wts_adapter import TossWtsConfig
 from app.services.toss_wts_feed_auth import (
     _get_allowed_user_id,
     check_wts_feed_static_authorization,
@@ -105,7 +105,7 @@ _ACTIVE_CONFIRMATION: _ActiveConfirmation | None = None
 
 
 def _is_wts_enabled() -> bool:
-    return os.getenv("WEALTH_TOSS_WTS_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+    return TossWtsConfig.from_environment().enabled
 
 
 def _resolve_runtime_generation_marker() -> _RuntimeGenerationMarker | None:
@@ -122,19 +122,13 @@ def _resolve_runtime_generation_marker() -> _RuntimeGenerationMarker | None:
     if err is not None or allowed_user_id is None:
         return None
 
-    executable_env = os.getenv("WEALTH_TOSSCTL_PATH", "").strip()
-    config_dir_env = os.getenv("WEALTH_TOSSCTL_CONFIG_DIR", "").strip()
-    if not executable_env or not config_dir_env:
+    config = TossWtsConfig.from_environment()
+    if not config.executable or not config.config_dir:
         return None
 
-    expected_version = (
-        os.getenv("WEALTH_TOSSCTL_EXPECTED_VERSION", EXPECTED_TOSSCTL_VERSION).strip()
-        or EXPECTED_TOSSCTL_VERSION
-    )
-
     try:
-        executable_path = Path(executable_env).expanduser()
-        config_dir_path = Path(config_dir_env).expanduser()
+        executable_path = config.executable
+        config_dir_path = config.config_dir
         session_path = config_dir_path / SESSION_FILENAME
 
         if not executable_path.is_file():
@@ -172,7 +166,7 @@ def _resolve_runtime_generation_marker() -> _RuntimeGenerationMarker | None:
 
         return _RuntimeGenerationMarker(
             allowed_user_id=allowed_user_id,
-            expected_version=expected_version,
+            expected_version=config.expected_version,
             executable_meta=exe_meta,
             config_dir_meta=dir_meta,
             session_meta=session_meta,

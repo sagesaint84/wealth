@@ -15,6 +15,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.services.secure_files import atomic_write_private_json
+
 from app.services.broker_holdings_sync import (
     BrokerHoldingsResult,
     DOMESTIC_MARKET,
@@ -160,9 +162,8 @@ class NhPlugOpenAPI:
         if not token:
             raise NhPlugOpenAPIError("나무증권 토큰 응답에 access_token이 없습니다.")
         try:
-            self.token_cache_file.parent.mkdir(parents=True, exist_ok=True)
             expires_in = float(response.json().get("expires_in", 86400))
-            self.token_cache_file.write_text(json.dumps({"app_key_prefix": self.app_key[:8], "access_token": token, "expires_at": time.time() + expires_in}, ensure_ascii=False), encoding="utf-8")
+            atomic_write_private_json(self.token_cache_file, {"app_key_prefix": self.app_key[:8], "access_token": token, "expires_at": time.time() + expires_in})
         except (OSError, ValueError, TypeError):
             pass
         return token
