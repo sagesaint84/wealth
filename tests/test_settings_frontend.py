@@ -6,11 +6,16 @@ ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
 JS = (ROOT / "app/static/wealth-settings.js").read_text(encoding="utf-8")
 CSS = (ROOT / "app/static/wealth-overrides.css").read_text(encoding="utf-8")
+LAYOUT_JS = (ROOT / "app/static/wealth-layout.js").read_text(encoding="utf-8")
 
 
 def test_settings_entry_dialog_and_module_are_wired():
     assert 'id="notificationSettingsBtn"' in HTML
     assert 'onclick="openNotificationSettings()"' in HTML
+    assert '⏰ 알림' in HTML
+    assert '⚙️ 알림·자동화' not in HTML
+    assert "'notificationSettingsBtn'" in LAYOUT_JS
+    assert "['topbarFamilyBtn', 'userOpenApiBtn', 'notificationSettingsBtn']" in LAYOUT_JS
     assert 'id="notificationSettingsDialog"' in HTML
     assert '/static/wealth-settings.js?v=1.3.0' in HTML
     assert 'aria-labelledby="notificationSettingsTitle"' in HTML
@@ -21,9 +26,13 @@ def test_settings_uses_existing_api_contract_only():
         "/api/settings/notifications",
         "/api/settings/automation",
         "/api/settings/telegram/secrets",
+        "/api/settings/system",
+        "/api/settings/telegram/status",
+        "/api/settings/telegram/test",
+        "/api/settings/telegram/webhook/connect",
+        "/api/settings/telegram/webhook/disconnect",
     ):
         assert endpoint in JS
-    assert "/api/settings/telegram/test" not in JS
     assert "setWebhook" not in JS and "getWebhookInfo" not in JS
 
 
@@ -70,6 +79,27 @@ def test_responsive_settings_styles_exist():
     assert "@media(max-width:620px)" in CSS
 
 
+def test_management_ui_does_not_auto_call_external_status():
+    assert 'id="settingsCheckTelegram"' in HTML
+    assert 'id="settingsSendTest"' in HTML
+    assert 'id="settingsConnectWebhook"' in HTML
+    assert 'id="settingsDisconnectWebhook"' in HTML
+    assert "api('/api/settings/telegram/status')" in JS
+    assert "Telegram 상태 확인" in HTML
+
+
+def test_automation_owner_ui_and_contract():
+    assert 'id="settingsAutomationOwnerSection"' in HTML
+    assert 'id="automationOwnerTitle"' in HTML
+    assert '전역 자동화 실행 사용자' in HTML
+    assert 'id="settingsSetAutomationOwner"' in HTML
+    assert 'id="settingsClearAutomationOwner"' in HTML
+    assert 'renderAutomationOwner' in JS
+    assert 'automation_owner' in JS
+    assert 'setAutomationOwner' in JS
+    assert 'clearAutomationOwner' in JS
+
+
 class SettingsFrontendTests(unittest.TestCase):
     def test_entry_and_contract(self):
         test_settings_entry_dialog_and_module_are_wired()
@@ -85,3 +115,7 @@ class SettingsFrontendTests(unittest.TestCase):
 
     def test_responsive_styles(self):
         test_responsive_settings_styles_exist()
+        test_management_ui_does_not_auto_call_external_status()
+
+    def test_automation_owner_ui(self):
+        test_automation_owner_ui_and_contract()

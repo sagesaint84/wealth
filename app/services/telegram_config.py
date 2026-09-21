@@ -25,8 +25,8 @@ def resolve_runtime_telegram_config(username: str | None = None) -> TelegramConf
  return resolve_telegram_config(target) if target else None
 
 def telegram_webhook_target_username() -> str | None:
- target=os.getenv('TELEGRAM_WEALTH_USERNAME','').strip()
- return target or None
+ from app.services.system_settings import get_effective_system_settings
+ return get_effective_system_settings().get('telegram_webhook_owner')
 
 def telegram_secret_status(username:str)->dict[str,object]:
  cfg=resolve_telegram_config(username)

@@ -5,6 +5,9 @@
   const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
   let clearBotToken = false;
   let clearWebhookSecret = false;
+  let notificationsSnapshot = null;
+  let systemSnapshot = null;
+  let webhookSnapshot = null;
 
   function sourceLabel(configured, source) {
     if (!configured || source === 'none') return '미설정';
@@ -75,6 +78,7 @@
 
   function renderNotifications(data) {
     const telegram = data.telegram;
+    notificationsSnapshot = telegram;
     byId('settingsTelegramEnabled').checked = telegram.enabled === true;
     byId('settingsChatId').value = telegram.chat_id ?? '';
     byId('settingsAllowedUserId').value = telegram.allowed_user_id ?? '';
@@ -91,6 +95,41 @@
     byId('settingsWebhookSecret').value = '';
     clearBotToken = false;
     clearWebhookSecret = false;
+    updateManagementButtons();
+  }
+
+  function renderSystem(data) {
+    systemSnapshot = data;
+    byId('settingsPublicBaseUrl').value = data.public_base_url ?? '';
+    byId('settingsPublicUrlSource').textContent = sourceLabel(Boolean(data.public_base_url), data.public_base_url_source);
+    byId('settingsSaveSystem').hidden = !data.can_manage;
+    byId('settingsPublicBaseUrl').disabled = !data.can_manage;
+    renderAutomationOwner(data);
+    updateManagementButtons();
+  }
+
+  function renderAutomationOwner(data) {
+    const section = byId('settingsAutomationOwnerSection');
+    if (!section) return;
+    section.hidden = !data.can_manage;
+    const nameEl = byId('settingsAutomationOwnerName');
+    const sourceEl = byId('settingsAutomationOwnerSource');
+    if (nameEl) nameEl.textContent = data.automation_owner || '미설정';
+    if (sourceEl) sourceEl.textContent = sourceLabel(Boolean(data.automation_owner), data.automation_owner_source);
+    const setBtn = byId('settingsSetAutomationOwner');
+    const clearBtn = byId('settingsClearAutomationOwner');
+    if (setBtn) setBtn.disabled = !data.can_manage || data.automation_owner === data.current_username;
+    if (clearBtn) clearBtn.disabled = !data.can_manage || (!data.automation_owner && data.automation_owner_source !== 'environment');
+  }
+
+  function updateManagementButtons() {
+    const telegram = notificationsSnapshot || {};
+    const system = systemSnapshot || {};
+    const owner = system.telegram_webhook_owner === system.current_username;
+    byId('settingsSendTest').disabled = !(telegram.enabled && telegram.bot_token_configured && telegram.chat_id !== null);
+    byId('settingsCheckTelegram').disabled = !(telegram.enabled && telegram.bot_token_configured);
+    byId('settingsConnectWebhook').disabled = !(system.can_manage && owner && system.public_base_url && telegram.enabled && telegram.bot_token_configured && telegram.webhook_secret_configured && telegram.allowed_user_id !== null && telegram.allowed_chat_id !== null);
+    byId('settingsDisconnectWebhook').disabled = !(system.can_manage && owner && webhookSnapshot?.configured);
   }
 
   function renderAutomation(data) {
@@ -108,12 +147,42 @@
   }
 
   async function reloadSettings() {
-    const [notifications, automation] = await Promise.all([
+    const [notifications, automation, system] = await Promise.all([
       api('/api/settings/notifications'),
       api('/api/settings/automation'),
+      api('/api/settings/system'),
     ]);
     renderNotifications(notifications);
     renderAutomation(automation);
+    renderSystem(system);
+  }
+
+  async function saveSystemSettings() {
+    const button=byId('settingsSaveSystem');setError('settingsTelegramError');
+    try {
+      busy(button,true);
+      const result=await api('/api/settings/system',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({public_base_url:byId('settingsPublicBaseUrl').value.trim() || null,telegram_webhook_owner:systemSnapshot.current_username})});
+      renderSystem(result);toast('Public URL과 webhook 사용자를 저장했습니다.');
+    } catch(error) { const message=safeMessage(error,'Public URL을 저장하지 못했습니다.');setError('settingsTelegramError',message);toast(message,true); }
+    finally {busy(button,false);}
+  }
+
+  async function checkTelegramStatus() {
+    const button=byId('settingsCheckTelegram');setError('settingsTelegramError');
+    try {
+      busy(button,true);const result=await api('/api/settings/telegram/status');webhookSnapshot=result.webhook;
+      byId('settingsBotApiStatus').textContent=result.bot.username ? `@${result.bot.username} · Bot API 응답 정상` : 'Bot API 응답 정상';
+      byId('settingsWebhookApiStatus').textContent=!result.webhook.configured?'연결되지 않음':(result.webhook.matches_expected?'Wealth URL에 연결됨':'다른 URL에 연결됨');
+      byId('settingsWebhookDetails').hidden=false;byId('settingsWebhookUrl').textContent=result.webhook.actual_url || '없음';byId('settingsPendingUpdates').textContent=String(result.webhook.pending_update_count);byId('settingsWebhookLastError').textContent=result.webhook.last_error_message || '없음';updateManagementButtons();
+    } catch(error) { webhookSnapshot=null;byId('settingsBotApiStatus').textContent='Bot API 확인 실패';byId('settingsWebhookApiStatus').textContent='확인 실패';const message=safeMessage(error,'Telegram 상태를 확인하지 못했습니다.');setError('settingsTelegramError',message);toast(message,true);updateManagementButtons(); }
+    finally {busy(button,false);}
+  }
+
+  async function runManagementOperation(buttonId,url,loadingMessage,successMessage) {
+    const button=byId(buttonId);setError('settingsTelegramError');
+    try {button.dataset.label??=button.textContent;button.disabled=true;button.textContent=loadingMessage;await api(url,{method:'POST'});toast(successMessage);await checkTelegramStatus();}
+    catch(error){const message=safeMessage(error,'Telegram 작업을 완료하지 못했습니다.');setError('settingsTelegramError',message);toast(message,true);}
+    finally{button.textContent=button.dataset.label;updateManagementButtons();}
   }
 
   async function openSettings() {
@@ -207,6 +276,49 @@
     }
   }
 
+  async function setAutomationOwner() {
+    const button = byId('settingsSetAutomationOwner');
+    setError('settingsAutomationError');
+    try {
+      busy(button, true);
+      const result = await api('/api/settings/system', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({automation_owner: systemSnapshot.current_username})
+      });
+      renderSystem(result);
+      toast('전역 자동화 실행 사용자를 설정했습니다.');
+    } catch (error) {
+      const message = safeMessage(error, '전역 자동화 실행 사용자를 저장하지 못했습니다.');
+      setError('settingsAutomationError', message);
+      toast(message, true);
+    } finally {
+      busy(button, false);
+    }
+  }
+
+  async function clearAutomationOwner() {
+    const button = byId('settingsClearAutomationOwner');
+    setError('settingsAutomationError');
+    if (!window.confirm('전역 자동화 실행 사용자를 해제하시겠습니까?\n환경변수 fallback이 있으면 해당 사용자가 기준이 됩니다.')) return;
+    try {
+      busy(button, true);
+      const result = await api('/api/settings/system', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({automation_owner: null})
+      });
+      renderSystem(result);
+      toast('전역 자동화 실행 사용자를 해제했습니다.');
+    } catch (error) {
+      const message = safeMessage(error, '전역 자동화 실행 사용자를 해제하지 못했습니다.');
+      setError('settingsAutomationError', message);
+      toast(message, true);
+    } finally {
+      busy(button, false);
+    }
+  }
+
   function requestClear(kind) {
     const label = kind === 'bot' ? 'Bot Token' : 'Webhook Secret';
     if (!window.confirm(`저장된 ${label}을 삭제하시겠습니까?\n환경변수 fallback이 있으면 해당 값이 다시 사용될 수 있습니다.`)) return;
@@ -220,9 +332,22 @@
   document.addEventListener('DOMContentLoaded', () => {
     byId('settingsSaveTelegram')?.addEventListener('click', saveTelegram);
     byId('settingsSaveAutomation')?.addEventListener('click', saveAutomation);
+    byId('settingsSetAutomationOwner')?.addEventListener('click', setAutomationOwner);
+    byId('settingsClearAutomationOwner')?.addEventListener('click', clearAutomationOwner);
     byId('settingsAddReminder')?.addEventListener('click', () => addReminderRow('').focus());
     byId('settingsClearBot')?.addEventListener('click', () => requestClear('bot'));
     byId('settingsClearWebhook')?.addEventListener('click', () => requestClear('webhook'));
+    byId('settingsSaveSystem')?.addEventListener('click', saveSystemSettings);
+    byId('settingsCheckTelegram')?.addEventListener('click', checkTelegramStatus);
+    byId('settingsSendTest')?.addEventListener('click', () => runManagementOperation('settingsSendTest','/api/settings/telegram/test','전송 중…','Telegram 테스트 메시지를 전송했습니다.'));
+    byId('settingsConnectWebhook')?.addEventListener('click', () => {
+      if (webhookSnapshot?.configured && !webhookSnapshot.matches_expected && !window.confirm('현재 Telegram webhook이 다른 URL을 사용 중입니다. Wealth URL로 변경하시겠습니까?')) return;
+      runManagementOperation('settingsConnectWebhook','/api/settings/telegram/webhook/connect','연결 중…','Telegram webhook을 연결했습니다.');
+    });
+    byId('settingsDisconnectWebhook')?.addEventListener('click', () => {
+      if (!window.confirm('Webhook 연결을 해제하시겠습니까?\nTelegram에서 Wealth로 들어오는 청약 완료 응답이 중단됩니다.')) return;
+      runManagementOperation('settingsDisconnectWebhook','/api/settings/telegram/webhook/disconnect','해제 중…','Telegram webhook 연결을 해제했습니다.');
+    });
     byId('settingsBotToken')?.addEventListener('input', () => {
       if (!byId('settingsBotToken').value) return;
       clearBotToken = false;

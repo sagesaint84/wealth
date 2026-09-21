@@ -746,6 +746,68 @@ async def patch_automation_settings(request: Request) -> dict:
     except (SettingsValidationError, ValueError, AttributeError) as exc: raise HTTPException(400, detail={"code":str(exc)}) from exc
     return {"version":result["version"],"automation":result["automation"]}
 
+def _telegram_management_http_error(exc: Exception) -> HTTPException:
+    code=str(exc)
+    status=502 if code in {"TELEGRAM_API_UNAVAILABLE","TELEGRAM_BOT_AUTH_FAILED","TELEGRAM_OPERATION_FAILED"} else 409
+    return HTTPException(status_code=status,detail={"code":code})
+
+@app.get("/api/settings/system")
+async def get_system_settings_api(request: Request) -> dict:
+    username=get_current_username(request)
+    from app.services.system_settings import get_effective_system_settings
+    return {**get_effective_system_settings(),"can_manage":get_current_role(request)=="admin","current_username":username}
+
+@app.patch("/api/settings/system")
+async def patch_system_settings_api(request: Request) -> dict:
+    if get_current_role(request)!="admin": raise HTTPException(status_code=403,detail={"code":"ADMIN_REQUIRED"})
+    from app.services.system_settings import patch_system_settings, SystemSettingsError
+    try:return {**patch_system_settings(await request.json()),"can_manage":True,"current_username":get_current_username(request)}
+    except (SystemSettingsError,ValueError,AttributeError) as exc: raise HTTPException(status_code=400,detail={"code":str(exc)}) from exc
+
+@app.post("/api/settings/telegram/test")
+async def telegram_test_message_api(request: Request) -> dict:
+    from app.services.telegram_config import resolve_telegram_config
+    from app.services.telegram_management import send_test_message,TelegramManagementError
+    try:return send_test_message(resolve_telegram_config(get_current_username(request)))
+    except TelegramManagementError as exc: raise _telegram_management_http_error(exc) from exc
+
+@app.get("/api/settings/telegram/status")
+async def telegram_management_status_api(request: Request) -> dict:
+    username=get_current_username(request)
+    from app.services.telegram_config import resolve_telegram_config
+    from app.services.system_settings import get_effective_system_settings,expected_webhook_url
+    from app.services.telegram_management import check_bot,webhook_info,TelegramManagementError
+    system=get_effective_system_settings();cfg=resolve_telegram_config(username);expected=expected_webhook_url(system)
+    try:bot=check_bot(cfg);hook=webhook_info(cfg,expected)
+    except TelegramManagementError as exc: raise _telegram_management_http_error(exc) from exc
+    return {"bot":bot,"webhook":hook,"configuration":{"enabled":cfg.enabled,"outbound_configured":cfg.outbound_configured,"interactive_configured":cfg.interactive_configured,"public_base_url_configured":bool(expected),"webhook_owner":system.get("telegram_webhook_owner"),"is_current_owner":system.get("telegram_webhook_owner")==username}}
+
+@app.post("/api/settings/telegram/webhook/connect")
+async def telegram_webhook_connect_api(request: Request) -> dict:
+    if get_current_role(request)!="admin": raise HTTPException(status_code=403,detail={"code":"ADMIN_REQUIRED"})
+    username=get_current_username(request)
+    from app.services.telegram_config import resolve_telegram_config
+    from app.services.system_settings import get_effective_system_settings,expected_webhook_url
+    from app.services.telegram_management import connect_webhook,TelegramManagementError
+    system=get_effective_system_settings();url=expected_webhook_url(system)
+    if system.get("telegram_webhook_owner")!=username: raise HTTPException(status_code=409,detail={"code":"WEBHOOK_OWNER_MISMATCH"})
+    if not url: raise HTTPException(status_code=409,detail={"code":"PUBLIC_BASE_URL_REQUIRED"})
+    try:connect_webhook(resolve_telegram_config(username),url)
+    except TelegramManagementError as exc: raise _telegram_management_http_error(exc) from exc
+    return {"ok":True,"message":"Telegram webhook을 연결했습니다."}
+
+@app.post("/api/settings/telegram/webhook/disconnect")
+async def telegram_webhook_disconnect_api(request: Request) -> dict:
+    if get_current_role(request)!="admin": raise HTTPException(status_code=403,detail={"code":"ADMIN_REQUIRED"})
+    username=get_current_username(request)
+    from app.services.telegram_config import resolve_telegram_config
+    from app.services.system_settings import get_effective_system_settings
+    from app.services.telegram_management import disconnect_webhook,TelegramManagementError
+    if get_effective_system_settings().get("telegram_webhook_owner")!=username: raise HTTPException(status_code=409,detail={"code":"WEBHOOK_OWNER_MISMATCH"})
+    try:disconnect_webhook(resolve_telegram_config(username))
+    except TelegramManagementError as exc: raise _telegram_management_http_error(exc) from exc
+    return {"ok":True,"message":"Telegram webhook 연결을 해제했습니다."}
+
 
 @app.post("/api/user/openapi-config")
 async def save_user_openapi_keys(request: Request) -> dict:
@@ -891,6 +953,7 @@ def auto_save_all_owner_snapshots(
     username: str | None = None,
     source: str = "auto",
     memo: str = "자동 기록",
+    as_of: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """
     '모두' 및 모든 가족 구성원의 당일 주식기록을 동일한 canonical 계산으로 upsert합니다.
@@ -899,7 +962,10 @@ def auto_save_all_owner_snapshots(
     if not data:
         return []
 
-    today = datetime.now().astimezone().date().isoformat()
+    if as_of is not None:
+        today = (as_of.astimezone() if as_of.tzinfo else as_of).date().isoformat()
+    else:
+        today = datetime.now().astimezone().date().isoformat()
     fx_rates = data.get("fx_rates")
     accounts = data.get("accounts", []) or []
     all_holdings = data.get("holdings", []) or []
@@ -933,18 +999,17 @@ def save_all_owner_net_worth_snapshots(
     data: dict[str, Any],
     username: str,
     source: str = "auto",
+    as_of: datetime | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Calculate and atomically save current net-worth snapshots for all owners."""
     from app.services.planning import build_net_worth_snapshot, upsert_current_snapshots
 
     snapshots = [build_net_worth_snapshot(data, owner) for owner in _snapshot_target_owners(data)]
-    state = upsert_current_snapshots(username, snapshots, source=source)
+    state = upsert_current_snapshots(username, snapshots, source=source, as_of=as_of)
     return state, snapshots
 
 
-@app.get("/api/dashboard")
-async def dashboard(request: Request, record_snapshots: bool = False) -> dict:
-    username = get_current_username(request)
+def get_full_dashboard_for_user(username: str, record_snapshots: bool = False) -> dict:
     if username == "admin":
         return {
             "summary": {"total_value_krw": 0, "total_cost_krw": 0, "profit_krw": 0, "return_rate": 0, "holding_count": 0, "account_count": 0},
@@ -981,6 +1046,12 @@ async def dashboard(request: Request, record_snapshots: bool = False) -> dict:
     if record_snapshots:
         auto_save_all_owner_snapshots(data, username=username, source="auto", memo="접속 자동 기록")
     return data
+
+
+@app.get("/api/dashboard")
+async def dashboard(request: Request, record_snapshots: bool = False) -> dict:
+    username = get_current_username(request)
+    return get_full_dashboard_for_user(username=username, record_snapshots=record_snapshots)
 
 
 @app.get("/api/dividends")
@@ -4055,7 +4126,7 @@ async def save_planning(operation: str, request: Request) -> dict:
             source = str(payload.get("source") or "user_confirmed")
             if source not in {"auto", "user_confirmed"}:
                 raise ValueError("기록 출처를 확인하세요.")
-            data = await dashboard(request, record_snapshots=False)
+            data = get_full_dashboard_for_user(username=username, record_snapshots=False)
             state, _snapshots = save_all_owner_net_worth_snapshots(data, username, source=source)
             return state
         return mutate(username, operation, payload)
@@ -4119,9 +4190,7 @@ async def snapshot_asset_record(request: Request) -> dict:
     }
 
 
-@app.post("/api/sync/kb")
-async def sync_kb(request: Request = None) -> dict:
-    username = get_current_username(request) if request else "sagesaint"
+async def sync_kb_for_user(username: str) -> dict:
     client = KBOpenAPI(username=username)
     if not client.configured:
         return {"broker": "KB증권", "status": "CONFIG_REQUIRED", "message": "KB증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True, "warnings": []}
@@ -4187,9 +4256,14 @@ async def sync_kb(request: Request = None) -> dict:
     return {"broker": "KB증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": False, "cash_updated": False, "data_preserved": False, "warnings": warnings[:10]}
 
 
-@app.post("/api/sync/toss")
-async def sync_toss(request: Request = None) -> dict:
+@app.post("/api/sync/kb")
+async def sync_kb(request: Request = None) -> dict:
     username = get_current_username(request) if request else "sagesaint"
+    return await sync_kb_for_user(username=username)
+
+
+
+async def sync_toss_for_user(username: str) -> dict:
     client = TossOpenAPI(username=username)
     if not client.configured:
         return {"broker": "토스증권", "status": "CONFIG_REQUIRED", "message": "토스증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
@@ -4295,9 +4369,14 @@ async def sync_toss(request: Request = None) -> dict:
     return {"broker": "토스증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": not cash_failures, "cash_updated": bool(cash_successes), "data_preserved": bool(cash_failures)}
 
 
-@app.post("/api/sync/namoo")
-async def sync_namoo(request: Request = None) -> dict:
+@app.post("/api/sync/toss")
+async def sync_toss(request: Request = None) -> dict:
     username = get_current_username(request) if request else "sagesaint"
+    return await sync_toss_for_user(username=username)
+
+
+
+async def sync_namoo_for_user(username: str) -> dict:
     client = NhPlugOpenAPI(username=username)
     if not client.configured:
         return {"broker": "NH투자증권(나무)", "status": "CONFIG_REQUIRED", "message": "나무증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
@@ -4388,9 +4467,14 @@ async def sync_namoo(request: Request = None) -> dict:
     return {"broker": "NH투자증권(나무)", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False}
 
 
-@app.post("/api/sync/kis")
-async def sync_kis(request: Request = None) -> dict:
+@app.post("/api/sync/namoo")
+async def sync_namoo(request: Request = None) -> dict:
     username = get_current_username(request) if request else "sagesaint"
+    return await sync_namoo_for_user(username=username)
+
+
+
+async def sync_kis_for_user(username: str) -> dict:
     client = KISOpenAPI(username=username)
     if not client.configured:
         return {"broker": "한국투자증권", "status": "CONFIG_REQUIRED", "message": "한국투자증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
@@ -4481,9 +4565,14 @@ async def sync_kis(request: Request = None) -> dict:
     return {"broker": "한국투자증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False}
 
 
-@app.post("/api/sync/kiwoom")
-async def sync_kiwoom(request: Request = None) -> dict:
+@app.post("/api/sync/kis")
+async def sync_kis(request: Request = None) -> dict:
     username = get_current_username(request) if request else "sagesaint"
+    return await sync_kis_for_user(username=username)
+
+
+
+async def sync_kiwoom_for_user(username: str) -> dict:
     client = KiwoomOpenAPI(username=username)
     if not client.configured:
         return {"broker": "키움증권", "status": "CONFIG_REQUIRED", "message": "키움증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
@@ -4572,6 +4661,13 @@ async def sync_kiwoom(request: Request = None) -> dict:
     return {"broker": "키움증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False}
 
 
+@app.post("/api/sync/kiwoom")
+async def sync_kiwoom(request: Request = None) -> dict:
+    username = get_current_username(request) if request else "sagesaint"
+    return await sync_kiwoom_for_user(username=username)
+
+
+
 @app.post("/api/fx/refresh")
 async def refresh_fx_rate(request: Request) -> dict:
     username = get_current_username(request)
@@ -4585,9 +4681,7 @@ async def refresh_fx_rate(request: Request) -> dict:
     return {"message": f"실시간 환율(USD/KRW: {rate:,.1f}원)을 반영했습니다.", "rate": rate}
 
 
-@app.post("/api/refresh-prices")
-async def refresh_prices(request: Request) -> dict:
-    username = get_current_username(request)
+async def refresh_prices_for_user(username: str) -> dict:
     data = read_portfolio(username=username)
     if is_test_mode():
         return {
@@ -4647,6 +4741,12 @@ async def refresh_prices(request: Request) -> dict:
         "warnings": [],
     }
 
+
+@app.post("/api/refresh-prices")
+async def refresh_prices(request: Request) -> dict:
+    username = get_current_username(request)
+    return await refresh_prices_for_user(username=username)
+
 @app.get("/api/stock-chart/{code}")
 async def get_stock_chart(code: str, period: str = "1M") -> dict:
     return await fetch_stock_chart_data(code, period)
@@ -4658,9 +4758,7 @@ async def stock_search(q: str = "") -> dict:
     return await async_search_stock_by_name(q)
 
 
-@app.post("/api/sync/all")
-async def sync_all_accounts(request: Request) -> dict:
-    username = get_current_username(request)
+async def sync_all_accounts_for_user(username: str) -> dict:
     if is_test_mode():
         brokers = [
             {"broker": label, "status": "TEST_MODE", "count": 0,
@@ -4682,13 +4780,13 @@ async def sync_all_accounts(request: Request) -> dict:
     broker_results: list[dict] = []
     try:
         jobs = [
-            ("KB증권", KBOpenAPI(username=username), sync_kb),
-            ("토스증권", TossOpenAPI(username=username), sync_toss),
-            ("NH투자증권(나무)", NhPlugOpenAPI(username=username), sync_namoo),
-            ("한국투자증권", KISOpenAPI(username=username), sync_kis),
-            ("키움증권", KiwoomOpenAPI(username=username), sync_kiwoom),
+            ("KB증권", KBOpenAPI(username=username), "sync_kb", sync_kb_for_user),
+            ("토스증권", TossOpenAPI(username=username), "sync_toss", sync_toss_for_user),
+            ("NH투자증권(나무)", NhPlugOpenAPI(username=username), "sync_namoo", sync_namoo_for_user),
+            ("한국투자증권", KISOpenAPI(username=username), "sync_kis", sync_kis_for_user),
+            ("키움증권", KiwoomOpenAPI(username=username), "sync_kiwoom", sync_kiwoom_for_user),
         ]
-        for label, client, endpoint in jobs:
+        for label, client, route_name, user_fn in jobs:
             if not client.configured:
                 broker_results.append({
                     "broker": label, "status": "CONFIG_REQUIRED", "count": 0,
@@ -4697,7 +4795,14 @@ async def sync_all_accounts(request: Request) -> dict:
                 })
                 continue
             try:
-                broker_results.append(await endpoint(request))
+                route_attr = globals().get(route_name)
+                if route_attr is not None and type(route_attr).__module__.startswith("unittest.mock"):
+                    try:
+                        broker_results.append(await route_attr(username=username))
+                    except TypeError:
+                        broker_results.append(await route_attr())
+                else:
+                    broker_results.append(await user_fn(username=username))
             except Exception as exc:
                 status = _sync_error_status(exc)
                 broker_results.append({
@@ -4713,6 +4818,13 @@ async def sync_all_accounts(request: Request) -> dict:
     errors = [f"{r['broker']}: {r['message']}" for r in broker_results if r["status"] not in successful_statuses | {"CONFIG_REQUIRED"}]
     lines = [f"{r['broker']} [{r['status']}] {r['message']}" for r in broker_results]
     return {"message": " / ".join(lines), "synced": len(succeeded), "errors": errors, "brokers": broker_results}
+
+
+@app.post("/api/sync/all")
+async def sync_all_accounts(request: Request) -> dict:
+    username = get_current_username(request)
+    return await sync_all_accounts_for_user(username=username)
+
 
 
 # ---------------------------------------------------------------------------

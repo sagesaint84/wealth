@@ -147,7 +147,7 @@
   page('settings').append(settingsCard);
   const actions = settingsCard.querySelector('.wealth-settings-actions');
   // Retain admin/password actions in the global header for the separate admin view.
-  ['topbarFamilyBtn', 'userOpenApiBtn'].forEach(id => move(id, actions));
+  ['topbarFamilyBtn', 'userOpenApiBtn', 'notificationSettingsBtn'].forEach(id => move(id, actions));
   const footer = document.getElementById('appCommonFooter');
   const footerParent = footer?.parentNode;
   if (footer) page('settings').append(footer);

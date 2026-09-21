@@ -50,4 +50,37 @@ class SubscriptionReminderTests(unittest.TestCase):
 
     def test_invalid_slot_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "INVALID_REMINDER_SLOT"):
-            self.run_reminder("1000", date(2026, 9, 20))
+            self.run_reminder("2500", date(2026, 9, 20))
+        with self.assertRaisesRegex(ValueError, "INVALID_REMINDER_SLOT"):
+            self.run_reminder("invalid", date(2026, 9, 20))
+        with self.assertRaisesRegex(ValueError, "INVALID_REMINDER_SLOT"):
+            self.run_reminder("1260", date(2026, 9, 20))
+
+    def test_generalized_slot_and_dynamic_last_slot(self):
+        # 1000 is a valid slot (0000-2359)
+        res = self.run_reminder("1000", date(2026, 9, 20))
+        self.assertEqual(res["notifications_sent_count"], 1)
+        self.assertEqual(res["slot"], "1000")
+        msg = self.notifier.send_message.call_args[0][0]
+        # By default is_last_slot is None, so slot 1000 should not have closing warning
+        self.assertNotIn("청약 마감 시간이 가까워지고 있습니다", msg)
+
+        # Non-1500 slot with is_last_slot=True should have closing warning
+        self.notifier.send_message.reset_mock()
+        run_ipo_subscription_reminders(
+            username="test", reminder_slot="1430", today=date(2026, 9, 21),
+            notifier=self.notifier, market_store=self.market, applications=self.apps,
+            is_last_slot=True,
+        )
+        msg_last = self.notifier.send_message.call_args[0][0]
+        self.assertIn("청약 마감 시간이 가까워지고 있습니다", msg_last)
+
+        # 1500 slot with is_last_slot=False should NOT have closing warning
+        self.notifier.send_message.reset_mock()
+        run_ipo_subscription_reminders(
+            username="test", reminder_slot="1500", today=date(2026, 9, 21),
+            notifier=self.notifier, market_store=self.market, applications=self.apps,
+            is_last_slot=False,
+        )
+        msg_not_last = self.notifier.send_message.call_args[0][0]
+        self.assertNotIn("청약 마감 시간이 가까워지고 있습니다", msg_not_last)

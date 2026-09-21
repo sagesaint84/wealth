@@ -12,13 +12,22 @@ from app.services.ipo.store import read_market_store_read_only
 REMINDER_SLOTS = {"0900", "1200", "1500"}
 
 
+def _is_valid_reminder_slot(slot: str) -> bool:
+    if not isinstance(slot, str) or len(slot) != 4 or not slot.isdigit():
+        return False
+    hh = int(slot[:2])
+    mm = int(slot[2:])
+    return 0 <= hh <= 23 and 0 <= mm <= 59
+
+
 def run_ipo_subscription_reminders(
     *, username: str | None, reminder_slot: str, today: date | None = None,
     notifier: IpoTelegramNotifier | None = None, market_store: dict[str, Any] | None = None,
     applications: dict[str, Any] | None = None,
+    is_last_slot: bool | None = None,
 ) -> dict[str, Any]:
     """Send at most one grouped reminder per IPO/date/slot; never refreshes market data."""
-    if reminder_slot not in REMINDER_SLOTS:
+    if not _is_valid_reminder_slot(reminder_slot):
         raise ValueError("INVALID_REMINDER_SLOT")
     current = today or datetime.now(KST).date()
     date_str = current.isoformat()
@@ -27,10 +36,18 @@ def run_ipo_subscription_reminders(
     family = list(apps.get("family_members") or [])
     client = notifier or IpoTelegramNotifier(username=username)
     with notification_state_lock(client.state_path):
-        return _run_reminders_locked(client, store, apps, current, reminder_slot, username)
+        return _run_reminders_locked(client, store, apps, current, reminder_slot, username, is_last_slot=is_last_slot)
 
 
-def _run_reminders_locked(client: IpoTelegramNotifier, store: dict[str, Any], apps: dict[str, Any], current: date, reminder_slot: str, username: str | None) -> dict[str, Any]:
+def _run_reminders_locked(
+    client: IpoTelegramNotifier,
+    store: dict[str, Any],
+    apps: dict[str, Any],
+    current: date,
+    reminder_slot: str,
+    username: str | None,
+    is_last_slot: bool | None = None,
+) -> dict[str, Any]:
     date_str = current.isoformat()
     family = list(apps.get("family_members") or [])
     state = client.load_state()
@@ -66,7 +83,8 @@ def _run_reminders_locked(client: IpoTelegramNotifier, store: dict[str, Any], ap
             f"• 주관사: {managers}\n"
             f"⚠️ <b>아직 신청하지 않음:</b> {', '.join(missing)}\n"
         )
-        if reminder_slot == "1500":
+        should_warn = is_last_slot if is_last_slot is not None else (reminder_slot == "1500")
+        if should_warn:
             message += "청약 마감 시간이 가까워지고 있습니다. 증권사별 실제 청약 접수 마감 시간을 확인하세요.\n"
         markup = None
         try:
@@ -94,9 +112,14 @@ def _run_reminders_locked(client: IpoTelegramNotifier, store: dict[str, Any], ap
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--username", required=True)
-    parser.add_argument("--slot", required=True, choices=sorted(REMINDER_SLOTS))
+    parser.add_argument("--slot", required=True)
+    parser.add_argument("--last-slot", action="store_true", default=None)
     args = parser.parse_args()
-    print(run_ipo_subscription_reminders(username=args.username, reminder_slot=args.slot))
+    print(run_ipo_subscription_reminders(
+        username=args.username,
+        reminder_slot=args.slot,
+        is_last_slot=args.last_slot,
+    ))
     return 0
 
 

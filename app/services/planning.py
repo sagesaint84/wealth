@@ -179,7 +179,7 @@ def build_net_worth_snapshot(data, owner="모두"):
     }
 
 
-def upsert_current_snapshots(username, snapshots, source="auto"):
+def upsert_current_snapshots(username, snapshots, source="auto", as_of=None):
     """Atomically upsert today's current net-worth snapshots for multiple owners."""
     if source not in {"auto", "scheduled", "user_confirmed"}:
         raise ValueError("기록 출처를 확인하세요.")
@@ -191,7 +191,10 @@ def upsert_current_snapshots(username, snapshots, source="auto"):
         path = portfolio._get_portfolio_file(username)
         pf = json.loads(path.read_text(encoding="utf-8")) if path.exists() else deepcopy(portfolio.EMPTY_PORTFOLIO)
         state = deepcopy(pf.get("settings", {}).get("wealth_planning", empty()))
-        now = datetime.now(timezone(timedelta(hours=9)))
+        if as_of is not None:
+            now = as_of if as_of.tzinfo else as_of.replace(tzinfo=timezone(timedelta(hours=9)))
+        else:
+            now = datetime.now(timezone(timedelta(hours=9)))
         today = now.date().isoformat()
         replacements = {}
 
