@@ -12,7 +12,9 @@ from unittest.mock import patch
 
 from starlette.requests import Request
 
-from app.services import ledger, portfolio, user_manager, user_openapi
+from app.services import ledger, portfolio, settings, user_manager, user_openapi
+from app.services.kb_openapi import KBOpenAPI
+from app.services.kis_openapi import KISOpenAPI
 
 # The package-level guard is intentionally also installed here so tests that
 # import this helper directly (outside package discovery) get the same policy.
@@ -107,9 +109,39 @@ class IsolatedDataTestCase(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory(prefix="wealth-regression-")
         self.fixture_root = Path(self.temp_dir.name)
         self.fixture_users = self.fixture_root / "users"
+        def _isolated_kis_init(kis_self, username="sagesaint"):
+            kis_self.username = username
+            cfg = user_openapi.get_user_openapi_config(username).get("kis", {})
+            kis_self.base_url = os.getenv("KIS_BASE_URL", "https://openapi.koreainvestment.com:9443").rstrip("/")
+            kis_self.app_key = cfg.get("app_key", "")
+            kis_self.app_secret = cfg.get("app_secret", "")
+            kis_self.account_no = cfg.get("account_no", "").replace("-", "").strip()
+            kis_self._validate_url(kis_self.base_url, "KIS_BASE_URL")
+            user_dir = self.fixture_user_dir(username)
+            kis_self.token_cache_file = user_dir / "kis_token_cache.json"
+            kis_self._token = None
+            kis_self.last_accounts = []
+            kis_self.account_cash = {}
+
+        def _isolated_kb_init(kb_self, username="sagesaint"):
+            kb_self.username = username
+            cfg = user_openapi.get_user_openapi_config(username).get("kb", {})
+            kb_self.base_url = "https://developer.kbsec.com:32484"
+            kb_self.app_key = cfg.get("app_key", "")
+            kb_self.app_secret = cfg.get("app_secret", "")
+            kb_self.gnl_ac_no = cfg.get("gnl_ac_no", "").replace("-", "").strip()
+            kb_self.gds_no = cfg.get("gds_no", "").strip()
+            kb_self._token = None
+            user_dir = self.fixture_user_dir(username)
+            kb_self.token_cache_file = user_dir / "kb_token_cache.json"
+
         self.patchers = [
             patch.object(user_manager, "get_user_data_dir", side_effect=self.fixture_user_dir),
             patch.object(ledger, "get_user_data_dir", side_effect=self.fixture_user_dir),
+            patch.object(settings, "get_user_data_dir", side_effect=self.fixture_user_dir),
+            patch.object(user_openapi, "USERS_DIR", self.fixture_users),
+            patch.object(KISOpenAPI, "__init__", _isolated_kis_init),
+            patch.object(KBOpenAPI, "__init__", _isolated_kb_init),
             patch.object(
                 user_openapi,
                 "get_user_openapi_config",

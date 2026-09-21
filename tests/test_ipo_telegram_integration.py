@@ -25,9 +25,13 @@ class _IsolatedTelegramTestCase(unittest.TestCase):
             p = self._tg_users / (u or "alice").strip()
             p.mkdir(parents=True, exist_ok=True)
             return p
-        self._user_dir_patch = patch("app.services.user_manager.get_user_data_dir", side_effect=_get_user_dir)
-        self._user_dir_patch.start()
-        self.addCleanup(self._user_dir_patch.stop)
+        self._user_dir_patches = [
+            patch("app.services.user_manager.get_user_data_dir", side_effect=_get_user_dir),
+            patch("app.services.settings.get_user_data_dir", side_effect=_get_user_dir),
+        ]
+        for p in self._user_dir_patches:
+            p.start()
+            self.addCleanup(p.stop)
 
 class TelegramEndpointTests(_IsolatedTelegramTestCase):
     def setUp(self):
