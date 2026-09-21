@@ -2,8 +2,6 @@ services:
   dashboard:
     image: ghcr.io/sagesaint84/wealth:latest
     container_name: wealth
-    env_file:
-      - ./.env
     ports:
       - "4829:4829"
     volumes:

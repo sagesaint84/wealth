@@ -763,7 +763,7 @@ def _run_ipo_daily_pipeline(
     notifications: list[dict[str, Any]] = []
     if not market_only:
         apps = get_user_applications(username=username)
-        notif = notifier or IpoTelegramNotifier()
+        notif = notifier or IpoTelegramNotifier(username=username)
         notifications = notif.check_and_notify_events(
             ipos,
             applications=apps,

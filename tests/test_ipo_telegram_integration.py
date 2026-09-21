@@ -56,6 +56,13 @@ class TelegramEndpointTests(unittest.TestCase):
     def test_missing_and_malformed_config_disables_endpoint(self):
         for key,value in [("TELEGRAM_WEBHOOK_SECRET",""),("TELEGRAM_ALLOWED_USER_ID",""),("TELEGRAM_ALLOWED_CHAT_ID",""),("TELEGRAM_WEALTH_USERNAME",""),("TELEGRAM_ALLOWED_USER_ID","bad"),("TELEGRAM_ALLOWED_CHAT_ID","bad")]:
             with patch.dict(os.environ,{key:value}):self.assertIsNone(interactive_config());self.assertEqual(self.post(callback()).status_code,503)
+    def test_stored_webhook_secret_overrides_environment_at_endpoint(self):
+        from app.services.telegram_config import TelegramConfig
+        cfg=TelegramConfig('alice',True,'token',222,'STORED_SECRET',111,222,'stored','stored')
+        body={"message":{"from":{"id":111},"chat":{"id":222},"text":"ignored text"}}
+        with patch("app.services.telegram_config.resolve_telegram_config",return_value=cfg):
+            self.assertEqual(self.post(body,"STORED_SECRET").status_code,200)
+            self.assertEqual(self.post(body,"test-secret").status_code,403)
 
 class TelegramFreeTextTests(unittest.TestCase):
     def setUp(self):self.p=patch.dict(os.environ,ENV,clear=False);self.p.start();self.addCleanup(self.p.stop)

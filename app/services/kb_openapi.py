@@ -65,11 +65,10 @@ def compute_kb_account_key(gnl_ac_no: str, gds_no: str, secret: str | None = Non
     if not normalized_gds:
         raise KBOpenAPIError("KB증권 상품번호(gds_no)가 없습니다.")
 
-    key = secret if secret is not None else os.getenv("DASHBOARD_SECRET_KEY", "").strip()
-    if not key and os.getenv("WEALTH_ENV", "").strip().lower() == "test":
-        key = os.getenv("WEALTH_TEST_SIGNING_SECRET", "").strip()
-    if not key:
-        raise KBOpenAPIError("KB증권 계좌 식별에 필요한 서버 서명 키(DASHBOARD_SECRET_KEY)가 없습니다.")
+    if secret is None:
+        from app.services.system_secrets import resolve_application_secret
+        key=resolve_application_secret()
+    else: key=secret
 
     message = f"kb:{normalized_acct}:{normalized_gds}".encode("utf-8")
     return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()

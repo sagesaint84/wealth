@@ -34,6 +34,7 @@
           <button id="topbarFamilyBtn" class="button secondary compact" type="button" title="가족 구성원 관리" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#cbd5e1;border-color:#334155;">👨‍👩‍👧‍👦 가족</button>
           <button id="adminUserBtn" class="button secondary compact" type="button" onclick="openAdminUsersModal()" style="display:none;font-size:11.5px;padding:5px 9px;border-radius:8px;color:#c4b5fd;border-color:#4c3e80;" title="사용자 관리">⚙️ 사용자 관리</button>
           <button id="userOpenApiBtn" class="button secondary compact" type="button" onclick="openUserOpenApiModal()" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#38bdf8;border-color:#1e3a8a;" title="증권사 OpenAPI 설정">⚙️ OpenAPI</button>
+          <button id="notificationSettingsBtn" class="button secondary compact" type="button" onclick="openNotificationSettings()" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#86efac;border-color:#166534;" title="Telegram 알림 및 자동화 설정">⚙️ 알림·자동화</button>
           <button id="changePwBtn" class="button secondary compact" type="button" onclick="openChangePasswordModal()" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#aeb8d8;" title="비밀번호 변경">🔑 비번 변경</button>
           <a href="/logout" class="button secondary compact" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#ff8ca0;text-decoration:none;display:inline-flex;align-items:center;" title="로그아웃">로그아웃</a>
         </div>
@@ -3289,16 +3290,62 @@
       </form>
     </dialog>
 
+    <dialog id="notificationSettingsDialog" class="dialog settings-dialog" aria-labelledby="notificationSettingsTitle">
+      <div class="dialog-head settings-dialog-head">
+        <div>
+          <h2 id="notificationSettingsTitle">알림 및 자동화</h2>
+          <p class="dialog-description">Telegram 알림과 Wealth 자동 실행 시간을 관리합니다.</p>
+        </div>
+        <button type="button" class="close" data-settings-close aria-label="닫기">×</button>
+      </div>
+      <div id="settingsLoading" class="settings-loading" role="status">설정을 불러오는 중…</div>
+      <div id="settingsContent" class="settings-content" hidden>
+        <section class="settings-section" aria-labelledby="telegramSettingsTitle">
+          <div class="settings-section-title">
+            <div><h3 id="telegramSettingsTitle">Telegram 알림</h3><p>설정 여부만 표시하며 실제 연결 상태는 확인하지 않습니다.</p></div>
+            <label class="settings-switch"><input id="settingsTelegramEnabled" type="checkbox"><span>사용</span></label>
+          </div>
+          <div class="settings-secret-grid">
+            <div class="settings-secret-card">
+              <div><strong>Bot Token</strong><span id="settingsBotStatus" class="settings-source">미설정</span></div>
+              <input id="settingsBotToken" type="password" autocomplete="new-password" placeholder="변경할 때만 새 값을 입력하세요" aria-label="새 Telegram Bot Token">
+              <button id="settingsClearBot" type="button" class="button secondary compact settings-clear">저장된 값 삭제</button>
+            </div>
+            <div class="settings-secret-card">
+              <div><strong>Webhook Secret</strong><span id="settingsWebhookStatus" class="settings-source">미설정</span></div>
+              <input id="settingsWebhookSecret" type="password" autocomplete="new-password" placeholder="변경할 때만 새 값을 입력하세요" aria-label="새 Telegram Webhook Secret">
+              <button id="settingsClearWebhook" type="button" class="button secondary compact settings-clear">저장된 값 삭제</button>
+            </div>
+          </div>
+          <div class="settings-fields">
+            <label>Chat ID<input id="settingsChatId" type="text" inputmode="numeric" autocomplete="off"></label>
+            <label>Allowed User ID<input id="settingsAllowedUserId" type="text" inputmode="numeric" autocomplete="off"></label>
+            <label>Allowed Chat ID<input id="settingsAllowedChatId" type="text" inputmode="numeric" autocomplete="off"></label>
+          </div>
+          <p id="settingsTelegramError" class="settings-error" role="alert" hidden></p>
+          <div class="settings-actions"><button id="settingsSaveTelegram" type="button" class="button primary">Telegram 설정 저장</button></div>
+        </section>
+        <section class="settings-section" aria-labelledby="automationSettingsTitle">
+          <div class="settings-section-title"><div><h3 id="automationSettingsTitle">자동화</h3><p>시간대: <strong id="settingsTimezone">Asia/Seoul</strong></p></div></div>
+          <div class="settings-task"><label><input id="settingsMorningEnabled" type="checkbox"> IPO 오전 갱신</label><input id="settingsMorningTime" class="settings-time" type="text" inputmode="numeric" placeholder="07:30" aria-label="IPO 오전 갱신 시간"></div>
+          <div class="settings-task settings-reminders"><label><input id="settingsRemindersEnabled" type="checkbox"> 공모주 청약 알림</label><div><div id="settingsReminderTimes" class="settings-reminder-list"></div><button id="settingsAddReminder" type="button" class="button secondary compact">+ 알림 시간 추가</button></div></div>
+          <div class="settings-task"><label><input id="settingsEveningEnabled" type="checkbox"> IPO 장후 갱신</label><input id="settingsEveningTime" class="settings-time" type="text" inputmode="numeric" placeholder="18:30" aria-label="IPO 장후 갱신 시간"></div>
+          <div class="settings-task"><label><input id="settingsDailyCloseEnabled" type="checkbox"> 일일 마감</label><input id="settingsDailyCloseTime" class="settings-time" type="text" inputmode="numeric" placeholder="21:00" aria-label="일일 마감 시간"></div>
+          <p id="settingsAutomationError" class="settings-error" role="alert" hidden></p>
+          <div class="settings-actions"><button id="settingsSaveAutomation" type="button" class="button primary">자동화 설정 저장</button></div>
+        </section>
+      </div>
+    </dialog>
+
     <script src="/static/wealth-layout.js?v=1.3.0"></script>
     <script src="/static/wealth.js?v=1.3.0"></script>
+    <script src="/static/wealth-settings.js?v=1.3.0"></script>
     <script src="/static/wealth-ipo.js?v=1.3.0"></script>
     <script src="/static/wealth-calendar.js?v=1.3.0"></script>
     <script src="/static/wealth-planning-model.js?v=1.3.0"></script>
     <script src="/static/wealth-planning.js?v=1.3.0"></script>
   </body>
 </html>
-
-
 
 
 

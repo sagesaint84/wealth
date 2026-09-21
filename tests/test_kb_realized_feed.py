@@ -316,15 +316,14 @@ class KBRealizedFeedTests(unittest.TestCase):
         with patch("app.services.kb_feed.KB_PREVIEW_TICKET_MAX_AGE_SECONDS", -1):
             self.assertEqual(verify_kb_import_preview_ticket(ticket, **values)[1], "PREVIEW_TICKET_EXPIRED")
 
-    def test_production_signing_has_no_fallback_secret(self):
+    def test_production_signing_uses_persistent_secret(self):
         row = project_kb_domestic_row(self.domestic_raw())
         row["canonical_hash"] = canonical_kb_row_hash(row)
         row["source_occurrence"] = 1
         from app.services.kb_feed import _future_identity
         row["future_identity"] = _future_identity("opaque-key", row["canonical_hash"], 1)
         with patch.dict(os.environ, {"WEALTH_ENV": "production"}, clear=True):
-            with self.assertRaises(RuntimeError):
-                sign_kb_feed_row(row, user_id="user-1", source_account_key="opaque-key", market="kr")
+            self.assertTrue(sign_kb_feed_row(row, user_id="user-1", source_account_key="opaque-key", market="kr"))
 
     def test_provider_fingerprint_is_source_scoped_and_preserves_occurrences(self):
         from app.services.kb_realized import classify_kb_rows

@@ -14,13 +14,13 @@ from app.services.test_safety import TestSafetyError
 
 
 class DockerConfigurationTests(unittest.TestCase):
-    def test_compose_variants_use_env_file_without_env_bind_mount(self):
+    def test_compose_variants_do_not_require_env_file_or_env_bind_mount(self):
         project_root = Path(__file__).resolve().parents[1]
         for name in ("docker-compose.yml", "docker-compose.override.yml", "docker-compose.ghcr.yml"):
             text = (project_root / name).read_text(encoding="utf-8")
             self.assertNotIn("./.env:/app/.env", text)
-        self.assertIn("env_file:", (project_root / "docker-compose.yml").read_text(encoding="utf-8"))
-        self.assertIn("env_file:", (project_root / "docker-compose.ghcr.yml").read_text(encoding="utf-8"))
+        self.assertNotIn("env_file:", (project_root / "docker-compose.yml").read_text(encoding="utf-8"))
+        self.assertNotIn("env_file:", (project_root / "docker-compose.ghcr.yml").read_text(encoding="utf-8"))
 
     def test_directory_env_fails_with_configuration_error(self):
         with tempfile.TemporaryDirectory(prefix="wealth-config-") as temp:

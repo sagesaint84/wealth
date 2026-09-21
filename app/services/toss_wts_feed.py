@@ -21,7 +21,8 @@ ROW_SELECTION_MAX_AGE_SECONDS = 86400  # 24 hours
 
 
 def _get_serializer() -> URLSafeTimedSerializer:
-    secret = os.getenv("DASHBOARD_SECRET_KEY", "").strip() or "asset_dashboard_secret_key_default"
+    from app.services.system_secrets import resolve_application_secret
+    secret = resolve_application_secret()
     return URLSafeTimedSerializer(secret)
 
 

@@ -119,21 +119,19 @@ class TestSessionSigningSecretFailClosed(unittest.TestCase):
     def tearDown(self):
         sys.modules.pop("app.main", None)
 
-    def test_missing_secret_raises_in_production(self):
-        """C. RuntimeError when DASHBOARD_SECRET_KEY is absent in production."""
-        with self.assertRaises((RuntimeError, Exception)):
-            _reload_main_with_env(
+    def test_missing_secret_uses_persistent_secret_in_production(self):
+        main = _reload_main_with_env(
                 WEALTH_ENV="production",
                 DASHBOARD_SECRET_KEY="",
             )
+        self.assertTrue(main.SECRET_KEY)
 
-    def test_blank_secret_raises_in_production(self):
-        """D. RuntimeError when DASHBOARD_SECRET_KEY is whitespace-only."""
-        with self.assertRaises((RuntimeError, Exception)):
-            _reload_main_with_env(
+    def test_blank_secret_uses_persistent_secret_in_production(self):
+        main = _reload_main_with_env(
                 WEALTH_ENV="production",
                 DASHBOARD_SECRET_KEY="   ",
             )
+        self.assertTrue(main.SECRET_KEY)
 
 
 class TestSessionSigningTestModeConfiguration(unittest.TestCase):
@@ -152,23 +150,21 @@ class TestSessionSigningTestModeConfiguration(unittest.TestCase):
         self.assertEqual(main.SECRET_KEY, "synthetic-test-signing-secret-for-suite")
         self.assertIsNotNone(main._serializer)
 
-    def test_test_mode_without_any_secret_fails_closed(self):
-        """F. Test mode with no env vars must raise — no built-in fallback."""
-        with self.assertRaises((RuntimeError, Exception)):
-            _reload_main_with_env(
+    def test_test_mode_without_any_secret_uses_persistent_secret(self):
+        main = _reload_main_with_env(
                 WEALTH_ENV="test",
                 DASHBOARD_SECRET_KEY="",
                 WEALTH_TEST_SIGNING_SECRET="",
             )
+        self.assertTrue(main.SECRET_KEY)
 
-    def test_production_cannot_use_test_secret(self):
-        """G. Production mode must not accept WEALTH_TEST_SIGNING_SECRET as fallback."""
-        with self.assertRaises((RuntimeError, Exception)):
-            _reload_main_with_env(
+    def test_production_ignores_test_secret_and_uses_persistent_secret(self):
+        main = _reload_main_with_env(
                 WEALTH_ENV="production",
                 DASHBOARD_SECRET_KEY="",
                 WEALTH_TEST_SIGNING_SECRET="synthetic-test-signing-secret-for-suite",
             )
+        self.assertNotEqual(main.SECRET_KEY,"synthetic-test-signing-secret-for-suite")
 
 
 class TestSessionSigningSecretNotExposed(unittest.TestCase):

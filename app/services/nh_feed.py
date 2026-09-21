@@ -18,12 +18,8 @@ NH_PREVIEW_TICKET_MAX_AGE_SECONDS = 900
 
 
 def _secret() -> str:
-    value = os.getenv("DASHBOARD_SECRET_KEY", "").strip()
-    if value:
-        return value
-    if os.getenv("WEALTH_ENV", "").lower() == "test":
-        return os.getenv("WEALTH_TEST_SIGNING_SECRET", "wealth_synthetic_test_secret_for_nh")
-    raise RuntimeError("DASHBOARD_SECRET_KEY is required for NH integrity signing")
+    from app.services.system_secrets import resolve_application_secret
+    return resolve_application_secret()
 
 
 def _canonical_num(value: Any) -> str | None:

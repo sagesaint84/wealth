@@ -213,6 +213,8 @@ def _apply_broker_import_preferences(
 
 
 def load_env_file() -> None:
+    if os.getenv("WEALTH_DISABLE_ENV_FILE", "").strip().lower() in {"1", "true", "yes"}:
+        return
     env_path = ROOT_DIR / ".env"
     if not env_path.exists():
         return
@@ -327,23 +329,13 @@ def _resolve_session_secret() -> str:
     2. WEALTH_TEST_SIGNING_SECRET (test environment only, explicit opt-in).
     3. Raise RuntimeError - no built-in fallback exists.
     """
-    value = os.getenv("DASHBOARD_SECRET_KEY", "").strip()
-    if value:
-        return value
+    explicit = os.getenv("DASHBOARD_SECRET_KEY", "").strip()
+    if explicit: return explicit
     if TESTING:
         test_value = os.getenv("WEALTH_TEST_SIGNING_SECRET", "").strip()
-        if test_value:
-            return test_value
-        raise RuntimeError(
-            "WEALTH_TEST_SIGNING_SECRET is required in test mode when "
-            "DASHBOARD_SECRET_KEY is not set. "
-            "Set it in tests/__init__.py or via environment."
-        )
-    raise RuntimeError(
-        "DASHBOARD_SECRET_KEY is required but not set. "
-        "Set a private random value in your .env file. "
-        "The application cannot start without a signing secret."
-    )
+        if test_value: return test_value
+    from app.services.system_secrets import resolve_application_secret
+    return resolve_application_secret()
 
 
 SECRET_KEY = _resolve_session_secret()
@@ -713,6 +705,46 @@ async def get_user_openapi_keys(request: Request) -> dict:
     username = get_current_username(request)
     from app.services.user_openapi import get_masked_user_openapi_config
     return get_masked_user_openapi_config(username)
+
+@app.get("/api/settings/notifications")
+async def get_notification_settings(request: Request) -> dict:
+    from app.services.settings import get_effective_settings
+    from app.services.telegram_config import telegram_secret_status
+    username=get_current_username(request); result=get_effective_settings(username); result["telegram"].update(telegram_secret_status(username))
+    return {"version": result["version"], "telegram": result["telegram"]}
+
+@app.patch("/api/settings/notifications")
+async def patch_notification_settings(request: Request) -> dict:
+    from app.services.settings import patch_settings, SettingsValidationError
+    body = await request.json()
+    try: result=patch_settings(get_current_username(request), {"telegram": body.get("telegram", body)})
+    except (SettingsValidationError, ValueError, AttributeError) as exc: raise HTTPException(400, detail={"code":str(exc)}) from exc
+    from app.services.telegram_config import telegram_secret_status
+    result["telegram"].update(telegram_secret_status(get_current_username(request)))
+    return {"version":result["version"],"telegram":result["telegram"]}
+
+@app.patch("/api/settings/telegram/secrets")
+async def patch_telegram_secrets(request: Request) -> dict:
+    from app.services.telegram_secrets import update_telegram_secrets, TelegramSecretError
+    from app.services.telegram_config import resolve_telegram_config
+    username=get_current_username(request)
+    try: update_telegram_secrets(username, await request.json())
+    except (TelegramSecretError, ValueError, AttributeError) as exc: raise HTTPException(400,detail={"code":str(exc)}) from exc
+    cfg=resolve_telegram_config(username)
+    return {"bot_token_configured":bool(cfg.bot_token),"bot_token_source":cfg.bot_token_source,"webhook_secret_configured":bool(cfg.webhook_secret),"webhook_secret_source":cfg.webhook_secret_source}
+
+@app.get("/api/settings/automation")
+async def get_automation_settings(request: Request) -> dict:
+    from app.services.settings import get_effective_settings
+    result=get_effective_settings(get_current_username(request)); return {"version":result["version"],"automation":result["automation"]}
+
+@app.patch("/api/settings/automation")
+async def patch_automation_settings(request: Request) -> dict:
+    from app.services.settings import patch_settings, SettingsValidationError
+    body = await request.json()
+    try: result=patch_settings(get_current_username(request), {"automation": body.get("automation", body)})
+    except (SettingsValidationError, ValueError, AttributeError) as exc: raise HTTPException(400, detail={"code":str(exc)}) from exc
+    return {"version":result["version"],"automation":result["automation"]}
 
 
 @app.post("/api/user/openapi-config")

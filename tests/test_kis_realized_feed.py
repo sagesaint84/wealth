@@ -89,14 +89,10 @@ class TestKISRealizedFeed(unittest.TestCase):
         self.assertFalse(valid)
         self.assertEqual(err, "TOKEN_INVALID")
 
-    def test_signing_fails_closed_in_production_without_secret(self):
+    def test_signing_uses_persistent_secret_in_production(self):
         with patch.dict(os.environ, {"WEALTH_ENV": "production", "DASHBOARD_SECRET_KEY": ""}):
-            with self.assertRaises(RuntimeError) as ctx:
-                get_kis_signing_secret()
-            self.assertIn("DASHBOARD_SECRET_KEY", str(ctx.exception))
-
-            with self.assertRaises(RuntimeError):
-                sign_kis_feed_row(self.sample_row, user_id=self.user_id, source_account_key=self.account_key)
+            self.assertTrue(get_kis_signing_secret())
+            self.assertTrue(sign_kis_feed_row(self.sample_row, user_id=self.user_id, source_account_key=self.account_key))
 
     def test_no_raw_cano_in_token_payload(self):
         token = sign_kis_feed_row(self.sample_row, user_id=self.user_id, source_account_key=self.account_key)

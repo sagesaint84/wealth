@@ -25,7 +25,7 @@ def run_ipo_subscription_reminders(
     store = market_store if market_store is not None else read_market_store_read_only()
     apps = applications if applications is not None else get_user_applications(username)
     family = list(apps.get("family_members") or [])
-    client = notifier or IpoTelegramNotifier()
+    client = notifier or IpoTelegramNotifier(username=username)
     with notification_state_lock(client.state_path):
         return _run_reminders_locked(client, store, apps, current, reminder_slot, username)
 

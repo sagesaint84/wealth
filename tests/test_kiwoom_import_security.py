@@ -84,13 +84,12 @@ class KiwoomImportSecurityTests(unittest.TestCase):
         other_scope = classify_kiwoom_rows(other_feed["rows"], existing, "different-opaque-source")
         self.assertEqual(other_scope[0]["status"], "NEW")
 
-    def test_production_signing_has_no_fallback_secret(self):
+    def test_production_signing_uses_persistent_secret(self):
         row = self.feed()["rows"][0]
         with patch.dict(os.environ, {"WEALTH_ENV": "production"}, clear=True):
-            with self.assertRaises(RuntimeError):
-                sign_kiwoom_feed_row(
+            self.assertTrue(sign_kiwoom_feed_row(
                     row, user_id=self.user_id, source_account_key=self.source_key, market="kr",
-                )
+                ))
 
     def test_preview_is_pure_and_detects_manual_close_match(self):
         feed = self.feed()

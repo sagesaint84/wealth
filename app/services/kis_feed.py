@@ -29,12 +29,8 @@ def get_kis_signing_secret() -> str:
 
     Fails closed in production environments if DASHBOARD_SECRET_KEY is not configured.
     """
-    secret = os.getenv("DASHBOARD_SECRET_KEY", "").strip()
-    if secret:
-        return secret
-    if os.getenv("WEALTH_ENV", "").strip().lower() == "test":
-        return os.getenv("WEALTH_TEST_SIGNING_SECRET", "").strip() or "wealth_synthetic_test_secret_for_kis"
-    raise RuntimeError("DASHBOARD_SECRET_KEY가 설정되지 않아 KIS 무결성 서명 처리를 진행할 수 없습니다.")
+    from app.services.system_secrets import resolve_application_secret
+    return resolve_application_secret()
 
 
 def _get_serializer() -> URLSafeTimedSerializer:

@@ -46,11 +46,10 @@ def compute_kiwoom_account_key(acct_no: str, secret: str | None = None) -> str:
     normalized = str(acct_no or "").replace("-", "").strip()
     if not normalized:
         raise KiwoomOpenAPIError("키움증권 계좌 식별자가 없습니다.")
-    key = secret if secret is not None else os.getenv("DASHBOARD_SECRET_KEY", "").strip()
-    if not key and os.getenv("WEALTH_ENV", "").strip().lower() == "test":
-        key = os.getenv("WEALTH_TEST_SIGNING_SECRET", "").strip()
-    if not key:
-        raise KiwoomOpenAPIError("키움증권 계좌 식별에 필요한 서버 키가 없습니다.")
+    if secret is None:
+        from app.services.system_secrets import resolve_application_secret
+        key=resolve_application_secret()
+    else: key=secret
     return hmac.new(key.encode("utf-8"), f"kiwoom:{normalized}".encode("utf-8"), hashlib.sha256).hexdigest()
 
 

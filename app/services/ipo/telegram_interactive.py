@@ -1,6 +1,6 @@
 """Telegram-only authentication and IPO action dispatch helpers."""
 from __future__ import annotations
-import hmac, os, re
+import hmac, re
 from datetime import datetime
 from typing import Any
 from app.services.ipo.actions import execute_action, get_action_metadata, mark_ipo_owner_applied
@@ -9,11 +9,12 @@ from app.services.ipo.store import read_market_store_read_only
 from app.services.ipo.notifier import IpoTelegramNotifier
 
 def interactive_config() -> tuple[str, int, int, str] | None:
-    secret=os.environ.get('TELEGRAM_WEBHOOK_SECRET','')
-    username=os.environ.get('TELEGRAM_WEALTH_USERNAME','').strip()
-    try: user=int(os.environ.get('TELEGRAM_ALLOWED_USER_ID','')); chat=int(os.environ.get('TELEGRAM_ALLOWED_CHAT_ID',''))
-    except ValueError: return None
-    return (secret,user,chat,username) if secret and user and chat and username else None
+    from app.services.telegram_config import telegram_webhook_target_username
+    username=telegram_webhook_target_username()
+    if not username: return None
+    from app.services.telegram_config import resolve_telegram_config
+    cfg=resolve_telegram_config(username)
+    return (cfg.webhook_secret,cfg.allowed_user_id,cfg.allowed_chat_id,username) if cfg.interactive_configured else None
 
 def authorized(secret: str | None, sender: object, chat: object) -> bool:
     cfg=interactive_config()
@@ -37,7 +38,7 @@ def handle_update(update: dict[str,Any], secret: str | None) -> str:
         except Exception as exc: outcome=str(exc)
         else: outcome='already_applied' if result.get('status') in ('already_applied','already_processed') else 'applied'
         messages={'applied':'✅ 청약 완료로 기록했습니다.','already_applied':'✅ 이미 청약 완료 상태입니다.','ACTION_EXPIRED':'이 청약 완료 버튼은 만료되었습니다.','ACTION_ALREADY_CONSUMED':'이 버튼은 이미 처리되었습니다.'}
-        IpoTelegramNotifier().answer_callback_query(str(q.get('id') or ''), messages.get(outcome,'현재 상태에서는 이 요청을 처리할 수 없습니다.'))
+        IpoTelegramNotifier(username=interactive_config()[3]).answer_callback_query(str(q.get('id') or ''), messages.get(outcome,'현재 상태에서는 이 요청을 처리할 수 없습니다.'))
         return outcome
     text=str(msg.get('text') or '').strip(); match=re.fullmatch(r'(.+?)\s+청약\s*완료',text)
     if not match: return 'ignored'

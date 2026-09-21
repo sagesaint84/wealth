@@ -72,11 +72,10 @@ def compute_nh_account_key(act_no: str, secret: str | None = None) -> str:
     normalized = str(act_no or "").replace("-", "").strip()
     if not normalized:
         return ""
-    key = secret if secret is not None else os.getenv("DASHBOARD_SECRET_KEY", "").strip()
-    if not key and os.getenv("WEALTH_ENV", "").strip().lower() == "test":
-        key = os.getenv("WEALTH_TEST_SIGNING_SECRET", "wealth_synthetic_test_secret_for_nh")
-    if not key:
-        raise NhPlugOpenAPIError("DASHBOARD_SECRET_KEY가 설정되지 않아 NH 계좌 식별을 진행할 수 없습니다.")
+    if secret is None:
+        from app.services.system_secrets import resolve_application_secret
+        key=resolve_application_secret()
+    else: key=secret
     return hmac.new(key.encode("utf-8"), f"nh:{normalized}".encode("utf-8"), hashlib.sha256).hexdigest()
 
 

@@ -86,9 +86,14 @@ class IpoTelegramNotifier:
         bot_token: str | None = None,
         chat_id: str | None = None,
         state_path: Path | None = None,
+        username: str | None = None,
     ):
-        self.bot_token = bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-        self.chat_id = chat_id or os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+        if bot_token is None and chat_id is None:
+            from app.services.telegram_config import resolve_runtime_telegram_config
+            cfg=resolve_runtime_telegram_config(username)
+            if cfg: bot_token=cfg.bot_token; chat_id=cfg.chat_id
+        self.bot_token = bot_token or ''
+        self.chat_id = chat_id or ''
         self.state_path = state_path or NOTIFICATION_STATE_FILE
 
     def is_configured(self) -> bool:
@@ -140,9 +145,9 @@ class IpoTelegramNotifier:
                 with request.urlopen(req, timeout=10) as resp:
                     if resp.status == 200:
                         return True
-            except Exception as e:
+            except Exception:
                 # Handle 429 rate limit or network error
-                logger.warning("Telegram send failed (attempt %d): %s", attempt + 1, e)
+                logger.warning("Telegram send failed (attempt %d)", attempt + 1)
                 time.sleep(1.0 * (attempt + 1))
         return False
 

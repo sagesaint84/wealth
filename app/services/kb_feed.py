@@ -30,14 +30,8 @@ _IDENTITY_FIELDS = {"canonical_hash", "source_occurrence", "future_identity"}
 
 
 def _secret() -> str:
-    value = os.getenv("DASHBOARD_SECRET_KEY", "").strip()
-    if value:
-        return value
-    if os.getenv("WEALTH_ENV", "").lower() == "test":
-        value = os.getenv("WEALTH_TEST_SIGNING_SECRET", "").strip()
-        if value:
-            return value
-    raise RuntimeError("DASHBOARD_SECRET_KEY is required for KB integrity signing")
+    from app.services.system_secrets import resolve_application_secret
+    return resolve_application_secret()
 
 
 def canonical_kb_number(value: Any) -> str:

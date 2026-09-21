@@ -1,0 +1,87 @@
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+HTML = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
+JS = (ROOT / "app/static/wealth-settings.js").read_text(encoding="utf-8")
+CSS = (ROOT / "app/static/wealth-overrides.css").read_text(encoding="utf-8")
+
+
+def test_settings_entry_dialog_and_module_are_wired():
+    assert 'id="notificationSettingsBtn"' in HTML
+    assert 'onclick="openNotificationSettings()"' in HTML
+    assert 'id="notificationSettingsDialog"' in HTML
+    assert '/static/wealth-settings.js?v=1.3.0' in HTML
+    assert 'aria-labelledby="notificationSettingsTitle"' in HTML
+
+
+def test_settings_uses_existing_api_contract_only():
+    for endpoint in (
+        "/api/settings/notifications",
+        "/api/settings/automation",
+        "/api/settings/telegram/secrets",
+    ):
+        assert endpoint in JS
+    assert "/api/settings/telegram/test" not in JS
+    assert "setWebhook" not in JS and "getWebhookInfo" not in JS
+
+
+def test_secret_values_are_never_rendered_or_persisted():
+    assert ".value = telegram.bot_token" not in JS
+    assert ".value = telegram.webhook_secret" not in JS
+    assert "localStorage" not in JS and "sessionStorage" not in JS
+    assert "console." not in JS
+    assert 'autocomplete="new-password"' in HTML
+    assert "settingsBotToken').value = ''" in JS
+    assert "settingsWebhookSecret').value = ''" in JS
+    assert "if (botToken) secretPatch.bot_token" in JS
+    assert "if (webhookSecret) secretPatch.webhook_secret" in JS
+
+
+def test_secret_source_and_clear_semantics_are_explicit():
+    assert "Wealth에 저장됨" in JS
+    assert "환경변수 fallback" in JS
+    assert "미설정" in JS
+    assert "clear_bot_token" in JS and "clear_webhook_secret" in JS
+    assert "telegram.bot_token_source !== 'stored'" in JS
+    assert "환경변수 fallback이 있으면" in JS
+
+
+def test_time_and_id_validation_contracts():
+    assert "/^(?:[01]\\d|2[0-3]):[0-5]\\d$/" in JS
+    assert "/^-?\\d+$/" in JS
+    assert "Number.isSafeInteger" in JS
+    assert "new Set(times).size !== times.length" in JS
+    assert "[...times].sort()" in JS
+    assert "최소 1개의 알림 시간이 필요합니다." in JS
+
+
+def test_partial_failure_and_blank_secret_contracts():
+    assert "if (Object.keys(secretPatch).length)" in JS
+    assert "일부 설정은 저장되었지만 비밀정보 저장에 실패했습니다." in JS
+    assert "await reloadSettings()" in JS
+    assert "Promise.all" in JS
+
+
+def test_responsive_settings_styles_exist():
+    assert ".settings-dialog" in CSS
+    assert ".settings-reminder-row" in CSS
+    assert "@media(max-width:620px)" in CSS
+
+
+class SettingsFrontendTests(unittest.TestCase):
+    def test_entry_and_contract(self):
+        test_settings_entry_dialog_and_module_are_wired()
+        test_settings_uses_existing_api_contract_only()
+
+    def test_secret_security_and_sources(self):
+        test_secret_values_are_never_rendered_or_persisted()
+        test_secret_source_and_clear_semantics_are_explicit()
+
+    def test_validation_and_save_flow(self):
+        test_time_and_id_validation_contracts()
+        test_partial_failure_and_blank_secret_contracts()
+
+    def test_responsive_styles(self):
+        test_responsive_settings_styles_exist()

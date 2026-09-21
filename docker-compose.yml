@@ -2,8 +2,6 @@ services:
   dashboard:
     build: .
     container_name: wealth
-    env_file:
-      - ./.env
     ports:
       - "4829:4829"
     volumes:
