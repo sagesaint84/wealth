@@ -1432,3 +1432,77 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 .ipo-sale-match-quantity { width: 58px; }
 .ipo-sale-links { width: 100%; display: flex; flex-direction: column; gap: 4px; }
 .ipo-sale-link-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted, #94a3b8); }
+
+/* IPO 과거 탭 월별 탐색 컨트롤러 */
+.ipo-month-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #0d1527;
+  border: 1px solid #23314f;
+  border-radius: 10px;
+  padding: 4px 8px;
+  margin-bottom: 12px;
+  width: fit-content;
+}
+.ipo-month-text {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: #f8fafc;
+  padding: 2px 8px;
+  min-width: 105px;
+  text-align: center;
+  user-select: none;
+}
+.ipo-month-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #94a3b8);
+  margin-left: 2px;
+}
+.ipo-month-btn {
+  padding: 4px 8px !important;
+  font-size: 11.5px !important;
+  line-height: 1 !important;
+  min-height: unset !important;
+}
+.ipo-month-btn:disabled {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+.ipo-fallback-heading {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted, #94a3b8);
+  margin: 18px 0 8px;
+  padding: 0 4px;
+}
+[data-theme="white"] .ipo-month-control {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05) !important;
+}
+[data-theme="white"] .ipo-month-text {
+  color: #0f172a !important;
+}
+[data-theme="white"] .ipo-month-count {
+  color: #64748b !important;
+}
+[data-theme="white"] .ipo-month-btn {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+[data-theme="oled"] .ipo-month-control {
+  background: #08080c !important;
+  border-color: #1a1a26 !important;
+}
+[data-theme="oled"] .ipo-month-text {
+  color: #f1f5f9 !important;
+}
+[data-theme="oled"] .ipo-month-btn {
+  background: #111118 !important;
+  border-color: #222233 !important;
+  color: #cbd5e1 !important;
+}
