@@ -89,12 +89,21 @@ def calculate_period_changes(candles: list[dict[str, Any]], current_price: float
             return round(((current_price - base_price) / base_price) * 100, 2)
         return 0.0
 
+    # Strict candle-series-only 1D change (latest candle close vs previous candle close)
+    if len(candles) >= 2:
+        c_prev = float(candles[-2]["close"])
+        c_latest = float(candles[-1]["close"])
+        candle_1d = round(((c_latest - c_prev) / c_prev) * 100, 2) if c_prev > 0 else 0.0
+    else:
+        candle_1d = 0.0
+
     return {
         "1D": calc_rate(close_1d),
         "1W": calc_rate(close_1w),
         "1M": calc_rate(close_1m),
         "YTD": calc_rate(close_ytd),
         "1Y": calc_rate(close_1y),
+        "candle_1d": candle_1d,
     }
 
 
@@ -129,7 +138,7 @@ async def fetch_kr_stock_info(client: httpx.AsyncClient, code: str) -> dict[str,
         return None
 
 
-async def fetch_kr_stock_candles(client: httpx.AsyncClient, code: str, current_price: float) -> dict[str, float]:
+async def fetch_kr_stock_candles(client: httpx.AsyncClient, code: str, current_price: float) -> dict[str, Any]:
     if not external_network_allowed():
         return {}
     clean_code = str(code).strip().zfill(6)
@@ -137,7 +146,7 @@ async def fetch_kr_stock_candles(client: httpx.AsyncClient, code: str, current_p
     try:
         resp = await client.get(url, headers=HEADERS, timeout=6.0)
         if resp.status_code != 200:
-            return {"1D": 0.0, "1W": 0.0, "1M": 0.0, "YTD": 0.0, "1Y": 0.0}
+            return {"1D": 0.0, "1W": 0.0, "1M": 0.0, "YTD": 0.0, "1Y": 0.0, "candle_1d": 0.0, "_as_of": None}
         root = ET.fromstring(resp.text)
         items = root.findall(".//item")
         candles = []
@@ -152,9 +161,19 @@ async def fetch_kr_stock_candles(client: httpx.AsyncClient, code: str, current_p
                     "date": d_str,
                     "close": float(parts[4]),
                 })
-        return calculate_period_changes(candles, current_price)
+        result = calculate_period_changes(candles, current_price)
+        if candles:
+            latest_close = float(candles[-1]["close"])
+            previous_close = float(candles[-2]["close"]) if len(candles) >= 2 else latest_close
+            candle_1d = round(((latest_close - previous_close) / previous_close) * 100, 2) if previous_close > 0 else 0.0
+            result["candle_1d"] = candle_1d
+            result["_as_of"] = candles[-1]["date"]
+        else:
+            result["candle_1d"] = 0.0
+            result["_as_of"] = None
+        return result
     except Exception:
-        return {"1D": 0.0, "1W": 0.0, "1M": 0.0, "YTD": 0.0, "1Y": 0.0}
+        return {"1D": 0.0, "1W": 0.0, "1M": 0.0, "YTD": 0.0, "1Y": 0.0, "candle_1d": 0.0, "_as_of": None}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -180,7 +199,7 @@ async def fetch_us_stock_info(client: httpx.AsyncClient, symbol: str) -> dict[st
         candles = []
         for ts, c_val in zip(timestamps, quotes):
             if c_val is not None and float(c_val) > 0:
-                dt_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d")
+                dt_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
                 candles.append({"date": dt_str, "close": float(c_val)})
 
         price = float(meta.get("regularMarketPrice") or (candles[-1]["close"] if candles else 0.0))
@@ -198,6 +217,7 @@ async def fetch_us_stock_info(client: httpx.AsyncClient, symbol: str) -> dict[st
 
         period_changes = calculate_period_changes(candles, price)
         period_changes["1D"] = day_rate
+        period_changes["_as_of"] = candles[-1]["date"] if candles else None
 
         return {
             "code": clean_sym,
@@ -688,9 +708,9 @@ async def fetch_stock_chart_data(code: str, period: str = "3M") -> dict[str, Any
 
 async def refresh_all_holdings_prices(holdings: list[dict[str, Any]]) -> dict[str, Any]:
     if not external_network_allowed():
-        return {"prices": {}, "daily_changes": {}, "period_rates": {}, "fx_rate": None, "unavailable": True}
+        return {"prices": {}, "daily_changes": {}, "period_rates": {}, "session_obs": {}, "fx_rate": None, "unavailable": True}
     if not holdings:
-        return {"prices": {}, "daily_changes": {}, "period_rates": {}, "fx_rate": 1385.0}
+        return {"prices": {}, "daily_changes": {}, "period_rates": {}, "session_obs": {}, "fx_rate": 1385.0}
 
     async with httpx.AsyncClient() as client:
         fx_task = fetch_fx_rate_usd_krw(client)
@@ -734,6 +754,7 @@ async def refresh_all_holdings_prices(holdings: list[dict[str, Any]]) -> dict[st
     prices_by_holding_id: dict[str, float] = {}
     daily_changes: dict[str, float] = {}
     period_rates: dict[str, dict[str, float]] = {}
+    session_obs: dict[str, dict] = {}
 
     for h in holdings:
         c = str(h.get("code", "")).strip()
@@ -746,11 +767,22 @@ async def refresh_all_holdings_prices(holdings: list[dict[str, Any]]) -> dict[st
             daily_changes[c.upper()] = info.get("day_change_rate", 0.0)
             if "period_changes" in info:
                 period_rates[c.upper()] = info["period_changes"]
+                as_of = info["period_changes"].get("_as_of")
+                if as_of:
+                    # Invariant 3: Coherent market-series pair
+                    # Persisted pair must derive exclusively from candle series
+                    candle_rate = float(info["period_changes"].get("candle_1d", info["period_changes"].get("1D", info.get("day_change_rate", 0.0))))
+                    # Invariant 2: Only complete trustworthy pairs advance session_obs
+                    session_obs[c.upper()] = {"rate": candle_rate, "as_of": as_of, "source": "candle_series"}
+
+    session_dates = {code: obs["as_of"] for code, obs in session_obs.items() if obs.get("as_of")}
 
     return {
         "prices": prices_by_holding_id,
         "daily_changes": daily_changes,
         "period_rates": period_rates,
+        "session_dates": session_dates,
+        "session_obs": session_obs,
         "fx_rate": fx_rate,
     }
 

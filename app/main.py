@@ -56,6 +56,8 @@ from app.services.asset_records import (
     build_stock_record_from_holdings,
     delete_asset_record,
     list_asset_records,
+    merge_price_session_obs,
+    normalize_session_date,
     upsert_asset_record,
 )
 from app.services.dividend_records import (
@@ -958,6 +960,11 @@ def auto_save_all_owner_snapshots(
     """
     '모두' 및 모든 가족 구성원의 당일 주식기록을 동일한 canonical 계산으로 upsert합니다.
     보유종목이 없는 owner도 0원 스냅샷을 남겨 전체 owner의 날짜 축을 일관되게 유지합니다.
+
+    Session de-duplication: for each owner, the most recent prior asset record is
+    consulted for its holdings_session provenance map.  Holdings whose market session
+    date has not advanced since that prior record contribute 0 to day_profit_krw,
+    preventing the same session gain from being booked again on non-trading days.
     """
     if not data:
         return []
@@ -971,6 +978,12 @@ def auto_save_all_owner_snapshots(
     all_holdings = data.get("holdings", []) or []
     saved: list[dict[str, Any]] = []
 
+    # Pre-load existing records once per call for prev_session_map extraction
+    try:
+        existing_records = list_asset_records(username=username)
+    except Exception:
+        existing_records = []
+
     for owner in _snapshot_target_owners(data):
         if owner == "모두":
             owned_holdings = all_holdings
@@ -982,6 +995,28 @@ def auto_save_all_owner_snapshots(
                 if h.get("account_id") in owned_acc_ids or h.get("owner") == owner
             ]
 
+        # Extract session provenance from the most recent prior record for this owner
+        # Default to {} (not None): {} means "baseline exists but empty" → suppress all contributions
+        # on first provenance-aware snapshot, preventing fabrication of unverified P/L.
+        prev_session_map: dict[str, str] = {}
+        try:
+            owner_norm = owner or "모두"
+            prior_records = [
+                r for r in existing_records
+                if (r.get("owner") or "모두") == owner_norm
+                and r.get("date")
+                and r.get("date") < today
+            ]
+            if prior_records:
+                prior_records.sort(key=lambda r: r.get("date") or "")
+                latest_prior = prior_records[-1]
+                hs = latest_prior.get("holdings_session")
+                if isinstance(hs, dict) and hs:
+                    prev_session_map = hs  # use the stored provenance map
+                # else: prior record exists but has no/empty provenance → keep {} (suppress all)
+        except Exception:
+            prev_session_map = {}  # on error, suppress all (safe)
+
         payload = build_stock_record_from_holdings(
             owned_holdings,
             owner=owner,
@@ -989,6 +1024,7 @@ def auto_save_all_owner_snapshots(
             source=source,
             memo=memo,
             fx_rates=fx_rates,
+            prev_session_map=prev_session_map,
         )
         saved.append(upsert_asset_record(payload, by_date=True, username=username))
 
@@ -4729,6 +4765,22 @@ async def refresh_prices_for_user(username: str) -> dict:
         data["settings"].setdefault("daily_price_changes", {}).update(daily_changes)
     if period_rates:
         data["settings"].setdefault("period_rates", {}).update(period_rates)
+    session_obs = res.get("session_obs", {})
+    if session_obs:
+        stored_obs = data["settings"].setdefault("price_session_obs", {})
+        merge_price_session_obs(stored_obs, session_obs)
+
+    session_dates = res.get("session_dates", {})
+    if session_dates:
+        stored_dates = data["settings"].setdefault("price_session_dates", {})
+        for code, inc_date in session_dates.items():
+            inc_norm = normalize_session_date(inc_date)
+            if not inc_norm:
+                continue
+            cur_date = normalize_session_date(stored_dates.get(code))
+            if cur_date and inc_norm < cur_date:
+                continue
+            stored_dates[code] = inc_date
     if fx_rate and fx_rate > 0:
         data["settings"].setdefault("exchange_rates", {})["USD"] = fx_rate
         data["settings"]["fx_updated_at"] = now_str

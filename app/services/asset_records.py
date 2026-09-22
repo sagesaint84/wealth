@@ -82,10 +82,10 @@ def write_asset_records(data: dict[str, Any], username: str | None = None) -> di
 def normalize_record(raw: dict[str, Any], preserve_id: bool = False) -> dict[str, Any]:
     record_id = str(raw.get("id") or uuid.uuid4()) if preserve_id else str(raw.get("id") or uuid.uuid4())
     date = str(raw.get("date") or "").strip()
-    return {
+    record = {
         "id": record_id,
         "date": date,
-        "owner": str(raw.get("owner") or "모두").strip(),  # 가족 구성원
+        "owner": str(raw.get("owner") or "모두").strip(),
         "total_value_krw": _coerce_float(raw.get("total_value_krw")),
         "total_assets_krw": _coerce_float(raw.get("total_assets_krw", raw.get("total_value_krw"))),
         "total_debt_krw": _coerce_float(raw.get("total_debt_krw")),
@@ -103,6 +103,10 @@ def normalize_record(raw: dict[str, Any], preserve_id: bool = False) -> dict[str
         "created_at": str(raw.get("created_at") or now_iso()),
         "updated_at": str(raw.get("updated_at") or now_iso()),
     }
+    # Preserve session provenance if present (pass-through for backward compatibility)
+    if raw.get("holdings_session") is not None:
+        record["holdings_session"] = raw["holdings_session"]
+    return record
 
 
 def list_asset_records(username: str | None = None) -> list[dict[str, Any]]:
@@ -136,7 +140,6 @@ def upsert_asset_record(raw: dict[str, Any], by_date: bool = False, username: st
     return record
 
 
-
 def delete_asset_record(record_id: str, username: str | None = None) -> bool:
     data = read_asset_records(username)
     before = len(data["records"])
@@ -147,6 +150,47 @@ def delete_asset_record(record_id: str, username: str | None = None) -> bool:
     return True
 
 
+def normalize_session_date(val: Any) -> str | None:
+    """Normalize a session date string to ISO YYYY-MM-DD format."""
+    if not val:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    if len(s) == 8 and s.isdigit():
+        return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    return s
+
+
+def merge_price_session_obs(
+    stored_obs: dict[str, Any],
+    incoming_obs: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Monotonically merge incoming price_session_obs into stored_obs.
+    - Newer incoming session (inc_as_of > cur_as_of): updates stored observation.
+    - Same-date incoming session (inc_as_of == cur_as_of): updates stored observation.
+    - Older incoming session (inc_as_of < cur_as_of): rejects incoming, keeps stored observation.
+    - Incomplete/unknown incoming (no valid as_of): rejects incoming, preserves stored observation.
+    - If stored observation has no date: accepts incoming observation.
+    """
+    for code, inc in (incoming_obs or {}).items():
+        if not isinstance(inc, dict):
+            continue
+        inc_as_of = normalize_session_date(inc.get("as_of"))
+        if not inc_as_of:
+            continue
+        cur = stored_obs.get(code)
+        if isinstance(cur, dict) and cur.get("as_of"):
+            cur_as_of = normalize_session_date(cur.get("as_of"))
+            if cur_as_of and inc_as_of < cur_as_of:
+                continue
+        stored_obs[code] = inc
+    return stored_obs
+
+
 def build_stock_record_from_holdings(
     holdings: list[dict[str, Any]],
     owner: str = "모두",
@@ -154,11 +198,25 @@ def build_stock_record_from_holdings(
     source: str = "auto",
     memo: str = "자동 기록",
     fx_rates: dict[str, float] | None = None,
+    prev_session_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """
     주식기록(asset_records) canonical snapshot 생성 헬퍼.
     예수금/외부 현금흐름을 엄격히 배제하고 순수 보유 주식/ETF 등의 시장 평가액과
     가격 변동 손익만을 기록합니다.
+
+    prev_session_map: instrument_key -> last_recorded_session_date.
+      An instrument may contribute to day_profit_krw ONLY when:
+      - current trustworthy session/as_of exists
+      - prev_session_map is not None
+      - instrument_key in prev_session_map
+      - previous session is known
+      - current session has strictly ADVANCED (current_session > previous_session)
+      Otherwise, contribution = 0.
+
+    The returned dict includes 'holdings_session' mapping each instrument_key to
+    its session date (persisted_session = max(previous, current)) so the caller
+    can persist it without moving backward.
     """
     today_str = today or datetime.now().astimezone().date().isoformat()
     rates = fx_rates or {"KRW": 1.0, "USD": 1385.0}
@@ -167,43 +225,94 @@ def build_stock_record_from_holdings(
     krw_value_krw = 0.0
     usd_value_krw = 0.0
     day_profit_krw = 0.0
+    holding_count = 0
+    # Accumulate session provenance for each instrument encountered
+    curr_session_map: dict[str, str] = {}
 
     for h in holdings:
         curr = (h.get("currency") or "KRW").upper()
-        rate = float(h.get("fx_rate") or rates.get(curr, 1.0 if curr == "KRW" else 1385.0))
-
-        m_val = h.get("market_value_krw")
-        if m_val is None:
-            qty = float(h.get("quantity") or 0.0)
-            price = float(h.get("current_price") or 0.0)
-            m_val = qty * price * rate
-        else:
-            m_val = float(m_val)
-
-        c_val = h.get("cost_value_krw")
-        if c_val is None:
-            qty = float(h.get("quantity") or 0.0)
-            avg = float(h.get("avg_price") or 0.0)
-            c_val = qty * avg * rate
-        else:
-            c_val = float(c_val)
+        fx = 1.0 if curr == "KRW" else float(rates.get(curr, 1385.0))
+        m_val = float(h.get("market_value_krw") or (float(h.get("quantity", 0)) * float(h.get("current_price", 0)) * fx))
+        c_val = float(h.get("cost_value_krw") or (float(h.get("quantity", 0)) * float(h.get("avg_price", 0)) * fx))
 
         stock_value_krw += m_val
         stock_cost_krw += c_val
+        holding_count += 1
 
         if curr == "KRW":
             krw_value_krw += m_val
         else:
             usd_value_krw += m_val
 
-        r = float(h.get("day_change_rate") or 0.0)
+        code = str(h.get("code") or "").strip().upper()
+
+        # Build stable instrument key: currency:code (stable across market alias changes)
+        instrument_key = f"{curr}:{code}" if code else ""
+
+        # Determine paired observation for stock record:
+        # Prioritize separated record-specific observation if present
+        if h.get("record_day_change_rate") is not None:
+            r = float(h.get("record_day_change_rate"))
+            as_of = h.get("record_day_change_as_of") or h.get("day_change_as_of")
+        else:
+            r = float(h.get("day_change_rate") or 0.0)
+            as_of = h.get("day_change_as_of")
+
+        curr_as_of = normalize_session_date(as_of)
+        prev_as_of = (
+            normalize_session_date(prev_session_map.get(instrument_key))
+            if prev_session_map
+            else None
+        )
+
+        # Monotonic session provenance tracking for this instrument:
+        # Rule for known valid dates:
+        #   persisted_session = max(previous_session, current_session)
+        # If there is no previous session:
+        #   establish current known session as baseline.
+        # If current session is unknown:
+        #   preserve previous known session if applicable.
+        if instrument_key:
+            if curr_as_of and prev_as_of:
+                persisted_session = max(prev_as_of, curr_as_of)
+            elif curr_as_of:
+                persisted_session = curr_as_of
+            elif prev_as_of:
+                persisted_session = prev_as_of
+            else:
+                persisted_session = None
+
+            if persisted_session:
+                if instrument_key in curr_session_map:
+                    curr_session_map[instrument_key] = max(
+                        curr_session_map[instrument_key], persisted_session
+                    )
+                else:
+                    curr_session_map[instrument_key] = persisted_session
+
+        # Strict safe-by-default monotonic P/L contract:
+        # An instrument may contribute to day_profit_krw ONLY when ALL are true:
+        # 1. current trustworthy session/as_of exists
+        # 2. previous provenance map exists
+        # 3. the instrument exists in the previous provenance map
+        # 4. previous session is known
+        # 5. current session has strictly ADVANCED (current_session > previous_session)
+        # Otherwise contribution = 0.
         if r != 0 and (100.0 + r) > 0:
-            day_profit_krw += m_val * (r / (100.0 + r))
+            if (
+                curr_as_of is not None
+                and prev_session_map is not None
+                and instrument_key
+                and instrument_key in prev_session_map
+                and prev_as_of is not None
+                and curr_as_of > prev_as_of
+            ):
+                day_profit_krw += m_val * (r / (100.0 + r))
 
     profit_krw = stock_value_krw - stock_cost_krw
     return_rate = (profit_krw / stock_cost_krw * 100.0) if stock_cost_krw > 0 else 0.0
 
-    return {
+    result: dict[str, Any] = {
         "date": today_str,
         "total_value_krw": round(stock_value_krw, 2),
         "total_cost_krw": round(stock_cost_krw, 2),
@@ -218,3 +327,7 @@ def build_stock_record_from_holdings(
         "memo": memo,
         "owner": owner,
     }
+    # Only attach holdings_session when we actually have provenance data
+    if curr_session_map:
+        result["holdings_session"] = curr_session_map
+    return result

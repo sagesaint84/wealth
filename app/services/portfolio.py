@@ -358,6 +358,9 @@ def get_dashboard(data: dict[str, Any] | None = None, username: str | None = Non
         except Exception:
             pass
 
+    price_session_dates: dict[str, str] = data.get("settings", {}).get("price_session_dates", {})
+    price_session_obs: dict[str, dict] = data.get("settings", {}).get("price_session_obs", {})
+
     enriched: list[dict[str, Any]] = []
     total_stock_value = total_stock_cost = 0.0
     for holding in data["holdings"]:
@@ -372,18 +375,34 @@ def get_dashboard(data: dict[str, Any] | None = None, username: str | None = Non
         name_sym = str(item.get("name", "")).strip().upper()
         daily_map = data.get("settings", {}).get("daily_price_changes", {})
         p_info = period_rates_data.get(code_sym) or period_rates_data.get(name_sym) or {}
-        day_rate = p_info.get("1D")
+        obs = price_session_obs.get(code_sym) or price_session_obs.get(name_sym)
+
+        # 1. Dashboard 1D display rate:
+        # Latest available dashboard-compatible rate (from daily_price_changes or period_rates or holding fallback).
+        # It must NOT become stale just because price_session_obs preserved an older paired observation.
+        day_rate = daily_map.get(code_sym)
         if day_rate is None:
-            map_rate = daily_map.get(code_sym)
-            if map_rate is None:
-                map_rate = daily_map.get(name_sym)
-            if map_rate is not None:
-                day_rate = map_rate
+            day_rate = daily_map.get(name_sym)
+        if day_rate is None and isinstance(obs, dict) and obs.get("rate") is not None:
+            day_rate = obs.get("rate")
+        if day_rate is None and p_info.get("1D") is not None:
+            day_rate = p_info.get("1D")
         if day_rate is None and item.get("day_change_rate") is not None:
             day_rate = item.get("day_change_rate")
 
         final_day_rate = to_number(day_rate, 0.0)
         item["day_change_rate"] = final_day_rate
+
+        # 2. Persisted Stock-Record paired observation:
+        # Strictly from trustworthy paired price_session_obs.
+        if isinstance(obs, dict) and obs.get("as_of") is not None:
+            item["record_day_change_rate"] = obs.get("rate")
+            item["record_day_change_as_of"] = obs.get("as_of")
+            item["day_change_as_of"] = obs.get("as_of")
+        else:
+            item["record_day_change_rate"] = None
+            item["record_day_change_as_of"] = item.get("day_change_as_of")
+            item["day_change_as_of"] = item.get("day_change_as_of")
         item["period_changes"] = {
             "1D": final_day_rate,
             "1W": to_number(p_info.get("1W"), final_day_rate),

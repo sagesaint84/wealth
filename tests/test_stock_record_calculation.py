@@ -256,10 +256,14 @@ class StockRecordCalculationTests(IsolatedDataTestCase):
         # gain = 80,000,000 * (5.0 / 105.0) = 3,809,523.81
         data_up = deepcopy(self.base_data)
         data_up["holdings"][0]["day_change_rate"] = 5.0
+        data_up["holdings"][0]["day_change_as_of"] = "2026-09-19"
         portfolio.write_portfolio(data_up, username="test_user")
 
         dash_up = portfolio.get_dashboard(username="test_user")
-        rec_up = asset_records.build_stock_record_from_holdings(dash_up["holdings"], owner="모두")
+        prev_map = {"KRW:005930": "2026-09-18"}
+        rec_up = asset_records.build_stock_record_from_holdings(
+            dash_up["holdings"], owner="모두", prev_session_map=prev_map
+        )
         expected_gain = 80_000_000.0 * (5.0 / 105.0)
         self.assertAlmostEqual(rec_up["day_profit_krw"], round(expected_gain, 2), delta=1.0)
         self.assertGreater(rec_up["day_profit_krw"], 0)
@@ -268,10 +272,13 @@ class StockRecordCalculationTests(IsolatedDataTestCase):
         # gain = 80,000,000 * (-5.0 / 95.0) = -4,210,526.32
         data_down = deepcopy(self.base_data)
         data_down["holdings"][0]["day_change_rate"] = -5.0
+        data_down["holdings"][0]["day_change_as_of"] = "2026-09-19"
         portfolio.write_portfolio(data_down, username="test_user")
 
         dash_down = portfolio.get_dashboard(username="test_user")
-        rec_down = asset_records.build_stock_record_from_holdings(dash_down["holdings"], owner="모두")
+        rec_down = asset_records.build_stock_record_from_holdings(
+            dash_down["holdings"], owner="모두", prev_session_map=prev_map
+        )
         expected_loss = 80_000_000.0 * (-5.0 / 95.0)
         self.assertAlmostEqual(rec_down["day_profit_krw"], round(expected_loss, 2), delta=1.0)
         self.assertLess(rec_down["day_profit_krw"], 0)
@@ -477,6 +484,7 @@ class StockRecordCalculationTests(IsolatedDataTestCase):
         """current rate가 None일 때 기존 item.day_change_rate(+5.0)로 정상 fallback되어야 함."""
         data = deepcopy(self.base_data)
         data["holdings"][0]["day_change_rate"] = 5.0
+        data["holdings"][0]["day_change_as_of"] = "2026-09-19"
         # daily_price_changes나 period_rates에 005930 정보가 없음 (None)
         data["settings"]["daily_price_changes"] = {}
         portfolio.write_portfolio(data, username="test_user")
@@ -485,10 +493,26 @@ class StockRecordCalculationTests(IsolatedDataTestCase):
         samsung = next(h for h in dash["holdings"] if h["code"] == "005930")
         self.assertEqual(samsung["day_change_rate"], 5.0)
 
-        # +5.0% 기준 holding_day_gain 계산
-        rec = asset_records.build_stock_record_from_holdings(dash["holdings"], owner="모두")
+        # +5.0% 기준 holding_day_gain 계산 (explicit previous session provenance supplied)
+        prev_map = {"KRW:005930": "2026-09-18"}
+        rec = asset_records.build_stock_record_from_holdings(
+            dash["holdings"], owner="모두", prev_session_map=prev_map
+        )
         expected_gain = 80_000_000.0 * (5.0 / 105.0)
         self.assertAlmostEqual(rec["day_profit_krw"], round(expected_gain, 2), delta=1.0)
+
+    def test_rate_without_session_provenance_produces_zero_profit(self) -> None:
+        """Safe baseline invariant: rate = +2%, as_of = None, prev_session_map = None -> day_profit_krw = 0."""
+        holding = {
+            "code": "005930",
+            "currency": "KRW",
+            "market_value_krw": 80_000_000.0,
+            "cost_value_krw": 70_000_000.0,
+            "day_change_rate": 2.0,
+            "day_change_as_of": None,
+        }
+        rec = asset_records.build_stock_record_from_holdings([holding], prev_session_map=None)
+        self.assertEqual(rec["day_profit_krw"], 0.0)
 
     def test_day_change_rate_positive_and_negative_current_precedence(self) -> None:
         """current rate가 양수(+3.0) 또는 음수(-2.0)일 때 stored(+8.0)가 덮어쓰지 않고 current가 우선해야 함."""
