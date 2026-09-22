@@ -1422,6 +1422,64 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 }
 .ipo-applicant-account-title { font-weight: 600; color: var(--text, #f8fafc); }
 .ipo-applicant-account select { min-width: 112px; }
+
+/* IPO applicant account controls: reuse Wealth theme variables and compact sizing. */
+.wealth-layout .ipo-applicant-account :is(
+  .ipo-applicant-broker,
+  .ipo-applicant-account-select,
+  .ipo-sale-candidate,
+  .ipo-allocation-quantity,
+  .ipo-sale-match-quantity
+) {
+  height: 31px;
+  min-height: 31px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle, var(--line, #334155));
+  border-radius: 8px;
+  background: var(--surface-2, var(--panel-2, #111a31));
+  color: var(--text, #f8fafc);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  box-sizing: border-box;
+  transition: background-color .15s, border-color .15s;
+}
+
+.wealth-layout .ipo-applicant-account :is(
+  .ipo-applicant-broker,
+  .ipo-applicant-account-select,
+  .ipo-sale-candidate,
+  .ipo-allocation-quantity,
+  .ipo-sale-match-quantity
+):hover:not(:disabled) {
+  border-color: var(--workspace-accent, #6366f1);
+}
+
+.wealth-layout .ipo-applicant-account :is(
+  .ipo-applicant-broker,
+  .ipo-applicant-account-select,
+  .ipo-sale-candidate,
+  .ipo-allocation-quantity,
+  .ipo-sale-match-quantity
+):disabled {
+  background: var(--surface-1, var(--panel, #0f172a));
+  color: var(--muted, #94a3b8);
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.wealth-layout .ipo-applicant-account select {
+  color-scheme: dark;
+}
+
+[data-theme="white"] .wealth-layout .ipo-applicant-account select {
+  color-scheme: light;
+}
+
+[data-theme="oled"] .wealth-layout .ipo-applicant-account select {
+  color-scheme: dark;
+}
+
 .ipo-allocation-control {
   width: 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
   border-top: 1px solid var(--line, #334155); padding-top: 6px;
