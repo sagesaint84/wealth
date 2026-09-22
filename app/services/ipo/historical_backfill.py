@@ -105,6 +105,66 @@ def compute_market_digest(market_file: Path | None = None) -> str:
         return ""
 
 
+def _parse_iso_date(val: object) -> date | None:
+    """Parse strict ISO date (YYYY-MM-DD), returning None if invalid."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    try:
+        d = date.fromisoformat(s)
+        if d.isoformat() != s:
+            return None
+        return d
+    except ValueError:
+        return None
+
+
+def validate_subscription_dates(start: str | None, end: str | None) -> tuple[str | None, str | None, bool]:
+    """Validate subscription start and end dates strictly.
+
+    Returns (valid_start, valid_end, is_anomalous).
+    - Missing/blank inputs are preserved as None without being flagged as anomalies.
+    - If either provided field is an invalid ISO date, that field becomes None and is_anomalous is True.
+    - If both dates are valid ISO format but end < start, valid_end becomes None and is_anomalous is True.
+    A malformed or inverted date field is never propagated as authoritative.
+    """
+    has_raw_start = bool(start and str(start).strip())
+    has_raw_end = bool(end and str(end).strip())
+
+    if not has_raw_start and not has_raw_end:
+        return None, None, False
+
+    parsed_start = _parse_iso_date(start)
+    parsed_end = _parse_iso_date(end)
+
+    is_anomalous = False
+    valid_start: str | None = None
+    valid_end: str | None = None
+
+    if has_raw_start:
+        if parsed_start is not None:
+            valid_start = parsed_start.isoformat()
+        else:
+            valid_start = None
+            is_anomalous = True
+
+    if has_raw_end:
+        if parsed_end is not None:
+            valid_end = parsed_end.isoformat()
+        else:
+            valid_end = None
+            is_anomalous = True
+
+    if parsed_start is not None and parsed_end is not None:
+        if parsed_end < parsed_start:
+            valid_end = None
+            is_anomalous = True
+
+    return valid_start, valid_end, is_anomalous
+
+
 class HistoricalBackfillEngine:
     """Backfill engine to inspect and safely commit historical IPO records."""
 
@@ -467,6 +527,10 @@ class HistoricalBackfillEngine:
                 actual_listing = master_info.get("actual_listing_date")
                 market = master_info.get("market") or cand.get("market")
 
+                # Validate subscription date range for anomalies
+                raw_sub_end = cand.get("subscription_end")
+                valid_sub_start, valid_sub_end, is_date_anomalous = validate_subscription_dates(sub_start, raw_sub_end)
+
                 # Build canonical candidate record
                 now_iso = datetime.now(timezone(timedelta(hours=9))).isoformat()
                 candidate_rec: dict[str, Any] = {
@@ -477,8 +541,9 @@ class HistoricalBackfillEngine:
                     "filing_date": cand.get("filing_date"),
                     "demand_forecast_start": cand.get("demand_forecast_start"),
                     "demand_forecast_end": cand.get("demand_forecast_end"),
-                    "subscription_start": sub_start,
-                    "subscription_end": cand.get("subscription_end"),
+                    "subscription_start": valid_sub_start,
+                    "subscription_end": valid_sub_end,
+                    "_source_sub_date_anomaly": is_date_anomalous,
                     "payment_date": cand.get("payment_date"),
                     "refund_date": None,  # refund_date remains None; never guessed from payment_date
                     "expected_listing_date": exp_listing,
@@ -607,6 +672,7 @@ class HistoricalBackfillEngine:
                 conflicts: list[str] = []
                 enrich_diff: dict[str, Any] = {}
 
+                is_cand_date_anomalous = bool(candidate_rec.get("_source_sub_date_anomaly"))
                 for f in critical_fields:
                     ex_v = matched.get(f)
                     cd_v = candidate_rec.get(f)
@@ -619,6 +685,9 @@ class HistoricalBackfillEngine:
                             conflicts.append(f"{f} mismatch (existing='{ex_v}' vs candidate='{cd_v}')")
                     elif ex_blank and not cd_blank:
                         enrich_diff[f] = cd_v
+                    elif not ex_blank and cd_blank and f in ("subscription_start", "subscription_end") and is_cand_date_anomalous:
+                        # Existing canonical has a corrected/valid date while raw candidate source had malformed date; preserve canonical
+                        pass
 
                 if conflicts:
                     item = PreviewItem(
@@ -714,6 +783,7 @@ class HistoricalBackfillEngine:
             for item in preview_result.items:
                 if item.classification == Classification.NEW.value:
                     rec = deepcopy(item.candidate_record)
+                    rec.pop("_source_sub_date_anomaly", None)
                     ipos.append(rec)
                     applied_new += 1
                 elif item.classification == Classification.ENRICHABLE.value:

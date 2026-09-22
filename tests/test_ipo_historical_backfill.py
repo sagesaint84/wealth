@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from app.services.ipo.historical_backfill import (
+    validate_subscription_dates,
     Classification,
     HistoricalBackfillEngine,
     HistoricalBackfillError,
@@ -697,6 +698,159 @@ class TestHistoricalBackfill(unittest.TestCase):
         # Commit only adds NEW, so market store validation passes without error
         commit_res = engine.commit_backfill(preview)
         self.assertEqual(commit_res["applied_new"], 1)
+
+
+    # 25. subscription_end < subscription_start detection in validator
+    def test_25_subscription_end_before_start_detection(self) -> None:
+        # Normal same-month range
+        s, e, anom = validate_subscription_dates("2023-03-07", "2023-03-08")
+        self.assertEqual(s, "2023-03-07")
+        self.assertEqual(e, "2023-03-08")
+        self.assertFalse(anom)
+
+        # Normal cross-month range
+        s, e, anom = validate_subscription_dates("2023-10-31", "2023-11-01")
+        self.assertEqual(s, "2023-10-31")
+        self.assertEqual(e, "2023-11-01")
+        self.assertFalse(anom)
+
+        # Inverted anomaly
+        s, e, anom = validate_subscription_dates("2020-03-03", "2020-02-04")
+        self.assertEqual(s, "2020-03-03")
+        self.assertIsNone(e)
+        self.assertTrue(anom)
+
+        # Missing / blank inputs (not an anomaly)
+        s, e, anom = validate_subscription_dates(None, None)
+        self.assertIsNone(s)
+        self.assertIsNone(e)
+        self.assertFalse(anom)
+
+        s, e, anom = validate_subscription_dates("2023-03-07", None)
+        self.assertEqual(s, "2023-03-07")
+        self.assertIsNone(e)
+        self.assertFalse(anom)
+
+        s, e, anom = validate_subscription_dates(None, "2023-03-08")
+        self.assertIsNone(s)
+        self.assertEqual(e, "2023-03-08")
+        self.assertFalse(anom)
+
+    # 25b. Invalid ISO date literal detection in validator
+    def test_25b_invalid_iso_date_detection(self) -> None:
+        # Invalid end: 2023-02-30
+        s, e, anom = validate_subscription_dates("2023-02-01", "2023-02-30")
+        self.assertEqual(s, "2023-02-01")
+        self.assertIsNone(e)
+        self.assertTrue(anom)
+
+        # Invalid end: 2023-13-01
+        s, e, anom = validate_subscription_dates("2023-10-01", "2023-13-01")
+        self.assertEqual(s, "2023-10-01")
+        self.assertIsNone(e)
+        self.assertTrue(anom)
+
+        # Invalid start: not-a-date
+        s, e, anom = validate_subscription_dates("not-a-date", "2023-11-01")
+        self.assertIsNone(s)
+        self.assertEqual(e, "2023-11-01")
+        self.assertTrue(anom)
+
+        # Invalid start: 2023-00-10
+        s, e, anom = validate_subscription_dates("2023-00-10", "2023-01-10")
+        self.assertIsNone(s)
+        self.assertEqual(e, "2023-01-10")
+        self.assertTrue(anom)
+
+    # 26. candidate with inverted subscription dates does not propagate malformed end to canonical
+    def test_26_malformed_end_date_suppressed_in_candidate(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "subscription_end": "2021-10-10",  # inverted!
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        self.assertEqual(len(preview.items), 1)
+        item = preview.items[0]
+        self.assertEqual(item.classification, Classification.NEW.value)
+        # Verify candidate record has None for subscription_end and anomaly flag
+        self.assertEqual(item.candidate_record.get("subscription_start"), "2021-10-21")
+        self.assertIsNone(item.candidate_record.get("subscription_end"))
+        self.assertTrue(item.candidate_record.get("_source_sub_date_anomaly"))
+
+        # Verify commit does not add malformed end date or internal flag to market store
+        engine.commit_backfill(preview)
+        store = read_market_store()
+        rec = next(r for r in store["ipos"] if r.get("stock_code") == "348370")
+        self.assertEqual(rec["subscription_start"], "2021-10-21")
+        self.assertIsNone(rec["subscription_end"])
+        self.assertNotIn("_source_sub_date_anomaly", rec)
+
+    # 27. corrected canonical value does not create false conflict against anomalous candidate source
+    def test_27_corrected_canonical_avoids_false_conflict(self) -> None:
+        # Pre-seed canonical store with corrected subscription_end
+        store = default_market_store()
+        store["ipos"].append({
+            "company_name": "엔켐",
+            "stock_code": "348370",
+            "market": "KOSDAQ",
+            "listing_track": "general",
+            "subscription_start": "2021-10-21",
+            "subscription_end": "2021-10-22",  # corrected canonical value
+            "final_offer_price": 42000,
+            "actual_listing_date": "2021-11-01",
+            "expected_listing_date": None,
+            "lead_managers": [],
+            "sources": {"historical_kind": {"source": "KIND_SCHEDULE"}},
+            "ipo_id": "ipo_enchem_test",
+        })
+        write_market_store(store)
+
+        # Raw candidate has inverted source date: 2021-10-21 ~ 2021-10-10
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "subscription_end": "2021-10-10",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        self.assertEqual(len(preview.items), 1)
+        item = preview.items[0]
+        # Must be ALREADY_PRESENT without false conflict on subscription_end
+        self.assertEqual(item.classification, Classification.ALREADY_PRESENT.value)
+
+    # 28. canonical historical records PAST presentation check
+    def test_28_canonical_market_historical_presentation(self) -> None:
+        # Load real canonical market store and verify all historical records are PAST
+        real_market = json.loads((Path(__file__).resolve().parents[1] / "data" / "ipo" / "market.json").read_text(encoding="utf-8"))
+        historical_items = [
+            item for item in real_market.get("ipos", [])
+            if "historical_kind" in item.get("sources", {})
+        ]
+        self.assertEqual(len(historical_items), 704)
+        for item in historical_items:
+            m_state = derive_market_state(item, today=date(2026, 9, 22))
+            f_group = derive_filter_group(m_state, "NOT_APPLIED")
+            self.assertEqual(f_group, "PAST", f"Item {item.get('company_name')} ({item.get('stock_code')}) is not PAST: {m_state}")
 
 
 if __name__ == "__main__":
