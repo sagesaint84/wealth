@@ -202,5 +202,40 @@ class KrxClient:
             raise KrxClientError("KRX listed master returned zero usable rows")
         return rows
 
+    def fetch_delisted_master(self) -> list[dict[str, Any]]:
+        """Fetch and parse KRX delisted stock master (finder_listdelisu)."""
+        require_external_network("KRX")
+        url = f"{self.base_url}{KRX_JSON_PATH}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Referer": f"{self.base_url}/",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        payload = {
+            "bld": "dbms/comm/finder/finder_listdelisu",
+            "mktsel": "ALL",
+            "typeNo": "0",
+            "searchText": "",
+        }
+        try:
+            with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
+                resp = client.post(url, headers=headers, data=payload)
+                if resp.is_redirect:
+                    raise KrxClientError(f"KRX redirected request to {resp.headers.get('location')} (login required)")
+                if resp.is_error:
+                    raise KrxClientError(f"KRX request failed with HTTP {resp.status_code}")
+                content = resp.text
+        except httpx.HTTPError as exc:
+            raise KrxClientError(f"KRX HTTP communication error: {exc}") from exc
+
+        if not content.strip():
+            raise KrxClientError("KRX response body is empty")
+
+        rows = parse_krx_listed_master_json(content)
+        if not rows:
+            raise KrxClientError("KRX delisted master returned zero usable rows")
+        return rows
+
     def fetch_screen(self, screen_id: str, params: dict[str, Any]) -> str:
         raise NotImplementedError("Live KRX network call is disabled by design in local/test mode.")

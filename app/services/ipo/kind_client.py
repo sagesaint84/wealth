@@ -20,6 +20,7 @@ class KindParserError(KindClientError):
 
 KIND_BASE_URL = "https://kind.krx.co.kr"
 KIND_PUB_OFR_PATH = "/listinvstg/pubofrprogcom.do"
+KIND_CORP_LIST_PATH = "/corpgeneral/corpList.do"
 
 # Expected table header synonyms in KIND pubofrprogcom
 EXPECTED_HEADER_KEYWORDS = [
@@ -190,7 +191,11 @@ def parse_kind_html(html_text: str) -> list[dict[str, Any]]:
         raw_cells = [re.sub(r"<[^>]+>", "", td).strip() for td in tds]
 
         bz_procs_no = None
-        procs_match = re.search(r"bzProcsNo[='](\d+)", row) or re.search(r"fnOpen\(['\"](\d+)", row)
+        procs_match = (
+            re.search(r"bzProcsNo[='](\d+)", row)
+            or re.search(r"fnOpen\(['\"](\d+)", row)
+            or re.search(r"fnDetailView\(['\"](\d+)", row)
+        )
         if procs_match:
             bz_procs_no = procs_match.group(1)
 
@@ -253,10 +258,88 @@ def parse_kind_html(html_text: str) -> list[dict[str, Any]]:
                 item["lead_managers"] = managers if managers else ([cell.strip()] if cell.strip() else [])
 
         if item["company_name"]:
+            if "market" not in item or not item["market"]:
+                if "코스닥" in row:
+                    item["market"] = "KOSDAQ"
+                elif "유가증권" in row or "코스피" in row:
+                    item["market"] = "KOSPI"
+                elif "코넥스" in row:
+                    item["market"] = "KONEX"
+                else:
+                    item["market"] = None
             if "lead_managers" not in item:
                 lm = item.get("lead_manager")
                 item["lead_managers"] = [lm.strip()] if lm and lm.strip() else []
             results.append(item)
+
+    return results
+
+
+def parse_kind_corp_list_html(html_text: str) -> list[dict[str, Any]]:
+    """Parse KIND corpList download HTML table for listed company master."""
+    if not html_text or not isinstance(html_text, str):
+        raise KindParserError("KIND corpList HTML is empty or invalid")
+
+    if "<table" not in html_text:
+        raise KindParserError("KIND corpList response does not contain an HTML table (schema_mismatch)")
+
+    table_match = re.search(r"<table(?P<attrs>[^>]*)>(?P<body>.*?)</table>", html_text, re.DOTALL | re.IGNORECASE)
+    if not table_match:
+        raise KindParserError("Failed to extract table from KIND corpList response")
+
+    table_body = table_match.group("body")
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", table_body, re.DOTALL | re.IGNORECASE)
+    if not rows:
+        return []
+
+    header_row = rows[0]
+    th_matches = re.findall(r"<th[^>]*>(.*?)</th>", header_row, re.DOTALL | re.IGNORECASE)
+    headers = [_clean_kind_header_text(th) for th in th_matches]
+    if not headers:
+        td_matches = re.findall(r"<td[^>]*>(.*?)</td>", header_row, re.DOTALL | re.IGNORECASE)
+        headers = [_clean_kind_header_text(td) for td in td_matches]
+
+    if not any("회사명" in h for h in headers) or not any("코드" in h for h in headers) or not any("상장일" in h for h in headers):
+        raise KindParserError("KIND corpList table missing required core headings (회사명, 종목코드, 상장일)")
+
+    col_name = next(i for i, h in enumerate(headers) if "회사명" in h)
+    col_market = next((i for i, h in enumerate(headers) if "시장" in h), None)
+    col_code = next(i for i, h in enumerate(headers) if "코드" in h)
+    col_list_date = next(i for i, h in enumerate(headers) if "상장일" in h)
+
+    results: list[dict[str, Any]] = []
+    for row in rows[1:]:
+        tds = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL | re.IGNORECASE)
+        if not tds:
+            continue
+        cells = [re.sub(r"<[^>]+>", "", td).strip() for td in tds]
+        if len(cells) <= max(col_name, col_code, col_list_date):
+            continue
+
+        c_name = cells[col_name]
+        raw_code = cells[col_code]
+        c_code = raw_code.zfill(6) if raw_code.isdigit() else raw_code.upper()
+        c_market_raw = cells[col_market] if col_market is not None and col_market < len(cells) else ""
+
+        market = None
+        if "코스닥" in c_market_raw:
+            market = "KOSDAQ"
+        elif "유가증권" in c_market_raw or "코스피" in c_market_raw:
+            market = "KOSPI"
+        elif "코넥스" in c_market_raw:
+            market = "KONEX"
+        else:
+            market = c_market_raw or None
+
+        c_list_date = parse_single_date(cells[col_list_date])
+
+        if c_name and c_code:
+            results.append({
+                "company_name": c_name,
+                "stock_code": c_code,
+                "market": market,
+                "actual_listing_date": c_list_date,
+            })
 
     return results
 
@@ -361,3 +444,43 @@ class KindClient:
                 return items
 
         raise KindClientError("KIND pagination exceeded the configured page limit.")
+
+    def fetch_listed_company_master(self) -> list[dict[str, Any]]:
+        """Fetch and parse official KIND listed company master table (corpList.do)."""
+        require_external_network("KIND")
+        url = f"{self.base_url}{KIND_CORP_LIST_PATH}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (compatible; Wealth-KIND/1.0)",
+            "Referer": f"{self.base_url}{KIND_CORP_LIST_PATH}?method=loadInitPage",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        }
+        payload = {
+            "method": "download",
+            "orderMode": "1",
+            "orderStat": "D",
+            "searchType": "13",
+            "fiscalYearEnd": "all",
+            "location": "all",
+        }
+        try:
+            with httpx.Client(timeout=25.0, follow_redirects=False) as client:
+                response = client.post(url, data=payload, headers=headers)
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise KindClientError("KIND listed company master request failed.") from exc
+
+        content = response.content
+        decoded = None
+        for enc in ("euc-kr", "cp949", "utf-8"):
+            try:
+                decoded = content.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        if decoded is None:
+            raise KindClientError("Failed to decode KIND corpList response content.")
+
+        rows = parse_kind_corp_list_html(decoded)
+        if not rows:
+            raise KindClientError("KIND corpList returned zero usable rows.")
+        return rows

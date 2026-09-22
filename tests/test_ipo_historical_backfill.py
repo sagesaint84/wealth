@@ -1,0 +1,703 @@
+"""Comprehensive unit tests for historical IPO backfill engine (Stage 2B).
+
+All external network operations are mocked. Validates the 24 key invariants.
+"""
+from __future__ import annotations
+
+from copy import deepcopy
+from datetime import date
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import MagicMock, patch
+
+from app.services.ipo.historical_backfill import (
+    Classification,
+    HistoricalBackfillEngine,
+    HistoricalBackfillError,
+    PreviewItem,
+    PreviewResult,
+    compute_market_digest,
+    get_current_kst_date,
+)
+from app.services.ipo.presentation import derive_filter_group, derive_market_state
+from app.services.ipo.store import (
+    default_market_store,
+    read_market_store,
+    validate_market_store,
+    write_market_store,
+)
+
+
+class TestHistoricalBackfill(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.market_file = Path(self.temp_dir.name) / "market.json"
+
+        self.patcher_market_file = patch("app.services.ipo.historical_backfill.get_market_file", return_value=self.market_file)
+        self.patcher_store_file = patch("app.services.ipo.store.get_market_file", return_value=self.market_file)
+        self.patcher_market_file.start()
+        self.patcher_store_file.start()
+
+        # Initialize clean empty market store
+        write_market_store(default_market_store())
+
+        # Sample master datasets
+        self.mock_listed_master = [
+            {
+                "company_name": "엔켐",
+                "stock_code": "348370",
+                "market": "KOSDAQ",
+                "actual_listing_date": "2021-11-01",
+            },
+            {
+                "company_name": "카카오페이",
+                "stock_code": "377300",
+                "market": "KOSPI",
+                "actual_listing_date": "2021-11-03",
+            },
+            {
+                "company_name": "중복회사",
+                "stock_code": "111111",
+                "market": "KOSDAQ",
+                "actual_listing_date": "2022-01-01",
+            },
+            {
+                "company_name": "중복회사",
+                "stock_code": "222222",
+                "market": "KOSDAQ",
+                "actual_listing_date": "2022-01-01",
+            },
+        ]
+
+        self.mock_delisted_master = [
+            {
+                "company_name": "교보10호스팩",
+                "stock_code": "355150",
+                "market_eng_name": "KOSDAQ",
+                "market_name": "코스닥",
+            },
+            {
+                "company_name": "신한제7호스팩",
+                "stock_code": "366330",
+                "market_eng_name": "KOSDAQ",
+                "market_name": "코스닥",
+            },
+        ]
+
+    def tearDown(self) -> None:
+        self.patcher_store_file.stop()
+        self.patcher_market_file.stop()
+        self.temp_dir.cleanup()
+
+    # 1. 2020 range lower bound
+    def test_01_range_lower_bound_rejected(self) -> None:
+        engine = HistoricalBackfillEngine()
+        with self.assertRaises(HistoricalBackfillError) as ctx:
+            engine.generate_preview(from_year=2019, to_year=2021)
+        self.assertIn("HISTORICAL_RANGE_UNSUPPORTED", str(ctx.exception))
+        self.assertIn(">= 2020", str(ctx.exception))
+
+    # 2. current KST year upper bound
+    def test_02_range_upper_bound_rejected(self) -> None:
+        engine = HistoricalBackfillEngine()
+        current_year = get_current_kst_date().year
+        with self.assertRaises(HistoricalBackfillError) as ctx:
+            engine.generate_preview(from_year=2020, to_year=current_year + 1)
+        self.assertIn("HISTORICAL_RANGE_UNSUPPORTED", str(ctx.exception))
+        self.assertIn("cannot exceed current KST year", str(ctx.exception))
+
+    # 3. KIND year filtering by subscription_start
+    def test_03_kind_year_filtering_by_subscription_start(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "expected_listing_date": "2021-11-01",
+                "final_offer_price": 42000,
+            },
+            {
+                "company_name": "2020종목",
+                "subscription_start": "2020-05-10",
+                "expected_listing_date": "2020-05-20",
+                "final_offer_price": 10000,
+            },
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=self.mock_delisted_master,
+        )
+        # Only 엔켐 should be in 2021 bucket
+        names = [item.company_name for item in preview.items]
+        self.assertIn("엔켐", names)
+        self.assertNotIn("2020종목", names)
+
+    # 4. pagination reuse
+    def test_04_pagination_reuse(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = []
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2020,
+            to_year=2021,
+            listed_master=[],
+            delisted_master=[],
+        )
+        # fetch_pubofr_schedule_items must have been called for each year
+        self.assertEqual(mock_kind.fetch_pubofr_schedule_items.call_count, 2)
+
+    # 5. listing evidence required
+    def test_05_listing_evidence_required(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "미상장기업",
+                "subscription_start": "2021-03-01",
+                "final_offer_price": 15000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=self.mock_delisted_master,
+        )
+        self.assertEqual(len(preview.items), 1)
+        self.assertEqual(preview.items[0].classification, Classification.EXCLUDED_NO_LISTING_EVIDENCE.value)
+
+    # 6. withdrawn/unverified excluded
+    def test_06_withdrawn_excluded(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "철회기업",
+                "subscription_start": "2021-03-01",
+                "final_offer_price": None,  # no offer price
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=self.mock_delisted_master,
+        )
+        self.assertEqual(len(preview.items), 1)
+        self.assertEqual(preview.items[0].classification, Classification.EXCLUDED_WITHDRAWN.value)
+
+    # 7. pending excluded
+    def test_07_pending_excluded(self) -> None:
+        mock_kind = MagicMock()
+        current_year = get_current_kst_date().year
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": f"{current_year}-12-01",
+                "expected_listing_date": f"{current_year}-12-15",
+                "final_offer_price": 42000,
+            }
+        ]
+        # Temporarily mock listed master with future listing date
+        future_listed = [
+            {
+                "company_name": "엔켐",
+                "stock_code": "348370",
+                "market": "KOSDAQ",
+                "actual_listing_date": f"{current_year}-12-15",
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=current_year,
+            to_year=current_year,
+            listed_master=future_listed,
+            delisted_master=[],
+        )
+        self.assertEqual(len(preview.items), 1)
+        self.assertEqual(preview.items[0].classification, Classification.EXCLUDED_PENDING.value)
+
+    # 8. current listed accepted
+    def test_08_current_listed_accepted(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "subscription_end": "2021-10-22",
+                "expected_listing_date": "2021-11-01",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        self.assertEqual(len(preview.items), 1)
+        item = preview.items[0]
+        self.assertEqual(item.classification, Classification.NEW.value)
+        self.assertEqual(item.stock_code, "348370")
+        self.assertEqual(item.actual_listing_date, "2021-11-01")
+
+    # 9. delisted SPAC evidence accepted
+    def test_09_delisted_spac_evidence_accepted(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "교보10호스팩",
+                "subscription_start": "2020-07-20",
+                "expected_listing_date": "2020-08-04",
+                "final_offer_price": 2000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2020,
+            to_year=2020,
+            listed_master=[],
+            delisted_master=self.mock_delisted_master,
+        )
+        self.assertEqual(len(preview.items), 1)
+        item = preview.items[0]
+        self.assertEqual(item.classification, Classification.NEW.value)
+        self.assertEqual(item.stock_code, "355150")
+        self.assertEqual(item.listing_track, "spac")
+        self.assertIsNone(item.actual_listing_date)  # delisted master has no actual listing date
+
+    # 10. name-only SPAC ambiguity => REVIEW_REQUIRED
+    def test_10_ambiguous_name_review_required(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "중복회사",
+                "subscription_start": "2021-05-10",
+                "final_offer_price": 5000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,  # has 2 entries for 중복회사
+            delisted_master=[],
+        )
+        self.assertEqual(len(preview.items), 1)
+        self.assertEqual(preview.items[0].classification, Classification.REVIEW_REQUIRED.value)
+
+    # 11. refund_date remains null
+    def test_11_refund_date_remains_null(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "payment_date": "2021-10-26",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        item = preview.items[0]
+        self.assertIsNone(item.candidate_record.get("refund_date"))
+
+    # 12. actual_listing_date never guessed from expected
+    def test_12_actual_listing_never_guessed(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "신한제7호스팩",
+                "subscription_start": "2020-08-10",
+                "expected_listing_date": "2020-08-25",
+                "final_offer_price": 2000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2020,
+            to_year=2020,
+            listed_master=[],
+            delisted_master=self.mock_delisted_master,
+        )
+        item = preview.items[0]
+        self.assertEqual(item.candidate_record.get("expected_listing_date"), "2020-08-25")
+        self.assertIsNone(item.candidate_record.get("actual_listing_date"))
+
+    # 13. NEW classification
+    def test_13_new_classification(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        self.assertEqual(preview.items[0].classification, Classification.NEW.value)
+
+    # 14. ALREADY_PRESENT
+    def test_14_already_present(self) -> None:
+        store = read_market_store()
+        store["ipos"].append({
+            "ipo_id": "ipo_enchem_test",
+            "company_name": "엔켐",
+            "stock_code": "348370",
+            "market": "KOSDAQ",
+            "subscription_start": "2021-10-21",
+            "subscription_end": None,
+            "final_offer_price": 42000,
+            "expected_listing_date": None,
+            "actual_listing_date": "2021-11-01",
+        })
+        write_market_store(store)
+
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        self.assertEqual(preview.items[0].classification, Classification.ALREADY_PRESENT.value)
+
+    # 15. ENRICHABLE blank-only
+    def test_15_enrichable_blank_only(self) -> None:
+        store = read_market_store()
+        store["ipos"].append({
+            "ipo_id": "ipo_enchem_test",
+            "company_name": "엔켐",
+            "stock_code": "348370",
+            "market": None,  # blank
+            "subscription_start": "2021-10-21",
+            "final_offer_price": 42000,
+            "actual_listing_date": None,  # blank
+        })
+        write_market_store(store)
+
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        self.assertEqual(preview.items[0].classification, Classification.ENRICHABLE.value)
+        self.assertIn("market", preview.items[0].enrich_diff)
+        self.assertIn("actual_listing_date", preview.items[0].enrich_diff)
+
+    # 16. existing nonblank mismatch => CONFLICT
+    def test_16_existing_nonblank_mismatch_conflict(self) -> None:
+        store = read_market_store()
+        store["ipos"].append({
+            "ipo_id": "ipo_enchem_test",
+            "company_name": "엔켐",
+            "stock_code": "348370",
+            "market": "KOSPI",  # Mismatch: master says KOSDAQ
+            "subscription_start": "2021-10-21",
+            "final_offer_price": 42000,
+        })
+        write_market_store(store)
+
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        self.assertEqual(preview.items[0].classification, Classification.CONFLICT.value)
+
+    # 17. existing nonblank never overwritten
+    def test_17_existing_nonblank_never_overwritten(self) -> None:
+        store = read_market_store()
+        store["ipos"].append({
+            "ipo_id": "ipo_enchem_test",
+            "company_name": "엔켐",
+            "stock_code": "348370",
+            "market": "KOSDAQ",
+            "final_offer_price": 42000,
+            "lead_managers": ["기존주관사"],
+            "subscription_start": "2021-10-21",
+            "actual_listing_date": None,  # blank
+        })
+        write_market_store(store)
+
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "final_offer_price": 42000,
+                "lead_managers": ["새로운주관사"],
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        self.assertEqual(preview.items[0].classification, Classification.ENRICHABLE.value)
+
+        engine.commit_backfill(preview)
+
+        # Verify existing record in market.json
+        updated_store = read_market_store()
+        rec = updated_store["ipos"][0]
+        # Lead managers was non-empty and must NOT have been overwritten
+        self.assertEqual(rec["lead_managers"], ["기존주관사"])
+        # Blank actual_listing_date was enriched
+        self.assertEqual(rec["actual_listing_date"], "2021-11-01")
+
+    # 18. source provenance merge
+    def test_18_source_provenance_merge(self) -> None:
+        store = read_market_store()
+        store["ipos"].append({
+            "ipo_id": "ipo_enchem_test",
+            "company_name": "엔켐",
+            "stock_code": "348370",
+            "market": "KOSDAQ",
+            "subscription_start": "2021-10-21",
+            "final_offer_price": 42000,
+            "sources": {"kis": {"code": "348370"}},
+            "actual_listing_date": None,
+        })
+        write_market_store(store)
+
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        engine.commit_backfill(preview)
+
+        updated_store = read_market_store()
+        rec = updated_store["ipos"][0]
+        self.assertIn("kis", rec["sources"])
+        self.assertIn("historical_kind", rec["sources"])
+
+    # 19. duplicate run idempotency
+    def test_19_duplicate_run_idempotency(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        # First preview & commit
+        preview1 = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        self.assertEqual(preview1.items[0].classification, Classification.NEW.value)
+        engine.commit_backfill(preview1)
+
+        # Second preview on updated store
+        preview2 = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        self.assertEqual(preview2.items[0].classification, Classification.ALREADY_PRESENT.value)
+
+    # 20. stale preview rejected
+    def test_20_stale_preview_rejected(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+
+        # External write modifies market store after preview
+        store = read_market_store()
+        store["schema_version"] = 99
+        write_market_store(store)
+
+        with self.assertRaises(HistoricalBackfillError) as ctx:
+            engine.commit_backfill(preview)
+        self.assertIn("PREVIEW_STALE", str(ctx.exception))
+
+    # 21. atomic failure preserves market
+    def test_21_atomic_failure_preserves_market(self) -> None:
+        original_store = read_market_store()
+        original_digest = compute_market_digest()
+
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+
+        # Force validation error during commit
+        with patch("app.services.ipo.historical_backfill.validate_market_store", side_effect=ValueError("Simulated validation crash")):
+            with self.assertRaises(ValueError):
+                engine.commit_backfill(preview)
+
+        # Market file must remain intact
+        self.assertEqual(compute_market_digest(), original_digest)
+
+    # 22. historical listed record presents as PAST
+    def test_22_historical_record_presents_as_past(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "subscription_end": "2021-10-22",
+                "expected_listing_date": "2021-11-01",
+                "final_offer_price": 42000,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        rec = preview.items[0].candidate_record
+        m_state = derive_market_state(rec, today=date(2026, 9, 22))
+        f_group = derive_filter_group(m_state, "NOT_APPLIED")
+        self.assertEqual(m_state, "LISTED")
+        self.assertEqual(f_group, "PAST")
+
+    # 23. withdrawn/unverified does not enter ACTIVE
+    def test_23_withdrawn_unverified_does_not_enter_active(self) -> None:
+        # If an unverified item with no listing date were processed, verify it would be excluded
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "미상장철회",
+                "subscription_start": "2021-05-01",
+                "subscription_end": "2021-05-02",
+                "final_offer_price": 0,
+            }
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        item = preview.items[0]
+        self.assertEqual(item.classification, Classification.EXCLUDED_WITHDRAWN.value)
+        # Because it's excluded, commit does not touch market
+        res = engine.commit_backfill(preview)
+        self.assertEqual(res["total_committed"], 0)
+
+    # 24. market validation duplicate code safety
+    def test_24_duplicate_code_safety(self) -> None:
+        mock_kind = MagicMock()
+        mock_kind.fetch_pubofr_schedule_items.return_value = [
+            {
+                "company_name": "엔켐",
+                "subscription_start": "2021-10-21",
+                "final_offer_price": 42000,
+            },
+            {
+                "company_name": "엔켐클론",
+                "stock_code": "348370",  # duplicate stock code!
+                "subscription_start": "2021-10-22",
+                "final_offer_price": 42000,
+            },
+        ]
+        engine = HistoricalBackfillEngine(kind_client=mock_kind)
+        preview = engine.generate_preview(
+            from_year=2021,
+            to_year=2021,
+            listed_master=self.mock_listed_master,
+            delisted_master=[],
+        )
+        # First one is NEW, second one encountered with duplicate code is CONFLICT
+        classifications = [it.classification for it in preview.items]
+        self.assertIn(Classification.NEW.value, classifications)
+        self.assertIn(Classification.CONFLICT.value, classifications)
+
+        # Commit only adds NEW, so market store validation passes without error
+        commit_res = engine.commit_backfill(preview)
+        self.assertEqual(commit_res["applied_new"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
