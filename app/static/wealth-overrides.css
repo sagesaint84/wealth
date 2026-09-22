@@ -3467,7 +3467,8 @@ dialog.dialog .dialog-actions {
    스마트 가족 가계부 (HOUSEHOLD LEDGER) 전용 스타일링
    ========================================================================== */
 /* 1. 월 컨트롤러 */
-.ledger-month-control {
+.ledger-month-control,
+.money-month-nav {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -3477,10 +3478,15 @@ dialog.dialog .dialog-actions {
   padding: 3px 6px;
   position: relative;
 }
-.ledger-month-text {
+.ledger-month-text,
+.money-month-text {
+  font-family: inherit;
   font-size: 14.5px;
   font-weight: 800;
   color: #f8fafc;
+  background: transparent;
+  border: none;
+  outline: none;
   padding: 2px 8px;
   min-width: 105px;
   text-align: center;
@@ -3488,15 +3494,37 @@ dialog.dialog .dialog-actions {
   border-radius: 6px;
   transition: background 0.15s ease;
   user-select: none;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.ledger-month-text:hover {
+.ledger-month-text:hover,
+.money-month-text:hover {
   background: rgba(255, 255, 255, 0.08);
 }
-.ledger-month-btn {
+.ledger-month-text:focus-visible,
+.money-month-text:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 1px;
+}
+.ledger-month-btn,
+.money-month-nav-btn {
   padding: 4px 8px !important;
   font-size: 11.5px !important;
   line-height: 1 !important;
   min-height: unset !important;
+}
+.ledger-month-picker,
+.money-month-picker {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 /* 2. 4대 요약 카드 (기본 테마) */
@@ -4028,23 +4056,28 @@ dialog.dialog .dialog-actions {
 }
 
 /* 1. 월 컨트롤러 */
-[data-theme="white"] .ledger-month-control {
+[data-theme="white"] .ledger-month-control,
+[data-theme="white"] .money-month-nav {
   background: #ffffff !important;
   border-color: #cbd5e1 !important;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05) !important;
 }
-[data-theme="white"] .ledger-month-text {
+[data-theme="white"] .ledger-month-text,
+[data-theme="white"] .money-month-text {
   color: #0f172a !important;
 }
-[data-theme="white"] .ledger-month-text:hover {
+[data-theme="white"] .ledger-month-text:hover,
+[data-theme="white"] .money-month-text:hover {
   background: #f1f5f9 !important;
 }
-[data-theme="white"] .ledger-month-btn {
+[data-theme="white"] .ledger-month-btn,
+[data-theme="white"] .money-month-nav-btn {
   background: #f8fafc !important;
   border-color: #cbd5e1 !important;
   color: #334155 !important;
 }
-[data-theme="white"] .ledger-month-btn:hover {
+[data-theme="white"] .ledger-month-btn:hover,
+[data-theme="white"] .money-month-nav-btn:hover {
   background: #e2e8f0 !important;
   color: #0f172a !important;
 }
@@ -4351,16 +4384,29 @@ dialog.dialog .dialog-actions {
   background: #08080c !important;
   border-color: #1a1a26 !important;
 }
-[data-theme="oled"] .ledger-month-text {
+[data-theme="oled"] .ledger-month-control,
+[data-theme="oled"] .money-month-nav {
+  background: #08080c !important;
+  border-color: #1a1a26 !important;
+}
+[data-theme="oled"] .ledger-month-text,
+[data-theme="oled"] .money-month-text {
   color: #f1f5f9 !important;
 }
-[data-theme="oled"] .ledger-month-text:hover {
+[data-theme="oled"] .ledger-month-text:hover,
+[data-theme="oled"] .money-month-text:hover {
   background: rgba(255, 255, 255, 0.05) !important;
 }
-[data-theme="oled"] .ledger-month-btn {
+[data-theme="oled"] .ledger-month-btn,
+[data-theme="oled"] .money-month-nav-btn {
   background: #111118 !important;
   border-color: #222233 !important;
   color: #cbd5e1 !important;
+}
+[data-theme="oled"] .ledger-month-btn:hover,
+[data-theme="oled"] .money-month-nav-btn:hover {
+  background: #1c1c28 !important;
+  color: #f8fafc !important;
 }
 
 /* 2. 가계부 4대 요약 카드 특성화 배경색 (OLED) */

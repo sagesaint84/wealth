@@ -24,6 +24,72 @@ let heatmapPeriod = localStorage.getItem("heatmap_period") || "1D";
 let heatmapTheme = localStorage.getItem("heatmap_theme") || "kr";
 let heatmapMaxCap = localStorage.getItem("heatmap_max_cap") || "auto";
 
+function getKstYearMonth(now = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: 'numeric',
+    }).formatToParts(now).reduce((acc, p) => {
+      if (p.type !== 'literal') acc[p.type] = p.value;
+      return acc;
+    }, {});
+    const year = parseInt(parts.year, 10);
+    const month = parseInt(parts.month, 10);
+    const key = `${year}-${String(month).padStart(2, '0')}`;
+    return { year, month, key };
+  } catch (e) {
+    const d = new Date(now);
+    const year = d.getFullYear();
+    const month = d.getMonth() + 1;
+    const key = `${year}-${String(month).padStart(2, '0')}`;
+    return { year, month, key };
+  }
+}
+
+function shiftYearMonth(year, month, delta) {
+  let y = Number(year);
+  let m = Number(month) + Number(delta);
+  while (m < 1) {
+    m += 12;
+    y -= 1;
+  }
+  while (m > 12) {
+    m -= 12;
+    y += 1;
+  }
+  const key = `${y}-${String(m).padStart(2, '0')}`;
+  return { year: y, month: m, key };
+}
+
+function parseYearMonth(str) {
+  if (typeof str !== 'string') return null;
+  const trimmed = str.trim();
+  const m1 = trimmed.match(/^(\d{4})-(\d{1,2})$/);
+  if (m1) {
+    const y = parseInt(m1[1], 10);
+    const m = parseInt(m1[2], 10);
+    if (m >= 1 && m <= 12) {
+      return { year: y, month: m, key: `${y}-${String(m).padStart(2, '0')}` };
+    }
+  }
+  const m2 = trimmed.match(/^(\d{4})년\s*(\d{1,2})월$/);
+  if (m2) {
+    const y = parseInt(m2[1], 10);
+    const m = parseInt(m2[2], 10);
+    if (m >= 1 && m <= 12) {
+      return { year: y, month: m, key: `${y}-${String(m).padStart(2, '0')}` };
+    }
+  }
+  return null;
+}
+
+window.WealthDateHelper = {
+  getKstYearMonth,
+  shiftYearMonth,
+  parseYearMonth,
+};
+
 const $ = (selector) => document.querySelector(selector);
 let dashboard = null;
 let rawDashboard = null; // 필터링 전 원본 서버 데이터
@@ -6889,7 +6955,6 @@ document.addEventListener('click', async (e) => {
     document.querySelectorAll('#dividendModeTabs .heatmap-tab').forEach(t => t.classList.remove('active'));
     divModeTab.classList.add('active');
     currentDividendMode = divModeTab.dataset.divMode || 'estimated';
-    selectedDividendMonth = null;
     const refreshBtn = $("#refreshDividendBtn");
     const addBtn = $("#addDividendBtn");
     const importBtn = $("#importDividendBtn");
@@ -7008,7 +7073,8 @@ document.addEventListener('click', async (e) => {
     }
     if (divBar.dataset.month) {
       const m = Number(divBar.dataset.month);
-      selectedDividendMonth = selectedDividendMonth === m ? null : m;
+      selectedDividendMonth = m;
+      syncDividendMonthNavUI();
       if (currentDividendMode === 'estimated') {
         if (dividendData) renderDividends(dividendData);
       } else {
@@ -7035,7 +7101,6 @@ document.addEventListener('click', async (e) => {
     document.querySelectorAll('#pnlTradeTypeTabs .heatmap-tab').forEach(t => t.classList.remove('active'));
     pnlTab.classList.add('active');
     currentPnlTradeType = pnlTab.dataset.tradeType || 'all';
-    selectedPnlMonth = null;
     loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
     return;
   }
@@ -7120,7 +7185,8 @@ document.addEventListener('click', async (e) => {
     }
     if (pnlBar.dataset.month) {
       const m = Number(pnlBar.dataset.month);
-      selectedPnlMonth = selectedPnlMonth === m ? null : m;
+      selectedPnlMonth = m;
+      syncPnlMonthNavUI();
       if (pnlData) renderRealizedPnl(pnlData);
       return;
     }
@@ -8810,8 +8876,30 @@ window.triggerPwaInstall = triggerPwaInstall;
 let currentDividendMode = 'estimated'; // 'estimated' | 'actual'
 let dividendData = null;
 let actualDividendData = null;
-let selectedDividendMonth = null;
-let selectedDividendYear = "2026";
+const _initDivKst = getKstYearMonth();
+let selectedDividendMonth = _initDivKst.month;
+let selectedDividendYear = String(_initDivKst.year);
+
+function syncDividendMonthNavUI() {
+  const textEl = document.getElementById("dividendCurrentMonthText");
+  const pickerEl = document.getElementById("dividendMonthPicker");
+  const selEl = document.getElementById("dividendYearSelect");
+  if (selectedDividendYear === 'all') {
+    if (textEl) textEl.textContent = "전체 기간";
+  } else {
+    const y = selectedDividendYear || getKstYearMonth().year;
+    const m = selectedDividendMonth || getKstYearMonth().month;
+    if (textEl) textEl.textContent = `${y}년 ${m}월`;
+    if (pickerEl) pickerEl.value = `${y}-${String(m).padStart(2, '0')}`;
+    if (selEl && selEl.value !== String(y)) selEl.value = String(y);
+  }
+}
+
+window.setSelectedDividendPeriod = (year, month) => {
+  selectedDividendYear = String(year);
+  selectedDividendMonth = month !== null && month !== undefined ? Number(month) : null;
+  syncDividendMonthNavUI();
+};
 
 function normalizeMonthlyDividendSchedule(monthlySchedule) {
   if (Array.isArray(monthlySchedule)) return monthlySchedule;
@@ -8872,6 +8960,7 @@ function updateDividendYearOptions(years) {
 
 function renderDividends(data) {
   if (!data) return;
+  syncDividendMonthNavUI();
   const fxUsd = (dashboard?.fx_rates?.USD) || 1385.0;
 
   $("#divCardLabel1") && ($("#divCardLabel1").textContent = "연간 예상 배당금");
@@ -9031,30 +9120,63 @@ function renderMonthlyDividendDetail(month = null) {
 
 function renderActualDividends(data) {
   if (!data) return;
+  syncDividendMonthNavUI();
   const fxUsd = (dashboard?.fx_rates?.USD) || 1385.0;
   const isAllYears = (selectedDividendYear === "all" || selectedDividendYear === "전체");
 
-  $("#divCardLabel1") && ($("#divCardLabel1").textContent = isAllYears ? "누적 실제 수령 배당금" : "연간 실제 수령 배당금");
-  $("#divCardLabel2") && ($("#divCardLabel2").textContent = "실제 수령 배당수익률");
-  $("#divCardLabel3") && ($("#divCardLabel3").textContent = isAllYears ? "연평균 실제 수령액" : "월평균 실제 수령액");
-  $("#divCardLabel4") && ($("#divCardLabel4").textContent = "실제 수령 종목 / 건수");
+  const allRecords = data.records || [];
+  let filteredRecords = allRecords;
+  if (!isAllYears && selectedDividendMonth && selectedDividendMonth >= 1 && selectedDividendMonth <= 12) {
+    const mStr = String(selectedDividendMonth).padStart(2, '0');
+    filteredRecords = allRecords.filter(r => {
+      if (!r.date) return false;
+      const parts = r.date.split('-');
+      if (parts.length < 2) return false;
+      const rYear = parts[0];
+      const rMonth = parts[1];
+      if (selectedDividendYear && selectedDividendYear !== 'all') {
+        return rYear === String(selectedDividendYear) && rMonth === mStr;
+      }
+      return rMonth === mStr;
+    });
+  }
+
+  if (!isAllYears && selectedDividendMonth && selectedDividendMonth >= 1 && selectedDividendMonth <= 12) {
+    $("#divCardLabel1") && ($("#divCardLabel1").textContent = `${selectedDividendMonth}월 실제 수령 배당금`);
+    $("#divCardLabel2") && ($("#divCardLabel2").textContent = "월간 배당 수령률");
+    $("#divCardLabel3") && ($("#divCardLabel3").textContent = "월 실제 수령액");
+    $("#divCardLabel4") && ($("#divCardLabel4").textContent = "실제 수령 종목 / 건수");
+  } else {
+    $("#divCardLabel1") && ($("#divCardLabel1").textContent = isAllYears ? "누적 실제 수령 배당금" : "연간 실제 수령 배당금");
+    $("#divCardLabel2") && ($("#divCardLabel2").textContent = "실제 수령 배당수익률");
+    $("#divCardLabel3") && ($("#divCardLabel3").textContent = isAllYears ? "연평균 실제 수령액" : "월평균 실제 수령액");
+    $("#divCardLabel4") && ($("#divCardLabel4").textContent = "실제 수령 종목 / 건수");
+  }
   $("#dividendChartTitle") && ($("#dividendChartTitle").textContent = isAllYears ? "📊 전체 기간 연도별 실제 배당금 입금 추이" : `📊 ${selectedDividendYear}년 1월 ~ 12월 월별 실제 배당금 입금 추이`);
 
-  const totalActual = Number(data.total_actual_dividend_krw || 0);
+  const totalActual = (!isAllYears && selectedDividendMonth)
+    ? filteredRecords.reduce((acc, r) => acc + Number(r.amount_krw || 0), 0)
+    : Number(data.total_actual_dividend_krw || 0);
   const totalActualUsd = fxUsd > 0 ? (totalActual / fxUsd) : 0;
   const totalVal = Number(dashboard?.summary?.total_value_krw || 0);
   const actualYield = totalVal > 0 ? (totalActual / totalVal * 100) : 0;
   
   // 전체 기간일 때는 가용 연도 수로 나눈 연평균, 단일 연도일 때는 12로 나눈 월평균
   const availYearsCount = (data.available_years || []).length || 1;
-  const avgAmt = isAllYears ? (totalActual / availYearsCount) : Number(data.monthly_avg_dividend_krw || 0);
-  const payingStockCount = Number(data.paying_stock_count || 0);
-  const recordCount = Number(data.record_count || 0);
+  const avgAmt = (!isAllYears && selectedDividendMonth)
+    ? totalActual
+    : (isAllYears ? (totalActual / availYearsCount) : Number(data.monthly_avg_dividend_krw || 0));
+  const payingStockCount = (!isAllYears && selectedDividendMonth)
+    ? new Set(filteredRecords.map(r => r.name || r.code).filter(Boolean)).size
+    : Number(data.paying_stock_count || 0);
+  const recordCount = (!isAllYears && selectedDividendMonth)
+    ? filteredRecords.length
+    : Number(data.record_count || 0);
 
   $("#divTotalAnnual") && ($("#divTotalAnnual").textContent = money(totalActual));
   $("#divTotalAnnualUsd") && ($("#divTotalAnnualUsd").textContent = `$${number(totalActualUsd, 2)} 환산 포함`);
   $("#divYield") && ($("#divYield").textContent = `${number(actualYield, 2)}%`);
-  $("#divYieldSub") && ($("#divYieldSub").textContent = "총 투자자산 대비");
+  $("#divYieldSub") && ($("#divYieldSub").textContent = (!isAllYears && selectedDividendMonth) ? "선택 월 수령액 / 평가금액 기준" : "총 투자자산 대비");
   $("#divMonthlyAvg") && ($("#divMonthlyAvg").textContent = money(avgAmt));
   $("#divPayingCount") && ($("#divPayingCount").textContent = `${payingStockCount}종목`);
   $("#divTotalHoldings") && ($("#divTotalHoldings").textContent = `총 ${recordCount}건 입금`);
@@ -9167,9 +9289,20 @@ function renderActualDividendDetail(month = null) {
 
   if (month && month >= 1 && month <= 12) {
     const monthStr = String(month).padStart(2, '0');
-    items = records.filter(r => (r.date || '').split('-')[1] === monthStr);
+    items = records.filter(r => {
+      if (!r.date) return false;
+      const parts = r.date.split('-');
+      if (parts.length < 2) return false;
+      const rYear = parts[0];
+      const rMonth = parts[1];
+      if (selectedDividendYear && selectedDividendYear !== 'all') {
+        return rYear === String(selectedDividendYear) && rMonth === monthStr;
+      }
+      return rMonth === monthStr;
+    });
     const sumKrw = items.reduce((acc, cur) => acc + Number(cur.amount_krw || 0), 0);
-    title = `📅 ${month}월 실제 배당금 입금 내역 (${items.length}건 · 합계 <span style="color:#f43f5e;">${money(sumKrw)}</span>)`;
+    const yrPrefix = (selectedDividendYear && selectedDividendYear !== 'all') ? `${selectedDividendYear}년 ` : '';
+    title = `📅 ${yrPrefix}${month}월 실제 배당금 입금 내역 (${items.length}건 · 합계 <span style="color:#f43f5e;">${money(sumKrw)}</span>)`;
   } else {
     items = [...records];
     const sumKrw = items.reduce((acc, cur) => acc + Number(cur.amount_krw || 0), 0);
@@ -9386,9 +9519,31 @@ function updateDivFormFields() {
 
 // ── 16. 주식 매도 실현손익 관리 (Realized PnL) ──────────────────────────────
 let pnlData = null;
-let selectedPnlMonth = null;
-let selectedPnlYear = "2026";
+const _initPnlKst = getKstYearMonth();
+let selectedPnlMonth = _initPnlKst.month;
+let selectedPnlYear = String(_initPnlKst.year);
 let currentPnlTradeType = "all"; // 'all' | 'ipo'
+
+function syncPnlMonthNavUI() {
+  const textEl = document.getElementById("pnlCurrentMonthText");
+  const pickerEl = document.getElementById("pnlMonthPicker");
+  const selEl = document.getElementById("pnlYearSelect");
+  if (selectedPnlYear === 'all') {
+    if (textEl) textEl.textContent = "전체 기간";
+  } else {
+    const y = selectedPnlYear || getKstYearMonth().year;
+    const m = selectedPnlMonth || getKstYearMonth().month;
+    if (textEl) textEl.textContent = `${y}년 ${m}월`;
+    if (pickerEl) pickerEl.value = `${y}-${String(m).padStart(2, '0')}`;
+    if (selEl && selEl.value !== String(y)) selEl.value = String(y);
+  }
+}
+
+window.setSelectedPnlPeriod = (year, month) => {
+  selectedPnlYear = String(year);
+  selectedPnlMonth = month !== null && month !== undefined ? Number(month) : null;
+  syncPnlMonthNavUI();
+};
 
 async function loadRealizedPnl(owner = currentOwner, year = selectedPnlYear, tradeType = currentPnlTradeType) {
   try {
@@ -9430,15 +9585,51 @@ function updatePnlYearOptions(years) {
 
 function renderRealizedPnl(data) {
   if (!data) return;
+  syncPnlMonthNavUI();
 
-  const pnlView = buildRealizedPnlDisplaySummary(data, data.records || [], true);
+  const allRecords = data.records || [];
+  const records = allRecords.filter(r => {
+    const at = String(r.asset_type || '').toLowerCase();
+    const c = String(r.code || '').toUpperCase();
+    const b = String(r.broker || '').trim();
+    const n = String(r.name || '');
+    return at !== 'real_estate' && c !== 'REAL_ESTATE' && b !== '부동산' && !n.startsWith('[부동산]') && !r.re_id && !r.real_estate_name;
+  });
+
+  const isAllYears = (selectedPnlYear === "all" || selectedPnlYear === "전체");
+  let filteredRecords = records;
+  if (!isAllYears && selectedPnlMonth && selectedPnlMonth >= 1 && selectedPnlMonth <= 12) {
+    const mStr = String(selectedPnlMonth).padStart(2, '0');
+    filteredRecords = records.filter(r => {
+      const clean = String(r.date || '').replaceAll('-', '');
+      const rYear = clean.slice(0, 4);
+      const rMonth = clean.slice(4, 6);
+      if (selectedPnlYear) return rYear === String(selectedPnlYear) && rMonth === mStr;
+      return rMonth === mStr;
+    });
+  }
+
+  const pnlView = buildRealizedPnlDisplaySummary(data, filteredRecords, isAllYears);
   const totalPnl = pnlView.totalPnlKrw;
-  const totalWin = Number(data.total_win_krw || 0);
-  const winCount = Number(data.win_count || 0);
-  const totalLoss = Number(data.total_loss_krw || 0);
-  const lossCount = Number(data.loss_count || 0);
-  const winRate = Number(data.win_rate || 0);
-  const recordCount = pnlView.recordCount;
+  const winRecords = filteredRecords.filter(r => {
+    const pnlVal = finiteRealizedPnlNumber(r.pnl_krw);
+    const nativePnl = finiteRealizedPnlNumber(r.pnl);
+    const s = nativePnl === null ? pnlVal : nativePnl;
+    return s !== null && s > 0;
+  });
+  const lossRecords = filteredRecords.filter(r => {
+    const pnlVal = finiteRealizedPnlNumber(r.pnl_krw);
+    const nativePnl = finiteRealizedPnlNumber(r.pnl);
+    const s = nativePnl === null ? pnlVal : nativePnl;
+    return s !== null && s < 0;
+  });
+  const totalWin = isAllYears ? Number(data.total_win_krw || 0) : winRecords.reduce((acc, r) => acc + (finiteRealizedPnlNumber(r.pnl_krw) || 0), 0);
+  const winCount = isAllYears ? Number(data.win_count || 0) : winRecords.length;
+  const totalLoss = isAllYears ? Number(data.total_loss_krw || 0) : lossRecords.reduce((acc, r) => acc + (finiteRealizedPnlNumber(r.pnl_krw) || 0), 0);
+  const lossCount = isAllYears ? Number(data.loss_count || 0) : lossRecords.length;
+  const classifiedCount = winCount + lossCount;
+  const winRate = isAllYears ? Number(data.win_rate || 0) : (classifiedCount ? (winCount / classifiedCount * 100) : 0);
+  const recordCount = filteredRecords.length;
 
   // 1. 4대 요약 카드
   const totalEl = $("#pnlTotal");
@@ -9461,7 +9652,6 @@ function renderRealizedPnl(data) {
   }
 
   // 2. 양방향 막대그래프 (SVG Bar Chart)
-  const isAllYears = (selectedPnlYear === "all" || selectedPnlYear === "전체");
   const w = 900, h = 240, pad = 30;
   const zeroY = 120; // 0원 기준선 중앙
   const maxBarH = 80;
@@ -9631,9 +9821,18 @@ function renderPnlMonthlyDetail(month = null) {
 
   if (month && month >= 1 && month <= 12) {
     const monthStr = String(month).padStart(2, '0');
-    items = records.filter(r => String(r.date || '').replaceAll('-', '').slice(4, 6) === monthStr);
+    items = records.filter(r => {
+      const clean = String(r.date || '').replaceAll('-', '');
+      const rYear = clean.slice(0, 4);
+      const rMonth = clean.slice(4, 6);
+      if (selectedPnlYear && selectedPnlYear !== 'all') {
+        return rYear === String(selectedPnlYear) && rMonth === monthStr;
+      }
+      return rMonth === monthStr;
+    });
     const itemSummary = buildRealizedPnlDisplaySummary({}, items, false);
-    title = `📅 ${month}월 매도 실현손익 내역 (${items.length}건 · 합계 ${itemSummary.totalPnlKrw > 0 ? '+' : ''}${money(itemSummary.totalPnlKrw)}${itemSummary.completenessNote ? ` · ${itemSummary.completenessNote}` : ''})`;
+    const yrPrefix = (selectedPnlYear && selectedPnlYear !== 'all') ? `${selectedPnlYear}년 ` : '';
+    title = `📅 ${yrPrefix}${month}월 매도 실현손익 내역 (${items.length}건 · 합계 ${itemSummary.totalPnlKrw > 0 ? '+' : ''}${money(itemSummary.totalPnlKrw)}${itemSummary.completenessNote ? ` · ${itemSummary.completenessNote}` : ''})`;
   } else {
     items = [...records];
     const itemSummary = buildRealizedPnlDisplaySummary({}, items, false);
@@ -11413,8 +11612,9 @@ function initSavingsListeners() {
 // ===========================================================================
 // 📒 SMART FAMILY HOUSEHOLD LEDGER (스마트 가족 가계부 모듈)
 // ===========================================================================
-let currentLedgerYear = new Date().getFullYear();
-let currentLedgerMonth = new Date().getMonth() + 1;
+const _initLedgerKst = getKstYearMonth();
+let currentLedgerYear = _initLedgerKst.year;
+let currentLedgerMonth = _initLedgerKst.month;
 let rawLedgerData = null;
 let currentModule = "wealth"; // "wealth" | "ledger"
 
@@ -12703,25 +12903,21 @@ window.processLedgerImport = processLedgerTextImport;
 
 function initLedgerListeners() {
   document.getElementById("ledgerPrevMonthBtn")?.addEventListener("click", () => {
-    currentLedgerMonth--;
-    if (currentLedgerMonth < 1) {
-      currentLedgerMonth = 12;
-      currentLedgerYear--;
-    }
+    const shifted = shiftYearMonth(currentLedgerYear, currentLedgerMonth, -1);
+    currentLedgerYear = shifted.year;
+    currentLedgerMonth = shifted.month;
     loadLedger();
   });
   document.getElementById("ledgerNextMonthBtn")?.addEventListener("click", () => {
-    currentLedgerMonth++;
-    if (currentLedgerMonth > 12) {
-      currentLedgerMonth = 1;
-      currentLedgerYear++;
-    }
+    const shifted = shiftYearMonth(currentLedgerYear, currentLedgerMonth, 1);
+    currentLedgerYear = shifted.year;
+    currentLedgerMonth = shifted.month;
     loadLedger();
   });
   document.getElementById("ledgerTodayMonthBtn")?.addEventListener("click", () => {
-    const now = new Date();
-    currentLedgerYear = now.getFullYear();
-    currentLedgerMonth = now.getMonth() + 1;
+    const cur = getKstYearMonth();
+    currentLedgerYear = cur.year;
+    currentLedgerMonth = cur.month;
     loadLedger();
   });
 
@@ -15367,12 +15563,174 @@ function initAppVersion() {
   }
 }
 
+
+function initPnlMonthNavListeners() {
+  const prevBtn = document.getElementById("pnlPrevMonthBtn");
+  const nextBtn = document.getElementById("pnlNextMonthBtn");
+  const todayBtn = document.getElementById("pnlTodayMonthBtn");
+  const monthText = document.getElementById("pnlCurrentMonthText");
+  const monthPicker = document.getElementById("pnlMonthPicker");
+
+  if (prevBtn) {
+    prevBtn.addEventListener("click", async () => {
+      const curYear = (selectedPnlYear === 'all' || !selectedPnlYear) ? getKstYearMonth().year : selectedPnlYear;
+      const curMonth = selectedPnlMonth || getKstYearMonth().month;
+      const shifted = shiftYearMonth(curYear, curMonth, -1);
+      const yearChanged = String(shifted.year) !== String(selectedPnlYear);
+      selectedPnlYear = String(shifted.year);
+      selectedPnlMonth = shifted.month;
+      syncPnlMonthNavUI();
+      if (yearChanged || !pnlData) {
+        await loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
+      } else {
+        renderRealizedPnl(pnlData);
+      }
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener("click", async () => {
+      const curYear = (selectedPnlYear === 'all' || !selectedPnlYear) ? getKstYearMonth().year : selectedPnlYear;
+      const curMonth = selectedPnlMonth || getKstYearMonth().month;
+      const shifted = shiftYearMonth(curYear, curMonth, 1);
+      const yearChanged = String(shifted.year) !== String(selectedPnlYear);
+      selectedPnlYear = String(shifted.year);
+      selectedPnlMonth = shifted.month;
+      syncPnlMonthNavUI();
+      if (yearChanged || !pnlData) {
+        await loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
+      } else {
+        renderRealizedPnl(pnlData);
+      }
+    });
+  }
+
+  if (todayBtn) {
+    todayBtn.addEventListener("click", async () => {
+      const cur = getKstYearMonth();
+      const yearChanged = String(cur.year) !== String(selectedPnlYear);
+      selectedPnlYear = String(cur.year);
+      selectedPnlMonth = cur.month;
+      syncPnlMonthNavUI();
+      if (yearChanged || !pnlData) {
+        await loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
+      } else {
+        renderRealizedPnl(pnlData);
+      }
+    });
+  }
+
+  if (monthText && monthPicker) {
+    monthText.addEventListener("click", () => {
+      try {
+        if (typeof monthPicker.showPicker === "function") {
+          monthPicker.showPicker();
+        } else {
+          monthPicker.focus();
+          monthPicker.click();
+        }
+      } catch (err) {
+        monthPicker.click();
+      }
+    });
+
+    monthPicker.addEventListener("change", async (e) => {
+      const parsed = parseYearMonth(e.target.value);
+      if (parsed) {
+        const yearChanged = String(parsed.year) !== String(selectedPnlYear);
+        selectedPnlYear = String(parsed.year);
+        selectedPnlMonth = parsed.month;
+        syncPnlMonthNavUI();
+        if (yearChanged || !pnlData) {
+          await loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
+        } else {
+          renderRealizedPnl(pnlData);
+        }
+      }
+    });
+  }
+}
+
+function initDividendMonthNavListeners() {
+  const prevBtn = document.getElementById("dividendPrevMonthBtn");
+  const nextBtn = document.getElementById("dividendNextMonthBtn");
+  const todayBtn = document.getElementById("dividendTodayMonthBtn");
+  const monthText = document.getElementById("dividendCurrentMonthText");
+  const monthPicker = document.getElementById("dividendMonthPicker");
+
+  const onMonthSelected = async (year, month) => {
+    const yearChanged = String(year) !== String(selectedDividendYear);
+    selectedDividendYear = String(year);
+    selectedDividendMonth = month;
+    syncDividendMonthNavUI();
+    if (currentDividendMode === 'actual') {
+      if (yearChanged || !actualDividendData) {
+        await loadActualDividends(currentOwner, selectedDividendYear);
+      } else {
+        renderActualDividends(actualDividendData);
+      }
+    } else {
+      if (dividendData) renderDividends(dividendData);
+      else await loadDividends(currentOwner);
+    }
+  };
+
+  if (prevBtn) {
+    prevBtn.addEventListener("click", async () => {
+      const curYear = (selectedDividendYear === 'all' || !selectedDividendYear) ? getKstYearMonth().year : selectedDividendYear;
+      const curMonth = selectedDividendMonth || getKstYearMonth().month;
+      const shifted = shiftYearMonth(curYear, curMonth, -1);
+      await onMonthSelected(shifted.year, shifted.month);
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener("click", async () => {
+      const curYear = (selectedDividendYear === 'all' || !selectedDividendYear) ? getKstYearMonth().year : selectedDividendYear;
+      const curMonth = selectedDividendMonth || getKstYearMonth().month;
+      const shifted = shiftYearMonth(curYear, curMonth, 1);
+      await onMonthSelected(shifted.year, shifted.month);
+    });
+  }
+
+  if (todayBtn) {
+    todayBtn.addEventListener("click", async () => {
+      const cur = getKstYearMonth();
+      await onMonthSelected(cur.year, cur.month);
+    });
+  }
+
+  if (monthText && monthPicker) {
+    monthText.addEventListener("click", () => {
+      try {
+        if (typeof monthPicker.showPicker === "function") {
+          monthPicker.showPicker();
+        } else {
+          monthPicker.focus();
+          monthPicker.click();
+        }
+      } catch (err) {
+        monthPicker.click();
+      }
+    });
+
+    monthPicker.addEventListener("change", async (e) => {
+      const parsed = parseYearMonth(e.target.value);
+      if (parsed) {
+        await onMonthSelected(parsed.year, parsed.month);
+      }
+    });
+  }
+}
+
 async function bootstrap() {
   initAppTheme();
   initAppVersion();
   initCollapsedSections();
   initSavingsListeners();
   initLedgerListeners();
+  initPnlMonthNavListeners();
+  initDividendMonthNavListeners();
   setupAutoAdvancingDateInput("#pnlSplitDateWrap");
   setupAutoAdvancingDateInput("#divSplitDateWrap");
   setupAutoAdvancingDateInput("#ledgerTxSplitDateWrap");

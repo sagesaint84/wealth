@@ -627,6 +627,14 @@
             </div>
             <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
             <div class="family-tabs" id="pnlFamilyTabs" style="margin-left:4px;"></div>
+            <!-- 월 컨트롤러 -->
+            <div class="money-month-nav pnl-month-control" role="group" aria-label="실현손익 월 선택" style="margin-left:4px;">
+              <button id="pnlPrevMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-prev" type="button" title="이전 달" aria-label="이전 달">◀</button>
+              <button type="button" id="pnlCurrentMonthText" class="money-month-text" title="클릭하여 원하는 년/월 직접 선택" aria-label="조회 월 선택">2026년 9월</button>
+              <input type="month" id="pnlMonthPicker" class="money-month-picker" aria-label="실현손익 년/월 선택" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" />
+              <button id="pnlNextMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-next" type="button" title="다음 달" aria-label="다음 달">▶</button>
+              <button id="pnlTodayMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-today" type="button" title="이번 달로 이동" aria-label="이번 달로 이동">이번달</button>
+            </div>
           </div>
           <div class="heatmap-period-tabs" id="pnlTradeTypeTabs" style="margin-left:8px;">
             <button type="button" class="heatmap-tab active" data-trade-type="all">🏢 전체</button>
@@ -1131,6 +1139,14 @@
             </div>
             <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
             <div class="family-tabs" id="dividendFamilyTabs" style="margin-left:4px;"></div>
+            <!-- 월 컨트롤러 -->
+            <div class="money-month-nav dividend-month-control" role="group" aria-label="배당 월 선택" style="margin-left:4px;">
+              <button id="dividendPrevMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-prev" type="button" title="이전 달" aria-label="이전 달">◀</button>
+              <button type="button" id="dividendCurrentMonthText" class="money-month-text" title="클릭하여 원하는 년/월 직접 선택" aria-label="조회 월 선택">2026년 9월</button>
+              <input type="month" id="dividendMonthPicker" class="money-month-picker" aria-label="배당 년/월 선택" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" />
+              <button id="dividendNextMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-next" type="button" title="다음 달" aria-label="다음 달">▶</button>
+              <button id="dividendTodayMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-today" type="button" title="이번 달로 이동" aria-label="이번 달로 이동">이번달</button>
+            </div>
           </div>
           <div class="heatmap-period-tabs" id="dividendModeTabs" style="margin-left:8px;">
             <button type="button" class="heatmap-tab active" data-div-mode="estimated">🔮 예상</button>
@@ -1243,12 +1259,12 @@
             <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
             <div class="family-tabs" id="ledgerFamilyTabs" style="margin-left:4px;"></div>
             <!-- 월 컨트롤러 -->
-            <div class="ledger-month-control">
-              <button id="ledgerPrevMonthBtn" class="button secondary compact ledger-month-btn" type="button" title="이전 달">◀</button>
-              <strong id="ledgerCurrentMonthText" class="ledger-month-text" title="클릭하여 원하는 년/월 직접 선택">2026년 8월</strong>
-              <input type="month" id="ledgerMonthPicker" class="ledger-month-picker" aria-label="가계부 년/월 선택" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" />
-              <button id="ledgerNextMonthBtn" class="button secondary compact ledger-month-btn" type="button" title="다음 달">▶</button>
-              <button id="ledgerTodayMonthBtn" class="button secondary compact ledger-month-btn" type="button" title="이번 달로 이동">이번달</button>
+            <div class="ledger-month-control money-month-nav" role="group" aria-label="가계부 월 선택">
+              <button id="ledgerPrevMonthBtn" class="button secondary compact ledger-month-btn money-month-nav-btn money-month-nav-prev" type="button" title="이전 달" aria-label="이전 달">◀</button>
+              <button type="button" id="ledgerCurrentMonthText" class="ledger-month-text money-month-text" title="클릭하여 원하는 년/월 직접 선택" aria-label="조회 월 선택">2026년 8월</button>
+              <input type="month" id="ledgerMonthPicker" class="ledger-month-picker money-month-picker" aria-label="가계부 년/월 선택" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" />
+              <button id="ledgerNextMonthBtn" class="button secondary compact ledger-month-btn money-month-nav-btn money-month-nav-next" type="button" title="다음 달" aria-label="다음 달">▶</button>
+              <button id="ledgerTodayMonthBtn" class="button secondary compact ledger-month-btn money-month-nav-btn money-month-nav-today" type="button" title="이번 달로 이동" aria-label="이번 달로 이동">이번달</button>
             </div>
           </div>
 

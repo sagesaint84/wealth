@@ -246,13 +246,15 @@
       visibleIpos = datedPast;
 
       const monthCountText = `${ipoHistoryMonth}월 · ${datedPast.length}건`;
+      const pickerVal = `${ipoHistoryYear}-${String(ipoHistoryMonth).padStart(2, '0')}`;
       monthControlHtml = `
-        <div class="ipo-month-control" role="group" aria-label="공모주 과거 월 선택">
-          <button type="button" class="button secondary compact ipo-month-btn" id="ipoPrevMonthBtn" title="이전 달">◀</button>
-          <strong class="ipo-month-text" id="ipoCurrentMonthText">${ipoHistoryYear}년 ${ipoHistoryMonth}월</strong>
+        <div class="ipo-month-control money-month-nav" role="group" aria-label="공모주 과거 월 선택">
+          <button type="button" class="button secondary compact ipo-month-btn money-month-nav-btn money-month-nav-prev" id="ipoPrevMonthBtn" title="이전 달" aria-label="이전 달">◀</button>
+          <button type="button" class="ipo-month-text money-month-text" id="ipoCurrentMonthText" title="클릭하여 원하는 년/월 직접 선택" aria-label="조회 월 선택">${ipoHistoryYear}년 ${ipoHistoryMonth}월</button>
+          <input type="month" id="ipoMonthPicker" class="money-month-picker" aria-label="공모주 과거 년/월 선택" value="${pickerVal}" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" />
           <span class="ipo-month-count" id="ipoMonthCount">(${monthCountText})</span>
-          <button type="button" class="button secondary compact ipo-month-btn" id="ipoNextMonthBtn" title="다음 달"${isCurrentOrFutureKst ? ' disabled' : ''}>▶</button>
-          <button type="button" class="button secondary compact ipo-month-btn" id="ipoTodayMonthBtn" title="이번 달로 이동">이번달</button>
+          <button type="button" class="button secondary compact ipo-month-btn money-month-nav-btn money-month-nav-next" id="ipoNextMonthBtn" title="다음 달"${isCurrentOrFutureKst ? ' disabled' : ''} aria-label="다음 달">▶</button>
+          <button type="button" class="button secondary compact ipo-month-btn money-month-nav-btn money-month-nav-today" id="ipoTodayMonthBtn" title="이번 달로 이동" aria-label="이번 달로 이동">이번달</button>
         </div>`;
     } else if (ipoFilterGroup === 'UPCOMING' || ipoFilterGroup === 'ACTIVE') {
       visibleIpos = marketIpos.filter(ipo => ipo.filter_group === ipoFilterGroup).sort(sortAsc);
@@ -479,6 +481,37 @@
       const prevBtn = wrapper.querySelector('#ipoPrevMonthBtn');
       const nextBtn = wrapper.querySelector('#ipoNextMonthBtn');
       const todayBtn = wrapper.querySelector('#ipoTodayMonthBtn');
+      const monthText = wrapper.querySelector('#ipoCurrentMonthText');
+      const monthPicker = wrapper.querySelector('#ipoMonthPicker');
+
+      if (monthText && monthPicker) {
+        monthText.addEventListener('click', () => {
+          if (typeof monthPicker.showPicker === 'function') {
+            try {
+              monthPicker.showPicker();
+            } catch (err) {
+              monthPicker.focus();
+              monthPicker.click();
+            }
+          } else {
+            monthPicker.focus();
+            monthPicker.click();
+          }
+        });
+        monthPicker.addEventListener('change', (e) => {
+          const val = e.target.value;
+          if (val && /^\d{4}-\d{2}$/.test(val)) {
+            const [yStr, mStr] = val.split('-');
+            const y = parseInt(yStr, 10);
+            const m = parseInt(mStr, 10);
+            if (y >= 2000 && y <= 2100 && m >= 1 && m <= 12) {
+              ipoHistoryYear = y;
+              ipoHistoryMonth = m;
+              renderIpoList();
+            }
+          }
+        });
+      }
 
       if (prevBtn) {
         prevBtn.addEventListener('click', () => {
