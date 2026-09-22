@@ -52,6 +52,15 @@ class IpoAccountResolutionTests(unittest.TestCase):
         self.assertEqual(resolve_ipo_account_candidates("현대증권", self.accounts).broker_id, "kb")
         self.assertEqual(resolve_ipo_account_candidates("현대차증권", self.accounts).broker_id, "hyundai")
 
+    def test_korean_spelling_kb_resolves_kb_account_candidate(self):
+        resolution = resolve_ipo_account_candidates("케이비증권", self.accounts)
+        self.assertEqual(resolution.broker_id, "kb")
+        self.assertEqual(resolution.resolution_status, "AUTO_SELECTED")
+        self.assertEqual(resolution.auto_selected_account_id, "kb-main")
+        self.assertEqual(len(resolution.candidates), 1)
+        self.assertEqual(resolution.candidates[0]["account_id"], "kb-main")
+        self.assertEqual(resolution.candidates[0]["broker_id"], "kb")
+
 
 if __name__ == "__main__":
     unittest.main()

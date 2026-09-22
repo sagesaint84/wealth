@@ -345,6 +345,33 @@ class IpoApplicationsTests(unittest.TestCase):
             self.assertEqual(wrong_broker.status_code, 400)
             self.assertEqual(wrong_broker.json()["detail"]["code"], "IPO_BROKER_NOT_AVAILABLE")
 
+    def test_ipo_lead_manager_korean_spelling_kb_broker_options_and_account_candidates(self):
+        client = TestClient(main.app)
+        token = main._serializer.dumps({"user": self.username, "role": "user"})
+        headers = {"Cookie": f"{main.COOKIE_NAME}={token}"}
+        fake_user = {"username": self.username, "role": "user"}
+        market = {"ipos": [{"ipo_id": "ipo_api_kb_test", "lead_managers": ["케이비증권"]}]}
+        with patch("app.services.user_manager.get_user_by_name", return_value=fake_user), \
+             patch("app.services.ipo.store.read_market_store", return_value=market):
+            brokers = client.get(
+                "/api/ipo/applications/ipo_api_kb_test/broker-options",
+                headers=headers,
+            )
+            self.assertEqual(brokers.status_code, 200)
+            self.assertEqual(brokers.json()["brokers"], [{"broker_id": "kb", "display_name": "KB증권"}])
+
+            from urllib.parse import quote
+            owner_param = quote("아빠")
+            broker_param = quote("케이비증권")
+            candidates = client.get(
+                f"/api/ipo/applications/ipo_api_kb_test/account-candidates?owner={owner_param}&broker={broker_param}",
+                headers=headers,
+            )
+            self.assertEqual(candidates.status_code, 200)
+            self.assertEqual(candidates.json()["broker_id"], "kb")
+            candidate_ids = [item["account_id"] for item in candidates.json()["candidates"]]
+            self.assertEqual(candidate_ids, ["kb-account"])
+
 
 if __name__ == "__main__":
     unittest.main()

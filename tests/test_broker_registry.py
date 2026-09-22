@@ -32,6 +32,9 @@ class BrokerRegistryTests(unittest.TestCase):
             "NAMUH": "nh", "영웅문": "kiwoom", "현대증권": "kb",
             "미래에셋대우": "mirae", "HMC투자증권": "hyundai",
             "이베스트투자증권": "ls", "하이투자증권": "im",
+            "케이비증권": "kb", "KB증권(주)": "kb",
+            "엔에이치투자증권": "nh", "아이비케이투자증권": "ibk",
+            "엘에스증권": "ls", "(주)비엔케이투자증권": "bnk",
         }
         for raw, expected in cases.items():
             with self.subTest(raw=raw):
