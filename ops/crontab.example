@@ -1,5 +1,6 @@
 # Example production schedule (server local timezone: Asia/Seoul)
-# Check/extend Toss session first, then run the Wealth daily close.
+# Toss WTS session checking remains host-managed for now.
+# Wealth scheduled jobs are dispatched inside the container every minute.
 
 55 20 * * * /usr/local/sbin/toss-session-check.sh
-0 21 * * * /usr/local/sbin/wealth-daily-close.sh
+* * * * * /usr/bin/docker exec wealth python -m app.services.automation.dispatcher >> /var/log/wealth-automation-dispatcher.log 2>&1

@@ -255,11 +255,17 @@ data/
 
 ## 9. 자동화 및 서버 운영 (`ops/`)
 
-저장소의 `ops/` 디렉터리에는 정기 마감 및 세션 관리를 위한 스크립트 템플릿이 포함되어 있습니다.
-- `ops/crontab.example`: 일일 자동화 cron 스케줄 예시
-- `ops/wealth-daily-close.sh`: 장 마감 후 시세 갱신, 증권사 동기화, 일일 순자산 스냅샷을 기록하는 일일 마감 자동화 스크립트
-- `ops/toss-session-check.sh`: Toss WTS 어댑터 세션 상태 점검 및 갱신 스크립트
-- `ops/wealth-automation.env.example`: 자동화 전용 환경변수 템플릿
+Wealth의 예약 작업은 `app.services.automation.dispatcher`가 컨테이너 내부에서 실행하며, 증권사 동기화·시세 갱신·스냅샷 저장·알림 같은 작업을 설정된 스케줄에 따라 디스패치합니다. 운영 cron은 dispatcher를 매분 호출합니다.
+
+```cron
+* * * * * /usr/bin/docker exec wealth python -m app.services.automation.dispatcher >> /var/log/wealth-automation-dispatcher.log 2>&1
+```
+
+Toss WTS 세션 점검은 아직 dispatcher에 통합되지 않았으며 호스트에서 별도로 관리합니다.
+
+- `ops/crontab.example`: dispatcher 및 Toss 세션 점검 cron 예시
+- `ops/toss-session-check.sh`: 호스트에서 Toss WTS 어댑터 세션 상태를 점검하고 갱신하는 스크립트
+- `ops/wealth-automation.env.example`: 호스트 측 Toss 세션 점검에 사용하는 환경변수 템플릿
 
 ---
 
