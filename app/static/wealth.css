@@ -5,6 +5,9 @@
  .mini-edit-button { border: 0; background: transparent; color: #9f8cff; cursor: pointer; padding: 0 3px; font-size: 12px; }
 input[type="date"] { color-scheme: dark; }
 input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(68%) sepia(58%) saturate(950%) hue-rotate(214deg); opacity: 1; cursor: pointer; }
+.record-row-values .record-day-profit { margin-top: 5px; }
+.record-row-values .record-day-profit span { display: inline; font-size: inherit; }
+.record-change-neutral { color: var(--muted); }
 .account-row { position: relative; }
 .account-row-values { min-width: 145px; text-align: right; }
 .account-group { border-bottom: 1px solid #273354; padding: 8px 0; }

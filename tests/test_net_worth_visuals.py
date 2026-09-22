@@ -41,8 +41,8 @@ class NetWorthVisualTests(unittest.TestCase):
 
     def test_zero_record_history_uses_the_common_bottom_action_row(self):
         self.assertIn('id="wealthHistoryDetails" class="wealth-history-details"', self.planning_js)
-        self.assertIn('function renderHistoryDetails(details, records)', self.planning_js)
-        self.assertIn('if(!records.length) { summaryBox.replaceChildren(); plot.replaceChildren(); renderHistoryDetails(details, records); return; }', self.planning_js)
+        self.assertIn('function renderHistoryDetails(details, records, allRecords)', self.planning_js)
+        self.assertIn('if(!records.length) { summaryBox.replaceChildren(); plot.replaceChildren(); renderHistoryDetails(details, records, allRecords); return; }', self.planning_js)
         self.assertNotIn('class="wealth-history-actions"', self.planning_js)
         self.assertNotIn('id="wealthAddHistory"', self.planning_js)
 

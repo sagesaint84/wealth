@@ -388,6 +388,9 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 .wealth-history-record-head { display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
 .wealth-history-record-head time { color:var(--muted); font-size:11.5px; font-weight:600; }
 .wealth-history-record-head strong { text-align:right; font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; }
+.wealth-history-record-change { display:flex; justify-content:space-between; gap:10px; align-items:baseline; font-size:11.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.wealth-history-record-change strong { font-size:12.5px; }
+.wealth-history-record-change .is-neutral { color:var(--muted); }
 .wealth-history-record p { margin:6px 0 0; }
 .wealth-history-record-amounts { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px 14px; margin:7px 0 6px; font-size:12.5px; font-variant-numeric:tabular-nums; line-height:1.4; }
 .wealth-history-record-amounts .record-asset { color:#6ea6ec; font-weight:600; white-space:nowrap; }

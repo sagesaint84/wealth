@@ -814,6 +814,17 @@ function filterRecordsByPeriod(records, period) {
   return sorted;
 }
 
+function buildPreviousRecordMap(records) {
+  const previousByRecord = new Map();
+  const latestByOwner = new Map();
+  records.forEach(record => {
+    const owner = record.owner || '모두';
+    previousByRecord.set(record, latestByOwner.get(owner) || null);
+    latestByOwner.set(owner, record);
+  });
+  return previousByRecord;
+}
+
 // ── 1. 주요 지수 렌더링 ──────────────────────────────────────────────────────
 // ── 1. 주요 지수 렌더링 ──────────────────────────────────────────────────────
 let currentMarketPeriod = '1D';
@@ -4819,6 +4830,7 @@ function renderAssetRecords(records) {
   if (sideSummarySmall) sideSummarySmall.textContent = "저장된 날짜별 자산 추이";
 
   const rawList = [...records].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+  const previousByRecord = buildPreviousRecordMap(rawList);
   const filtered = filterRecordsByPeriod(rawList, currentRecordPeriod);
   const wrap = $("#assetChart");
 
@@ -4970,8 +4982,8 @@ function renderAssetRecords(records) {
       wrap.innerHTML = `
         <div style="display:flex;justify-content:flex-end;gap:14px;margin-bottom:8px;font-size:11px;">
           <span style="display:flex;align-items:center;gap:4px;"><i style="display:inline-block;width:12px;height:3px;background:#8e70fa;border-radius:2px;"></i> 총 자산 (선)</span>
-          <span style="display:flex;align-items:center;gap:4px;"><i style="display:inline-block;width:8px;height:8px;background:#ff5c77;border-radius:2px;"></i> 일간 수익 (+)</span>
-          <span style="display:flex;align-items:center;gap:4px;"><i style="display:inline-block;width:8px;height:8px;background:#4f9dff;border-radius:2px;"></i> 일간 손실 (-)</span>
+          <span style="display:flex;align-items:center;gap:4px;"><i style="display:inline-block;width:8px;height:8px;background:#ff5c77;border-radius:2px;"></i> 가격변동 손익 (+)</span>
+          <span style="display:flex;align-items:center;gap:4px;"><i style="display:inline-block;width:8px;height:8px;background:#4f9dff;border-radius:2px;"></i> 가격변동 손실 (-)</span>
         </div>
         <svg class="record-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="자산 기록 콤보 차트">
           <defs>
@@ -4985,7 +4997,7 @@ function renderAssetRecords(records) {
           <polyline points="${linePath}" fill="none" stroke="#8e70fa" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" />
           ${pointCircles}
           <line x1="${pad}" y1="${zeroY}" x2="${w - pad}" y2="${zeroY}" stroke="#334673" stroke-width="1.2" />
-          <text x="${pad}" y="${hLineArea + 18}" fill="#7182a6" font-size="10" font-weight="700">일간 손익 (PROFIT / LOSS)</text>
+          <text x="${pad}" y="${hLineArea + 18}" fill="#7182a6" font-size="10" font-weight="700">가격변동 손익 (PROFIT / LOSS)</text>
           <text x="${w - pad}" y="${zeroY - 4}" fill="#7182a6" font-size="9" text-anchor="end">0원</text>
           ${bars}
         </svg>
@@ -5009,14 +5021,22 @@ function renderAssetRecords(records) {
   const descRecords = [...filtered].reverse();
   const listEl = $("#assetRecordList");
   if (listEl) {
-    listEl.innerHTML = descRecords.map((item) => `
+    listEl.innerHTML = descRecords.map((item) => {
+      const previous = previousByRecord.get(item);
+      const recordChange = previous ? Number(item.total_value_krw || 0) - Number(previous.total_value_krw || 0) : null;
+      const recordChangeClass = recordChange == null || recordChange === 0 ? 'record-change-neutral' : signClass(recordChange);
+      const recordChangeText = recordChange == null ? '이전 기록 없음' : `${recordChange > 0 ? '+' : ''}${money(recordChange)}`;
+      const dayProfit = Number(item.day_profit_krw || 0);
+      return `
       <div class="record-row">
         <div class="record-row-main">
           <strong>${html(item.date)}</strong>
           <span>${money(item.total_value_krw)} · ${number(item.holding_count, 0)}종목</span>
         </div>
         <div class="record-row-values">
-          <b class="${signClass(item.day_profit_krw || 0)}">${Number(item.day_profit_krw || 0) >= 0 ? "+" : ""}${money(item.day_profit_krw || 0)}</b>
+          <b class="${recordChangeClass}">${recordChangeText}</b>
+          <small>전 기록 대비</small>
+          <small class="record-day-profit">가격변동 손익 <span class="${dayProfit === 0 ? 'record-change-neutral' : signClass(dayProfit)}">${dayProfit > 0 ? '+' : ''}${money(dayProfit)}</span></small>
           <small>${html(item.memo || item.source || "")}</small>
         </div>
         <div class="record-row-actions">
@@ -5024,7 +5044,8 @@ function renderAssetRecords(records) {
           <button class="button text danger tiny" data-record-delete="${item.id}" type="button">삭제</button>
         </div>
       </div>
-    `).join("");
+    `;
+    }).join("");
   }
 }
 
