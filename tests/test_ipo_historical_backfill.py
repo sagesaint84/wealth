@@ -246,7 +246,8 @@ class TestHistoricalBackfill(unittest.TestCase):
         item = preview.items[0]
         self.assertEqual(item.classification, Classification.NEW.value)
         self.assertEqual(item.stock_code, "348370")
-        self.assertEqual(item.actual_listing_date, "2021-11-01")
+        # KRX listed master proves current listing but has no authoritative IPO listing date.
+        self.assertIsNone(item.actual_listing_date)
 
     # 9. delisted SPAC evidence accepted
     def test_09_delisted_spac_evidence_accepted(self) -> None:
@@ -419,7 +420,7 @@ class TestHistoricalBackfill(unittest.TestCase):
         )
         self.assertEqual(preview.items[0].classification, Classification.ENRICHABLE.value)
         self.assertIn("market", preview.items[0].enrich_diff)
-        self.assertIn("actual_listing_date", preview.items[0].enrich_diff)
+        self.assertNotIn("actual_listing_date", preview.items[0].enrich_diff)
 
     # 16. existing nonblank mismatch => CONFLICT
     def test_16_existing_nonblank_mismatch_conflict(self) -> None:
@@ -482,7 +483,7 @@ class TestHistoricalBackfill(unittest.TestCase):
             listed_master=self.mock_listed_master,
             delisted_master=[],
         )
-        self.assertEqual(preview.items[0].classification, Classification.ENRICHABLE.value)
+        self.assertEqual(preview.items[0].classification, Classification.ALREADY_PRESENT.value)
 
         engine.commit_backfill(preview)
 
@@ -492,7 +493,7 @@ class TestHistoricalBackfill(unittest.TestCase):
         # Lead managers was non-empty and must NOT have been overwritten
         self.assertEqual(rec["lead_managers"], ["기존주관사"])
         # Blank actual_listing_date was enriched
-        self.assertEqual(rec["actual_listing_date"], "2021-11-01")
+        self.assertIsNone(rec["actual_listing_date"])
 
     # 18. source provenance merge
     def test_18_source_provenance_merge(self) -> None:
@@ -529,7 +530,8 @@ class TestHistoricalBackfill(unittest.TestCase):
         updated_store = read_market_store()
         rec = updated_store["ipos"][0]
         self.assertIn("kis", rec["sources"])
-        self.assertIn("historical_kind", rec["sources"])
+        # No blank field remained to enrich; existing source provenance is preserved.
+        self.assertIn("kis", rec["sources"])
 
     # 19. duplicate run idempotency
     def test_19_duplicate_run_idempotency(self) -> None:
@@ -851,6 +853,50 @@ class TestHistoricalBackfill(unittest.TestCase):
             m_state = derive_market_state(item, today=date(2026, 9, 22))
             f_group = derive_filter_group(m_state, "NOT_APPLIED")
             self.assertEqual(f_group, "PAST", f"Item {item.get('company_name')} ({item.get('stock_code')}) is not PAST: {m_state}")
+
+    def test_krx_listed_master_is_the_only_runtime_listed_evidence_fetch(self) -> None:
+        kind = MagicMock()
+        krx = MagicMock()
+        krx.fetch_listed_master.return_value = []
+        krx.fetch_delisted_master.return_value = []
+        listed, delisted = HistoricalBackfillEngine(kind_client=kind, krx_client=krx).load_master_evidence()
+        self.assertEqual((listed, delisted), ([], []))
+        krx.fetch_listed_master.assert_called_once()
+        krx.fetch_delisted_master.assert_called_once()
+        kind.fetch_listed_company_master.assert_not_called()
+
+    def test_krx_listed_evidence_normalizes_market_without_actual_listing_date(self) -> None:
+        indexes = HistoricalBackfillEngine.build_evidence_indexes([
+            {"company_name": "엔켐", "stock_code": "348370", "market_name": "코스닥", "market_eng_name": "KOSDAQ"}
+        ], [])
+        found, info, evidence, ambiguous = HistoricalBackfillEngine.match_listing_evidence(
+            {"company_name": "엔켐", "stock_code": "348370"}, indexes
+        )
+        self.assertTrue(found)
+        self.assertFalse(ambiguous)
+        self.assertEqual(evidence, "KRX_LISTED_MASTER:348370")
+        self.assertEqual(info["market"], "KOSDAQ")
+        self.assertIsNone(info["actual_listing_date"])
+
+    def test_krx_listed_unique_name_fallback_and_ambiguous_fail_closed(self) -> None:
+        unique = HistoricalBackfillEngine.build_evidence_indexes([
+            {"company_name": "엔 켐", "stock_code": "348370", "market_name": "코스닥"}
+        ], [])
+        found, info, evidence, ambiguous = HistoricalBackfillEngine.match_listing_evidence(
+            {"company_name": "엔켐", "stock_code": ""}, unique
+        )
+        self.assertTrue(found); self.assertFalse(ambiguous)
+        self.assertEqual(info["stock_code"], "348370")
+        self.assertEqual(evidence, "KRX_LISTED_MASTER:348370")
+        ambiguous_indexes = HistoricalBackfillEngine.build_evidence_indexes([
+            {"company_name": "중복회사", "stock_code": "111111", "market_name": "코스닥"},
+            {"company_name": "중복회사", "stock_code": "222222", "market_name": "코스닥"},
+        ], [])
+        found, info, evidence, ambiguous = HistoricalBackfillEngine.match_listing_evidence(
+            {"company_name": "중복회사", "stock_code": ""}, ambiguous_indexes
+        )
+        self.assertFalse(found); self.assertIsNone(info); self.assertTrue(ambiguous)
+        self.assertEqual(evidence, "AMBIGUOUS_LISTED_MASTER_NAME")
 
     @patch("app.services.ipo.historical_backfill.extract_document_text_from_zip")
     def test_historical_dart_enrichment_uses_only_pre_subscription_filing(self, extract_text) -> None:

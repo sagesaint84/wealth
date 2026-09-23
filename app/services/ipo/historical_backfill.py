@@ -194,9 +194,9 @@ class HistoricalBackfillEngine:
         """Load listed and delisted company masters from public sources or injected fixtures."""
         if listed_master is None:
             try:
-                listed_master = self.kind_client.fetch_listed_company_master()
-            except KindClientError as exc:
-                raise HistoricalBackfillError(f"Failed to fetch KIND listed company master: {exc}") from exc
+                listed_master = self.krx_client.fetch_listed_master()
+            except KrxClientError as exc:
+                raise HistoricalBackfillError(f"Failed to fetch KRX listed master: {exc}") from exc
 
         if delisted_master is None:
             try:
@@ -205,6 +205,29 @@ class HistoricalBackfillEngine:
                 raise HistoricalBackfillError(f"Failed to fetch KRX delisted master: {exc}") from exc
 
         return listed_master, delisted_master
+
+    @staticmethod
+    def _normalize_market(value: object) -> str | None:
+        raw = str(value or "").strip().upper()
+        if not raw:
+            return None
+        if "코스닥" in raw or "KOSDAQ" in raw or "KSQ" in raw:
+            return "KOSDAQ"
+        if "유가증권" in raw or "코스피" in raw or "KOSPI" in raw or "STK" in raw:
+            return "KOSPI"
+        if "코넥스" in raw or "KONEX" in raw or "KNX" in raw:
+            return "KONEX"
+        return None
+
+    @classmethod
+    def _listed_info(cls, item: dict[str, Any], code: str | None = None) -> dict[str, Any]:
+        return {
+            "stock_code": code or item.get("stock_code"),
+            "company_name": item.get("company_name"),
+            "market": cls._normalize_market(item.get("market_code") or item.get("market_eng_name") or item.get("market_name") or item.get("market")),
+            # finder_stkisu has no trustworthy IPO listing date.
+            "actual_listing_date": None,
+        }
 
     @staticmethod
     def build_evidence_indexes(
@@ -260,32 +283,20 @@ class HistoricalBackfillEngine:
         delisted_by_code = indexes["delisted_by_code"]
         delisted_by_norm = indexes["delisted_by_norm_name"]
 
-        # 1. Exact stock code in KIND listed master
+        # 1. Exact stock code in KRX listed master
         if code and code in listed_by_code:
             item = listed_by_code[code]
             return (
                 True,
-                {
-                    "stock_code": code,
-                    "company_name": item.get("company_name"),
-                    "market": item.get("market"),
-                    "actual_listing_date": item.get("actual_listing_date"),
-                },
-                f"KIND_LISTED_MASTER:{code}",
+                HistoricalBackfillEngine._listed_info(item, code),
+                f"KRX_LISTED_MASTER:{code}",
                 False,
             )
 
         # 2. Exact stock code in KRX delisted master
         if code and code in delisted_by_code:
             item = delisted_by_code[code]
-            mkt = item.get("market_eng_name") or item.get("market_name")
-            if mkt:
-                if "코스닥" in mkt or "KSQ" in mkt:
-                    mkt = "KOSDAQ"
-                elif "유가증권" in mkt or "코스피" in mkt or "STK" in mkt:
-                    mkt = "KOSPI"
-                elif "코넥스" in mkt or "KNX" in mkt:
-                    mkt = "KONEX"
+            mkt = HistoricalBackfillEngine._normalize_market(item.get("market_eng_name") or item.get("market_name"))
             return (
                 True,
                 {
@@ -298,7 +309,7 @@ class HistoricalBackfillEngine:
                 False,
             )
 
-        # 3. Exact normalized company name in KIND listed master
+        # 3. Exact normalized company name in KRX listed master
         if norm in listed_by_norm:
             matched_rows = listed_by_norm[norm]
             if len(matched_rows) == 1:
@@ -306,13 +317,8 @@ class HistoricalBackfillEngine:
                 m_code = item.get("stock_code")
                 return (
                     True,
-                    {
-                        "stock_code": m_code,
-                        "company_name": item.get("company_name"),
-                        "market": item.get("market"),
-                        "actual_listing_date": item.get("actual_listing_date"),
-                    },
-                    f"KIND_LISTED_MASTER:{m_code}",
+                    HistoricalBackfillEngine._listed_info(item, m_code),
+                    f"KRX_LISTED_MASTER:{m_code}",
                     False,
                 )
             # Multiple matches with same normalized name -> ambiguous!
@@ -324,14 +330,7 @@ class HistoricalBackfillEngine:
             if len(matched_rows) == 1:
                 item = matched_rows[0]
                 m_code = item.get("stock_code")
-                mkt = item.get("market_eng_name") or item.get("market_name")
-                if mkt:
-                    if "코스닥" in mkt or "KSQ" in mkt:
-                        mkt = "KOSDAQ"
-                    elif "유가증권" in mkt or "코스피" in mkt or "STK" in mkt:
-                        mkt = "KOSPI"
-                    elif "코넥스" in mkt or "KNX" in mkt:
-                        mkt = "KONEX"
+                mkt = HistoricalBackfillEngine._normalize_market(item.get("market_eng_name") or item.get("market_name"))
                 return (
                     True,
                     {
