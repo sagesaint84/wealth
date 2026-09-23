@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.services.ipo.identity import find_matching_ipo, generate_ipo_id, normalize_company_name
+from app.services.ipo.identity import find_matching_ipo, generate_ipo_id, is_spac_ipo, normalize_company_name
 from app.services.ipo.kind_client import KindClient, KindClientError
 from app.services.ipo.krx_client import KrxClient, KrxClientError
 from app.services.ipo.dart_client import (
@@ -864,7 +864,7 @@ class HistoricalBackfillEngine:
         for ipo in ipos:
             if max_records is not None and processed >= max_records:
                 break
-            if ipo.get("listing_track") == "spac":
+            if is_spac_ipo(ipo):
                 skipped += 1
                 continue
             sub_start = _parse_iso_date(ipo.get("subscription_start"))

@@ -12,6 +12,7 @@ from app.services.ipo.features import (
     compute_derived_features,
 )
 from app.services.ipo.normalize import select_cohort, normalize_feature_value
+from app.services.ipo.identity import is_spac_ipo
 
 
 def normalize_observation_date(value: object) -> date | None:
@@ -73,8 +74,9 @@ def calculate_wealth_ipo_score(
     ipo_copy = dict(current_ipo)
 
     # SPACs require a separate evaluation framework.
-    # Never apply the general-company Wealth IPO Score to listing_track="spac".
-    if ipo_copy.get("listing_track") == "spac":
+    # Legacy snapshots can lack listing_track, so retain the domain's safe
+    # company-name fallback as well.
+    if is_spac_ipo(ipo_copy):
         return {
             "score": None,
             "grade": None,

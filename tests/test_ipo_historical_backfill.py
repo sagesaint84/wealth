@@ -937,6 +937,22 @@ class TestHistoricalBackfill(unittest.TestCase):
         self.assertEqual(result["enriched"], 0)
         dart.get_filing_list.assert_not_called()
 
+    def test_historical_dart_enrichment_skips_legacy_name_spac(self) -> None:
+        store = default_market_store()
+        store["ipos"] = [{
+            "ipo_id": "ipo_legacy_spac", "company_name": "엔에이치스팩34호", "corp_code": "00999999",
+            "listing_track": "general", "subscription_start": "2021-10-21", "features": {}, "sources": {},
+        }]
+        write_market_store(store)
+        dart = MagicMock()
+        dart.is_configured.return_value = True
+
+        result = HistoricalBackfillEngine().enrich_dart(dart_client=dart, from_year=2021, to_year=2021)
+
+        self.assertEqual(result["enriched"], 0)
+        self.assertEqual(result["skipped"], 1)
+        dart.get_filing_list.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

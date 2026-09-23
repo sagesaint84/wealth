@@ -6,12 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services import portfolio
 from app.services.ipo.orchestrator import (
+    _clear_spac_offer_bands,
     _kind_search_names_for_kis,
     _resolve_missing_dart_corp_codes,
     refresh_ipo_market_enriched,
     run_ipo_daily_pipeline,
 )
 from app.services.ipo.dart_client import DartClient, DartClientError
+from app.services.ipo.identity import is_spac_ipo
 from app.services.ipo.store import get_ipo_calendar_events, read_market_store, write_market_store
 
 
@@ -110,6 +112,104 @@ class IpoOrchestratorTests(unittest.TestCase):
             username="owner", target_date_str="2026-09-18",
             market_only=False, user_side_effects=False,
         )
+
+    def test_spac_identity_supports_canonical_and_legacy_records(self):
+        self.assertTrue(is_spac_ipo({"listing_track": "spac", "company_name": "무관회사"}))
+        self.assertTrue(is_spac_ipo({"company_name": "케이비제34호기업인수목적"}))
+        self.assertTrue(is_spac_ipo({"listing_track": "general", "company_name": "엔에이치스팩34호"}))
+        self.assertFalse(is_spac_ipo({"listing_track": "general", "company_name": "일반기업"}))
+
+    def test_enriched_refresh_cleans_stale_spac_bands_without_dart(self):
+        market = read_market_store()
+        market["ipos"].append({
+            "ipo_id": "stale_spac", "company_name": "케이비제34호기업인수목적",
+            "listing_track": "spac", "offer_band_low": 100000,
+            "offer_band_high": 342000,
+            "sources": {
+                "offer_band_low": {"source": "dart_document"},
+                "offer_band_high": {"source": "dart_document"},
+            },
+        })
+        write_market_store(market)
+        dart = MagicMock(); dart.is_configured.return_value = False
+
+        result = run_ipo_daily_pipeline(
+            dart_client=dart, target_date_str="2026-09-18", dry_run=True,
+            user_side_effects=False,
+        )
+
+        self.assertEqual(result["sources"]["dart"], "source_unavailable (api_key_missing)")
+        saved = next(item for item in read_market_store()["ipos"] if item["ipo_id"] == "stale_spac")
+        self.assertNotIn("offer_band_low", saved)
+        self.assertNotIn("offer_band_high", saved)
+        self.assertNotIn("offer_band_low", saved["sources"])
+        self.assertNotIn("offer_band_high", saved["sources"])
+        self.assertEqual(_clear_spac_offer_bands([saved]), 0)
+
+    def test_enriched_refresh_cleans_stale_spac_bands_when_dart_has_no_filing(self):
+        market = read_market_store()
+        market["ipos"].append({
+            "ipo_id": "stale_spac_no_filing", "company_name": "엔에이치스팩34호",
+            "listing_track": "spac", "corp_code": "00999999", "subscription_start": "2026-09-25",
+            "offer_band_low": 100000, "offer_band_high": 342000,
+            "sources": {
+                "offer_band_low": {"source": "dart_document"},
+                "offer_band_high": {"source": "dart_document"},
+            },
+        })
+        write_market_store(market)
+        dart = MagicMock()
+        dart.is_configured.return_value = True
+        dart.get_filing_list.return_value = {"list": []}
+
+        run_ipo_daily_pipeline(
+            dart_client=dart, target_date_str="2026-09-18", dry_run=True,
+            user_side_effects=False,
+        )
+
+        saved = next(item for item in read_market_store()["ipos"] if item["ipo_id"] == "stale_spac_no_filing")
+        self.assertNotIn("offer_band_low", saved)
+        self.assertNotIn("offer_band_high", saved)
+        self.assertNotIn("offer_band_low", saved["sources"])
+        self.assertNotIn("offer_band_high", saved["sources"])
+        dart.get_filing_list.assert_called_once()
+
+    def test_dart_offer_band_is_saved_for_general_ipo_but_not_spac(self):
+        market = read_market_store()
+        market["ipos"].extend([
+            {
+                "ipo_id": "general_band", "company_name": "일반공모기업", "corp_code": "00111111",
+                "listing_track": "general", "subscription_start": "2026-09-25", "features": {}, "sources": {},
+            },
+            {
+                "ipo_id": "spac_band", "company_name": "한국제17호기업인수목적", "corp_code": "00222222",
+                "listing_track": "spac", "subscription_start": "2026-09-25", "features": {}, "sources": {},
+            },
+        ])
+        write_market_store(market)
+        dart = MagicMock()
+        dart.is_configured.return_value = True
+        dart.get_filing_list.return_value = {"list": [{
+            "rcept_no": "20260920000001", "rcept_dt": "2026-09-20", "report_nm": "증권신고서",
+        }]}
+        dart.get_equity_registration_statements.return_value = {"status": "000", "list": []}
+
+        with patch("app.services.ipo.orchestrator.normalize_equity_registration_response", return_value={"general": {"official": True}}), \
+             patch("app.services.ipo.orchestrator.DartSemanticParser.extract_offer_band_from_structured", return_value=(15000.0, 18000.0)) as extract_band:
+            run_ipo_daily_pipeline(
+                dart_client=dart, target_date_str="2026-09-18", dry_run=True,
+                user_side_effects=False,
+            )
+
+        saved = {item["ipo_id"]: item for item in read_market_store()["ipos"]}
+        self.assertEqual(saved["general_band"]["offer_band_low"], 15000.0)
+        self.assertEqual(saved["general_band"]["offer_band_high"], 18000.0)
+        self.assertIn("offer_band_high", saved["general_band"]["sources"])
+        self.assertNotIn("offer_band_low", saved["spac_band"])
+        self.assertNotIn("offer_band_high", saved["spac_band"])
+        self.assertNotIn("offer_band_low", saved["spac_band"]["sources"])
+        self.assertNotIn("offer_band_high", saved["spac_band"]["sources"])
+        self.assertEqual(extract_band.call_count, 1)
 
     def test_dart_corp_code_resolution_prefers_stock_code_then_unique_name(self):
         ipos = [

@@ -44,7 +44,7 @@ from app.services.ipo.dart_client import (
 )
 from app.services.ipo.dart_parser import DartSemanticParser
 from app.services.ipo.kind_client import KindClient
-from app.services.ipo.identity import normalize_company_name
+from app.services.ipo.identity import is_spac_ipo, normalize_company_name
 from app.services.ipo.krx_client import KrxClient, KrxClientError, KrxParserError
 from app.services.ipo.naver_client import NaverIpoClient, NaverIpoClientError
 from app.services.kis_openapi import KISOpenAPI, KISOpenAPIError
@@ -64,6 +64,31 @@ _REFRESH_THREAD_LOCK = threading.Lock()
 
 class IpoRefreshAlreadyRunning(RuntimeError):
     pass
+
+
+def _clear_spac_offer_bands(ipos: list[dict[str, Any]]) -> int:
+    """Remove stale general-IPO offer-band data from SPAC market records.
+
+    The operation is idempotent and only touches the canonical offer-band
+    fields and their provenance. Other DART enrichment remains available.
+    """
+    cleaned = 0
+    for ipo in ipos:
+        if not is_spac_ipo(ipo):
+            continue
+        changed = False
+        for field in ("offer_band_low", "offer_band_high"):
+            if field in ipo:
+                ipo.pop(field, None)
+                changed = True
+        sources = ipo.get("sources")
+        if isinstance(sources, dict):
+            for field in ("offer_band_low", "offer_band_high"):
+                if field in sources:
+                    sources.pop(field, None)
+                    changed = True
+        cleaned += int(changed)
+    return cleaned
 
 
 @contextmanager
@@ -145,7 +170,7 @@ def _kind_search_names_for_kis(item: dict[str, Any]) -> list[str]:
         return []
 
     aliases = [company_name]
-    is_spac = item.get("listing_track") == "spac" or "기업인수목적" in company_name or "스팩" in company_name
+    is_spac = is_spac_ipo(item)
     if not is_spac:
         return aliases
 
@@ -442,6 +467,12 @@ def _run_ipo_daily_pipeline(
     # Refresh always reconciles one immutable in-memory snapshot and writes once.
     market = copy.deepcopy(read_market_store())
 
+    # Historical snapshots may hold a DART-document number falsely parsed as a
+    # general-IPO offer band. Clear that stale data only during enriched
+    # refreshes, before score calculation, without changing light refreshes.
+    if not market_only:
+        _clear_spac_offer_bands(market.get("ipos", []))
+
     # 1. Source availability check
     kind = kind_client or KindClient()
     krx = krx_client or KrxClient()
@@ -637,7 +668,12 @@ def _run_ipo_daily_pipeline(
 
                 # 4. Download document ZIP & extract text
                 parsed_features: dict[str, Any] = {}
-                offer_band: tuple[float, float] | None = parser.extract_offer_band_from_structured(structured_data)
+                is_spac = is_spac_ipo(cand)
+                offer_band: tuple[float, float] | None = None
+                offer_band_from_structured = False
+                if not is_spac:
+                    offer_band = parser.extract_offer_band_from_structured(structured_data)
+                    offer_band_from_structured = offer_band is not None
                 if rcept_no:
                     try:
                         zip_bytes = dart.download_document_zip(rcept_no)
@@ -647,7 +683,7 @@ def _run_ipo_daily_pipeline(
                             rcept_no=rcept_no,
                             source_date=source_date,
                         )
-                        if offer_band is None:
+                        if not is_spac and offer_band is None:
                             offer_band = parser.extract_offer_band(doc_text)
                     except Exception:
                         logger.warning("DART document extraction/parsing failed")
@@ -671,13 +707,13 @@ def _run_ipo_daily_pipeline(
                             "dart": dart_meta,
                         },
                     }
-                    if offer_band is not None:
+                    if not is_spac and offer_band is not None:
                         low, high = offer_band
                         update_payload["offer_band_low"] = low
                         update_payload["offer_band_high"] = high
                         band_source = {
                             "value": None,
-                            "source": "dart_structured" if parser.extract_offer_band_from_structured(structured_data) else "dart_document",
+                            "source": "dart_structured" if offer_band_from_structured else "dart_document",
                             "source_date": source_date,
                             "confidence": "high",
                         }

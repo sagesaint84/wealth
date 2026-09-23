@@ -14,6 +14,18 @@ def normalize_company_name(name: str) -> str:
     return cleaned.strip()
 
 
+def is_spac_ipo(ipo: dict[str, Any]) -> bool:
+    """Return whether an IPO uses the SPAC-specific evaluation path.
+
+    ``listing_track`` is canonical. The name checks preserve legacy market
+    records that predate that field without guessing a company identity.
+    """
+    if str(ipo.get("listing_track") or "").strip().lower() == "spac":
+        return True
+    company_name = str(ipo.get("company_name") or "")
+    return "기업인수목적" in company_name or "스팩" in company_name
+
+
 def generate_ipo_id(
     company_name: str,
     stock_code: str | None = None,

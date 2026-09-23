@@ -93,6 +93,17 @@ class IpoScoreTests(unittest.TestCase):
         self.assertEqual(res["component_scores"], {})
         self.assertEqual(res["feature_scores"], {})
 
+    def test_legacy_named_spac_does_not_receive_general_company_score(self):
+        target = make_sample_ipo()
+        target["listing_track"] = "general"
+        target["company_name"] = "엔에이치스팩34호"
+
+        res = calculate_wealth_ipo_score(target, [])
+
+        self.assertIsNone(res["score"])
+        self.assertEqual(res["score_label"], "별도평가")
+        self.assertEqual(res["reason"], "SPAC requires a separate evaluation framework")
+
     def test_full_features_score_calculation(self):
         target = make_sample_ipo()
         cohort = [
