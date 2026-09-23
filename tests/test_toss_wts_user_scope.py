@@ -63,9 +63,34 @@ class UserScopeSecurityTests(unittest.TestCase):
         self.settings = _make_settings(self.root)
         _create_user_config(self.root, USER_A, '{"user": "alice_session"}')
         _create_user_config(self.root, USER_B, '{"user": "bob_session"}')
+        self.pid_alive = patch(
+            "app.services.toss_wts_auth_guard.pid_alive", return_value=True
+        )
+        self.pid_alive.start()
+        self.addCleanup(self.pid_alive.stop)
+        import app.services.toss_wts_login as login
+        self._started_attempt_ids = []
+
+        def register_pending_watcher(attempt_id, _proc):
+            with login._watcher_lock:
+                login._watcher_registry[attempt_id] = {
+                    "reaped": False,
+                    "exit_code": None,
+                }
+            self._started_attempt_ids.append(attempt_id)
+
+        self.watcher = patch.object(
+            login, "_start_watcher", side_effect=register_pending_watcher
+        )
+        self.watcher.start()
+        self.addCleanup(self.watcher.stop)
 
     def tearDown(self):
         import app.services.toss_wts_auth_guard as g
+        import app.services.toss_wts_login as login
+        with login._watcher_lock:
+            for attempt_id in self._started_attempt_ids:
+                login._watcher_registry.pop(attempt_id, None)
         for u in (USER_A, USER_B):
             lock = g._get_thread_lock(u)
             if lock.locked():

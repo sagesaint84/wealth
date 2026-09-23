@@ -5058,16 +5058,15 @@ function renderAssetRecords(records) {
       const dayProfit = Number(item.day_profit_krw || 0);
       return `
       <div class="record-row">
-        <div class="record-row-main">
-          <strong>${html(item.date)}</strong>
-          <span>${money(item.total_value_krw)} · ${number(item.holding_count, 0)}종목</span>
+        <div class="record-row-head">
+          <time datetime="${html(item.date)}">${html(item.date)}</time>
+          <strong>${money(item.total_value_krw)}</strong>
         </div>
-        <div class="record-row-values">
-          <b class="${recordChangeClass}">${recordChangeText}</b>
-          <small>전 기록 대비</small>
-          <small class="record-day-profit">가격변동 손익 <span class="${dayProfit === 0 ? 'record-change-neutral' : signClass(dayProfit)}">${dayProfit > 0 ? '+' : ''}${money(dayProfit)}</span></small>
-          <small>${html(item.memo || item.source || "")}</small>
+        <div class="record-row-metrics">
+          <p class="record-row-change"><span>전 기록 대비</span><b class="${recordChangeClass}">${recordChangeText}</b></p>
+          <p class="record-row-day-profit"><span>가격변동 손익</span><b class="${dayProfit === 0 ? 'record-change-neutral' : signClass(dayProfit)}">${dayProfit > 0 ? '+' : ''}${money(dayProfit)}</b></p>
         </div>
+        <div class="record-row-meta">${number(item.holding_count, 0)}종목${item.memo || item.source ? ` · ${html(item.memo || item.source)}` : ''}</div>
         <div class="record-row-actions">
           <button class="button secondary tiny" data-record-edit="${item.id}" type="button">수정</button>
           <button class="button text danger tiny" data-record-delete="${item.id}" type="button">삭제</button>

@@ -556,9 +556,11 @@ def get_dashboard(data: dict[str, Any] | None = None, username: str | None = Non
             holding_day_gain += val * (r / (100 + r))
 
     # 3. 만약 이전 자산기록이 없거나 daily_snapshot이 오래되어 오차가 큰 경우 보유종목 등락 합산으로 자동 보정
+    # asset_records의 total_value_krw는 stock-only 평가액이다. 따라서 이
+    # fallback도 예수금을 포함하지 않은 동일 basis에서 계산해야 한다.
     if previous_value <= 0:
-        if has_day_rates and total_value > holding_day_gain:
-            previous_value = total_value - holding_day_gain
+        if has_day_rates and total_stock_value > holding_day_gain:
+            previous_value = total_stock_value - holding_day_gain
             previous_date = "전일"
         else:
             daily_snapshot = data.get("settings", {}).get("daily_snapshot", {})
@@ -566,7 +568,10 @@ def get_dashboard(data: dict[str, Any] | None = None, username: str | None = Non
                 previous_value = to_number(daily_snapshot.get("value_krw"))
                 previous_date = daily_snapshot.get("date")
 
-    day_change = (total_value - previous_value) if previous_value > 0 else None
+    # previous_value is an asset-record stock valuation, not a brokerage
+    # account total.  Keep the comparison stock-only so cash movements cannot
+    # appear as a stock valuation change.
+    day_change = (total_stock_value - previous_value) if previous_value > 0 else None
 
     currency_summary: dict[str, dict[str, float]] = {
         "KRW": {

@@ -85,6 +85,13 @@ class _LoginBase(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.env = {"WEALTH_DATA_DIR": self.temp.name}
         self.settings = _make_settings(Path(self.temp.name))
+        # These fixtures use synthetic PIDs and a fixed clock.  Keep their
+        # active-operation marker live without relying on the host PID table.
+        self.pid_alive = patch(
+            "app.services.toss_wts_auth_guard.pid_alive", return_value=True
+        )
+        self.pid_alive.start()
+        self.addCleanup(self.pid_alive.stop)
         # Create per-user config directory
         _create_user_config(Path(self.temp.name), USERNAME)
         # Clear any stale marker
@@ -107,6 +114,13 @@ class _LoginBase(unittest.TestCase):
              patch("app.services.toss_wts_auth_guard.get_pid_start_time",
                    return_value=None), \
              patch.object(m, "_verify_post_login", return_value=verify_return), \
+             patch.object(
+                 m,
+                 "_start_watcher",
+                 side_effect=lambda attempt_id, _proc: m._watcher_registry.update({
+                     attempt_id: {"reaped": False, "exit_code": None}
+                 }),
+             ), \
              patch("app.services.toss_wts_session.get_toss_session_status",
                    return_value={"active": False, "valid": False}):
             aid = m.start_toss_login(

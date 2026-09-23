@@ -108,6 +108,28 @@ class StockRecordCalculationTests(IsolatedDataTestCase):
         # total_value_krw는 주식 + 예수금 유지
         self.assertEqual(summary["total_value_krw"], expected_stock_val + expected_cash_val)
 
+    def test_dashboard_day_change_uses_stock_only_when_previous_asset_record_exists(self) -> None:
+        """Brokerage cash must not contaminate a stock-record comparison."""
+        data = empty_portfolio(
+            settings={"fx_rates": {"KRW": 1.0}, "cash_balances": {"acct": {"KRW": 43_332_180, "USD": 0}}},
+            accounts=[{"id": "acct", "broker": "테스트증권", "name": "계좌", "owner": "모두"}],
+            holdings=[{
+                "id": "holding", "account_id": "acct", "broker": "테스트증권",
+                "code": "005930", "name": "삼성전자", "quantity": 1,
+                "avg_price": 1_000_000_000, "current_price": 1_522_610_640,
+                "currency": "KRW", "market": "KRX", "day_change_rate": 0.0,
+            }],
+        )
+        portfolio.write_portfolio(data, username="test_user")
+        asset_records.upsert_asset_record({
+            "date": "2000-01-01", "owner": "모두", "total_value_krw": 1_501_282_751,
+        }, by_date=True, username="test_user")
+
+        dash = portfolio.get_dashboard(username="test_user")
+        self.assertEqual(dash["summary"]["total_value_krw"], 1_565_942_820)
+        self.assertEqual(dash["day_change"]["change_krw"], 21_327_889)
+        self.assertNotEqual(dash["day_change"]["change_krw"], 64_660_069)
+
     def test_stock_record_snapshot_excludes_cash_and_is_holdings_only(self) -> None:
         """주식기록 스냅샷은 예수금을 제외하고 순수 주식 평가액만 기록해야 함."""
         dash = portfolio.get_dashboard(username="test_user")

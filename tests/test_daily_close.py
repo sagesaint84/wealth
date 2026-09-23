@@ -376,7 +376,8 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
         data = self._sample_dashboard()
         sync_result = self._sample_sync_result()
         price_result = self._sample_price_result()
-        stock_records = [{"owner": "모두", "id": "rec-1"}]
+        stock_records = [{"owner": "모두", "id": "rec-1", "date": "2026-09-21", "total_value_krw": 8000000.0, "day_profit_krw": 100000.0}]
+        previous_stock_record = {"owner": "모두", "date": "2026-09-20", "total_value_krw": 7900000.0}
         net_snapshots = [{"owner": "모두", "net_worth": 60500000.0}]
 
         msg, metrics = build_daily_close_summary(
@@ -386,6 +387,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
             stock_records=stock_records,
             net_snapshots=net_snapshots,
             today="2026-09-21",
+            previous_stock_record=previous_stock_record,
         )
 
         self.assertIn("📊 Wealth 일일 마감 · 2026-09-21", msg)
@@ -397,7 +399,8 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
         self.assertIn("🏠 부동산 평가액: 50,000,000원", msg)
         self.assertIn("🛡 보험 평가액: 5,000,000원", msg)
         self.assertIn("📌 주식 평가손익: +500,000원 (+5.25%)", msg)
-        self.assertIn("🌙 일간 주식변화: +150,000원 (+1.52%)", msg)
+        self.assertIn("🌙 당일 가격변동 손익: +100,000원", msg)
+        self.assertIn("📊 전 기록 대비 평가액: +100,000원 (+1.27%)", msg)
         self.assertIn("🔄 시세갱신: 전체 1개 종목 시세 및 환율(1,385.0원)을 갱신했습니다.", msg)
         self.assertIn("✅ KB증권: SUCCESS", msg)
         self.assertIn("✅ 토스증권: CONFIRMED_EMPTY", msg)
@@ -410,6 +413,74 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
         self.assertEqual(metrics["total_debt"], 2000000.0)
         self.assertTrue(metrics["stock_record_saved"])
         self.assertTrue(metrics["net_record_saved"])
+
+    def test_summary_uses_canonical_stock_records_not_dashboard_day_change(self):
+        data = self._sample_dashboard()
+        data["day_change"] = {"change_krw": 64660069, "change_rate": 4.31}
+        current = {
+            "owner": "모두", "date": "2026-09-23",
+            "total_value_krw": 1522610640, "day_profit_krw": 15863903,
+        }
+        previous = {"owner": "모두", "date": "2026-09-22", "total_value_krw": 1501282751}
+        message, metrics = build_daily_close_summary(
+            data, self._sample_sync_result(), self._sample_price_result(),
+            [current], [], "2026-09-23", previous_stock_record=previous,
+        )
+        self.assertIn("🌙 당일 가격변동 손익: +15,863,903원", message)
+        self.assertIn("📊 전 기록 대비 평가액: +21,327,889원 (+1.42%)", message)
+        self.assertNotIn("64,660,069원", message)
+        self.assertEqual(metrics["canonical_day_profit_krw"], 15863903)
+        self.assertEqual(metrics["record_change_krw"], 21327889)
+
+    def test_summary_does_not_use_other_owner_or_non_today_stock_record(self):
+        data = self._sample_dashboard()
+        data["day_change"] = {"change_krw": 64_660_069, "change_rate": 4.31}
+        previous = {"owner": "모두", "date": "2026-09-22", "total_value_krw": 7_000_000}
+        records = [
+            previous,
+            {
+                "owner": "아빠", "date": "2026-09-23",
+                "total_value_krw": 9_000_000, "day_profit_krw": 2_000_000,
+            },
+        ]
+        message, metrics = build_daily_close_summary(
+            data, self._sample_sync_result(), self._sample_price_result(),
+            records, [], "2026-09-23", previous_stock_record=previous,
+        )
+        self.assertIn("🌙 당일 가격변동 손익: 주식기록 없음", message)
+        self.assertIn("📊 전 기록 대비 평가액: 이전 기록 없음", message)
+        self.assertNotIn("64,660,069원", message)
+        self.assertIsNone(metrics["canonical_day_profit_krw"])
+        self.assertIsNone(metrics["record_change_krw"])
+
+    def test_daily_close_selects_latest_prior_all_owner_record_not_same_day(self):
+        """A rerun compares today's upsert to the latest strictly-prior all-owner record."""
+        from app.services.asset_records import upsert_asset_record
+
+        previous = {
+            "owner": "모두", "date": "2026-09-20",
+            "total_value_krw": 7_000_000,
+        }
+        stale_same_day = {
+            "owner": "모두", "date": "2026-09-21",
+            "total_value_krw": 1_000_000,
+        }
+        other_owner = {
+            "owner": "아빠", "date": "2026-09-22",
+            "total_value_krw": 99_000_000,
+        }
+        for record in (previous, stale_same_day, other_owner):
+            upsert_asset_record(record, by_date=True, username=self.username)
+
+        now_fixed = datetime(2026, 9, 21, 21, 0, tzinfo=KST)
+        with patch("app.main.sync_all_accounts_for_user", AsyncMock(return_value=self._sample_sync_result())), \
+             patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
+             patch("app.main.get_full_dashboard_for_user", MagicMock(return_value=self._sample_dashboard())):
+            result = _async(run_daily_close(self.username, now=now_fixed, skip_telegram=True))
+
+        self.assertTrue(result["ok"])
+        self.assertIn("📊 전 기록 대비 평가액: +1,000,000원 (+14.29%)", result["message"])
+        self.assertNotIn("+7,000,000원", result["message"])
 
     # -----------------------------------------------------------------------
     # 9. Idempotency: Second Run on Same Day

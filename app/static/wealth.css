@@ -8,6 +8,21 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(68%) sepi
 .record-row-values .record-day-profit { margin-top: 5px; }
 .record-row-values .record-day-profit span { display: inline; font-size: inherit; }
 .record-change-neutral { color: var(--muted); }
+.record-list > .record-row { display:block; min-width:0; padding:13px; }
+.record-list > .record-row .record-row-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; min-width:0; }
+.record-list > .record-row .record-row-head time,
+.record-list > .record-row .record-row-head strong,
+.record-list > .record-row .record-row-metrics b { white-space:nowrap; }
+.record-list > .record-row .record-row-head time { color:var(--text); font-size:13px; font-weight:700; }
+.record-list > .record-row .record-row-head strong { color:var(--text); font-size:13px; text-align:right; }
+.record-list > .record-row .record-row-metrics { margin-top:9px; display:grid; gap:5px; }
+.record-list > .record-row .record-row-metrics p { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:baseline; margin:0; font-size:11px; }
+.record-list > .record-row .record-row-metrics span,
+.record-list > .record-row .record-row-meta { color:var(--muted); font-size:10px; }
+.record-list > .record-row .record-row-metrics b { font-size:12px; text-align:right; }
+.record-list > .record-row .record-row-meta { margin-top:9px; line-height:1.4; overflow-wrap:anywhere; }
+.record-list > .record-row .record-row-actions { margin-top:10px; display:flex; justify-content:flex-end; gap:6px; }
+@media(max-width:420px){.record-list > .record-row .record-row-head{align-items:flex-start;flex-wrap:wrap}.record-list > .record-row .record-row-head strong{margin-left:auto}.record-list > .record-row .record-row-metrics p{gap:8px}}
 .account-row { position: relative; }
 .account-row-values { min-width: 145px; text-align: right; }
 .account-group { border-bottom: 1px solid #273354; padding: 8px 0; }

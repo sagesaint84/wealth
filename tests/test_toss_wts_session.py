@@ -219,7 +219,8 @@ class TossWtsSessionTests(unittest.TestCase):
         """Login marker exists with hours=24 < threshold -> deferred inside lock."""
         import app.services.toss_wts_auth_guard as g
         import os as _os
-        with patch.dict(_os.environ, self.env):
+        with patch.dict(_os.environ, self.env), \
+             patch("app.services.toss_wts_auth_guard.pid_alive", return_value=True):
             g.write_active_op_marker(USERNAME, "test-login", 12345, self.now.isoformat())
             runner = Mock(return_value=self._status(hours=24))
             with patch("app.services.toss_wts_session.resolve_telegram_config",

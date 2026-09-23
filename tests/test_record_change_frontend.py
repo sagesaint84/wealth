@@ -18,9 +18,14 @@ class RecordChangeFrontendTests(unittest.TestCase):
     def test_stock_card_separates_record_change_from_price_profit(self):
         self.assertIn("const previousByRecord = buildPreviousRecordMap(rawList);", self.wealth_js)
         self.assertIn("Number(item.total_value_krw || 0) - Number(previous.total_value_krw || 0)", self.wealth_js)
-        self.assertIn("<small>전 기록 대비</small>", self.wealth_js)
-        self.assertIn("가격변동 손익 <span", self.wealth_js)
-        self.assertIn('<small>${html(item.memo || item.source || "")}</small>', self.wealth_js)
+        self.assertIn('class="record-row-head"', self.wealth_js)
+        self.assertIn('class="record-row-change"', self.wealth_js)
+        self.assertIn('class="record-row-day-profit"', self.wealth_js)
+        self.assertIn('class="record-row-meta"', self.wealth_js)
+        self.assertIn('class="record-row-actions"', self.wealth_js)
+        self.assertIn("전 기록 대비", self.wealth_js)
+        self.assertIn("가격변동 손익", self.wealth_js)
+        self.assertIn("item.memo || item.source", self.wealth_js)
         self.assertNotIn('signClass(item.day_profit_krw || 0)', self.wealth_js)
 
     def test_net_worth_card_uses_all_owner_records(self):

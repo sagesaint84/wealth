@@ -47,6 +47,7 @@ def build_daily_close_summary(
     stock_records: list[dict[str, Any]],
     net_snapshots: list[dict[str, Any]],
     today: str,
+    previous_stock_record: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Pure function generating canonical daily close summary text and metrics.
 
@@ -179,22 +180,47 @@ def build_daily_close_summary(
 
         broker_lines.append(f"{mark} {name}: {status}")
 
-    day = data.get("day_change") or {}
     stock_profit = _number(s.get("profit_krw"))
     stock_return = _number(s.get("return_rate"))
-    day_profit = _number(day.get("change_krw"))
-    day_rate = _number(day.get("change_rate"))
 
     sign_stock = "+" if stock_profit > 0 else ""
-    sign_day = "+" if day_profit > 0 else ""
 
     stock_record = next(
-        (record for record in stock_records if (record.get("owner") or "모두") == "모두"),
+        (
+            record for record in stock_records
+            if (record.get("owner") or "모두") == "모두" and record.get("date") == today
+        ),
         None,
     )
     net_record = next(
         (record for record in net_snapshots if (record.get("owner") or "모두") == "모두"),
         None,
+    )
+
+    # These are deliberately separate from dashboard day_change.  The latter
+    # is a dashboard comparison field, while the canonical stock record owns
+    # price-only P/L and the stock-valuation record-to-record comparison.
+    canonical_day_profit = _number(stock_record.get("day_profit_krw")) if stock_record else None
+    record_change = None
+    record_change_rate = None
+    if stock_record and previous_stock_record:
+        previous_value = _number(previous_stock_record.get("total_value_krw"))
+        if previous_value > 0:
+            record_change = _number(stock_record.get("total_value_krw")) - previous_value
+            record_change_rate = record_change / previous_value * 100
+
+    def _signed(value: float) -> str:
+        return "+" if value > 0 else ""
+
+    price_profit_line = (
+        f"🌙 당일 가격변동 손익: {_signed(canonical_day_profit)}{_won(canonical_day_profit)}"
+        if canonical_day_profit is not None
+        else "🌙 당일 가격변동 손익: 주식기록 없음"
+    )
+    record_change_line = (
+        f"📊 전 기록 대비 평가액: {_signed(record_change)}{_won(record_change)} ({_signed(record_change_rate)}{record_change_rate:.2f}%)"
+        if record_change is not None and record_change_rate is not None
+        else "📊 전 기록 대비 평가액: 이전 기록 없음"
     )
 
     message_lines = [
@@ -210,7 +236,8 @@ def build_daily_close_summary(
         f"🛡 보험 평가액: {_won(insurance_total)}",
         "",
         f"📌 주식 평가손익: {sign_stock}{_won(stock_profit)} ({sign_stock}{stock_return:.2f}%)",
-        f"🌙 일간 주식변화: {sign_day}{_won(day_profit)} ({sign_day}{day_rate:.2f}%)",
+        price_profit_line,
+        record_change_line,
         "",
         f"🔄 시세갱신: {price_result.get('message', '완료')}",
         "",
@@ -237,6 +264,9 @@ def build_daily_close_summary(
         "stock_record_count": len(stock_records),
         "net_record_count": len(net_snapshots),
         "sync_warning_count": warning_count,
+        "canonical_day_profit_krw": canonical_day_profit,
+        "record_change_krw": record_change,
+        "record_change_rate": record_change_rate,
     }
     return message, metrics
 
@@ -383,6 +413,19 @@ async def run_daily_close_for_user(
 
     # 4. snapshot
     from app.main import auto_save_all_owner_snapshots, save_all_owner_net_worth_snapshots
+    from app.services.asset_records import list_asset_records
+    try:
+        previous_stock_record = max(
+            (
+                record for record in list_asset_records(username=safe_user)
+                if (record.get("owner") or "모두") == "모두"
+                and str(record.get("date") or "") < today
+            ),
+            key=lambda record: (str(record.get("date") or ""), str(record.get("created_at") or "")),
+            default=None,
+        )
+    except Exception:
+        previous_stock_record = None
     try:
         stock_records = auto_save_all_owner_snapshots(
             data,
@@ -425,6 +468,7 @@ async def run_daily_close_for_user(
         stock_records=stock_records,
         net_snapshots=net_snapshots,
         today=today,
+        previous_stock_record=previous_stock_record,
     )
     steps["summary"] = {"status": "success"}
 

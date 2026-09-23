@@ -132,7 +132,7 @@ class AccountImportTests(unittest.TestCase):
                 self.assertEqual(result["invalid"], 1)
 
     def test_sample_workbook_has_expected_headers_and_numbers(self):
-        sample = Path(__file__).resolve().parents[1] / "data" / "샘플_증권계좌.xlsx"
+        sample = Path(__file__).resolve().parents[1] / "샘플_증권계좌.xlsx"
         sheet = load_workbook(sample, data_only=True).active
         self.assertEqual(sheet.title, "증권계좌")
         self.assertEqual([cell.value for cell in sheet[2]][:5], ["소유자", "증권사", "계좌명", "계좌번호", "계좌유형"])
