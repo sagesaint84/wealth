@@ -50,7 +50,8 @@ from app.services.web_finance import (
 fetch_market_overview = get_web_market_overview
 from app.services.portfolio import (
     clear_portfolio, get_dashboard, get_or_add_account, import_rows, normalize_holding,
-    read_portfolio, seed_demo, upsert_holdings, write_portfolio, to_number, migrate_add_family_group
+    read_portfolio, seed_demo, upsert_holdings, write_portfolio, to_number, migrate_add_family_group,
+    import_account_rows, normalize_broker_account_no, canonical_broker_account_identity
 )
 from app.services.asset_records import (
     build_stock_record_from_holdings,
@@ -1359,6 +1360,16 @@ async def download_sample_holdings():
         filename="샘플_타증권사_보유종목.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@app.get("/api/sample/accounts")
+async def download_sample_accounts():
+    p = ROOT_DIR / "data" / "샘플_증권계좌.xlsx"
+    if not p.exists():
+        p = ROOT_DIR / "샘플_증권계좌.xlsx"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="샘플_증권계좌.xlsx 파일을 찾을 수 없습니다.")
+    return FileResponse(path=str(p), filename="샘플_증권계좌.xlsx", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 # ---------------------------------------------------------------------------
@@ -3581,6 +3592,14 @@ async def create_account(request: Request) -> dict:
     if not broker or not account_name:
         raise HTTPException(status_code=400, detail="증권사와 계좌 이름은 필수입니다.")
     data = read_portfolio(username=username)
+    if owner not in set(get_family_members(data)):
+        raise HTTPException(status_code=400, detail="등록된 가족 구성원만 소유자로 선택할 수 있습니다.")
+    account_no = str(body.get("account_no") or "").strip()
+    if account_no:
+        duplicate = next((account for account in data["accounts"] if canonical_broker_account_identity(account.get("broker")) == canonical_broker_account_identity(broker) and normalize_broker_account_no(account.get("account_no")) == normalize_broker_account_no(account_no)), None)
+        if duplicate:
+            code = "ACCOUNT_NUMBER_OWNER_CONFLICT" if str(duplicate.get("owner") or "모두") != owner else "ACCOUNT_ALREADY_EXISTS"
+            raise HTTPException(status_code=409, detail={"code": code, "message": "같은 증권사와 계좌번호의 계좌가 이미 등록되어 있습니다."})
     acc_type = (body.get("account_type") or "general").strip()
     income_lvl = (body.get("income_level") or "low").strip()
     annual_dep = max(0.0, float(body.get("annual_deposit") or 0.0))
@@ -3622,6 +3641,7 @@ async def create_account(request: Request) -> dict:
         "cash_total_krw": 0,
         "profit_krw": 0,
         "holding_count": 0,
+        "account_no": account_no,
     }
     cash_krw = float(to_number(body.get("cash_krw", 0.0)))
     cash_usd = float(to_number(body.get("cash_usd", 0.0)))
@@ -4071,14 +4091,26 @@ async def rename_account(account_id: str, payload: dict, request: Request) -> di
     account = next((item for item in data["accounts"] if item.get("id") == account_id), None)
     if account is None:
         raise HTTPException(404, "계좌를 찾지 못했습니다.")
+    owner_val = str(payload.get("owner") or "").strip()
+    effective_broker = broker or str(account.get("broker") or "")
+    effective_owner = owner_val or str(account.get("owner") or "모두")
+    if "account_no" in payload:
+        requested_no = str(payload.get("account_no") or "").strip()
+        if requested_no:
+            duplicate = next((item for item in data["accounts"] if item.get("id") != account_id and canonical_broker_account_identity(item.get("broker")) == canonical_broker_account_identity(effective_broker) and normalize_broker_account_no(item.get("account_no")) == normalize_broker_account_no(requested_no)), None)
+            if duplicate:
+                code = "ACCOUNT_NUMBER_OWNER_CONFLICT" if str(duplicate.get("owner") or "모두") != effective_owner else "ACCOUNT_ALREADY_EXISTS"
+                raise HTTPException(409, detail={"code": code, "message": "같은 증권사와 계좌번호의 계좌가 이미 등록되어 있습니다."})
     account["name"] = name
     if broker:
         account["broker"] = broker
-    owner_val = str(payload.get("owner") or "").strip()
     if owner_val:
         account["owner"] = owner_val
     if "account_type" in payload:
         account["account_type"] = str(payload.get("account_type") or "general").strip()
+    if "account_no" in payload:
+        requested_no = str(payload.get("account_no") or "").strip()
+        account["account_no"] = requested_no
     if "tax_deductible" in payload:
         td_val = payload.get("tax_deductible")
         if isinstance(td_val, bool):
@@ -4178,6 +4210,17 @@ async def import_portfolio(request: Request, file: UploadFile = File(...), broke
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"message": f"{count}개 보유종목을 반영했습니다.", "count": count, "warnings": warnings}
+
+
+@app.post("/api/import-accounts")
+async def import_accounts(request: Request, file: UploadFile = File(...)) -> dict:
+    if Path(file.filename or "").suffix.lower() not in {".csv", ".xlsx", ".xlsm"}:
+        raise HTTPException(400, "CSV 또는 XLSX 파일만 가져올 수 있습니다.")
+    username = get_current_username(request)
+    data = read_portfolio(username=username)
+    result = import_account_rows(file.filename or "accounts.csv", await file.read(), username=username, allowed_owners=set(get_family_members(data)))
+    result["message"] = f"증권계좌 {result['created']}개를 추가했습니다."
+    return result
 
 
 
@@ -4456,13 +4499,24 @@ async def sync_toss_for_user(username: str) -> dict:
     def resolve_toss_account(data_accounts, seq, acct_no, default_name):
         seq_str = str(seq) if seq is not None else ""
         suffix = str(acct_no)[-4:] if acct_no else ""
-        broker_accounts = [a for a in data_accounts if a.get("broker") == "토스증권"]
+        broker_accounts = [
+            a for a in data_accounts
+            if canonical_broker_account_identity(a.get("broker"))
+            == canonical_broker_account_identity("토스증권")
+        ]
         exact = [a for a in broker_accounts if seq_str and a.get("account_key") == seq_str]
         if len(exact) == 1:
             return exact[0], True
         if len(exact) > 1:
             return None, False
-        suffix_matches = [a for a in broker_accounts if suffix and a.get("account_no") == suffix]
+        # Toss deliberately stores only the last four digits for API-created
+        # accounts.  A manually entered full number can still be reconciled
+        # safely when exactly one account shares that suffix; ambiguity is
+        # deliberately left unverified rather than guessing an account.
+        suffix_matches = [
+            a for a in broker_accounts
+            if suffix and normalize_broker_account_no(a.get("account_no")).endswith(suffix)
+        ]
         if len(suffix_matches) == 1:
             return suffix_matches[0], True
         if len(suffix_matches) > 1:
@@ -4569,8 +4623,12 @@ async def sync_namoo_for_user(username: str) -> dict:
 
     def resolve_namoo_account(data_accounts, acct_no, default_name):
         suffix = str(acct_no)[-4:] if acct_no else ""
-        broker_accounts = [a for a in data_accounts if a.get("broker") == "NH투자증권(나무)"]
-        exact = [a for a in broker_accounts if a.get("account_no") == str(acct_no)]
+        broker_accounts = [
+            a for a in data_accounts
+            if canonical_broker_account_identity(a.get("broker"))
+            == canonical_broker_account_identity("NH투자증권(나무)")
+        ]
+        exact = [a for a in broker_accounts if normalize_broker_account_no(a.get("account_no")) == normalize_broker_account_no(acct_no)]
         if len(exact) == 1:
             return exact[0], True
         if len(exact) > 1:
@@ -4666,8 +4724,12 @@ async def sync_kis_for_user(username: str) -> dict:
 
     def resolve_kis_account(data_accounts, acct_no, default_name):
         suffix = str(acct_no)[-4:] if acct_no else ""
-        broker_accounts = [a for a in data_accounts if a.get("broker") == "한국투자증권"]
-        exact = [a for a in broker_accounts if a.get("account_no") == str(acct_no)]
+        broker_accounts = [
+            a for a in data_accounts
+            if canonical_broker_account_identity(a.get("broker"))
+            == canonical_broker_account_identity("한국투자증권")
+        ]
+        exact = [a for a in broker_accounts if normalize_broker_account_no(a.get("account_no")) == normalize_broker_account_no(acct_no)]
         if len(exact) == 1:
             return exact[0], True
         if len(exact) > 1:
@@ -4762,8 +4824,12 @@ async def sync_kiwoom_for_user(username: str) -> dict:
 
     def resolve_kiwoom_account(data_accounts, acct_no, default_name):
         suffix = str(acct_no)[-4:] if acct_no else ""
-        broker_accounts = [a for a in data_accounts if a.get("broker") == "키움증권"]
-        exact = [a for a in broker_accounts if a.get("account_no") == str(acct_no)]
+        broker_accounts = [
+            a for a in data_accounts
+            if canonical_broker_account_identity(a.get("broker"))
+            == canonical_broker_account_identity("키움증권")
+        ]
+        exact = [a for a in broker_accounts if normalize_broker_account_no(a.get("account_no")) == normalize_broker_account_no(acct_no)]
         if len(exact) == 1:
             return exact[0], True
         if len(exact) > 1:

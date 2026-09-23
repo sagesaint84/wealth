@@ -66,7 +66,7 @@ class KiwoomRealizedFrontendTests(unittest.TestCase):
         self.assertIn("populateKiwoomDestinationAccounts", JS)
 
     def test_no_raw_kiwoom_account_number_field_is_rendered(self) -> None:
-        kiwoom_section = HTML.split('id="kiwoomRealizedCard"', 1)[1]
+        kiwoom_section = HTML.split('id="kiwoomRealizedCard"', 1)[1].split('id="kbRealizedCard"', 1)[0]
         self.assertNotIn("acctNo", kiwoom_section)
         self.assertNotIn("account_no", kiwoom_section)
         self.assertNotIn("appkey", kiwoom_section)

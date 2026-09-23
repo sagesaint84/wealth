@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 import openpyxl
 
+from app.services.broker_realized_import import canonicalize_realized_date
 from app.services.historical_fx import get_historical_fx_rate, lookup_historical_fx_strict
 from app.services.stock_master import resolve_stock_info
 from app.services.file_import_identity import (
@@ -61,6 +62,13 @@ def _load_pnl_records_file(path: Path) -> list[dict[str, Any]]:
     records = data["records"]
     if not all(isinstance(record, dict) for record in records):
         raise PnlRecordsStorageError("realized P/L storage has an invalid record structure")
+    for record in records:
+        raw_date = record.get("date")
+        if isinstance(raw_date, str) and len(raw_date) == 8 and raw_date.isdigit():
+            try:
+                record["date"] = canonicalize_realized_date(raw_date)
+            except ValueError:
+                pass
     return records
 
 def _get_user_dir(username: str | None = None) -> Path:
@@ -120,7 +128,19 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
     
     currency = str(payload.get("currency", "KRW")).upper()
     pnl = float(payload.get("pnl", 0.0))
-    date_val = str(payload.get("date", datetime.now().strftime("%Y-%m-%d")))
+    raw_date = payload.get("date")
+    broker_src = str(payload.get("source") or "").strip() in ("toss_wts", "kis", "nh", "kiwoom", "kb")
+    if raw_date is None or str(raw_date).strip() == "":
+        if broker_src:
+            raise ValueError("Broker realized record requires date")
+        date_val = datetime.now().strftime("%Y-%m-%d")
+    else:
+        try:
+            date_val = canonicalize_realized_date(raw_date)
+        except ValueError:
+            if broker_src:
+                raise
+            date_val = _parse_date(raw_date)
     source = str(payload.get("source") or "").strip()
     source_meta = dict(payload.get("source_meta")) if isinstance(payload.get("source_meta"), dict) else {}
 
@@ -328,7 +348,21 @@ def update_pnl_record(record_id: str, payload: dict[str, Any], username: str | N
 
     target["asset_type"] = asset_type
 
-    target["date"] = str(payload.get("date", target.get("date")))
+    if "date" in payload:
+        raw_update_date = payload["date"]
+        try:
+            target["date"] = canonicalize_realized_date(raw_update_date)
+        except ValueError:
+            if broker_source:
+                raise
+            target["date"] = _parse_date(raw_update_date)
+    else:
+        raw_target_date = target.get("date")
+        if isinstance(raw_target_date, str) and len(raw_target_date) == 8 and raw_target_date.isdigit():
+            try:
+                target["date"] = canonicalize_realized_date(raw_target_date)
+            except ValueError:
+                pass
     target["code"] = code
     target["name"] = name
     target["currency"] = currency

@@ -18,8 +18,7 @@ scratch_*.py
 !.env.example
 .env.local
 .env.*.local
-data/
-!data/샘플_*.xlsx
+data/*
 .env.production
 .env.development
 
@@ -73,3 +72,6 @@ ops/wealth-automation.env
 wealth-automation.env
 toss-wts/
 session.json
+
+data/샘플_*.xlsx
+!data/샘플_증권계좌.xlsx

@@ -91,7 +91,7 @@ console.log(JSON.stringify([
                 self.assertNotIn(raw, rendered.replace("-", "").replace(" ", ""))
 
     def test_no_raw_nh_account_number_field_is_rendered(self) -> None:
-        nh_section = HTML.split('id="nhRealizedCard"', 1)[1]
+        nh_section = HTML.split('id="nhRealizedCard"', 1)[1].split('id="kiwoomRealizedCard"', 1)[0]
         self.assertNotIn("act_no", nh_section)
         self.assertNotIn("account_no", nh_section)
         self.assertIn("source_account_key", JS)  # opaque route scope only

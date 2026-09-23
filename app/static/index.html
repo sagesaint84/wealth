@@ -435,6 +435,7 @@
             <div class="toolbar" style="margin-left:auto;display:flex;gap:6px;align-items:center;">
               <div id="securitiesActions" style="display:flex;gap:6px;align-items:center;">
                 <button id="addAccountBtn" class="button secondary compact" type="button" title="증권 계좌 추가">➕ 증권계좌 추가</button>
+                <button id="accountImportBtn" class="button secondary compact" type="button" title="증권계좌 파일 가져오기">📂 계좌 가져오기</button>
               </div>
               <div id="bankingActions" style="display:none;gap:6px;align-items:center;">
                 <button id="addBankIntegratedBtn" class="button secondary compact" type="button" title="은행 계좌 추가 (자유통장 / 예·적금 / 대출)">🏦 계좌 추가</button>
@@ -1422,6 +1423,16 @@
         </div>
       </form>
     </dialog>
+
+    <dialog id="accountImportDialog" class="dialog" style="max-width:540px;width:95vw;">
+      <form id="accountImportForm" method="dialog">
+        <div class="dialog-head"><h2>증권계좌 파일 가져오기</h2><button value="cancel" class="close" aria-label="닫기">×</button></div>
+        <p class="dialog-description">엑셀(.xlsx) 또는 CSV 파일로 증권계좌를 일괄 등록합니다.<br><strong>[소유자 / 증권사 / 계좌명 / 계좌번호 / 계좌유형 / 원화예수금 / 달러예수금 / 세액공제적용 / 소득구간 / 올해연금납입액 / ISA전환입금액 / ISA전환연도]</strong></p>
+        <div style="margin:4px 0 12px;"><a href="/api/sample/accounts" download="샘플_증권계좌.xlsx" class="button text compact" style="color:#a78bfa;font-size:12px;text-decoration:underline;">📥 샘플_증권계좌.xlsx 다운로드</a></div>
+        <label>파일 선택<input id="accountImportFile" name="file" type="file" accept=".csv,.xlsx,.xlsm" required /></label>
+        <div class="dialog-actions"><button class="button secondary" value="cancel" type="button">취소</button><button class="button primary" type="submit">가져오기</button></div>
+      </form>
+    </dialog>
     <!-- 보유종목 파일 가져오기 다이얼로그 -->
     <dialog id="importDialog" class="dialog">
       <form id="importForm" method="dialog">
@@ -1539,6 +1550,7 @@
           <label>계좌 이름
             <input name="name" placeholder="종합계좌, ISA, IRP 등" required />
           </label>
+          <label>계좌 번호 (선택)<input name="account_no" placeholder="예: 12345678-01" autocomplete="off" /></label>
           <label>소유자
             <select name="owner">
               <option value="모두">모두</option>
@@ -1654,6 +1666,7 @@
         <div class="form-grid">
           <label>증권사<input name="broker" placeholder="KB증권, 토스증권, 나무증권 등" required /></label>
           <label>계좌 이름<input name="account_name" placeholder="종합계좌, ISA, IRP 등" required /></label>
+          <label>계좌 번호 (선택)<input name="account_no" placeholder="예: 12345678-01" autocomplete="off" /></label>
           <label>소유자<select name="owner">
             <option value="모두">모두</option>
             <option value="아빠">아빠</option>

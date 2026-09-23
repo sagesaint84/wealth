@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
 import re
 import threading
 import uuid
@@ -13,6 +14,7 @@ from typing import Any, Iterable
 
 from openpyxl import load_workbook
 from app.services.test_safety import assert_write_allowed
+from app.services.broker_registry import normalize_broker
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -49,6 +51,30 @@ FIELD_ALIASES = {
     "currency": ("통화", "currency", "화폐"),
     "market": ("거래소", "시장", "market", "exchange"),
 }
+
+ACCOUNT_IMPORT_ALIASES = {
+    "owner": ("소유자", "owner"), "broker": ("증권사", "broker", "broker_name"),
+    "account_name": ("계좌명", "계좌 이름", "account", "account_name", "name"),
+    "account_no": ("계좌번호", "계좌 번호", "증권계좌번호", "account_no", "account_number", "account number", "acct_no"),
+    "account_type": ("계좌유형", "계좌 유형", "account_type"),
+    "cash_krw": ("원화예수금", "원화 예수금", "KRW예수금", "cash_krw"),
+    "cash_usd": ("달러예수금", "달러 예수금", "USD예수금", "cash_usd"),
+    "tax_deductible": ("세액공제적용", "세액공제 적용", "tax_deductible"),
+    "income_level": ("소득구간", "소득 구간", "income_level"),
+    "annual_deposit": ("올해연금납입액", "올해 연금 납입액", "연간납입액", "annual_deposit"),
+    "isa_transfer_amount": ("ISA전환입금액", "ISA 전환 입금액", "isa_transfer_amount"),
+    "isa_transfer_year": ("ISA전환연도", "ISA 전환 연도", "isa_transfer_year"),
+}
+
+
+def normalize_broker_account_no(value: Any) -> str:
+    """Comparison-only account number normalization; stored display text is preserved."""
+    return re.sub(r"[\s-]+", "", clean_text(value))
+
+
+def canonical_broker_account_identity(value: Any) -> str:
+    raw = clean_text(value)
+    return normalize_broker(raw) or raw.casefold()
 
 
 def now_iso() -> str:
@@ -138,6 +164,65 @@ def to_number(value: Any, default: float = 0.0) -> float:
 
 def clean_text(value: Any) -> str:
     return "" if value is None else str(value).strip()
+
+
+def _account_import_value(row: dict[str, Any], field: str) -> Any:
+    normalized = {clean_text(key).lower(): value for key, value in row.items() if key is not None}
+    for alias in ACCOUNT_IMPORT_ALIASES[field]:
+        if alias.lower() in normalized:
+            return normalized[alias.lower()]
+    return None
+
+
+def _finite_account_number(value: Any) -> float | None:
+    if value is None or clean_text(value) == "":
+        return 0.0
+    try:
+        number = float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def import_account_rows(filename: str, contents: bytes, *, username: str | None = None, allowed_owners: set[str] | None = None) -> dict[str, Any]:
+    """Create-only brokerage-account import, deliberately separate from holding imports."""
+    rows = rows_from_upload(filename, contents)
+    data = read_portfolio(username)
+    allowed = set(allowed_owners or {"모두"})
+    type_aliases = {"일반": "general", "일반계좌": "general", "일반 주식": "general", "위탁": "general", "위탁계좌": "general", "general": "general", "연금저축": "pension_savings", "연금저축펀드": "pension_savings", "pension": "pension_savings", "pension_savings": "pension_savings", "irp": "irp", "개인형irp": "irp", "개인형 irp": "irp", "isa": "isa", "중개형isa": "isa", "중개형 isa": "isa"}
+    bool_aliases = {"true": True, "1": True, "yes": True, "y": True, "예": True, "적용": True, "공제": True, "세액공제": True, "false": False, "0": False, "no": False, "n": False, "아니오": False, "미적용": False, "비공제": False}
+    income_aliases = {"low": "low", "5500만원이하": "low", "5,500만원 이하": "low", "총급여 5500만원 이하": "low", "high": "high", "5500만원초과": "high", "5,500만원 초과": "high", "총급여 5500만원 초과": "high"}
+    created = duplicates = invalid = 0; warnings: list[str] = []
+    existing = list(data.get("accounts", []))
+    for line, row in enumerate(rows, start=2):
+        broker, name, owner = clean_text(_account_import_value(row, "broker")), clean_text(_account_import_value(row, "account_name")), clean_text(_account_import_value(row, "owner")) or "모두"
+        raw_type = clean_text(_account_import_value(row, "account_type")).lower()
+        account_type = type_aliases.get(raw_type)
+        if not broker or not name or owner not in allowed or not account_type:
+            invalid += 1; warnings.append(f"{line}행: " + ("증권사가 비어 있습니다." if not broker else "계좌명, 소유자 또는 계좌유형을 확인하세요.")); continue
+        values = {key: _finite_account_number(_account_import_value(row, key)) for key in ("cash_krw", "cash_usd", "annual_deposit", "isa_transfer_amount")}
+        if any(value is None for value in values.values()) or values["annual_deposit"] < 0 or values["isa_transfer_amount"] < 0:
+            invalid += 1; warnings.append(f"{line}행: 예수금 또는 납입액은 유한한 숫자여야 합니다."); continue
+        year_text = clean_text(_account_import_value(row, "isa_transfer_year")) or str(datetime.now().year)
+        if not (year_text.isdigit() and 2020 <= int(year_text) <= 2050):
+            invalid += 1; warnings.append(f"{line}행: ISA 전환 연도는 2020~2050의 4자리 연도여야 합니다."); continue
+        account_no = clean_text(_account_import_value(row, "account_no")); normalized_no = normalize_broker_account_no(account_no)
+        duplicate = next((account for account in existing if canonical_broker_account_identity(account.get("broker")) == canonical_broker_account_identity(broker) and ((normalized_no and normalize_broker_account_no(account.get("account_no")) == normalized_no) or (not normalized_no and clean_text(account.get("name")) == name and clean_text(account.get("owner")) == owner))), None)
+        if duplicate:
+            if normalized_no and clean_text(duplicate.get("owner")) != owner:
+                invalid += 1; warnings.append(f"{line}행: 계좌번호가 다른 소유자 계좌와 충돌합니다."); continue
+            duplicates += 1; warnings.append(f"{line}행: 이미 등록된 계좌라 건너뛰었습니다."); continue
+        raw_tax = clean_text(_account_import_value(row, "tax_deductible")).lower(); tax = bool_aliases.get(raw_tax, True)
+        income = income_aliases.get(clean_text(_account_import_value(row, "income_level")).lower(), "low")
+        account_id = str(uuid.uuid4())
+        account = {"id": account_id, "broker": broker, "name": name, "owner": owner, "family_group": owner if owner != "모두" else "All", "account_no": account_no, "account_type": account_type, "tax_deductible": tax, "income_level": income, "annual_deposit": values["annual_deposit"], "isa_transfer_amount": values["isa_transfer_amount"], "isa_transfer_year": year_text, "market_value_krw": 0, "stock_value_krw": 0, "cash_krw": values["cash_krw"], "cash_usd": values["cash_usd"], "profit_krw": 0, "holding_count": 0}
+        if account_type in {"pension_savings", "irp"} and values["annual_deposit"] > 0:
+            account["yearly_contributions"] = [{"year": str(datetime.now().year), "deposit": values["annual_deposit"], "is_deductible": tax, "income_level": income}]
+        data["accounts"].append(account); existing.append(account)
+        data["settings"].setdefault("cash_balances", {})[account_id] = {"KRW": values["cash_krw"], "USD": values["cash_usd"]}
+        created += 1
+    if created: write_portfolio(data, username)
+    return {"created": created, "duplicates": duplicates, "invalid": invalid, "warnings": warnings[:10]}
 
 
 def normalize_currency(value: Any) -> str:

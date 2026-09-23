@@ -4,6 +4,7 @@ import hashlib
 import json
 from collections import Counter
 from typing import Any, Mapping
+from app.services.broker_realized_import import canonicalize_realized_date
 from app.services.nh_feed import canonical_nh_row_hash, verify_nh_feed_row
 
 NEW = "NEW"; ALREADY_IMPORTED = "ALREADY_IMPORTED"; POSSIBLE_DUPLICATE = "POSSIBLE_DUPLICATE"; INVALID = "INVALID"
@@ -23,6 +24,10 @@ def classify_nh_rows(rows: list[Mapping[str, Any]], existing: list[Mapping[str, 
     for row in rows:
         if not isinstance(row, Mapping) or not row.get("date") or not row.get("code") or row.get("quantity") is None or row.get("buy_amount") is None or row.get("sell_amount") is None or row.get("pnl") is None:
             output.append({"status": INVALID, "reason": "MISSING_REQUIRED_FIELD"}); continue
+        try:
+            cand_date = canonicalize_realized_date(row["date"])
+        except ValueError:
+            output.append({"status": INVALID, "reason": "INVALID_DATE"}); continue
         try:
             digest=canonical_nh_row_hash({k:v for k,v in row.items() if k != "source_occurrence"})
         except (TypeError, ValueError):
@@ -44,7 +49,13 @@ def classify_nh_rows(rows: list[Mapping[str, Any]], existing: list[Mapping[str, 
                 output.append({"status": INVALID, "reason": "NUMERIC_PARSE_ERROR"}); continue
             manual_match=False
             for record in existing:
-                if record.get("source") == "nh" or str(record.get("date")) != str(row.get("date")) or str(record.get("code")) != str(row.get("code")):
+                if record.get("source") == "nh" or str(record.get("code")) != str(row.get("code")):
+                    continue
+                try:
+                    rec_date = canonicalize_realized_date(record.get("date"))
+                except Exception:
+                    rec_date = str(record.get("date") or "")
+                if rec_date != cand_date:
                     continue
                 try:
                     if canonical_nh_row_hash({"pnl": record.get("pnl")}) == pnl_hash:
@@ -53,7 +64,9 @@ def classify_nh_rows(rows: list[Mapping[str, Any]], existing: list[Mapping[str, 
                 except (TypeError, ValueError):
                     continue
             status=POSSIBLE_DUPLICATE if manual_match else NEW
-        output.append({"status": status, "fingerprint": fingerprint, "candidate": dict(row)})
+        candidate = dict(row)
+        candidate["date"] = cand_date
+        output.append({"status": status, "fingerprint": fingerprint, "candidate": candidate})
     return output
 
 

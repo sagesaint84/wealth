@@ -13,6 +13,8 @@ import math
 import re
 from typing import Any, Iterable, Mapping
 
+from app.services.broker_realized_import import canonicalize_realized_date
+
 KIS_BROKER = "한국투자증권"
 _SUPPORTED_MARKETS = frozenset({"kr", "us"})
 _FINGERPRINT_PREFIX = "kis-realized:v1:"
@@ -479,7 +481,11 @@ def preview_kis_realized_selection(
         for rec in existing_list:
             if not isinstance(rec, Mapping) or rec.get("source") == "kis":
                 continue
-            if str(rec.get("date")) != str(cand_date):
+            try:
+                rec_date = canonicalize_realized_date(rec.get("date"))
+            except Exception:
+                rec_date = str(rec.get("date") or "")
+            if rec_date != str(cand_date):
                 continue
             rec_code = str(rec.get("code", "")).strip()
             rec_name = str(rec.get("name", "")).strip()

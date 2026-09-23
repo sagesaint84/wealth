@@ -1253,6 +1253,7 @@
 }
 .sector-legend-item.clickable-sector-item {
   padding: 2px 4px;
+  border: 1px solid transparent;
 }
 .sector-legend-item.clickable-sector-item:hover {
   background: rgba(142, 112, 250, 0.14) !important;
@@ -1266,6 +1267,11 @@
   stroke-width: 28px !important;
   filter: brightness(1.2);
 }
+.sector-donut-container.has-donut-hover .clickable-sector-slice { opacity:.35; }
+.sector-donut-container.has-donut-hover .sector-legend-item { opacity:.45; }
+.sector-donut-container.has-donut-hover .clickable-sector-slice.is-donut-active { opacity:1; stroke-width:28px; filter:brightness(1.2) drop-shadow(0 0 3px currentColor); }
+.sector-donut-container.has-donut-hover .sector-legend-item.is-donut-active { opacity:1; background:color-mix(in srgb,var(--workspace-accent,#8e70fa) 14%,var(--surface-2,#090e1d)); border-color:color-mix(in srgb,var(--workspace-accent,#8e70fa) 60%,transparent); box-shadow:0 0 0 1px color-mix(in srgb,var(--workspace-accent,#8e70fa) 16%,transparent); }
+@media (prefers-reduced-motion: reduce) { .clickable-sector-slice, .sector-legend-item.clickable-sector-item { transition:none; } }
 
 /* 검색창 하이라이트 펄스 애니메이션 */
 @keyframes searchInputPulse {

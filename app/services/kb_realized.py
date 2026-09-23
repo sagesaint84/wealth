@@ -5,6 +5,7 @@ import hashlib
 import json
 from typing import Any, Mapping
 
+from app.services.broker_realized_import import canonicalize_realized_date
 from app.services.kb_feed import (
     KBFeedError,
     canonical_kb_number,
@@ -47,6 +48,11 @@ def classify_kb_rows(
         ):
             output.append({"status": INVALID, "reason": "MISSING_REQUIRED_FIELD"})
             continue
+        try:
+            cand_date = canonicalize_realized_date(row["date"])
+        except ValueError:
+            output.append({"status": INVALID, "reason": "INVALID_DATE"})
+            continue
         occurrence = row.get("source_occurrence")
         if not isinstance(occurrence, int) or isinstance(occurrence, bool) or occurrence < 1:
             output.append({"status": INVALID, "reason": "INVALID_OCCURRENCE"})
@@ -79,9 +85,14 @@ def classify_kb_rows(
             for record in existing:
                 if (
                     record.get("source") == "kb"
-                    or str(record.get("date")) != str(row.get("date"))
                     or str(record.get("code")) != str(row.get("code"))
                 ):
+                    continue
+                try:
+                    rec_date = canonicalize_realized_date(record.get("date"))
+                except Exception:
+                    rec_date = str(record.get("date") or "")
+                if rec_date != cand_date:
                     continue
                 try:
                     if canonical_kb_number(record.get("pnl")) == expected_pnl:
@@ -90,7 +101,9 @@ def classify_kb_rows(
                 except KBFeedError:
                     continue
             status = POSSIBLE_DUPLICATE if manual_match else NEW
-        output.append({"status": status, "fingerprint": fingerprint, "candidate": dict(row)})
+        candidate = dict(row)
+        candidate["date"] = cand_date
+        output.append({"status": status, "fingerprint": fingerprint, "candidate": candidate})
     return output
 
 

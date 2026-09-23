@@ -4,6 +4,7 @@ Provider canonical rows and fingerprints deliberately remain outside this module
 """
 from __future__ import annotations
 
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
@@ -17,6 +18,44 @@ DEFAULT_IPO_SUBSCRIPTION_FEE_KRW = 2000
 
 class BrokerRealizedImportError(ValueError):
     pass
+
+
+def canonicalize_realized_date(value: Any) -> str:
+    """Validate and convert realized-P/L dates to canonical YYYY-MM-DD.
+
+    Accepts strict YYYY-MM-DD or YYYYMMDD with calendar validity.
+    Rejects invalid calendar dates (e.g. 20260230), partial dates, empty/null
+    values, and never silently defaults to current date.
+    """
+    if value is None or isinstance(value, bool):
+        raise BrokerRealizedImportError("INVALID_REALIZED_DATE")
+    if isinstance(value, (datetime, date)):
+        return value.strftime("%Y-%m-%d")
+    text = str(value).strip()
+    if not text:
+        raise BrokerRealizedImportError("INVALID_REALIZED_DATE")
+
+    # Check YYYY-MM-DD format:
+    if len(text) == 10 and text[4] == "-" and text[7] == "-":
+        try:
+            parsed = datetime.strptime(text, "%Y-%m-%d")
+        except ValueError as exc:
+            raise BrokerRealizedImportError(f"INVALID_CALENDAR_DATE: {text}") from exc
+        if parsed.strftime("%Y-%m-%d") != text:
+            raise BrokerRealizedImportError(f"INVALID_CALENDAR_DATE: {text}")
+        return text
+
+    # Check YYYYMMDD format:
+    if len(text) == 8 and text.isdigit():
+        try:
+            parsed = datetime.strptime(text, "%Y%m%d")
+        except ValueError as exc:
+            raise BrokerRealizedImportError(f"INVALID_CALENDAR_DATE: {text}") from exc
+        if parsed.strftime("%Y%m%d") != text:
+            raise BrokerRealizedImportError(f"INVALID_CALENDAR_DATE: {text}")
+        return parsed.strftime("%Y-%m-%d")
+
+    raise BrokerRealizedImportError(f"UNSUPPORTED_DATE_FORMAT: {text}")
 
 
 def has_wealth_import_preferences(selected_items: list[Mapping[str, Any]]) -> bool:

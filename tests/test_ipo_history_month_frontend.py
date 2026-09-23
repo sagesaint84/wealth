@@ -232,6 +232,66 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
         self.assertEqual(output["month"], 8)
         self.assertEqual(output["cards"], ["ipo-aug2", "ipo-aug1"])
 
+    def test_all_uses_current_month_and_includes_every_status_ascending(self):
+        script = """
+        const cur = window.WealthIpoDate.currentKstYearMonth();
+        const testData = [
+          { ipo_id: 'past-sep', company_name: '과거', filter_group: 'PAST', presentation_sort_date: '2026-09-20' },
+          { ipo_id: 'active-sep', company_name: '진행', filter_group: 'ACTIVE', presentation_sort_date: '2026-09-10' },
+          { ipo_id: 'upcoming-sep', company_name: '예정', filter_group: 'UPCOMING', presentation_sort_date: '2026-09-05' },
+          { ipo_id: 'other-month', company_name: '다른월', filter_group: 'PAST', presentation_sort_date: '2026-08-30' },
+          { ipo_id: 'invalid-date', company_name: '일정미정', filter_group: 'ACTIVE', presentation_sort_date: 'not-a-date' },
+        ];
+        window.WealthIpoState.setMarketIpos(testData);
+        window.WealthIpoState.setFilterGroup('ALL');
+        window.WealthIpoState.renderIpoList();
+        process.stdout.write(JSON.stringify({
+          cur,
+          year: window.WealthIpoState.getHistoryYear(),
+          month: window.WealthIpoState.getHistoryMonth(),
+          cards: mockWrapper.querySelectorAll('.ipo-card').map(c => c.dataset.ipoId),
+          html: mockWrapper.innerHTML,
+        }));
+        """
+        output = json.loads(_run_js_suite(script))
+        self.assertEqual(output["cur"], {"year": 2026, "month": 9, "key": "2026-09"})
+        self.assertEqual((output["year"], output["month"]), (2026, 9))
+        self.assertEqual(output["cards"][:3], ["upcoming-sep", "active-sep", "past-sep"])
+        self.assertNotIn("other-month", output["cards"])
+        self.assertIn("invalid-date", output["cards"])
+        self.assertIn("전체 5", output["html"])
+        self.assertIn("예정 1", output["html"])
+        self.assertIn("진행 2", output["html"])
+        self.assertIn("과거 2", output["html"])
+        self.assertIn("9월 · 3건", output["html"])
+
+    def test_all_first_visit_does_not_consume_past_default_and_explicit_month_is_shared(self):
+        script = """
+        const testData = [
+          { ipo_id: 'past-july', company_name: '7월', filter_group: 'PAST', presentation_sort_date: '2026-07-21' },
+          { ipo_id: 'past-aug', company_name: '8월', filter_group: 'PAST', presentation_sort_date: '2026-08-22' },
+          { ipo_id: 'active-sep', company_name: '9월', filter_group: 'ACTIVE', presentation_sort_date: '2026-09-10' },
+        ];
+        window.WealthIpoState.setMarketIpos(testData);
+        window.WealthIpoState.setFilterGroup('ALL');
+        window.WealthIpoState.renderIpoList();
+        const allFirst = [window.WealthIpoState.getHistoryYear(), window.WealthIpoState.getHistoryMonth()];
+        mockWrapper.querySelector('.ipo-filter[data-filter-group="PAST"]').click();
+        const pastFirst = [window.WealthIpoState.getHistoryYear(), window.WealthIpoState.getHistoryMonth()];
+        mockWrapper.querySelector('#ipoPrevMonthBtn').click();
+        mockWrapper.querySelector('.ipo-filter[data-filter-group="ALL"]').click();
+        process.stdout.write(JSON.stringify({
+          allFirst, pastFirst,
+          selected: [window.WealthIpoState.getHistoryYear(), window.WealthIpoState.getHistoryMonth()],
+          explicit: window.WealthIpoState.isMonthExplicitlySelected(),
+        }));
+        """
+        output = json.loads(_run_js_suite(script))
+        self.assertEqual(output["allFirst"], [2026, 9])
+        self.assertEqual(output["pastFirst"], [2026, 8])
+        self.assertEqual(output["selected"], [2026, 7])
+        self.assertTrue(output["explicit"])
+
     def test_empty_month_and_navigation_stepping(self):
         script = """
         const testData = [

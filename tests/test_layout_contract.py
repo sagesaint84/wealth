@@ -55,6 +55,41 @@ class LayoutContractTests(unittest.TestCase):
             self.assertNotIn(forbidden, source)
         self.assertIn("addEventListener('wealth:summary'", source)
 
+    def test_home_asset_donut_has_keyed_hover_contract(self):
+        source = (STATIC / 'wealth-layout.js').read_text(encoding='utf-8')
+        self.assertIn('key:`asset-${index}`', source)
+        self.assertIn('row.dataset.donutKey=item.key', source)
+        self.assertIn('window.WealthDonutHitTest = donutKeyAtPointer', source)
+        self.assertIn('row.onpointerenter=()=>activate(row.dataset.donutKey)', source)
+        self.assertIn('row.onfocus=()=>activate(row.dataset.donutKey)', source)
+        self.assertIn('donut.onpointerleave=()=>activate(null)', source)
+
+    def test_stock_sector_donut_preserves_filter_and_keyed_interaction(self):
+        source = (STATIC / 'wealth.js').read_text(encoding='utf-8')
+        self.assertIn('const donutKey = `classification:${String(s.name || \'\')}`', source)
+        self.assertIn('data-sector-filter="${html(s.name)}" data-donut-key="${html(donutKey)}"', source)
+        self.assertIn("bindSectorDonutInteractions(wrap.querySelector('.sector-donut-container'))", source)
+        self.assertIn("filterHoldingsByClassification(node.dataset.sectorFilter)", source)
+        self.assertIn("event.key === 'Enter' || event.key === ' '", source)
+
+    def test_strategy_and_history_interaction_contracts_are_scoped(self):
+        source = (STATIC / 'wealth-planning.js').read_text(encoding='utf-8')
+        css = (STATIC / 'wealth-layout.css').read_text(encoding='utf-8')
+        self.assertIn('data-bucket-chart="target"', source)
+        self.assertIn('data-bucket-chart="current"', source)
+        self.assertIn('data-bucket-key="${esc(item.id)}"', source)
+        self.assertIn('data-history-date="${esc(r.date)}"', source)
+        self.assertIn('data-history-date="${esc(records[i].date)}"', source)
+        self.assertIn('<div class="wealth-history-record-head"><time datetime="${esc(r.date)}">${esc(r.date)}</time><strong>${won(r.net_worth)}</strong></div>', source)
+        self.assertIn('<p class="wealth-history-record-change"><span>직전 기록 대비</span><strong class="wealth-history-delta ${changeClass}">${changeText}</strong></p>', source)
+        self.assertNotIn('wealth-history-value-cluster', source)
+        self.assertIn("node.addEventListener('focusin'", source)
+        self.assertNotIn('scrollIntoView(', source)
+        self.assertIn('data-history-edit="${esc(r.date)}"', source)
+        self.assertIn('data-history-delete="${esc(r.date)}"', source)
+        self.assertIn('.wealth-history-delta.is-positive { color:#ef4444;', css)
+        self.assertIn('.wealth-history-delta.is-negative { color:#3b82f6;', css)
+
 
 if __name__ == '__main__':
     unittest.main()

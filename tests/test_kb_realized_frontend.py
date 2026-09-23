@@ -71,7 +71,9 @@ class KbRealizedFrontendTests(unittest.TestCase):
         self.assertIn("populateKbDestinationAccounts", JS)
 
     def test_no_raw_kb_account_number_field_is_rendered(self) -> None:
-        kb_section = HTML.split('id="kbRealizedCard"', 1)[1]
+        # Bound the assertion to the KB card itself.  Later dialogs can
+        # legitimately contain a generic Wealth account_no input.
+        kb_section = HTML.split('id="kbRealizedCard"', 1)[1].split('<section id="dividendPanel"', 1)[0]
         self.assertNotIn("acctNo", kb_section)
         self.assertNotIn("account_no", kb_section)
         self.assertNotIn("appkey", kb_section)

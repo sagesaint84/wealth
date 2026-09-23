@@ -17,11 +17,19 @@
   let currentYear = initialKst[0];
   let currentMonth = initialKst[1]; // 1-12
   let selectedDate = null;
+  let hasInitializedDefaultDate = false;
   let calendarEvents = [];
   let currentOwner = '모두';
   let currentRevision = 0;
   let userApplications = {};
   let familyMembers = ['아빠', '엄마', '자녀'];
+
+  function isDateInCurrentMonth(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return false;
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return false;
+    return Number(parts[0]) === currentYear && Number(parts[1]) === currentMonth;
+  }
 
   function isCalendarPanelActive() {
     const workspace = document.querySelector('.wealth-workspace');
@@ -61,6 +69,15 @@
   }
 
   async function loadCalendar() {
+    if (!hasInitializedDefaultDate) {
+      hasInitializedDefaultDate = true;
+      const todayStr = getKstToday();
+      const [todayYear, todayMonth] = todayStr.split('-').map(Number);
+      if (selectedDate === null && currentYear === todayYear && currentMonth === todayMonth) {
+        selectedDate = todayStr;
+      }
+    }
+
     await fetchApplications();
     const { fromStr, toStr } = getMonthDateRange(currentYear, currentMonth);
     const label = document.getElementById('calendarCurrentMonthLabel');
@@ -82,11 +99,12 @@
     }
 
     renderCalendarGrid();
-    if (selectedDate) {
+    if (selectedDate && isDateInCurrentMonth(selectedDate)) {
       const dayEvents = calendarEvents.filter(ev => ev.date === selectedDate);
       renderDetailPanel(selectedDate, dayEvents);
     } else {
-      closeDetailPanel();
+      const panel = document.getElementById('calendarDetailPanel');
+      if (panel) panel.hidden = true;
     }
   }
 
@@ -226,6 +244,7 @@
       btn.addEventListener('click', () => {
         const d = btn.dataset.date;
         selectedDate = d;
+        hasInitializedDefaultDate = true;
         wrapper.querySelectorAll('.cal-day-cell').forEach(b => b.classList.toggle('is-selected', b.dataset.date === d));
         const dayEvents = eventsByDate[d] || [];
         renderDetailPanel(d, dayEvents);
@@ -431,7 +450,7 @@
       if (res.status === 409) {
         alert('다른 화면이나 기기에서 청약 신청 정보가 변경되었습니다. 최신 정보를 불러온 후 다시 시도해 주세요.');
         await fetchApplications();
-        if (selectedDate) {
+        if (selectedDate && isDateInCurrentMonth(selectedDate)) {
           const dayEvents = calendarEvents.filter(ev => ev.date === selectedDate);
           renderDetailPanel(selectedDate, dayEvents);
         }
@@ -470,7 +489,7 @@
 
       // Rerender grid & detail
       renderCalendarGrid();
-      if (selectedDate) {
+      if (selectedDate && isDateInCurrentMonth(selectedDate)) {
         const dayEvents = calendarEvents.filter(ev => ev.date === selectedDate);
         renderDetailPanel(selectedDate, dayEvents);
       }
@@ -488,7 +507,7 @@
   // Cross-tab / cross-component sync
   window.addEventListener('wealth-ipo-app-updated', async () => {
     await fetchApplications();
-    if (selectedDate) {
+    if (selectedDate && isDateInCurrentMonth(selectedDate)) {
       const dayEvents = calendarEvents.filter(ev => ev.date === selectedDate);
       renderDetailPanel(selectedDate, dayEvents);
     }
@@ -498,6 +517,7 @@
     const panel = document.getElementById('calendarDetailPanel');
     if (panel) panel.hidden = true;
     selectedDate = null;
+    hasInitializedDefaultDate = true;
     document.querySelectorAll('.cal-day-cell.is-selected').forEach(b => b.classList.remove('is-selected'));
   }
 
@@ -531,9 +551,12 @@
   });
 
   document.getElementById('calendarTodayBtn')?.addEventListener('click', () => {
-    const [year, month] = getKstToday().split('-').map(Number);
+    const todayStr = getKstToday();
+    const [year, month] = todayStr.split('-').map(Number);
     currentYear = year;
     currentMonth = month;
+    selectedDate = todayStr;
+    hasInitializedDefaultDate = true;
     loadCalendar();
   });
 
@@ -551,6 +574,15 @@
   });
 
   window.loadCalendar = loadCalendar;
+  window.WealthCalendar = {
+    getSelectedDate: () => selectedDate,
+    setSelectedDate: (d) => { selectedDate = d; hasInitializedDefaultDate = true; },
+    getCurrentYear: () => currentYear,
+    getCurrentMonth: () => currentMonth,
+    hasInitializedDefaultDate: () => hasInitializedDefaultDate,
+    closeDetailPanel,
+    loadCalendar,
+  };
   // Layout/hash restoration runs before this module is loaded.  When it has
   // already made MoneyLog's calendar visible, perform the same lazy load the
   // normal tab activation would perform.

@@ -1516,6 +1516,32 @@ const SECTOR_COLORS = [
   '#6366f1', '#14b8a6', '#84cc16', '#eab308', '#d946ef', '#64748b'
 ];
 
+function maskBrokerAccountNo(value) {
+  const normalized = String(value || "").replace(/[\s-]+/g, "");
+  return normalized ? `계좌 ****${normalized.slice(-4)}` : "";
+}
+
+function bindSectorDonutInteractions(container) {
+  const nodes = [...container.querySelectorAll('[data-donut-key]')];
+  const setActive = (key) => {
+    container.classList.toggle('has-donut-hover', Boolean(key));
+    nodes.forEach(node => node.classList.toggle('is-donut-active', node.dataset.donutKey === key));
+  };
+  nodes.forEach(node => {
+    // Property handlers are replaced on a repeated render rather than accumulated.
+    node.onpointerenter = () => setActive(node.dataset.donutKey);
+    node.onpointerleave = () => setActive(null);
+    node.onfocus = () => setActive(node.dataset.donutKey);
+    node.onblur = () => setActive(null);
+    node.onkeydown = event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        filterHoldingsByClassification(node.dataset.sectorFilter);
+      }
+    };
+  });
+}
+
 function renderAllocationDonut(items, emptyMsg = "투자자산 데이터가 없습니다.") {
   const wrap = $("#sectorDonutWrap");
   if (!wrap) return;
@@ -1532,6 +1558,7 @@ function renderAllocationDonut(items, emptyMsg = "투자자산 데이터가 없�
 
   let offset = 0;
   const slices = validItems.map((s, idx) => {
+    const donutKey = `classification:${String(s.name || '')}`;
     const pct = total > 0 ? (s.market_value_krw / total) : 0;
     const dash = pct * circumference;
     const color = SECTOR_COLORS[idx % SECTOR_COLORS.length];
@@ -1539,7 +1566,7 @@ function renderAllocationDonut(items, emptyMsg = "투자자산 데이터가 없�
       <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="${strokeWidth}"
         stroke-dasharray="${dash.toFixed(2)} ${(circumference - dash).toFixed(2)}"
         stroke-dashoffset="${(-offset).toFixed(2)}" stroke-linecap="round"
-        class="clickable-sector-slice" data-sector-filter="${html(s.name)}" style="cursor:pointer;">
+        class="clickable-sector-slice" data-sector-filter="${html(s.name)}" data-donut-key="${html(donutKey)}" style="cursor:pointer;">
         <title>${s.name}: ${money(s.market_value_krw)} (${(pct * 100).toFixed(1)}%) - 클릭하여 종목 검색</title>
       </circle>
     `;
@@ -1547,11 +1574,11 @@ function renderAllocationDonut(items, emptyMsg = "투자자산 데이터가 없�
     return el;
   }).join('');
 
-  const topItems = validItems.slice(0, 6);
-  const legendHtml = topItems.map((s, idx) => {
+  const legendHtml = validItems.map((s, idx) => {
+    const donutKey = `classification:${String(s.name || '')}`;
     const color = SECTOR_COLORS[idx % SECTOR_COLORS.length];
     return `
-      <div class="sector-legend-item clickable-sector-item" data-sector-filter="${html(s.name)}" style="cursor:pointer;" title="${html(s.name)} 관련 종목 검색">
+      <div class="sector-legend-item clickable-sector-item" data-sector-filter="${html(s.name)}" data-donut-key="${html(donutKey)}" tabindex="0" style="cursor:pointer;" title="${html(s.name)} 관련 종목 검색">
         <span style="display:flex;align-items:center;gap:6px;">
           <i class="sector-legend-color" style="background:${color};"></i>
           <strong>${html(s.name)}</strong>
@@ -1573,6 +1600,7 @@ function renderAllocationDonut(items, emptyMsg = "투자자산 데이터가 없�
       </div>
     </div>
   `;
+  bindSectorDonutInteractions(wrap.querySelector('.sector-donut-container'));
 }
 
 // ── 자산 분류 (섹터/자산군) 클릭 시 보유종목 자동 검색 & 스크롤 연동 ─────────────
@@ -1785,6 +1813,7 @@ function renderAccounts(items) {
             ${typeBadge}
             <strong class="account-name-text" style="font-size:14px;font-weight:700;">${html(account.name)}</strong>
             <span class="saving-owner-badge" style="font-size:10.5px;padding:1px 6px;">${html(account.owner || '모두')}</span>
+            ${account.account_no ? `<span style="font-size:10.5px;color:#94a3b8;">${maskBrokerAccountNo(account.account_no)}</span>` : ''}
           </div>
           <div class="account-row-sub-line" style="font-size:12px;color:#94a3b8;margin-top:2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span>주식자산 <strong style="font-weight:600;">₩${number(stockVal, 0)}</strong> (${number(account.holding_count, 0)}종목)</span>
@@ -6300,6 +6329,7 @@ function openAccountEditDialog(account) {
   idInput.value = account.id;
   form.broker.value = account.broker || "";
   form.name.value = account.name || "";
+  if (form.account_no) form.account_no.value = account.account_no || "";
   if (form.owner) form.owner.value = account.owner || "모두";
   if (form.cash_krw) form.cash_krw.value = account.cash_krw || "";
   if (form.cash_usd) form.cash_usd.value = account.cash_usd || "";
@@ -7530,6 +7560,23 @@ $("#importForm")?.addEventListener("submit", async (e) => {
   }
 });
 
+document.getElementById("accountImportBtn")?.addEventListener("click", () => {
+  document.getElementById("accountImportDialog")?.showModal();
+});
+$("#accountImportForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = e.currentTarget;
+  const file = $("#accountImportFile")?.files[0];
+  if (!file) return;
+  const formData = new FormData(); formData.append("file", file);
+  try {
+    const result = await api("/api/import-accounts", { method: "POST", body: formData });
+    form.closest("dialog")?.close(); form.reset();
+    toast(`증권계좌 ${result.created || 0}개를 추가했습니다.${result.duplicates ? ` 중복 ${result.duplicates}건은 건너뛰었습니다.` : ""}`);
+    await loadDashboard();
+  } catch (error) { toast(error.message, true); }
+});
+
 $("#assetRecordForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.currentTarget;
@@ -7605,6 +7652,7 @@ async function saveEditAccount() {
     const broker = (form.querySelector("[name='broker']")?.value || "").trim() || (existingAcct?.broker || "");
     const name = (form.querySelector("[name='name']")?.value || "").trim() || (existingAcct?.name || "");
     const owner = (form.querySelector("[name='owner']")?.value || "").trim() || (existingAcct?.owner || "모두");
+    const account_no = (form.querySelector("[name='account_no']")?.value || "").trim();
 
     if (!broker || !name) {
       alert("증권사와 계좌 이름을 모두 입력해 주세요.");
@@ -7694,6 +7742,7 @@ async function saveEditAccount() {
       if (!acctObj) return;
       acctObj.broker = broker;
       acctObj.name = name;
+      acctObj.account_no = account_no;
       acctObj.owner = owner;
       acctObj.account_type = account_type;
       acctObj.tax_deductible = isDeductible;
@@ -7729,6 +7778,7 @@ async function saveEditAccount() {
       body: JSON.stringify({
         broker,
         name,
+        account_no,
         owner,
         account_type,
         tax_deductible: isDeductible,
@@ -7767,6 +7817,7 @@ async function saveNewAccount() {
   if (!form) return;
   const broker = (form.querySelector("[name='broker']")?.value || "").trim();
   const account_name = (form.querySelector("[name='account_name']")?.value || "").trim();
+  const account_no = (form.querySelector("[name='account_no']")?.value || "").trim();
   const owner = (form.querySelector("[name='owner']")?.value || "모두").trim();
   const account_type = form.querySelector(".account-type-select")?.value || "general";
   const isDeductible = form.querySelector(".pension-tax-deductible")?.value === "true";
@@ -7794,6 +7845,7 @@ async function saveNewAccount() {
         broker,
         account_name,
         name: account_name,
+        account_no,
         owner,
         account_type,
         tax_deductible: isDeductible,
@@ -10109,7 +10161,11 @@ async function openPnlRecordDialog(record = null) {
   setupAutoAdvancingDateInput("#pnlSplitDateWrap");
 
   const today = new Date().toISOString().slice(0, 10);
-  const targetDate = record ? record.date : today;
+  let targetDate = record ? record.date : today;
+  if (typeof targetDate === 'string' && /^\d{8}$/.test(targetDate.trim())) {
+    const s = targetDate.trim();
+    targetDate = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}`;
+  }
 
   const dateEl = form.querySelector("[name='date']");
   const ownerEl = form.querySelector("[name='owner']");

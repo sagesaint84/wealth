@@ -1,6 +1,15 @@
 /* Navigation and presentation only. Existing panels, handlers and owner rules are retained. */
 (() => {
   'use strict';
+  const donutKeyAtPointer = (segments, { x, y, innerRadius, outerRadius }) => {
+    const distance = Math.hypot(x, y);
+    if (!Number.isFinite(distance) || distance < innerRadius || distance > outerRadius) return null;
+    // CSS conic-gradient starts at 12 o'clock and proceeds clockwise.
+    const percent = ((Math.atan2(y, x) * 180 / Math.PI + 450) % 360) / 3.6;
+    return segments.find(segment => percent >= segment.start && percent < segment.end)?.key || null;
+  };
+  // Kept small and data-only so the donut geometry can be regression-tested without a DOM.
+  window.WealthDonutHitTest = donutKeyAtPointer;
   const root = document.getElementById('userAssetDashboardWrapper');
   if (!root) return;
   const views = {
@@ -252,15 +261,20 @@
     const legend = document.getElementById('wealthMixLegend');
     donutLegend.replaceChildren(); legend.replaceChildren();
     let cursor = 0;
-    const stops = items.map(item => { const share = total > 0 ? Math.max(0, Number(item.market_value_krw || 0)) / total * 100 : 0; const start = cursor; cursor += share; return `${item.color} ${start}% ${cursor}%`; });
-    donut.style.background = stops.length ? `conic-gradient(${stops.join(',')})` : 'var(--line)';
+    const segments = items.map((item, index) => { const share = total > 0 ? Math.max(0, Number(item.market_value_krw || 0)) / total * 100 : 0; const start = cursor; cursor += share; return {...item, key:`asset-${index}`, start, end:cursor}; });
+    const paintDonut = active => { const stops=segments.map(segment => `${segment.color}${active && active!==segment.key ? '80' : ''} ${segment.start}% ${segment.end}%`); donut.style.background=stops.length?`conic-gradient(${stops.join(',')})`:'var(--line)'; donut.classList.toggle('has-donut-hover',Boolean(active)); };
+    paintDonut(null);
     document.getElementById('homeAssetAllocationTotal').textContent = won(total);
-    items.slice(0, 6).forEach(item => {
-      const row = document.createElement('span'); row.style.setProperty('--mix-color', item.color);
+    segments.forEach(item => {
+      const row = document.createElement('span'); row.style.setProperty('--mix-color', item.color); row.dataset.donutKey=item.key; row.tabIndex=0;
       const name = document.createElement('span'); name.textContent = item.name;
       const weight = document.createElement('strong'); weight.textContent = `${Number(item.weight || 0).toFixed(1)}%`;
       row.append(name, weight); donutLegend.append(row);
     });
+    const activate = key => { paintDonut(key); donutLegend.querySelectorAll('[data-donut-key]').forEach(row=>row.classList.toggle('is-donut-active',row.dataset.donutKey===key)); };
+    const fromPointer = event => { const rect=donut.getBoundingClientRect(), x=event.clientX-rect.left-rect.width/2, y=event.clientY-rect.top-rect.height/2, outer=Math.min(rect.width,rect.height)/2; activate(donutKeyAtPointer(segments,{x,y,innerRadius:outer*.42,outerRadius:outer})); };
+    donut.onpointermove=fromPointer; donut.onpointerleave=()=>activate(null);
+    donutLegend.querySelectorAll('[data-donut-key]').forEach(row=>{row.onpointerenter=()=>activate(row.dataset.donutKey);row.onpointerleave=()=>activate(null);row.onfocus=()=>activate(row.dataset.donutKey);row.onblur=()=>activate(null);});
     items.forEach(item => {
       const label = item.name; const value = Number(item.market_value_krw || 0); const color = item.color;
       const row = document.createElement('div');
