@@ -74,4 +74,4 @@ toss-wts/
 session.json
 
 data/샘플_*.xlsx
-!data/샘플_증권계좌.xlsx
+!샘플_증권계좌.xlsx
