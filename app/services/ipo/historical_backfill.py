@@ -19,6 +19,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from app.services.ipo.identity import find_matching_ipo, generate_ipo_id, normalize_company_name
 from app.services.ipo.kind_client import KindClient, KindClientError
 from app.services.ipo.krx_client import KrxClient, KrxClientError
+from app.services.ipo.dart_client import (
+    DartClient,
+    DartRateLimitError,
+    extract_document_text_from_zip,
+    select_point_in_time_filing,
+)
+from app.services.ipo.dart_parser import DartSemanticParser
+from app.services.ipo.score import calculate_wealth_ipo_score
 from app.services.ipo.store import (
     _STORE_LOCK,
     get_market_file,
@@ -810,3 +818,110 @@ class HistoricalBackfillEngine:
                 "applied_enrich": applied_enrich,
                 "total_committed": applied_new + applied_enrich,
             }
+
+    def enrich_dart(
+        self,
+        *,
+        username: str | None = None,
+        from_year: int = MIN_SUPPORTED_YEAR,
+        to_year: int | None = None,
+        dart_client: DartClient | None = None,
+        dry_run: bool = False,
+        max_records: int | None = None,
+    ) -> dict[str, int | str]:
+        """Phase B historical DART enrichment with record-level checkpoints.
+
+        Each successful record receives a ``dart_historical`` source marker and
+        is persisted independently.  A later invocation therefore resumes
+        without re-fetching already enriched point-in-time records.  A rate
+        limit stops the batch cleanly; it never rolls back previous successes.
+        """
+        current_year = get_current_kst_date().year
+        to_year = to_year or current_year
+        if from_year < self.MIN_SUPPORTED_YEAR or to_year < from_year:
+            raise HistoricalBackfillError("Historical DART enrichment year range is invalid")
+        dart = dart_client or DartClient(username=username)
+        if not dart.is_configured():
+            return {"status": "not_configured", "processed": 0, "enriched": 0, "skipped": 0, "failed": 0}
+
+        store = read_market_store()
+        ipos = store.get("ipos", [])
+        try:
+            from app.services.ipo.orchestrator import _resolve_missing_dart_corp_codes
+            unresolved = [
+                item for item in ipos
+                if not item.get("corp_code") and str(item.get("subscription_start") or "")[:4].isdigit()
+            ]
+            if unresolved:
+                _resolve_missing_dart_corp_codes(ipos, dart.get_corp_code_master())
+        except DartRateLimitError:
+            return {"status": "rate_limited", "processed": 0, "enriched": 0, "skipped": 0, "failed": 0}
+        except Exception:
+            # A master failure must not corrupt or block independently resolvable records.
+            pass
+
+        processed = enriched = skipped = failed = 0
+        parser = DartSemanticParser()
+        for ipo in ipos:
+            if max_records is not None and processed >= max_records:
+                break
+            if ipo.get("listing_track") == "spac":
+                skipped += 1
+                continue
+            sub_start = _parse_iso_date(ipo.get("subscription_start"))
+            if sub_start is None or not (from_year <= sub_start.year <= to_year):
+                continue
+            score_day = sub_start - timedelta(days=1)
+            checkpoint = (ipo.get("sources") or {}).get("dart_historical", {})
+            if checkpoint.get("score_as_of") == score_day.isoformat() and checkpoint.get("status") == "ok":
+                skipped += 1
+                continue
+            corp_code = str(ipo.get("corp_code") or "").strip()
+            if not corp_code:
+                skipped += 1
+                continue
+
+            processed += 1
+            try:
+                filings = dart.get_filing_list(
+                    corp_code=corp_code,
+                    bgn_de=(score_day - timedelta(days=365)).strftime("%Y%m%d"),
+                    end_de=score_day.strftime("%Y%m%d"),
+                    pblntf_detail_ty="C001",
+                    last_reprt_at="N",
+                ).get("list", [])
+                filing = select_point_in_time_filing(filings, score_day.isoformat())
+                if not filing or not filing.get("rcept_no"):
+                    skipped += 1
+                    continue
+                source_date = str(filing.get("rcept_dt") or "")
+                doc_text = extract_document_text_from_zip(dart.download_document_zip(str(filing["rcept_no"])))
+                parsed_features = parser.parse_document(doc_text, str(filing["rcept_no"]), source_date)
+                offer_band = parser.extract_offer_band(doc_text)
+                if not dry_run:
+                    features = ipo.setdefault("features", {})
+                    for name, feature in parsed_features.items():
+                        existing = features.get(name)
+                        if not isinstance(existing, dict) or existing.get("status") != "ok" or existing.get("value") is None:
+                            features[name] = feature
+                    sources = ipo.setdefault("sources", {})
+                    if offer_band:
+                        low, high = offer_band
+                        if ipo.get("offer_band_low") in (None, ""):
+                            ipo["offer_band_low"] = low
+                            sources["offer_band_low"] = {"value": low, "source": "dart_document", "source_date": source_date, "confidence": "high"}
+                        if ipo.get("offer_band_high") in (None, ""):
+                            ipo["offer_band_high"] = high
+                            sources["offer_band_high"] = {"value": high, "source": "dart_document", "source_date": source_date, "confidence": "high"}
+                    sources["dart_historical"] = {"status": "ok", "score_as_of": score_day.isoformat(), "rcept_no": str(filing["rcept_no"]), "source_date": source_date}
+                    ipo["score"] = calculate_wealth_ipo_score(ipo, ipos)
+                    # Deliberately persist each completed IPO: this is the resume checkpoint.
+                    write_market_store(store)
+                enriched += 1
+            except DartRateLimitError:
+                return {"status": "rate_limited", "processed": processed, "enriched": enriched, "skipped": skipped, "failed": failed}
+            except Exception:
+                failed += 1
+                # One historical filing failure is isolated from the rest of the batch.
+                continue
+        return {"status": "ok", "processed": processed, "enriched": enriched, "skipped": skipped, "failed": failed}

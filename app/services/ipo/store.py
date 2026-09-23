@@ -14,7 +14,7 @@ _STORE_LOCK = threading.RLock()
 
 _CRITICAL_RETAINED_FIELDS = {
     "lead_managers", "final_offer_price", "expected_listing_date",
-    "actual_listing_date", "stock_code", "corp_code",
+    "actual_listing_date", "stock_code", "corp_code", "offer_band_low", "offer_band_high",
 }
 
 

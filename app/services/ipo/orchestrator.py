@@ -591,12 +591,12 @@ def _run_ipo_daily_pipeline(
             for cand in candidates:
                 corp_code = str(cand["corp_code"]).strip()
                 sub_start = str(cand.get("subscription_start") or "")[:10]
-                # Default score_as_of is day before subscription_start or target_date_str
+                # Scores may use only information available before subscription opens.
                 score_as_of = sub_start if sub_start else target_date_str
 
                 # Determine 1-year search window prior to score_as_of
                 try:
-                    dt = datetime.strptime(score_as_of, "%Y-%m-%d").date()
+                    dt = datetime.strptime(score_as_of, "%Y-%m-%d").date() - timedelta(days=1)
                     bgn_de = (dt - timedelta(days=365)).strftime("%Y%m%d")
                     end_de = dt.strftime("%Y%m%d")
                 except Exception:
@@ -637,6 +637,7 @@ def _run_ipo_daily_pipeline(
 
                 # 4. Download document ZIP & extract text
                 parsed_features: dict[str, Any] = {}
+                offer_band: tuple[float, float] | None = parser.extract_offer_band_from_structured(structured_data)
                 if rcept_no:
                     try:
                         zip_bytes = dart.download_document_zip(rcept_no)
@@ -646,6 +647,8 @@ def _run_ipo_daily_pipeline(
                             rcept_no=rcept_no,
                             source_date=source_date,
                         )
+                        if offer_band is None:
+                            offer_band = parser.extract_offer_band(doc_text)
                     except Exception:
                         logger.warning("DART document extraction/parsing failed")
 
@@ -668,6 +671,18 @@ def _run_ipo_daily_pipeline(
                             "dart": dart_meta,
                         },
                     }
+                    if offer_band is not None:
+                        low, high = offer_band
+                        update_payload["offer_band_low"] = low
+                        update_payload["offer_band_high"] = high
+                        band_source = {
+                            "value": None,
+                            "source": "dart_structured" if parser.extract_offer_band_from_structured(structured_data) else "dart_document",
+                            "source_date": source_date,
+                            "confidence": "high",
+                        }
+                        update_payload["sources"]["offer_band_low"] = {**band_source, "value": low}
+                        update_payload["sources"]["offer_band_high"] = {**band_source, "value": high}
                     merge_ipo_record(market, update_payload)
                     dart_sync_count += 1
 

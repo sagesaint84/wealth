@@ -126,6 +126,52 @@ class DartSemanticParser:
 
         return features
 
+    def extract_offer_band(self, text: str) -> tuple[float, float] | None:
+        """Extract an explicitly labelled 희망공모가 range, never a fixed price.
+
+        The pattern deliberately requires a public-offering-band label and a
+        range connector.  Two arbitrary numbers elsewhere in a filing must not
+        be promoted into canonical pricing inputs.
+        """
+        label = r"(?:희망\s*공모\s*(?:가액|가격)|공모\s*희망\s*(?:가액|가격))"
+        number = r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*원?"
+        connector = r"(?:~|∼|\-|부터\s*|이상\s*)"
+        match = re.search(label + r"[^\d]{0,40}" + number + r"\s*" + connector + r"\s*" + number, text)
+        if match:
+            return self._validated_offer_band(parse_number(match.group(1)), parse_number(match.group(2)))
+
+        for table in extract_tables(text):
+            matrix = parse_table_to_matrix(table)
+            for row in matrix:
+                row_text = " ".join(row)
+                if not re.search(label, row_text):
+                    continue
+                values = [parse_number(cell) for cell in row]
+                values = [value for value in values if value is not None]
+                if len(values) >= 2:
+                    return self._validated_offer_band(values[-2], values[-1])
+        return None
+
+    def extract_offer_band_from_structured(self, structured: dict[str, Any]) -> tuple[float, float] | None:
+        """Use only explicitly named official structured fields before document text."""
+        for group in ("general", "security_classes"):
+            for row in structured.get(group, []) if isinstance(structured, dict) else []:
+                if not isinstance(row, dict):
+                    continue
+                for key, value in row.items():
+                    if not re.search(r"(?:희망.*공모.*(?:가액|가격)|offer[_ ]?band)", str(key), re.I):
+                        continue
+                    band = self.extract_offer_band(f"희망공모가액 {value}")
+                    if band:
+                        return band
+        return None
+
+    @staticmethod
+    def _validated_offer_band(low: float | None, high: float | None) -> tuple[float, float] | None:
+        if low is None or high is None or low <= 0 or high <= 0 or low > high:
+            return None
+        return (float(low), float(high))
+
     def _wrap_feature(
         self,
         value: Any,
@@ -151,7 +197,7 @@ class DartSemanticParser:
     def extract_competition_ratio(self, text: str) -> float | None:
         """Extract competition ratio like '854.2 : 1' or from demand forecast table."""
         # Regex search for explicit ratio
-        m = re.search(r"경쟁률[^\d\n\r]{0,30}(\d+(?:,\d+)*(?:\.\d+)?)\s*:\s*1", text)
+        m = re.search(r"(?:기관투자자|수요예측)[^\n\r]{0,50}?경쟁률[^\d\n\r]{0,30}(\d+(?:,\d+)*(?:\.\d+)?)\s*:\s*1", text)
         if m:
             val = parse_number(m.group(1))
             if val is not None and val > 0:

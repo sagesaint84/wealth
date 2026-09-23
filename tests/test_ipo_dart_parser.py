@@ -80,6 +80,23 @@ class DartParserTests(unittest.TestCase):
         ratio = self.parser.extract_competition_ratio(SAMPLE_DART_DOC)
         self.assertEqual(ratio, 854.2)
 
+    def test_offer_band_requires_an_explicit_range_label(self):
+        self.assertEqual(self.parser.extract_offer_band("희망공모가액 15,000원 ~ 18,000원"), (15000.0, 18000.0))
+        self.assertEqual(self.parser.extract_offer_band("공모희망가액: 15,000원 이상 18,000원 이하"), (15000.0, 18000.0))
+        self.assertIsNone(self.parser.extract_offer_band("확정공모가 18,000원"))
+        self.assertIsNone(self.parser.extract_offer_band("매출 15,000원, 비용 18,000원"))
+        self.assertIsNone(self.parser.extract_offer_band("희망공모가액 18,000원"))
+
+    def test_offer_band_table_and_structured_semantic_field(self):
+        table = "<table><tr><th>희망공모가액</th><td>15,000원</td><td>18,000원</td></tr></table>"
+        self.assertEqual(self.parser.extract_offer_band(table), (15000.0, 18000.0))
+        structured = {"general": [{"희망공모가액": "15,000원 ~ 18,000원"}]}
+        self.assertEqual(self.parser.extract_offer_band_from_structured(structured), (15000.0, 18000.0))
+
+    def test_competition_ratio_requires_institutional_or_demand_context(self):
+        self.assertIsNone(self.parser.extract_competition_ratio("시장 경쟁률은 16.0 : 1 입니다."))
+        self.assertEqual(self.parser.extract_competition_ratio("수요예측 기관투자자 경쟁률은 16.0 : 1 입니다."), 16.0)
+
     def test_parse_lockup_commitment_ratio(self):
         # 10M + 8M + 2M = 20M committed out of 50.5M total = ~39.60%
         ratio = self.parser.extract_lockup_commitment_ratio(SAMPLE_DART_DOC)

@@ -852,6 +852,45 @@ class TestHistoricalBackfill(unittest.TestCase):
             f_group = derive_filter_group(m_state, "NOT_APPLIED")
             self.assertEqual(f_group, "PAST", f"Item {item.get('company_name')} ({item.get('stock_code')}) is not PAST: {m_state}")
 
+    @patch("app.services.ipo.historical_backfill.extract_document_text_from_zip")
+    def test_historical_dart_enrichment_uses_only_pre_subscription_filing(self, extract_text) -> None:
+        store = default_market_store()
+        store["ipos"] = [{
+            "ipo_id": "ipo_history_dart", "company_name": "과거기업", "corp_code": "00123456",
+            "listing_track": "general", "subscription_start": "2021-10-21",
+            "final_offer_price": 18000, "features": {}, "sources": {},
+        }]
+        write_market_store(store)
+        dart = MagicMock()
+        dart.is_configured.return_value = True
+        dart.get_filing_list.return_value = {"list": [
+            {"rcept_no": "future", "rcept_dt": "20211021", "report_nm": "증권신고서(지분증권)"},
+            {"rcept_no": "before", "rcept_dt": "20211020", "report_nm": "증권신고서(지분증권)"},
+        ]}
+        dart.download_document_zip.return_value = b"zip"
+        extract_text.return_value = "희망공모가액 15,000원 ~ 18,000원"
+
+        result = HistoricalBackfillEngine().enrich_dart(
+            dart_client=dart, from_year=2021, to_year=2021,
+        )
+        saved = read_market_store()["ipos"][0]
+        self.assertEqual(result["enriched"], 1)
+        self.assertEqual(saved["sources"]["dart_historical"]["rcept_no"], "before")
+        self.assertEqual(saved["offer_band_high"], 18000.0)
+
+    def test_historical_dart_enrichment_spac_is_separately_evaluated(self) -> None:
+        store = default_market_store()
+        store["ipos"] = [{
+            "ipo_id": "ipo_spac", "company_name": "테스트스팩", "corp_code": "00999999",
+            "listing_track": "spac", "subscription_start": "2021-10-21", "features": {}, "sources": {},
+        }]
+        write_market_store(store)
+        dart = MagicMock()
+        dart.is_configured.return_value = True
+        result = HistoricalBackfillEngine().enrich_dart(dart_client=dart, from_year=2021, to_year=2021)
+        self.assertEqual(result["enriched"], 0)
+        dart.get_filing_list.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

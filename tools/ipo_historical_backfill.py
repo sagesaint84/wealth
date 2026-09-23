@@ -59,6 +59,8 @@ def main() -> int:
         default=None,
         help="Optional path to output preview report as JSON",
     )
+    parser.add_argument("--enrich-dart", action="store_true", help="Run Phase B point-in-time DART enrichment after a committed backfill")
+    parser.add_argument("--username", default=None, help="User credential context for OpenDART only")
 
     args = parser.parse_args()
 
@@ -71,6 +73,15 @@ def main() -> int:
     print(f"Target Period: {args.from_year} ~ {to_year}")
     print(f"Mode: {'COMMIT' if args.commit else 'PREVIEW-ONLY'}")
     print("=" * 70)
+
+    if args.enrich_dart:
+        try:
+            result = engine.enrich_dart(username=args.username, from_year=args.from_year, to_year=to_year)
+        except HistoricalBackfillError as exc:
+            print(f"[ERROR] DART enrichment failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"[INFO] DART enrichment result: {result}")
+        return 0 if result.get("status") in {"ok", "not_configured", "rate_limited"} else 1
 
     try:
         preview = engine.generate_preview(from_year=args.from_year, to_year=to_year)

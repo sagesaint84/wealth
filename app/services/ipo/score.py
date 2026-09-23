@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
+import re
 from typing import Any
 
 from app.services.ipo.features import (
@@ -10,6 +12,34 @@ from app.services.ipo.features import (
     compute_derived_features,
 )
 from app.services.ipo.normalize import select_cohort, normalize_feature_value
+
+
+def normalize_observation_date(value: object) -> date | None:
+    """Parse only recognized source-date encodings for point-in-time checks.
+
+    DART commonly returns ``YYYYMMDD`` while canonical IPO records use ISO
+    dates.  Comparing those encodings lexicographically incorrectly treats a
+    same-day observation as future information.
+    """
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    candidates = (raw, raw[:10], raw[:8])
+    for candidate in candidates:
+        try:
+            if re.fullmatch(r"\d{8}", candidate):
+                return datetime.strptime(candidate, "%Y%m%d").date()
+            if re.fullmatch(r"\d{8}\d{6}", candidate):
+                return datetime.strptime(candidate, "%Y%m%d%H%M%S").date()
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", candidate):
+                return date.fromisoformat(candidate)
+            if "T" in candidate:
+                return datetime.fromisoformat(candidate.replace("Z", "+00:00")).date()
+        except ValueError:
+            return None
+    return None
 
 
 def determine_grade(score: float | None) -> str | None:
@@ -70,7 +100,6 @@ def calculate_wealth_ipo_score(
             features[k] = v
 
     # Determine score_as_of (day before subscription_start at 23:59:59 KST)
-    from datetime import datetime, timedelta
     sub_date = str(ipo_copy.get("subscription_start") or "")[:10]
     as_of_date = ""
     score_as_of = None
@@ -91,8 +120,10 @@ def calculate_wealth_ipo_score(
         # Provenance date check: prevent future data leakage (e.g. securities reports filed after subscription)
         src_date = feat_item.get("source_date")
         if src_date and as_of_date:
-            src_d_str = str(src_date)[:10]
-            if src_d_str > as_of_date:
+            src_day = normalize_observation_date(src_date)
+            as_of_day = normalize_observation_date(as_of_date)
+            # A supplied but malformed provenance date is not trustworthy.
+            if src_day is None or as_of_day is None or src_day > as_of_day:
                 return False, None
 
         try:

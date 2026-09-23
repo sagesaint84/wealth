@@ -1,6 +1,6 @@
 import unittest
 
-from app.services.ipo.score import calculate_wealth_ipo_score, determine_grade
+from app.services.ipo.score import calculate_wealth_ipo_score, determine_grade, normalize_observation_date
 
 
 def make_sample_ipo(ipo_id="ipo_target", sub_date="2026-09-18", final_price=20000.0, band_high=20000.0):
@@ -31,6 +31,41 @@ def make_sample_ipo(ipo_id="ipo_target", sub_date="2026-09-18", final_price=2000
 
 
 class IpoScoreTests(unittest.TestCase):
+    def test_normalize_observation_date_accepts_dart_and_iso_encodings(self):
+        self.assertEqual(str(normalize_observation_date("20260914")), "2026-09-14")
+        self.assertEqual(str(normalize_observation_date("2026-09-14")), "2026-09-14")
+        self.assertEqual(str(normalize_observation_date("2026-09-14T23:59:59+09:00")), "2026-09-14")
+        self.assertEqual(str(normalize_observation_date("20260914235959")), "2026-09-14")
+        self.assertIsNone(normalize_observation_date("2026-99-99"))
+
+    def test_dart_compact_source_dates_are_observed_before_subscription(self):
+        target = make_sample_ipo(sub_date="2026-09-15")
+        target["offer_band_high"] = None
+        for name in ("institutional_competition_ratio", "lockup_commitment_ratio", "tradable_share_ratio"):
+            target["features"][name]["source_date"] = "20260914"
+        result = calculate_wealth_ipo_score(target, [])
+        self.assertNotIn("institutional_competition_ratio", result["core_missing"])
+        self.assertNotIn("lockup_commitment_ratio", result["core_missing"])
+        self.assertNotIn("tradable_share_ratio", result["core_missing"])
+        self.assertIn("pricing_discipline", result["core_missing"])
+
+    def test_pricing_discipline_with_observed_offer_band_unblocks_score(self):
+        target = make_sample_ipo(sub_date="2026-09-15", final_price=18000.0, band_high=18000.0)
+        target["sources"] = {
+            "final_offer_price": {"source_date": "20260914"},
+            "offer_band_high": {"source_date": "2026-09-14"},
+        }
+        for name in ("institutional_competition_ratio", "lockup_commitment_ratio", "tradable_share_ratio"):
+            target["features"][name]["source_date"] = "20260914"
+        result = calculate_wealth_ipo_score(target, [])
+        self.assertEqual(result["core_missing"], [])
+        self.assertIsNotNone(result["score"])
+
+    def test_invalid_source_date_fails_closed(self):
+        target = make_sample_ipo(sub_date="2026-09-15")
+        target["features"]["institutional_competition_ratio"]["source_date"] = "not-a-date"
+        result = calculate_wealth_ipo_score(target, [])
+        self.assertIn("institutional_competition_ratio", result["core_missing"])
     def test_grade_boundaries(self):
         self.assertEqual(determine_grade(100.0), "A")
         self.assertEqual(determine_grade(80.0), "A")
