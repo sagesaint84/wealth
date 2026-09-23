@@ -38,6 +38,7 @@ from app.services.settings import (
     time_to_slot_id,
 )
 from app.services.system_settings import get_effective_system_settings
+from app.services.toss_wts_session import run_toss_session_maintenance
 from app.services.user_manager import list_users
 
 logger = logging.getLogger(__name__)
@@ -124,10 +125,51 @@ def resolve_due_jobs(
 
     due_jobs: list[dict[str, Any]] = []
 
-    # 1. Global Jobs: IPO refresh
+    # 1. Global Jobs: IPO refresh and Toss session maintenance
     global_owner = resolve_global_automation_owner(
         registered_usernames=registered_usernames
     )
+
+    try:
+        from app.services.system_settings import resolve_toss_wts_settings as _resolve_toss_cfg
+        toss_cfg = _resolve_toss_cfg()
+        toss_time = toss_cfg.get("session_check_time", "20:55")
+        if toss_cfg.get("session_check_enabled") is True and toss_time == current_time_str:
+            # Per-user toss_session_maintenance: one job per registered user.
+            # Respects allowed_users allowlist: empty list = all users allowed.
+            allowed = set(toss_cfg.get("allowed_users") or [])
+            for _u in users:
+                _uname = _u.get("username", "") if isinstance(_u, dict) else ""
+                if not _uname:
+                    continue
+                if allowed and _uname not in allowed:
+                    continue
+                # Automatic extension is an opt-in of the owner of this
+                # session.  The system setting is only the global feature
+                # gate; it must never schedule every registered user.
+                try:
+                    if not get_effective_settings(_uname).get("toss_wts", {}).get("session_check_enabled", False):
+                        continue
+                except Exception:
+                    logger.warning("Failed to load Toss session preference for user '%s'", _uname)
+                    continue
+                due_jobs.append({
+                    "job": "toss_session_maintenance",
+                    "scope": "user",
+                    "owner": _uname,
+                    "scheduled_time": toss_time,
+                    "retryable": False,
+                    "execution_key": build_execution_key(
+                        job="toss_session_maintenance",
+                        target_date=current_date_str,
+                        time_str=toss_time,
+                        scope="user",
+                        username=_uname,
+                    ),
+                })
+    except Exception:
+        logger.warning("Failed to resolve Toss session maintenance settings")
+
 
     if global_owner is not None:
         try:
@@ -354,6 +396,7 @@ async def execute_job(
     daily_close_runner: Callable[..., Any] | None = None,
     reminder_runner: Callable[..., Any] | None = None,
     ipo_refresh_runner: Callable[..., Any] | None = None,
+    toss_session_runner: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a single due job with error isolation and secret-safe result."""
     job_type = job.get("job")
@@ -362,6 +405,20 @@ async def execute_job(
     # Handle already-errored/unconfigured job descriptors
     if "status" in job:
         return dict(job)
+
+    if job_type == "toss_session_maintenance":
+        owner = job.get("owner")
+        scope = job.get("scope", "user")
+        runner = toss_session_runner or run_toss_session_maintenance
+        try:
+            res = await asyncio.to_thread(runner, owner, now=now)
+            if res.get("action") in {"not_required", "extended"}:
+                return {"job": job_type, "scope": scope, "owner": owner, "scheduled_time": scheduled_time, "status": "success", "details": {key: res.get(key) for key in ("action", "active", "valid", "server_expires_at", "hours_remaining", "extension_attempted", "extension_succeeded", "notification_status", "error_code")}}
+            return {"job": job_type, "scope": scope, "owner": owner, "scheduled_time": scheduled_time, "status": "failed", "error": res.get("error_code") or "TOSS_SESSION_MAINTENANCE_FAILED", "details": {key: res.get(key) for key in ("action", "active", "valid", "extension_attempted", "extension_succeeded", "notification_status", "error_code")}}
+        except Exception:
+            logger.exception("Toss session maintenance failed")
+            return {"job": job_type, "scope": scope, "owner": owner, "scheduled_time": scheduled_time, "status": "failed", "error": "TOSS_SESSION_MAINTENANCE_FAILED"}
+
 
     if job_type in ("ipo_refresh_morning", "ipo_refresh_evening"):
         owner = job.get("owner")
@@ -505,6 +562,7 @@ async def run_due_automation(
     daily_close_runner: Callable[..., Any] | None = None,
     reminder_runner: Callable[..., Any] | None = None,
     ipo_refresh_runner: Callable[..., Any] | None = None,
+    toss_session_runner: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Primary automation dispatcher entry point.
 
@@ -588,6 +646,7 @@ async def run_due_automation(
                 daily_close_runner=daily_close_runner,
                 reminder_runner=reminder_runner,
                 ipo_refresh_runner=ipo_refresh_runner,
+                toss_session_runner=toss_session_runner,
             )
         except Exception as exc:
             logger.exception("Unexpected exception in execute_job for '%s'", key)

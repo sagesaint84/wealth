@@ -8,6 +8,8 @@
   let notificationsSnapshot = null;
   let systemSnapshot = null;
   let webhookSnapshot = null;
+  let tossSessionSnapshot = null;
+  let _lastKnownTossStatus = null;  // tracks last polled session status for re-auth guard
 
   function sourceLabel(configured, source) {
     if (!configured || source === 'none') return '미설정';
@@ -105,7 +107,168 @@
     byId('settingsSaveSystem').hidden = !data.can_manage;
     byId('settingsPublicBaseUrl').disabled = !data.can_manage;
     renderAutomationOwner(data);
+    // Own Toss state is loaded separately.  System settings intentionally do
+    // not disclose local executable/config/session metadata.
     updateManagementButtons();
+  }
+
+  function renderTossSession(toss) {
+    const section = byId('settingsTossSessionSection');
+    if (!section) return;
+    section.hidden = false;
+    if (!toss) return;
+    tossSessionSnapshot = toss;
+    byId('settingsTossConfigured').textContent = `${toss.enabled ? '활성' : '비활성'} · ${toss.expected_version}`;
+    byId('settingsTossSessionPresent').textContent = '확인하지 않음';
+    byId('settingsTossSessionEnabled').checked = toss.session_check_enabled === true;
+    for (const id of ['settingsTossSessionEnabled','settingsCheckTossSession','settingsSaveTossSession','settingsTossLoginStart']) byId(id).disabled = !toss.enabled || !toss.allowed;
+  }
+
+  async function saveTossSessionSettings() {
+    const button = byId('settingsSaveTossSession'); setError('settingsAutomationError');
+    try {
+      busy(button, true);
+      const result = await api('/api/settings/toss-wts', {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_check_enabled:byId('settingsTossSessionEnabled').checked})});
+      tossSessionSnapshot = {...(tossSessionSnapshot || {}), ...result.toss_wts}; toast('내 Toss 세션 자동 점검 설정을 저장했습니다.');
+    } catch (error) { const message=safeMessage(error,'Toss 세션 설정을 저장하지 못했습니다.'); setError('settingsAutomationError',message); toast(message,true); }
+    finally { busy(button,false); }
+  }
+
+  async function checkTossSessionStatus() {
+    const button = byId('settingsCheckTossSession'); setError('settingsAutomationError');
+    try {
+      busy(button,true); const status=await api('/api/settings/toss-wts/status',{method:'POST'});
+      _lastKnownTossStatus = status;
+      byId('settingsTossSessionPresent').textContent=status.session_present ? '있음' : '없음';
+      byId('settingsTossLiveStatus').textContent=status.active && status.valid ? 'active / valid' : (status.error_code || 'invalid');
+      byId('settingsTossExpiry').textContent=status.server_expires_at ? `${status.server_expires_at} · ${status.hours_remaining}시간` : '없음';
+      byId('settingsTossCheckedAt').textContent=status.checked_at || '없음';
+    } catch (error) { const message=safeMessage(error,'Toss 세션 상태를 확인하지 못했습니다.'); setError('settingsAutomationError',message); toast(message,true); }
+    finally { busy(button,false); }
+  }
+
+  // -----------------------------------------------------------------------
+  // Toss WTS QR login lifecycle
+  // Verified tossctl v0.50.3: auth login --headless --link --qr-output <path>
+  // -----------------------------------------------------------------------
+  let _tossLoginAttemptId = null;
+  let _tossLoginPollTimer = null;
+
+  function _tossLoginReset() {
+    clearInterval(_tossLoginPollTimer);
+    _tossLoginPollTimer = null;
+    _tossLoginAttemptId = null;
+    const qrArea = byId('settingsTossLoginQrArea');
+    const startBtn = byId('settingsTossLoginStart');
+    const cancelBtn = byId('settingsTossLoginCancel');
+    const statusEl = byId('settingsTossLoginStatus');
+    const qrImg = byId('settingsTossLoginQr');
+    if (qrArea) qrArea.hidden = true;
+    if (qrImg) qrImg.src = '';
+    if (statusEl) statusEl.textContent = '';
+    if (startBtn) { startBtn.disabled = false; startBtn.hidden = false; }
+    if (cancelBtn) cancelBtn.hidden = true;
+  }
+
+  async function startTossLogin() {
+    setError('settingsAutomationError');
+    const startBtn = byId('settingsTossLoginStart');
+    const cancelBtn = byId('settingsTossLoginCancel');
+    const qrArea = byId('settingsTossLoginQrArea');
+    const statusEl = byId('settingsTossLoginStatus');
+
+    // Re-auth guard: if we already know the session is active+valid, require
+    // explicit confirmation before sending reauthenticate=true.
+    let reauthenticate = false;
+    const knownValid = _lastKnownTossStatus && _lastKnownTossStatus.active && _lastKnownTossStatus.valid;
+    if (knownValid) {
+      const confirmed = window.confirm(
+        '현재 Toss WTS 세션이 유효한 상태입니다.\n' +
+        '재인증을 시작하면 세션이 초기화될 수 있습니다.\n\n' +
+        '계속하시겠습니까? (재인증 시작)'
+      );
+      if (!confirmed) return;
+      reauthenticate = true;
+    } else {
+      if (!window.confirm('Toss WTS QR 인증을 시작합니다.\n진행 중인 세션 연장과 충돌할 수 있습니다. 계속하시겠습니까?')) return;
+    }
+
+    try {
+      busy(startBtn, true);
+      const result = await api('/api/settings/toss-wts/login/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reauthenticate }),
+      });
+      _tossLoginAttemptId = result.attempt_id;
+      if (startBtn) startBtn.hidden = true;
+      if (cancelBtn) cancelBtn.hidden = false;
+      if (qrArea) qrArea.hidden = false;
+      if (statusEl) statusEl.textContent = 'QR 코드를 기다리는 중… Toss 앱에서 스캔해주세요.';
+      _tossLoginPollTimer = setInterval(pollTossLogin, 3000);
+      await pollTossLogin();
+    } catch (error) {
+      // Handle 409 TOSS_SESSION_ALREADY_VALID gracefully
+      const code = error && error.code;
+      let message;
+      if (code === 'TOSS_SESSION_ALREADY_VALID') {
+        message = '현재 세션이 유효합니다. 재인증이 필요하면 세션 상태 확인 후 다시 시도하세요.';
+      } else if (code === 'TOSS_AUTH_OPERATION_BUSY') {
+        message = '다른 인증 작업이 진행 중입니다. 잠시 후 다시 시도하세요.';
+      } else {
+        message = safeMessage(error, 'Toss WTS 인증을 시작하지 못했습니다.');
+      }
+      setError('settingsAutomationError', message);
+      toast(message, true);
+      _tossLoginReset();
+    } finally {
+      busy(startBtn, false);
+    }
+  }
+
+  async function pollTossLogin() {
+    if (!_tossLoginAttemptId) return;
+    const statusEl = byId('settingsTossLoginStatus');
+    const qrImg = byId('settingsTossLoginQr');
+    try {
+      const result = await api(`/api/settings/toss-wts/login/${_tossLoginAttemptId}`);
+      const status = result.status;
+      if (status === 'pending') {
+        if (qrImg) qrImg.src = `/api/settings/toss-wts/login/${_tossLoginAttemptId}/qr?t=${Date.now()}`;
+        if (statusEl) statusEl.textContent = 'QR 코드를 Toss 앱으로 스캔해주세요.';
+      } else if (status === 'success') {
+        if (statusEl) statusEl.textContent = '\u2705 인증이 완료됐습니다. 세션 상태를 확인하세요.';
+        _tossLoginReset();
+        toast('Toss WTS 초기 인증이 완료됐습니다. 세션 상태를 확인해 주세요.');
+        await checkTossSessionStatus();
+      } else if (status === 'cancelled') {
+        if (statusEl) statusEl.textContent = '인증이 취소됐습니다.';
+        _tossLoginReset();
+      } else if (status === 'timeout') {
+        if (statusEl) statusEl.textContent = '\u23f1 인증 시간이 초과됐습니다. 다시 시도해 주세요.';
+        _tossLoginReset();
+        toast('Toss WTS 인증 시간 초과. 다시 시도해 주세요.', true);
+      } else {
+        if (statusEl) statusEl.textContent = `인증 실패 (${result.error_code || 'AUTH_LOGIN_FAILED'})`;
+        _tossLoginReset();
+        toast('Toss WTS 인증에 실패했습니다. 수동 확인이 필요합니다.', true);
+      }
+    } catch (_) {
+      // Poll errors are non-fatal; keep polling
+    }
+  }
+
+  async function cancelTossLogin() {
+    if (!_tossLoginAttemptId) return;
+    const cancelBtn = byId('settingsTossLoginCancel');
+    try {
+      busy(cancelBtn, true);
+      await api(`/api/settings/toss-wts/login/${_tossLoginAttemptId}/cancel`, { method: 'POST' });
+    } catch (_) {
+      // Ignore cancel errors — reset UI anyway
+    } finally {
+      _tossLoginReset();
+    }
   }
 
   function renderAutomationOwner(data) {
@@ -147,14 +310,16 @@
   }
 
   async function reloadSettings() {
-    const [notifications, automation, system] = await Promise.all([
+    const [notifications, automation, system, toss] = await Promise.all([
       api('/api/settings/notifications'),
       api('/api/settings/automation'),
       api('/api/settings/system'),
+      api('/api/settings/toss-wts'),
     ]);
     renderNotifications(notifications);
     renderAutomation(automation);
     renderSystem(system);
+    renderTossSession(toss.toss_wts);
   }
 
   async function saveSystemSettings() {
@@ -334,6 +499,10 @@
     byId('settingsSaveAutomation')?.addEventListener('click', saveAutomation);
     byId('settingsSetAutomationOwner')?.addEventListener('click', setAutomationOwner);
     byId('settingsClearAutomationOwner')?.addEventListener('click', clearAutomationOwner);
+    byId('settingsSaveTossSession')?.addEventListener('click', saveTossSessionSettings);
+    byId('settingsCheckTossSession')?.addEventListener('click', checkTossSessionStatus);
+    byId('settingsTossLoginStart')?.addEventListener('click', startTossLogin);
+    byId('settingsTossLoginCancel')?.addEventListener('click', cancelTossLogin);
     byId('settingsAddReminder')?.addEventListener('click', () => addReminderRow('').focus());
     byId('settingsClearBot')?.addEventListener('click', () => requestClear('bot'));
     byId('settingsClearWebhook')?.addEventListener('click', () => requestClear('webhook'));

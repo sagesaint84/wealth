@@ -27,6 +27,8 @@ def test_settings_uses_existing_api_contract_only():
         "/api/settings/automation",
         "/api/settings/telegram/secrets",
         "/api/settings/system",
+        "/api/settings/toss-wts",
+        "/api/settings/toss-wts/status",
         "/api/settings/telegram/status",
         "/api/settings/telegram/test",
         "/api/settings/telegram/webhook/connect",
@@ -100,6 +102,65 @@ def test_automation_owner_ui_and_contract():
     assert 'clearAutomationOwner' in JS
 
 
+def test_toss_session_management_ui_is_explicit_and_secret_safe():
+    assert 'id="settingsTossSessionSection"' in HTML
+    assert 'id="settingsCheckTossSession"' in HTML
+    assert 'id="settingsSaveTossSession"' in HTML
+    assert '세션 자동 점검' in HTML
+    assert 'Toss 모바일 앱 승인이 필요할 수 있습니다.' in HTML
+    assert 'checkTossSessionStatus' in JS
+    assert "api('/api/settings/toss-wts/status'" in JS
+    assert 'auth extend' not in JS
+    assert 'session.json' not in JS
+
+
+def test_toss_login_ui_elements_present():
+    assert 'id="settingsTossLoginSection"' in HTML
+    assert 'id="settingsTossLoginStart"' in HTML
+    assert 'id="settingsTossLoginCancel"' in HTML
+    assert 'id="settingsTossLoginQrArea"' in HTML
+    assert 'id="settingsTossLoginQr"' in HTML
+    assert 'id="settingsTossLoginStatus"' in HTML
+    assert 'aria-live="polite"' in HTML
+    assert '초기 인증 / 재인증' in HTML
+
+
+def test_toss_login_api_endpoints_in_js():
+    assert "'/api/settings/toss-wts/login/start'" in JS
+    assert "`/api/settings/toss-wts/login/${_tossLoginAttemptId}`" in JS
+    assert "`/api/settings/toss-wts/login/${_tossLoginAttemptId}/cancel`" in JS
+    assert "startTossLogin" in JS
+    assert "pollTossLogin" in JS
+    assert "cancelTossLogin" in JS
+    assert "_tossLoginReset" in JS
+
+
+def test_toss_login_security_invariants():
+    # QR image must be fetched via API, not from static assets
+    assert "/api/settings/toss-wts/login/" in JS
+    assert "/static/" not in JS.split("/api/settings/toss-wts/login/")[1][:40]
+    # QR polling must not use localStorage, sessionStorage, or console
+    assert "localStorage" not in JS
+    assert "sessionStorage" not in JS
+    assert "console." not in JS
+    # No session.json or subprocess output must appear
+    assert "session.json" not in JS
+    assert "stdout" not in JS
+    assert "stderr" not in JS
+    # cancel poll is non-fatal (errors suppressed)
+    assert "// Poll errors are non-fatal" in JS
+
+
+def test_toss_login_settings_uses_extended_api_contract():
+    """All new login endpoints must be referenced in JS."""
+    for endpoint in (
+        "/api/settings/toss-wts/login/start",
+        "/api/settings/toss-wts/login/",
+        "/api/settings/toss-wts/login/${_tossLoginAttemptId}/cancel",
+    ):
+        assert endpoint in JS
+
+
 class SettingsFrontendTests(unittest.TestCase):
     def test_entry_and_contract(self):
         test_settings_entry_dialog_and_module_are_wired()
@@ -119,3 +180,10 @@ class SettingsFrontendTests(unittest.TestCase):
 
     def test_automation_owner_ui(self):
         test_automation_owner_ui_and_contract()
+        test_toss_session_management_ui_is_explicit_and_secret_safe()
+
+    def test_toss_login_ui_and_security(self):
+        test_toss_login_ui_elements_present()
+        test_toss_login_api_endpoints_in_js()
+        test_toss_login_security_invariants()
+        test_toss_login_settings_uses_extended_api_contract()

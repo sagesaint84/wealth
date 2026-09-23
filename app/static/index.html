@@ -3382,6 +3382,36 @@
               <button id="settingsClearAutomationOwner" type="button" class="button secondary compact">전역 자동화 사용자 해제</button>
             </div>
           </div>
+          <div id="settingsTossSessionSection" class="settings-management" aria-labelledby="tossSessionTitle" hidden>
+            <h4 id="tossSessionTitle">내 Toss WTS 연결</h4>
+            <p class="settings-help">남은 세션 시간이 기준값 이내이면 Wealth가 Toss 세션 연장을 요청합니다. Toss 모바일 앱 승인이 필요할 수 있습니다.</p>
+            <div class="settings-status-grid">
+              <div><strong>설정 / 예상 버전</strong><span id="settingsTossConfigured">확인 중</span></div>
+              <div><strong>세션 파일</strong><span id="settingsTossSessionPresent">확인 중</span></div>
+              <div><strong>실시간 세션</strong><span id="settingsTossLiveStatus">확인하지 않음</span></div>
+              <div><strong>서버 만료 / 남은 시간</strong><span id="settingsTossExpiry">확인하지 않음</span></div>
+              <div><strong>마지막 상태 확인</strong><span id="settingsTossCheckedAt">확인하지 않음</span></div>
+            </div>
+            <div class="settings-fields">
+              <label><input id="settingsTossSessionEnabled" type="checkbox"> 세션 자동 점검</label>
+            </div>
+            <div class="settings-management-actions">
+              <button id="settingsCheckTossSession" type="button" class="button secondary compact">세션 상태 확인</button>
+              <button id="settingsSaveTossSession" type="button" class="button secondary compact">Toss 세션 설정 저장</button>
+            </div>
+            <div id="settingsTossLoginSection" class="settings-subsection">
+              <h5>초기 인증 / 재인증 (QR)</h5>
+              <p class="settings-help">세션이 없거나 만료된 경우 내 Toss WTS 계정을 QR 코드로 인증하거나 재인증할 수 있습니다.</p>
+              <div id="settingsTossLoginQrArea" hidden>
+                <img id="settingsTossLoginQr" src="" alt="Toss WTS QR 코드" style="max-width:220px;display:block;margin:8px 0;">
+                <p id="settingsTossLoginStatus" class="settings-help" aria-live="polite"></p>
+              </div>
+              <div class="settings-management-actions">
+                <button id="settingsTossLoginStart" type="button" class="button secondary compact">인증 시작 (QR 발급)</button>
+                <button id="settingsTossLoginCancel" type="button" class="button secondary compact" hidden>취소</button>
+              </div>
+            </div>
+          </div>
           <p id="settingsAutomationError" class="settings-error" role="alert" hidden></p>
           <div class="settings-actions"><button id="settingsSaveAutomation" type="button" class="button primary">자동화 설정 저장</button></div>
         </section>

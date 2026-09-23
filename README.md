@@ -261,11 +261,32 @@ Wealth의 예약 작업은 `app.services.automation.dispatcher`가 컨테이너 
 * * * * * /usr/bin/docker exec wealth python -m app.services.automation.dispatcher >> /var/log/wealth-automation-dispatcher.log 2>&1
 ```
 
-Toss WTS 세션 점검은 아직 dispatcher에 통합되지 않았으며 호스트에서 별도로 관리합니다.
+Toss WTS 세션 점검·연장도 dispatcher 설정에 통합되어 있지만, 초기 배포와 검증 기간에는 기본적으로 비활성화됩니다. 기존 호스트 checker는 production cutover가 검증될 때까지 계속 활성 상태로 유지해야 합니다.
 
 - `ops/crontab.example`: dispatcher 및 Toss 세션 점검 cron 예시
 - `ops/toss-session-check.sh`: 호스트에서 Toss WTS 어댑터 세션 상태를 점검하고 갱신하는 스크립트
 - `ops/wealth-automation.env.example`: 호스트 측 Toss 세션 점검에 사용하는 환경변수 템플릿
+
+#### Toss WTS 관리자 API
+
+관리자는 설정 화면을 통해 Toss WTS 세션을 관리할 수 있습니다.
+
+| 엔드포인트 | 메서드 | 설명 |
+| :--- | :--- | :--- |
+| `/api/settings/toss-wts` | `GET` | 현재 Toss WTS 설정 조회 (admin only) |
+| `/api/settings/toss-wts` | `PATCH` | Toss WTS 설정 변경 (admin only) |
+| `/api/settings/toss-wts/status` | `POST` | 실시간 세션 상태 확인 (admin only) |
+| `/api/settings/toss-wts/login/start` | `POST` | QR 기반 초기 인증 시작 (admin only) |
+| `/api/settings/toss-wts/login/{id}` | `GET` | 인증 시도 상태 폴링 (admin only) |
+| `/api/settings/toss-wts/login/{id}/qr` | `GET` | QR 이미지 제공, no-store (admin only) |
+| `/api/settings/toss-wts/login/{id}/cancel` | `POST` | 인증 취소 (admin only) |
+
+> [!IMPORTANT]
+> `login/start` 엔드포인트는 `tossctl auth login --help` 출력으로 QR 출력 플래그 이름이 확인되기 전까지 HTTP 501을 반환합니다. 활성화 전 반드시 production 서버에서 다음 명령을 실행하고 결과를 확인하세요:
+> ```bash
+> docker exec wealth /opt/toss-wts/tossctl auth login --help
+> ```
+> 플래그 확인 후 `app/services/toss_wts_login.py`의 `_AUTH_LOGIN_QR_FLAG`와 `_AUTH_LOGIN_FLAG_VERIFIED = True`를 설정하세요.
 
 ---
 

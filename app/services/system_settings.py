@@ -19,6 +19,9 @@ DEFAULT_TOSS_WTS_EXECUTABLE = "/opt/toss-wts/tossctl"
 DEFAULT_TOSS_WTS_CONFIG_DIR = "/opt/toss-wts/config"
 DEFAULT_TOSS_WTS_EXPECTED_VERSION = "v0.50.3"
 DEFAULT_TOSS_WTS_TIMEOUT_SECONDS = 20
+DEFAULT_TOSS_SESSION_CHECK_TIME = "20:55"
+DEFAULT_TOSS_SESSION_EXTEND_THRESHOLD_HOURS = 48
+DEFAULT_TOSS_SESSION_EXTEND_TIMEOUT_SECONDS = 300
 _TOSS_VERSION_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
 _SYSTEM_KEYS = {
     "version",
@@ -34,6 +37,11 @@ _TOSS_KEYS = {
     "expected_version",
     "timeout_seconds",
     "allowed_user_id",
+    "allowed_users",
+    "session_check_enabled",
+    "session_check_time",
+    "session_extend_threshold_hours",
+    "session_extend_timeout_seconds",
 }
 
 
@@ -135,6 +143,25 @@ def _validate_toss_wts(data: object) -> dict:
             allowed = validate_user_id(allowed)
         except ValueError as exc:
             raise SystemSettingsError("TOSS_WTS_ALLOWED_USER_INVALID") from exc
+    allowed_users = data.get("allowed_users", [])
+    if not isinstance(allowed_users, list) or any(
+        not isinstance(username, str) or not username.strip()
+        or any(part in username for part in ("/", "\\", ".."))
+        for username in allowed_users
+    ) or len(set(allowed_users)) != len(allowed_users):
+        raise SystemSettingsError("TOSS_WTS_ALLOWED_USERS_INVALID")
+    session_check_enabled = data.get("session_check_enabled", False)
+    if type(session_check_enabled) is not bool:
+        raise SystemSettingsError("TOSS_WTS_SESSION_CHECK_ENABLED_INVALID")
+    session_check_time = data.get("session_check_time", DEFAULT_TOSS_SESSION_CHECK_TIME)
+    if not isinstance(session_check_time, str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", session_check_time):
+        raise SystemSettingsError("TOSS_WTS_SESSION_CHECK_TIME_INVALID")
+    threshold = data.get("session_extend_threshold_hours", DEFAULT_TOSS_SESSION_EXTEND_THRESHOLD_HOURS)
+    if type(threshold) is not int or not 1 <= threshold <= 168:
+        raise SystemSettingsError("TOSS_WTS_SESSION_EXTEND_THRESHOLD_INVALID")
+    extend_timeout = data.get("session_extend_timeout_seconds", DEFAULT_TOSS_SESSION_EXTEND_TIMEOUT_SECONDS)
+    if type(extend_timeout) is not int or not 30 <= extend_timeout <= 600:
+        raise SystemSettingsError("TOSS_WTS_SESSION_EXTEND_TIMEOUT_INVALID")
     return {
         "enabled": enabled,
         "executable": executable,
@@ -142,6 +169,11 @@ def _validate_toss_wts(data: object) -> dict:
         "expected_version": expected_version.strip(),
         "timeout_seconds": timeout,
         "allowed_user_id": allowed,
+        "allowed_users": allowed_users,
+        "session_check_enabled": session_check_enabled,
+        "session_check_time": session_check_time,
+        "session_extend_threshold_hours": threshold,
+        "session_extend_timeout_seconds": extend_timeout,
     }
 
 
@@ -268,6 +300,11 @@ def resolve_toss_wts_settings(
         "expected_version": DEFAULT_TOSS_WTS_EXPECTED_VERSION,
         "timeout_seconds": DEFAULT_TOSS_WTS_TIMEOUT_SECONDS,
         "allowed_user_id": None,
+        "allowed_users": [],
+        "session_check_enabled": False,
+        "session_check_time": DEFAULT_TOSS_SESSION_CHECK_TIME,
+        "session_extend_threshold_hours": DEFAULT_TOSS_SESSION_EXTEND_THRESHOLD_HOURS,
+        "session_extend_timeout_seconds": DEFAULT_TOSS_SESSION_EXTEND_TIMEOUT_SECONDS,
     }
     result: dict[str, object] = {}
     sources: dict[str, str] = {}
@@ -275,7 +312,7 @@ def resolve_toss_wts_settings(
         if stored_wts is not None and key in stored_wts:
             result[key], sources[key] = stored_wts[key], "stored"
             continue
-        raw = env_values[key]
+        raw = env_values.get(key)
         if raw is None or raw == "":
             result[key], sources[key] = default, "default"
             continue

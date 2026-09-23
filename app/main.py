@@ -88,6 +88,14 @@ from app.services.toss_wts_feed import (
     verify_import_preview_ticket,
 )
 from app.services.toss_wts_realized import preview_toss_wts_realized_selection
+
+
+def _toss_wts_user_allowed(username: str) -> bool:
+    """Global Toss feature gate plus optional admin username allowlist."""
+    from app.services.system_settings import resolve_toss_wts_settings
+    settings = resolve_toss_wts_settings()
+    allowed = set(settings.get("allowed_users") or [])
+    return bool(settings.get("enabled")) and (not allowed or username in allowed)
 from app.services.kis_feed import (
     build_kis_realized_feed_response,
     compute_kis_items_hash,
@@ -757,6 +765,9 @@ def _telegram_management_http_error(exc: Exception) -> HTTPException:
 async def get_system_settings_api(request: Request) -> dict:
     username=get_current_username(request)
     from app.services.system_settings import get_effective_system_settings
+    # Generic system settings are visible to ordinary users.  Do not append
+    # Toss executable/config/session filesystem metadata here; own-session
+    # status is deliberately available only through the explicit endpoint.
     return {**get_effective_system_settings(),"can_manage":get_current_role(request)=="admin","current_username":username}
 
 @app.patch("/api/settings/system")
@@ -765,6 +776,134 @@ async def patch_system_settings_api(request: Request) -> dict:
     from app.services.system_settings import patch_system_settings, SystemSettingsError
     try:return {**patch_system_settings(await request.json()),"can_manage":True,"current_username":get_current_username(request)}
     except (SystemSettingsError,ValueError,AttributeError) as exc: raise HTTPException(status_code=400,detail={"code":str(exc)}) from exc
+
+@app.get("/api/settings/toss-wts")
+async def get_toss_wts_settings_api(request: Request) -> dict:
+    username = get_current_username(request)
+    from app.services.settings import get_effective_settings
+    from app.services.system_settings import resolve_toss_wts_settings
+    system = resolve_toss_wts_settings()
+    allowed = set(system.get("allowed_users") or [])
+    return {"toss_wts": {"enabled": system["enabled"], "allowed": not allowed or username in allowed, "expected_version": system["expected_version"], "session_check_enabled": get_effective_settings(username).get("toss_wts", {}).get("session_check_enabled", False)}, "can_manage_global": get_current_role(request)=="admin"}
+
+@app.patch("/api/settings/toss-wts")
+async def patch_toss_wts_settings_api(request: Request) -> dict:
+    username = get_current_username(request)
+    from app.services.settings import patch_settings, SettingsError
+    try: body=await request.json()
+    except Exception: body=None
+    if not isinstance(body, dict) or set(body) != {"session_check_enabled"} or type(body["session_check_enabled"]) is not bool:
+        raise HTTPException(status_code=400,detail={"code":"TOSS_WTS_SESSION_CHECK_ENABLED_INVALID"})
+    try:
+        updated = patch_settings(username, {"toss_wts": body})
+        return {"toss_wts": {"session_check_enabled": updated["toss_wts"]["session_check_enabled"]}}
+    except (SettingsError, ValueError, AttributeError) as exc: raise HTTPException(status_code=400,detail={"code":str(exc)}) from exc
+
+@app.post("/api/settings/toss-wts/status")
+async def toss_wts_session_status_api(request: Request) -> dict:
+    """Return the current user's Toss WTS session status.
+
+    Any authenticated user can check their own session.
+    Username is always derived from the session — never from request body.
+    """
+    username = get_current_username(request)
+    if not _toss_wts_user_allowed(username):
+        raise HTTPException(status_code=403, detail={"code": "TOSS_WTS_NOT_ALLOWED"})
+    from app.services.toss_wts_session import get_toss_session_status
+    from app.services.system_settings import resolve_toss_wts_settings
+    return get_toss_session_status(username=username, settings=resolve_toss_wts_settings())
+
+@app.post("/api/settings/toss-wts/login/start")
+async def toss_wts_login_start_api(request: Request) -> dict:
+    """Start a per-user background tossctl auth login attempt.
+
+    Any authenticated user can start their own Toss login.
+    Username is always derived from the authenticated session — the request
+    body MUST NOT contain a username field that would be trusted.
+
+    Request body (optional JSON):
+        reauthenticate: bool  — if true, bypasses TOSS_SESSION_ALREADY_VALID check.
+                                UI must show explicit confirmation before sending true.
+    """
+    username = get_current_username(request)
+    if not _toss_wts_user_allowed(username):
+        raise HTTPException(status_code=403, detail={"code": "TOSS_WTS_NOT_ALLOWED"})
+    from app.services.toss_wts_login import (
+        start_toss_login, TossLoginLockError, TossLoginFlagUnverifiedError,
+        TossLoginError, TossSessionAlreadyValidError,
+    )
+    from app.services.system_settings import resolve_toss_wts_settings
+    settings = resolve_toss_wts_settings()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict) or "reauthenticate" in body and type(body["reauthenticate"]) is not bool:
+        raise HTTPException(status_code=400, detail={"code":"TOSS_REAUTHENTICATE_INVALID"})
+    reauthenticate = body.get("reauthenticate", False)
+    try:
+        attempt_id = await asyncio.to_thread(
+            start_toss_login, settings, username=username, reauthenticate=reauthenticate
+        )
+        return {"attempt_id": attempt_id, "status": "pending"}
+    except TossLoginFlagUnverifiedError as exc:
+        raise HTTPException(status_code=501, detail={"code":"AUTH_LOGIN_FLAG_UNVERIFIED"}) from exc
+    except TossSessionAlreadyValidError:
+        raise HTTPException(status_code=409, detail={"code":"TOSS_SESSION_ALREADY_VALID"})
+    except TossLoginLockError:
+        raise HTTPException(status_code=409, detail={"code":"TOSS_AUTH_OPERATION_BUSY"})
+    except TossLoginError:
+        raise HTTPException(status_code=500, detail={"code":"AUTH_LOGIN_FAILED"})
+
+@app.get("/api/settings/toss-wts/login/{attempt_id}")
+async def toss_wts_login_status_api(request: Request, attempt_id: str) -> dict:
+    """Poll the status of the current user's login attempt.
+
+    Only the owner of the attempt can poll it.  Any other user receives 404.
+    """
+    username = get_current_username(request)
+    from app.services.toss_wts_login import get_login_attempt, TossLoginNotFoundError
+    try:
+        return await asyncio.to_thread(
+            get_login_attempt, attempt_id, requesting_username=username
+        )
+    except TossLoginNotFoundError:
+        raise HTTPException(status_code=404, detail={"code":"ATTEMPT_NOT_FOUND"})
+
+@app.get("/api/settings/toss-wts/login/{attempt_id}/qr")
+async def toss_wts_login_qr_api(request: Request, attempt_id: str) -> Response:
+    """Serve the QR PNG image for the current user's pending login attempt.
+
+    Only the owner can fetch their QR.  Served with Cache-Control: no-store.
+    Never served from static assets directory.
+    """
+    username = get_current_username(request)
+    from app.services.toss_wts_login import get_login_qr
+    data = await asyncio.to_thread(get_login_qr, attempt_id, requesting_username=username)
+    if data is None:
+        raise HTTPException(status_code=404, detail={"code":"QR_NOT_AVAILABLE"})
+    return Response(
+        content=data,
+        media_type="image/png",
+        headers={"Cache-Control":"no-store","Pragma":"no-cache"},
+    )
+
+@app.post("/api/settings/toss-wts/login/{attempt_id}/cancel")
+async def toss_wts_login_cancel_api(request: Request, attempt_id: str) -> dict:
+    """Cancel the current user's pending login attempt.
+
+    Only the owner can cancel their attempt.  Any other user receives 404.
+    """
+    username = get_current_username(request)
+    from app.services.toss_wts_login import cancel_login_attempt, TossLoginNotFoundError
+    try:
+        return await asyncio.to_thread(
+            cancel_login_attempt, attempt_id, requesting_username=username
+        )
+    except TossLoginNotFoundError:
+        raise HTTPException(status_code=404, detail={"code":"ATTEMPT_NOT_FOUND"})
+
+
 
 @app.post("/api/settings/telegram/test")
 async def telegram_test_message_api(request: Request) -> dict:
@@ -1405,7 +1544,7 @@ def _validate_ipo_source_broker(ipo_id: str, broker_value: object) -> str | None
 @app.get("/api/ipo/applications/{ipo_id}/broker-options")
 async def get_ipo_application_broker_options(ipo_id: str, request: Request) -> dict:
     """Return canonical broker options declared by the market schedule only."""
-    get_current_username(request)
+    username = get_current_username(request)
     return {"ipo_id": ipo_id, "brokers": _ipo_source_brokers(ipo_id)}
 
 
@@ -1713,7 +1852,7 @@ async def status() -> dict:
 @app.get("/api/toss-wts/status")
 async def toss_wts_local_status(request: Request, response: Response = None) -> dict:
     """Local-only WTS readiness state; protected by static allowed-user authorization."""
-    get_current_username(request)
+    username = get_current_username(request)
     auth_decision = check_wts_feed_static_authorization(getattr(request.state, "user_id", None))
     if not auth_decision.authorized:
         raise HTTPException(
@@ -1729,7 +1868,7 @@ async def toss_wts_local_status(request: Request, response: Response = None) -> 
 @app.post("/api/toss-wts/feed/confirm")
 async def toss_wts_feed_confirm(request: Request) -> JSONResponse:
     """Explicitly confirm current local WTS session generation for the allowed Wealth user."""
-    get_current_username(request)
+    username = get_current_username(request)
     try:
         decision = confirm_wts_feed_runtime_session(getattr(request.state, "user_id", None))
     except Exception:
@@ -1766,7 +1905,7 @@ async def toss_wts_feed_confirm(request: Request) -> JSONResponse:
 @app.post("/api/toss-wts/realized-feed/fetch")
 async def toss_wts_realized_feed_fetch(request: Request) -> JSONResponse:
     """Fetch read-only, non-persisted realized P/L feed for the confirmed WTS session."""
-    get_current_username(request)
+    username = get_current_username(request)
     user_id = getattr(request.state, "user_id", None)
     runtime_decision = check_wts_feed_runtime_confirmation(user_id)
     if not runtime_decision.confirmed:

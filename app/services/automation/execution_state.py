@@ -334,6 +334,12 @@ def claim_execution(
                 }
 
             if status == "RUNNING":
+                if record.get("retryable") is False:
+                    return {
+                        "claimed": False,
+                        "reason": "NON_RETRYABLE_RUNNING",
+                        "record": record,
+                    }
                 last_attempt_str = record.get("last_attempt_at") or record.get("first_claimed_at")
                 is_stale = False
                 if last_attempt_str:
@@ -382,6 +388,12 @@ def claim_execution(
                 }
 
             if status == "FAILED":
+                if record.get("retryable") is False:
+                    return {
+                        "claimed": False,
+                        "reason": "NON_RETRYABLE_FAILED",
+                        "record": record,
+                    }
                 if attempt_count >= max_attempts:
                     return {
                         "claimed": False,
@@ -419,6 +431,7 @@ def claim_execution(
             "completed_at": None,
             "last_error_code": None,
             "details": None,
+            "retryable": job_descriptor.get("retryable", True) is not False,
         }
         executions[key] = new_record
         prune_execution_state(state, now_kst)
@@ -519,6 +532,8 @@ def get_retryable_executions(
 
     for key, rec in executions.items():
         if rec.get("scheduled_date") != today_str:
+            continue
+        if rec.get("retryable") is False:
             continue
 
         status = rec.get("status")
