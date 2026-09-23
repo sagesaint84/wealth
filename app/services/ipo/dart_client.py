@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import zipfile
+import xml.etree.ElementTree as ET
 from typing import Any
 from urllib.parse import urlencode
 
@@ -185,7 +186,14 @@ class DartClient:
         timeout_seconds: float = 15.0,
         user_agent: str = "Wealth/1.3.0 (OpenDART Client)",
     ):
-        self.api_key = (api_key or os.environ.get("DART_API_KEY", "")).strip()
+        if api_key is None or not api_key.strip():
+            # Stored system credentials take precedence, with the legacy
+            # environment variable retained as a deployment fallback.
+            from app.services.dart_secrets import resolve_dart_api_key
+            self.api_key, self.credential_source = resolve_dart_api_key()
+        else:
+            self.api_key = api_key.strip()
+            self.credential_source = "explicit"
         self.timeout_seconds = timeout_seconds
         self.user_agent = user_agent
 
@@ -227,16 +235,16 @@ class DartClient:
                 resp.raise_for_status()
                 data = resp.json()
         except httpx.TimeoutException as exc:
-            raise DartClientError(f"DART request timed out on {endpoint}") from exc
+            raise DartClientError("DART_TIMEOUT") from exc
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code
             if status_code >= 500:
-                raise DartSourceError(f"DART server HTTP {status_code} error on {endpoint}") from exc
-            raise DartClientError(f"DART HTTP {status_code} error on {endpoint}") from exc
+                raise DartSourceError("DART_HTTP_ERROR") from exc
+            raise DartClientError("DART_HTTP_ERROR") from exc
         except httpx.RequestError as exc:
-            raise DartClientError(f"DART network request error on {endpoint}: {exc}") from exc
+            raise DartClientError("DART_NETWORK_ERROR") from exc
         except json.JSONDecodeError as exc:
-            raise DartClientError(f"DART returned non-JSON response on {endpoint}") from exc
+            raise DartClientError("DART_INVALID_RESPONSE") from exc
 
         status = str(data.get("status", "")).strip()
         message = str(data.get("message", "")).strip()
@@ -281,6 +289,71 @@ class DartClient:
                     "list": [],
                 }
             raise
+
+    def verify_credentials(self) -> None:
+        """Perform one small official OpenDART request without exposing the key."""
+        self._request_json("company.json", {"corp_code": "00126380"})
+
+    def get_corp_code_master(self) -> list[dict[str, str]]:
+        """Read the official OpenDART ``corpCode.xml`` ZIP company master."""
+        if not self.is_configured():
+            raise DartAuthError("DART_AUTH_ERROR")
+        try:
+            with httpx.Client(timeout=self.timeout_seconds) as client:
+                response = client.get(
+                    f"{DART_BASE_URL}/corpCode.xml",
+                    params={"crtfc_key": self.api_key},
+                    headers={"User-Agent": self.user_agent},
+                )
+                response.raise_for_status()
+                payload = response.content
+        except httpx.TimeoutException as exc:
+            raise DartClientError("DART_TIMEOUT") from exc
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code >= 500:
+                raise DartSourceError("DART_HTTP_ERROR") from exc
+            raise DartClientError("DART_HTTP_ERROR") from exc
+        except httpx.RequestError as exc:
+            raise DartClientError("DART_NETWORK_ERROR") from exc
+
+        # OpenDART returns an XML error payload rather than a ZIP for some
+        # credential and service failures. Preserve the typed status contract
+        # without retaining request/query details.
+        stripped = payload.lstrip(b"\xef\xbb\xbf \t\r\n")
+        if stripped.startswith(b"<?xml") or stripped.startswith(b"<result"):
+            try:
+                error_root = ET.fromstring(stripped)
+                status = (error_root.findtext(".//status") or "").strip()
+                message = (error_root.findtext(".//message") or "").strip()
+                if status:
+                    self._check_status_code(status, message, "corpCode.xml")
+            except DartClientError:
+                raise
+            except Exception:
+                pass
+            raise DartClientError("DART_CORP_MASTER_INVALID")
+
+        try:
+            with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+                xml_name = next((name for name in archive.namelist() if name.lower().endswith(".xml")), None)
+                if not xml_name:
+                    raise DartClientError("DART_CORP_MASTER_INVALID")
+                root = ET.fromstring(archive.read(xml_name))
+        except DartClientError:
+            raise
+        except Exception as exc:
+            raise DartClientError("DART_CORP_MASTER_INVALID") from exc
+
+        records: list[dict[str, str]] = []
+        for item in root.findall(".//list"):
+            corp_code = (item.findtext("corp_code") or "").strip()
+            corp_name = (item.findtext("corp_name") or "").strip()
+            stock_code = (item.findtext("stock_code") or "").strip()
+            if corp_code and corp_name:
+                records.append({"corp_code": corp_code, "corp_name": corp_name, "stock_code": stock_code})
+        if not records:
+            raise DartClientError("DART_CORP_MASTER_INVALID")
+        return records
 
     def get_equity_registration_statements(
         self,
@@ -351,14 +424,14 @@ class DartClient:
 
             return content
         except httpx.TimeoutException as exc:
-            raise DartClientError(f"DART download timed out for rcept_no={rcept_no}") from exc
+            raise DartClientError("DART_TIMEOUT") from exc
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code
             if status_code >= 500:
-                raise DartSourceError(f"DART server HTTP {status_code} error on document.xml") from exc
-            raise DartClientError(f"DART HTTP {status_code} error on document.xml") from exc
+                raise DartSourceError("DART_HTTP_ERROR") from exc
+            raise DartClientError("DART_HTTP_ERROR") from exc
         except httpx.RequestError as exc:
-            raise DartClientError(f"DART download error on document.xml: {exc}") from exc
+            raise DartClientError("DART_NETWORK_ERROR") from exc
 
     def download_document_xml(self, rcept_no: str) -> bytes:
         """Deprecated compatibility alias for download_document_zip."""

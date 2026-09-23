@@ -20,6 +20,14 @@ class SettingsTests(unittest.TestCase):
   for bad in ([],["09:00","09:00"],["abc"]):
    with self.assertRaises(settings.SettingsValidationError):settings.patch_settings("alice",{"automation":{"ipo_reminders":{"times":bad}}},path=self.path)
   with self.assertRaises(settings.SettingsValidationError):settings.patch_settings("alice",{"telegram":{"bot_token":"secret"}},path=self.path)
+ def test_legacy_automation_gets_listing_reminder_defaults_without_losing_subscription_times(self):
+  legacy=settings.default_settings();legacy["automation"].pop("ipo_listing_reminders");legacy["automation"]["ipo_reminders"]["times"]=["10:00"]
+  self.path.write_text(json.dumps(legacy),encoding="utf-8")
+  effective=self.get();self.assertEqual(effective["automation"]["ipo_reminders"]["times"],["10:00"]);self.assertEqual(effective["automation"]["ipo_listing_reminders"],{"enabled":True,"times":["08:50","14:50"]})
+  settings.patch_settings("alice",{"automation":{"ipo_listing_reminders":{"enabled":False,"times":["14:50"]}}},path=self.path)
+  self.assertEqual(self.get()["automation"]["ipo_listing_reminders"],{"enabled":False,"times":["14:50"]})
+  for bad in ([],["08:50","08:50"],["bad"]):
+   with self.assertRaises(settings.SettingsValidationError):settings.patch_settings("alice",{"automation":{"ipo_listing_reminders":{"times":bad}}},path=self.path)
  def test_env_binding_precedence_and_secret_exclusion(self):
   env={"TELEGRAM_WEALTH_USERNAME":"alice","TELEGRAM_CHAT_ID":"-123","TELEGRAM_ALLOWED_USER_ID":"7","TELEGRAM_BOT_TOKEN":"raw-token","TELEGRAM_WEBHOOK_SECRET":"raw-secret"}
   with patch.dict(os.environ,env,clear=False):

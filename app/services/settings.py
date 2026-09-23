@@ -13,7 +13,7 @@ class SettingsError(RuntimeError): pass
 class SettingsValidationError(SettingsError): pass
 
 def default_settings() -> dict[str, Any]:
-    return {"version": 1, "telegram": {"enabled": False, "chat_id": None, "allowed_user_id": None, "allowed_chat_id": None}, "automation": {"timezone": "Asia/Seoul", "ipo_refresh_morning": {"enabled": True, "time": "07:30"}, "ipo_reminders": {"enabled": True, "times": ["09:00", "12:00", "15:00"]}, "ipo_refresh_evening": {"enabled": True, "time": "18:30"}, "daily_close": {"enabled": True, "time": "21:00"}}, "toss_wts": {"session_check_enabled": False}}
+    return {"version": 1, "telegram": {"enabled": False, "chat_id": None, "allowed_user_id": None, "allowed_chat_id": None}, "automation": {"timezone": "Asia/Seoul", "ipo_refresh_morning": {"enabled": True, "time": "07:30"}, "ipo_reminders": {"enabled": True, "times": ["09:00", "12:00", "15:00"]}, "ipo_listing_reminders": {"enabled": True, "times": ["08:50", "14:50"]}, "ipo_refresh_evening": {"enabled": True, "time": "18:30"}, "daily_close": {"enabled": True, "time": "21:00"}}, "toss_wts": {"session_check_enabled": False}}
 
 def time_to_slot_id(value: str) -> str:
     if not _TIME.fullmatch(value): raise SettingsValidationError("INVALID_TIME")
@@ -60,17 +60,21 @@ def _validate(doc: Any) -> dict:
     # absent section is therefore a valid legacy document and is normalized to
     # the safe disabled default instead of invalidating all existing users.
     if not isinstance(doc,dict) or set(doc) - {"version","telegram","automation","toss_wts"} or not {"version","telegram","automation"}.issubset(doc) or doc["version"]!=1: raise SettingsValidationError("INVALID_SETTINGS")
-    if "toss_wts" not in doc: doc = _merge(default_settings(), doc)
+    # Version-1 settings predate both Toss and listing reminders.  Normalize
+    # absent additive sections before exact validation, preserving all stored
+    # user choices without a schema-version bump.
+    if "toss_wts" not in doc or "ipo_listing_reminders" not in (doc.get("automation") or {}): doc = _merge(default_settings(), doc)
     t,a=doc["telegram"],doc["automation"]
     if not isinstance(t,dict) or set(t)!={"enabled","chat_id","allowed_user_id","allowed_chat_id"}: raise SettingsValidationError("INVALID_TELEGRAM_SETTINGS")
     if type(t["enabled"]) is not bool or any(v is not None and (type(v) is not int) for k,v in t.items() if k!="enabled"): raise SettingsValidationError("INVALID_TELEGRAM_ID")
-    if not isinstance(a,dict) or set(a)!={"timezone","ipo_refresh_morning","ipo_reminders","ipo_refresh_evening","daily_close"} or a["timezone"]!="Asia/Seoul": raise SettingsValidationError("INVALID_AUTOMATION_SETTINGS")
+    if not isinstance(a,dict) or set(a)!={"timezone","ipo_refresh_morning","ipo_reminders","ipo_listing_reminders","ipo_refresh_evening","daily_close"} or a["timezone"]!="Asia/Seoul": raise SettingsValidationError("INVALID_AUTOMATION_SETTINGS")
     for name in ("ipo_refresh_morning","ipo_refresh_evening","daily_close"):
         x=a[name]
         if not isinstance(x,dict) or set(x)!={"enabled","time"} or type(x["enabled"]) is not bool or not isinstance(x["time"],str) or not _TIME.fullmatch(x["time"]): raise SettingsValidationError("INVALID_TIME")
-    r=a["ipo_reminders"]
-    if not isinstance(r,dict) or set(r)!={"enabled","times"} or type(r["enabled"]) is not bool or not isinstance(r["times"],list) or not r["times"] or any(not isinstance(x,str) or not _TIME.fullmatch(x) for x in r["times"]) or len(set(r["times"]))!=len(r["times"]): raise SettingsValidationError("INVALID_REMINDER_TIMES")
-    r["times"].sort()
+    for reminder_name in ("ipo_reminders", "ipo_listing_reminders"):
+        r=a[reminder_name]
+        if not isinstance(r,dict) or set(r)!={"enabled","times"} or type(r["enabled"]) is not bool or not isinstance(r["times"],list) or not r["times"] or any(not isinstance(x,str) or not _TIME.fullmatch(x) for x in r["times"]) or len(set(r["times"]))!=len(r["times"]): raise SettingsValidationError("INVALID_REMINDER_TIMES")
+        r["times"].sort()
     toss = doc["toss_wts"]
     if not isinstance(toss, dict) or set(toss) != {"session_check_enabled"} or type(toss["session_check_enabled"]) is not bool: raise SettingsValidationError("INVALID_TOSS_WTS_SETTINGS")
     return doc

@@ -1,10 +1,17 @@
 import tempfile
 import unittest
+import httpx
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services import portfolio
-from app.services.ipo.orchestrator import _kind_search_names_for_kis, run_ipo_daily_pipeline
+from app.services.ipo.orchestrator import (
+    _kind_search_names_for_kis,
+    _resolve_missing_dart_corp_codes,
+    refresh_ipo_market_enriched,
+    run_ipo_daily_pipeline,
+)
+from app.services.ipo.dart_client import DartClient, DartClientError
 from app.services.ipo.store import get_ipo_calendar_events, read_market_store, write_market_store
 
 
@@ -81,6 +88,134 @@ class IpoOrchestratorTests(unittest.TestCase):
         saved = read_market_store()
         self.assertEqual(len(saved["ipos"]), 2)
         self.assertIsNotNone(saved["ipos"][0].get("score"))
+
+    def test_light_market_refresh_skips_dart_and_all_user_side_effects(self):
+        dart = MagicMock(); dart.is_configured.return_value = True
+        notifier = MagicMock()
+        with patch("app.services.ipo.orchestrator.freeze_untouched_ipo_application") as freeze, \
+             patch("app.services.ipo.orchestrator.get_user_applications") as applications:
+            result = run_ipo_daily_pipeline(
+                dart_client=dart, notifier=notifier, target_date_str="2026-09-18",
+                market_only=True,
+            )
+        self.assertEqual(result["sources"]["dart"], "not_requested (market_only)")
+        dart.get_filing_list.assert_not_called()
+        freeze.assert_not_called(); applications.assert_not_called()
+        notifier.check_and_notify_events.assert_not_called()
+
+    def test_enriched_refresh_wrapper_disables_user_side_effects(self):
+        with patch("app.services.ipo.orchestrator.run_ipo_daily_pipeline", return_value={"status": "ok"}) as pipeline:
+            self.assertEqual(refresh_ipo_market_enriched(username="owner", target_date_str="2026-09-18"), {"status": "ok"})
+        pipeline.assert_called_once_with(
+            username="owner", target_date_str="2026-09-18",
+            market_only=False, user_side_effects=False,
+        )
+
+    def test_dart_corp_code_resolution_prefers_stock_code_then_unique_name(self):
+        ipos = [
+            {"ipo_id": "stock", "company_name": "동명이인", "stock_code": "123456"},
+            {"ipo_id": "name", "company_name": "유일 회사"},
+        ]
+        master = [
+            {"corp_code": "00000001", "corp_name": "전혀 다른 이름", "stock_code": "123456"},
+            {"corp_code": "00000003", "corp_name": "동명이인", "stock_code": ""},
+            {"corp_code": "00000002", "corp_name": "유일회사", "stock_code": ""},
+        ]
+        self.assertEqual(_resolve_missing_dart_corp_codes(ipos, master), 2)
+        self.assertEqual(ipos[0]["corp_code"], "00000001")
+        self.assertEqual(ipos[0]["sources"]["dart_corp_code"]["match_type"], "stock_code")
+        self.assertEqual(ipos[1]["corp_code"], "00000002")
+        self.assertEqual(ipos[1]["sources"]["dart_corp_code"]["match_type"], "company_name_fallback")
+
+    def test_dart_stock_miss_falls_back_only_to_unique_name_and_stock_ambiguity_stops(self):
+        ipos = [
+            {"ipo_id": "fallback", "stock_code": "123456", "company_name": "테스트회사"},
+            {"ipo_id": "ambiguous-stock", "stock_code": "654321", "company_name": "유일회사"},
+            {"ipo_id": "ambiguous-name", "stock_code": "000000", "company_name": "같은회사"},
+        ]
+        master = [
+            {"corp_code": "00123456", "corp_name": "테스트회사", "stock_code": ""},
+            {"corp_code": "00111111", "corp_name": "무관회사1", "stock_code": "654321"},
+            {"corp_code": "00222222", "corp_name": "무관회사2", "stock_code": "654321"},
+            {"corp_code": "00333333", "corp_name": "같은회사", "stock_code": ""},
+            {"corp_code": "00444444", "corp_name": "같은 회사", "stock_code": ""},
+        ]
+        self.assertEqual(_resolve_missing_dart_corp_codes(ipos, master), 1)
+        self.assertEqual(ipos[0]["corp_code"], "00123456")
+        self.assertEqual(ipos[0]["sources"]["dart_corp_code"]["match_type"], "company_name_fallback")
+        self.assertNotIn("corp_code", ipos[1])
+        self.assertNotIn("corp_code", ipos[2])
+
+    def test_dart_corp_code_ambiguous_or_missing_name_is_not_guessed(self):
+        ipos = [{"ipo_id": "ambiguous", "company_name": "같은회사"}, {"ipo_id": "none", "company_name": "없는회사"}]
+        master = [
+            {"corp_code": "00000001", "corp_name": "같은 회사", "stock_code": ""},
+            {"corp_code": "00000002", "corp_name": "같은회사", "stock_code": ""},
+        ]
+        self.assertEqual(_resolve_missing_dart_corp_codes(ipos, master), 0)
+        self.assertNotIn("corp_code", ipos[0])
+        self.assertNotIn("corp_code", ipos[1])
+
+    def test_enriched_corp_master_failure_preserves_existing_market_record(self):
+        before = read_market_store()
+        dart = MagicMock(); dart.is_configured.return_value = True
+        dart.get_corp_code_master.side_effect = DartClientError("DART_NETWORK_ERROR")
+        result = run_ipo_daily_pipeline(dart_client=dart, target_date_str="2026-09-18", dry_run=True, user_side_effects=False)
+        self.assertEqual(result["sources"]["dart"], "source_error (NETWORK_ERROR)")
+        saved = read_market_store()
+        self.assertNotIn("corp_code", saved["ipos"][0])
+        self.assertEqual(saved["ipos"][0]["company_name"], before["ipos"][0]["company_name"])
+
+    def test_existing_dart_corp_code_does_not_refetch_master(self):
+        market = read_market_store()
+        for index, ipo in enumerate(market["ipos"]):
+            ipo["corp_code"] = f"0012345{index}"
+        write_market_store(market)
+        dart = MagicMock(); dart.is_configured.return_value = True
+        dart.get_filing_list.return_value = {"list": []}
+        run_ipo_daily_pipeline(dart_client=dart, target_date_str="2026-09-18", dry_run=True, user_side_effects=False)
+        dart.get_corp_code_master.assert_not_called()
+
+    def test_unmatched_dart_corp_code_leaves_score_calculating(self):
+        dart = MagicMock(); dart.is_configured.return_value = True
+        dart.get_corp_code_master.return_value = [
+            {"corp_code": "00000009", "corp_name": "다른회사", "stock_code": "999999"},
+        ]
+        result = run_ipo_daily_pipeline(dart_client=dart, target_date_str="2026-09-18", dry_run=True, user_side_effects=False)
+        self.assertEqual(result["sources"]["dart"], "transport_ok")
+        saved = read_market_store()
+        self.assertNotIn("corp_code", saved["ipos"][0])
+        self.assertIsNone(saved["ipos"][0]["score"]["score"])
+
+    def test_dart_transport_exception_never_leaks_key_to_result_or_log(self):
+        secret = "DART_QUERY_SECRET_MUST_NOT_LEAK"
+        request = httpx.Request("GET", f"https://opendart.fss.or.kr/api/corpCode.xml?crtfc_key={secret}")
+        dart = DartClient(api_key=secret)
+        with patch("httpx.Client.get", side_effect=httpx.RequestError(f"request failed {request.url}", request=request)), \
+             self.assertLogs("app.services.ipo.orchestrator", level="WARNING") as logs:
+            result = run_ipo_daily_pipeline(dart_client=dart, target_date_str="2026-09-18", dry_run=True, user_side_effects=False)
+        self.assertEqual(result["sources"]["dart"], "source_error (NETWORK_ERROR)")
+        self.assertNotIn(secret, str(result))
+        self.assertNotIn(secret, "\n".join(logs.output))
+
+    def test_enriched_refresh_without_dart_key_keeps_safe_calculating_score_details(self):
+        dart = MagicMock()
+        dart.is_configured.return_value = False
+        result = run_ipo_daily_pipeline(
+            dart_client=dart, target_date_str="2026-09-18", dry_run=True,
+            user_side_effects=False,
+        )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["sources"]["dart"], "source_unavailable (api_key_missing)")
+        self.assertFalse(result["user_side_effects"])
+        saved = read_market_store()
+        score = saved["ipos"][0]["score"]
+        self.assertIsNone(score["score"])
+        self.assertIn("coverage", score)
+        self.assertIn("core_missing", score)
+        self.assertTrue(score["core_missing"])
+        self.assertNotIn("DART_API_KEY", str(result))
 
 
     def test_kind_spac_search_aliases_are_local_and_preserve_numbering(self):
@@ -307,12 +442,13 @@ class IpoOrchestratorTests(unittest.TestCase):
             """)
         sample_zip = zf_buffer.getvalue()
 
-        # Add candidate with corp_code to market store
+        # Add a KIS/KIND-style candidate without corp_code; enriched DART
+        # resolution must assign it from the official master before scoring.
         market = read_market_store()
         market["ipos"].append({
             "ipo_id": "test_dart_ipo",
             "company_name": "다트기업",
-            "corp_code": "00123456",
+            "stock_code": "777777",
             "subscription_start": "2026-09-25",
             "subscription_end": "2026-09-26",
             "final_offer_price": 25000,
@@ -322,6 +458,9 @@ class IpoOrchestratorTests(unittest.TestCase):
 
         mock_dart = MagicMock()
         mock_dart.is_configured.return_value = True
+        mock_dart.get_corp_code_master.return_value = [
+            {"corp_code": "00123456", "corp_name": "다트기업", "stock_code": ""},
+        ]
         mock_dart.get_filing_list.return_value = {
             "status": "000",
             "list": [{
@@ -333,18 +472,39 @@ class IpoOrchestratorTests(unittest.TestCase):
         mock_dart.get_equity_registration_statements.return_value = {"status": "000", "list": []}
         mock_dart.download_document_zip.return_value = sample_zip
 
-        result = run_ipo_daily_pipeline(
-            dart_client=mock_dart,
-            target_date_str="2026-09-18",
-            dry_run=True,
-        )
+        with patch("app.services.ipo.orchestrator.freeze_untouched_ipo_application") as freeze, \
+             patch("app.services.ipo.orchestrator.get_user_applications") as applications, \
+             patch("app.services.ipo.orchestrator.DartSemanticParser.parse_document", return_value={
+                 "institutional_competition_ratio": {"status": "ok", "value": 950.0, "source_date": "2026-09-20"},
+                 "lockup_commitment_ratio": {"status": "ok", "value": 50.0, "source_date": "2026-09-20"},
+                 "tradable_share_ratio": {"status": "ok", "value": 20.0, "source_date": "2026-09-20"},
+                 "high_bid_ratio": {"status": "ok", "value": 80.0, "source_date": "2026-09-20"},
+                 "secondary_sale_ratio": {"status": "ok", "value": 5.0, "source_date": "2026-09-20"},
+                 "unlock_3m_ratio": {"status": "ok", "value": 2.0, "source_date": "2026-09-20"},
+                 "relative_valuation": {"status": "ok", "value": 0.9, "source_date": "2026-09-20"},
+                 "revenue_cagr": {"status": "ok", "value": 20.0, "source_date": "2026-09-20"},
+                 "operating_margin": {"status": "ok", "value": 10.0, "source_date": "2026-09-20"},
+                 "net_debt_to_assets": {"status": "ok", "value": 10.0, "source_date": "2026-09-20"},
+             }):
+            result = run_ipo_daily_pipeline(
+                dart_client=mock_dart,
+                target_date_str="2026-09-18",
+                dry_run=True,
+                user_side_effects=False,
+            )
 
         self.assertEqual(result["sources"]["dart"], "sync_ok")
         saved = read_market_store()
         dart_ipo = next(it for it in saved["ipos"] if it["ipo_id"] == "test_dart_ipo")
         self.assertIn("institutional_competition_ratio", dart_ipo["features"])
+        self.assertEqual(dart_ipo["corp_code"], "00123456")
+        self.assertEqual(dart_ipo["sources"]["dart_corp_code"]["match_type"], "company_name_fallback")
         self.assertEqual(dart_ipo["features"]["institutional_competition_ratio"]["value"], 950.0)
         self.assertEqual(dart_ipo["sources"]["dart"]["rcept_no"], "20260920000111")
+        self.assertIsNotNone(dart_ipo["score"]["score"])
+        self.assertFalse(result["user_side_effects"])
+        freeze.assert_not_called()
+        applications.assert_not_called()
 
     def test_stage5_1_naver_and_krx_exact_1_and_past_date_promotes_actual(self):
         # 1. NAVER LISTING exact 1 + KRX exact 1 + past lcalDate -> actual promotion

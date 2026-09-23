@@ -68,6 +68,33 @@ def test_time_and_id_validation_contracts():
     assert "최소 1개의 알림 시간이 필요합니다." in JS
 
 
+def test_listing_reminder_settings_are_independent_from_subscription_reminders():
+    assert '공모주 상장일 알림' in HTML
+    assert 'id="settingsListingRemindersEnabled"' in HTML
+    assert 'id="settingsListingReminderTimes"' in HTML
+    assert 'id="settingsAddListingReminder"' in HTML
+    assert "automation.ipo_listing_reminders" in JS
+    assert "ipo_listing_reminders: {enabled:" in JS
+    assert "공모주 상장일 알림 시간" in JS
+
+
+def test_opendart_system_credential_ui_is_admin_only_and_never_rehydrates_key():
+    wealth_js = (ROOT / "app/static/wealth.js").read_text(encoding="utf-8")
+    assert 'id="openapiDartSection"' in HTML
+    assert "시장 데이터 API · OpenDART" in HTML
+    assert 'id="openapiDartKey"' in HTML
+    assert "dartSection.hidden = !isSystemAdmin" in wealth_js
+    assert "currentUserProfile?.role === 'admin'" in wealth_js
+    assert ".openapi-broker-card:not(#openapiDartSection)" not in wealth_js
+    assert "if (isSystemAdmin) {\n    await loadDartCredentialStatus();\n    return;" not in wealth_js
+    assert "'/api/settings/dart'" in wealth_js
+    assert "handleSaveDartApi" in wealth_js
+    assert "handleTestDartApi" in wealth_js
+    assert "handleDeleteDartApi" in wealth_js
+    assert "if (input) input.value = '';" in wealth_js
+    assert "config.dart.api_key" not in wealth_js
+
+
 def test_partial_failure_and_blank_secret_contracts():
     assert "if (Object.keys(secretPatch).length)" in JS
     assert "일부 설정은 저장되었지만 비밀정보 저장에 실패했습니다." in JS
@@ -173,6 +200,7 @@ class SettingsFrontendTests(unittest.TestCase):
     def test_validation_and_save_flow(self):
         test_time_and_id_validation_contracts()
         test_partial_failure_and_blank_secret_contracts()
+        test_opendart_system_credential_ui_is_admin_only_and_never_rehydrates_key()
 
     def test_responsive_styles(self):
         test_responsive_settings_styles_exist()

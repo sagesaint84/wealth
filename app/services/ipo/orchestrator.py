@@ -38,6 +38,7 @@ from app.services.ipo.dart_client import (
     DartAuthError,
     DartClient,
     DartClientError,
+    DartRateLimitError,
     extract_document_text_from_zip,
     select_point_in_time_filing,
 )
@@ -341,6 +342,69 @@ def _run_kis_stock_info_fetch(kis: KISOpenAPI, stock_codes: list[str]) -> dict[s
     raise RuntimeError("IPO daily pipeline cannot run KIS stock info fetch inside an active event loop")
 
 
+def _resolve_missing_dart_corp_codes(
+    ipos: list[dict[str, Any]], corp_master: list[dict[str, Any]],
+) -> int:
+    """Resolve only unambiguous official DART identities without changing IPO identity.
+
+    Stock-code equality is authoritative.  Name matching is intentionally a
+    last resort and may only select exactly one normalized company name.
+    """
+    by_stock: dict[str, list[dict[str, Any]]] = {}
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for entry in corp_master:
+        corp_code = str(entry.get("corp_code") or "").strip()
+        corp_name = str(entry.get("corp_name") or entry.get("company_name") or "").strip()
+        stock_code = str(entry.get("stock_code") or "").strip()
+        if not corp_code or not corp_name:
+            continue
+        if stock_code:
+            by_stock.setdefault(stock_code, []).append(entry)
+        normalized_name = normalize_company_name(corp_name)
+        if normalized_name:
+            by_name.setdefault(normalized_name, []).append(entry)
+
+    resolved = 0
+    observed_at = datetime.now(KST).isoformat()
+    for ipo in ipos:
+        if str(ipo.get("corp_code") or "").strip():
+            continue
+        stock_code = str(ipo.get("stock_code") or "").strip()
+        matches = by_stock.get(stock_code, []) if stock_code else []
+        if len(matches) == 1:
+            match_type = "stock_code"
+        elif len(matches) > 1:
+            # An ambiguous stock-code master record is never recoverable by
+            # the weaker name match.
+            continue
+        else:
+            normalized_name = normalize_company_name(str(ipo.get("company_name") or ""))
+            matches = by_name.get(normalized_name, []) if normalized_name else []
+            match_type = "company_name_fallback"
+        if len(matches) != 1:
+            continue
+        corp_code = str(matches[0].get("corp_code") or "").strip()
+        if not corp_code:
+            continue
+        ipo["corp_code"] = corp_code
+        sources = ipo.setdefault("sources", {})
+        sources["dart_corp_code"] = {
+            "source": "corpCode.xml",
+            "match_type": match_type,
+            "observed_at": observed_at,
+        }
+        resolved += 1
+    return resolved
+
+
+def _dart_error_code(exc: Exception) -> str:
+    if isinstance(exc, DartAuthError):
+        return "AUTH_ERROR"
+    if isinstance(exc, DartRateLimitError):
+        return "RATE_LIMIT"
+    return "NETWORK_ERROR"
+
+
 def run_ipo_daily_pipeline(
     kind_client: KindClient | None = None,
     krx_client: KrxClient | None = None,
@@ -352,13 +416,14 @@ def run_ipo_daily_pipeline(
     kis_client: KISOpenAPI | None = None,
     naver_client: NaverIpoClient | None = None,
     market_only: bool = False,
+    user_side_effects: bool = True,
 ) -> dict[str, Any]:
     with _refresh_file_lock():
         return _run_ipo_daily_pipeline(
             kind_client=kind_client, krx_client=krx_client, dart_client=dart_client,
             notifier=notifier, target_date_str=target_date_str, dry_run=dry_run,
             username=username, kis_client=kis_client, naver_client=naver_client,
-            market_only=market_only,
+            market_only=market_only, user_side_effects=user_side_effects,
         )
 
 
@@ -367,7 +432,7 @@ def _run_ipo_daily_pipeline(
     dart_client: DartClient | None = None, notifier: IpoTelegramNotifier | None = None,
     target_date_str: str | None = None, dry_run: bool = False, username: str | None = None,
     kis_client: KISOpenAPI | None = None, naver_client: NaverIpoClient | None = None,
-    market_only: bool = False,
+    market_only: bool = False, user_side_effects: bool = True,
 ) -> dict[str, Any]:
     """Runs the daily IPO refresh and notification pipeline."""
     if not target_date_str:
@@ -502,8 +567,19 @@ def _run_ipo_daily_pipeline(
         sources_status["dart"] = "source_unavailable (api_key_missing)"
     else:
         try:
-            # Check market store for candidate IPOs needing DART filing/feature sync
             existing_store = market
+            unresolved = [
+                ipo for ipo in existing_store.get("ipos", [])
+                if not str(ipo.get("corp_code") or "").strip()
+                and (str(ipo.get("stock_code") or "").strip() or normalize_company_name(str(ipo.get("company_name") or "")))
+            ]
+            # corpCode.xml is a large official master; resolve only in the
+            # enriched path and only when an IPO still needs a corp code.
+            if unresolved:
+                corp_master = dart.get_corp_code_master()
+                _resolve_missing_dart_corp_codes(existing_store.get("ipos", []), corp_master)
+
+            # Check market store for candidates needing DART filing/feature sync.
             candidates = [
                 ipo for ipo in existing_store.get("ipos", [])
                 if ipo.get("corp_code")
@@ -556,8 +632,8 @@ def _run_ipo_daily_pipeline(
                         end_de=end_de,
                     )
                     structured_data = normalize_equity_registration_response(estk_resp)
-                except Exception as exc:
-                    logger.debug("Optional estkRs fetch failed for %s: %s", corp_code, exc)
+                except Exception:
+                    logger.debug("Optional DART structured data fetch failed")
 
                 # 4. Download document ZIP & extract text
                 parsed_features: dict[str, Any] = {}
@@ -570,8 +646,8 @@ def _run_ipo_daily_pipeline(
                             rcept_no=rcept_no,
                             source_date=source_date,
                         )
-                    except Exception as exc:
-                        logger.warning("DART doc extraction/parsing failed for %s (rcept_no=%s): %s", corp_code, rcept_no, exc)
+                    except Exception:
+                        logger.warning("DART document extraction/parsing failed")
 
                 if parsed_features or structured_data:
                     dart_meta: dict[str, Any] = {
@@ -601,12 +677,12 @@ def _run_ipo_daily_pipeline(
                 sources_status["dart"] = "transport_ok"
         except NotImplementedError:
             sources_status["dart"] = "implementation_blocker"
-        except DartAuthError as e:
-            logger.warning("DART auth error: %s", e)
-            sources_status["dart"] = f"configuration_error ({e})"
-        except Exception as e:
-            logger.warning("DART sync error: %s", e)
-            sources_status["dart"] = f"source_error ({e})"
+        except DartAuthError as exc:
+            logger.warning("DART authentication error")
+            sources_status["dart"] = f"configuration_error ({_dart_error_code(exc)})"
+        except Exception as exc:
+            logger.warning("DART enrichment failed")
+            sources_status["dart"] = f"source_error ({_dart_error_code(exc)})"
 
     # 5. KRX master data fetch
     krx_master: list[dict[str, Any]] = []
@@ -747,7 +823,7 @@ def _run_ipo_daily_pipeline(
     # 9. Untouched application freeze (only for closed subscriptions).
     # This is a daily-pipeline domain action, never a market-only refresh action.
     frozen_count = 0
-    if not market_only:
+    if user_side_effects and not market_only:
         for ipo in ipos:
             ipo_id = ipo.get("ipo_id")
             sub_end = ipo.get("subscription_end")
@@ -761,7 +837,7 @@ def _run_ipo_daily_pipeline(
 
     # 10. Schedule / score change detection & 11. Notification candidates
     notifications: list[dict[str, Any]] = []
-    if not market_only:
+    if user_side_effects and not market_only:
         apps = get_user_applications(username=username)
         notif = notifier or IpoTelegramNotifier(username=username)
         notifications = notif.check_and_notify_events(
@@ -796,6 +872,7 @@ def _run_ipo_daily_pipeline(
         "target_date": target_date_str,
         "dry_run": dry_run,
         "market_only": market_only,
+        "user_side_effects": bool(user_side_effects and not market_only),
         "sources": sources_status,
         "total_ipos": len(ipos),
         "frozen_applications_count": frozen_count,
@@ -810,4 +887,21 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
         username=username,
         target_date_str=target_date_str,
         market_only=True,
+    )
+
+
+def refresh_ipo_market_enriched(
+    *, username: str | None = None, target_date_str: str | None = None
+) -> dict[str, Any]:
+    """Refresh and score the shared market store without user-domain effects.
+
+    ``username`` is only a credential-resolution context for shared sources.
+    This mode never reads or mutates IPO applications and never sends event
+    notifications.
+    """
+    return run_ipo_daily_pipeline(
+        username=username,
+        target_date_str=target_date_str,
+        market_only=False,
+        user_side_effects=False,
     )

@@ -48,11 +48,11 @@
     return timePattern.test(String(value || '').trim());
   }
 
-  function reminderValues() {
-    return [...document.querySelectorAll('#settingsReminderTimes input')].map((input) => input.value.trim());
+  function reminderValues(containerId) {
+    return [...document.querySelectorAll(`#${containerId} input`)].map((input) => input.value.trim());
   }
 
-  function addReminderRow(value = '') {
+  function addReminderRow(value = '', containerId = 'settingsReminderTimes', label = '공모주 청약 알림 시간') {
     const row = document.createElement('div');
     row.className = 'settings-reminder-row';
     const input = document.createElement('input');
@@ -60,13 +60,13 @@
     input.inputMode = 'numeric';
     input.placeholder = 'HH:MM';
     input.value = value;
-    input.setAttribute('aria-label', '공모주 청약 알림 시간');
+    input.setAttribute('aria-label', label);
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'button secondary compact';
     remove.textContent = '삭제';
     remove.addEventListener('click', () => {
-      const list = byId('settingsReminderTimes');
+      const list = byId(containerId);
       if (list.children.length <= 1) {
         setError('settingsAutomationError', '최소 1개의 알림 시간이 필요합니다.');
         return;
@@ -74,7 +74,7 @@
       row.remove();
     });
     row.append(input, remove);
-    byId('settingsReminderTimes').append(row);
+    byId(containerId).append(row);
     return input;
   }
 
@@ -301,12 +301,15 @@
     byId('settingsMorningEnabled').checked = automation.ipo_refresh_morning.enabled;
     byId('settingsMorningTime').value = automation.ipo_refresh_morning.time;
     byId('settingsRemindersEnabled').checked = automation.ipo_reminders.enabled;
+    byId('settingsListingRemindersEnabled').checked = automation.ipo_listing_reminders.enabled;
     byId('settingsEveningEnabled').checked = automation.ipo_refresh_evening.enabled;
     byId('settingsEveningTime').value = automation.ipo_refresh_evening.time;
     byId('settingsDailyCloseEnabled').checked = automation.daily_close.enabled;
     byId('settingsDailyCloseTime').value = automation.daily_close.time;
     byId('settingsReminderTimes').replaceChildren();
-    automation.ipo_reminders.times.forEach(addReminderRow);
+    byId('settingsListingReminderTimes').replaceChildren();
+    automation.ipo_reminders.times.forEach((value) => addReminderRow(value));
+    automation.ipo_listing_reminders.times.forEach((value) => addReminderRow(value, 'settingsListingReminderTimes', '공모주 상장일 알림 시간'));
   }
 
   async function reloadSettings() {
@@ -412,19 +415,21 @@
     const button = byId('settingsSaveAutomation');
     setError('settingsAutomationError');
     try {
-      const times = reminderValues();
+      const times = reminderValues('settingsReminderTimes');
+      const listingTimes = reminderValues('settingsListingReminderTimes');
       const named = [
         ['IPO 오전 갱신', byId('settingsMorningTime').value],
         ['IPO 장후 갱신', byId('settingsEveningTime').value],
         ['일일 마감', byId('settingsDailyCloseTime').value],
       ];
-      if (named.some(([, value]) => !validateTime(value)) || times.some((value) => !validateTime(value))) throw new Error('시간은 HH:MM 형식이어야 합니다.');
-      if (!times.length) throw new Error('최소 1개의 알림 시간이 필요합니다.');
-      if (new Set(times).size !== times.length) throw new Error('알림 시간을 중복해서 입력할 수 없습니다.');
+      if (named.some(([, value]) => !validateTime(value)) || times.some((value) => !validateTime(value)) || listingTimes.some((value) => !validateTime(value))) throw new Error('시간은 HH:MM 형식이어야 합니다.');
+      if (!times.length || !listingTimes.length) throw new Error('최소 1개의 알림 시간이 필요합니다.');
+      if (new Set(times).size !== times.length || new Set(listingTimes).size !== listingTimes.length) throw new Error('알림 시간을 중복해서 입력할 수 없습니다.');
       const automation = {
         timezone: 'Asia/Seoul',
         ipo_refresh_morning: {enabled: byId('settingsMorningEnabled').checked, time: named[0][1].trim()},
         ipo_reminders: {enabled: byId('settingsRemindersEnabled').checked, times: [...times].sort()},
+        ipo_listing_reminders: {enabled: byId('settingsListingRemindersEnabled').checked, times: [...listingTimes].sort()},
         ipo_refresh_evening: {enabled: byId('settingsEveningEnabled').checked, time: named[1][1].trim()},
         daily_close: {enabled: byId('settingsDailyCloseEnabled').checked, time: named[2][1].trim()},
       };
@@ -504,6 +509,7 @@
     byId('settingsTossLoginStart')?.addEventListener('click', startTossLogin);
     byId('settingsTossLoginCancel')?.addEventListener('click', cancelTossLogin);
     byId('settingsAddReminder')?.addEventListener('click', () => addReminderRow('').focus());
+    byId('settingsAddListingReminder')?.addEventListener('click', () => addReminderRow('', 'settingsListingReminderTimes', '공모주 상장일 알림 시간').focus());
     byId('settingsClearBot')?.addEventListener('click', () => requestClear('bot'));
     byId('settingsClearWebhook')?.addEventListener('click', () => requestClear('webhook'));
     byId('settingsSaveSystem')?.addEventListener('click', saveSystemSettings);

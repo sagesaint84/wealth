@@ -778,6 +778,67 @@ async def patch_system_settings_api(request: Request) -> dict:
     try:return {**patch_system_settings(await request.json()),"can_manage":True,"current_username":get_current_username(request)}
     except (SystemSettingsError,ValueError,AttributeError) as exc: raise HTTPException(status_code=400,detail={"code":str(exc)}) from exc
 
+def _require_system_settings_admin(request: Request) -> None:
+    if get_current_role(request) != "admin":
+        raise HTTPException(status_code=403, detail={"code": "ADMIN_REQUIRED"})
+
+@app.get("/api/settings/dart")
+async def get_dart_settings_api(request: Request) -> dict:
+    _require_system_settings_admin(request)
+    from app.services.dart_secrets import DartSecretError, get_dart_credential_status
+    try:
+        return get_dart_credential_status()
+    except DartSecretError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+
+@app.patch("/api/settings/dart")
+async def patch_dart_settings_api(request: Request) -> dict:
+    _require_system_settings_admin(request)
+    from app.services.dart_secrets import DartSecretError, get_dart_credential_status, save_dart_api_key
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict) or set(body) != {"api_key"}:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_DART_API_KEY"})
+    try:
+        save_dart_api_key(body["api_key"])
+        return get_dart_credential_status()
+    except DartSecretError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+
+@app.delete("/api/settings/dart")
+async def delete_dart_settings_api(request: Request) -> dict:
+    _require_system_settings_admin(request)
+    from app.services.dart_secrets import DartSecretError, delete_stored_dart_api_key, get_dart_credential_status
+    try:
+        delete_stored_dart_api_key()
+        return get_dart_credential_status()
+    except DartSecretError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+
+@app.post("/api/settings/dart/test")
+async def test_dart_settings_api(request: Request) -> dict:
+    _require_system_settings_admin(request)
+    from app.services.dart_secrets import DartSecretError, get_dart_credential_status
+    from app.services.ipo.dart_client import DartAuthError, DartClient, DartRateLimitError, DartSourceError
+    try:
+        status = get_dart_credential_status()
+        if not status["configured"]:
+            return {"configured": False, "valid": False, "error_code": "NOT_CONFIGURED"}
+        DartClient().verify_credentials()
+        return {"configured": True, "valid": True, "source": status["source"]}
+    except DartAuthError:
+        return {"configured": True, "valid": False, "error_code": "AUTH_ERROR"}
+    except DartRateLimitError:
+        return {"configured": True, "valid": False, "error_code": "RATE_LIMIT"}
+    except DartSourceError:
+        return {"configured": True, "valid": False, "error_code": "NETWORK_ERROR"}
+    except DartSecretError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+    except Exception:
+        return {"configured": True, "valid": False, "error_code": "NETWORK_ERROR"}
+
 @app.get("/api/settings/toss-wts")
 async def get_toss_wts_settings_api(request: Request) -> dict:
     username = get_current_username(request)

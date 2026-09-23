@@ -30,8 +30,8 @@ from app.services.automation.execution_state import (
     record_execution_success,
     sanitize_error_code,
 )
-from app.services.ipo.orchestrator import refresh_ipo_market
-from app.services.ipo.reminders import run_ipo_subscription_reminders
+from app.services.ipo.orchestrator import refresh_ipo_market_enriched
+from app.services.ipo.reminders import run_ipo_listing_reminders, run_ipo_subscription_reminders
 from app.services.settings import (
     _TIME,
     get_effective_settings,
@@ -290,7 +290,23 @@ def resolve_due_jobs(
                     ),
                 })
 
-        # 2b. Daily close
+        # 2b. IPO listing-day reminders
+        listing_cfg = automation.get("ipo_listing_reminders") or {}
+        if listing_cfg.get("enabled") and current_time_str in (listing_cfg.get("times") or []):
+            slot = time_to_slot_id(current_time_str)
+            due_jobs.append({
+                "job": "ipo_listing_reminder",
+                "scope": "user",
+                "username": username,
+                "slot": slot,
+                "scheduled_time": current_time_str,
+                "execution_key": build_execution_key(
+                    job="ipo_listing_reminder", target_date=current_date_str,
+                    time_str=slot, scope="user", username=username, slot=slot,
+                ),
+            })
+
+        # 2c. Daily close
         daily_close_cfg = automation.get("daily_close") or {}
         if daily_close_cfg.get("enabled"):
             close_time = daily_close_cfg.get("time")
@@ -395,6 +411,7 @@ async def execute_job(
     now: datetime,
     daily_close_runner: Callable[..., Any] | None = None,
     reminder_runner: Callable[..., Any] | None = None,
+    listing_reminder_runner: Callable[..., Any] | None = None,
     ipo_refresh_runner: Callable[..., Any] | None = None,
     toss_session_runner: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
@@ -423,7 +440,7 @@ async def execute_job(
     if job_type in ("ipo_refresh_morning", "ipo_refresh_evening"):
         owner = job.get("owner")
         target_date_str = now.astimezone(KST).date().isoformat()
-        runner = ipo_refresh_runner or refresh_ipo_market
+        runner = ipo_refresh_runner or refresh_ipo_market_enriched
         try:
             if inspect.iscoroutinefunction(runner):
                 res = await runner(username=owner, target_date_str=target_date_str)
@@ -489,6 +506,7 @@ async def execute_job(
                     "all_applied_count": res.get("all_applied_count", 0),
                 },
             }
+
         except Exception as exc:
             logger.exception("IPO reminder job failed for '%s' slot %s", username, slot)
             return {
@@ -500,6 +518,24 @@ async def execute_job(
                 "status": "failed",
                 "error": str(exc),
             }
+
+    if job_type == "ipo_listing_reminder":
+        username = job.get("username")
+        slot = job.get("slot")
+        runner = listing_reminder_runner or run_ipo_listing_reminders
+        try:
+            kwargs = {"username": username, "reminder_slot": slot, "today": now.astimezone(KST).date()}
+            res = await runner(**kwargs) if inspect.iscoroutinefunction(runner) else await asyncio.to_thread(runner, **kwargs)
+            return {
+                "job": job_type, "scope": "user", "username": username,
+                "slot": slot, "scheduled_time": scheduled_time, "status": "success",
+                "details": {key: res.get(key, 0) for key in ("notifications_sent_count", "eligible_ipos")},
+            }
+        except Exception as exc:
+            logger.exception("IPO listing reminder job failed for '%s' slot %s", username, slot)
+            return {"job": job_type, "scope": "user", "username": username,
+                    "slot": slot, "scheduled_time": scheduled_time,
+                    "status": "failed", "error": str(exc)}
 
     if job_type == "daily_close":
         username = job.get("username")
@@ -561,6 +597,7 @@ async def run_due_automation(
     state_path: Path | None = None,
     daily_close_runner: Callable[..., Any] | None = None,
     reminder_runner: Callable[..., Any] | None = None,
+    listing_reminder_runner: Callable[..., Any] | None = None,
     ipo_refresh_runner: Callable[..., Any] | None = None,
     toss_session_runner: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
@@ -645,6 +682,7 @@ async def run_due_automation(
                 now=current_dt,
                 daily_close_runner=daily_close_runner,
                 reminder_runner=reminder_runner,
+                listing_reminder_runner=listing_reminder_runner,
                 ipo_refresh_runner=ipo_refresh_runner,
                 toss_session_runner=toss_session_runner,
             )

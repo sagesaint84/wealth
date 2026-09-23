@@ -109,6 +109,83 @@ def _run_reminders_locked(
             "notifications_sent_count": sent, "all_applied_count": complete}
 
 
+def run_ipo_listing_reminders(
+    *, username: str | None, reminder_slot: str, today: date | None = None,
+    notifier: IpoTelegramNotifier | None = None,
+    market_store: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Send user-scoped, non-advisory reminders for IPOs listing today.
+
+    This deliberately reads only the shared market store; unlike subscription
+    reminders it neither reads nor mutates the user's application state.
+    """
+    if not _is_valid_reminder_slot(reminder_slot):
+        raise ValueError("INVALID_LISTING_REMINDER_SLOT")
+    current = today or datetime.now(KST).date()
+    store = market_store if market_store is not None else read_market_store_read_only()
+    client = notifier or IpoTelegramNotifier(username=username)
+    with notification_state_lock(client.state_path):
+        return _run_listing_reminders_locked(client, store, current, reminder_slot)
+
+
+def _run_listing_reminders_locked(
+    client: IpoTelegramNotifier,
+    store: dict[str, Any],
+    current: date,
+    reminder_slot: str,
+) -> dict[str, Any]:
+    date_str = current.isoformat()
+    state = client.load_state()
+    sent_keys = state.setdefault("sent_keys", {})
+    sent = 0
+    eligible = 0
+    for ipo in store.get("ipos", []):
+        ipo_id = str(ipo.get("ipo_id") or "").strip()
+        if not ipo_id:
+            continue
+        listing_raw = str(
+            ipo.get("actual_listing_date") or ipo.get("expected_listing_date") or ""
+        )[:10]
+        try:
+            listing_date = datetime.strptime(listing_raw, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if listing_date != current:
+            continue
+        eligible += 1
+        key = f"{ipo_id}:listing_reminder:{date_str}:{reminder_slot}"
+        if key in sent_keys:
+            continue
+        price = ipo.get("final_offer_price")
+        price_text = f"{int(price):,}원" if isinstance(price, (int, float)) else "미정"
+        managers = ", ".join(ipo.get("lead_managers") or []) or "미정"
+        if reminder_slot == "0850":
+            title = "🚀 <b>공모주 오늘 상장</b>"
+            guidance = "장 시작 전 호가와 주문 상태를 확인하세요."
+        elif reminder_slot == "1450":
+            title = "📈 <b>공모주 상장일 오후 확인</b>"
+            guidance = "장 마감 전 보유 및 주문 상태를 확인하세요."
+        else:
+            title = "📌 <b>공모주 오늘 상장 확인</b>"
+            guidance = "상장 일정과 현재 주문·보유 상태를 확인하세요."
+        message = (
+            f"{title}\n{ipo.get('company_name') or '공모주'}\n"
+            f"• 상장일: {listing_date.isoformat()}\n"
+            f"• 공모가: {price_text}\n"
+            f"• 주관사: {managers}\n"
+            f"{guidance}\n"
+        )
+        if client.send_message(message):
+            sent_keys[key] = datetime.now(KST).isoformat()
+            sent += 1
+    if sent:
+        client.save_state(state)
+    return {
+        "status": "ok", "slot": reminder_slot,
+        "eligible_ipos": eligible, "notifications_sent_count": sent,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--username", required=True)

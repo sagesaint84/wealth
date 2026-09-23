@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from app.services.ipo.notifier import IpoTelegramNotifier
-from app.services.ipo.reminders import run_ipo_subscription_reminders
+from app.services.ipo.reminders import run_ipo_listing_reminders, run_ipo_subscription_reminders
 
 
 class SubscriptionReminderTests(unittest.TestCase):
@@ -84,3 +84,48 @@ class SubscriptionReminderTests(unittest.TestCase):
         )
         msg_not_last = self.notifier.send_message.call_args[0][0]
         self.assertNotIn("청약 마감 시간이 가까워지고 있습니다", msg_not_last)
+
+
+class ListingReminderTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.notifier = IpoTelegramNotifier(bot_token="x", chat_id="y", state_path=Path(self.temp.name) / "state.json")
+        self.notifier.send_message = MagicMock(return_value=True)
+
+    def run_listing(self, market, slot="0850", day=date(2026, 9, 29)):
+        return run_ipo_listing_reminders(username="alice", reminder_slot=slot, today=day,
+                                         notifier=self.notifier, market_store=market)
+
+    def test_expected_and_actual_listing_dates_and_slots_are_deduped(self):
+        market = {"ipos": [
+            {"ipo_id": "expected", "company_name": "예정", "expected_listing_date": "2026-09-29", "final_offer_price": 18000},
+            {"ipo_id": "actual", "company_name": "실제", "expected_listing_date": "2026-09-28", "actual_listing_date": "2026-09-29"},
+        ]}
+        self.assertEqual(self.run_listing(market, "0850")["notifications_sent_count"], 2)
+        self.assertEqual(self.run_listing(market, "0850")["notifications_sent_count"], 0)
+        self.assertEqual(self.run_listing(market, "1450")["notifications_sent_count"], 2)
+        message = self.notifier.send_message.call_args[0][0]
+        self.assertIn("상장일 오후 확인", message)
+
+    def test_actual_date_overrides_expected_and_invalid_records_are_ignored(self):
+        market = {"ipos": [
+            {"ipo_id": "moved", "expected_listing_date": "2026-09-29", "actual_listing_date": "2026-09-30"},
+            {"ipo_id": "bad", "expected_listing_date": "not-a-date"},
+            {"company_name": "id 없음", "expected_listing_date": "2026-09-29"},
+        ]}
+        self.assertEqual(self.run_listing(market)["notifications_sent_count"], 0)
+
+    def test_notification_state_is_user_scoped(self):
+        market = {"ipos": [{"ipo_id": "ipo", "expected_listing_date": "2026-09-29"}]}
+        first = self.run_listing(market)
+        other = IpoTelegramNotifier(bot_token="x", chat_id="y", state_path=Path(self.temp.name) / "other.json")
+        other.send_message = MagicMock(return_value=True)
+        second = run_ipo_listing_reminders(username="bob", reminder_slot="0850", today=date(2026, 9, 29), notifier=other, market_store=market)
+        self.assertEqual((first["notifications_sent_count"], second["notifications_sent_count"]), (1, 1))
+
+    def test_custom_listing_slot_uses_neutral_message(self):
+        market = {"ipos": [{"ipo_id": "ipo", "expected_listing_date": "2026-09-29"}]}
+        self.assertEqual(self.run_listing(market, "1030")["notifications_sent_count"], 1)
+        message = self.notifier.send_message.call_args[0][0]
+        self.assertIn("공모주 오늘 상장 확인", message)
+        self.assertNotIn("상장일 오후 확인", message)

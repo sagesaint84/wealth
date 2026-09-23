@@ -71,7 +71,7 @@ class AutomationDispatcherTests(unittest.TestCase):
         with patch("app.services.automation.dispatcher.list_users", return_value=self.mock_users), \
              patch("app.services.automation.dispatcher.resolve_global_automation_owner", return_value="alice"), \
              patch("app.services.automation.dispatcher.get_effective_settings", return_value=default_settings()), \
-             patch("app.services.automation.dispatcher.refresh_ipo_market") as mock_refresh, \
+             patch("app.services.automation.dispatcher.refresh_ipo_market_enriched") as mock_refresh, \
              patch("app.services.automation.dispatcher.run_ipo_subscription_reminders") as mock_reminder, \
              patch("app.services.automation.dispatcher.run_daily_close_for_user") as mock_close:
 
@@ -90,7 +90,7 @@ class AutomationDispatcherTests(unittest.TestCase):
         with patch("app.services.automation.dispatcher.list_users", return_value=self.mock_users), \
              patch("app.services.automation.dispatcher.resolve_global_automation_owner", return_value="alice"), \
              patch("app.services.automation.dispatcher.get_effective_settings", return_value=default_settings()), \
-             patch("app.services.automation.dispatcher.refresh_ipo_market", return_value={"status": "ok", "total_ipos": 5}) as mock_refresh:
+             patch("app.services.automation.dispatcher.refresh_ipo_market_enriched", return_value={"status": "ok", "total_ipos": 5}) as mock_refresh:
 
             due = resolve_due_jobs(now)
             refresh_jobs = [j for j in due if j["job"] == "ipo_refresh_morning"]
@@ -114,7 +114,7 @@ class AutomationDispatcherTests(unittest.TestCase):
         with patch("app.services.automation.dispatcher.list_users", return_value=self.mock_users), \
              patch("app.services.automation.dispatcher.resolve_global_automation_owner", return_value="alice"), \
              patch("app.services.automation.dispatcher.get_effective_settings", return_value=default_settings()), \
-             patch("app.services.automation.dispatcher.refresh_ipo_market", return_value={"status": "ok", "total_ipos": 6}) as mock_refresh:
+             patch("app.services.automation.dispatcher.refresh_ipo_market_enriched", return_value={"status": "ok", "total_ipos": 6}) as mock_refresh:
 
             due = resolve_due_jobs(now)
             evening_jobs = [j for j in due if j["job"] == "ipo_refresh_evening"]
@@ -147,6 +147,35 @@ class AutomationDispatcherTests(unittest.TestCase):
 
             result = asyncio.run(run_due_automation(now=now))
             self.assertEqual(mock_reminder.call_count, 3)
+
+    def test_listing_reminders_resolve_per_user_at_each_configured_slot(self):
+        cfg = default_settings()
+        users = [{"username": "alice", "role": "user"}, {"username": "bob", "role": "user"}]
+        with patch("app.services.automation.dispatcher.list_users", return_value=users), \
+             patch("app.services.automation.dispatcher.resolve_global_automation_owner", return_value="alice"), \
+             patch("app.services.automation.dispatcher.get_effective_settings", return_value=cfg), \
+             patch("app.services.automation.dispatcher.run_ipo_listing_reminders", return_value={"notifications_sent_count": 1, "eligible_ipos": 1}) as runner:
+            due_0850 = [job for job in resolve_due_jobs(self._make_kst_dt(8, 50)) if job["job"] == "ipo_listing_reminder"]
+            self.assertEqual(len(due_0850), 2)
+            self.assertEqual({job["slot"] for job in due_0850}, {"0850"})
+            self.assertTrue(all(job["execution_key"].startswith("user:") for job in due_0850))
+            due_1450 = [job for job in resolve_due_jobs(self._make_kst_dt(14, 50)) if job["job"] == "ipo_listing_reminder"]
+            self.assertEqual(len(due_1450), 2)
+            self.assertEqual({job["slot"] for job in due_1450}, {"1450"})
+            self.assertFalse(any(job["job"] == "ipo_listing_reminder" for job in resolve_due_jobs(self._make_kst_dt(8, 51))))
+            result = asyncio.run(run_due_automation(now=self._make_kst_dt(8, 50)))
+            self.assertEqual(runner.call_count, 2)
+            self.assertTrue(all(job["status"] == "success" for job in result["jobs"] if job["job"] == "ipo_listing_reminder"))
+
+    def test_listing_reminder_disabled_and_user_settings_are_isolated(self):
+        alice = default_settings()
+        bob = default_settings()
+        bob["automation"]["ipo_listing_reminders"] = {"enabled": False, "times": ["08:50", "14:50"]}
+        with patch("app.services.automation.dispatcher.list_users", return_value=[{"username": "alice"}, {"username": "bob"}]), \
+             patch("app.services.automation.dispatcher.resolve_global_automation_owner", return_value="alice"), \
+             patch("app.services.automation.dispatcher.get_effective_settings", side_effect=lambda username: alice if username == "alice" else bob):
+            due = [job for job in resolve_due_jobs(self._make_kst_dt(8, 50)) if job["job"] == "ipo_listing_reminder"]
+        self.assertEqual([job["username"] for job in due], ["alice"])
 
     # 5. Section 53: TEST — CUSTOM REMINDER (09:15, 13:40, 16:20)
     def test_custom_reminder_times_and_last_slot(self):
@@ -261,7 +290,7 @@ class AutomationDispatcherTests(unittest.TestCase):
         with patch("app.services.automation.dispatcher.list_users", return_value=self.mock_users), \
              patch("app.services.automation.dispatcher.resolve_global_automation_owner", return_value="alice"), \
              patch("app.services.automation.dispatcher.get_effective_settings", return_value=default_settings()), \
-             patch("app.services.automation.dispatcher.refresh_ipo_market", return_value={"status": "ok"}) as mock_refresh:
+             patch("app.services.automation.dispatcher.refresh_ipo_market_enriched", return_value={"status": "ok"}) as mock_refresh:
 
             result = asyncio.run(run_due_automation(now=now))
             self.assertEqual(mock_refresh.call_count, 1)
@@ -272,7 +301,7 @@ class AutomationDispatcherTests(unittest.TestCase):
         with patch("app.services.automation.dispatcher.list_users", return_value=self.mock_users), \
              patch("app.services.automation.dispatcher.resolve_global_automation_owner", return_value=None), \
              patch("app.services.automation.dispatcher.get_effective_settings", return_value=default_settings()), \
-             patch("app.services.automation.dispatcher.refresh_ipo_market") as mock_refresh:
+             patch("app.services.automation.dispatcher.refresh_ipo_market_enriched") as mock_refresh:
 
             due = resolve_due_jobs(now)
             self.assertEqual(len(due), 1)
@@ -563,7 +592,7 @@ class AutomationDispatcherTests(unittest.TestCase):
         with patch("app.services.automation.dispatcher.list_users", return_value=[{"username": "alice", "role": "user"}, {"username": "bob", "role": "user"}]), \
              patch("app.services.automation.dispatcher.resolve_global_automation_owner", side_effect=get_owner), \
              patch("app.services.automation.dispatcher.get_effective_settings", return_value=default_settings()), \
-             patch("app.services.automation.dispatcher.refresh_ipo_market", mock_refresh):
+             patch("app.services.automation.dispatcher.refresh_ipo_market_enriched", mock_refresh):
 
             # Attempt 1 at 07:30 with owner alice fails
             mock_refresh.side_effect = RuntimeError("Network timeout")
@@ -597,7 +626,7 @@ class AutomationDispatcherTests(unittest.TestCase):
         with patch("app.services.automation.dispatcher.list_users", side_effect=lambda: list(current_users)), \
              patch("app.services.automation.dispatcher.resolve_global_automation_owner", return_value="alice"), \
              patch("app.services.automation.dispatcher.get_effective_settings", return_value=default_settings()), \
-             patch("app.services.automation.dispatcher.refresh_ipo_market", mock_refresh):
+             patch("app.services.automation.dispatcher.refresh_ipo_market_enriched", mock_refresh):
 
             # Attempt 1 fails for alice
             res1 = asyncio.run(run_due_automation(now=t0))

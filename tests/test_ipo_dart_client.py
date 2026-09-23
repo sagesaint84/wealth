@@ -385,6 +385,44 @@ class IpoDartClientTests(unittest.TestCase):
         self.assertNotIn(self.api_key, safe_url)
         self.assertTrue("***" in safe_url or "%2A%2A%2A" in safe_url)
 
+    @patch("httpx.Client.get")
+    def test_request_error_and_document_download_never_include_query_key(self, mock_get):
+        leaked_url = f"https://opendart.fss.or.kr/api/list.json?crtfc_key={self.api_key}"
+        request = httpx.Request("GET", leaked_url)
+        mock_get.side_effect = httpx.RequestError(f"failed request {leaked_url}", request=request)
+        with self.assertRaises(DartClientError) as filing_error:
+            self.client.get_filing_list("00123456", "20260101", "20260201")
+        with self.assertRaises(DartClientError) as document_error:
+            self.client.download_document_zip("20260901000123")
+        self.assertEqual(str(filing_error.exception), "DART_NETWORK_ERROR")
+        self.assertEqual(str(document_error.exception), "DART_NETWORK_ERROR")
+        self.assertNotIn(self.api_key, str(filing_error.exception))
+        self.assertNotIn(self.api_key, str(document_error.exception))
+
+    @patch("httpx.Client.get")
+    def test_corp_code_master_parses_official_zip(self, mock_get):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("CORPCODE.xml", """<result><list><corp_code>00123456</corp_code><corp_name>테스트 회사</corp_name><stock_code>123456</stock_code></list></result>""")
+        response = MagicMock(); response.content = buf.getvalue()
+        mock_get.return_value = response
+        self.assertEqual(self.client.get_corp_code_master(), [{"corp_code": "00123456", "corp_name": "테스트 회사", "stock_code": "123456"}])
+        self.assertEqual(mock_get.call_args.kwargs["params"]["crtfc_key"], self.api_key)
+
+    @patch("httpx.Client.get")
+    def test_corp_code_master_error_xml_uses_typed_statuses(self, mock_get):
+        response = MagicMock()
+        mock_get.return_value = response
+        response.content = b"<result><status>010</status><message>bad key</message></result>"
+        with self.assertRaises(DartAuthError):
+            self.client.get_corp_code_master()
+        response.content = b"<result><status>020</status><message>rate</message></result>"
+        with self.assertRaises(DartRateLimitError):
+            self.client.get_corp_code_master()
+        response.content = b"<result><status>800</status><message>source</message></result>"
+        with self.assertRaises(DartSourceError):
+            self.client.get_corp_code_master()
+
     # 20. 0 values preserved
     @patch("httpx.Client.get")
     def test_zero_values_preserved_in_response(self, mock_get):
