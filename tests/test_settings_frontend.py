@@ -78,20 +78,21 @@ def test_listing_reminder_settings_are_independent_from_subscription_reminders()
     assert "공모주 상장일 알림 시간" in JS
 
 
-def test_opendart_system_credential_ui_is_admin_only_and_never_rehydrates_key():
+def test_opendart_user_credential_ui_is_integrated_into_user_openapi():
     wealth_js = (ROOT / "app/static/wealth.js").read_text(encoding="utf-8")
     assert 'id="openapiDartSection"' in HTML
     assert "시장 데이터 API · OpenDART" in HTML
     assert 'id="openapiDartKey"' in HTML
-    assert "dartSection.hidden = !isSystemAdmin" in wealth_js
-    assert "currentUserProfile?.role === 'admin'" in wealth_js
-    assert ".openapi-broker-card:not(#openapiDartSection)" not in wealth_js
-    assert "if (isSystemAdmin) {\n    await loadDartCredentialStatus();\n    return;" not in wealth_js
-    assert "'/api/settings/dart'" in wealth_js
+    assert 'id="openapiDartBadge"' in HTML
+    assert 'id="openapiDartDeleteBtn"' in HTML
+    assert "dartSection.hidden = false" in wealth_js
+    assert "'/api/user/openapi-config/dart/test'" in wealth_js
+    assert "'/api/user/openapi-config/dart'" in wealth_js
+    assert "'/api/settings" + "/dart'" not in wealth_js
     assert "handleSaveDartApi" in wealth_js
     assert "handleTestDartApi" in wealth_js
     assert "handleDeleteDartApi" in wealth_js
-    assert "if (input) input.value = '';" in wealth_js
+    assert "config.dart" in wealth_js
     assert "config.dart.api_key" not in wealth_js
 
 
@@ -200,7 +201,7 @@ class SettingsFrontendTests(unittest.TestCase):
     def test_validation_and_save_flow(self):
         test_time_and_id_validation_contracts()
         test_partial_failure_and_blank_secret_contracts()
-        test_opendart_system_credential_ui_is_admin_only_and_never_rehydrates_key()
+        test_opendart_user_credential_ui_is_integrated_into_user_openapi()
 
     def test_responsive_styles(self):
         test_responsive_settings_styles_exist()

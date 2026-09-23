@@ -3306,17 +3306,19 @@
           </div>
         </div>
 
-        <section id="openapiDartSection" class="openapi-broker-card" hidden aria-labelledby="openapiDartTitle" style="border-style:dashed;">
+        <section id="openapiDartSection" class="openapi-broker-card" aria-labelledby="openapiDartTitle">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <span id="openapiDartTitle" style="font-weight:700;color:#fbbf24;font-size:13.5px;display:flex;align-items:center;gap:6px;">📊 시장 데이터 API · OpenDART</span>
-            <span id="openapiDartBadge" class="openapi-badge disconnected">확인 중...</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span id="openapiDartBadge" class="openapi-badge disconnected">확인 중...</span>
+              <button id="openapiDartDeleteBtn" type="button" class="button secondary compact" onclick="handleDeleteDartApi()" style="display:none;font-size:11px;padding:2px 7px;border-radius:6px;color:#ff718c;border:1px solid rgba(255,113,140,0.3);background:rgba(255,113,140,0.08);cursor:pointer;" title="OpenDART 연결 삭제">🗑️ 삭제</button>
+            </div>
           </div>
-          <p style="font-size:11.5px;line-height:1.5;margin:0 0 9px;color:var(--muted,#94a3b8);">공유 IPO 시장 데이터 보강과 점수 산정에 사용됩니다. 저장된 키는 다시 표시되지 않습니다.</p>
+          <p style="font-size:11.5px;line-height:1.5;margin:0 0 9px;color:var(--muted,#94a3b8);">공모주 증권신고서 분석 및 의무보유확약·기관경쟁률 수집에 사용됩니다. 저장된 키는 다시 표시되지 않습니다.</p>
           <label class="openapi-label" style="display:block;margin-bottom:4px;">DART API Key</label>
-          <input id="openapiDartKey" class="openapi-input" type="password" placeholder="OpenDART 인증키 입력" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+          <input id="openapiDartKey" class="openapi-input" type="password" placeholder="40자리 OpenDART 인증키 입력" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
           <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:9px;">
             <button id="openapiDartTestBtn" type="button" class="button secondary compact" onclick="handleTestDartApi()">연결 확인</button>
-            <button id="openapiDartDeleteBtn" type="button" class="button secondary compact" onclick="handleDeleteDartApi()">삭제</button>
             <button id="openapiDartSaveBtn" type="button" class="button primary compact" onclick="handleSaveDartApi()">저장/교체</button>
           </div>
         </section>

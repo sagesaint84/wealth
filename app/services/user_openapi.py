@@ -26,6 +26,39 @@ def _write_openapi_config(file_path: Path, value: dict[str, Any]) -> None:
     atomic_write_private_json(file_path, value, indent=2)
 
 
+def get_stored_user_dart_api_key(username: str) -> str:
+    """Return only this user's persisted DART key, never an environment fallback.
+
+    The broad OpenAPI reader has legacy broker bootstrap behavior for the
+    original owner.  DART resolution must not treat that compatibility path as
+    a user-owned credential, otherwise the resolver's precedence becomes
+    ambiguous.
+    """
+    file_path = _get_user_openapi_file(username)
+    if not file_path.exists():
+        return ""
+    try:
+        value = json.loads(file_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(value, dict):
+        return ""
+    dart = value.get("dart")
+    if not isinstance(dart, dict):
+        return ""
+    api_key = dart.get("api_key")
+    return api_key.strip() if isinstance(api_key, str) else ""
+
+
+def get_user_dart_credential_status(username: str) -> dict[str, Any]:
+    """Return safe credential availability metadata without the key itself."""
+    if get_stored_user_dart_api_key(username):
+        return {"configured": True, "source": "user"}
+    if os.getenv("DART_API_KEY", "").strip():
+        return {"configured": True, "source": "environment"}
+    return {"configured": False, "source": "unconfigured"}
+
+
 def get_user_openapi_config(username: str) -> dict[str, dict[str, str]]:
     """사용자의 OpenAPI 설정을 조회합니다.
     
@@ -34,7 +67,10 @@ def get_user_openapi_config(username: str) -> dict[str, dict[str, str]]:
     file_path = _get_user_openapi_file(username)
     if file_path.exists():
         try:
-            return json.loads(file_path.read_text(encoding="utf-8"))
+            cfg = json.loads(file_path.read_text(encoding="utf-8"))
+            if isinstance(cfg, dict):
+                cfg.setdefault("dart", {"api_key": ""})
+                return cfg
         except Exception as e:
             logger.warning("사용자 %s의 openapi_config.json 파싱 실패: %s", username, e)
 
@@ -65,6 +101,7 @@ def get_user_openapi_config(username: str) -> dict[str, dict[str, str]]:
                 "app_secret": os.getenv("KIWOOM_APP_SECRET", "").strip(),
                 "account_no": os.getenv("KIWOOM_ACCOUNT_NO", "").strip(),
             },
+            "dart": {"api_key": ""},
         }
         return env_config
 
@@ -74,6 +111,7 @@ def get_user_openapi_config(username: str) -> dict[str, dict[str, str]]:
         "nh": {"app_key": "", "app_secret": ""},
         "kis": {"app_key": "", "app_secret": "", "account_no": ""},
         "kiwoom": {"app_key": "", "app_secret": "", "account_no": ""},
+        "dart": {"api_key": ""},
     }
 
 
@@ -85,6 +123,8 @@ def delete_user_broker_openapi(username: str, broker: str) -> dict[str, Any]:
             current[broker] = {"app_key": "", "app_secret": "", "gnl_ac_no": "", "gds_no": ""}
         elif broker in ("kis", "kiwoom"):
             current[broker] = {"app_key": "", "app_secret": "", "account_no": ""}
+        elif broker == "dart":
+            current[broker] = {"api_key": ""}
         else:
             current[broker] = {"app_key": "", "app_secret": ""}
 
@@ -146,6 +186,8 @@ def _validate_and_derive_kb_account(val: str) -> tuple[str, str, str]:
 
 def save_user_openapi_config(username: str, update_data: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """사용자의 OpenAPI 설정을 저장합니다. 마스킹된 값(****)이나 빈 시크릿은 기존 값을 보존합니다."""
+    if not isinstance(update_data, dict):
+        raise ValueError("OpenAPI 설정 형식이 올바르지 않습니다.")
     current = get_user_openapi_config(username)
 
     for broker in ("toss", "kb", "nh", "kis", "kiwoom"):
@@ -206,6 +248,22 @@ def save_user_openapi_config(username: str, update_data: dict[str, dict[str, Any
                         current[broker]["gnl_ac_no"] = ""
                         current[broker]["gds_no"] = ""
 
+    # DART 설정 처리 (시장 데이터 API)
+    if "dart" in update_data:
+        d_data = update_data["dart"]
+        if not isinstance(d_data, dict):
+            raise ValueError("OpenDART 설정 형식이 올바르지 않습니다.")
+        current.setdefault("dart", {})
+        if d_data.get("delete") is True:
+            current["dart"] = {"api_key": ""}
+        elif "api_key" in d_data:
+            raw_dart_key = d_data["api_key"]
+            if not isinstance(raw_dart_key, str):
+                raise ValueError("OpenDART API Key 형식이 올바르지 않습니다.")
+            new_dart_key = raw_dart_key.strip()
+            if new_dart_key and not new_dart_key.startswith("****") and not new_dart_key.endswith("****"):
+                current["dart"]["api_key"] = new_dart_key
+
     file_path = _get_user_openapi_file(username)
     _write_openapi_config(file_path, current)
     logger.info("사용자 %s의 OpenAPI 설정 저장 완료", username)
@@ -256,5 +314,14 @@ def get_masked_user_openapi_config(username: str) -> dict[str, dict[str, Any]]:
             masked[broker]["realized_configured"] = bool(
                 key and sec and kb_acct and kb_prod
             )
+
+    dart_status = get_user_dart_credential_status(username)
+    masked["dart"] = {
+        # Do not expose a key prefix: it is unnecessary for replacement UI.
+        "api_key": "********" if dart_status["configured"] else "",
+        "has_api_key": dart_status["source"] == "user",
+        "configured": dart_status["configured"],
+        "source": dart_status["source"],
+    }
 
     return masked

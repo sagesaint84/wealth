@@ -446,7 +446,7 @@ def _run_ipo_daily_pipeline(
     kind = kind_client or KindClient()
     krx = krx_client or KrxClient()
     naver = naver_client or NaverIpoClient()
-    dart = dart_client or DartClient()
+    dart = dart_client or DartClient(username=username)
     kis = kis_client or (KISOpenAPI(username=username) if username else KISOpenAPI())
 
     # Check DART

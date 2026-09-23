@@ -782,63 +782,6 @@ def _require_system_settings_admin(request: Request) -> None:
     if get_current_role(request) != "admin":
         raise HTTPException(status_code=403, detail={"code": "ADMIN_REQUIRED"})
 
-@app.get("/api/settings/dart")
-async def get_dart_settings_api(request: Request) -> dict:
-    _require_system_settings_admin(request)
-    from app.services.dart_secrets import DartSecretError, get_dart_credential_status
-    try:
-        return get_dart_credential_status()
-    except DartSecretError as exc:
-        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
-
-@app.patch("/api/settings/dart")
-async def patch_dart_settings_api(request: Request) -> dict:
-    _require_system_settings_admin(request)
-    from app.services.dart_secrets import DartSecretError, get_dart_credential_status, save_dart_api_key
-    try:
-        body = await request.json()
-    except Exception:
-        body = None
-    if not isinstance(body, dict) or set(body) != {"api_key"}:
-        raise HTTPException(status_code=400, detail={"code": "INVALID_DART_API_KEY"})
-    try:
-        save_dart_api_key(body["api_key"])
-        return get_dart_credential_status()
-    except DartSecretError as exc:
-        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
-
-@app.delete("/api/settings/dart")
-async def delete_dart_settings_api(request: Request) -> dict:
-    _require_system_settings_admin(request)
-    from app.services.dart_secrets import DartSecretError, delete_stored_dart_api_key, get_dart_credential_status
-    try:
-        delete_stored_dart_api_key()
-        return get_dart_credential_status()
-    except DartSecretError as exc:
-        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
-
-@app.post("/api/settings/dart/test")
-async def test_dart_settings_api(request: Request) -> dict:
-    _require_system_settings_admin(request)
-    from app.services.dart_secrets import DartSecretError, get_dart_credential_status
-    from app.services.ipo.dart_client import DartAuthError, DartClient, DartRateLimitError, DartSourceError
-    try:
-        status = get_dart_credential_status()
-        if not status["configured"]:
-            return {"configured": False, "valid": False, "error_code": "NOT_CONFIGURED"}
-        DartClient().verify_credentials()
-        return {"configured": True, "valid": True, "source": status["source"]}
-    except DartAuthError:
-        return {"configured": True, "valid": False, "error_code": "AUTH_ERROR"}
-    except DartRateLimitError:
-        return {"configured": True, "valid": False, "error_code": "RATE_LIMIT"}
-    except DartSourceError:
-        return {"configured": True, "valid": False, "error_code": "NETWORK_ERROR"}
-    except DartSecretError as exc:
-        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
-    except Exception:
-        return {"configured": True, "valid": False, "error_code": "NETWORK_ERROR"}
-
 @app.get("/api/settings/toss-wts")
 async def get_toss_wts_settings_api(request: Request) -> dict:
     username = get_current_username(request)
@@ -1025,17 +968,62 @@ async def save_user_openapi_keys(request: Request) -> dict:
     return {"message": "증권사 OpenAPI 설정이 안전하게 저장되었습니다."}
 
 
+@app.post("/api/user/openapi-config/dart/test")
+async def test_user_dart_openapi(request: Request) -> dict:
+    """현재 로그인한 사용자의 OpenDART API 키 유효성 확인"""
+    username = get_current_username(request)
+    if not username or username == "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    from app.services.ipo.dart_client import (
+        DartAuthError,
+        DartClient,
+        DartRateLimitError,
+        DartSourceError,
+    )
+    client = DartClient(username=username)
+    if not client.is_configured():
+        return {
+            "configured": False,
+            "valid": False,
+            "error_code": "NOT_CONFIGURED",
+            "message": "DART API 인증키가 설정되지 않았습니다.",
+        }
+    try:
+        client.verify_credentials()
+        return {
+            "configured": True,
+            "valid": True,
+            "source": client.credential_source,
+            "message": "OpenDART 연결이 정상적으로 확인되었습니다.",
+        }
+    except DartAuthError:
+        return {"configured": True, "valid": False, "error_code": "AUTH_ERROR", "message": "인증키가 올바르지 않습니다."}
+    except DartRateLimitError:
+        return {"configured": True, "valid": False, "error_code": "RATE_LIMIT", "message": "일일 요청 한도를 초과했습니다."}
+    except DartSourceError:
+        return {"configured": True, "valid": False, "error_code": "NETWORK_ERROR", "message": "DART 시스템 오류 또는 점검 중입니다."}
+    except Exception:
+        return {"configured": True, "valid": False, "error_code": "NETWORK_ERROR", "message": "네트워크 통신 오류가 발생했습니다."}
+
+
 @app.delete("/api/user/openapi-config/{broker}")
 async def delete_user_openapi_broker(broker: str, request: Request) -> dict:
-    """현재 로그인한 사용자의 특정 증권사 OpenAPI 설정 및 토큰 삭제"""
+    """현재 로그인한 사용자의 특정 증권사 또는 OpenDART 설정 및 토큰 삭제"""
     username = get_current_username(request)
-    if broker not in ("toss", "kb", "nh"):
-        raise HTTPException(status_code=400, detail="유효하지 않은 증권사입니다.")
+    if broker not in ("toss", "kb", "nh", "kis", "kiwoom", "dart"):
+        raise HTTPException(status_code=400, detail="유효하지 않은 증권사 또는 API 대상입니다.")
     from app.services.user_openapi import delete_user_broker_openapi
     delete_user_broker_openapi(username, broker)
-    broker_names = {"toss": "토스증권", "kb": "KB증권", "nh": "나무증권"}
+    broker_names = {
+        "toss": "토스증권",
+        "kb": "KB증권",
+        "nh": "나무증권",
+        "kis": "한국투자증권",
+        "kiwoom": "키움증권",
+        "dart": "OpenDART",
+    }
     bname = broker_names.get(broker, broker)
-    return {"message": f"{bname} OpenAPI 키 및 시크릿이 삭제되었습니다."}
+    return {"message": f"{bname} 설정이 삭제되었습니다."}
 
 
 

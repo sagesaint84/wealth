@@ -182,18 +182,36 @@ class DartClient:
 
     def __init__(
         self,
+        username: str | None = None,
         api_key: str | None = None,
         timeout_seconds: float = 15.0,
         user_agent: str = "Wealth/1.3.0 (OpenDART Client)",
     ):
-        if api_key is None or not api_key.strip():
-            # Stored system credentials take precedence, with the legacy
-            # environment variable retained as a deployment fallback.
-            from app.services.dart_secrets import resolve_dart_api_key
-            self.api_key, self.credential_source = resolve_dart_api_key()
-        else:
+        if api_key is not None and api_key.strip():
             self.api_key = api_key.strip()
             self.credential_source = "explicit"
+        elif username:
+            from app.services.user_openapi import get_stored_user_dart_api_key
+            user_key = get_stored_user_dart_api_key(username)
+            if user_key:
+                self.api_key = user_key
+                self.credential_source = "user_config"
+            else:
+                env_key = os.getenv("DART_API_KEY", "").strip()
+                if env_key:
+                    self.api_key = env_key
+                    self.credential_source = "environment"
+                else:
+                    self.api_key = ""
+                    self.credential_source = "unconfigured"
+        else:
+            env_key = os.getenv("DART_API_KEY", "").strip()
+            if env_key:
+                self.api_key = env_key
+                self.credential_source = "environment"
+            else:
+                self.api_key = ""
+                self.credential_source = "unconfigured"
         self.timeout_seconds = timeout_seconds
         self.user_agent = user_agent
 

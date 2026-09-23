@@ -10960,7 +10960,6 @@ async function openUserOpenApiModal() {
   const kiwoomAcc = document.getElementById('openapiKiwoomAccountNo');
   const dartKey = document.getElementById('openapiDartKey');
   const dartSection = document.getElementById('openapiDartSection');
-  const isSystemAdmin = currentUserProfile?.role === 'admin';
 
   if (tossKey) tossKey.value = '';
   if (tossSec) tossSec.value = '';
@@ -10977,13 +10976,9 @@ async function openUserOpenApiModal() {
   if (kiwoomAcc) kiwoomAcc.value = '';
   if (dartKey) dartKey.value = '';
 
-  if (dartSection) dartSection.hidden = !isSystemAdmin;
+  if (dartSection) dartSection.hidden = false;
 
   modal.showModal();
-
-  if (isSystemAdmin) {
-    await loadDartCredentialStatus();
-  }
 
   try {
     const config = await api('/api/user/openapi-config');
@@ -11077,61 +11072,85 @@ async function openUserOpenApiModal() {
       if (kiwoomSec) kiwoomSec.placeholder = '키움 App Secret 입력';
       if (kiwoomAcc) kiwoomAcc.value = (config.kiwoom && config.kiwoom.account_no) || '';
     }
+
+    renderDartOpenApiStatus(config.dart, updateBadge);
   } catch (err) {
     console.error('[OPENAPI] 설정 조회 실패:', err);
   }
 }
 window.openUserOpenApiModal = openUserOpenApiModal;
 
-function updateDartBadge(status) {
+function renderDartOpenApiStatus(dartConfig, updateBadge) {
   const badge = document.getElementById('openapiDartBadge');
+  const deleteButton = document.getElementById('openapiDartDeleteBtn');
   const input = document.getElementById('openapiDartKey');
-  const remove = document.getElementById('openapiDartDeleteBtn');
-  if (!badge) return;
-  const configured = !!(status && status.configured);
-  badge.textContent = configured ? (status.source === 'stored' ? '저장됨' : '환경변수') : '미설정';
-  badge.className = `openapi-badge ${configured ? 'connected' : 'disconnected'}`;
-  if (input) input.placeholder = configured ? '******** (등록됨 - 교체 시에만 입력)' : 'OpenDART 인증키 입력';
-  if (remove) remove.hidden = !configured || status.source !== 'stored';
+  const configured = !!dartConfig?.configured;
+  if (updateBadge) updateBadge(badge, configured);
+  else if (badge) {
+    badge.textContent = configured ? '연결됨' : '미연결';
+    badge.className = `openapi-badge ${configured ? 'connected' : 'disconnected'}`;
+  }
+  if (deleteButton) deleteButton.style.display = dartConfig?.has_api_key ? 'inline-flex' : 'none';
+  if (input) {
+    input.value = '';
+    input.placeholder = configured ? '******** (등록됨 - 변경 시에만 입력)' : '40자리 OpenDART 인증키 입력';
+  }
 }
 
-async function loadDartCredentialStatus() {
-  const status = await api('/api/settings/dart');
-  updateDartBadge(status);
-  return status;
+async function refreshDartOpenApiStatus() {
+  const config = await api('/api/user/openapi-config');
+  renderDartOpenApiStatus(config.dart);
 }
 
 async function handleSaveDartApi() {
   const input = document.getElementById('openapiDartKey');
   const key = (input?.value || '').trim();
   if (!key) { toast('OpenDART API Key를 입력하세요.'); return; }
-  const result = await api('/api/settings/dart', {method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({api_key: key})});
-  if (input) input.value = '';
-  updateDartBadge(result);
-  toast('OpenDART API Key가 저장되었습니다.');
+  try {
+    await api('/api/user/openapi-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dart: { api_key: key } }),
+    });
+    if (input) input.value = '';
+    toast('OpenDART API Key가 안전하게 저장되었습니다.');
+    await refreshDartOpenApiStatus();
+  } catch (err) {
+    alert(err.message || '저장 실패');
+  }
 }
 window.handleSaveDartApi = handleSaveDartApi;
 
 async function handleDeleteDartApi() {
-  if (!confirm('저장된 OpenDART API Key를 삭제하시겠습니까?')) return;
-  const result = await api('/api/settings/dart', {method: 'DELETE'});
-  updateDartBadge(result);
-  toast('저장된 OpenDART API Key를 삭제했습니다.');
+  if (!confirm('정말로 OpenDART API 키를 삭제하시겠습니까?')) return;
+  try {
+    const res = await api('/api/user/openapi-config/dart', { method: 'DELETE' });
+    toast(res.message || 'OpenDART 설정이 삭제되었습니다.');
+    const input = document.getElementById('openapiDartKey');
+    if (input) input.value = '';
+    await refreshDartOpenApiStatus();
+  } catch (err) {
+    alert(err.message || '삭제 실패');
+  }
 }
 window.handleDeleteDartApi = handleDeleteDartApi;
 
 async function handleTestDartApi() {
-  const result = await api('/api/settings/dart/test', {method: 'POST'});
-  if (result.valid) {
-    toast('OpenDART 연결을 확인했습니다.');
-  } else {
-    toast(`OpenDART 연결 확인 실패: ${result.error_code || 'UNKNOWN_ERROR'}`);
+  try {
+    const result = await api('/api/user/openapi-config/dart/test', { method: 'POST' });
+    if (result.valid) {
+      toast(result.message || 'OpenDART 연결을 확인했습니다.');
+    } else {
+      toast(`OpenDART 연결 확인 실패: ${result.message || result.error_code || 'UNKNOWN_ERROR'}`);
+    }
+  } catch (err) {
+    alert(err.message || '연결 확인 실패');
   }
 }
 window.handleTestDartApi = handleTestDartApi;
 
 async function handleDeleteBrokerApi(broker) {
-  const names = { toss: '토스증권', kb: 'KB증권', nh: '나무증권', kis: '한국투자증권', kiwoom: '키움증권' };
+  const names = { toss: '토스증권', kb: 'KB증권', nh: '나무증권', kis: '한국투자증권', kiwoom: '키움증권', dart: 'OpenDART' };
   const bname = names[broker] || broker;
   if (!confirm(`정말로 ${bname} OpenAPI 키와 시크릿을 삭제(연결 해제)하시겠습니까?`)) return;
 
@@ -11152,6 +11171,7 @@ async function handleSaveUserOpenApi(e) {
   const btn = document.getElementById('saveUserOpenApiBtn');
   const statusMsg = document.getElementById('openapiStatusMsg');
 
+  const dartKeyValue = (document.getElementById('openapiDartKey')?.value || '').trim();
   const payload = {
     toss: {
       app_key: (document.getElementById('openapiTossKey')?.value || '').trim(),
@@ -11177,6 +11197,7 @@ async function handleSaveUserOpenApi(e) {
       account_no: (document.getElementById('openapiKiwoomAccountNo')?.value || '').trim(),
     },
   };
+  if (dartKeyValue) payload.dart = { api_key: dartKeyValue };
 
   if (btn) {
     btn.disabled = true;
