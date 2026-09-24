@@ -351,7 +351,7 @@
     };
     if (client_id) payload.client_id = client_id;
     if (client_secret_raw) payload.client_secret = client_secret_raw;
-    if (client_use_code !== undefined) payload.client_use_code = client_use_code;
+    if (client_use_code) payload.client_use_code = client_use_code;
 
     try {
       busy(button, true);

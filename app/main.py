@@ -617,7 +617,12 @@ async def login_submit(username: str = Form(...), password: str = Form(...)):
             response = RedirectResponse("/dashboard", status_code=303)
         
         response.set_cookie(
-            COOKIE_NAME, token, httponly=True, samesite="lax", max_age=SESSION_MAX_AGE
+            COOKIE_NAME,
+            token,
+            httponly=True,
+            secure=not TESTING,
+            samesite="lax",
+            max_age=SESSION_MAX_AGE,
         )
         return response
     return RedirectResponse("/login?error=1", status_code=303)
@@ -665,7 +670,12 @@ async def change_password_init_submit(
     token = _serializer.dumps({"user": uname, "role": user.get("role", "user")})
     response = RedirectResponse("/dashboard", status_code=303)
     response.set_cookie(
-        COOKIE_NAME, token, httponly=True, samesite="lax", max_age=SESSION_MAX_AGE
+        COOKIE_NAME,
+        token,
+        httponly=True,
+        secure=not TESTING,
+        samesite="lax",
+        max_age=SESSION_MAX_AGE,
     )
     return response
 
@@ -1008,20 +1018,15 @@ async def get_kftc_user_status_api(request: Request) -> dict:
 
 @app.post("/api/kftc/openbanking/oauth/start")
 async def start_kftc_oauth_api(request: Request) -> dict:
-    """Start OAuth 2.0 flow: generate state bound to user and return authorize_url."""
+    """Start OAuth 2.0 flow: generate 32-char state bound to user/session and return authorize_url."""
     username = get_current_username(request)
     from app.services.kftc_openbanking_service import start_oauth_flow, compute_session_fingerprint, KftcServiceError
     session_cookie = request.cookies.get(COOKIE_NAME)
     session_id = compute_session_fingerprint(session_cookie)
 
+    # Scope is strictly server-controlled ('login inquiry'); ignore any client-supplied scope body
     try:
-        body = await request.json() if request.headers.get("content-type") == "application/json" else {}
-    except Exception:
-        body = {}
-
-    scope = body.get("scope") or "login inquiry"
-    try:
-        result = start_oauth_flow(username, session_id=session_id, scope=scope)
+        result = start_oauth_flow(username, session_id=session_id)
         # Never send secret or tokens to frontend; only authorize_url
         return {"authorize_url": result["authorize_url"]}
     except KftcServiceError as exc:

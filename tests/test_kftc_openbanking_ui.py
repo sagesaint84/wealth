@@ -37,6 +37,10 @@ class KftcOpenBankingUITests(unittest.TestCase):
     def test_wealth_settings_js_has_kftc_admin_handlers(self):
         self.assertIn("renderKftcAdmin", self.wealth_settings_js)
         self.assertIn("saveKftcAdminSettings", self.wealth_settings_js)
+        # Empty client_use_code must NOT be added to payload
+        self.assertIn("if (client_use_code) payload.client_use_code = client_use_code;", self.wealth_settings_js)
+        # UI label check
+        self.assertIn("이용기관코드 (client_use_code, 변경할 때만 입력)", self.index_html)
 
 
 if __name__ == "__main__":

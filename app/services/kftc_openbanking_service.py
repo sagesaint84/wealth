@@ -71,10 +71,15 @@ def start_oauth_flow(
     scope: str = DEFAULT_SCOPE,
     auth_type: str = "0",
 ) -> dict[str, str]:
-    """Prepare authorize URL and save bound OAuth state."""
-    # 1. Scope restriction: Phase 1 strictly forbids transfer scope
-    if "transfer" in scope.lower():
-        raise KftcServiceError("Transfer scope is strictly prohibited in Phase 1", code="KFTC_SCOPE_FORBIDDEN")
+    """Prepare authorize URL and save bound OAuth state.
+
+    Scope is strictly controlled on the server: Phase 1 only allows DEFAULT_SCOPE ('login inquiry').
+    """
+    # 1. Enforce strict server-controlled scope allowlist (prevent privilege escalation)
+    normalized_scope = " ".join(str(scope or "").strip().split())
+    if normalized_scope != DEFAULT_SCOPE:
+        logger.warning("Rejected non-default OAuth scope '%s' for user %s", scope, username)
+        raise KftcServiceError("Invalid or forbidden OAuth scope requested", code="KFTC_SCOPE_FORBIDDEN")
 
     # 2. Check feature gate & user allowance
     if not is_user_allowed_kftc(username):
@@ -96,7 +101,9 @@ def start_oauth_flow(
         raise KftcServiceError(str(exc), code="PUBLIC_BASE_URL_REQUIRED") from exc
 
     # 5. Generate CSPRNG state and persist binding
-    state = secrets.token_urlsafe(32)
+    # KFTC OAuth 2.0 authorization specification: state is a 32-character string.
+    # secrets.token_hex(16) produces exactly 32 hexadecimal characters with 128-bit entropy.
+    state = secrets.token_hex(16)
     save_oauth_state(username, state=state, session_id=session_id, ttl_seconds=600)
 
     # 6. Build authorize query parameters per KFTC OAuth 2.0 Authorization Code Grant specification
@@ -104,7 +111,7 @@ def start_oauth_flow(
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": redirect_uri,
-        "scope": scope,
+        "scope": DEFAULT_SCOPE,
         "state": state,
         "auth_type": auth_type,  # 0: 최초인증 / 일반
     }
@@ -175,7 +182,7 @@ async def handle_oauth_callback(
         refresh_token=token_data.get("refresh_token"),
         user_seq_no=token_data["user_seq_no"],
         scope=token_data.get("scope", DEFAULT_SCOPE),
-        expires_in=token_data.get("expires_in", 7776000),
+        expires_in=token_data["expires_in"],
     )
 
     logger.info("Successfully connected KFTC Open Banking for user %s", username)
@@ -232,7 +239,7 @@ async def refresh_user_token(
         refresh_token=active_refresh,
         user_seq_no=user_seq,
         scope=new_token_data.get("scope", scope),
-        expires_in=new_token_data.get("expires_in", 7776000),
+        expires_in=new_token_data["expires_in"],
     )
 
     logger.info("Successfully refreshed KFTC Open Banking token for user %s", username)

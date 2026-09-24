@@ -100,6 +100,29 @@ class KftcOpenBankingSecurityTests(unittest.TestCase):
             self.assertNotIn("super-secret-refresh-token", status_str)
             self.assertNotIn("encrypted", status_str)
 
+    def test_session_cookie_secure_attribute_in_production_and_testing(self):
+        from app import main as app_module
+
+        # When TESTING=False (production mode), secure attribute must be True
+        with patch.object(app_module, "TESTING", False):
+            with patch("app.services.user_manager.authenticate_user", return_value={"username": "alice", "role": "user"}):
+                client = TestClient(app, follow_redirects=False)
+                res = client.post("/login", data={"username": "alice", "password": "password123"})
+                set_cookie_header = res.headers.get("set-cookie", "")
+                self.assertIn("secure", set_cookie_header.lower())
+                self.assertIn("httponly", set_cookie_header.lower())
+                self.assertIn("samesite=lax", set_cookie_header.lower())
+
+        # When TESTING=True (testing mode), secure attribute is False to support test harness HTTP
+        with patch.object(app_module, "TESTING", True):
+            with patch("app.services.user_manager.authenticate_user", return_value={"username": "alice", "role": "user"}):
+                client = TestClient(app, follow_redirects=False)
+                res = client.post("/login", data={"username": "alice", "password": "password123"})
+                set_cookie_header = res.headers.get("set-cookie", "")
+                self.assertNotIn("secure", set_cookie_header.lower())
+                self.assertIn("httponly", set_cookie_header.lower())
+                self.assertIn("samesite=lax", set_cookie_header.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

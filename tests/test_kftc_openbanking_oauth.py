@@ -20,23 +20,43 @@ class KftcOpenBankingOAuthTests(unittest.IsolatedAsyncioTestCase):
         self.patch_user_dir.start()
         self.addCleanup(self.patch_user_dir.stop)
 
-    def test_start_oauth_forbids_transfer_scope(self):
-        with self.assertRaises(service.KftcServiceError) as ctx:
-            service.start_oauth_flow("alice", session_id="sess-1", scope="login inquiry transfer")
-        self.assertEqual(ctx.exception.code, "KFTC_SCOPE_FORBIDDEN")
+    def test_start_oauth_forbids_non_default_scopes(self):
+        # Forbidden scopes must be rejected
+        for bad_scope in ["transfer", "login inquiry transfer", "sa", "oob", "login inquiry sa"]:
+            with self.assertRaises(service.KftcServiceError) as ctx:
+                service.start_oauth_flow("alice", session_id="sess-1", scope=bad_scope)
+            self.assertEqual(ctx.exception.code, "KFTC_SCOPE_FORBIDDEN")
 
-    def test_start_oauth_generates_bound_state_and_url(self):
+    def test_start_oauth_generates_32char_hex_bound_state_and_url(self):
+        import re
         with patch("app.services.kftc_openbanking_service.is_user_allowed_kftc", return_value=True), \
              patch("app.services.kftc_openbanking_service.get_effective_kftc_config", return_value={
                  "enabled": True, "environment": "test", "client_id": "test-client", "client_secret": "test-sec", "allowed_users": []
              }), patch("app.services.kftc_openbanking_service.get_kftc_callback_url", return_value="https://wealth.example.com/api/kftc/openbanking/oauth/callback"):
-            res = service.start_oauth_flow("alice", session_id="sess-1")
-            self.assertIn("authorize_url", res)
-            self.assertIn("client_id=test-client", res["authorize_url"])
-            self.assertIn("scope=login+inquiry", res["authorize_url"])
-            self.assertIn("state=", res["authorize_url"])
+            res1 = service.start_oauth_flow("alice", session_id="sess-1")
+            res2 = service.start_oauth_flow("alice", session_id="sess-1")
+
+            state1 = res1["state"]
+            state2 = res2["state"]
+
+            # Exact 32 characters
+            self.assertEqual(len(state1), 32)
+            self.assertEqual(len(state2), 32)
+
+            # Lowercase hex format [0-9a-f]{32}
+            self.assertTrue(re.fullmatch(r"[0-9a-f]{32}", state1))
+            self.assertTrue(re.fullmatch(r"[0-9a-f]{32}", state2))
+
+            # Two successive generations differ
+            self.assertNotEqual(state1, state2)
+
+            # URL verification: scope is strictly 'login+inquiry'
+            self.assertIn("authorize_url", res1)
+            self.assertIn("client_id=test-client", res1["authorize_url"])
+            self.assertIn("scope=login+inquiry", res1["authorize_url"])
+            self.assertIn(f"state={state1}", res1["authorize_url"])
             # Ensure client_use_code is NOT part of authorize URL
-            self.assertNotIn("client_use_code", res["authorize_url"])
+            self.assertNotIn("client_use_code", res1["authorize_url"])
 
             # Verify state was persisted
             state_file = Path(self.tmp.name) / "kftc_openbanking_oauth_state.json"
@@ -148,7 +168,7 @@ class KftcOpenBankingOAuthTests(unittest.IsolatedAsyncioTestCase):
             "refresh_token": "refresh-456",
             "user_seq_no": "seq-999",
             "scope": "login inquiry",
-            "expires_in": 7776000,
+            "expires_in": 123456,
         }
         with patch("app.services.kftc_openbanking_service.is_user_allowed_kftc", return_value=True), \
              patch("app.services.kftc_openbanking_service.get_effective_kftc_config", return_value={
@@ -172,6 +192,10 @@ class KftcOpenBankingOAuthTests(unittest.IsolatedAsyncioTestCase):
             decrypted = storage.get_decrypted_user_tokens("alice")
             self.assertEqual(decrypted["access_token"], "access-123")
             self.assertEqual(decrypted["refresh_token"], "refresh-456")
+
+            # Verify provider expires_in was directly preserved without hardcoded fallback
+            status = storage.load_user_token_status("alice")
+            self.assertAlmostEqual(status["expires_in"], 123456, delta=2)
 
 
 if __name__ == "__main__":

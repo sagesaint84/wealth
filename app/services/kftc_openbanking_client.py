@@ -325,14 +325,15 @@ async def fetch_user_accounts(
         #     '01': 정상 (Active/Normal account available for inquiry)
         #     '02': 거래중지 (Dormant/Suspended account)
         #     '09': 해지 (Closed/Terminated account)
-        #   Rule: Only '01' indicates an active account. Non-'01' accounts are excluded.
+        #   Rule: Only '01' indicates an active account. Non-'01', empty, missing,
+        #   or unknown accounts MUST fail closed and be excluded.
         #
         # - inquiry_agree_yn (조회동의여부, 1자리 String, 필수/Required):
         #     'Y': 동의 (User agreed to account inquiry)
         #     'N': 미동의 (User declined inquiry agreement)
         # ======================================================================
         account_state = str(item.get("account_state") or "").strip()
-        if account_state and account_state != "01":
+        if account_state != "01":
             continue
 
         # inquiry_agree_yn: 'Y' or 'N' (mandatory agreement flag)
