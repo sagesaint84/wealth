@@ -7004,11 +7004,15 @@ document.addEventListener('click', async (e) => {
   if (divModeTab) {
     document.querySelectorAll('#dividendModeTabs .heatmap-tab').forEach(t => t.classList.remove('active'));
     divModeTab.classList.add('active');
-    currentDividendMode = divModeTab.dataset.divMode || 'estimated';
+    currentDividendMode = divModeTab.dataset.divMode || 'actual';
     const refreshBtn = $("#refreshDividendBtn");
     const addBtn = $("#addDividendBtn");
     const importBtn = $("#importDividendBtn");
     const clearBtn = $("#clearAllDividendBtn");
+    const incomeSection = $("#tossWtsIncomeSection");
+    if (incomeSection) {
+      incomeSection.style.display = currentDividendMode === 'actual' ? 'flex' : 'none';
+    }
 
     if (currentDividendMode === 'estimated') {
       if (refreshBtn) refreshBtn.style.display = 'inline-block';
@@ -8945,7 +8949,7 @@ window.triggerPwaInstall = triggerPwaInstall;
 
 // ── 15. 배당(분배금) 현황 및 1월~12월 캘린더 ─────────────────────────────────────
 // ── 15. 배당(분배금) 현황 및 1월~12월 캘린더 (예상 / 실제 모드 지원) ───────────
-let currentDividendMode = 'estimated'; // 'estimated' | 'actual'
+let currentDividendMode = 'actual'; // 'estimated' | 'actual'
 let dividendData = null;
 let actualDividendData = null;
 const _initDivKst = getKstYearMonth();
@@ -13167,19 +13171,25 @@ function clearTossWtsFetchLoadingRow(message = '조회에 실패했습니다. �
 }
 
 function updateTossWtsStatusUI(text, stateClass) {
-  const el = document.getElementById('tossWtsStatusText');
-  if (!el) return;
-  el.className = `toss-wts-status-text ${stateClass || ''}`.trim();
-  el.textContent = text;
+  ['tossWtsStatusText', 'tossWtsIncomeStatusText'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = `toss-wts-status-text ${stateClass || ''}`.trim();
+    el.textContent = text;
+  });
 }
 
 function setTossWtsLoading(isLoading) {
   tossWtsState.loading = isLoading;
   const checkBtn = document.getElementById('btnCheckTossWtsStatus');
   const confirmBtn = document.getElementById('btnConfirmTossWtsSession');
+  const incomeCheckBtn = document.getElementById('btnCheckTossWtsIncomeStatus');
+  const incomeConfirmBtn = document.getElementById('btnConfirmTossWtsIncomeSession');
   const fetchBtn = document.getElementById('btnFetchTossWtsFeed');
   if (checkBtn) checkBtn.disabled = isLoading;
   if (confirmBtn) confirmBtn.disabled = isLoading;
+  if (incomeCheckBtn) incomeCheckBtn.disabled = isLoading;
+  if (incomeConfirmBtn) incomeConfirmBtn.disabled = isLoading;
   if (fetchBtn) fetchBtn.disabled = isLoading;
 }
 
@@ -14083,7 +14093,13 @@ function initTossWtsIncomeUI() {
     const dd = String(today.getDate()).padStart(2, '0');
     toInput.value = document.getElementById('tossWtsToDate')?.value || `${yyyy}-${mm}-${dd}`;
   }
+  document.getElementById('btnCheckTossWtsIncomeStatus')?.addEventListener('click', checkTossWtsStatus);
+  document.getElementById('btnConfirmTossWtsIncomeSession')?.addEventListener('click', confirmTossWtsSession);
   document.getElementById('btnFetchTossWtsIncome')?.addEventListener('click', fetchTossWtsIncomeFeed);
+  const incomeSection = document.getElementById('tossWtsIncomeSection');
+  if (incomeSection) {
+    incomeSection.style.display = currentDividendMode === 'actual' ? 'flex' : 'none';
+  }
   document.getElementById('wtsIncomeDestinationAccount')?.addEventListener('change', updateTossWtsIncomeSelectionUI);
   document.getElementById('wtsIncomeSelectAll')?.addEventListener('change', event => {
     tossWtsIncomeState.rows.forEach((_, index) => {
