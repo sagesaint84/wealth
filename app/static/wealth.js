@@ -2756,7 +2756,243 @@ function switchAccountCategory(category) {
   if (bnkActs) bnkActs.style.display = category === 'banking' ? 'flex' : 'none';
   if (insActs) insActs.style.display = category === 'insurance' ? 'flex' : 'none';
   if (reActs) reActs.style.display = category === 'real_estate' ? 'flex' : 'none';
+
+  if (category === 'banking') {
+    refreshKftcStatus();
+  }
 }
+
+// ── 금융결제원(KFTC) 오픈뱅킹 연동 (Phase 1) ──────────────────────────────────
+let _lastKftcStatus = null;
+
+async function refreshKftcStatus(manual = false) {
+  const card = document.getElementById('kftcOpenBankingCard');
+  if (!card) return;
+
+  const statusBadge = document.getElementById('kftcStatusBadge');
+  const envBadge = document.getElementById('kftcEnvBadge');
+  const connectBtn = document.getElementById('kftcConnectBtn');
+  const accountsBtn = document.getElementById('kftcFetchAccountsBtn');
+  const disconnectBtn = document.getElementById('kftcDisconnectBtn');
+  const container = document.getElementById('kftcAccountsListContainer');
+
+  try {
+    const status = await api('/api/kftc/openbanking/status');
+    _lastKftcStatus = status;
+
+    if (!status.enabled || !status.allowed) {
+      if (statusBadge) {
+        statusBadge.textContent = !status.enabled ? '비활성' : '사용 권한 없음';
+        statusBadge.style.background = 'rgba(148,163,184,0.15)';
+        statusBadge.style.color = '#94a3b8';
+      }
+      if (connectBtn) connectBtn.style.display = 'none';
+      if (accountsBtn) accountsBtn.style.display = 'none';
+      if (disconnectBtn) disconnectBtn.style.display = 'none';
+      if (envBadge) envBadge.style.display = 'none';
+      return;
+    }
+
+    // TESTBED badge
+    if (envBadge) {
+      if (status.is_testbed) {
+        envBadge.textContent = 'TESTBED (테스트 데이터)';
+        envBadge.style.display = 'inline-block';
+        envBadge.style.background = 'rgba(234,179,8,0.2)';
+        envBadge.style.color = '#facc15';
+        envBadge.style.border = '1px solid rgba(234,179,8,0.4)';
+      } else {
+        envBadge.style.display = 'none';
+      }
+    }
+
+    if (!status.configured) {
+      if (statusBadge) {
+        statusBadge.textContent = '미설정 (API Key 필요)';
+        statusBadge.style.background = 'rgba(239,68,68,0.15)';
+        statusBadge.style.color = '#f87171';
+      }
+      if (connectBtn) connectBtn.style.display = 'none';
+      if (accountsBtn) accountsBtn.style.display = 'none';
+      if (disconnectBtn) disconnectBtn.style.display = 'none';
+      return;
+    }
+
+    if (status.connected) {
+      const isExpiring = status.token_status === 'expiring_soon';
+      const isExpired = status.token_status === 'expired' || status.token_status === 'reauth_required';
+
+      if (statusBadge) {
+        if (isExpired) {
+          statusBadge.textContent = '재인증 필요';
+          statusBadge.style.background = 'rgba(239,68,68,0.2)';
+          statusBadge.style.color = '#f87171';
+        } else if (isExpiring) {
+          statusBadge.textContent = '토큰 갱신 필요';
+          statusBadge.style.background = 'rgba(245,158,11,0.2)';
+          statusBadge.style.color = '#fbbf24';
+        } else {
+          statusBadge.textContent = '연결됨';
+          statusBadge.style.background = 'rgba(34,197,94,0.2)';
+          statusBadge.style.color = '#4ade80';
+        }
+      }
+
+      if (connectBtn) connectBtn.style.display = isExpired ? 'inline-block' : 'none';
+      if (accountsBtn) accountsBtn.style.display = 'inline-block';
+      if (disconnectBtn) disconnectBtn.style.display = 'inline-block';
+
+      // Load cached accounts
+      await handleFetchKftcAccounts(false);
+      if (manual) toast('오픈뱅킹 연결 상태가 정상입니다.');
+    } else {
+      if (statusBadge) {
+        statusBadge.textContent = '연결 필요';
+        statusBadge.style.background = 'rgba(56,189,248,0.15)';
+        statusBadge.style.color = '#38bdf8';
+      }
+      if (connectBtn) connectBtn.style.display = 'inline-block';
+      if (accountsBtn) accountsBtn.style.display = 'none';
+      if (disconnectBtn) disconnectBtn.style.display = 'none';
+      if (container) container.style.display = 'none';
+      if (manual) toast('오픈뱅킹이 연결되어 있지 않습니다. [오픈뱅킹 연결]을 진행하세요.');
+    }
+  } catch (error) {
+    if (statusBadge) {
+      statusBadge.textContent = '상태 확인 실패';
+      statusBadge.style.background = 'rgba(239,68,68,0.15)';
+      statusBadge.style.color = '#f87171';
+    }
+  }
+}
+window.refreshKftcStatus = refreshKftcStatus;
+
+async function handleStartKftcOAuth() {
+  const btn = document.getElementById('kftcConnectBtn');
+  try {
+    if (btn) btn.disabled = true;
+    const res = await api('/api/kftc/openbanking/oauth/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: 'login inquiry' }),
+    });
+    if (res && res.authorize_url) {
+      window.location.assign(res.authorize_url);
+    } else {
+      toast('인증 URL을 수신하지 못했습니다.', true);
+    }
+  } catch (err) {
+    const msg = (err && err.message) || 'KFTC 인증 시작 중 오류가 발생했습니다.';
+    toast(msg, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.handleStartKftcOAuth = handleStartKftcOAuth;
+
+async function handleFetchKftcAccounts(forceRefresh = true) {
+  const btn = document.getElementById('kftcFetchAccountsBtn');
+  const container = document.getElementById('kftcAccountsListContainer');
+  const grid = document.getElementById('kftcAccountsListGrid');
+  const countEl = document.getElementById('kftcAccountCount');
+  const checkedAtEl = document.getElementById('kftcLastCheckedAt');
+
+  try {
+    if (btn && forceRefresh) btn.disabled = true;
+    const url = `/api/kftc/openbanking/accounts${forceRefresh ? '?refresh=true' : ''}`;
+    const res = await api(url);
+    const accounts = res.accounts || [];
+
+    if (countEl) countEl.textContent = String(accounts.length);
+    if (checkedAtEl) checkedAtEl.textContent = new Date().toLocaleTimeString('ko-KR');
+
+    if (!accounts.length) {
+      if (grid) grid.innerHTML = '<div style="font-size:12px;color:#94a3b8;padding:8px 0;">등록된 오픈뱅킹 계좌가 없습니다. 금융결제원에서 계좌 조회 동의 여부를 확인하세요.</div>';
+      if (container) container.style.display = 'block';
+      return;
+    }
+
+    if (grid) {
+      grid.innerHTML = accounts.map(acc => {
+        const agreed = acc.inquiry_agree_yn === 'Y';
+        const badgeColor = agreed ? '#4ade80' : '#f87171';
+        const badgeBg = agreed ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
+        const badgeText = agreed ? '조회 가능' : '조회 미동의';
+
+        return `
+          <div style="background:rgba(30,41,59,0.7);border:1px solid rgba(51,65,85,0.7);border-radius:8px;padding:10px 12px;font-size:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <strong style="color:#f1f5f9;font-size:12.5px;">${html(acc.bank_name || '은행')}</strong>
+              <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${badgeBg};color:${badgeColor};">${badgeText}</span>
+            </div>
+            <div style="color:#94a3b8;font-size:11.5px;margin-bottom:2px;">
+              ${html(acc.account_num_masked || '계좌번호')}
+            </div>
+            <div style="color:#cbd5e1;font-size:11px;">
+              ${html(acc.account_alias || acc.product_name || '일반 계좌')}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    if (container) container.style.display = 'block';
+    if (forceRefresh) toast(`오픈뱅킹 계좌 ${accounts.length}건을 불러왔습니다.`);
+  } catch (err) {
+    if (forceRefresh) {
+      const msg = (err && err.message) || '계좌 목록을 불러오지 못했습니다.';
+      toast(msg, true);
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.handleFetchKftcAccounts = handleFetchKftcAccounts;
+
+async function handleDisconnectKftc() {
+  if (!confirm('금융결제원 오픈뱅킹 연결을 해제하시겠습니까?\n저장된 토큰과 계좌 연결 정보가 삭제되며, 기존 Wealth 자산 데이터는 안전하게 보존됩니다.')) {
+    return;
+  }
+  const btn = document.getElementById('kftcDisconnectBtn');
+  try {
+    if (btn) btn.disabled = true;
+    await api('/api/kftc/openbanking/disconnect', { method: 'DELETE' });
+    toast('오픈뱅킹 연결이 안전하게 해제되었습니다.');
+    await refreshKftcStatus();
+  } catch (err) {
+    const msg = (err && err.message) || '연결 해제 중 오류가 발생했습니다.';
+    toast(msg, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.handleDisconnectKftc = handleDisconnectKftc;
+
+// Check URL query parameters for callback result notifications
+(() => {
+  if (typeof URLSearchParams === 'undefined' || typeof window === 'undefined' || !window.location || !window.location.search) {
+    return;
+  }
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('kftc_connected') === '1') {
+    window.addEventListener('DOMContentLoaded', () => {
+      toast('🎉 금융결제원 오픈뱅킹 연결이 성공적으로 완료되었습니다!');
+      if (typeof history !== 'undefined' && history.replaceState) {
+        history.replaceState(null, '', window.location.pathname);
+      }
+      refreshKftcStatus();
+    });
+  } else if (params.get('kftc_error')) {
+    const errCode = params.get('kftc_error');
+    window.addEventListener('DOMContentLoaded', () => {
+      toast(`오픈뱅킹 인증에 실패했습니다 (${errCode}).`, true);
+      if (typeof history !== 'undefined' && history.replaceState) {
+        history.replaceState(null, '', window.location.pathname);
+      }
+      refreshKftcStatus();
+    });
+  }
+})();
 
 function renderInsurance(insuranceList, owner = '모두') {
   rawInsuranceAccounts = insuranceList || [];

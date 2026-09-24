@@ -312,17 +312,88 @@
     automation.ipo_listing_reminders.times.forEach((value) => addReminderRow(value, 'settingsListingReminderTimes', '공모주 상장일 알림 시간'));
   }
 
+  function renderKftcAdmin(data) {
+    const section = byId('settingsKftcSection');
+    if (!section) return;
+    if (!data || !data.can_manage) {
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    byId('settingsKftcEnabled').checked = data.enabled === true;
+    byId('settingsKftcEnvironment').textContent = data.environment || 'test';
+    byId('settingsKftcEnvSelect').value = data.environment || 'test';
+    byId('settingsKftcClientId').value = data.client_id || '';
+    byId('settingsKftcClientSecret').value = '';
+    byId('settingsKftcClientUseCode').value = data.client_use_code || '';
+    byId('settingsKftcAllowedUsers').value = (data.allowed_users || []).join(', ');
+    byId('settingsKftcClientIdStatus').textContent = data.client_id_configured ? '설정됨' : '미설정';
+    byId('settingsKftcSecretStatus').textContent = data.client_secret_configured ? '설정됨' : '미설정';
+    byId('settingsKftcCallbackStatus').textContent = data.public_base_url_ready ? '준비됨' : 'Public URL 필요';
+    byId('settingsKftcCallbackUrl').textContent = data.callback_url || 'Public URL 미설정';
+  }
+
+  async function saveKftcAdminSettings() {
+    const button = byId('settingsSaveKftc');
+    setError('settingsKftcError');
+    const enabled = byId('settingsKftcEnabled').checked;
+    const environment = byId('settingsKftcEnvSelect').value;
+    const client_id = byId('settingsKftcClientId').value.trim();
+    const client_secret_raw = byId('settingsKftcClientSecret').value.trim();
+    const client_use_code = byId('settingsKftcClientUseCode').value.trim();
+    const allowed_raw = byId('settingsKftcAllowedUsers').value.trim();
+    const allowed_users = allowed_raw ? allowed_raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+    const payload = {
+      enabled,
+      environment,
+      allowed_users,
+    };
+    if (client_id) payload.client_id = client_id;
+    if (client_secret_raw) payload.client_secret = client_secret_raw;
+    if (client_use_code !== undefined) payload.client_use_code = client_use_code;
+
+    try {
+      busy(button, true);
+      const result = await api('/api/settings/kftc-openbanking', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      renderKftcAdmin(result);
+      toast('KFTC 오픈뱅킹 전역 설정을 저장했습니다.');
+      if (typeof window.refreshKftcStatus === 'function') {
+        window.refreshKftcStatus();
+      }
+    } catch (error) {
+      const message = safeMessage(error, 'KFTC 오픈뱅킹 설정을 저장하지 못했습니다.');
+      setError('settingsKftcError', message);
+      toast(message, true);
+    } finally {
+      busy(button, false);
+    }
+  }
+  window.handleSaveKftcAdminSettings = saveKftcAdminSettings;
+
   async function reloadSettings() {
-    const [notifications, automation, system, toss] = await Promise.all([
+    const promises = [
       api('/api/settings/notifications'),
       api('/api/settings/automation'),
       api('/api/settings/system'),
       api('/api/settings/toss-wts'),
-    ]);
+    ];
+    if (systemSnapshot?.can_manage || document.getElementById('adminUserBtn')?.style.display !== 'none') {
+      promises.push(api('/api/settings/kftc-openbanking').catch(() => null));
+    } else {
+      promises.push(Promise.resolve(null));
+    }
+
+    const [notifications, automation, system, toss, kftcAdmin] = await Promise.all(promises);
     renderNotifications(notifications);
     renderAutomation(automation);
     renderSystem(system);
     renderTossSession(toss.toss_wts);
+    renderKftcAdmin(kftcAdmin);
   }
 
   async function saveSystemSettings() {

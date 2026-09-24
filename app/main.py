@@ -359,7 +359,15 @@ SESSION_MAX_AGE = 60 * 60 * 24 * 14  # 14일 동안 로그인 유지
 COOKIE_NAME = "dashboard_session_v2"
 
 _serializer = URLSafeTimedSerializer(SECRET_KEY)
-PUBLIC_PATHS = {"/login", "/change-password-init", "/sw.js", "/manifest.json", "/favicon.ico", "/api/integrations/telegram/webhook"}
+PUBLIC_PATHS = {
+    "/login",
+    "/change-password-init",
+    "/sw.js",
+    "/manifest.json",
+    "/favicon.ico",
+    "/api/integrations/telegram/webhook",
+    "/api/kftc/openbanking/oauth/callback",
+}
 
 _SENSITIVE_EXPORT_KEYS = {
     "accesstoken",
@@ -958,6 +966,151 @@ async def telegram_webhook_disconnect_api(request: Request) -> dict:
     try:disconnect_webhook(resolve_telegram_config(username))
     except TelegramManagementError as exc: raise _telegram_management_http_error(exc) from exc
     return {"ok":True,"message":"Telegram webhook 연결을 해제했습니다."}
+
+
+# ---------------------------------------------------------------------------
+# KFTC Open Banking Phase 1 API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/settings/kftc-openbanking")
+async def get_kftc_admin_settings_api(request: Request) -> dict:
+    """Return safe KFTC Open Banking configuration metadata for admin."""
+    _require_system_settings_admin(request)
+    from app.services.kftc_openbanking_config import get_kftc_admin_status
+    return get_kftc_admin_status(current_role=get_current_role(request))
+
+
+@app.patch("/api/settings/kftc-openbanking")
+async def patch_kftc_admin_settings_api(request: Request) -> dict:
+    """Admin-only update for KFTC Open Banking configuration and credentials."""
+    _require_system_settings_admin(request)
+    from app.services.kftc_openbanking_config import patch_kftc_config, KftcConfigError, get_kftc_admin_status
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail={"code": "KFTC_CONFIG_PATCH_INVALID"})
+    try:
+        patch_kftc_config(body)
+        return get_kftc_admin_status(current_role=get_current_role(request))
+    except (KftcConfigError, ValueError, AttributeError) as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+
+
+@app.get("/api/kftc/openbanking/status")
+async def get_kftc_user_status_api(request: Request) -> dict:
+    """Return current user's KFTC connection and token status (never reveals tokens)."""
+    username = get_current_username(request)
+    from app.services.kftc_openbanking_service import get_user_kftc_status
+    return get_user_kftc_status(username)
+
+
+@app.post("/api/kftc/openbanking/oauth/start")
+async def start_kftc_oauth_api(request: Request) -> dict:
+    """Start OAuth 2.0 flow: generate state bound to user and return authorize_url."""
+    username = get_current_username(request)
+    from app.services.kftc_openbanking_service import start_oauth_flow, compute_session_fingerprint, KftcServiceError
+    session_cookie = request.cookies.get(COOKIE_NAME)
+    session_id = compute_session_fingerprint(session_cookie)
+
+    try:
+        body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    except Exception:
+        body = {}
+
+    scope = body.get("scope") or "login inquiry"
+    try:
+        result = start_oauth_flow(username, session_id=session_id, scope=scope)
+        # Never send secret or tokens to frontend; only authorize_url
+        return {"authorize_url": result["authorize_url"]}
+    except KftcServiceError as exc:
+        status_code = 403 if exc.code in {"KFTC_NOT_ALLOWED", "KFTC_SCOPE_FORBIDDEN"} else 400
+        raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)}) from exc
+
+
+@app.get("/api/kftc/openbanking/oauth/callback")
+async def kftc_oauth_callback_api(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    """Handle OAuth callback from KFTC, validate state, exchange code, redirect safely."""
+    # Ensure user has a valid authenticated session
+    user = _get_authenticated_user(request)
+    if not user:
+        return RedirectResponse("/login?error=kftc_session_expired", status_code=303)
+
+    username = user["username"]
+    from app.services.kftc_openbanking_service import handle_oauth_callback, compute_session_fingerprint, KftcServiceError
+    session_cookie = request.cookies.get(COOKIE_NAME)
+    session_id = compute_session_fingerprint(session_cookie)
+
+    try:
+        await handle_oauth_callback(
+            username,
+            session_id=session_id,
+            code=code,
+            state=state,
+            error=error,
+            error_description=error_description,
+        )
+        return RedirectResponse("/?kftc_connected=1", status_code=303)
+    except KftcServiceError as exc:
+        logger.warning("KFTC callback error for user %s: %s (%s)", username, exc.code, exc)
+        return RedirectResponse(f"/?kftc_error={exc.code}", status_code=303)
+    except Exception as exc:
+        logger.error("Unexpected error in KFTC callback for user %s: %s", username, exc)
+        return RedirectResponse("/?kftc_error=INTERNAL_ERROR", status_code=303)
+
+
+@app.post("/api/kftc/openbanking/token/refresh")
+async def refresh_kftc_token_api(request: Request) -> dict:
+    """Manually or proactively refresh user's access token using stored refresh token."""
+    username = get_current_username(request)
+    from app.services.kftc_openbanking_service import refresh_user_token, KftcServiceError
+    try:
+        return await refresh_user_token(username)
+    except KftcServiceError as exc:
+        status_code = 403 if exc.code == "KFTC_NOT_ALLOWED" else 400
+        raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)}) from exc
+
+
+@app.delete("/api/kftc/openbanking/disconnect")
+async def disconnect_kftc_api(request: Request) -> dict:
+    """Disconnect local KFTC connection and erase tokens/mapping without affecting Wealth assets."""
+    username = get_current_username(request)
+    from app.services.kftc_openbanking_service import disconnect_kftc
+    disconnect_kftc(username)
+    return {"ok": True, "message": "KFTC 오픈뱅킹 연동을 안전하게 해제했습니다."}
+
+
+@app.get("/api/kftc/openbanking/accounts")
+async def get_kftc_accounts_api(request: Request, refresh: bool = False) -> dict:
+    """Return user's registered bank accounts from KFTC with masked numbers and safe IDs."""
+    username = get_current_username(request)
+    from app.services.kftc_openbanking_service import (
+        refresh_and_sync_accounts,
+        load_user_kftc_accounts,
+        KftcServiceError,
+    )
+    from app.services.kftc_openbanking_storage import load_user_token_status
+
+    status = load_user_token_status(username)
+    if not status.get("connected"):
+        raise HTTPException(status_code=400, detail={"code": "NOT_CONNECTED", "message": "KFTC 오픈뱅킹이 연결되어 있지 않습니다."})
+
+    try:
+        if refresh or not load_user_kftc_accounts(username):
+            accounts = await refresh_and_sync_accounts(username)
+        else:
+            accounts = load_user_kftc_accounts(username)
+        return {"accounts": accounts, "count": len(accounts)}
+    except KftcServiceError as exc:
+        status_code = 403 if exc.code == "KFTC_NOT_ALLOWED" else 400
+        raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)}) from exc
 
 
 @app.post("/api/user/openapi-config")

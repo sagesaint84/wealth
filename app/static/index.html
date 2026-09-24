@@ -483,6 +483,38 @@
               <button type="button" class="savings-subtab" data-subtab="loans">대출 (<span id="loansCount">0</span>)</button>
             </div>
 
+            <!-- 금융결제원(KFTC) 오픈뱅킹 연동 카드 (읽기 전용) -->
+            <div id="kftcOpenBankingCard" class="panel kftc-openbanking-panel" style="margin-top:14px;background:rgba(15,23,42,0.6);border:1px solid rgba(56,189,248,0.25);border-radius:10px;padding:14px 16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <span style="font-size:20px;">🌐</span>
+                  <div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <strong style="font-size:14px;color:#f8fafc;">금융결제원 오픈뱅킹</strong>
+                      <span id="kftcEnvBadge" class="badge" style="font-size:10px;padding:2px 6px;border-radius:4px;display:none;"></span>
+                      <span id="kftcStatusBadge" class="badge" style="font-size:11px;padding:2px 7px;border-radius:4px;background:rgba(148,163,184,0.15);color:#94a3b8;">확인 중...</span>
+                    </div>
+                    <p style="font-size:11.5px;color:#94a3b8;margin:3px 0 0;">읽기 전용 계좌 연동 · 금융결제원 등록 계좌 목록을 안전하게 조회합니다.</p>
+                  </div>
+                </div>
+                <div id="kftcActions" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                  <button id="kftcConnectBtn" type="button" class="button primary compact" onclick="handleStartKftcOAuth()" style="display:none;">🔗 오픈뱅킹 연결</button>
+                  <button id="kftcCheckStatusBtn" type="button" class="button secondary compact" onclick="refreshKftcStatus(true)">연결 상태 확인</button>
+                  <button id="kftcFetchAccountsBtn" type="button" class="button secondary compact" onclick="handleFetchKftcAccounts(true)" style="display:none;">계좌 불러오기</button>
+                  <button id="kftcDisconnectBtn" type="button" class="button secondary compact" onclick="handleDisconnectKftc()" style="display:none;color:#ff718c;border-color:rgba(255,113,140,0.3);">연결 해제</button>
+                </div>
+              </div>
+
+              <!-- 계좌 목록 표시 영역 (KFTC 등록 계좌) -->
+              <div id="kftcAccountsListContainer" style="display:none;margin-top:12px;border-top:1px solid rgba(51,65,85,0.6);padding-top:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                  <span style="font-size:12px;font-weight:600;color:#38bdf8;">동의된 오픈뱅킹 계좌 (<span id="kftcAccountCount">0</span>개)</span>
+                  <span id="kftcLastCheckedAt" style="font-size:11px;color:#64748b;"></span>
+                </div>
+                <div id="kftcAccountsListGrid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));gap:8px;"></div>
+              </div>
+            </div>
+
             <!-- 은행 계좌 서브 섹션들 (전체 탭에서는 세 섹션이 소제목과 함께 모두 표시됨) -->
             <div id="bankSectionFree" class="bank-sub-section" style="margin-top:12px;">
               <div class="bank-section-title" id="bankTitleFree" style="display:none;margin-bottom:8px;font-size:13px;font-weight:700;color:#38bdf8;align-items:center;gap:6px;">
@@ -3557,6 +3589,44 @@
           </div>
           <p id="settingsAutomationError" class="settings-error" role="alert" hidden></p>
           <div class="settings-actions"><button id="settingsSaveAutomation" type="button" class="button primary">자동화 설정 저장</button></div>
+        </section>
+
+        <!-- KFTC 오픈뱅킹 전역 설정 (Admin Only) -->
+        <section id="settingsKftcSection" class="settings-section" aria-labelledby="kftcSettingsTitle" hidden>
+          <div class="settings-section-title">
+            <div>
+              <h3 id="kftcSettingsTitle">금융결제원 오픈뱅킹 (시스템 전역 설정)</h3>
+              <p>Wealth 전역 OAuth 2.0 애플리케이션 자격증명 및 허용 사용자 관리 (Admin Only)</p>
+            </div>
+            <label class="settings-switch"><input id="settingsKftcEnabled" type="checkbox"><span>사용</span></label>
+          </div>
+          <div class="settings-status-grid">
+            <div><strong>연동 환경</strong><span id="settingsKftcEnvironment">test</span></div>
+            <div><strong>Client ID 설정 여부</strong><span id="settingsKftcClientIdStatus">미설정</span></div>
+            <div><strong>Client Secret 설정 여부</strong><span id="settingsKftcSecretStatus">미설정</span></div>
+            <div><strong>Callback URL 준비</strong><span id="settingsKftcCallbackStatus">미설정</span></div>
+          </div>
+          <div class="settings-fields" style="margin-top:12px;">
+            <label>환경 (Environment)
+              <select id="settingsKftcEnvSelect">
+                <option value="test">테스트베드 (test - testapi.openbanking.or.kr)</option>
+                <option value="production">운영 환경 (production - openapi.openbanking.or.kr)</option>
+              </select>
+            </label>
+            <label>Client ID<input id="settingsKftcClientId" type="text" autocomplete="off" placeholder="금융결제원 발급 Client ID"></label>
+            <label>Client Secret (변경할 때만 입력)<input id="settingsKftcClientSecret" type="password" autocomplete="new-password" placeholder="저장된 Secret은 노출되지 않습니다"></label>
+            <label>이용기관코드 (client_use_code, 선택)<input id="settingsKftcClientUseCode" type="text" autocomplete="off" placeholder="예: B999999999"></label>
+            <label>허용 사용자 목록 (쉼표 구분, 비워두면 모든 사용자 허용)<input id="settingsKftcAllowedUsers" type="text" autocomplete="off" placeholder="예: user1, user2"></label>
+          </div>
+          <div class="settings-management" style="margin-top:10px;">
+            <div style="font-size:11.5px;color:#94a3b8;line-height:1.5;">
+              <span>포털 등록 Callback URL: </span><code id="settingsKftcCallbackUrl" style="word-break:break-all;color:#38bdf8;"></code>
+            </div>
+          </div>
+          <p id="settingsKftcError" class="settings-error" role="alert" hidden></p>
+          <div class="settings-actions" style="margin-top:12px;">
+            <button id="settingsSaveKftc" type="button" class="button primary" onclick="handleSaveKftcAdminSettings()">KFTC 오픈뱅킹 전역 설정 저장</button>
+          </div>
         </section>
       </div>
     </dialog>
