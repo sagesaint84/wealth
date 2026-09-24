@@ -33,7 +33,20 @@ def atomic_write_private_json(path: Path, value: Any, *, indent: int | None = No
             )
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(tmp, path)
+        # On Windows, replace can transiently fail with PermissionError/WinError 5
+        # if a virus scanner, indexer, or concurrent file access holds a transient handle.
+        if os.name == "nt":
+            import time
+            for attempt in range(10):
+                try:
+                    os.replace(tmp, path)
+                    break
+                except PermissionError:
+                    if attempt == 9:
+                        raise
+                    time.sleep(0.005)
+        else:
+            os.replace(tmp, path)
         if os.name == "posix":
             os.chmod(path, 0o600)
     except Exception:

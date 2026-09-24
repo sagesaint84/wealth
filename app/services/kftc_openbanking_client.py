@@ -373,3 +373,129 @@ async def fetch_user_accounts(
         })
 
     return accounts
+
+
+async def fetch_account_balance(
+    *,
+    environment: str,
+    access_token: str,
+    fintech_use_num: str,
+    bank_tran_id: str,
+    tran_dtime: str,
+    client: httpx.AsyncClient | None = None,
+) -> dict[str, Any]:
+    """Retrieve account balance from KFTC Open Banking API.
+
+    GET /v2.0/account/balance/fin_num
+    KFTC Open Banking Joint Work API Specification (v3.3.6):
+    - fintech_use_num: AN(24)
+    - bank_tran_id: AN(20)
+    - tran_dtime: N(14)
+    """
+    fin_num = str(fintech_use_num or "").strip()
+    if not fin_num or len(fin_num) != 24:
+        raise KftcClientError("Invalid fintech_use_num: must be 24 alphanumeric characters", code="INVALID_FINTECH_USE_NUM")
+
+    tran_id = str(bank_tran_id or "").strip()
+    if not tran_id or len(tran_id) != 20:
+        raise KftcClientError("Invalid bank_tran_id: must be 20 alphanumeric characters", code="INVALID_BANK_TRAN_ID")
+
+    dtime = str(tran_dtime or "").strip()
+    if not dtime or len(dtime) != 14 or not dtime.isdigit():
+        raise KftcClientError("Invalid tran_dtime: must be 14 digits YYYYMMDDhhmmss", code="INVALID_TRAN_DTIME")
+
+    tok = str(access_token or "").strip()
+    if not tok:
+        raise KftcAuthError("Access token is required", code="MISSING_ACCESS_TOKEN")
+
+    host = get_kftc_host(environment)
+    url = f"{host}/v2.0/account/balance/fin_num"
+    _validate_target_host(url, environment)
+
+    params = {
+        "bank_tran_id": tran_id,
+        "fintech_use_num": fin_num,
+        "tran_dtime": dtime,
+    }
+    headers = {
+        "Authorization": f"Bearer {tok}",
+        "Accept": "application/json",
+    }
+
+    own_client = client is None
+    async_client = client or httpx.AsyncClient(
+        timeout=httpx.Timeout(TOTAL_TIMEOUT, connect=CONNECT_TIMEOUT, read=READ_TIMEOUT),
+        follow_redirects=False,
+    )
+
+    try:
+        resp = await async_client.get(url, params=params, headers=headers)
+    except httpx.RequestError as exc:
+        logger.warning("KFTC balance inquiry network error: %s", type(exc).__name__)
+        raise KftcNetworkError("Failed to reach KFTC balance endpoint") from exc
+    finally:
+        if own_client:
+            await async_client.aclose()
+
+    try:
+        body = resp.json()
+    except Exception as exc:
+        logger.warning("KFTC balance response malformed JSON, HTTP status=%d", resp.status_code)
+        raise KftcProviderError("Malformed response from KFTC balance endpoint", code="MALFORMED_JSON") from exc
+
+    if not isinstance(body, dict):
+        raise KftcProviderError("Invalid JSON structure from KFTC balance endpoint", code="MALFORMED_JSON")
+
+    if resp.status_code != 200:
+        rsp_code = str(body.get("rsp_code") or "HTTP_ERROR").strip()
+        logger.warning("KFTC balance inquiry HTTP %d with rsp_code %s", resp.status_code, rsp_code)
+        raise KftcProviderError(f"KFTC balance inquiry failed ({rsp_code})", code=rsp_code, rsp_code=rsp_code)
+
+    rsp_code = str(body.get("rsp_code") or "").strip()
+    if rsp_code != "A0000":
+        logger.warning("KFTC balance inquiry returned non-success rsp_code: %s", rsp_code)
+        raise KftcProviderError(f"KFTC balance error ({rsp_code})", code=rsp_code, rsp_code=rsp_code)
+
+    bank_rsp_code = str(body.get("bank_rsp_code") or "").strip()
+    if bank_rsp_code and bank_rsp_code != "000":
+        logger.warning("Participant bank returned non-success code: %s", bank_rsp_code)
+        raise KftcProviderError(f"Bank error ({bank_rsp_code})", code=f"BANK_{bank_rsp_code}", rsp_code=bank_rsp_code)
+
+    # balance_amt: SN(13) signed numeric string, e.g. "150000" or "-50000"
+    raw_balance = body.get("balance_amt")
+    if raw_balance is None:
+        raise KftcProviderError("Missing balance_amt in response", code="MISSING_BALANCE_AMT")
+    try:
+        balance_amt = int(str(raw_balance).strip())
+    except (ValueError, TypeError) as exc:
+        raise KftcProviderError("Invalid balance_amt format: must be integer", code="INVALID_BALANCE_AMT") from exc
+
+    # available_amt: N(12) unsigned numeric string
+    raw_available = body.get("available_amt")
+    if raw_available is None:
+        raise KftcProviderError("Missing available_amt in response", code="MISSING_AVAILABLE_AMT")
+    try:
+        available_amt = int(str(raw_available).strip())
+        if available_amt < 0:
+            raise ValueError("available_amt cannot be negative")
+    except (ValueError, TypeError) as exc:
+        raise KftcProviderError("Invalid available_amt format: must be non-negative integer", code="INVALID_AVAILABLE_AMT") from exc
+
+    account_type = str(body.get("account_type") or "").strip()
+    account_issue_date = str(body.get("account_issue_date") or "").strip() or None
+    maturity_date = str(body.get("maturity_date") or "").strip() or None
+    last_tran_date = str(body.get("last_tran_date") or "").strip() or None
+
+    return {
+        "bank_name": str(body.get("bank_name") or "").strip(),
+        "product_name": str(body.get("product_name") or "").strip(),
+        "account_num_masked": str(body.get("account_num_masked") or "").strip(),
+        "account_type": account_type,
+        "balance_amt": balance_amt,
+        "available_amt": available_amt,
+        "account_issue_date": account_issue_date,
+        "maturity_date": maturity_date,
+        "last_tran_date": last_tran_date,
+        "bank_rsp_code": bank_rsp_code or "000",
+        "rsp_code": rsp_code,
+    }

@@ -105,6 +105,10 @@ def _validate_stored_config(data: Any) -> dict[str, Any]:
     if client_use_code is not None and not isinstance(client_use_code, str):
         raise KftcConfigError("KFTC_CLIENT_USE_CODE_INVALID")
     client_use_code_val = client_use_code.strip() if isinstance(client_use_code, str) else ""
+    if client_use_code_val:
+        if len(client_use_code_val) != 10 or not client_use_code_val.isalnum():
+            raise KftcConfigError("KFTC_CLIENT_USE_CODE_INVALID")
+        client_use_code_val = client_use_code_val.upper()
 
     return {
         "version": 1,
@@ -245,7 +249,9 @@ def patch_user_kftc_config(
             raise KftcConfigError("KFTC_CLIENT_USE_CODE_INVALID")
         new_code = val.strip() if isinstance(val, str) else ""
         if new_code:
-            client_use_code = new_code
+            if len(new_code) != 10 or not new_code.isalnum():
+                raise KftcConfigError("KFTC_CLIENT_USE_CODE_INVALID")
+            client_use_code = new_code.upper()
 
     new_config = {
         "version": 1,

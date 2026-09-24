@@ -64,7 +64,7 @@ class KftcOpenBankingConfigTests(unittest.TestCase):
                 "enabled": True,
                 "client_id": "orig-id",
                 "client_secret": "orig-secret",
-                "client_use_code": "orig-code",
+                "client_use_code": "B123456789",
             },
             path=self.path_alice,
         )
@@ -81,7 +81,7 @@ class KftcOpenBankingConfigTests(unittest.TestCase):
         eff = cfg.get_effective_kftc_config("alice", path=self.path_alice)
         self.assertEqual(eff["client_id"], "updated-id")
         self.assertEqual(eff["client_secret"], "orig-secret")
-        self.assertEqual(eff["client_use_code"], "orig-code")
+        self.assertEqual(eff["client_use_code"], "B123456789")
 
     def test_user_isolation_alice_and_bob(self):
         # Alice configures her credentials

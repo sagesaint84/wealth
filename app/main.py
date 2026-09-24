@@ -1117,6 +1117,35 @@ async def get_kftc_accounts_api(request: Request, refresh: bool = False) -> dict
         raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)}) from exc
 
 
+@app.post("/api/kftc/openbanking/accounts/{provider_account_id}/balance/preview")
+async def preview_kftc_account_balance_api(
+    provider_account_id: str,
+    request: Request,
+    response: Response,
+) -> dict:
+    """Read-only balance inquiry preview for a registered KFTC account.
+
+    Strictly read-only: does not modify bank_accounts, portfolio, ledger, or balance records.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    username = get_current_username(request)
+    from app.services.kftc_openbanking_service import (
+        KftcServiceError,
+        preview_account_balance,
+    )
+
+    try:
+        return await preview_account_balance(username, provider_account_id)
+    except KftcServiceError as exc:
+        if exc.code == "KFTC_NOT_ALLOWED":
+            status_code = 403
+        elif exc.code in {"ACCOUNT_NOT_FOUND", "INVALID_FINTECH_USE_NUM"}:
+            status_code = 404
+        else:
+            status_code = 400
+        raise HTTPException(status_code=status_code, detail={"code": exc.code, "message": str(exc)}) from exc
+
+
 @app.post("/api/user/openapi-config")
 async def save_user_openapi_keys(request: Request) -> dict:
     """현재 로그인한 사용자의 OpenAPI 키 설정 저장"""

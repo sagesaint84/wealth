@@ -2918,18 +2918,51 @@ async function handleFetchKftcAccounts(forceRefresh = true) {
         const badgeColor = agreed ? '#4ade80' : '#f87171';
         const badgeBg = agreed ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
         const badgeText = agreed ? '조회 가능' : '조회 미동의';
+        const accId = encodeURIComponent(acc.provider_account_id || '');
 
         return `
-          <div style="background:rgba(30,41,59,0.7);border:1px solid rgba(51,65,85,0.7);border-radius:8px;padding:10px 12px;font-size:12px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-              <strong style="color:#f1f5f9;font-size:12.5px;">${html(acc.bank_name || '은행')}</strong>
-              <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${badgeBg};color:${badgeColor};">${badgeText}</span>
+          <div id="kftcCard_${accId}" style="background:rgba(30,41,59,0.7);border:1px solid rgba(51,65,85,0.7);border-radius:8px;padding:10px 12px;font-size:12px;display:flex;flex-direction:column;justify-content:space-between;gap:6px;">
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <strong style="color:#f1f5f9;font-size:12.5px;">${html(acc.bank_name || '은행')}</strong>
+                <span style="font-size:10px;padding:1px 5px;border-radius:4px;background:${badgeBg};color:${badgeColor};">${badgeText}</span>
+              </div>
+              <div style="color:#94a3b8;font-size:11.5px;margin-bottom:2px;">
+                ${html(acc.account_num_masked || '계좌번호')}
+              </div>
+              <div style="color:#cbd5e1;font-size:11px;">
+                ${html(acc.account_alias || acc.product_name || '일반 계좌')}
+              </div>
             </div>
-            <div style="color:#94a3b8;font-size:11.5px;margin-bottom:2px;">
-              ${html(acc.account_num_masked || '계좌번호')}
+
+            <!-- Phase 2-A: 잔액 미리보기 결과 컨테이너 -->
+            <div id="kftcBalBox_${accId}" style="display:none;background:rgba(15,23,42,0.6);border:1px dashed rgba(56,189,248,0.3);border-radius:6px;padding:6px 8px;margin-top:4px;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                <span style="font-size:11px;color:#94a3b8;">조회잔액:</span>
+                <strong id="kftcBalVal_${accId}" style="font-size:13px;color:#38bdf8;">₩0</strong>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:2px;">
+                <span style="font-size:10.5px;color:#64748b;">출금가능액:</span>
+                <span id="kftcAvailVal_${accId}" style="font-size:11.5px;color:#cbd5e1;">₩0</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:10px;color:#64748b;border-top:1px solid rgba(51,65,85,0.4);padding-top:3px;">
+                <span id="kftcTypeLabel_${accId}">계좌</span>
+                <span id="kftcBalTime_${accId}">-</span>
+              </div>
             </div>
-            <div style="color:#cbd5e1;font-size:11px;">
-              ${html(acc.account_alias || acc.product_name || '일반 계좌')}
+
+            <!-- 잔액 조회 버튼 영역 -->
+            <div style="display:flex;justify-content:flex-end;align-items:center;margin-top:4px;">
+              <button
+                type="button"
+                id="kftcBalBtn_${accId}"
+                class="button secondary compact"
+                style="font-size:11px;padding:3px 8px;border-color:rgba(56,189,248,0.4);color:#38bdf8;"
+                ${agreed ? '' : 'disabled title="조회 미동의 계좌입니다"'}
+                onclick="handlePreviewKftcBalance('${accId}')"
+              >
+                잔액 조회
+              </button>
             </div>
           </div>
         `;
@@ -2948,6 +2981,38 @@ async function handleFetchKftcAccounts(forceRefresh = true) {
   }
 }
 window.handleFetchKftcAccounts = handleFetchKftcAccounts;
+
+async function handlePreviewKftcBalance(providerAccountId) {
+  const btn = document.getElementById(`kftcBalBtn_${providerAccountId}`);
+  const box = document.getElementById(`kftcBalBox_${providerAccountId}`);
+  const balEl = document.getElementById(`kftcBalVal_${providerAccountId}`);
+  const availEl = document.getElementById(`kftcAvailVal_${providerAccountId}`);
+  const typeEl = document.getElementById(`kftcTypeLabel_${providerAccountId}`);
+  const timeEl = document.getElementById(`kftcBalTime_${providerAccountId}`);
+
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api(`/api/kftc/openbanking/accounts/${providerAccountId}/balance/preview`, {
+      method: 'POST',
+    });
+
+    if (box) box.style.display = 'block';
+    if (balEl) balEl.textContent = `₩${Number(res.balance_amt || 0).toLocaleString('ko-KR')}`;
+    if (availEl) availEl.textContent = `₩${Number(res.available_amt || 0).toLocaleString('ko-KR')}`;
+    if (typeEl) typeEl.textContent = res.account_type_label || '계좌';
+    if (timeEl) {
+      const d = res.checked_at ? new Date(res.checked_at) : new Date();
+      timeEl.textContent = d.toLocaleTimeString('ko-KR');
+    }
+    toast(`${res.bank_name || '계좌'} 잔액 조회가 완료되었습니다.`);
+  } catch (err) {
+    const msg = (err && err.message) || '잔액 조회에 실패했습니다.';
+    toast(msg, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+window.handlePreviewKftcBalance = handlePreviewKftcBalance;
 
 async function handleDisconnectKftc() {
   if (!confirm('금융결제원 오픈뱅킹 연결을 해제하시겠습니까?\n저장된 토큰과 계좌 연결 정보가 삭제되며, 기존 Wealth 자산 데이터는 안전하게 보존됩니다.')) {

@@ -259,6 +259,153 @@ class KftcOpenBankingClientTests(unittest.IsolatedAsyncioTestCase):
         passed_ids = [a["fintech_use_num"] for a in accounts]
         self.assertEqual(passed_ids, ["acc_01", "acc_missing_y", "acc_none_y", "acc_empty_y"])
 
+    async def test_fetch_account_balance_success(self):
+        mock_resp = httpx.Response(
+            200,
+            json={
+                "api_tran_id": "2fa32130-e144-42b4-84fb-4b5d6364bf68",
+                "rsp_code": "A0000",
+                "rsp_message": "",
+                "bank_tran_id": "1234567890U123456789",
+                "bank_tran_date": "20260925",
+                "bank_code_tran": "092",
+                "bank_rsp_code": "000",
+                "bank_rsp_message": "",
+                "bank_name": "토스뱅크",
+                "savings_bank_name": "",
+                "account_num_masked": "1000-0000-****",
+                "print_content": "오픈뱅킹잔액",
+                "account_type": "1",
+                "balance_amt": "1500000",
+                "available_amt": "1400000",
+                "account_issue_date": "20240101",
+                "maturity_date": "",
+                "last_tran_date": "20260924",
+                "product_name": "토스뱅크통장",
+            },
+        )
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.get.return_value = mock_resp
+
+        res = await client.fetch_account_balance(
+            environment="test",
+            access_token="valid-token",
+            fintech_use_num="120230226588951223594984",
+            bank_tran_id="1234567890U123456789",
+            tran_dtime="20260925020000",
+            client=mock_client,
+        )
+
+        self.assertEqual(res["balance_amt"], 1500000)
+        self.assertEqual(res["available_amt"], 1400000)
+        self.assertEqual(res["bank_name"], "토스뱅크")
+        self.assertEqual(res["product_name"], "토스뱅크통장")
+        self.assertEqual(res["account_num_masked"], "1000-0000-****")
+        self.assertEqual(res["account_type"], "1")
+        self.assertEqual(res["account_issue_date"], "20240101")
+        self.assertIsNone(res["maturity_date"])
+        self.assertEqual(res["last_tran_date"], "20260924")
+
+    async def test_fetch_account_balance_negative_overdraft_allowed(self):
+        # Negative balance (마이너스 통장) is valid SN(13)
+        mock_resp = httpx.Response(
+            200,
+            json={
+                "rsp_code": "A0000",
+                "bank_rsp_code": "000",
+                "bank_name": "토스뱅크",
+                "product_name": "마이너스통장",
+                "balance_amt": "-3500000",
+                "available_amt": "0",
+            },
+        )
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.get.return_value = mock_resp
+
+        res = await client.fetch_account_balance(
+            environment="test",
+            access_token="valid-token",
+            fintech_use_num="120230226588951223594984",
+            bank_tran_id="1234567890U123456789",
+            tran_dtime="20260925020000",
+            client=mock_client,
+        )
+        self.assertEqual(res["balance_amt"], -3500000)
+        self.assertEqual(res["available_amt"], 0)
+
+    async def test_fetch_account_balance_validation_failures(self):
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+
+        # Invalid fintech_use_num length
+        with self.assertRaises(client.KftcClientError) as ctx:
+            await client.fetch_account_balance(
+                environment="test",
+                access_token="tok",
+                fintech_use_num="short",
+                bank_tran_id="1234567890U123456789",
+                tran_dtime="20260925020000",
+                client=mock_client,
+            )
+        self.assertEqual(ctx.exception.code, "INVALID_FINTECH_USE_NUM")
+
+        # Invalid bank_tran_id length
+        with self.assertRaises(client.KftcClientError) as ctx:
+            await client.fetch_account_balance(
+                environment="test",
+                access_token="tok",
+                fintech_use_num="120230226588951223594984",
+                bank_tran_id="short_tran_id",
+                tran_dtime="20260925020000",
+                client=mock_client,
+            )
+        self.assertEqual(ctx.exception.code, "INVALID_BANK_TRAN_ID")
+
+        # Invalid tran_dtime length
+        with self.assertRaises(client.KftcClientError) as ctx:
+            await client.fetch_account_balance(
+                environment="test",
+                access_token="tok",
+                fintech_use_num="120230226588951223594984",
+                bank_tran_id="1234567890U123456789",
+                tran_dtime="20260925",
+                client=mock_client,
+            )
+        self.assertEqual(ctx.exception.code, "INVALID_TRAN_DTIME")
+
+    async def test_fetch_account_balance_error_codes(self):
+        # rsp_code error
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.get.return_value = httpx.Response(
+            200,
+            json={"rsp_code": "A0002", "bank_rsp_code": "000"},
+        )
+        with self.assertRaises(client.KftcProviderError) as ctx:
+            await client.fetch_account_balance(
+                environment="test",
+                access_token="tok",
+                fintech_use_num="120230226588951223594984",
+                bank_tran_id="1234567890U123456789",
+                tran_dtime="20260925020000",
+                client=mock_client,
+            )
+        self.assertEqual(ctx.exception.code, "A0002")
+
+        # bank_rsp_code error
+        mock_client.get.return_value = httpx.Response(
+            200,
+            json={"rsp_code": "A0000", "bank_rsp_code": "824"},
+        )
+        with self.assertRaises(client.KftcProviderError) as ctx:
+            await client.fetch_account_balance(
+                environment="test",
+                access_token="tok",
+                fintech_use_num="120230226588951223594984",
+                bank_tran_id="1234567890U123456789",
+                tran_dtime="20260925020000",
+                client=mock_client,
+            )
+        self.assertEqual(ctx.exception.code, "BANK_824")
+
 
 if __name__ == "__main__":
     unittest.main()

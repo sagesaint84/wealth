@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import secrets
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -379,3 +381,131 @@ def disconnect_user_kftc(username: str) -> None:
     ):
         path = _get_user_kftc_file(username, filename)
         path.unlink(missing_ok=True)
+
+
+# ==============================================================================
+# Bank Transaction ID Sequence Storage (System-wide, day-scoped uniqueness)
+# ==============================================================================
+
+MAX_BASE36_9DIGIT = 36**9 - 1  # 101,559,956,668,415
+_BASE36_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_BANK_TRAN_SEQ_LOCK = threading.Lock()
+
+
+def int_to_base36_9(val: int) -> str:
+    """Convert an integer to a zero-padded 9-character uppercase base-36 string."""
+    if val < 0 or val > MAX_BASE36_9DIGIT:
+        raise KftcStorageError(f"Sequence value {val} out of 9-digit base-36 bounds")
+    if val == 0:
+        return "000000000"
+    digits = []
+    n = val
+    while n > 0:
+        n, rem = divmod(n, 36)
+        digits.append(_BASE36_CHARS[rem])
+    res = "".join(reversed(digits))
+    return res.zfill(9)
+
+
+def get_bank_tran_sequence_file() -> Path:
+    """Return absolute path to system-wide bank_tran_sequence storage."""
+    root = os.getenv("WEALTH_DATA_DIR", "").strip()
+    base_dir = Path(root) if root else (Path(__file__).resolve().parents[2] / "data")
+    return base_dir / "system" / "kftc_bank_tran_sequence.json"
+
+
+def next_bank_tran_sequence(client_use_code: str, date_str: str) -> int:
+    """Acquire next strictly unique, monotonically increasing sequence number.
+
+    Enforces:
+    - client_use_code scope (isolated sequences per client_use_code).
+    - date_str scope (reset sequence each calendar day YYYYMMDD).
+    - Monotonically increasing counter with no wrap/truncation.
+    - Day-scoped uniqueness guaranteed across restarts and processes.
+    - Thread-level and cross-process file-locking (Windows msvcrt / POSIX flock).
+    """
+    code = str(client_use_code or "").strip().upper()
+    if not code:
+        raise KftcStorageError("CLIENT_USE_CODE_REQUIRED")
+    if not date_str or len(date_str) != 8 or not date_str.isdigit():
+        raise KftcStorageError("INVALID_DATE_FORMAT")
+
+    seq_file = get_bank_tran_sequence_file()
+    lock_file = seq_file.with_suffix(".lock")
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with _BANK_TRAN_SEQ_LOCK:
+        lock_handle = open(lock_file, "a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+                if lock_file.stat().st_size == 0:
+                    lock_handle.write(b"0")
+                    lock_handle.flush()
+                lock_handle.seek(0)
+                msvcrt.locking(lock_handle.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+
+            # Read existing sequence document
+            doc: dict[str, Any] = {"version": 1, "entries": {}}
+            if seq_file.exists():
+                try:
+                    loaded = json.loads(seq_file.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    raise KftcStorageError("BANK_TRAN_SEQUENCE_STORE_CORRUPT") from exc
+
+                if not isinstance(loaded, dict) or loaded.get("version") != 1 or not isinstance(loaded.get("entries"), dict):
+                    raise KftcStorageError("BANK_TRAN_SEQUENCE_STORE_CORRUPT")
+                doc = loaded
+
+            entries = doc.setdefault("entries", {})
+            entry = entries.get(code)
+            if entry is None:
+                # First time seeing this client_use_code
+                current_seq = 1
+            else:
+                if not isinstance(entry, dict):
+                    raise KftcStorageError("BANK_TRAN_SEQUENCE_STORE_CORRUPT")
+                entry_date = entry.get("date")
+                if not isinstance(entry_date, str) or len(entry_date) != 8 or not entry_date.isdigit():
+                    raise KftcStorageError("BANK_TRAN_SEQUENCE_STORE_CORRUPT")
+
+                raw_seq = entry.get("next_sequence")
+                # Must be a strict integer, >= 1, not bool
+                if isinstance(raw_seq, bool) or not isinstance(raw_seq, int) or raw_seq < 1:
+                    raise KftcStorageError("BANK_TRAN_SEQUENCE_STORE_CORRUPT")
+
+                if entry_date != date_str:
+                    # New calendar day: reset sequence for this client_use_code
+                    current_seq = 1
+                else:
+                    current_seq = raw_seq
+
+            if current_seq > MAX_BASE36_9DIGIT:
+                raise KftcStorageError(f"Sequence capacity exceeded for {code} on {date_str}")
+
+            allocated_seq = current_seq
+            entries[code] = {
+                "date": date_str,
+                "next_sequence": current_seq + 1,
+            }
+
+            atomic_write_private_json(seq_file, doc, indent=2)
+            return allocated_seq
+        finally:
+            try:
+                lock_handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(lock_handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            try:
+                lock_handle.close()
+            except Exception:
+                pass
