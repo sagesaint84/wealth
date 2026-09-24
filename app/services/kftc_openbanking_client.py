@@ -325,19 +325,39 @@ async def fetch_user_accounts(
         #     '01': 정상 (Active/Normal account available for inquiry)
         #     '02': 거래중지 (Dormant/Suspended account)
         #     '09': 해지 (Closed/Terminated account)
-        #   Rule: Only '01' indicates an active account. Non-'01', empty, missing,
-        #   or unknown accounts MUST fail closed and be excluded.
+        #   Production Rule: Only '01' indicates an active account. Non-'01', empty,
+        #   missing, or unknown accounts MUST fail closed and be excluded.
+        #
+        #   TESTBED Compatibility Rule (environment == "test"):
+        #   Live KFTC testbed /user/me can omit account_state (None/"") while
+        #   returning a consented fintech_use_num. In test environment ONLY:
+        #   - account_state == "01" -> allowed
+        #   - account_state missing/None/"" -> allowed ONLY IF fintech_num present AND inquiry_agree_yn == "Y"
+        #   - account_state explicitly "02", "09", or unknown non-empty -> excluded
+        #   - missing-state account with inquiry_agree_yn != "Y" -> excluded
         #
         # - inquiry_agree_yn (조회동의여부, 1자리 String, 필수/Required):
         #     'Y': 동의 (User agreed to account inquiry)
         #     'N': 미동의 (User declined inquiry agreement)
         # ======================================================================
         account_state = str(item.get("account_state") or "").strip()
-        if account_state != "01":
+        inquiry_agree_yn = str(item.get("inquiry_agree_yn") or "").strip().upper()
+
+        if account_state == "01":
+            pass
+        elif (
+            environment == "test"
+            and not account_state
+            and fintech_num
+            and inquiry_agree_yn == "Y"
+        ):
+            # TESTBED compatibility:
+            # live /user/me can omit account_state while returning
+            # a consented fintech_use_num.
+            pass
+        else:
             continue
 
-        # inquiry_agree_yn: 'Y' or 'N' (mandatory agreement flag)
-        inquiry_agree_yn = str(item.get("inquiry_agree_yn") or "").strip().upper()
         if inquiry_agree_yn not in {"Y", "N"}:
             inquiry_agree_yn = "N"
 

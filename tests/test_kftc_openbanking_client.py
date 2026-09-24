@@ -191,14 +191,8 @@ class KftcOpenBankingClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(accounts[0]["bank_name"], "KB국민은행")
         self.assertEqual(accounts[0]["inquiry_agree_yn"], "Y")
 
-    async def test_fetch_user_accounts_strict_fail_closed_states(self):
-        # Explicit test for all boundary values of account_state:
-        # '01': 정상 -> accepted
-        # missing: -> rejected
-        # '': -> rejected
-        # '02': 거래중지 -> rejected
-        # '09': 해지 -> rejected
-        # 'unknown': -> rejected
+    async def test_fetch_user_accounts_production_strict_fail_closed(self):
+        # In production: ONLY '01' is accepted. Missing/empty/02/09/unknown are all rejected.
         mock_resp = httpx.Response(
             200,
             json={
@@ -220,13 +214,50 @@ class KftcOpenBankingClientTests(unittest.IsolatedAsyncioTestCase):
         mock_client.get.return_value = mock_resp
 
         accounts = await client.fetch_user_accounts(
-            environment="test",
-            access_token="test-acc",
+            environment="production",
+            access_token="prod-acc",
             user_seq_no="1101038125",
             client=mock_client,
         )
         self.assertEqual(len(accounts), 1)
         self.assertEqual(accounts[0]["fintech_use_num"], "acc_01")
+
+    async def test_fetch_user_accounts_testbed_compatibility(self):
+        # In test environment:
+        # - account_state missing/None/"" with inquiry_agree_yn="Y" and fintech_num -> included
+        # - account_state missing/None/"" with inquiry_agree_yn="N" -> excluded
+        # - account_state "02", "09", or unknown non-empty -> excluded
+        # - account_state "01" -> included
+        mock_resp = httpx.Response(
+            200,
+            json={
+                "rsp_code": "A0000",
+                "rsp_message": "",
+                "user_seq_no": "1101038125",
+                "res_cnt": "8",
+                "res_list": [
+                    {"fintech_use_num": "acc_01", "account_state": "01", "inquiry_agree_yn": "Y"},
+                    {"fintech_use_num": "acc_missing_y", "inquiry_agree_yn": "Y"},
+                    {"fintech_use_num": "acc_none_y", "account_state": None, "inquiry_agree_yn": "Y"},
+                    {"fintech_use_num": "acc_empty_y", "account_state": "", "inquiry_agree_yn": "Y"},
+                    {"fintech_use_num": "acc_empty_n", "account_state": "", "inquiry_agree_yn": "N"},
+                    {"fintech_use_num": "acc_02", "account_state": "02", "inquiry_agree_yn": "Y"},
+                    {"fintech_use_num": "acc_09", "account_state": "09", "inquiry_agree_yn": "Y"},
+                    {"fintech_use_num": "acc_unknown", "account_state": "99", "inquiry_agree_yn": "Y"},
+                ],
+            },
+        )
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.get.return_value = mock_resp
+
+        accounts = await client.fetch_user_accounts(
+            environment="test",
+            access_token="test-acc",
+            user_seq_no="1101038125",
+            client=mock_client,
+        )
+        passed_ids = [a["fintech_use_num"] for a in accounts]
+        self.assertEqual(passed_ids, ["acc_01", "acc_missing_y", "acc_none_y", "acc_empty_y"])
 
 
 if __name__ == "__main__":
