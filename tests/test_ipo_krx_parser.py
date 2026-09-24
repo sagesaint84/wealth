@@ -144,6 +144,21 @@ class KrxParserTests(unittest.TestCase):
                 self.assertEqual(len(items), 1)
                 self.assertEqual(items[0]["stock_code"], "0197V0")
 
+    def test_krx_new_listings_fetch_uses_official_screen_and_complete_range(self):
+        client = KrxClient()
+        mock_resp = httpx.Response(
+            200,
+            request=httpx.Request("POST", "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"),
+            text=SAMPLE_KRX_LISTINGS_JSON,
+        )
+        with patch("app.services.ipo.krx_client.require_external_network"):
+            with patch("httpx.Client.post", return_value=mock_resp) as post:
+                rows = client.fetch_new_listings("2021-01-01", "2021-12-31")
+        _, kwargs = post.call_args
+        self.assertEqual(kwargs["data"]["bld"], "dbms/MDC/STAT/standard/MDCSTAT20001")
+        self.assertEqual((kwargs["data"]["strtDd"], kwargs["data"]["endDd"]), ("20210101", "20211231"))
+        self.assertEqual(rows[0]["actual_listing_date"], "2026-09-30")
+
     def test_krx_client_zero_rows_fail_closed(self):
         client = KrxClient()
         mock_resp = httpx.Response(

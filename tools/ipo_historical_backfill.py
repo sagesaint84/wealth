@@ -64,7 +64,7 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    engine = HistoricalBackfillEngine()
+    engine = HistoricalBackfillEngine(username=args.username)
     current_year = get_current_kst_date().year
     to_year = args.to_year or current_year
 

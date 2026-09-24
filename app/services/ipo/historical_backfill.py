@@ -1,8 +1,7 @@
 """Historical IPO backfill engine for 2020~present market data.
 
-Safe, preview-before-write backfill that verifies listing evidence against
-KIND listed company master and KRX delisted master before proposing or
-committing historical IPO records to the canonical store.
+Safe, preview-before-write backfill from KRX new listings hydrated by official
+OpenDART structured registration data before proposing canonical records.
 """
 from __future__ import annotations
 
@@ -17,7 +16,6 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.services.ipo.identity import find_matching_ipo, generate_ipo_id, is_spac_ipo, normalize_company_name
-from app.services.ipo.kind_client import KindClient, KindClientError
 from app.services.ipo.krx_client import KrxClient, KrxClientError
 from app.services.ipo.dart_client import (
     DartClient,
@@ -26,6 +24,7 @@ from app.services.ipo.dart_client import (
     select_point_in_time_filing,
 )
 from app.services.ipo.dart_parser import DartSemanticParser
+from app.services.ipo.normalize import normalize_equity_registration_response
 from app.services.ipo.score import calculate_wealth_ipo_score
 from app.services.ipo.store import (
     _STORE_LOCK,
@@ -173,6 +172,50 @@ def validate_subscription_dates(start: str | None, end: str | None) -> tuple[str
     return valid_start, valid_end, is_anomalous
 
 
+def _parse_dart_date(value: object) -> str | None:
+    """Parse only explicit DART date values; never infer from a listing date."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    match = __import__("re").search(r"(20\d{2})\D{0,3}(\d{1,2})\D{0,3}(\d{1,2})", raw)
+    if not match:
+        return None
+    try:
+        return date(int(match.group(1)), int(match.group(2)), int(match.group(3))).isoformat()
+    except ValueError:
+        return None
+
+
+def parse_dart_subscription_schedule(structured: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract explicit sbd/pymd schedule fields from normalized estkRs rows."""
+    rows = structured.get("general", []) if isinstance(structured, dict) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw_sbd = row.get("sbd")
+        if not raw_sbd:
+            continue
+        dates = [
+            _parse_dart_date(match.group(0))
+            for match in __import__("re").finditer(r"20\d{2}\D{0,3}\d{1,2}\D{0,3}\d{1,2}", str(raw_sbd))
+        ]
+        dates = [value for value in dates if value]
+        if not dates:
+            continue
+        start, end = dates[0], dates[-1]
+        valid_start, valid_end, anomalous = validate_subscription_dates(start, end)
+        if anomalous or not valid_start:
+            return None
+        return {
+            "subscription_start": valid_start,
+            "subscription_end": valid_end or valid_start,
+            "payment_date": _parse_dart_date(row.get("pymd")),
+            "subscription_notice_date": _parse_dart_date(row.get("sband")),
+            "allocation_notice_date": _parse_dart_date(row.get("asand")),
+        }
+    return None
+
+
 class HistoricalBackfillEngine:
     """Backfill engine to inspect and safely commit historical IPO records."""
 
@@ -180,11 +223,12 @@ class HistoricalBackfillEngine:
 
     def __init__(
         self,
-        kind_client: KindClient | None = None,
         krx_client: KrxClient | None = None,
+        dart_client: DartClient | None = None,
+        username: str | None = None,
     ) -> None:
-        self.kind_client = kind_client or KindClient()
         self.krx_client = krx_client or KrxClient()
+        self.dart_client = dart_client or DartClient(username=username)
 
     def load_master_evidence(
         self,
@@ -346,6 +390,47 @@ class HistoricalBackfillEngine:
 
         return False, None, "NO_LISTING_EVIDENCE", False
 
+    @staticmethod
+    def _resolve_dart_corp_code(candidate: dict[str, Any], master: list[dict[str, Any]]) -> tuple[str | None, str | None]:
+        stock_code = str(candidate.get("stock_code") or "").strip()
+        company_name = normalize_company_name(str(candidate.get("company_name") or ""))
+        stock_matches = [row for row in master if stock_code and str(row.get("stock_code") or "").strip() == stock_code]
+        if len(stock_matches) == 1:
+            return str(stock_matches[0].get("corp_code") or "").strip() or None, "stock_code"
+        if len(stock_matches) > 1:
+            return None, "ambiguous_stock_code"
+        name_matches = [row for row in master if company_name and normalize_company_name(str(row.get("corp_name") or "")) == company_name]
+        if len(name_matches) == 1:
+            return str(name_matches[0].get("corp_code") or "").strip() or None, "company_name"
+        return None, "ambiguous_company_name" if len(name_matches) > 1 else "not_found"
+
+    def _hydrate_krx_candidate_from_dart(
+        self, candidate: dict[str, Any], master: list[dict[str, Any]]
+    ) -> tuple[dict[str, Any] | None, str]:
+        """Attach only explicit estkRs schedule fields to one KRX candidate."""
+        corp_code, match_type = self._resolve_dart_corp_code(candidate, master)
+        if not corp_code:
+            return None, f"DART corp_code {match_type}"
+        listing_day = _parse_iso_date(candidate.get("actual_listing_date"))
+        if listing_day is None:
+            return None, "KRX actual listing date is invalid"
+        try:
+            raw = self.dart_client.get_equity_registration_statements(
+                corp_code=corp_code,
+                bgn_de=(listing_day - timedelta(days=730)).strftime("%Y%m%d"),
+                end_de=listing_day.strftime("%Y%m%d"),
+            )
+        except Exception:
+            return None, "DART structured schedule unavailable"
+        schedule = parse_dart_subscription_schedule(normalize_equity_registration_response(raw))
+        if not schedule:
+            return None, "DART subscription date missing or invalid"
+        hydrated = dict(candidate)
+        hydrated.update(schedule)
+        hydrated["corp_code"] = corp_code
+        hydrated["_dart_match_type"] = match_type
+        return hydrated, ""
+
     def generate_preview(
         self,
         from_year: int = 2020,
@@ -383,8 +468,15 @@ class HistoricalBackfillEngine:
         store = read_market_store_read_only()
         existing_ipos = store.get("ipos", [])
 
-        listed_rows, delisted_rows = self.load_master_evidence(listed_master, delisted_master)
-        indexes = self.build_evidence_indexes(listed_rows, delisted_rows)
+        # Phase A requires the operator's user-scoped DART credential.  KRX
+        # discovers authoritative listings; DART alone supplies subscription
+        # dates.  Do not manufacture a schedule from a listing date.
+        if not self.dart_client.is_configured():
+            raise HistoricalBackfillError("DART credential is not configured for historical schedule hydration")
+        try:
+            dart_master = self.dart_client.get_corp_code_master()
+        except Exception as exc:
+            raise HistoricalBackfillError("Failed to load OpenDART corp-code master") from exc
 
         preview_items: list[PreviewItem] = []
         by_year: dict[int, dict[str, int]] = {}
@@ -399,8 +491,6 @@ class HistoricalBackfillEngine:
             "excluded": 0,
         }
 
-        # Track candidate identity anomalies across years
-        seen_procs: dict[str, dict[str, Any]] = {}
         seen_preview_stock_codes: set[str] = set()
 
         for year in range(from_year, to_year + 1):
@@ -415,124 +505,39 @@ class HistoricalBackfillEngine:
                 "EXCLUDED": 0,
             }
 
-            # Fetch KIND schedule for this year with 1-year lookback
-            from_date = f"{year - 1}-01-01"
-            to_date = f"{year}-12-31"
-
             try:
-                raw_items = self.kind_client.fetch_pubofr_schedule_items(from_date, to_date)
-            except KindClientError as exc:
-                raise HistoricalBackfillError(f"Failed to fetch KIND schedule for {year}: {exc}") from exc
-
-            # Filter candidates where subscription_start.year == year
-            # If subscription_start missing, fallback to filing_date.year == year
-            target_candidates: list[dict[str, Any]] = []
-            for it in raw_items:
-                s_start = str(it.get("subscription_start") or "")[:10]
-                f_date = str(it.get("filing_date") or "")[:10]
-                if s_start:
-                    if s_start.startswith(f"{year}-"):
-                        target_candidates.append(it)
-                elif f_date:
-                    if f_date.startswith(f"{year}-"):
-                        target_candidates.append(it)
+                raw_items = self.krx_client.fetch_new_listings(f"{year}-01-01", f"{year}-12-31")
+            except KrxClientError as exc:
+                raise HistoricalBackfillError(f"Failed to fetch KRX new listings for {year}: {exc}") from exc
+            target_candidates = raw_items
 
             for cand in target_candidates:
                 year_counts["fetched"] += 1
                 totals["fetched"] += 1
 
                 company_name = str(cand.get("company_name") or "").strip()
-                procs_no = str(cand.get("kind_bz_procs_no") or "").strip()
+                hydrated, hydrate_reason = self._hydrate_krx_candidate_from_dart(cand, dart_master)
+                if hydrated is None:
+                    preview_items.append(PreviewItem(
+                        company_name=company_name, subscription_start=None, expected_listing_date=None,
+                        actual_listing_date=cand.get("actual_listing_date"), stock_code=cand.get("stock_code"),
+                        listing_track="spac" if is_spac_ipo(cand) else "general",
+                        classification=Classification.REVIEW_REQUIRED.value, reason=hydrate_reason,
+                        match_evidence="KRX_NEW_LISTING", candidate_record=cand,
+                    ))
+                    year_counts["REVIEW_REQUIRED"] += 1; totals["review"] += 1
+                    continue
+                cand = hydrated
                 sub_start = cand.get("subscription_start")
-                exp_listing = cand.get("expected_listing_date")
+                exp_listing = None
                 final_price = cand.get("final_offer_price")
-                is_spac = "스팩" in company_name or "SPAC" in company_name.upper()
+                is_spac = is_spac_ipo(cand)
                 listing_track = "spac" if is_spac else "general"
-
-                # Check KIND internal anomaly (same kind_bz_procs_no with conflicting core values)
-                if procs_no:
-                    if procs_no in seen_procs:
-                        prev_c = seen_procs[procs_no]
-                        if (
-                            prev_c.get("company_name") != company_name
-                            or prev_c.get("final_offer_price") != final_price
-                            or prev_c.get("subscription_start") != sub_start
-                        ):
-                            item = PreviewItem(
-                                company_name=company_name,
-                                subscription_start=sub_start,
-                                expected_listing_date=exp_listing,
-                                actual_listing_date=None,
-                                stock_code=None,
-                                listing_track=listing_track,
-                                classification=Classification.CONFLICT.value,
-                                reason=f"Conflicting duplicate KIND rows for kind_bz_procs_no {procs_no}",
-                                match_evidence="KIND_ANOMALY_DUPLICATE_PROCS",
-                                candidate_record=cand,
-                            )
-                            preview_items.append(item)
-                            year_counts["CONFLICT"] += 1
-                            totals["conflict"] += 1
-                            continue
-                        # If completely identical, skip duplicate
-                        continue
-                    seen_procs[procs_no] = cand
-
-                # Match against listing evidence
-                has_evidence, master_info, evidence_str, is_ambiguous = self.match_listing_evidence(
-                    cand, indexes
-                )
-
-                if is_ambiguous:
-                    item = PreviewItem(
-                        company_name=company_name,
-                        subscription_start=sub_start,
-                        expected_listing_date=exp_listing,
-                        actual_listing_date=None,
-                        stock_code=cand.get("stock_code"),
-                        listing_track=listing_track,
-                        classification=Classification.REVIEW_REQUIRED.value,
-                        reason=f"Ambiguous master match: multiple entities matched {evidence_str}",
-                        match_evidence=evidence_str,
-                        candidate_record=cand,
-                    )
-                    preview_items.append(item)
-                    year_counts["REVIEW_REQUIRED"] += 1
-                    totals["review"] += 1
-                    continue
-
-                if not has_evidence:
-                    # Excluded without listing evidence
-                    if not final_price or final_price == 0:
-                        classif = Classification.EXCLUDED_WITHDRAWN
-                        reason = "No listing evidence and offer price missing or zero (withdrawn candidate)"
-                    else:
-                        classif = Classification.EXCLUDED_NO_LISTING_EVIDENCE
-                        reason = "No listing evidence found in KIND listed master or KRX delisted master"
-
-                    item = PreviewItem(
-                        company_name=company_name,
-                        subscription_start=sub_start,
-                        expected_listing_date=exp_listing,
-                        actual_listing_date=None,
-                        stock_code=cand.get("stock_code"),
-                        listing_track=listing_track,
-                        classification=classif.value,
-                        reason=reason,
-                        match_evidence=evidence_str,
-                        candidate_record=cand,
-                    )
-                    preview_items.append(item)
-                    year_counts["EXCLUDED"] += 1
-                    totals["excluded"] += 1
-                    continue
-
-                # Has listing evidence
                 year_counts["listing_verified"] += 1
-                assert master_info is not None
-                stock_code = master_info.get("stock_code")
-                actual_listing = master_info.get("actual_listing_date")
-                market = master_info.get("market") or cand.get("market")
+                stock_code = str(cand.get("stock_code") or "").strip() or None
+                actual_listing = cand.get("actual_listing_date")
+                market = self._normalize_market(cand.get("market"))
+                evidence_str = f"KRX_NEW_LISTING:{stock_code or normalize_company_name(company_name)}"
 
                 # Validate subscription date range for anomalies
                 raw_sub_end = cand.get("subscription_end")
@@ -543,6 +548,7 @@ class HistoricalBackfillEngine:
                 candidate_rec: dict[str, Any] = {
                     "company_name": company_name,
                     "stock_code": stock_code,
+                    "corp_code": cand.get("corp_code"),
                     "market": market,
                     "listing_track": listing_track,
                     "filing_date": cand.get("filing_date"),
@@ -560,12 +566,19 @@ class HistoricalBackfillEngine:
                     "features": {},
                     "score": {},
                     "sources": {
-                        "historical_kind": {
-                            "source": "KIND_SCHEDULE",
+                            "krx_historical": {
+                            "source": "KRX_NEW_LISTING",
                             "observed_at": now_iso,
-                            "kind_bz_procs_no": procs_no,
+                            "stock_code": stock_code,
                             "match_evidence": evidence_str,
-                        }
+                        },
+                        "dart_schedule_historical": {
+                            "source": "OpenDART_estkRs",
+                            "corp_code": cand.get("corp_code"),
+                            "match_type": cand.get("_dart_match_type"),
+                            "subscription_notice_date": cand.get("subscription_notice_date"),
+                            "allocation_notice_date": cand.get("allocation_notice_date"),
+                        },
                     },
                     "updated_at": now_iso,
                 }

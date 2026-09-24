@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -55,6 +56,7 @@ def parse_krx_new_listings_json(raw_json_str: str) -> list[dict[str, Any]]:
         comp_name = str(_pick_first(item, "ISU_ABBRV", "ISU_NM", "company_name") or "").strip()
         listing_date = str(_pick_first(item, "LIST_DD", "listing_date") or "").replace("/", "-").strip()
         offer_price_val = _pick_first(item, "IPO_PRC", "offer_price")
+        lead_manager_value = _pick_first(item, "LEAD_MGR", "LEAD_MANAGER", "MNGM", "lead_manager")
 
         offer_price = None
         if offer_price_val is not None and offer_price_val != "":
@@ -69,6 +71,7 @@ def parse_krx_new_listings_json(raw_json_str: str) -> list[dict[str, Any]]:
             "actual_listing_date": listing_date[:10] if listing_date else None,
             "final_offer_price": offer_price,
             "market": str(_pick_first(item, "MKT_NM", "market") or "").strip(),
+            "lead_managers": [part.strip() for part in str(lead_manager_value or "").split(",") if part.strip()],
         })
 
     return results
@@ -235,6 +238,55 @@ class KrxClient:
         rows = parse_krx_listed_master_json(content)
         if not rows:
             raise KrxClientError("KRX delisted master returned zero usable rows")
+        return rows
+
+    def fetch_new_listings(self, from_date: str, to_date: str) -> list[dict[str, Any]]:
+        """Fetch KRX's official MDCSTAT20001 newly-listed-company dataset.
+
+        The screen is the historical candidate source.  It is read-only and
+        intentionally fails closed: redirects, HTTP failures, malformed
+        payloads, and empty ranges are never treated as a partial success.
+        Callers query bounded year ranges so no pagination truncation is
+        silently accepted.
+        """
+        require_external_network("KRX")
+        try:
+            start = datetime.strptime(from_date, "%Y-%m-%d").strftime("%Y%m%d")
+            end = datetime.strptime(to_date, "%Y-%m-%d").strftime("%Y%m%d")
+        except ValueError as exc:
+            raise KrxClientError("KRX new-listings date range is invalid") from exc
+        if start > end:
+            raise KrxClientError("KRX new-listings date range is invalid")
+
+        url = f"{self.base_url}{KRX_JSON_PATH}"
+        headers = {
+            "User-Agent": "Wealth/1.0 historical IPO backfill",
+            "Referer": f"{self.base_url}/",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        payload = {
+            "bld": "dbms/MDC/STAT/standard/MDCSTAT20001",
+            "locale": "ko_KR",
+            "strtDd": start,
+            "endDd": end,
+            "mktId": "ALL",
+        }
+        try:
+            with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
+                resp = client.post(url, headers=headers, data=payload)
+                if resp.is_redirect:
+                    raise KrxClientError("KRX new-listings request redirected")
+                if resp.is_error:
+                    raise KrxClientError(f"KRX new-listings request failed with HTTP {resp.status_code}")
+                content = resp.text
+        except httpx.HTTPError as exc:
+            raise KrxClientError("KRX new-listings HTTP communication error") from exc
+        if not content.strip():
+            raise KrxClientError("KRX new-listings response body is empty")
+        rows = parse_krx_new_listings_json(content)
+        if not rows:
+            raise KrxClientError("KRX new-listings returned zero usable rows")
         return rows
 
     def fetch_screen(self, screen_id: str, params: dict[str, Any]) -> str:
