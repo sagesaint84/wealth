@@ -1498,6 +1498,82 @@ async def refresh_ipo_market(request: Request) -> JSONResponse:
     return JSONResponse({"market": present_market_store(username, read_market_store()), "refresh": result}, headers={"Cache-Control": "no-store"})
 
 
+@app.post("/api/ipo/historical-import/preview")
+async def preview_official_historical_ipo_import(request: Request, file: UploadFile = File(...)) -> JSONResponse:
+    """Preview an operator-downloaded official KRX/KIND export; never fetches web data."""
+    username = get_current_username(request)
+    from app.services.ipo.historical_import import (
+        MAX_UPLOAD_BYTES,
+        HistoricalImportError,
+        create_preview,
+    )
+    from app.services.ipo.store import read_market_store_read_only
+
+    # Read at most one byte past the accepted limit so a malicious/accidental
+    # oversized upload is rejected without buffering the entire file in memory.
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail={"code": "FILE_TOO_LARGE", "message": "파일 크기가 16MB 제한을 초과했습니다."},
+        )
+
+    try:
+        result = create_preview(
+            file.filename or "",
+            content,
+            username,
+            read_market_store_read_only(),
+        )
+    except HistoricalImportError as exc:
+        status = 413 if exc.code == "FILE_TOO_LARGE" else 400
+        raise HTTPException(
+            status_code=status,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/ipo/historical-import/commit")
+async def commit_official_historical_ipo_import(request: Request) -> JSONResponse:
+    """Commit only the server-held, user-bound preview payload atomically."""
+    username = get_current_username(request)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "PREVIEW_TICKET_INVALID", "message": "유효한 미리보기가 필요합니다."},
+        ) from exc
+
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "PREVIEW_TICKET_INVALID", "message": "유효한 미리보기가 필요합니다."},
+        )
+
+    from app.services.ipo.historical_import import HistoricalImportError, commit_preview
+
+    try:
+        result = commit_preview(str(body.get("preview_ticket") or ""), username)
+    except HistoricalImportError as exc:
+        status = (
+            409
+            if exc.code in {"PREVIEW_STALE", "PREVIEW_TICKET_EXPIRED", "PREVIEW_TICKET_IN_USE"}
+            else 400
+        )
+        raise HTTPException(
+            status_code=status,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    from app.services.ipo.presentation import present_market_store
+
+    result["market"] = present_market_store(username, result["market"])
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/integrations/telegram/webhook")
 async def telegram_ipo_webhook(request: Request) -> dict:
     """Provider-authenticated Telegram IPO action ingress."""

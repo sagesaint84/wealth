@@ -34,7 +34,19 @@ def _date(value: object) -> date | None:
 def derive_market_state(ipo: dict[str, Any], today: date | None = None) -> str:
     today = today or current_market_date()
     start, end = _date(ipo.get("subscription_start")), _date(ipo.get("subscription_end"))
-    listing = _date(ipo.get("actual_listing_date")) or _date(ipo.get("expected_listing_date"))
+    actual_listing = _date(ipo.get("actual_listing_date"))
+    sources = ipo.get("sources") if isinstance(ipo.get("sources"), dict) else {}
+    is_official_historical = isinstance(sources.get("official_historical_import"), dict)
+
+    # Only the official historical-import contract may omit subscription dates.
+    # Do not let an unrelated current IPO with malformed/missing subscription
+    # dates silently become LISTED just because it happens to have an actual date.
+    if is_official_historical and (start is None or end is None or end < start):
+        if actual_listing is None:
+            return "DATE_UNKNOWN"
+        return "LISTED" if actual_listing <= today else "DATE_UNKNOWN"
+
+    listing = actual_listing or _date(ipo.get("expected_listing_date"))
     if start is None or end is None or end < start:
         return "DATE_UNKNOWN"
     if today < start:
