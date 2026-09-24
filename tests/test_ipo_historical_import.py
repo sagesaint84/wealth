@@ -137,6 +137,10 @@ class HistoricalOfficialImportTests(unittest.TestCase):
         record = _PREVIEWS[result["preview_ticket"]]["candidates"][0]["record"]
         self.assertEqual(record["offering_amount"], 19_800_000_000)
         self.assertEqual(record["lead_managers"], ["테스트증권"])
+        self.assertEqual(
+            record["sources"]["official_historical_imports"][SOURCE_KIND]["source"],
+            SOURCE_KIND,
+        )
 
     def test_krx_workbook_with_bad_dimension_is_recognized(self):
         payload = workbook_bytes_with_bad_dimension(self.krx_headers, [self.krx_row])
@@ -350,6 +354,77 @@ class HistoricalOfficialImportTests(unittest.TestCase):
         self.assertEqual(committed["committed_new"], 1)
         self.assertEqual(len(written["market"]["ipos"]), 1)
         self.assertNotIn(result["preview_ticket"], _PREVIEWS)
+
+    def test_kind_enrichment_preserves_krx_primary_and_records_both_sources(self):
+        krx_provenance = {
+            "source": SOURCE_KRX,
+            "imported_at": "2026-09-24T06:00:00+09:00",
+            "source_filename": "KRX-2020.xlsx",
+            "actual_listing_date": "2020-12-23",
+            "final_offer_price": 10000,
+            "stock_code": "065370",
+        }
+        existing_market = {
+            "schema_version": 1,
+            "ipos": [
+                {
+                    "ipo_id": "old",
+                    "company_name": "테스트 기업",
+                    "stock_code": "065370",
+                    "market": "KOSDAQ",
+                    "actual_listing_date": "2020-12-23",
+                    "final_offer_price": 10000,
+                    "lead_managers": ["테스트증권"],
+                    "sources": {
+                        "official_historical_import": deepcopy(krx_provenance),
+                    },
+                }
+            ],
+        }
+
+        preview = create_preview(
+            "KIND.xlsx",
+            workbook_bytes(self.kind_headers, [self.kind_row]),
+            "u",
+            existing_market,
+        )
+        self.assertEqual(preview["summary"]["enrichable"], 1)
+        written = {}
+
+        def capture(value):
+            written["market"] = deepcopy(value)
+
+        with patch(
+            "app.services.ipo.historical_import._read_market_store_unlocked",
+            return_value=deepcopy(existing_market),
+        ), patch(
+            "app.services.ipo.historical_import._write_market_store_unlocked",
+            side_effect=capture,
+        ):
+            committed = commit_preview(preview["preview_ticket"], "u")
+
+        self.assertEqual(committed["enriched"], 1)
+        record = written["market"]["ipos"][0]
+        self.assertEqual(record["offering_amount"], 19_800_000_000)
+
+        sources = record["sources"]
+        self.assertEqual(sources["official_historical_import"], krx_provenance)
+        by_source = sources["official_historical_imports"]
+        self.assertEqual(set(by_source), {SOURCE_KRX, SOURCE_KIND})
+        self.assertEqual(by_source[SOURCE_KRX], krx_provenance)
+        self.assertEqual(by_source[SOURCE_KIND]["source"], SOURCE_KIND)
+        self.assertEqual(by_source[SOURCE_KIND]["source_filename"], "KIND.xlsx")
+        self.assertEqual(by_source[SOURCE_KIND]["offering_amount"], 19_800_000_000)
+
+        # Once enriched, the same KIND file is no longer actionable.
+        again = create_preview(
+            "KIND.xlsx",
+            workbook_bytes(self.kind_headers, [self.kind_row]),
+            "u",
+            written["market"],
+        )
+        self.assertEqual(again["summary"]["already_present"], 1)
+        self.assertEqual(again["summary"]["enrichable"], 0)
 
     def test_stale_preview_is_rejected(self):
         result = self._preview_krx()

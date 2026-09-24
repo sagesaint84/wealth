@@ -37,6 +37,7 @@ Wealth는 개인과 가족이 보유한 금융자산, 부동산, 부채, 투자 
 - **파일 가져오기 (Excel/CSV)**: 주요 증권사(삼성, 신한, 미래에셋, KB, KIS, 토스, 키움 등)의 잔고/거래 엑셀 파일 및 뱅크샐러드 등의 가계부 CSV 가져오기
 - **멱등성 및 지문(Fingerprint) 검증**: `file_import_identity.py`를 통한 정규화 지문 검증으로 동일 파일 중복 가져오기 방지
 - **실현손익 선택 가져오기 (Selective Import)**: 증권사 API 피드에서 사용자가 원하는 항목을 선택하여 가져오는 사전 미리보기(Preview-before-write) 파이프라인 및 HMAC 서명/티켓 기반 Replay 방지 적용
+- **공식 과거 공모주 가져오기**: KRX Data Marketplace `[20001] 신규상장종목 현황` 및 KIND `신규상장기업현황` 공식 파일을 사용자가 직접 업로드하여 과거 IPO를 미리보기 후 반영. 서버가 KRX/KIND 웹페이지를 직접 수집하지 않으며, 기존 값과 충돌하는 항목은 자동 덮어쓰지 않는 fail-closed 정책 적용
 
 ### E. 공모주 시장 데이터 파이프라인 (Multi-Source Pipeline)
 - **다원화 데이터 소스 연계**:
@@ -45,6 +46,11 @@ Wealth는 개인과 가족이 보유한 금융자산, 부동산, 부채, 투자 
   - **네이버 금융 & KRX 상장 마스터**: 네이버 상장완료(`LISTING`) 일자와 KRX 공개 상장종목 마스터(`finder_stkisu`) 단축코드/시장구분을 교차 검증(AND)하여 실제 상장 완료일(`actual_listing_date`) 확정
   - **DART 기업공시 연계 기반**: DART 클라이언트 및 공시 보고서 파서 기반을 내장하여 향후 심층 분석 확장 준비
 - **Fail-Closed 및 안전 매칭**: 네트워크 오류나 zero-row 비정상 응답 시 기존 시장 데이터 보존, 스팩(SPAC) 기수 오매칭 방지 및 ASCII 6자리 단축코드 검증
+- **공식 과거 IPO 파일 파이프라인**:
+  - KRX `[20001]` 공식 `.xlsx` / `.xlsm` / `.csv` 지원. 일부 KRX XLSX가 실제 표 범위와 다르게 worksheet dimension을 `A1`로 기록하는 경우 `openpyxl` read-only 시트의 dimension을 재설정하여 원본을 그대로 읽음
+  - KIND 공식 `.xls`는 실제로 EUC-KR/CP949 인코딩 HTML table인 형식을 안전하게 식별·파싱하며, `공모가 (원)` 및 `공모금액 (천원)` 헤더를 정규화하고 천원 단위를 원 단위로 변환
+  - 필수 값(회사명/종목코드/상장일/확정 공모가)이 없거나 비정상인 행, 미래 상장일, 신규상장이 아닌 행은 자동 반영하지 않음
+  - 업로드 파일은 사용자 바인딩 preview ticket으로 먼저 검증하고, 미리보기 이후 시장 데이터가 변경되면 stale preview로 커밋을 거부함
 
 ---
 
@@ -295,8 +301,11 @@ Toss WTS 세션 점검·연장도 dispatcher 설정에 통합되어 있지만, �
 Python 표준 `unittest` 기반으로 실행되며 외부 테스트 러너 종속성 없이 즉시 검증할 수 있습니다.
 
 ```powershell
-# 전체 단위 및 회귀 테스트 실행 (1,057 테스트)
+# 전체 단위 및 회귀 테스트 실행 (2026-09-24 기준 1,680 테스트)
 .venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
+
+# 공모주 공식 과거자료 가져오기 집중 테스트
+.venv\Scripts\python.exe -m unittest tests.test_ipo_historical_import tests.test_ipo_historical_import_frontend -v
 
 # 브로커 동기화 안전성 테스트
 .venv\Scripts\python.exe -m unittest discover -s tests -p "test_broker_sync_safety.py"
@@ -311,6 +320,7 @@ Python 표준 `unittest` 기반으로 실행되며 외부 테스트 러너 종�
 - **토큰 자동 복구**: 키움증권 8005/401 만료 시 자동 재시도 및 공식 `expires_dt` 파싱 검증
 - **가져오기 멱등성**: CSV/Excel 및 실현손익 피드 가져오기 시 중복 방지 및 HMAC 서명 검증
 - **공모주 다원화 파이프라인 및 캘린더 통합**: KIS/KIND/NAVER/KRX 데이터 소스 검증, SPAC 안전 매칭, 비정상 응답 시 기존 데이터 보존(Fail-Closed), socket 수준 외부망 차단(`tests/__init__.py`) 및 캘린더·청약 상태 관리 검증
+- **공식 과거 공모주 가져오기 회귀 테스트**: KRX 잘못된 worksheet dimension 복구, KIND HTML-XLS/CP949 파싱, `공모금액 (천원)` 단위 변환, preview/commit·충돌·중복·stale ticket 정책 및 프론트 파일 형식 계약 검증
 - **버전 정합성**: 백엔드, 프론트엔드 메타, 정적 캐시, Service Worker 및 문서 버전 일치 검증
 
 ---
@@ -320,6 +330,7 @@ Python 표준 `unittest` 기반으로 실행되며 외부 테스트 러너 종�
 현재 애플리케이션 버전은 **Wealth v1.3.0** (직전 릴리스: **Wealth v1.2.7**)입니다.
 
 ### 최근 릴리스 요약
+- **2026-09-24 공모주 과거 공식자료 가져오기 보강**: KRX `[20001]` 공식 XLSX/CSV 및 KIND 공식 HTML-XLS 원본을 변환 없이 처리하도록 호환성을 확장. KRX 잘못된 worksheet dimension 복구, KIND CP949 HTML table 파싱, `공모가 (원)`/`공모금액 (천원)` 정규화, 미리보기 후 안전 반영 및 기존 데이터 보호 회귀 테스트 추가. 집중 테스트 26개 및 전체 1,680개 테스트 통과
 - **v1.3.0 (2026-09-19)**: 머니 로그 통합 캘린더(실현손익·배당·가계부·공모주 일정 연계) 및 공모주(IPO/SPAC) 청약 관리 추가, KIS/KIND/NAVER/KRX 다원화 상장 파이프라인 및 fail-closed 무결성 체계 구축
 - **v1.2.7 (2026-09-18)**: Docker 빌드 보안 보완(.dockerignore에 `toss-wts/` 제외 추가)으로 런타임 세션 설정 및 실행 파일이 이미지 레이어에 포함되는 것을 방지
 - **v1.2.6 (2026-09-18)**: 주식기록 및 순자산기록의 전 가족(모두/아빠/엄마/자녀) 일괄 스냅샷 자동/수동 저장 체계 도입, 부동산 단독지분 반영 및 0원 구성원 날짜축 동기화, 서버 일일 마감 및 세션 체크 자동화 스크립트 추가

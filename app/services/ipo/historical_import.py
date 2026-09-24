@@ -482,8 +482,62 @@ def _candidate(
         if shares is not None:
             incoming["offer_shares"] = shares
 
+    incoming["sources"]["official_historical_imports"] = {
+        source: deepcopy(provenance),
+    }
     incoming["listing_track"] = "spac" if is_spac_ipo(incoming) else "general"
     return incoming, None
+
+
+def _merge_official_historical_provenance(
+    existing: dict[str, Any],
+    incoming: dict[str, Any],
+) -> None:
+    # Preserve the first official import and retain later official enrichments by source.
+    existing_sources = existing.setdefault("sources", {})
+    if not isinstance(existing_sources, dict):
+        existing_sources = {}
+        existing["sources"] = existing_sources
+
+    incoming_sources = incoming.get("sources")
+    if not isinstance(incoming_sources, dict):
+        return
+
+    existing_primary = existing_sources.get("official_historical_import")
+    incoming_primary = incoming_sources.get("official_historical_import")
+
+    by_source = existing_sources.get("official_historical_imports")
+    if not isinstance(by_source, dict):
+        by_source = {}
+
+    def remember(provenance: object) -> None:
+        if not isinstance(provenance, dict):
+            return
+        source_name = str(provenance.get("source") or "").strip()
+        if not source_name:
+            return
+        by_source.setdefault(source_name, deepcopy(provenance))
+
+    # Backfill records created before the multi-source provenance structure existed.
+    remember(existing_primary)
+
+    incoming_by_source = incoming_sources.get("official_historical_imports")
+    if isinstance(incoming_by_source, dict):
+        for source_name, provenance in incoming_by_source.items():
+            if not isinstance(provenance, dict):
+                continue
+            key = str(source_name or provenance.get("source") or "").strip()
+            if key:
+                by_source.setdefault(key, deepcopy(provenance))
+
+    remember(incoming_primary)
+
+    # Keep the original/primary official source stable. Only populate it when absent.
+    if not isinstance(existing_primary, dict) and isinstance(incoming_primary, dict):
+        existing_sources["official_historical_import"] = deepcopy(incoming_primary)
+
+    if by_source:
+        existing_sources["official_historical_imports"] = by_source
 
 
 def _classify(
@@ -737,7 +791,7 @@ def commit_preview(ticket: str, username: str) -> dict[str, Any]:
                     if not existing.get("lead_managers") and incoming.get("lead_managers"):
                         existing["lead_managers"] = deepcopy(incoming["lead_managers"])
 
-                    existing.setdefault("sources", {}).update(deepcopy(incoming["sources"]))
+                    _merge_official_historical_provenance(existing, incoming)
                     enriched += 1
                 else:
                     skipped += 1
