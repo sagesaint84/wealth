@@ -1375,7 +1375,7 @@
       <form id="ipoHistoricalImportForm" method="dialog">
         <div class="dialog-head"><h2>과거 공모주 가져오기</h2><button value="cancel" class="close" aria-label="닫기">×</button></div>
         <p class="muted">KRX Data Marketplace [20001] 신규상장종목 현황 또는 KIND 신규상장기업현황에서 다운로드한 공식 Excel/CSV를 업로드하세요. KIND는 선택조건에서 <strong>공모가</strong>를 포함해 주세요. 상장일과 확정 공모가를 기준으로 미리 확인한 뒤 반영합니다.</p>
-        <label>공식 파일 <input id="ipoHistoricalImportFile" type="file" accept=".xlsx,.xlsm,.csv" required /></label>
+        <label>공식 파일 <input id="ipoHistoricalImportFile" type="file" accept=".xlsx,.xlsm,.xls,.csv" required /></label>
         <div id="ipoHistoricalImportPreview" class="muted" aria-live="polite" aria-atomic="false"></div>
         <p class="muted">미리보기에서 확인된 신규 및 안전하게 보완 가능한 과거 공모주만 반영합니다. 현재 공모주 데이터의 기존 값은 덮어쓰지 않습니다.</p>
         <div class="dialog-actions"><button value="cancel" class="button secondary">취소</button><button type="button" id="ipoHistoricalPreviewBtn" class="button secondary">미리보기</button><button type="button" id="ipoHistoricalCommitBtn" class="button primary" disabled>확인 후 반영</button></div>

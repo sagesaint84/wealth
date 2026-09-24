@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+from html.parser import HTMLParser
 import io
 import json
 import math
@@ -41,8 +42,15 @@ ALIASES = {
     "company_name": {"종목명", "회사명", "법인명", "기업명"},
     "stock_code": {"종목코드", "단축코드", "주식종목코드"},
     "actual_listing_date": {"상장일", "신규상장일", "상장일자"},
-    "final_offer_price": {"공모가", "공모가격", "확정공모가", "공모가격(원)"},
-    "offering_amount": {"공모금액", "공모총액", "공모금액(원)", "공모금액(백만원)", "공모금액(억원)"},
+    "final_offer_price": {"공모가", "공모가(원)", "공모가격", "확정공모가", "공모가격(원)"},
+    "offering_amount": {
+        "공모금액",
+        "공모총액",
+        "공모금액(원)",
+        "공모금액(천원)",
+        "공모금액(백만원)",
+        "공모금액(억원)",
+    },
     "market": {"시장구분", "시장", "소속시장", "시장명"},
     "shares": {"공모주식수", "공모주수", "공모수량"},
     "listing_type": {"상장유형"},
@@ -73,6 +81,7 @@ _KIND_SOURCE_MARKERS = {
     "주요제품",
     "공모금액",
     "공모금액(원)",
+    "공모금액(천원)",
     "공모금액(백만원)",
     "공모금액(억원)",
     "상장주선인/지정자문인",
@@ -158,10 +167,88 @@ def _decode_csv(content: bytes) -> str:
     raise HistoricalImportError("MALFORMED_WORKBOOK", "CSV 문자 인코딩을 확인할 수 없습니다.")
 
 
+class _HtmlTableParser(HTMLParser):
+    """Minimal parser for KIND's official HTML-disguised-as-XLS export."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[list[str]] = []
+        self._table_depth = 0
+        self._row: list[str] | None = None
+        self._cell: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        del attrs
+        tag = tag.lower()
+        if tag == "table":
+            self._table_depth += 1
+        elif self._table_depth and tag == "tr":
+            self._row = []
+        elif self._row is not None and tag in {"th", "td"}:
+            self._cell = []
+        elif self._cell is not None and tag == "br":
+            self._cell.append(" ")
+
+    def handle_data(self, data: str) -> None:
+        if self._cell is not None:
+            self._cell.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in {"th", "td"} and self._cell is not None:
+            value = re.sub(r"\s+", " ", "".join(self._cell)).strip()
+            if self._row is not None:
+                self._row.append(value)
+            self._cell = None
+        elif tag == "tr" and self._row is not None:
+            if any(str(value).strip() for value in self._row):
+                self.rows.append(self._row)
+            self._row = None
+            self._cell = None
+        elif tag == "table" and self._table_depth:
+            self._table_depth -= 1
+
+
+def _decode_kind_html(content: bytes) -> str:
+    for encoding in ("utf-8-sig", "cp949"):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise HistoricalImportError(
+        "MALFORMED_WORKBOOK",
+        "KIND XLS 문자 인코딩을 확인할 수 없습니다.",
+    )
+
+
+def _read_kind_html_rows(content: bytes) -> list[list[str]]:
+    text = _decode_kind_html(content)
+    head = text[:65536].lower()
+    if (
+        "<html" not in head
+        or "<table" not in head
+        or "신규상장기업현황" not in text[:65536]
+    ):
+        raise HistoricalImportError(
+            "MALFORMED_WORKBOOK",
+            "KIND 신규상장기업현황 XLS 형식을 확인할 수 없습니다.",
+        )
+
+    parser = _HtmlTableParser()
+    parser.feed(text)
+    parser.close()
+    if not parser.rows:
+        raise HistoricalImportError("MALFORMED_WORKBOOK")
+    return parser.rows
+
+
 def _read_rows(filename: str, content: bytes) -> tuple[list[str], list[list[Any]], int]:
     suffix = Path(filename).suffix.lower()
-    if suffix not in {".xlsx", ".xlsm", ".csv"}:
-        raise HistoricalImportError("UNSUPPORTED_FILE_TYPE", "xlsx, xlsm 또는 CSV 파일만 가져올 수 있습니다.")
+    if suffix not in {".xlsx", ".xlsm", ".xls", ".csv"}:
+        raise HistoricalImportError(
+            "UNSUPPORTED_FILE_TYPE",
+            "xlsx, xlsm, xls 또는 CSV 파일만 가져올 수 있습니다.",
+        )
     if not content:
         raise HistoricalImportError("EMPTY_FILE", "비어 있는 파일은 가져올 수 없습니다.")
     if len(content) > MAX_UPLOAD_BYTES:
@@ -170,6 +257,8 @@ def _read_rows(filename: str, content: bytes) -> tuple[list[str], list[list[Any]
     try:
         if suffix == ".csv":
             rows = list(csv.reader(io.StringIO(_decode_csv(content))))
+        elif suffix == ".xls":
+            rows = _read_kind_html_rows(content)
         else:
             workbook = load_workbook(
                 io.BytesIO(content),
@@ -179,6 +268,11 @@ def _read_rows(filename: str, content: bytes) -> tuple[list[str], list[list[Any]
             )
             try:
                 sheet = workbook.active
+                # Some official KRX exports contain an incorrect worksheet
+                # dimension ("A1") even though the XML contains the full table.
+                # openpyxl read-only mode trusts that metadata unless reset.
+                if sheet.calculate_dimension() == "A1:A1":
+                    sheet.reset_dimensions()
                 rows = [list(row) for row in sheet.iter_rows(values_only=True)]
             finally:
                 workbook.close()
@@ -304,6 +398,8 @@ def _offering_amount(value: object, header: str) -> int | float | None:
     if number is None:
         return None
     h = _header(header)
+    if "천원" in h:
+        return number * 1_000
     if "백만원" in h:
         return number * 1_000_000
     if "억원" in h:

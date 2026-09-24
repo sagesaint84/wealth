@@ -1,5 +1,7 @@
 import io
+import re
 import unittest
+import zipfile
 from copy import deepcopy
 from unittest.mock import patch
 
@@ -27,6 +29,30 @@ def workbook_bytes(headers, rows, preamble=None):
     stream = io.BytesIO()
     wb.save(stream)
     return stream.getvalue()
+
+
+def workbook_bytes_with_bad_dimension(headers, rows):
+    payload = workbook_bytes(headers, rows)
+    source = io.BytesIO(payload)
+    target = io.BytesIO()
+    dimension_rewritten = False
+
+    with zipfile.ZipFile(source, "r") as zin, zipfile.ZipFile(target, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                data, count = re.subn(
+                    rb'<dimension ref="[^"]+"\s*/>',
+                    b'<dimension ref="A1"/>',
+                    data,
+                    count=1,
+                )
+                dimension_rewritten = count == 1
+            zout.writestr(item, data)
+
+    if not dimension_rewritten:
+        raise AssertionError("test workbook dimension was not rewritten")
+    return target.getvalue()
 
 
 class HistoricalOfficialImportTests(unittest.TestCase):
@@ -111,6 +137,61 @@ class HistoricalOfficialImportTests(unittest.TestCase):
         record = _PREVIEWS[result["preview_ticket"]]["candidates"][0]["record"]
         self.assertEqual(record["offering_amount"], 19_800_000_000)
         self.assertEqual(record["lead_managers"], ["테스트증권"])
+
+    def test_krx_workbook_with_bad_dimension_is_recognized(self):
+        payload = workbook_bytes_with_bad_dimension(self.krx_headers, [self.krx_row])
+        result = create_preview("KRX.xlsx", payload, "u", self.market)
+
+        self.assertEqual(result["source"], SOURCE_KRX)
+        self.assertEqual(result["summary"]["new"], 1)
+        record = _PREVIEWS[result["preview_ticket"]]["candidates"][0]["record"]
+        self.assertEqual(record["stock_code"], "065370")
+        self.assertEqual(record["final_offer_price"], 10000)
+
+    def test_kind_official_html_xls_is_recognized_and_thousand_won_amount_is_normalized(self):
+        payload = """<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=euc-kr" />
+<title>신규상장기업현황(EXCEL)</title>
+</head>
+<body>
+<table>
+<tr>
+<th>회사명</th>
+<th>종목코드</th>
+<th>상장일</th>
+<th>상장유형</th>
+<th>증권구분</th>
+<th>업종</th>
+<th>국적</th>
+<th>상장주선인/<br/>지정자문인</th>
+<th>공모가 (원)</th>
+<th>공모금액 (천원)</th>
+</tr>
+<tr>
+<td>테스트 기업</td>
+<td>065370</td>
+<td>2020-12-23</td>
+<td>신규상장</td>
+<td>주권</td>
+<td>소프트웨어 개발 및 공급업</td>
+<td>대한민국</td>
+<td>테스트증권주식회사</td>
+<td>10,000</td>
+<td>6,000,000</td>
+</tr>
+</table>
+</body>
+</html>""".encode("cp949")
+
+        result = create_preview("신규상장기업현황.xls", payload, "u", self.market)
+
+        self.assertEqual(result["source"], SOURCE_KIND)
+        self.assertEqual(result["summary"]["new"], 1)
+        record = _PREVIEWS[result["preview_ticket"]]["candidates"][0]["record"]
+        self.assertEqual(record["final_offer_price"], 10000)
+        self.assertEqual(record["offering_amount"], 6_000_000_000)
+        self.assertEqual(record["lead_managers"], ["테스트증권주식회사"])
 
     def test_header_row_may_follow_official_export_preamble(self):
         payload = workbook_bytes(

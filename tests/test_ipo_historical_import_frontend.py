@@ -12,7 +12,7 @@ class HistoricalIpoImportFrontendContractTests(unittest.TestCase):
         self.assertIn('id="ipoRefreshBtn"', html)  # Current refresh remains separate.
         self.assertIn('id="ipoHistoricalImportBtn"', html)
         self.assertIn('id="ipoHistoricalImportDialog"', html)
-        self.assertIn('.xlsx,.xlsm,.csv', html)
+        self.assertIn('.xlsx,.xlsm,.xls,.csv', html)
         self.assertIn('KRX Data Marketplace [20001]', html)
         self.assertIn('/api/ipo/historical-import/preview', js)
         self.assertIn('/api/ipo/historical-import/commit', js)
