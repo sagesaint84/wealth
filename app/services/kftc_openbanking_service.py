@@ -86,7 +86,7 @@ def start_oauth_flow(
         raise KftcServiceError(f"User {username} is not permitted to use KFTC Open Banking", code="KFTC_NOT_ALLOWED")
 
     # 3. Retrieve config
-    config = get_effective_kftc_config()
+    config = get_effective_kftc_config(username)
     client_id = config.get("client_id")
     if not client_id:
         raise KftcServiceError("KFTC Client ID is not configured", code="KFTC_NOT_CONFIGURED")
@@ -156,7 +156,7 @@ async def handle_oauth_callback(
         raise KftcServiceError("Invalid, expired, or already used OAuth state", code="KFTC_STATE_INVALID")
 
     # 4. Exchange authorization code for tokens
-    config = get_effective_kftc_config()
+    config = get_effective_kftc_config(username)
     client_id = config.get("client_id")
     client_secret = config.get("client_secret")
     environment = config["environment"]
@@ -210,7 +210,7 @@ async def refresh_user_token(
     if not refresh_tok:
         raise KftcServiceError("No refresh token available; re-authentication required", code="REAUTH_REQUIRED")
 
-    config = get_effective_kftc_config()
+    config = get_effective_kftc_config(username)
     client_id = config.get("client_id")
     client_secret = config.get("client_secret")
     environment = config["environment"]
@@ -262,7 +262,7 @@ async def refresh_and_sync_accounts(
     if not access_tok or not user_seq:
         raise KftcServiceError("Valid tokens required for account discovery", code="NOT_CONNECTED")
 
-    config = get_effective_kftc_config()
+    config = get_effective_kftc_config(username)
     environment = config["environment"]
 
     raw_accounts = await fetch_user_accounts(
@@ -298,7 +298,7 @@ async def refresh_and_sync_accounts(
 
 def get_user_kftc_status(username: str) -> dict[str, Any]:
     """Build safe metadata status dictionary for frontend /api/kftc/openbanking/status."""
-    config = get_effective_kftc_config()
+    config = get_effective_kftc_config(username)
     allowed = is_user_allowed_kftc(username)
     configured = bool(config.get("client_id") and config.get("client_secret"))
     environment = config.get("environment", "test")

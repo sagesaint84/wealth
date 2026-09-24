@@ -3467,6 +3467,60 @@
           </div>
         </section>
 
+        <!-- 6. 금융결제원 오픈뱅킹 -->
+        <section id="openapiKftcSection" class="openapi-broker-card" aria-labelledby="openapiKftcTitle">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span id="openapiKftcTitle" style="font-weight:700;color:#38bdf8;font-size:13.5px;display:flex;align-items:center;gap:6px;">🏦 금융결제원 오픈뱅킹</span>
+              <span id="openapiKftcTestbedBadge" class="toss-wts-badge" style="display:none;background:rgba(234,179,8,0.2);color:#facc15;border-color:rgba(234,179,8,0.4);font-size:10.5px;padding:1px 6px;">TESTBED</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <label class="settings-switch" style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+                <input id="openapiKftcEnabled" type="checkbox">
+                <span>사용</span>
+              </label>
+              <span id="openapiKftcBadge" class="openapi-badge disconnected">확인 중...</span>
+            </div>
+          </div>
+          <p style="font-size:11.5px;line-height:1.5;margin:0 0 10px;color:var(--muted,#94a3b8);">
+            금융결제원 오픈뱅킹 포털에서 발급받은 클라이언트 인증정보를 등록하면 등록된 은행 계좌를 조회할 수 있습니다.
+          </p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">연동 환경</label>
+              <select id="openapiKftcEnvironment" class="openapi-input" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;background:var(--card-bg, #1a233b);color:var(--text, #f8fafc);border:1px solid var(--line, #263558);">
+                <option value="test">테스트베드 (testapi.openbanking.or.kr)</option>
+                <option value="production">운영 환경 (openapi.openbanking.or.kr)</option>
+              </select>
+            </div>
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">이용기관코드 (client_use_code, 변경할 때만 입력)</label>
+              <input id="openapiKftcClientUseCode" class="openapi-input" type="text" placeholder="예: B999999999" autocomplete="off" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">Client ID</label>
+              <input id="openapiKftcClientId" class="openapi-input" type="text" placeholder="금융결제원 Client ID 입력" autocomplete="off" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+            <div>
+              <label class="openapi-label" style="display:block;margin-bottom:4px;">Client Secret (변경할 때만 입력)</label>
+              <input id="openapiKftcClientSecret" class="openapi-input" type="password" placeholder="Client Secret 입력" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
+            </div>
+          </div>
+          <div style="font-size:11.5px;color:#94a3b8;line-height:1.5;background:rgba(15,23,42,0.4);border-radius:6px;padding:8px 10px;margin-bottom:10px;">
+            <span>포털 등록 Callback URL (Read-only): </span><code id="openapiKftcCallbackUrl" style="word-break:break-all;color:#38bdf8;"></code>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:#94a3b8;">
+            <div style="display:flex;gap:12px;">
+              <span>Client ID: <strong id="openapiKftcIdStatus">미설정</strong></span>
+              <span>Client Secret: <strong id="openapiKftcSecretStatus">미설정</strong></span>
+              <span>연결 상태: <strong id="openapiKftcConnStatus">미연결</strong></span>
+            </div>
+            <button id="openapiKftcSaveBtn" type="button" class="button primary compact" onclick="handleSaveUserKftcConfig()">KFTC 설정 저장</button>
+          </div>
+        </section>
+
         <div class="openapi-info-box" style="border-radius:8px;padding:10px 12px;font-size:11.5px;line-height:1.5;">
           💡 <strong>안내</strong>: 이미 등록된 인증키는 마스킹(<code>****</code>)되어 표시되며, 변경하지 않고 비워두면 기존 키가 안전하게 보존됩니다.
         </div>
@@ -3589,44 +3643,6 @@
           </div>
           <p id="settingsAutomationError" class="settings-error" role="alert" hidden></p>
           <div class="settings-actions"><button id="settingsSaveAutomation" type="button" class="button primary">자동화 설정 저장</button></div>
-        </section>
-
-        <!-- KFTC 오픈뱅킹 전역 설정 (Admin Only) -->
-        <section id="settingsKftcSection" class="settings-section" aria-labelledby="kftcSettingsTitle" hidden>
-          <div class="settings-section-title">
-            <div>
-              <h3 id="kftcSettingsTitle">금융결제원 오픈뱅킹 (시스템 전역 설정)</h3>
-              <p>Wealth 전역 OAuth 2.0 애플리케이션 자격증명 및 허용 사용자 관리 (Admin Only)</p>
-            </div>
-            <label class="settings-switch"><input id="settingsKftcEnabled" type="checkbox"><span>사용</span></label>
-          </div>
-          <div class="settings-status-grid">
-            <div><strong>연동 환경</strong><span id="settingsKftcEnvironment">test</span></div>
-            <div><strong>Client ID 설정 여부</strong><span id="settingsKftcClientIdStatus">미설정</span></div>
-            <div><strong>Client Secret 설정 여부</strong><span id="settingsKftcSecretStatus">미설정</span></div>
-            <div><strong>Callback URL 준비</strong><span id="settingsKftcCallbackStatus">미설정</span></div>
-          </div>
-          <div class="settings-fields" style="margin-top:12px;">
-            <label>환경 (Environment)
-              <select id="settingsKftcEnvSelect">
-                <option value="test">테스트베드 (test - testapi.openbanking.or.kr)</option>
-                <option value="production">운영 환경 (production - openapi.openbanking.or.kr)</option>
-              </select>
-            </label>
-            <label>Client ID<input id="settingsKftcClientId" type="text" autocomplete="off" placeholder="금융결제원 발급 Client ID"></label>
-            <label>Client Secret (변경할 때만 입력)<input id="settingsKftcClientSecret" type="password" autocomplete="new-password" placeholder="저장된 Secret은 노출되지 않습니다"></label>
-            <label>이용기관코드 (client_use_code, 변경할 때만 입력)<input id="settingsKftcClientUseCode" type="text" autocomplete="off" placeholder="예: B999999999"></label>
-            <label>허용 사용자 목록 (쉼표 구분, 비워두면 모든 사용자 허용)<input id="settingsKftcAllowedUsers" type="text" autocomplete="off" placeholder="예: user1, user2"></label>
-          </div>
-          <div class="settings-management" style="margin-top:10px;">
-            <div style="font-size:11.5px;color:#94a3b8;line-height:1.5;">
-              <span>포털 등록 Callback URL: </span><code id="settingsKftcCallbackUrl" style="word-break:break-all;color:#38bdf8;"></code>
-            </div>
-          </div>
-          <p id="settingsKftcError" class="settings-error" role="alert" hidden></p>
-          <div class="settings-actions" style="margin-top:12px;">
-            <button id="settingsSaveKftc" type="button" class="button primary" onclick="handleSaveKftcAdminSettings()">KFTC 오픈뱅킹 전역 설정 저장</button>
-          </div>
         </section>
       </div>
     </dialog>

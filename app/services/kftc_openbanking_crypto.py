@@ -18,6 +18,7 @@ Uses standardized AEAD primitives:
 Context separation:
 - Token: "wealth:kftc-openbanking-token:v1"
 - Account: "wealth:kftc-openbanking-account:v1"
+- Config Secret: "wealth:kftc-openbanking-config-secret:v1"
 
 Plaintext, keys, and tokens are never logged.
 """
@@ -38,6 +39,7 @@ from app.services.system_secrets import resolve_application_secret
 
 DEFAULT_TOKEN_CONTEXT = "wealth:kftc-openbanking-token:v1"
 ACCOUNT_CONTEXT = "wealth:kftc-openbanking-account:v1"
+CONFIG_SECRET_CONTEXT = "wealth:kftc-openbanking-config-secret:v1"
 
 SALT = b"wealth:kftc-openbanking:kdf:v1"
 NONCE_LENGTH = 12  # Standard 96-bit nonce for AES-GCM
@@ -48,6 +50,14 @@ SUPPORTED_ALGORITHM = "AES-256-GCM"
 
 class KftcCryptoError(Exception):
     """Raised when encryption or decryption fails."""
+
+
+def get_kftc_config_secret_context(username: str) -> str:
+    """Return cryptographic context bound to username for client_secret encryption."""
+    normalized = str(username or "").strip()
+    if not normalized:
+        raise KftcCryptoError("USERNAME_REQUIRED")
+    return f"{CONFIG_SECRET_CONTEXT}:{normalized}"
 
 
 def _b64url_encode(data: bytes) -> str:

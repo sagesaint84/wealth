@@ -17,30 +17,35 @@ class KftcOpenBankingUITests(unittest.TestCase):
         self.assertIn('id="kftcDisconnectBtn"', self.index_html)
         self.assertIn('id="kftcEnvBadge"', self.index_html)
 
-    def test_kftc_admin_section_in_settings_dialog(self):
-        self.assertIn('id="settingsKftcSection"', self.index_html)
-        self.assertIn('id="settingsKftcEnabled"', self.index_html)
-        self.assertIn('id="settingsKftcEnvSelect"', self.index_html)
-        self.assertIn('id="settingsKftcClientId"', self.index_html)
-        self.assertIn('id="settingsKftcClientSecret"', self.index_html)
-        self.assertIn('id="settingsSaveKftc"', self.index_html)
+    def test_kftc_card_in_user_openapi_modal(self):
+        # 🏦 금융결제원 오픈뱅킹 card exists in userOpenApiModal
+        self.assertIn('id="openapiKftcSection"', self.index_html)
+        self.assertIn('id="openapiKftcEnabled"', self.index_html)
+        self.assertIn('id="openapiKftcEnvironment"', self.index_html)
+        self.assertIn('id="openapiKftcClientId"', self.index_html)
+        self.assertIn('id="openapiKftcClientSecret"', self.index_html)
+        self.assertIn('id="openapiKftcClientUseCode"', self.index_html)
+        self.assertIn('id="openapiKftcSaveBtn"', self.index_html)
+        self.assertIn('id="openapiKftcCallbackUrl"', self.index_html)
+        self.assertIn('id="openapiKftcTestbedBadge"', self.index_html)
+
+    def test_old_admin_kftc_section_removed_from_notification_dialog(self):
+        # Old admin section should no longer exist in notificationSettingsDialog
+        self.assertNotIn('id="settingsKftcSection"', self.index_html)
+        self.assertNotIn('id="settingsSaveKftc"', self.index_html)
+        self.assertNotIn("renderKftcAdmin", self.wealth_settings_js)
+        self.assertNotIn("saveKftcAdminSettings", self.wealth_settings_js)
 
     def test_wealth_js_has_kftc_methods_and_no_token_storage(self):
         self.assertIn("refreshKftcStatus", self.wealth_js)
         self.assertIn("handleStartKftcOAuth", self.wealth_js)
         self.assertIn("handleFetchKftcAccounts", self.wealth_js)
         self.assertIn("handleDisconnectKftc", self.wealth_js)
+        self.assertIn("refreshUserKftcOpenApiStatus", self.wealth_js)
+        self.assertIn("handleSaveUserKftcConfig", self.wealth_js)
         # Ensure token or secrets are never saved into localStorage or sessionStorage
         self.assertNotIn("localStorage.setItem('kftc_token'", self.wealth_js)
         self.assertNotIn("sessionStorage.setItem('kftc_token'", self.wealth_js)
-
-    def test_wealth_settings_js_has_kftc_admin_handlers(self):
-        self.assertIn("renderKftcAdmin", self.wealth_settings_js)
-        self.assertIn("saveKftcAdminSettings", self.wealth_settings_js)
-        # Empty client_use_code must NOT be added to payload
-        self.assertIn("if (client_use_code) payload.client_use_code = client_use_code;", self.wealth_settings_js)
-        # UI label check
-        self.assertIn("이용기관코드 (client_use_code, 변경할 때만 입력)", self.index_html)
 
 
 if __name__ == "__main__":

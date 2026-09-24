@@ -57,11 +57,58 @@ class KftcOpenBankingCryptoTests(unittest.TestCase):
         token = "test-token"
         token_ctx = "wealth:kftc-openbanking-token:v1"
         account_ctx = "wealth:kftc-openbanking-account:v1"
+        config_secret_ctx = "wealth:kftc-openbanking-config-secret:v1"
 
         encrypted = crypto.encrypt_string(token, secret_override="key-a", context=token_ctx)
         # Token ciphertext MUST NOT decrypt under account context
         with self.assertRaises(crypto.KftcCryptoError):
             crypto.decrypt_string(encrypted, secret_override="key-a", context=account_ctx)
+        # Token ciphertext MUST NOT decrypt under config_secret context
+        with self.assertRaises(crypto.KftcCryptoError):
+            crypto.decrypt_string(encrypted, secret_override="key-a", context=config_secret_ctx)
+
+    def test_config_secret_context_encryption_roundtrip(self):
+        client_secret = "kftc-production-client-secret-987654"
+        encrypted = crypto.encrypt_string(
+            client_secret,
+            secret_override="app-sec",
+            context=crypto.CONFIG_SECRET_CONTEXT,
+        )
+        self.assertNotEqual(client_secret, encrypted)
+        # Must fail when decrypting with token context
+        with self.assertRaises(crypto.KftcCryptoError):
+            crypto.decrypt_string(encrypted, secret_override="app-sec", context=crypto.DEFAULT_TOKEN_CONTEXT)
+        # Must succeed with matching CONFIG_SECRET_CONTEXT
+        decrypted = crypto.decrypt_string(
+            encrypted,
+            secret_override="app-sec",
+            context=crypto.CONFIG_SECRET_CONTEXT,
+        )
+        self.assertEqual(decrypted, client_secret)
+
+    def test_user_bound_config_secret_context_cross_user_fails(self):
+        ctx_alice = crypto.get_kftc_config_secret_context("alice")
+        ctx_bob = crypto.get_kftc_config_secret_context("bob")
+        self.assertEqual(ctx_alice, f"{crypto.CONFIG_SECRET_CONTEXT}:alice")
+        self.assertEqual(ctx_bob, f"{crypto.CONFIG_SECRET_CONTEXT}:bob")
+        self.assertNotEqual(ctx_alice, ctx_bob)
+
+        secret_alice = "alice-ultra-secret"
+        enc_alice = crypto.encrypt_string(secret_alice, secret_override="app-sec", context=ctx_alice)
+
+        # Alice decrypts her own secret successfully
+        dec_alice = crypto.decrypt_string(enc_alice, secret_override="app-sec", context=ctx_alice)
+        self.assertEqual(dec_alice, secret_alice)
+
+        # Bob context MUST fail decryption (AEAD tag authentication error)
+        with self.assertRaises(crypto.KftcCryptoError):
+            crypto.decrypt_string(enc_alice, secret_override="app-sec", context=ctx_bob)
+
+    def test_get_kftc_config_secret_context_empty_username_fails(self):
+        with self.assertRaises(crypto.KftcCryptoError):
+            crypto.get_kftc_config_secret_context("")
+        with self.assertRaises(crypto.KftcCryptoError):
+            crypto.get_kftc_config_secret_context("   ")
 
     def test_corrupt_envelope_fails_closed(self):
         with self.assertRaises(crypto.KftcCryptoError):

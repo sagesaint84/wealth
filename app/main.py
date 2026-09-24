@@ -979,22 +979,22 @@ async def telegram_webhook_disconnect_api(request: Request) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# KFTC Open Banking Phase 1 API
+# KFTC Open Banking Phase 1 API (Per-User Scope)
 # ---------------------------------------------------------------------------
 
-@app.get("/api/settings/kftc-openbanking")
-async def get_kftc_admin_settings_api(request: Request) -> dict:
-    """Return safe KFTC Open Banking configuration metadata for admin."""
-    _require_system_settings_admin(request)
-    from app.services.kftc_openbanking_config import get_kftc_admin_status
-    return get_kftc_admin_status(current_role=get_current_role(request))
+@app.get("/api/user/kftc-openbanking-config")
+async def get_user_kftc_config_api(request: Request) -> dict:
+    """Return current user's safe KFTC Open Banking configuration metadata (never reveals secret)."""
+    username = get_current_username(request)
+    from app.services.kftc_openbanking_config import get_user_kftc_status_metadata
+    return get_user_kftc_status_metadata(username)
 
 
-@app.patch("/api/settings/kftc-openbanking")
-async def patch_kftc_admin_settings_api(request: Request) -> dict:
-    """Admin-only update for KFTC Open Banking configuration and credentials."""
-    _require_system_settings_admin(request)
-    from app.services.kftc_openbanking_config import patch_kftc_config, KftcConfigError, get_kftc_admin_status
+@app.patch("/api/user/kftc-openbanking-config")
+async def patch_user_kftc_config_api(request: Request) -> dict:
+    """Update current user's KFTC Open Banking configuration and credentials."""
+    username = get_current_username(request)
+    from app.services.kftc_openbanking_config import patch_user_kftc_config, KftcConfigError
     try:
         body = await request.json()
     except Exception:
@@ -1002,8 +1002,7 @@ async def patch_kftc_admin_settings_api(request: Request) -> dict:
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail={"code": "KFTC_CONFIG_PATCH_INVALID"})
     try:
-        patch_kftc_config(body)
-        return get_kftc_admin_status(current_role=get_current_role(request))
+        return patch_user_kftc_config(username, body)
     except (KftcConfigError, ValueError, AttributeError) as exc:
         raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
 

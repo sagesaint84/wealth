@@ -1,30 +1,37 @@
-"""External credentials and global configuration for KFTC Open Banking.
+"""External credentials and per-user configuration for KFTC Open Banking.
 
-External credentials live strictly in data/system/external_credentials/kftc_openbanking.json,
-isolated from internal signing secrets (app/services/system_secrets.py) and user configs.
+Configurations live strictly per user:
+data/users/<username>/kftc_openbanking_config.json
+
+Isolated using app.services.user_manager.get_user_data_dir(username).
+Client secret is encrypted at rest using AES-256-GCM + HKDF with context:
+wealth:kftc-openbanking-config-secret:v1
+
+Global system setting public_base_url is used to construct callback_url.
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
-import re
 from pathlib import Path
 from typing import Any
 
+from app.services.kftc_openbanking_crypto import (
+    KftcCryptoError,
+    decrypt_string,
+    encrypt_string,
+    get_kftc_config_secret_context,
+)
 from app.services.secure_files import atomic_write_private_json
 from app.services.system_settings import (
     SystemSettingsError,
     get_effective_system_settings,
     normalize_public_base_url,
 )
+from app.services.user_manager import get_user_data_dir
 
-CONFIG_FILE = (
-    Path(__file__).resolve().parents[2]
-    / "data"
-    / "system"
-    / "external_credentials"
-    / "kftc_openbanking.json"
-)
+logger = logging.getLogger(__name__)
 
 PRODUCTION_HOST = "https://openapi.openbanking.or.kr"
 TEST_HOST = "https://testapi.openbanking.or.kr"
@@ -39,9 +46,16 @@ _CONFIG_KEYS = {
     "enabled",
     "environment",
     "client_id",
+    "client_secret_encrypted",
+    "client_use_code",
+}
+
+_PATCH_KEYS = {
+    "enabled",
+    "environment",
+    "client_id",
     "client_secret",
     "client_use_code",
-    "allowed_users",
 }
 
 
@@ -49,16 +63,10 @@ class KftcConfigError(Exception):
     """Raised when KFTC Open Banking configuration is invalid or missing."""
 
 
-def _target(path: Path | None = None) -> Path:
-    root = os.getenv("WEALTH_DATA_DIR", "").strip()
-    return (
-        path
-        or (
-            (Path(root) / "system" / "external_credentials" / "kftc_openbanking.json")
-            if root
-            else CONFIG_FILE
-        )
-    )
+def get_user_kftc_config_file(username: str) -> Path:
+    """Return the absolute path to the user's kftc_openbanking_config.json file."""
+    user_dir = get_user_data_dir(username)
+    return user_dir / "kftc_openbanking_config.json"
 
 
 def get_kftc_host(environment: str) -> str:
@@ -88,36 +96,29 @@ def _validate_stored_config(data: Any) -> dict[str, Any]:
         raise KftcConfigError("KFTC_CLIENT_ID_INVALID")
     client_id_val = client_id.strip() if isinstance(client_id, str) else ""
 
-    client_secret = data.get("client_secret")
-    if client_secret is not None and not isinstance(client_secret, str):
+    secret_enc = data.get("client_secret_encrypted")
+    if secret_enc is not None and not isinstance(secret_enc, str):
         raise KftcConfigError("KFTC_CLIENT_SECRET_INVALID")
-    client_secret_val = client_secret.strip() if isinstance(client_secret, str) else ""
+    secret_enc_val = secret_enc.strip() if isinstance(secret_enc, str) else ""
 
     client_use_code = data.get("client_use_code")
     if client_use_code is not None and not isinstance(client_use_code, str):
         raise KftcConfigError("KFTC_CLIENT_USE_CODE_INVALID")
     client_use_code_val = client_use_code.strip() if isinstance(client_use_code, str) else ""
 
-    allowed_users = data.get("allowed_users", [])
-    if not isinstance(allowed_users, list) or any(
-        not isinstance(u, str) or not u.strip() or any(p in u for p in ("/", "\\", ".."))
-        for u in allowed_users
-    ) or len(set(allowed_users)) != len(allowed_users):
-        raise KftcConfigError("KFTC_ALLOWED_USERS_INVALID")
-
     return {
         "version": 1,
         "enabled": enabled,
         "environment": env,
         "client_id": client_id_val,
-        "client_secret": client_secret_val,
+        "client_secret_encrypted": secret_enc_val,
         "client_use_code": client_use_code_val,
-        "allowed_users": [u.strip() for u in allowed_users],
     }
 
 
-def load_kftc_config(*, path: Path | None = None) -> dict[str, Any] | None:
-    p = _target(path)
+def load_user_kftc_config(username: str, *, path: Path | None = None) -> dict[str, Any] | None:
+    """Load and validate stored per-user KFTC configuration file."""
+    p = path or get_user_kftc_config_file(username)
     if not p.exists():
         return None
     try:
@@ -128,96 +129,137 @@ def load_kftc_config(*, path: Path | None = None) -> dict[str, Any] | None:
         raise KftcConfigError("KFTC_CONFIG_INVALID") from exc
 
 
-def get_effective_kftc_config(*, path: Path | None = None) -> dict[str, Any]:
-    """Resolve stored external credentials, falling back to environment variables.
+def get_effective_kftc_config(username: str, *, path: Path | None = None) -> dict[str, Any]:
+    """Resolve user-specific configuration and decrypt client_secret for service operations.
 
-    Precedence: stored config > environment fallback.
+    User credential isolation: Never falls back to other users' configs or global files.
     """
-    stored = load_kftc_config(path=path)
+    stored = load_user_kftc_config(username, path=path)
 
-    env_enabled_raw = os.getenv("KFTC_OPENBANKING_ENABLED")
-    env_enabled = False
-    if env_enabled_raw is not None and env_enabled_raw.strip():
-        norm = env_enabled_raw.strip().lower()
-        if norm in {"1", "true", "yes", "on"}:
-            env_enabled = True
-        elif norm in {"0", "false", "no", "off"}:
-            env_enabled = False
-        else:
-            raise KftcConfigError("KFTC_CONFIG_INVALID")
-
-    env_environment = os.getenv("KFTC_OPENBANKING_ENVIRONMENT", "test").strip().lower()
-    if env_environment not in ALLOWED_HOSTS:
-        env_environment = "test"
-
-    env_client_id = os.getenv("KFTC_OPENBANKING_CLIENT_ID", "").strip()
-    env_client_secret = os.getenv("KFTC_OPENBANKING_CLIENT_SECRET", "").strip()
-    env_client_use_code = os.getenv("KFTC_OPENBANKING_CLIENT_USE_CODE", "").strip()
-    env_allowed_raw = os.getenv("KFTC_OPENBANKING_ALLOWED_USERS", "").strip()
-    env_allowed = [u.strip() for u in env_allowed_raw.split(",") if u.strip()] if env_allowed_raw else []
-
-    if stored is not None:
+    if stored is None:
         return {
             "version": 1,
-            "enabled": stored["enabled"],
-            "environment": stored["environment"],
-            "client_id": stored["client_id"] or env_client_id,
-            "client_secret": stored["client_secret"] or env_client_secret,
-            "client_use_code": stored["client_use_code"] or env_client_use_code,
-            "allowed_users": stored["allowed_users"] or env_allowed,
-            "sources": {
-                "enabled": "stored",
-                "environment": "stored",
-                "client_id": "stored" if stored["client_id"] else ("environment" if env_client_id else "none"),
-                "client_secret": "stored" if stored["client_secret"] else ("environment" if env_client_secret else "none"),
-                "client_use_code": "stored" if stored["client_use_code"] else ("environment" if env_client_use_code else "none"),
-                "allowed_users": "stored" if stored["allowed_users"] else ("environment" if env_allowed else "none"),
-            },
+            "enabled": False,
+            "environment": "test",
+            "client_id": "",
+            "client_secret": "",
+            "client_use_code": "",
+            "configured": False,
         }
+
+    secret_plaintext = ""
+    secret_enc = stored.get("client_secret_encrypted", "")
+    if secret_enc:
+        try:
+            secret_plaintext = decrypt_string(
+                secret_enc,
+                context=get_kftc_config_secret_context(username),
+            )
+        except KftcCryptoError as exc:
+            logger.error("Failed to decrypt KFTC client_secret for user %s: %s", username, exc)
+            raise KftcConfigError("KFTC_CLIENT_SECRET_DECRYPT_FAILED") from exc
 
     return {
         "version": 1,
-        "enabled": env_enabled,
-        "environment": env_environment,
-        "client_id": env_client_id,
-        "client_secret": env_client_secret,
-        "client_use_code": env_client_use_code,
-        "allowed_users": env_allowed,
-        "sources": {
-            "enabled": "environment" if env_enabled_raw else "default",
-            "environment": "environment" if os.getenv("KFTC_OPENBANKING_ENVIRONMENT") else "default",
-            "client_id": "environment" if env_client_id else "none",
-            "client_secret": "environment" if env_client_secret else "none",
-            "client_use_code": "environment" if env_client_use_code else "none",
-            "allowed_users": "environment" if env_allowed else "none",
-        },
+        "enabled": stored["enabled"],
+        "environment": stored["environment"],
+        "client_id": stored["client_id"],
+        "client_secret": secret_plaintext,
+        "client_use_code": stored["client_use_code"],
+        "configured": bool(stored["client_id"] and secret_plaintext),
     }
 
 
-def patch_kftc_config(
-    patch: dict[str, Any], *, path: Path | None = None
+def patch_user_kftc_config(
+    username: str,
+    patch: dict[str, Any],
+    *,
+    path: Path | None = None,
 ) -> dict[str, Any]:
-    """Admin-only update to stored external credentials and config."""
-    if not isinstance(patch, dict) or set(patch) - _CONFIG_KEYS:
+    """Update current user's stored KFTC configuration.
+
+    - Blank client_secret preserves existing secret.
+    - Blank client_use_code preserves existing code (unless explicit clear).
+    - Encrypts client_secret with CONFIG_SECRET_CONTEXT at rest.
+    - Atomic write with 0600 POSIX permissions.
+    """
+    if not isinstance(patch, dict) or set(patch) - _PATCH_KEYS:
         raise KftcConfigError("KFTC_CONFIG_PATCH_INVALID")
 
-    p = _target(path)
-    current = load_kftc_config(path=p) or {
+    p = path or get_user_kftc_config_file(username)
+    current = load_user_kftc_config(username, path=p) or {
         "version": 1,
         "enabled": False,
         "environment": "test",
         "client_id": "",
-        "client_secret": "",
+        "client_secret_encrypted": "",
         "client_use_code": "",
-        "allowed_users": [],
     }
 
-    merged = {**current, **patch, "version": 1}
-    validated = _validate_stored_config(merged)
+    # Enabled
+    enabled = current["enabled"]
+    if "enabled" in patch:
+        val = patch["enabled"]
+        if type(val) is not bool:
+            raise KftcConfigError("KFTC_CONFIG_INVALID")
+        enabled = val
+
+    # Environment
+    environment = current["environment"]
+    if "environment" in patch:
+        val = str(patch["environment"] or "test").strip().lower()
+        if val not in ALLOWED_HOSTS:
+            raise KftcConfigError("KFTC_ENVIRONMENT_INVALID")
+        environment = val
+
+    # Client ID
+    client_id = current["client_id"]
+    if "client_id" in patch:
+        val = patch["client_id"]
+        if val is not None and not isinstance(val, str):
+            raise KftcConfigError("KFTC_CLIENT_ID_INVALID")
+        client_id = val.strip() if isinstance(val, str) else ""
+
+    # Client Secret: blank preserves existing secret; non-blank encrypts and replaces
+    client_secret_encrypted = current["client_secret_encrypted"]
+    if "client_secret" in patch:
+        val = patch["client_secret"]
+        if val is not None and not isinstance(val, str):
+            raise KftcConfigError("KFTC_CLIENT_SECRET_INVALID")
+        new_secret = val.strip() if isinstance(val, str) else ""
+        if new_secret:
+            try:
+                client_secret_encrypted = encrypt_string(
+                    new_secret,
+                    context=get_kftc_config_secret_context(username),
+                )
+            except KftcCryptoError as exc:
+                logger.error("Failed to encrypt KFTC client_secret for user %s: %s", username, exc)
+                raise KftcConfigError("KFTC_CLIENT_SECRET_ENCRYPT_FAILED") from exc
+
+    # Client Use Code: blank preserves existing; non-blank replaces
+    client_use_code = current["client_use_code"]
+    if "client_use_code" in patch:
+        val = patch["client_use_code"]
+        if val is not None and not isinstance(val, str):
+            raise KftcConfigError("KFTC_CLIENT_USE_CODE_INVALID")
+        new_code = val.strip() if isinstance(val, str) else ""
+        if new_code:
+            client_use_code = new_code
+
+    new_config = {
+        "version": 1,
+        "enabled": enabled,
+        "environment": environment,
+        "client_id": client_id,
+        "client_secret_encrypted": client_secret_encrypted,
+        "client_use_code": client_use_code,
+    }
+    validated = _validate_stored_config(new_config)
 
     # Atomic write with 0600 POSIX permissions
     atomic_write_private_json(p, validated, indent=2)
-    return get_effective_kftc_config(path=p)
+    return get_user_kftc_status_metadata(username, path=p)
 
 
 def get_kftc_callback_url(*, public_base_url: str | None = None) -> str:
@@ -237,40 +279,56 @@ def get_kftc_callback_url(*, public_base_url: str | None = None) -> str:
     return f"{norm_base}/api/kftc/openbanking/oauth/callback"
 
 
-def get_kftc_admin_status(
-    *, current_role: str = "admin", path: Path | None = None
+def get_user_kftc_status_metadata(
+    username: str, *, path: Path | None = None
 ) -> dict[str, Any]:
-    """Safe status metadata for admin without revealing client_secret."""
-    can_manage = current_role == "admin"
-    eff = get_effective_kftc_config(path=path)
+    """Return safe metadata for the user's OpenAPI settings UI without plaintext secrets."""
+    stored = load_user_kftc_config(username, path=path)
 
     sys_settings = get_effective_system_settings()
     base_url = sys_settings.get("public_base_url")
     cb_url = None
+    pub_ready = False
     try:
         cb_url = get_kftc_callback_url(public_base_url=base_url)
+        pub_ready = True
     except Exception:
         pass
 
+    if stored is None:
+        return {
+            "enabled": False,
+            "environment": "test",
+            "host": TEST_HOST,
+            "client_id": "",
+            "client_id_configured": False,
+            "client_secret_configured": False,
+            "client_use_code": "",
+            "client_use_code_configured": False,
+            "callback_url": cb_url,
+            "public_base_url_ready": pub_ready,
+        }
+
     return {
-        "enabled": eff["enabled"],
-        "environment": eff["environment"],
-        "host": ALLOWED_HOSTS.get(eff["environment"], TEST_HOST),
-        "client_id_configured": bool(eff["client_id"]),
-        "client_secret_configured": bool(eff["client_secret"]),
-        "client_use_code_configured": bool(eff["client_use_code"]),
-        "allowed_users": eff["allowed_users"],
+        "enabled": stored["enabled"],
+        "environment": stored["environment"],
+        "host": ALLOWED_HOSTS.get(stored["environment"], TEST_HOST),
+        "client_id": stored["client_id"],
+        "client_id_configured": bool(stored["client_id"]),
+        "client_secret_configured": bool(stored["client_secret_encrypted"]),
+        "client_use_code": stored["client_use_code"],
+        "client_use_code_configured": bool(stored["client_use_code"]),
         "callback_url": cb_url,
-        "public_base_url_ready": bool(base_url),
-        "can_manage": can_manage,
-        "sources": eff.get("sources", {}),
+        "public_base_url_ready": pub_ready,
     }
 
 
 def is_user_allowed_kftc(username: str, *, path: Path | None = None) -> bool:
-    """Check if the user is authorized by the global feature gate and user allowlist."""
-    eff = get_effective_kftc_config(path=path)
-    if not eff.get("enabled"):
+    """Check if the user has enabled their per-user KFTC configuration.
+
+    Per-user config itself functions as the feature gate.
+    """
+    stored = load_user_kftc_config(username, path=path)
+    if stored is None:
         return False
-    allowed = eff.get("allowed_users") or []
-    return (not allowed) or (username in allowed)
+    return stored.get("enabled", False) is True

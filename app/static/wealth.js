@@ -11314,11 +11314,118 @@ async function openUserOpenApiModal() {
     }
 
     renderDartOpenApiStatus(config.dart, updateBadge);
+
+    // KFTC (금융결제원 오픈뱅킹)
+    await refreshUserKftcOpenApiStatus(updateBadge);
   } catch (err) {
     console.error('[OPENAPI] 설정 조회 실패:', err);
   }
 }
 window.openUserOpenApiModal = openUserOpenApiModal;
+
+async function refreshUserKftcOpenApiStatus(updateBadge) {
+  try {
+    const kftc = await api('/api/user/kftc-openbanking-config');
+    const enabledInput = document.getElementById('openapiKftcEnabled');
+    const envSelect = document.getElementById('openapiKftcEnvironment');
+    const clientUseCodeInput = document.getElementById('openapiKftcClientUseCode');
+    const clientIdInput = document.getElementById('openapiKftcClientId');
+    const clientSecretInput = document.getElementById('openapiKftcClientSecret');
+    const callbackUrlEl = document.getElementById('openapiKftcCallbackUrl');
+    const idStatusEl = document.getElementById('openapiKftcIdStatus');
+    const secretStatusEl = document.getElementById('openapiKftcSecretStatus');
+    const connStatusEl = document.getElementById('openapiKftcConnStatus');
+    const badge = document.getElementById('openapiKftcBadge');
+    const testbedBadge = document.getElementById('openapiKftcTestbedBadge');
+
+    if (enabledInput) enabledInput.checked = !!kftc.enabled;
+    if (envSelect) envSelect.value = kftc.environment || 'test';
+    if (clientUseCodeInput) {
+      clientUseCodeInput.value = '';
+      clientUseCodeInput.placeholder = kftc.client_use_code_configured ? `${kftc.client_use_code} (등록됨 - 변경 시만 입력)` : '예: B999999999';
+    }
+    if (clientIdInput) clientIdInput.value = kftc.client_id || '';
+    if (clientSecretInput) {
+      clientSecretInput.value = '';
+      clientSecretInput.placeholder = kftc.client_secret_configured ? '******** (등록됨 - 변경 시만 입력)' : 'Client Secret 입력';
+    }
+    if (callbackUrlEl) callbackUrlEl.textContent = kftc.callback_url || 'Public URL 미설정';
+    if (idStatusEl) idStatusEl.textContent = kftc.client_id_configured ? '설정됨' : '미설정';
+    if (secretStatusEl) secretStatusEl.textContent = kftc.client_secret_configured ? '설정됨' : '미설정';
+
+    if (testbedBadge) {
+      testbedBadge.style.display = (kftc.environment === 'test') ? 'inline-block' : 'none';
+    }
+
+    // Check live connection status via user status endpoint
+    let connected = false;
+    try {
+      const liveStatus = await api('/api/kftc/openbanking/status');
+      connected = !!liveStatus.connected;
+      if (connStatusEl) {
+        connStatusEl.textContent = connected ? '연결됨' : '미연결';
+        connStatusEl.style.color = connected ? '#4ade80' : '#94a3b8';
+      }
+    } catch (_) {
+      if (connStatusEl) connStatusEl.textContent = '확인 불가';
+    }
+
+    const isReady = !!(kftc.enabled && kftc.client_id_configured && kftc.client_secret_configured);
+    if (updateBadge) {
+      updateBadge(badge, connected || isReady);
+      if (badge && !connected && isReady) {
+        badge.textContent = '설정됨 (연결 대기)';
+        badge.className = 'openapi-badge connected';
+      }
+    }
+  } catch (err) {
+    console.error('[KFTC] 사용자 설정 조회 실패:', err);
+  }
+}
+window.refreshUserKftcOpenApiStatus = refreshUserKftcOpenApiStatus;
+
+async function handleSaveUserKftcConfig() {
+  const btn = document.getElementById('openapiKftcSaveBtn');
+  const enabled = document.getElementById('openapiKftcEnabled')?.checked || false;
+  const environment = document.getElementById('openapiKftcEnvironment')?.value || 'test';
+  const client_id = (document.getElementById('openapiKftcClientId')?.value || '').trim();
+  const client_secret = (document.getElementById('openapiKftcClientSecret')?.value || '').trim();
+  const client_use_code = (document.getElementById('openapiKftcClientUseCode')?.value || '').trim();
+
+  const payload = {
+    enabled,
+    environment,
+    client_id,
+  };
+  if (client_secret) payload.client_secret = client_secret;
+  if (client_use_code) payload.client_use_code = client_use_code;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '저장 중...';
+  }
+
+  try {
+    await api('/api/user/kftc-openbanking-config', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    toast('금융결제원 오픈뱅킹 설정이 안전하게 저장되었습니다.');
+    await refreshUserKftcOpenApiStatus();
+    if (typeof window.refreshKftcStatus === 'function') {
+      window.refreshKftcStatus();
+    }
+  } catch (err) {
+    alert(err.message || 'KFTC 설정 저장 실패');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'KFTC 설정 저장';
+    }
+  }
+}
+window.handleSaveUserKftcConfig = handleSaveUserKftcConfig;
 
 function renderDartOpenApiStatus(dartConfig, updateBadge) {
   const badge = document.getElementById('openapiDartBadge');
