@@ -852,6 +852,100 @@
             <div id="tossWtsNotice" class="toss-wts-notice muted">
               본 화면의 조회 결과는 브라우저 새로고침 시 초기화되며 저장되지 않습니다.
             </div>
+
+            <!-- 토스 WTS 배당·이자 선택 가져오기 -->
+            <div id="tossWtsIncomeSection" class="toss-wts-income-section">
+              <div class="toss-wts-header">
+                <div class="toss-wts-title-group">
+                  <h4 class="toss-wts-income-title">토스 WTS 배당·이자 가져오기</h4>
+                  <span class="toss-wts-badge">배당 · 분배금 · 예탁금 이자</span>
+                </div>
+              </div>
+
+              <div class="toss-wts-banner" role="note" aria-label="WTS 배당 이자 가져오기 안내">
+                <span class="toss-wts-banner-icon">ℹ️</span>
+                <span class="toss-wts-banner-text">검증된 거래원장 유형만 표시합니다. 캐시백·이체·단주대금·별도 세금출금은 자동 가져오기에서 제외됩니다.</span>
+              </div>
+
+              <div class="toss-wts-controls">
+                <div class="toss-wts-control-item">
+                  <label for="tossWtsIncomeFromDate">시작일</label>
+                  <input type="date" id="tossWtsIncomeFromDate" class="toss-wts-input" aria-label="WTS 배당 이자 조회 시작일">
+                </div>
+                <div class="toss-wts-control-item">
+                  <label for="tossWtsIncomeToDate">종료일</label>
+                  <input type="date" id="tossWtsIncomeToDate" class="toss-wts-input" aria-label="WTS 배당 이자 조회 종료일">
+                </div>
+                <div class="toss-wts-control-action">
+                  <button type="button" id="btnFetchTossWtsIncome" class="button primary compact toss-wts-fetch-btn">배당·이자 조회</button>
+                </div>
+              </div>
+
+              <div id="tossWtsIncomeMessage" class="toss-wts-message" style="display:none;" role="status"></div>
+              <div id="tossWtsIncomeMeta" class="toss-wts-meta" style="display:none;"></div>
+
+              <div class="toss-wts-table-wrap">
+                <table id="tossWtsIncomeTable" class="toss-wts-table">
+                  <thead>
+                    <tr>
+                      <th class="center" style="width:36px;"><input type="checkbox" id="wtsIncomeSelectAll" aria-label="배당 이자 전체 선택"></th>
+                      <th class="center" style="width:100px;">입금일</th>
+                      <th class="center" style="width:90px;">유형</th>
+                      <th class="center" style="width:70px;">시장</th>
+                      <th>종목 / 구분</th>
+                      <th class="right" style="width:105px;">세전</th>
+                      <th class="right" style="width:95px;">세금</th>
+                      <th class="right" style="width:110px;">실입금</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tossWtsIncomeTableBody">
+                    <tr><td colspan="8" class="toss-wts-empty">WTS 런타임 확인 후 배당·이자를 조회하세요.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div id="tossWtsIncomeImportBar" class="toss-wts-import-bar" style="display:none;">
+                <div class="toss-wts-import-bar-left">
+                  <span id="wtsIncomeSelectedCountBadge" class="toss-wts-selected-count">선택 0건</span>
+                  <div class="toss-wts-dest-wrap">
+                    <label for="wtsIncomeDestinationAccount">귀속 Wealth 계좌:</label>
+                    <select id="wtsIncomeDestinationAccount" class="toss-wts-select" aria-label="배당 이자 귀속 Wealth 계좌">
+                      <option value="">토스증권 계좌를 선택하세요</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="toss-wts-import-bar-right">
+                  <button type="button" id="btnWtsIncomeImportSelected" class="button secondary compact" disabled>선택 항목 가져오기</button>
+                </div>
+              </div>
+
+              <div id="wtsIncomeImportModalOverlay" class="toss-wts-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="wtsIncomeModalTitle">
+                <div class="toss-wts-modal">
+                  <div class="toss-wts-modal-header">
+                    <h3 id="wtsIncomeModalTitle">토스 WTS 배당·이자 가져오기 확인</h3>
+                    <button type="button" id="btnWtsIncomeModalClose" class="toss-wts-modal-close" aria-label="닫기">&times;</button>
+                  </div>
+                  <div class="toss-wts-modal-body">
+                    <div id="wtsIncomeModalDestAccount" class="toss-wts-dest-display"></div>
+                    <div class="toss-wts-counts-grid">
+                      <div class="toss-wts-count-card new"><span>신규 등록 가능</span><strong id="wtsIncomeCountNew">0건</strong></div>
+                      <div class="toss-wts-count-card already"><span>이미 가져옴</span><strong id="wtsIncomeCountAlready">0건</strong></div>
+                      <div class="toss-wts-count-card dup"><span>중복 의심</span><strong id="wtsIncomeCountDup">0건</strong></div>
+                      <div class="toss-wts-count-card invalid"><span>유효하지 않음</span><strong id="wtsIncomeCountInvalid">0건</strong></div>
+                    </div>
+                    <div id="wtsIncomeDupOverrideWrap" style="display:none;">
+                      <label class="toss-wts-checkbox-label"><input type="checkbox" id="wtsIncomeIncludePossibleDuplicates"><span>중복 의심 항목도 포함하여 가져오기</span></label>
+                    </div>
+                  </div>
+                  <div class="toss-wts-modal-footer">
+                    <button type="button" id="btnWtsIncomeModalCancel" class="button secondary compact">취소</button>
+                    <button type="button" id="btnWtsIncomeConfirmCommit" class="button primary compact" disabled>0건 가져오기</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="toss-wts-notice muted">배당·분배금은 실제 배당 기록으로, 예탁금 이자는 이자 기록으로 저장됩니다. 이자는 배당금 합계에 포함되지 않습니다.</div>
+            </div>
           </div>
 
           <!-- 한국투자증권 OpenAPI 실현손익 피드 및 선택 가져오기 -->

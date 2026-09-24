@@ -234,6 +234,14 @@ class TossWtsRealizedFeedUiApiIntegrationTests(unittest.TestCase):
         self.config_dir.mkdir()
         self.session_path = self.config_dir / "session.json"
         self.session_path.write_text('{"token": "SYNTHETIC_WTS_SESSION_TOKEN"}', encoding="utf-8")
+        self.data_root = root
+        for username in ("allowed-user", "other-user"):
+            user_config = root / "toss-wts" / "users" / username / "config"
+            user_config.mkdir(parents=True, exist_ok=True)
+            (user_config / "session.json").write_text(
+                '{"token": "SYNTHETIC_WTS_SESSION_TOKEN"}',
+                encoding="utf-8",
+            )
 
     def _cookie_header(self, username: str, role: str = "user") -> dict[str, str]:
         token = self.main._serializer.dumps({"user": username, "role": role})
@@ -245,6 +253,7 @@ class TossWtsRealizedFeedUiApiIntegrationTests(unittest.TestCase):
             "WEALTH_TOSS_WTS_ENABLED": "1",
             "WEALTH_TOSSCTL_PATH": str(self.exe_path),
             "WEALTH_TOSSCTL_CONFIG_DIR": str(self.config_dir),
+            "WEALTH_DATA_DIR": str(self.data_root),
         }
 
     def test_unauthorized_user_status_and_fetch_returns_403(self):

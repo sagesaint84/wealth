@@ -63,8 +63,9 @@ from app.services.asset_records import (
 )
 from app.services.dividend_records import (
     create_dividend_record, delete_dividend_record, get_actual_dividend_summary,
-    read_dividend_records, update_dividend_record, import_dividend_file_data,
-    clear_dividend_records, recalculate_dividend_historical_fx
+    read_dividend_records, read_dividend_records_for_import,
+    update_dividend_record, import_dividend_file_data,
+    clear_dividend_records, recalculate_dividend_historical_fx, DividendRecordsStorageError
 )
 from app.services.pnl_records import (
     create_pnl_record, delete_pnl_record, get_pnl_summary,
@@ -78,8 +79,11 @@ from app.services.toss_wts_adapter import TossWtsAdapter, TossWtsAdapterError
 from app.services.toss_wts_feed_auth import check_wts_feed_static_authorization
 from app.services.toss_wts_feed_runtime import (
     check_wts_feed_runtime_confirmation,
+    check_wts_feed_runtime_confirmation_for_username,
     confirm_wts_feed_runtime_session,
+    confirm_wts_feed_runtime_session_for_username,
     get_current_runtime_generation_id,
+    get_current_runtime_generation_id_for_username,
 )
 from app.services.toss_wts_feed import (
     build_realized_feed_response,
@@ -135,6 +139,7 @@ _NH_IMPORT_LOCK = threading.RLock()
 _KIS_IMPORT_LOCK = threading.RLock()
 _KIWOOM_IMPORT_LOCK = threading.RLock()
 _KB_IMPORT_LOCK = threading.RLock()
+_TOSS_WTS_INCOME_IMPORT_LOCK = threading.RLock()
 
 
 def _broker_import_items_hash(provider_hash: str, selected_items: list[dict[str, Any]]) -> str:
@@ -1998,7 +2003,7 @@ async def toss_wts_local_status(request: Request, response: Response = None) -> 
         )
     if response is not None:
         response.headers["Cache-Control"] = "no-store"
-    return TossWtsAdapter().get_local_status()
+    return TossWtsAdapter(username=username).get_local_status()
 
 
 @app.post("/api/toss-wts/feed/confirm")
@@ -2006,7 +2011,9 @@ async def toss_wts_feed_confirm(request: Request) -> JSONResponse:
     """Explicitly confirm current local WTS session generation for the allowed Wealth user."""
     username = get_current_username(request)
     try:
-        decision = confirm_wts_feed_runtime_session(getattr(request.state, "user_id", None))
+        decision = confirm_wts_feed_runtime_session_for_username(
+            getattr(request.state, "user_id", None), username
+        )
     except Exception:
         raise HTTPException(
             status_code=500,
@@ -2043,7 +2050,7 @@ async def toss_wts_realized_feed_fetch(request: Request) -> JSONResponse:
     """Fetch read-only, non-persisted realized P/L feed for the confirmed WTS session."""
     username = get_current_username(request)
     user_id = getattr(request.state, "user_id", None)
-    runtime_decision = check_wts_feed_runtime_confirmation(user_id)
+    runtime_decision = check_wts_feed_runtime_confirmation_for_username(user_id, username)
     if not runtime_decision.confirmed:
         if runtime_decision.code == "STATIC_AUTHORIZATION_FAILED":
             raise HTTPException(
@@ -2088,9 +2095,9 @@ async def toss_wts_realized_feed_fetch(request: Request) -> JSONResponse:
         )
 
     try:
-        adapter = TossWtsAdapter()
+        adapter = TossWtsAdapter(username=username)
         raw_result = adapter.get_profit_daily(from_date=from_date, to_date=to_date, currency=basis)
-        gen_id = get_current_runtime_generation_id(user_id)
+        gen_id = get_current_runtime_generation_id_for_username(user_id, username)
         feed_response = build_realized_feed_response(
             from_date,
             to_date,
@@ -2142,7 +2149,7 @@ async def toss_wts_realized_feed_import_preview(request: Request) -> JSONRespons
             detail={"code": "STATIC_AUTHORIZATION_FAILED"},
             headers={"Cache-Control": "no-store"},
         )
-    runtime_decision = check_wts_feed_runtime_confirmation(user_id)
+    runtime_decision = check_wts_feed_runtime_confirmation_for_username(user_id, username)
     if not runtime_decision.confirmed:
         if runtime_decision.code == "RUNTIME_MATERIAL_UNAVAILABLE":
             raise HTTPException(
@@ -2193,7 +2200,7 @@ async def toss_wts_realized_feed_import_preview(request: Request) -> JSONRespons
             headers={"Cache-Control": "no-store"},
         )
 
-    gen_id = get_current_runtime_generation_id(user_id)
+    gen_id = get_current_runtime_generation_id_for_username(user_id, username)
     existing_records = read_pnl_records(username=username)
     profit_rate_basis = str(body.get("profit_rate_basis") or "KRW").upper()
     if profit_rate_basis not in ("KRW", "USD"):
@@ -2240,7 +2247,7 @@ async def toss_wts_realized_feed_import(request: Request) -> JSONResponse:
             detail={"code": "STATIC_AUTHORIZATION_FAILED"},
             headers={"Cache-Control": "no-store"},
         )
-    runtime_decision = check_wts_feed_runtime_confirmation(user_id)
+    runtime_decision = check_wts_feed_runtime_confirmation_for_username(user_id, username)
     if not runtime_decision.confirmed:
         if runtime_decision.code == "RUNTIME_MATERIAL_UNAVAILABLE":
             raise HTTPException(
@@ -2291,7 +2298,7 @@ async def toss_wts_realized_feed_import(request: Request) -> JSONResponse:
             headers={"Cache-Control": "no-store"},
         )
 
-    gen_id = get_current_runtime_generation_id(user_id)
+    gen_id = get_current_runtime_generation_id_for_username(user_id, username)
     items_hash = _broker_import_items_hash(compute_items_hash(selected_items), selected_items)
 
     preview_ticket = body.get("preview_ticket")
@@ -2388,6 +2395,190 @@ async def toss_wts_realized_feed_import(request: Request) -> JSONResponse:
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+
+# ---------------------------------------------------------------------------
+# Toss WTS Dividend / Interest Feed API
+# ---------------------------------------------------------------------------
+
+@app.post("/api/toss-wts/income-feed/fetch")
+async def toss_wts_income_feed_fetch(request: Request) -> JSONResponse:
+    username = get_current_username(request)
+    user_id = getattr(request.state, "user_id", None)
+    runtime_decision = check_wts_feed_runtime_confirmation_for_username(user_id, username)
+    if not runtime_decision.confirmed:
+        status = 503 if runtime_decision.code == "RUNTIME_MATERIAL_UNAVAILABLE" else (403 if runtime_decision.code == "STATIC_AUTHORIZATION_FAILED" else 409)
+        raise HTTPException(status_code=status, detail={"code": runtime_decision.code}, headers={"Cache-Control": "no-store"})
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError("invalid body")
+        from app.services.toss_wts_income_feed import validate_income_feed_request, sign_income_feed_row
+        from app.services.toss_wts_income import map_toss_wts_income_rows
+        from_date, to_date = validate_income_feed_request(body.get("from_date"), body.get("to_date"))
+        adapter = TossWtsAdapter(username=username)
+        ledger = adapter.get_income_transactions(from_date, to_date)
+        mapped = map_toss_wts_income_rows(ledger["rows"])
+        generation_id = get_current_runtime_generation_id_for_username(user_id, username)
+        eligible_rows = []
+        tokens = []
+        for row in ledger["rows"]:
+            from app.services.toss_wts_income import map_toss_wts_income_row
+            candidate = map_toss_wts_income_row(row)
+            if candidate is None:
+                continue
+            projected = dict(row)
+            projected["income_type"] = candidate["income_type"]
+            projected["display_code"] = candidate["code"]
+            projected["display_name"] = candidate["name"]
+            projected["net_amount"] = candidate["amount"]
+            if "gross_amount" in candidate:
+                projected["gross_amount"] = candidate["gross_amount"]
+            if "tax" in candidate:
+                projected["tax"] = candidate["tax"]
+            projected["source_fingerprint"] = candidate["source_fingerprint"]
+            eligible_rows.append(projected)
+            tokens.append(sign_income_feed_row(projected, user_id=str(user_id), generation_id=generation_id))
+        content = {
+            "source": "toss_wts",
+            "kind": "income_feed",
+            "scope_kind": "unverified",
+            "scope_verified": False,
+            "persisted": False,
+            "requested": {"from_date": from_date, "to_date": to_date},
+            "windows": ledger["windows"],
+            "fetched": mapped["fetched"],
+            "eligible": len(eligible_rows),
+            "ignored": mapped["ignored"],
+            "invalid": mapped["invalid"],
+            "rows": eligible_rows,
+            "selection_tokens": tokens,
+        }
+        return JSONResponse(content, headers={"Cache-Control": "no-store"})
+    except TossWtsAdapterError as exc:
+        status = 502 if exc.code in {"INVALID_JSON", "INVALID_SCHEMA", "UNSUPPORTED_COMMAND"} else 503
+        raise HTTPException(status_code=status, detail={"code": exc.code}, headers={"Cache-Control": "no-store"}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST", "message": str(exc)}, headers={"Cache-Control": "no-store"}) from exc
+    except Exception as exc:
+        logger.exception("Toss WTS income feed fetch failed")
+        raise HTTPException(status_code=500, detail={"code": "INCOME_FEED_FETCH_FAILED"}, headers={"Cache-Control": "no-store"}) from exc
+
+
+@app.post("/api/toss-wts/income-feed/import-preview")
+async def toss_wts_income_feed_import_preview(request: Request) -> JSONResponse:
+    username = get_current_username(request)
+    user_id = getattr(request.state, "user_id", None)
+    runtime_decision = check_wts_feed_runtime_confirmation_for_username(user_id, username)
+    if not runtime_decision.confirmed:
+        status = 503 if runtime_decision.code == "RUNTIME_MATERIAL_UNAVAILABLE" else (403 if runtime_decision.code == "STATIC_AUTHORIZATION_FAILED" else 409)
+        raise HTTPException(status_code=status, detail={"code": runtime_decision.code}, headers={"Cache-Control": "no-store"})
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST"}, headers={"Cache-Control": "no-store"}) from exc
+    if not isinstance(body, dict) or not isinstance(body.get("selected_items"), list) or not body["selected_items"]:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST"}, headers={"Cache-Control": "no-store"})
+    account_id = body.get("account_id")
+    if not isinstance(account_id, str) or not account_id.strip():
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST"}, headers={"Cache-Control": "no-store"})
+    destination = _require_realized_destination(username, "toss", account_id)
+    try:
+        existing = read_dividend_records_for_import(username=username)
+    except DividendRecordsStorageError as exc:
+        raise HTTPException(status_code=409, detail={"code": "DIVIDEND_STORAGE_UNREADABLE"}, headers={"Cache-Control": "no-store"}) from exc
+    from app.services.toss_wts_income_import import preview_toss_wts_income_selection
+    from app.services.toss_wts_income_feed import compute_income_items_hash, sign_income_preview_ticket
+    generation_id = get_current_runtime_generation_id_for_username(user_id, username)
+    result = preview_toss_wts_income_selection(
+        body["selected_items"], destination, existing,
+        user_id=str(user_id), current_generation_id=generation_id,
+    )
+    items_hash = compute_income_items_hash(body["selected_items"])
+    result["preview_ticket"] = sign_income_preview_ticket(
+        account_id=str(destination["id"]), items_hash=items_hash,
+        user_id=str(user_id), generation_id=generation_id,
+    )
+    result["destination_account"] = {
+        "id": destination.get("id"), "broker": destination.get("broker"),
+        "account_name": destination.get("account_name") or destination.get("name"),
+        "owner": destination.get("owner"),
+    }
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/toss-wts/income-feed/import")
+async def toss_wts_income_feed_import(request: Request) -> JSONResponse:
+    username = get_current_username(request)
+    user_id = getattr(request.state, "user_id", None)
+    runtime_decision = check_wts_feed_runtime_confirmation_for_username(user_id, username)
+    if not runtime_decision.confirmed:
+        status = 503 if runtime_decision.code == "RUNTIME_MATERIAL_UNAVAILABLE" else (403 if runtime_decision.code == "STATIC_AUTHORIZATION_FAILED" else 409)
+        raise HTTPException(status_code=status, detail={"code": runtime_decision.code}, headers={"Cache-Control": "no-store"})
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST"}, headers={"Cache-Control": "no-store"}) from exc
+    selected_items = body.get("selected_items") if isinstance(body, dict) else None
+    account_id = body.get("account_id") if isinstance(body, dict) else None
+    if not isinstance(selected_items, list) or not selected_items or not isinstance(account_id, str) or not account_id.strip():
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST"}, headers={"Cache-Control": "no-store"})
+    destination = _require_realized_destination(username, "toss", account_id)
+    from app.services.toss_wts_income_feed import compute_income_items_hash, verify_income_preview_ticket
+    from app.services.toss_wts_income_import import preview_toss_wts_income_selection
+    generation_id = get_current_runtime_generation_id_for_username(user_id, username)
+    items_hash = compute_income_items_hash(selected_items)
+    valid, error = verify_income_preview_ticket(
+        str(body.get("preview_ticket") or ""), account_id=str(destination["id"]),
+        items_hash=items_hash, user_id=str(user_id), current_generation_id=generation_id,
+    )
+    if not valid:
+        raise HTTPException(status_code=400, detail={"code": error or "PREVIEW_TICKET_INVALID"}, headers={"Cache-Control": "no-store"})
+    include_possible = bool(body.get("include_possible_duplicates", False))
+    with _TOSS_WTS_INCOME_IMPORT_LOCK:
+        try:
+            fresh_existing = read_dividend_records_for_import(username=username)
+        except DividendRecordsStorageError as exc:
+            raise HTTPException(status_code=409, detail={"code": "DIVIDEND_STORAGE_UNREADABLE"}, headers={"Cache-Control": "no-store"}) from exc
+        classification = preview_toss_wts_income_selection(
+            selected_items, destination, fresh_existing,
+            user_id=str(user_id), current_generation_id=generation_id,
+        )
+        imported_ids: list[str] = []
+        counts = {"imported": 0, "already_imported": 0, "possible_duplicate_skipped": 0, "invalid": 0}
+        now_iso = datetime.now().astimezone().isoformat()
+        for item in classification["items"]:
+            status = item["status"]
+            if status == "ALREADY_IMPORTED":
+                counts["already_imported"] += 1
+                continue
+            if status == "INVALID":
+                counts["invalid"] += 1
+                continue
+            if status == "POSSIBLE_DUPLICATE" and not include_possible:
+                counts["possible_duplicate_skipped"] += 1
+                continue
+            candidate = item.get("candidate")
+            if not isinstance(candidate, dict):
+                counts["invalid"] += 1
+                continue
+            payload = dict(candidate)
+            payload["source_scope_verified"] = False
+            payload["imported_by_user_action"] = True
+            payload["imported_at"] = now_iso
+            created = create_dividend_record(payload, username=username)
+            imported_ids.append(created["id"])
+            counts["imported"] += 1
+    return JSONResponse({
+        "selected": len(selected_items), **counts, "imported_ids": imported_ids,
+        "scope_kind": "unverified", "scope_verified": False,
+        "destination_account": {
+            "id": destination.get("id"), "broker": destination.get("broker"),
+            "account_name": destination.get("account_name") or destination.get("name"),
+            "owner": destination.get("owner"),
+        },
+    }, headers={"Cache-Control": "no-store"})
 
 
 # ---------------------------------------------------------------------------

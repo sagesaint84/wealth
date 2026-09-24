@@ -19,6 +19,8 @@ from app.services.toss_wts_feed_runtime import (
     check_wts_feed_runtime_confirmation,
     clear_wts_feed_runtime_confirmation,
     confirm_wts_feed_runtime_session,
+    confirm_wts_feed_runtime_session_for_username,
+    check_wts_feed_runtime_confirmation_for_username,
 )
 from app.services.user_identity import generate_user_id
 from tests.test_request_state_user_id import _import_main_without_loading_real_env
@@ -49,6 +51,19 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
         self.session_path = self.config_dir / "session.json"
         self.session_path.write_text('{"token": "SYNTHETIC_WTS_SESSION_TOKEN_123"}', encoding="utf-8")
 
+        self.data_root = root
+        self.user_session_paths = {}
+        for username in ("user-a", "user-other", "admin-b", "normal-user", "user-b", "sentinel-user"):
+            user_config = root / "toss-wts" / "users" / username / "config"
+            user_config.mkdir(parents=True, exist_ok=True)
+            user_session = user_config / "session.json"
+            user_session.write_text(
+                '{"token": "SYNTHETIC_WTS_SESSION_TOKEN_123"}',
+                encoding="utf-8",
+            )
+            self.user_session_paths[username] = user_session
+        self.session_path = self.user_session_paths["user-a"]
+
     def _cookie_header(self, username: str, role: str = "user") -> dict[str, str]:
         token = self.main._serializer.dumps({"user": username, "role": role})
         return {"Cookie": f"{self.main.COOKIE_NAME}={token}"}
@@ -59,6 +74,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
             "WEALTH_TOSS_WTS_ENABLED": "1",
             "WEALTH_TOSSCTL_PATH": str(self.exe_path),
             "WEALTH_TOSSCTL_CONFIG_DIR": str(self.config_dir),
+            "WEALTH_DATA_DIR": str(self.data_root),
         }
 
     @staticmethod
@@ -179,7 +195,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
         with patch.dict(os.environ, self._env_for(user_id), clear=False), \
              patch("app.services.user_manager.get_user_by_name", return_value=user_record):
             # User has NOT confirmed
-            check_before = check_wts_feed_runtime_confirmation(user_id)
+            check_before = check_wts_feed_runtime_confirmation_for_username(user_id, user_record["username"])
             self.assertFalse(check_before.confirmed)
 
             response = self.client.get(
@@ -189,7 +205,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
 
             # User still has NOT confirmed; status endpoint must not auto-confirm
-            check_after = check_wts_feed_runtime_confirmation(user_id)
+            check_after = check_wts_feed_runtime_confirmation_for_username(user_id, user_record["username"])
             self.assertFalse(check_after.confirmed)
             self.assertEqual(check_after.code, "NOT_CONFIRMED")
 
@@ -215,7 +231,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
         with patch.dict(os.environ, self._env_for(user_id), clear=False), \
              patch("app.services.user_manager.get_user_by_name", return_value=user_record):
             # Explicit confirmation first
-            confirm_res = confirm_wts_feed_runtime_session(user_id)
+            confirm_res = confirm_wts_feed_runtime_session_for_username(user_id, user_record["username"])
             self.assertTrue(confirm_res.confirmed)
 
             with patch("app.services.toss_wts_adapter.TossWtsAdapter.get_profit_daily", return_value=mock_adapter_result) as mock_get:
@@ -294,7 +310,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
 
         with patch.dict(os.environ, self._env_for(user_id), clear=False), \
              patch("app.services.user_manager.get_user_by_name", return_value=user_record):
-            confirm_res = confirm_wts_feed_runtime_session(user_id)
+            confirm_res = confirm_wts_feed_runtime_session_for_username(user_id, user_record["username"])
             self.assertTrue(confirm_res.confirmed)
 
             with patch("app.services.toss_wts_adapter.TossWtsAdapter.get_profit_daily", return_value=mock_empty_result):
@@ -367,7 +383,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
         with patch.dict(os.environ, self._env_for(user_id), clear=False), \
              patch("app.services.user_manager.get_user_by_name", return_value=user_record):
             # 1. Confirm
-            confirm_res = confirm_wts_feed_runtime_session(user_id)
+            confirm_res = confirm_wts_feed_runtime_session_for_username(user_id, user_record["username"])
             self.assertTrue(confirm_res.confirmed)
 
             # 2. Modify session file (generation changed)
@@ -406,7 +422,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
 
         with patch.dict(os.environ, self._env_for(user_id), clear=False), \
              patch("app.services.user_manager.get_user_by_name", return_value=user_record):
-            confirm_wts_feed_runtime_session(user_id)
+            confirm_wts_feed_runtime_session_for_username(user_id, user_record["username"])
 
             with patch("app.services.toss_wts_adapter.TossWtsAdapter.get_profit_daily", return_value=mock_res):
                 response = self.client.post(
@@ -460,7 +476,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
         # 1. Allowed caller sending spoofed body/query fields
         with patch.dict(os.environ, self._env_for(allowed_id), clear=False), \
              patch("app.services.user_manager.get_user_by_name", return_value=user_record):
-            confirm_wts_feed_runtime_session(allowed_id)
+            confirm_wts_feed_runtime_session_for_username(allowed_id, user_record["username"])
 
             with patch("app.services.toss_wts_adapter.TossWtsAdapter.get_profit_daily", return_value=mock_res):
                 response = self.client.post(
@@ -537,7 +553,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
 
         with patch.dict(os.environ, self._env_for(user_id), clear=False), \
              patch("app.services.user_manager.get_user_by_name", return_value=user_record):
-            confirm_wts_feed_runtime_session(user_id)
+            confirm_wts_feed_runtime_session_for_username(user_id, user_record["username"])
 
             with patch("app.services.toss_wts_adapter.TossWtsAdapter.get_profit_daily", side_effect=AssertionError("WTS called on invalid request")) as mock_get:
                 for body in invalid_bodies:
@@ -568,7 +584,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
         for error_code in ("INVALID_SCHEMA", "INVALID_JSON"):
             with patch.dict(os.environ, self._env_for(user_id), clear=False), \
                  patch("app.services.user_manager.get_user_by_name", return_value=user_record):
-                confirm_wts_feed_runtime_session(user_id)
+                confirm_wts_feed_runtime_session_for_username(user_id, user_record["username"])
 
                 with patch("app.services.toss_wts_adapter.TossWtsAdapter.get_profit_daily", side_effect=TossWtsAdapterError(error_code)):
                     response = self.client.post(
@@ -597,7 +613,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
         ):
             with patch.dict(os.environ, self._env_for(user_id), clear=False), \
                  patch("app.services.user_manager.get_user_by_name", return_value=user_record):
-                confirm_wts_feed_runtime_session(user_id)
+                confirm_wts_feed_runtime_session_for_username(user_id, user_record["username"])
 
                 with patch("app.services.toss_wts_adapter.TossWtsAdapter.get_profit_daily", side_effect=TossWtsAdapterError(error_code)):
                     response = self.client.post(
@@ -621,7 +637,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
         with patch.dict(os.environ, self._env_for(user_id), clear=False), \
              patch("app.services.user_manager.get_user_by_name", return_value=user_record):
             # Confirm while material exists
-            confirm_res = confirm_wts_feed_runtime_session(user_id)
+            confirm_res = confirm_wts_feed_runtime_session_for_username(user_id, user_record["username"])
             self.assertTrue(confirm_res.confirmed)
 
             # Then remove session file
@@ -660,7 +676,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
              patch("app.services.pnl_records.write_pnl_records", side_effect=AssertionError("pnl write called")) as mock_write_pnl, \
              patch("app.services.pnl_records.create_pnl_record", side_effect=AssertionError("pnl create called")) as mock_create_pnl, \
              patch("app.services.portfolio.write_portfolio", side_effect=AssertionError("portfolio write called")) as mock_write_port:
-            confirm_wts_feed_runtime_session(user_id)
+            confirm_wts_feed_runtime_session_for_username(user_id, user_record["username"])
 
             with patch("app.services.toss_wts_adapter.TossWtsAdapter.get_profit_daily", return_value=mock_adapter_result):
                 response = self.client.post(
@@ -694,7 +710,7 @@ class TossWtsRealizedFeedTests(unittest.TestCase):
 
         with patch.dict(os.environ, self._env_for(sentinel_uuid), clear=False), \
              patch("app.services.user_manager.get_user_by_name", return_value=user_record):
-            confirm_wts_feed_runtime_session(sentinel_uuid)
+            confirm_wts_feed_runtime_session_for_username(sentinel_uuid, user_record["username"])
 
             with patch("app.services.toss_wts_adapter.TossWtsAdapter.get_profit_daily", return_value=mock_adapter_result):
                 response = self.client.post(

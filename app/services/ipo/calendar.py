@@ -91,7 +91,11 @@ def build_moneylog_calendar_events(
 
         code = str(rec.get("code") or "").upper()
         name = str(rec.get("name") or "").strip()
-        is_interest = code.startswith("INTEREST") or ("이자" in name and "화이자" not in name)
+        income_type = str(rec.get("income_type") or "").strip()
+        is_interest = (
+            income_type == "account_interest"
+            or (not income_type and (code.startswith("INTEREST") or ("이자" in name and "화이자" not in name)))
+        )
 
         if is_interest:
             event_type = "interest"

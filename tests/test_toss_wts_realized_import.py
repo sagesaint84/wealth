@@ -40,6 +40,8 @@ from app.services.toss_wts_feed_auth import WEALTH_TOSS_WTS_FEED_ALLOWED_USER_ID
 from app.services.toss_wts_feed_runtime import (
     clear_wts_feed_runtime_confirmation,
     confirm_wts_feed_runtime_session,
+    confirm_wts_feed_runtime_session_for_username,
+    get_current_runtime_generation_id_for_username,
     get_current_runtime_generation_id,
 )
 from app.services.user_identity import generate_user_id
@@ -83,6 +85,14 @@ class TossWtsRealizedImportTests(IsolatedDataTestCase):
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.session_path = self.config_dir / "session.json"
         self.session_path.write_text('{"token": "SYNTHETIC_WTS_TOKEN_V111"}', encoding="utf-8")
+        self.user_config_dir = (
+            Path(self.temp_dir.name) / "toss-wts" / "users" / self.username / "config"
+        )
+        self.user_config_dir.mkdir(parents=True, exist_ok=True)
+        (self.user_config_dir / "session.json").write_text(
+            '{"token": "SYNTHETIC_WTS_TOKEN_V111"}',
+            encoding="utf-8",
+        )
 
         # Set up portfolio with destination accounts
         self.acc1 = {
@@ -116,6 +126,7 @@ class TossWtsRealizedImportTests(IsolatedDataTestCase):
             "WEALTH_TOSS_WTS_ENABLED": "1",
             "WEALTH_TOSSCTL_PATH": str(self.exe_path),
             "WEALTH_TOSSCTL_CONFIG_DIR": str(self.config_dir),
+            "WEALTH_DATA_DIR": str(self.temp_dir.name),
         }
 
     @staticmethod
@@ -149,9 +160,9 @@ class TossWtsRealizedImportTests(IsolatedDataTestCase):
 
     def _get_confirmed_client(self):
         with patch.dict(os.environ, self._env(), clear=False):
-            confirm_res = confirm_wts_feed_runtime_session(self.user_id)
+            confirm_res = confirm_wts_feed_runtime_session_for_username(self.user_id, self.username)
             self.assertTrue(confirm_res.confirmed, f"confirm failed: {confirm_res.code}")
-            gen_id = get_current_runtime_generation_id(self.user_id)
+            gen_id = get_current_runtime_generation_id_for_username(self.user_id, self.username)
             rows = self._sample_feed_rows()
             tokens = [
                 sign_realized_feed_row(r, user_id=self.user_id, generation_id=gen_id)
@@ -466,8 +477,12 @@ class TossWtsRealizedImportTests(IsolatedDataTestCase):
 
         # Create two identical trades
         identical_row = copy.deepcopy(rows[0])
-        token1 = sign_realized_feed_row(identical_row, user_id=self.user_id, generation_id=gen_id)
-        token2 = sign_realized_feed_row(identical_row, user_id=self.user_id, generation_id=gen_id)
+
+        # _get_confirmed_client()가 현재 runtime generation에 대해
+        # 이미 발급한 정상 selection token을 재사용한다.
+        # 동일 row 두 건의 multiset 처리 자체가 이 테스트의 검증 대상이다.
+        token1 = tokens[0]
+        token2 = tokens[0]
 
         items_pair = [
             {"row": identical_row, "selection_token": token1},
@@ -615,7 +630,7 @@ class TossWtsRealizedImportTests(IsolatedDataTestCase):
              patch("app.services.user_manager.get_user_by_name", return_value=self.user_record), \
              patch.object(TossWtsAdapter, "get_profit_daily", return_value=mock_adapter_result):
 
-            confirm_res = confirm_wts_feed_runtime_session(self.user_id)
+            confirm_res = confirm_wts_feed_runtime_session_for_username(self.user_id, self.username)
             self.assertTrue(confirm_res.confirmed)
 
             response = self.client.post(

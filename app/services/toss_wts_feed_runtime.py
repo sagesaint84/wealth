@@ -104,25 +104,27 @@ _LOCK = threading.RLock()
 _ACTIVE_CONFIRMATION: _ActiveConfirmation | None = None
 
 
-def _is_wts_enabled() -> bool:
-    return TossWtsConfig.from_environment().enabled
+def _is_wts_enabled(username: str | None = None) -> bool:
+    return TossWtsConfig.from_environment(username=username).enabled
 
 
-def _resolve_runtime_generation_marker() -> _RuntimeGenerationMarker | None:
+def _resolve_runtime_generation_marker(
+    username: str | None = None,
+) -> _RuntimeGenerationMarker | None:
     """Resolve current metadata-only generation marker.
 
     Returns None if WTS is disabled or any runtime material (executable,
     config directory, session file) is missing or unreadable.
     Never reads session file content.
     """
-    if not _is_wts_enabled():
+    if not _is_wts_enabled(username=username):
         return None
 
     allowed_user_id, err = _get_allowed_user_id()
     if err is not None or allowed_user_id is None:
         return None
 
-    config = TossWtsConfig.from_environment()
+    config = TossWtsConfig.from_environment(username=username)
     if not config.executable or not config.config_dir:
         return None
 
@@ -212,6 +214,38 @@ def confirm_wts_feed_runtime_session(
     return WtsFeedRuntimeDecision(confirmed=True, code=CONFIRMED)
 
 
+def confirm_wts_feed_runtime_session_for_username(
+    user_id: object,
+    username: str,
+) -> WtsFeedRuntimeDecision:
+    """Confirm the exact per-user WTS material used by authenticated reads."""
+    global _ACTIVE_CONFIRMATION
+
+    static_auth = check_wts_feed_static_authorization(user_id)
+    if not static_auth.authorized:
+        return WtsFeedRuntimeDecision(False, STATIC_AUTHORIZATION_FAILED)
+
+    normalized_username = str(username or "").strip()
+    if not normalized_username:
+        with _LOCK:
+            _ACTIVE_CONFIRMATION = None
+        return WtsFeedRuntimeDecision(False, RUNTIME_MATERIAL_UNAVAILABLE)
+
+    marker = _resolve_runtime_generation_marker(username=normalized_username)
+    if marker is None:
+        with _LOCK:
+            _ACTIVE_CONFIRMATION = None
+        return WtsFeedRuntimeDecision(False, RUNTIME_MATERIAL_UNAVAILABLE)
+
+    with _LOCK:
+        _ACTIVE_CONFIRMATION = _ActiveConfirmation(
+            user_id=str(user_id),
+            allowed_user_id=marker.allowed_user_id,
+            marker=marker,
+        )
+    return WtsFeedRuntimeDecision(True, CONFIRMED)
+
+
 def check_wts_feed_runtime_confirmation(
     user_id: object = None,
 ) -> WtsFeedRuntimeDecision:
@@ -267,6 +301,54 @@ def check_wts_feed_runtime_confirmation(
     return WtsFeedRuntimeDecision(confirmed=True, code=CONFIRMED)
 
 
+def check_wts_feed_runtime_confirmation_for_username(
+    user_id: object,
+    username: str,
+) -> WtsFeedRuntimeDecision:
+    """Validate confirmation against the same per-user session used for reads."""
+    global _ACTIVE_CONFIRMATION
+
+    static_auth = check_wts_feed_static_authorization(user_id)
+    if not static_auth.authorized:
+        current_allowed, _ = _get_allowed_user_id()
+        with _LOCK:
+            if (
+                _ACTIVE_CONFIRMATION is not None
+                and current_allowed != _ACTIVE_CONFIRMATION.allowed_user_id
+            ):
+                _ACTIVE_CONFIRMATION = None
+        return WtsFeedRuntimeDecision(False, STATIC_AUTHORIZATION_FAILED)
+
+    with _LOCK:
+        active = _ACTIVE_CONFIRMATION
+    if active is None:
+        return WtsFeedRuntimeDecision(False, NOT_CONFIRMED)
+
+    if active.user_id != str(user_id) or active.allowed_user_id != str(user_id):
+        with _LOCK:
+            _ACTIVE_CONFIRMATION = None
+        return WtsFeedRuntimeDecision(False, CONFIRMATION_IDENTITY_CHANGED)
+
+    normalized_username = str(username or "").strip()
+    if not normalized_username:
+        with _LOCK:
+            _ACTIVE_CONFIRMATION = None
+        return WtsFeedRuntimeDecision(False, RUNTIME_MATERIAL_UNAVAILABLE)
+
+    current_marker = _resolve_runtime_generation_marker(username=normalized_username)
+    if current_marker is None:
+        with _LOCK:
+            _ACTIVE_CONFIRMATION = None
+        return WtsFeedRuntimeDecision(False, RUNTIME_MATERIAL_UNAVAILABLE)
+
+    if current_marker != active.marker:
+        with _LOCK:
+            _ACTIVE_CONFIRMATION = None
+        return WtsFeedRuntimeDecision(False, RUNTIME_GENERATION_CHANGED)
+
+    return WtsFeedRuntimeDecision(True, CONFIRMED)
+
+
 def clear_wts_feed_runtime_confirmation() -> None:
     """Explicitly clear process-local runtime confirmation state.
 
@@ -283,6 +365,24 @@ def get_current_runtime_generation_id(user_id: object = None) -> str | None:
     Returns None if the session is not confirmed or runtime material has changed.
     """
     decision = check_wts_feed_runtime_confirmation(user_id)
+    if not decision.confirmed:
+        return None
+    with _LOCK:
+        active = _ACTIVE_CONFIRMATION
+        if active is None:
+            return None
+        marker_repr = (
+            f"{active.user_id}:{active.allowed_user_id}:"
+            f"{active.marker.executable_meta}:{active.marker.config_dir_meta}:{active.marker.session_meta}"
+        )
+        return hashlib.sha256(marker_repr.encode("utf-8")).hexdigest()
+
+def get_current_runtime_generation_id_for_username(
+    user_id: object,
+    username: str,
+) -> str | None:
+    """Return generation id only for the authenticated user's current session."""
+    decision = check_wts_feed_runtime_confirmation_for_username(user_id, username)
     if not decision.confirmed:
         return None
     with _LOCK:

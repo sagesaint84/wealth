@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 from app.services.toss_wts_feed_auth import WEALTH_TOSS_WTS_FEED_ALLOWED_USER_ID
 from app.services.toss_wts_feed_runtime import (
     check_wts_feed_runtime_confirmation,
+    check_wts_feed_runtime_confirmation_for_username,
     clear_wts_feed_runtime_confirmation,
 )
 from app.services.user_identity import generate_user_id
@@ -42,8 +43,25 @@ class TossWtsFeedConfirmationEndpointTests(unittest.TestCase):
 
         self.config_dir = root / "config"
         self.config_dir.mkdir()
-        self.session_path = self.config_dir / "session.json"
-        self.session_path.write_text('{"token": "SYNTHETIC_WTS_SESSION_TOKEN_123"}', encoding="utf-8")
+        self.global_session_path = self.config_dir / "session.json"
+        self.global_session_path.write_text(
+            '{"token": "SYNTHETIC_WTS_SESSION_TOKEN_123"}',
+            encoding="utf-8",
+        )
+
+        self.data_root = root
+        self.user_session_paths = {}
+        for username in ("user-a", "admin-user", "sentinel-user", "user-owner"):
+            user_config = root / "toss-wts" / "users" / username / "config"
+            user_config.mkdir(parents=True, exist_ok=True)
+            user_session = user_config / "session.json"
+            user_session.write_text(
+                '{"token": "SYNTHETIC_WTS_SESSION_TOKEN_123"}',
+                encoding="utf-8",
+            )
+            self.user_session_paths[username] = user_session
+
+        self.session_path = self.user_session_paths["user-a"]
 
     def _cookie_header(self, username: str, role: str = "user") -> dict[str, str]:
         token = self.main._serializer.dumps({"user": username, "role": role})
@@ -55,6 +73,7 @@ class TossWtsFeedConfirmationEndpointTests(unittest.TestCase):
             "WEALTH_TOSS_WTS_ENABLED": "1",
             "WEALTH_TOSSCTL_PATH": str(self.exe_path),
             "WEALTH_TOSSCTL_CONFIG_DIR": str(self.config_dir),
+            "WEALTH_DATA_DIR": str(self.data_root),
         }
 
     def test_allowed_normal_user_can_confirm(self):
@@ -75,7 +94,7 @@ class TossWtsFeedConfirmationEndpointTests(unittest.TestCase):
 
         # Verify process memory confirmation was stored
         with patch.dict(os.environ, self._env_for(user_id), clear=False):
-            check_res = check_wts_feed_runtime_confirmation(user_id)
+            check_res = check_wts_feed_runtime_confirmation_for_username(user_id, "user-a")
             self.assertTrue(check_res.confirmed)
             self.assertEqual(check_res.code, "CONFIRMED")
 
@@ -170,7 +189,7 @@ class TossWtsFeedConfirmationEndpointTests(unittest.TestCase):
 
         # Process-local confirmation was stored for user-a's allowed_id, NOT spoofed_id
         with patch.dict(os.environ, self._env_for(allowed_id), clear=False):
-            check_allowed = check_wts_feed_runtime_confirmation(allowed_id)
+            check_allowed = check_wts_feed_runtime_confirmation_for_username(allowed_id, "user-a")
             self.assertTrue(check_allowed.confirmed)
 
     def test_query_supplied_user_id_is_ignored(self):
@@ -289,14 +308,17 @@ class TossWtsFeedConfirmationEndpointTests(unittest.TestCase):
 
         with patch.dict(os.environ, self._env_for(user_id), clear=False), \
              patch("app.services.user_manager.get_user_by_name", return_value=user_record), \
-             patch("app.main.confirm_wts_feed_runtime_session", wraps=self.main.confirm_wts_feed_runtime_session) as mock_confirm:
+             patch(
+                 "app.main.confirm_wts_feed_runtime_session_for_username",
+                 wraps=self.main.confirm_wts_feed_runtime_session_for_username,
+             ) as mock_confirm:
             response = self.client.post(
                 "/api/toss-wts/feed/confirm",
                 headers=self._cookie_header("user-a", "user"),
             )
             self.assertEqual(response.status_code, 200)
             self.assertEqual(mock_confirm.call_count, 1)
-            mock_confirm.assert_called_once_with(user_id)
+            mock_confirm.assert_called_once_with(user_id, "user-a")
 
     def test_unauthorized_user_does_not_stat_runtime_material(self):
         allowed_id = generate_user_id()
@@ -330,7 +352,7 @@ class TossWtsFeedConfirmationEndpointTests(unittest.TestCase):
             self.assertEqual(res2.status_code, 403)
 
             # 3. Existing runtime confirmation for owner remains valid
-            owner_check = check_wts_feed_runtime_confirmation(owner_id)
+            owner_check = check_wts_feed_runtime_confirmation_for_username(owner_id, "user-owner")
             self.assertTrue(owner_check.confirmed)
             self.assertEqual(owner_check.code, "CONFIRMED")
 
@@ -349,7 +371,7 @@ class TossWtsFeedConfirmationEndpointTests(unittest.TestCase):
             self.session_path.write_text('{"token": "NEW_SESSION_G2_TOKEN"}', encoding="utf-8")
 
             # 3. Runtime check detects invalidation
-            check1 = check_wts_feed_runtime_confirmation(user_id)
+            check1 = check_wts_feed_runtime_confirmation_for_username(user_id, "user-a")
             self.assertFalse(check1.confirmed)
             self.assertEqual(check1.code, "RUNTIME_GENERATION_CHANGED")
 
@@ -358,7 +380,7 @@ class TossWtsFeedConfirmationEndpointTests(unittest.TestCase):
             self.assertEqual(res2.status_code, 200)
 
             # 5. G2 is now confirmed
-            check2 = check_wts_feed_runtime_confirmation(user_id)
+            check2 = check_wts_feed_runtime_confirmation_for_username(user_id, "user-a")
             self.assertTrue(check2.confirmed)
             self.assertEqual(check2.code, "CONFIRMED")
 

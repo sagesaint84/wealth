@@ -13308,7 +13308,7 @@ async function confirmTossWtsSession() {
     if (data.confirmed) {
       tossWtsState.confirmed = true;
       updateTossWtsStatusUI('런타임 확인 완료', 'confirmed');
-      showTossWtsMessage('WTS 로컬 런타임이 확인되었습니다. 실현손익 조회가 가능합니다.', 'success');
+      showTossWtsMessage('WTS 로컬 런타임이 확인되었습니다. 실현손익 및 배당·이자 조회가 가능합니다.', 'success');
     } else {
       tossWtsState.confirmed = false;
       updateTossWtsStatusUI('런타임 확인 필요', 'error');
@@ -13731,6 +13731,378 @@ function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
   });
 }
 
+// ── 토스 WTS 배당·이자 피드 (선택 가져오기) ───────────────────────────────────
+const tossWtsIncomeState = {
+  loading: false,
+  importing: false,
+  rows: [],
+  selectionTokens: [],
+  selectedIndices: new Set(),
+  importedIndices: new Set(),
+  previewTicket: null,
+  previewData: null,
+  fetchedFromDate: null,
+  fetchedToDate: null,
+};
+
+function showTossWtsIncomeMessage(message, type = 'info') {
+  const el = document.getElementById('tossWtsIncomeMessage');
+  if (!el) return;
+  el.className = `toss-wts-message ${type}`;
+  el.textContent = message;
+  el.style.display = 'block';
+}
+
+function hideTossWtsIncomeMessage() {
+  const el = document.getElementById('tossWtsIncomeMessage');
+  if (!el) return;
+  el.style.display = 'none';
+  el.textContent = '';
+}
+
+function setTossWtsIncomeLoading(loading) {
+  tossWtsIncomeState.loading = loading;
+  const fetchBtn = document.getElementById('btnFetchTossWtsIncome');
+  const importBtn = document.getElementById('btnWtsIncomeImportSelected');
+  if (fetchBtn) fetchBtn.disabled = loading;
+  if (importBtn && loading) importBtn.disabled = true;
+  if (!loading) updateTossWtsIncomeSelectionUI();
+}
+
+function tossWtsIncomeTypeLabel(type) {
+  const labels = {
+    dividend: '배당',
+    distribution: '분배금',
+    account_interest: '예탁금 이자',
+  };
+  return labels[type] || '기타';
+}
+
+function tossWtsIncomeAmount(value, currency) {
+  if (value == null || value === '') return '—';
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return '—';
+  return String(currency || '').toUpperCase() === 'USD'
+    ? `$${number(numberValue, 2)}`
+    : `₩${money(numberValue)}`;
+}
+
+function populateTossWtsIncomeAccounts() {
+  const select = document.getElementById('wtsIncomeDestinationAccount');
+  if (!select) return;
+  const current = select.value;
+  const accounts = ((dashboard && dashboard.accounts) || []).filter(account => {
+    const broker = String(account.broker || '').trim().toLowerCase();
+    return broker.includes('토스') || broker.includes('toss');
+  });
+  select.innerHTML = '<option value="">토스증권 계좌를 선택하세요</option>' + accounts.map(account => {
+    const label = maskAccountDisplayLabel(account.account_name || account.name || '계좌');
+    const owner = account.owner ? ` (${account.owner})` : '';
+    return `<option value="${html(String(account.id || ''))}">${html(account.broker || '토스증권')} - ${html(label)}${html(owner)}</option>`;
+  }).join('');
+  if (current && accounts.some(account => String(account.id) === current)) {
+    select.value = current;
+  } else if (accounts.length === 1) {
+    select.value = String(accounts[0].id || '');
+  }
+}
+
+function updateTossWtsIncomeMeta(data = null) {
+  const el = document.getElementById('tossWtsIncomeMeta');
+  if (!el) return;
+  if (!data) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  const requested = data.requested || {};
+  el.innerHTML = `
+    <span class="toss-wts-meta-item">조회 기간: <strong>${html(requested.from_date || '-')} ~ ${html(requested.to_date || '-')}</strong></span>
+    <span class="toss-wts-meta-sep">·</span>
+    <span class="toss-wts-meta-item">거래원장 <strong>${Number(data.fetched || 0)}건</strong></span>
+    <span class="toss-wts-meta-sep">·</span>
+    <span class="toss-wts-meta-item">가져오기 대상 <strong>${Number(data.eligible || 0)}건</strong></span>
+    <span class="toss-wts-meta-sep">·</span>
+    <span class="toss-wts-meta-item">제외 ${Number(data.ignored || 0)}건 · 무효 ${Number(data.invalid || 0)}건</span>
+  `;
+  el.style.display = 'flex';
+}
+
+function renderTossWtsIncomeTable() {
+  const tbody = document.getElementById('tossWtsIncomeTableBody');
+  const importBar = document.getElementById('tossWtsIncomeImportBar');
+  if (!tbody) return;
+  const rows = tossWtsIncomeState.rows || [];
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-empty">선택한 기간에 가져올 배당·이자 내역이 없습니다.</td></tr>';
+    if (importBar) importBar.style.display = 'none';
+    return;
+  }
+  if (importBar) importBar.style.display = 'flex';
+  tbody.innerHTML = rows.map((row, index) => {
+    const imported = tossWtsIncomeState.importedIndices.has(index);
+    const selected = tossWtsIncomeState.selectedIndices.has(index);
+    const check = imported
+      ? '<span class="toss-wts-badge-imported">처리됨</span>'
+      : `<input type="checkbox" class="wts-income-row-cb" data-index="${index}" ${selected ? 'checked' : ''}>`;
+    const market = String(row.market || '').toUpperCase();
+    const marketBadge = market === 'KR'
+      ? '<span class="toss-wts-market-badge kr">국내</span>'
+      : '<span class="toss-wts-market-badge us">해외</span>';
+    const typeLabel = tossWtsIncomeTypeLabel(row.income_type);
+    const typeClass = `income-${String(row.income_type || 'other').replace(/[^a-z_]/g, '')}`;
+    const dateText = String(row.datetime || '').slice(0, 10);
+    const currency = String(row.currency || '').toUpperCase();
+    return `<tr>
+      <td class="center">${check}</td>
+      <td class="center">${html(dateText)}</td>
+      <td class="center"><span class="toss-wts-income-type ${typeClass}">${html(typeLabel)}</span></td>
+      <td class="center">${marketBadge}</td>
+      <td><strong>${html(row.display_name || row.stock_name || '-')}</strong>${row.display_code ? ` <small class="muted">(${html(row.display_code)})</small>` : ''}</td>
+      <td class="right">${tossWtsIncomeAmount(row.gross_amount, currency)}</td>
+      <td class="right">${tossWtsIncomeAmount(row.tax, currency)}</td>
+      <td class="right" style="font-weight:700;">${tossWtsIncomeAmount(row.net_amount, currency)}</td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('.wts-income-row-cb').forEach(cb => {
+    cb.addEventListener('change', event => {
+      const index = Number(event.target.dataset.index);
+      if (event.target.checked) tossWtsIncomeState.selectedIndices.add(index);
+      else tossWtsIncomeState.selectedIndices.delete(index);
+      updateTossWtsIncomeSelectionUI();
+    });
+  });
+}
+
+function updateTossWtsIncomeSelectionUI() {
+  const count = tossWtsIncomeState.selectedIndices.size;
+  const badge = document.getElementById('wtsIncomeSelectedCountBadge');
+  const button = document.getElementById('btnWtsIncomeImportSelected');
+  const account = document.getElementById('wtsIncomeDestinationAccount');
+  if (badge) badge.textContent = `선택 ${count}건`;
+  if (button) button.disabled = tossWtsIncomeState.loading || tossWtsIncomeState.importing || count === 0 || !account?.value;
+  const selectAll = document.getElementById('wtsIncomeSelectAll');
+  if (selectAll) {
+    const available = tossWtsIncomeState.rows.filter((_, index) => !tossWtsIncomeState.importedIndices.has(index)).length;
+    selectAll.checked = available > 0 && count === available;
+    selectAll.disabled = available === 0;
+  }
+}
+
+function selectedTossWtsIncomeItems() {
+  return Array.from(tossWtsIncomeState.selectedIndices).sort((a, b) => a - b).map(index => {
+    const row = tossWtsIncomeState.rows[index];
+    const selectionToken = tossWtsIncomeState.selectionTokens[index];
+    return row && selectionToken ? { row, selection_token: selectionToken } : null;
+  }).filter(Boolean);
+}
+
+async function fetchTossWtsIncomeFeed() {
+  if (tossWtsIncomeState.loading) return;
+  const fromDate = document.getElementById('tossWtsIncomeFromDate')?.value?.trim();
+  const toDate = document.getElementById('tossWtsIncomeToDate')?.value?.trim();
+  if (!fromDate || !toDate || fromDate > toDate) {
+    showTossWtsIncomeMessage('올바른 시작일과 종료일을 입력해주세요.', 'error');
+    return;
+  }
+  setTossWtsIncomeLoading(true);
+  const tbody = document.getElementById('tossWtsIncomeTableBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-loading">⏳ 배당·이자 거래원장을 조회하는 중입니다...</td></tr>';
+  showTossWtsIncomeMessage('토스 WTS 배당·이자를 조회하는 중입니다...', 'info');
+  try {
+    const response = await fetch('/api/toss-wts/income-feed/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_date: fromDate, to_date: toDate }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const code = payload?.detail?.code || payload?.code || response.status;
+      if (response.status === 409) {
+        showTossWtsIncomeMessage('WTS 런타임 확인이 필요합니다. 위의 [WTS 런타임 확인] 버튼을 먼저 눌러주세요.', 'error');
+      } else if (response.status === 403) {
+        showTossWtsIncomeMessage('이 사용자에게는 토스 WTS 조회 권한이 없습니다.', 'error');
+      } else {
+        showTossWtsIncomeMessage(`배당·이자 조회에 실패했습니다. (${code})`, 'error');
+      }
+      if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-empty">조회에 실패했습니다.</td></tr>';
+      return;
+    }
+    const pairs = (payload.rows || []).map((row, index) => ({ row, token: (payload.selection_tokens || [])[index] || '' }));
+    pairs.sort((a, b) => String(b.row?.datetime || '').localeCompare(String(a.row?.datetime || '')));
+    tossWtsIncomeState.rows = pairs.map(item => item.row);
+    tossWtsIncomeState.selectionTokens = pairs.map(item => item.token);
+    tossWtsIncomeState.selectedIndices.clear();
+    tossWtsIncomeState.importedIndices.clear();
+    tossWtsIncomeState.previewTicket = null;
+    tossWtsIncomeState.previewData = null;
+    tossWtsIncomeState.fetchedFromDate = payload.requested?.from_date || fromDate;
+    tossWtsIncomeState.fetchedToDate = payload.requested?.to_date || toDate;
+    populateTossWtsIncomeAccounts();
+    renderTossWtsIncomeTable();
+    updateTossWtsIncomeSelectionUI();
+    updateTossWtsIncomeMeta(payload);
+    if (tossWtsIncomeState.rows.length) {
+      showTossWtsIncomeMessage(`${tossWtsIncomeState.rows.length}건의 검증된 배당·이자 내역을 찾았습니다.`, 'success');
+    } else {
+      showTossWtsIncomeMessage('선택한 기간에 가져올 배당·이자 내역이 없습니다.', 'info');
+    }
+  } catch (error) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-empty">조회 중 네트워크 오류가 발생했습니다.</td></tr>';
+    showTossWtsIncomeMessage('배당·이자 조회 중 네트워크 오류가 발생했습니다.', 'error');
+  } finally {
+    setTossWtsIncomeLoading(false);
+  }
+}
+
+function renderTossWtsIncomePreviewModal(data) {
+  const overlay = document.getElementById('wtsIncomeImportModalOverlay');
+  if (!overlay) return;
+  const counts = data.counts || {};
+  const destination = data.destination_account || {};
+  const destEl = document.getElementById('wtsIncomeModalDestAccount');
+  if (destEl) destEl.textContent = `${destination.broker || '토스증권'} - ${maskAccountDisplayLabel(destination.account_name || '')} (${destination.owner || '모두'})`;
+  document.getElementById('wtsIncomeCountNew').textContent = `${Number(counts.new || 0)}건`;
+  document.getElementById('wtsIncomeCountAlready').textContent = `${Number(counts.already_imported || 0)}건`;
+  document.getElementById('wtsIncomeCountDup').textContent = `${Number(counts.possible_duplicate || 0)}건`;
+  document.getElementById('wtsIncomeCountInvalid').textContent = `${Number(counts.invalid || 0)}건`;
+  const dupWrap = document.getElementById('wtsIncomeDupOverrideWrap');
+  const dupCheckbox = document.getElementById('wtsIncomeIncludePossibleDuplicates');
+  if (dupCheckbox) dupCheckbox.checked = false;
+  if (dupWrap) dupWrap.style.display = Number(counts.possible_duplicate || 0) > 0 ? 'block' : 'none';
+  updateTossWtsIncomeCommitButton();
+  overlay.style.display = 'flex';
+}
+
+async function openTossWtsIncomeImportPreview() {
+  const accountId = document.getElementById('wtsIncomeDestinationAccount')?.value;
+  const selectedItems = selectedTossWtsIncomeItems();
+  if (!accountId) {
+    showTossWtsIncomeMessage('귀속할 토스증권 Wealth 계좌를 선택해주세요.', 'error');
+    return;
+  }
+  if (!selectedItems.length) {
+    showTossWtsIncomeMessage('가져올 배당·이자 항목을 선택해주세요.', 'error');
+    return;
+  }
+  setTossWtsIncomeLoading(true);
+  try {
+    const response = await fetch('/api/toss-wts/income-feed/import-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selected_items: selectedItems, account_id: accountId }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      tossWtsIncomeState.previewTicket = null;
+      tossWtsIncomeState.previewData = null;
+      showTossWtsIncomeMessage(`가져오기 미리보기에 실패했습니다. (${payload?.detail?.code || response.status})`, 'error');
+      return;
+    }
+    tossWtsIncomeState.previewTicket = payload.preview_ticket;
+    tossWtsIncomeState.previewData = payload;
+    renderTossWtsIncomePreviewModal(payload);
+  } catch (error) {
+    tossWtsIncomeState.previewTicket = null;
+    tossWtsIncomeState.previewData = null;
+    showTossWtsIncomeMessage('가져오기 미리보기 중 네트워크 오류가 발생했습니다.', 'error');
+  } finally {
+    setTossWtsIncomeLoading(false);
+  }
+}
+
+function updateTossWtsIncomeCommitButton() {
+  const button = document.getElementById('btnWtsIncomeConfirmCommit');
+  if (!button) return;
+  const counts = tossWtsIncomeState.previewData?.counts || {};
+  const includeDup = Boolean(document.getElementById('wtsIncomeIncludePossibleDuplicates')?.checked);
+  const total = Number(counts.new || 0) + (includeDup ? Number(counts.possible_duplicate || 0) : 0);
+  button.disabled = tossWtsIncomeState.importing || !tossWtsIncomeState.previewTicket || total <= 0;
+  button.textContent = `${total}건 가져오기`;
+}
+
+function closeTossWtsIncomeImportModal() {
+  const overlay = document.getElementById('wtsIncomeImportModalOverlay');
+  if (overlay) overlay.style.display = 'none';
+  tossWtsIncomeState.previewTicket = null;
+  tossWtsIncomeState.previewData = null;
+}
+
+async function commitTossWtsIncomeImport() {
+  if (!tossWtsIncomeState.previewTicket || !tossWtsIncomeState.previewData) return;
+  const accountId = document.getElementById('wtsIncomeDestinationAccount')?.value;
+  const selectedItems = selectedTossWtsIncomeItems();
+  const includeDup = Boolean(document.getElementById('wtsIncomeIncludePossibleDuplicates')?.checked);
+  tossWtsIncomeState.importing = true;
+  updateTossWtsIncomeCommitButton();
+  try {
+    const response = await fetch('/api/toss-wts/income-feed/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        selected_items: selectedItems,
+        account_id: accountId,
+        preview_ticket: tossWtsIncomeState.previewTicket,
+        include_possible_duplicates: includeDup,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      showTossWtsIncomeMessage(`배당·이자 가져오기에 실패했습니다. (${payload?.detail?.code || response.status})`, 'error');
+      return;
+    }
+    for (const index of tossWtsIncomeState.selectedIndices) tossWtsIncomeState.importedIndices.add(index);
+    tossWtsIncomeState.selectedIndices.clear();
+    closeTossWtsIncomeImportModal();
+    renderTossWtsIncomeTable();
+    updateTossWtsIncomeSelectionUI();
+    showTossWtsIncomeMessage(
+      `${Number(payload.imported || 0)}건을 가져왔습니다. 이미 가져옴 ${Number(payload.already_imported || 0)}건, 중복 제외 ${Number(payload.possible_duplicate_skipped || 0)}건.`,
+      'success',
+    );
+    if (typeof loadActualDividends === 'function') await loadActualDividends(currentOwner, selectedDividendYear);
+    if (typeof updateOverviewCardsAllTime === 'function') await updateOverviewCardsAllTime(currentOwner);
+  } catch (error) {
+    showTossWtsIncomeMessage('배당·이자 가져오기 중 네트워크 오류가 발생했습니다.', 'error');
+  } finally {
+    tossWtsIncomeState.importing = false;
+    updateTossWtsIncomeCommitButton();
+  }
+}
+
+function initTossWtsIncomeUI() {
+  const fromInput = document.getElementById('tossWtsIncomeFromDate');
+  const toInput = document.getElementById('tossWtsIncomeToDate');
+  if (fromInput && !fromInput.value) {
+    fromInput.value = document.getElementById('tossWtsFromDate')?.value || `${new Date().getFullYear()}-01-01`;
+  }
+  if (toInput && !toInput.value) {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    toInput.value = document.getElementById('tossWtsToDate')?.value || `${yyyy}-${mm}-${dd}`;
+  }
+  document.getElementById('btnFetchTossWtsIncome')?.addEventListener('click', fetchTossWtsIncomeFeed);
+  document.getElementById('wtsIncomeDestinationAccount')?.addEventListener('change', updateTossWtsIncomeSelectionUI);
+  document.getElementById('wtsIncomeSelectAll')?.addEventListener('change', event => {
+    tossWtsIncomeState.rows.forEach((_, index) => {
+      if (!tossWtsIncomeState.importedIndices.has(index)) {
+        if (event.target.checked) tossWtsIncomeState.selectedIndices.add(index);
+        else tossWtsIncomeState.selectedIndices.delete(index);
+      }
+    });
+    renderTossWtsIncomeTable();
+    updateTossWtsIncomeSelectionUI();
+  });
+  document.getElementById('btnWtsIncomeImportSelected')?.addEventListener('click', openTossWtsIncomeImportPreview);
+  document.getElementById('btnWtsIncomeModalClose')?.addEventListener('click', closeTossWtsIncomeImportModal);
+  document.getElementById('btnWtsIncomeModalCancel')?.addEventListener('click', closeTossWtsIncomeImportModal);
+  document.getElementById('wtsIncomeIncludePossibleDuplicates')?.addEventListener('change', updateTossWtsIncomeCommitButton);
+  document.getElementById('btnWtsIncomeConfirmCommit')?.addEventListener('click', commitTossWtsIncomeImport);
+  populateTossWtsIncomeAccounts();
+}
+
 function initTossWtsUI() {
   const fromInput = document.getElementById('tossWtsFromDate');
   const toInput = document.getElementById('tossWtsToDate');
@@ -13784,6 +14156,7 @@ function initTossWtsUI() {
   basisSelect?.addEventListener('change', checkTossWtsFormStale);
   fromInput?.addEventListener('input', checkTossWtsFormStale);
   toInput?.addEventListener('input', checkTossWtsFormStale);
+  initTossWtsIncomeUI();
 }
 
 // ── Broker Realized Feed Shared Helpers ─────────────────────────────────────

@@ -76,6 +76,11 @@ def _read_dividend_records_for_import(username: str | None = None) -> list[dict[
     return records
 
 
+def read_dividend_records_for_import(username: str | None = None) -> list[dict[str, Any]]:
+    """Strict read used by import previews/commits; never treats corruption as empty."""
+    return _read_dividend_records_for_import(username)
+
+
 def write_dividend_records(records: list[dict[str, Any]], username: str | None = None) -> None:
     f = _ensure_dividend_file(username)
     payload = {
@@ -127,6 +132,39 @@ def create_dividend_record(payload: dict[str, Any], username: str | None = None)
         "created_at": now_iso,
         "updated_at": now_iso,
     }
+
+    for field in ("gross_amount", "tax", "fee"):
+        if payload.get(field) is not None:
+            value = float(payload[field])
+            if value < 0:
+                raise ValueError(f"{field} must be non-negative")
+            record[field] = value
+
+    income_type = payload.get("income_type")
+    if income_type is not None:
+        income_type = str(income_type).strip()
+        if income_type not in {"dividend", "distribution", "account_interest"}:
+            raise ValueError("income_type is invalid")
+        record["income_type"] = income_type
+
+    for field in ("source", "source_fingerprint", "source_account_scope", "imported_at"):
+        value = payload.get(field)
+        if value is not None:
+            record[field] = str(value).strip()
+
+    for field in ("source_scope_verified", "imported_by_user_action"):
+        if field in payload:
+            if type(payload[field]) is not bool:
+                raise ValueError(f"{field} must be boolean")
+            record[field] = payload[field]
+
+    source_meta = payload.get("source_meta")
+    if source_meta is not None:
+        if not isinstance(source_meta, dict):
+            raise ValueError("source_meta must be an object")
+        # JSON round-trip is a defensive deep copy and also rejects non-JSON values.
+        record["source_meta"] = json.loads(json.dumps(source_meta, ensure_ascii=False, allow_nan=False))
+
     records.append(record)
     write_dividend_records(records, username)
     return record
@@ -184,78 +222,93 @@ def clear_dividend_records(username: str | None = None) -> None:
     write_dividend_records([], username)
 
 
+def _dividend_income_type(record: dict[str, Any]) -> str:
+    explicit = str(record.get("income_type") or "").strip()
+    if explicit in {"dividend", "distribution", "account_interest"}:
+        return explicit
+    code = str(record.get("code") or "").strip().upper()
+    name = str(record.get("name") or "").strip()
+    if code.startswith("INTEREST") or ("이자" in name and "화이자" not in name):
+        return "account_interest"
+    return "dividend"
+
+
 def get_actual_dividend_summary(owner: str = "모두", year: int | str | None = None, username: str | None = None) -> dict[str, Any]:
     records = read_dividend_records(username)
-    
-    # 가용 연도 목록 추출
-    available_years = sorted(list({str(r.get("date", ""))[:4] for r in records if len(str(r.get("date", ""))) >= 4}), reverse=True)
+
+    scoped: list[dict[str, Any]] = []
+    for record in records:
+        if owner != "모두" and record.get("owner", "모두") != owner:
+            continue
+        record_date = str(record.get("date", ""))
+        if year and str(year) not in {"all", "전체"} and not record_date.startswith(str(year)):
+            continue
+        scoped.append(record)
+
+    dividend_records = [r for r in scoped if _dividend_income_type(r) != "account_interest"]
+    interest_records = [r for r in scoped if _dividend_income_type(r) == "account_interest"]
+
+    available_years = sorted(
+        {str(r.get("date", ""))[:4] for r in dividend_records if len(str(r.get("date", ""))) >= 4},
+        reverse=True,
+    )
     if not available_years:
         available_years = [str(datetime.now().year)]
 
-    filtered = []
-    for r in records:
-        if owner != "모두" and r.get("owner", "모두") != owner:
-            continue
-        r_date = str(r.get("date", ""))
-        if year and str(year) != "all" and str(year) != "전체":
-            if not r_date.startswith(str(year)):
-                continue
-        filtered.append(r)
-
-    total_actual_krw = sum(float(r.get("amount_krw", 0.0)) for r in filtered)
+    total_actual_krw = sum(float(r.get("amount_krw", 0.0)) for r in dividend_records)
+    total_interest_krw = sum(float(r.get("amount_krw", 0.0)) for r in interest_records)
     monthly_schedule = {m: {"month": m, "total_krw": 0.0, "items": []} for m in range(1, 13)}
-    
+
     unique_codes = set()
-    for r in filtered:
-        r_date = str(r.get("date", ""))
+    for record in dividend_records:
+        record_date = str(record.get("date", ""))
         try:
-            m = int(r_date.split("-")[1])
+            month = int(record_date.split("-")[1])
         except (IndexError, ValueError):
-            m = 1
-        if 1 <= m <= 12:
-            amt_krw = float(r.get("amount_krw", 0.0))
-            monthly_schedule[m]["total_krw"] += amt_krw
-            monthly_schedule[m]["items"].append(r)
-            if r.get("code"):
-                unique_codes.add(r.get("code"))
+            month = 1
+        if 1 <= month <= 12:
+            amount_krw = float(record.get("amount_krw", 0.0))
+            monthly_schedule[month]["total_krw"] += amount_krw
+            monthly_schedule[month]["items"].append(record)
+            if record.get("code"):
+                unique_codes.add(record.get("code"))
 
     monthly_list = []
-    for m in range(1, 13):
-        item = monthly_schedule[m]
+    for month in range(1, 13):
+        item = monthly_schedule[month]
         item["total_krw"] = round(item["total_krw"], 0)
         item["items"].sort(key=lambda x: str(x.get("date", "")), reverse=True)
         monthly_list.append(item)
 
-    # 연도별 집계 (오름차순 2022 -> 2026)
     yearly_dict: dict[str, dict[str, Any]] = {
         y: {"year": y, "total_krw": 0.0, "items": []} for y in sorted(available_years)
     }
-    for r in filtered:
-        y_str = str(r.get("date", ""))[:4]
-        if y_str in yearly_dict:
-            amt_krw = float(r.get("amount_krw", 0.0))
-            yearly_dict[y_str]["total_krw"] += amt_krw
-            yearly_dict[y_str]["items"].append(r)
+    for record in dividend_records:
+        year_text = str(record.get("date", ""))[:4]
+        if year_text in yearly_dict:
+            yearly_dict[year_text]["total_krw"] += float(record.get("amount_krw", 0.0))
+            yearly_dict[year_text]["items"].append(record)
 
     yearly_list = []
-    for y in sorted(yearly_dict.keys()):
-        item = yearly_dict[y]
+    for year_text in sorted(yearly_dict.keys()):
+        item = yearly_dict[year_text]
         item["total_krw"] = round(item["total_krw"], 0)
         item["items"].sort(key=lambda x: str(x.get("date", "")), reverse=True)
         yearly_list.append(item)
-
-    filtered_sorted = sorted(filtered, key=lambda x: str(x.get("date", "")), reverse=True)
 
     return {
         "year": str(year) if year else str(datetime.now().year),
         "available_years": available_years,
         "total_actual_dividend_krw": round(total_actual_krw, 0),
         "monthly_avg_dividend_krw": round(total_actual_krw / 12, 0),
-        "record_count": len(filtered),
+        "record_count": len(dividend_records),
         "paying_stock_count": len(unique_codes),
         "monthly_schedule": monthly_list,
         "yearly_schedule": yearly_list,
-        "records": filtered_sorted,
+        "records": sorted(dividend_records, key=lambda x: str(x.get("date", "")), reverse=True),
+        "total_actual_interest_krw": round(total_interest_krw, 0),
+        "interest_record_count": len(interest_records),
+        "interest_records": sorted(interest_records, key=lambda x: str(x.get("date", "")), reverse=True),
     }
 
 

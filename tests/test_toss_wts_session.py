@@ -243,37 +243,55 @@ class TossWtsSessionTests(unittest.TestCase):
         lock_held = threading.Event()
         extender_done = threading.Event()
         results = []
+
         def hold_lock():
             try:
-                with patch.dict(_os.environ, self.env):
-                    with g.auth_operation_lock(USERNAME, acquire_timeout_seconds=2.0):
-                        lock_held.set()
-                        extender_done.wait(timeout=5.0)
-            except Exception: pass
+                with g.auth_operation_lock(USERNAME, acquire_timeout_seconds=2.0):
+                    lock_held.set()
+                    extender_done.wait(timeout=7.0)
+            except Exception:
+                pass
+
         def run_extend():
             lock_held.wait(timeout=2.0)
             runner = Mock(return_value=self._status(hours=24))
             try:
-                with patch.dict(_os.environ, self.env), \
-                     patch("app.services.toss_wts_session.resolve_telegram_config",
-                           return_value=Mock()):
+                with patch(
+                    "app.services.toss_wts_session.resolve_telegram_config",
+                    return_value=Mock(),
+                ):
                     r = run_toss_session_maintenance(
-                        USERNAME, now=self.now, settings=self.settings,
-                        run=runner, sender=Mock())
+                        USERNAME,
+                        now=self.now,
+                        settings=self.settings,
+                        run=runner,
+                        sender=Mock(),
+                    )
                 results.append(r)
-            except Exception as e: results.append({"_exc": str(e)})
-            finally: extender_done.set()
-        t1 = threading.Thread(target=hold_lock)
-        t2 = threading.Thread(target=run_extend)
-        t1.start(); t2.start()
-        t1.join(timeout=8.0); t2.join(timeout=8.0)
+            except Exception as e:
+                results.append({"_exc": str(e)})
+            finally:
+                extender_done.set()
+
+        # os.environ is process-global. Patch once around both threads instead
+        # of mutating it independently from concurrently running threads.
+        with patch.dict(_os.environ, self.env):
+            t1 = threading.Thread(target=hold_lock)
+            t2 = threading.Thread(target=run_extend)
+            t1.start()
+            t2.start()
+            t1.join(timeout=10.0)
+            t2.join(timeout=10.0)
+
         self.assertEqual(len(results), 1)
         r = results[0]
         self.assertNotIn("_exc", r, f"Unexpected exception: {r}")
         self.assertEqual(r["action"], "deferred")
-        self.assertIn(r["error_code"], ("TOSS_AUTH_OPERATION_BUSY", "AUTH_LOGIN_IN_PROGRESS"))
+        self.assertIn(
+            r["error_code"],
+            ("TOSS_AUTH_OPERATION_BUSY", "AUTH_LOGIN_IN_PROGRESS"),
+        )
         self.assertFalse(r["extension_attempted"])
-
 
 if __name__ == "__main__":
     unittest.main()

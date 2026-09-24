@@ -1581,3 +1581,44 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
   border-color: #222233 !important;
   color: #cbd5e1 !important;
 }
+
+/* ── Toss WTS dividend / interest importer ─────────────────── */
+.toss-wts-income-section {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line, #334155);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.toss-wts-income-title {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text, #f8fafc);
+}
+.toss-wts-income-type {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--surface-3, #334155);
+  color: var(--text, #f8fafc);
+}
+.toss-wts-income-type.income-dividend,
+.toss-wts-income-type.income-distribution {
+  background: rgba(244, 63, 94, 0.12);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.28);
+}
+.toss-wts-income-type.income-account_interest {
+  background: rgba(168, 85, 247, 0.12);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.28);
+}
+@media (max-width: 760px) {
+  .toss-wts-income-section .toss-wts-table {
+    min-width: 760px;
+  }
+}

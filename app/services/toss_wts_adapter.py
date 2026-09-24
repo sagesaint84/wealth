@@ -34,12 +34,17 @@ DEFAULT_TIMEOUT_SECONDS = DEFAULT_TOSS_WTS_TIMEOUT_SECONDS
 _AUTH_STATUS = "AUTH_STATUS"
 _PROFIT_OVERVIEW = "PROFIT_OVERVIEW"
 _PROFIT_DAILY = "PROFIT_DAILY"
+_TRANSACTIONS_LIST = "TRANSACTIONS_LIST"
 _OPERATION_ARGS = {
     _AUTH_STATUS: ("auth", "status"),
     _PROFIT_OVERVIEW: ("profit",),
     _PROFIT_DAILY: ("profit", "daily"),
+    _TRANSACTIONS_LIST: ("transactions", "list"),
 }
 _PROFIT_DAILY_CURRENCIES = frozenset({"KRW", "USD"})
+_TRANSACTION_MARKETS = frozenset({"kr", "us"})
+_TRANSACTION_FILTERS = frozenset({"all", "trade", "cash", "inout", "cash-alt"})
+_TRANSACTION_MAX_DAYS = 200
 
 # Kept as stable, sanitized boundary codes.  Future explicit probes can map
 # upstream auth/version states to these without exposing raw CLI output.
@@ -133,15 +138,19 @@ class TossWtsConfig:
     timeout_seconds: int
 
     @classmethod
-    def from_environment(cls) -> "TossWtsConfig":
+    def from_environment(cls, username: str | None = None) -> "TossWtsConfig":
         try:
             effective = resolve_toss_wts_settings()
         except SystemSettingsError:
             return cls(False, None, None, EXPECTED_TOSSCTL_VERSION, DEFAULT_TIMEOUT_SECONDS)
+        config_dir = Path(str(effective["config_dir"]))
+        if username is not None:
+            from app.services.toss_wts_auth_guard import _user_toss_root
+            config_dir = _user_toss_root(username) / "config"
         return cls(
             enabled=bool(effective["enabled"]),
             executable=Path(str(effective["executable"])),
-            config_dir=Path(str(effective["config_dir"])),
+            config_dir=config_dir,
             expected_version=str(effective["expected_version"]),
             timeout_seconds=int(effective["timeout_seconds"]),
         )
@@ -150,9 +159,8 @@ class TossWtsConfig:
 class TossWtsAdapter:
     """Lazy, read-only tossctl adapter with a deliberately closed command set."""
 
-    def __init__(self, config: TossWtsConfig | None = None):
-        self._config = config or TossWtsConfig.from_environment()
-
+    def __init__(self, config: TossWtsConfig | None = None, *, username: str | None = None):
+        self._config = config or TossWtsConfig.from_environment(username=username)
     def get_local_status(self) -> dict[str, Any]:
         """Return only local configuration booleans; no subprocess or session read."""
         executable_present = bool(self._config.executable and self._config.executable.is_file())
@@ -253,6 +261,147 @@ class TossWtsAdapter:
         )
         result.update(query_range)
         return result
+
+    def get_transactions_list(
+        self,
+        from_date: str,
+        to_date: str,
+        *,
+        market: str,
+        transaction_filter: str = "cash",
+        page_limit: int = 20,
+        size: int = 50,
+    ) -> list[dict[str, Any]]:
+        normalized_from, normalized_to, normalized_market, normalized_filter = self._validate_transactions_request(
+            from_date, to_date, market, transaction_filter, page_limit, size
+        )
+        self._require_ready()
+        if is_test_mode():
+            raise TossWtsAdapterError("TEST_MODE_DISABLED")
+        payload = self._run_json(
+            _TRANSACTIONS_LIST,
+            (
+                "--market", normalized_market,
+                "--filter", normalized_filter,
+                "--from", normalized_from,
+                "--to", normalized_to,
+                "--all",
+                "--page-limit", str(page_limit),
+                "--size", str(size),
+            ),
+        )
+        if not isinstance(payload, list):
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        return [self._normalize_transaction_row(row, normalized_market) for row in payload]
+
+    def get_income_transactions(self, from_date: str, to_date: str) -> dict[str, Any]:
+        try:
+            parsed_from = date.fromisoformat(from_date)
+            parsed_to = date.fromisoformat(to_date)
+        except (TypeError, ValueError) as exc:
+            raise TossWtsAdapterError("INVALID_SCHEMA") from exc
+        if parsed_from > parsed_to:
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        rows: list[dict[str, Any]] = []
+        windows: list[dict[str, str]] = []
+        cursor = parsed_from
+        while cursor <= parsed_to:
+            end = min(cursor + timedelta(days=_TRANSACTION_MAX_DAYS - 1), parsed_to)
+            start_text, end_text = cursor.isoformat(), end.isoformat()
+            windows.append({"from": start_text, "to": end_text})
+            for market in ("kr", "us"):
+                rows.extend(self.get_transactions_list(
+                    start_text, end_text, market=market, transaction_filter="cash"
+                ))
+            cursor = end + timedelta(days=1)
+        return {
+            "source": "toss_wts",
+            "kind": "income_transactions",
+            "from": from_date,
+            "to": to_date,
+            "windows": windows,
+            "rows": rows,
+        }
+
+    @staticmethod
+    def _validate_transactions_request(
+        from_date: str,
+        to_date: str,
+        market: str,
+        transaction_filter: str,
+        page_limit: int,
+        size: int,
+    ) -> tuple[str, str, str, str]:
+        if not all(isinstance(v, str) for v in (from_date, to_date, market, transaction_filter)):
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        try:
+            parsed_from = date.fromisoformat(from_date)
+            parsed_to = date.fromisoformat(to_date)
+        except ValueError as exc:
+            raise TossWtsAdapterError("INVALID_SCHEMA") from exc
+        if parsed_from > parsed_to or (parsed_to - parsed_from).days + 1 > _TRANSACTION_MAX_DAYS:
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        normalized_market = market.strip().lower()
+        normalized_filter = transaction_filter.strip().lower()
+        if normalized_market not in _TRANSACTION_MARKETS or normalized_filter not in _TRANSACTION_FILTERS:
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        if type(page_limit) is not int or not 1 <= page_limit <= 100:
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        if type(size) is not int or not 1 <= size <= 200:
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        return from_date, to_date, normalized_market, normalized_filter
+
+    @staticmethod
+    def _normalize_transaction_row(value: Any, market: str) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        raw = value.get("raw")
+        if not isinstance(raw, dict):
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        tx = raw.get("transactionType")
+        composite = raw.get("compositeKey")
+        if not isinstance(tx, dict) or not isinstance(composite, dict):
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        if not isinstance(value.get("category"), str) or not isinstance(value.get("currency"), str) or not isinstance(value.get("datetime"), str):
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        if not _is_financial_number(value.get("amount")) or not _is_financial_number(value.get("adjusted_amount")):
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        raw_amount = raw.get("amount")
+        raw_adjusted = raw.get("adjustedAmount")
+        raw_tax = raw.get("totalTaxAmount")
+        if not all(_is_financial_number(v) for v in (raw_amount, raw_adjusted, raw_tax)):
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        if not isinstance(raw.get("summaryNo"), str):
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        if not isinstance(tx.get("code"), str) or not isinstance(tx.get("displayName"), str):
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        if not isinstance(composite.get("date"), str) or type(composite.get("no")) is not int:
+            raise TossWtsAdapterError("INVALID_SCHEMA")
+        return {
+            "market": market,
+            "category": value["category"],
+            "currency": value["currency"],
+            "datetime": value["datetime"],
+            "display_type": str(value.get("display_type") or ""),
+            "stock_name": str(value.get("stock_name") or ""),
+            "amount": value["amount"],
+            "adjusted_amount": value["adjusted_amount"],
+            "source_meta": {
+                "summary_no": raw["summaryNo"],
+                "trade_type_name": str(raw.get("tradeTypeName") or ""),
+                "transaction_type_code": tx["code"],
+                "transaction_type_name": tx["displayName"],
+                "display_type": str(raw.get("displayType") or ""),
+                "stock_code": str(raw.get("stockCode") or ""),
+                "stock_name": str(raw.get("stockName") or ""),
+                "product_name": str(raw.get("productName") or ""),
+                "quantity": raw.get("quantity") if _is_financial_number(raw.get("quantity")) else None,
+                "provider_amount": raw_amount,
+                "provider_adjusted_amount": raw_adjusted,
+                "provider_tax_amount": raw_tax,
+                "composite_key": {"date": composite["date"], "no": composite["no"]},
+            },
+        }
 
     def _require_ready(self) -> dict[str, Any]:
         status = self.get_local_status()
