@@ -106,7 +106,7 @@ def _validate_username(username: str) -> str:
 
 def _data_root() -> Path:
     root = os.getenv("WEALTH_DATA_DIR", "").strip()
-    return Path(root) if root else Path(__file__).resolve().parents[3] / "data"
+    return Path(root) if root else Path(__file__).resolve().parents[2] / "data"
 
 
 def _user_toss_root(username: str) -> Path:
