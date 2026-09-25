@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import os
 import re
@@ -11,7 +12,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -503,6 +504,7 @@ LOGIN_PAGE_HTML = """<!DOCTYPE html>
       <h1>자산 대시보드</h1>
     </div>
     <form method="post" action="/login">
+      {{return_to_input}}
       <label>아이디</label>
       <input type="text" name="username" autocomplete="username" placeholder="아이디 입력" required autofocus />
       <label>비밀번호</label>
@@ -576,6 +578,8 @@ async def require_login(request: Request, call_next):
     
     user = _get_authenticated_user(request)
     if not user:
+        if path.startswith("/a/"):
+            return RedirectResponse(f"/login?return_to={quote(path, safe='')}")
         if path.startswith("/api/"):
             return JSONResponse({"detail": "로그인이 필요합니다."}, status_code=401)
         return RedirectResponse("/login")
@@ -598,21 +602,51 @@ async def require_login(request: Request, call_next):
     return await call_next(request)
 
 
+_SAFE_RETURN_TO_RE = re.compile(r"^/a/[A-Za-z0-9_-]{16,64}$")
+
+
+def _sanitize_return_to(return_to: str | None) -> str | None:
+    if not return_to or not isinstance(return_to, str):
+        return None
+    val = return_to.strip()
+    if _SAFE_RETURN_TO_RE.match(val):
+        return val
+    return None
+
+
 @app.get("/login", include_in_schema=False)
-async def login_page(error: str | None = None) -> HTMLResponse:
+async def login_page(error: str | None = None, return_to: str | None = None) -> HTMLResponse:
     message = "<p class='error'>아이디 또는 비밀번호가 올바르지 않습니다.</p>" if error else ""
-    return HTMLResponse(LOGIN_PAGE_HTML.replace("{{message}}", message))
+    safe_return_to = _sanitize_return_to(return_to)
+    return_to_input = (
+        f'<input type="hidden" name="return_to" value="{safe_return_to}" />'
+        if safe_return_to
+        else ""
+    )
+    html = (
+        LOGIN_PAGE_HTML
+        .replace("{{message}}", message)
+        .replace("{{return_to_input}}", return_to_input)
+    )
+    return HTMLResponse(html)
 
 
 @app.post("/login", include_in_schema=False)
-async def login_submit(username: str = Form(...), password: str = Form(...)):
+async def login_submit(
+    username: str = Form(...),
+    password: str = Form(...),
+    return_to: str | None = Form(None),
+):
     from app.services.user_manager import authenticate_user
     u = authenticate_user(username.strip(), password.strip())
+    safe_return_to = _sanitize_return_to(return_to)
     if u:
         token = _serializer.dumps({"user": u["username"], "role": u.get("role", "user")})
         # 초기 비밀번호 변경 필요 계정이면 대시보드가 아닌 비번 변경 전용 페이지로 즉시 리다이렉트
         if u.get("must_change_password", False):
             response = RedirectResponse("/change-password-init", status_code=303)
+        elif safe_return_to:
+            response = RedirectResponse(safe_return_to, status_code=303)
         else:
             response = RedirectResponse("/dashboard", status_code=303)
         
@@ -625,7 +659,10 @@ async def login_submit(username: str = Form(...), password: str = Form(...)):
             max_age=SESSION_MAX_AGE,
         )
         return response
-    return RedirectResponse("/login?error=1", status_code=303)
+    err_redirect = "/login?error=1"
+    if safe_return_to:
+        err_redirect += f"&return_to={quote(safe_return_to, safe='')}"
+    return RedirectResponse(err_redirect, status_code=303)
 
 
 @app.get("/change-password-init", include_in_schema=False)
@@ -5826,3 +5863,421 @@ async def upload_ledger_file(
         return {"message": f"총 {count}건의 거래 내역을 성공적으로 등록했습니다.", "count": count}
     except Exception as e:
         raise HTTPException(400, f"파일 처리 중 오류가 발생했습니다: {str(e)}")
+
+
+ACTION_LANDING_HTML = """<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="referrer" content="no-referrer" />
+<title>{{page_title}} - Wealth Action</title>
+<style>
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:radial-gradient(ellipse at 50% 20%, #15102a 0%, #060913 70%); color:#e0e6f5;
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .card { width:100%; max-width:440px; padding:32px 28px; border-radius:16px; box-sizing:border-box;
+          background:rgba(14,21,41,0.96); border:1px solid #3d2c73;
+          box-shadow:0 20px 50px rgba(0,0,0,0.7), 0 0 0 1px rgba(157,123,255,0.2); backdrop-filter:blur(10px); }
+  .brand-wrap { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+  .brand-icon { width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,#9d7bff,#5d3ad4);
+                display:flex; align-items:center; justify-content:center; font-weight:800; font-size:18px; color:#fff; }
+  h1 { font-size:20px; font-weight:800; margin:0; color:#f3f5ff; }
+  .desc { font-size:14px; color:#91a0c1; line-height:1.5; margin:0 0 20px; }
+  .info-box { background:#080e1e; border:1px solid #222d48; border-radius:10px; padding:16px; margin-bottom:24px; }
+  .info-row { display:flex; justify-content:space-between; margin-bottom:8px; font-size:13.5px; }
+  .info-row:last-child { margin-bottom:0; }
+  .info-label { color:#7e8ea8; }
+  .info-value { color:#f3f5ff; font-weight:600; }
+  .status-badge { display:inline-block; padding:3px 8px; border-radius:6px; font-size:12px; font-weight:700; }
+  .badge-pending { background:rgba(157,123,255,0.18); color:#c4b5fd; border:1px solid rgba(157,123,255,0.3); }
+  .badge-done { background:rgba(34,197,94,0.18); color:#86efac; border:1px solid rgba(34,197,94,0.3); }
+  .badge-error { background:rgba(239,68,68,0.18); color:#fca5a5; border:1px solid rgba(239,68,68,0.3); }
+  button { width:100%; padding:13px; border:none; border-radius:10px;
+           background:linear-gradient(135deg,#8e70fa,#5d3ad4); color:white; font-size:15px; font-weight:700; cursor:pointer;
+           box-shadow:0 6px 18px rgba(93,58,212,0.4); transition:.18s; }
+  button:hover { filter:brightness(1.12); transform:translateY(-1px); }
+  .back-link { display:block; text-align:center; margin-top:16px; font-size:13px; color:#91a0c1; text-decoration:none; }
+  .back-link:hover { color:#c4b5fd; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand-wrap">
+      <div class="brand-icon">W</div>
+      <h1>{{header_title}}</h1>
+    </div>
+    <p class="desc">{{description}}</p>
+    <div class="info-box">
+      {{info_rows}}
+    </div>
+    {{action_content}}
+    <a href="/dashboard" class="back-link">대시보드로 돌아가기</a>
+  </div>
+</body>
+</html>"""
+
+
+def _render_action_card(
+    *,
+    page_title: str,
+    header_title: str,
+    description: str,
+    info_dict: dict[str, str],
+    action_content: str,
+    status_code: int = 200,
+) -> HTMLResponse:
+    info_rows = ""
+    for k, v in info_dict.items():
+        info_rows += f'<div class="info-row"><span class="info-label">{html.escape(k)}</span><span class="info-value">{html.escape(v)}</span></div>'
+    rendered = (
+        ACTION_LANDING_HTML
+        .replace("{{page_title}}", html.escape(page_title))
+        .replace("{{header_title}}", html.escape(header_title))
+        .replace("{{description}}", html.escape(description))
+        .replace("{{info_rows}}", info_rows)
+        .replace("{{action_content}}", action_content)
+    )
+    return HTMLResponse(
+        content=rendered,
+        status_code=status_code,
+        headers={"Referrer-Policy": "no-referrer"},
+    )
+
+
+def _validate_same_origin_request(request: Request) -> bool:
+    """Strict same-origin CSRF validation against configured public_base_url.
+
+    Checks Origin (or Referer as fallback). Both must match configured public_base_url origin.
+    Missing Origin AND missing Referer fails closed (returns False).
+    """
+    from app.services.system_settings import get_effective_system_settings
+    settings = get_effective_system_settings()
+    base_url = settings.get("public_base_url")
+    if not base_url:
+        return False
+
+    try:
+        base_parts = urlsplit(base_url)
+        expected_scheme = base_parts.scheme
+        expected_netloc = base_parts.netloc
+    except Exception:
+        return False
+
+    origin = request.headers.get("origin")
+    referer = request.headers.get("referer")
+
+    if origin:
+        try:
+            o_parts = urlsplit(origin)
+            return o_parts.scheme == expected_scheme and o_parts.netloc == expected_netloc
+        except Exception:
+            return False
+
+    if referer:
+        try:
+            r_parts = urlsplit(referer)
+            return r_parts.scheme == expected_scheme and r_parts.netloc == expected_netloc
+        except Exception:
+            return False
+
+    return False
+
+
+@app.get("/a/{token}", include_in_schema=False)
+async def get_web_action_landing(request: Request, token: str) -> HTMLResponse:
+    from app.services.action_v2 import (
+        ACTION_TYPE_MARK_IPO_APPLIED,
+        ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+        get_web_action_metadata,
+        is_action_expired,
+        validate_action_token,
+    )
+    from app.services.ipo.applications import get_user_applications
+    from app.services.ipo.store import read_market_store_read_only
+
+    try:
+        token = validate_action_token(token)
+    except Exception:
+        return _render_action_card(
+            page_title="유효하지 않은 링크",
+            header_title="작업 링크 오류",
+            description="해당 링크가 존재하지 않거나 유효하지 않습니다.",
+            info_dict={"상태": "유효하지 않음"},
+            action_content="",
+            status_code=404,
+        )
+
+    current_user = get_current_username(request)
+    action = get_web_action_metadata(token)
+    if not action:
+        return _render_action_card(
+            page_title="유효하지 않은 링크",
+            header_title="작업 링크 오류",
+            description="해당 링크가 존재하지 않거나 유효하지 않습니다.",
+            info_dict={"상태": "유효하지 않음"},
+            action_content="",
+            status_code=404,
+        )
+
+    # Cross-user authorization check: strict username binding
+    if action.get("username") != current_user:
+        return _render_action_card(
+            page_title="접근 제한",
+            header_title="접근 권한 없음",
+            description="해당 작업에 대한 접근 권한이 없습니다. 올바른 계정으로 로그인해 주세요.",
+            info_dict={"요청 계정": current_user},
+            action_content="",
+            status_code=403,
+        )
+
+    action_type = action.get("action_type")
+    meta = action.get("metadata", {})
+    ipo_id = meta.get("ipo_id")
+    owner = meta.get("owner") or "-"
+
+    # Canonical IPO display resolve: authoritative source is read_market_store_read_only()
+    ipo_name = "공모주"
+    if ipo_id:
+        try:
+            market_ipos = read_market_store_read_only().get("ipos", [])
+            matched_ipo = next((x for x in market_ipos if x.get("ipo_id") == ipo_id), None)
+            if matched_ipo and matched_ipo.get("company_name"):
+                ipo_name = matched_ipo["company_name"]
+            elif matched_ipo and matched_ipo.get("name"):
+                ipo_name = matched_ipo["name"]
+        except Exception as exc:
+            logger.warning("Failed to resolve canonical IPO company name: %s", exc)
+
+    # Expiration check
+    if is_action_expired(action):
+        return _render_action_card(
+            page_title="만료된 링크",
+            header_title="작업 기한 만료",
+            description="해당 청약 신청 기한이 이미 만료되었습니다.",
+            info_dict={
+                "종목명": ipo_name,
+                "대상자": owner,
+                "상태": "기한 만료",
+            },
+            action_content="",
+            status_code=410,
+        )
+
+    # Already consumed check
+    if action.get("consumed_at"):
+        return _render_action_card(
+            page_title="처리 완료된 작업",
+            header_title="이미 처리된 작업",
+            description="해당 작업은 이미 성공적으로 처리되었습니다.",
+            info_dict={
+                "종목명": ipo_name,
+                "대상자": owner,
+                "처리 상태": "완료됨",
+            },
+            action_content="",
+            status_code=200,
+        )
+
+    # Check live application state
+    apps = get_user_applications(current_user)
+    app_record = apps.get("applications", {}).get(ipo_id, {})
+    applied_owners = list(app_record.get("applied_owners") or [])
+    if owner in applied_owners:
+        return _render_action_card(
+            page_title="청약 완료 상태",
+            header_title="청약 신청 완료 확인",
+            description="해당 대상자는 이미 청약 완료 상태로 등록되어 있습니다.",
+            info_dict={
+                "종목명": ipo_name,
+                "대상자": owner,
+                "현재 상태": "청약 완료",
+            },
+            action_content="",
+            status_code=200,
+        )
+
+    if action_type == ACTION_TYPE_MARK_IPO_APPLIED:
+        action_button = f"""<form method="post" action="/a/{html.escape(token)}/execute">
+          <button type="submit">청약 완료 확인 및 상태 변경</button>
+        </form>"""
+        return _render_action_card(
+            page_title="청약 완료 확인",
+            header_title="IPO 청약 완료 확인",
+            description="아래 정보를 확인하고 청약 완료 처리를 진행해 주세요.",
+            info_dict={
+                "종목명": ipo_name,
+                "신청 대상": owner,
+                "현재 상태": "청약 전 (확인 대기)",
+            },
+            action_content=action_button,
+            status_code=200,
+        )
+    elif action_type == ACTION_TYPE_OPEN_IPO_SALE_FLOW:
+        return _render_action_card(
+            page_title="매도 기록",
+            header_title="IPO 상장일 매도",
+            description="상장일 매도 기록 기능은 준비 중입니다.",
+            info_dict={
+                "종목명": ipo_name,
+                "대상자": owner,
+            },
+            action_content="",
+            status_code=200,
+        )
+    else:
+        return _render_action_card(
+            page_title="지원하지 않는 작업",
+            header_title="알 수 없는 작업",
+            description="지원되지 않는 작업 유형입니다.",
+            info_dict={"작업 유형": str(action_type)},
+            action_content="",
+            status_code=400,
+        )
+
+
+@app.post("/a/{token}/execute", include_in_schema=False)
+async def post_web_action_execute(request: Request, token: str) -> HTMLResponse:
+    from app.services.action_v2 import execute_web_action, validate_action_token
+    from app.services.ipo.actions import IpoActionError
+
+    # 1. CSRF same-origin check
+    if not _validate_same_origin_request(request):
+        return _render_action_card(
+            page_title="접근 제한",
+            header_title="요청 검증 실패",
+            description="안전하지 않거나 허용되지 않은 출처에서의 요청입니다.",
+            info_dict={"오류": "CSRF_FORBIDDEN"},
+            action_content="",
+            status_code=403,
+        )
+
+    # 2. Token format validation
+    try:
+        token = validate_action_token(token)
+    except Exception:
+        return _render_action_card(
+            page_title="유효하지 않은 링크",
+            header_title="작업 링크 오류",
+            description="해당 링크가 존재하지 않거나 유효하지 않습니다.",
+            info_dict={"상태": "유효하지 않음"},
+            action_content="",
+            status_code=404,
+        )
+
+    current_user = get_current_username(request)
+    try:
+        result = execute_web_action(token, authenticated_username=current_user)
+    except IpoActionError as exc:
+        err_msg = str(exc)
+        if err_msg == "ACTION_NOT_FOUND":
+            return _render_action_card(
+                page_title="유효하지 않은 링크",
+                header_title="작업 링크 오류",
+                description="해당 링크가 존재하지 않거나 유효하지 않습니다.",
+                info_dict={"상태": "유효하지 않음"},
+                action_content="",
+                status_code=404,
+            )
+        elif err_msg == "FORBIDDEN":
+            return _render_action_card(
+                page_title="접근 제한",
+                header_title="접근 권한 없음",
+                description="해당 작업에 대한 접근 권한이 없습니다. 올바른 계정으로 로그인해 주세요.",
+                info_dict={"요청 계정": current_user},
+                action_content="",
+                status_code=403,
+            )
+        elif err_msg == "ACTION_EXPIRED":
+            return _render_action_card(
+                page_title="만료된 링크",
+                header_title="작업 기한 만료",
+                description="해당 청약 신청 기한이 이미 만료되었습니다.",
+                info_dict={"상태": "기한 만료"},
+                action_content="",
+                status_code=410,
+            )
+        elif err_msg == "ACTION_NOT_EXECUTABLE":
+            return _render_action_card(
+                page_title="실행 불가",
+                header_title="실행할 수 없는 작업",
+                description="해당 작업은 현재 웹 액션으로 실행할 수 없습니다.",
+                info_dict={"상태": "ACTION_NOT_EXECUTABLE"},
+                action_content="",
+                status_code=400,
+            )
+        elif err_msg in (
+            "ACTION_ALREADY_RUNNING",
+            "ACTION_V2_STATE_INVALID",
+            "ACTION_TOKEN_INVALID",
+            "SUBSCRIPTION_NOT_ACTIVE",
+            "OWNER_NOT_ELIGIBLE",
+            "IPO_NOT_FOUND",
+        ):
+            # Known stable business error codes
+            safe_descriptions = {
+                "ACTION_ALREADY_RUNNING": "다른 작업이 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+                "ACTION_V2_STATE_INVALID": "작업 저장소 상태를 확인할 수 없습니다.",
+                "ACTION_TOKEN_INVALID": "유효하지 않은 요청 토큰입니다.",
+                "SUBSCRIPTION_NOT_ACTIVE": "청약 진행 기간이 아닙니다.",
+                "OWNER_NOT_ELIGIBLE": "해당 청약의 신청 대상자가 아닙니다.",
+                "IPO_NOT_FOUND": "대상 공모주 정보를 찾을 수 없습니다.",
+            }
+            desc = safe_descriptions.get(err_msg, "작업을 처리할 수 없습니다.")
+            return _render_action_card(
+                page_title="처리 실패",
+                header_title="작업 처리 실패",
+                description=desc,
+                info_dict={"상태": err_msg},
+                action_content="",
+                status_code=400,
+            )
+        else:
+            logger.warning("Action execution failed with unmapped error: %s", err_msg)
+            return _render_action_card(
+                page_title="처리 실패",
+                header_title="작업 처리 실패",
+                description="작업을 처리할 수 없습니다.",
+                info_dict={"상태": "ERROR"},
+                action_content="",
+                status_code=400,
+            )
+
+    status = result.get("status")
+    owner = result.get("owner", "")
+    if status == "already_applied":
+        return _render_action_card(
+            page_title="청약 완료",
+            header_title="이미 처리 완료",
+            description=f"{owner} 님의 청약 완료 처리가 이미 반영되어 있습니다.",
+            info_dict={"대상자": owner, "처리 결과": "기 반영됨"},
+            action_content="",
+            status_code=200,
+        )
+    elif status == "already_processed":
+        return _render_action_card(
+            page_title="처리 완료",
+            header_title="이미 처리 완료",
+            description="해당 작업 링크는 이미 처리되었습니다.",
+            info_dict={"처리 결과": "이미 처리됨"},
+            action_content="",
+            status_code=200,
+        )
+    elif status == "applied":
+        return _render_action_card(
+            page_title="청약 완료 완료",
+            header_title="청약 완료 처리 성공",
+            description=f"축하합니다! {owner} 님의 공모주 청약이 성공적으로 완료 처리되었습니다.",
+            info_dict={"대상자": owner, "처리 결과": "청약 완료 등록 성공"},
+            action_content="",
+            status_code=200,
+        )
+    else:
+        return _render_action_card(
+            page_title="작업 완료",
+            header_title="작업 처리 완료",
+            description="작업이 성공적으로 처리되었습니다.",
+            info_dict={"처리 결과": "완료"},
+            action_content="",
+            status_code=200,
+        )

@@ -229,7 +229,12 @@ def _market_ipo(ipo_id: str) -> dict[str, Any]:
     return ipo
 
 
-def _validate(ipo_id: str, owner: str, username: str | None, today: date) -> tuple:
+def validate_ipo_subscription_eligibility(
+    ipo_id: str,
+    owner: str,
+    username: str | None,
+    today: date,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], date]:
     """Validate subscription window and owner eligibility. Returns (ipo, apps, app, end)."""
     ipo = _market_ipo(ipo_id)
     try:
@@ -246,6 +251,9 @@ def _validate(ipo_id: str, owner: str, username: str | None, today: date) -> tup
     if owner not in targets:
         raise IpoActionError("OWNER_NOT_ELIGIBLE")
     return ipo, apps, app, end
+
+
+_validate = validate_ipo_subscription_eligibility
 
 
 # ---------------------------------------------------------------------------
