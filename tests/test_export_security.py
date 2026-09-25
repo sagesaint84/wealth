@@ -123,6 +123,7 @@ class ExportSecurityTests(unittest.TestCase):
             "fake-password-hash",
             "fake-session-secret",
             "fake-api-key",
+            "https://discord.com/api/webhooks/123/fake-webhook-token",
         }
         portfolio = {
             "holdings": [
@@ -132,7 +133,10 @@ class ExportSecurityTests(unittest.TestCase):
                     "quantity": 7,
                     "app_key": "fake-app-key",
                     "appSecret": "fake-app-secret",
-                    "nested": {"accessToken": "fake-access-token"},
+                    "nested": {
+                        "accessToken": "fake-access-token",
+                        "webhook_url": "https://discord.com/api/webhooks/123/fake-webhook-token",
+                    },
                 }
             ],
             "accounts": [{"name": "가상 계좌", "balance": 12345}],
