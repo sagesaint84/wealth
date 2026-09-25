@@ -15,8 +15,8 @@ from typing import Any, Callable
 from app.services.system_settings import resolve_toss_wts_settings
 from app.services.telegram_config import resolve_telegram_config
 from app.services.telegram_management import TelegramManagementError, send_telegram_message
-from app.services.notifications.dispatcher import NotificationDispatcher
-from app.services.notifications.models import NotificationEvent, NotificationSendResult
+from app.services.notifications.models import NotificationEvent
+from app.services.notifications.service import UserNotificationService
 
 KST = timezone(timedelta(hours=9))
 
@@ -184,94 +184,11 @@ def send_toss_session_notifications(
     event_key: str,
     event_type: str,
 ) -> dict[str, Any]:
-    """Dispatch a Toss session event to all enabled providers.
-
-    Provider configuration/send failures are isolated and never expose raw
-    credentials, webhook URLs, OAuth tokens, or exception text.
-    """
-    providers = ("telegram", "discord", "kakao")
-
-    from app.services.notifications.discord import DiscordSender
-    from app.services.notifications.kakao import KakaoSender
-    from app.services.notifications.telegram import TelegramSender
-    from app.services.settings import get_effective_settings
-
-    try:
-        effective = get_effective_settings(owner)
-    except Exception:
-        failed = {
-            provider: _provider_payload(
-                sent=False,
-                status="failed",
-                error="CONFIGURATION_ERROR",
-            )
-            for provider in providers
-        }
-        return {
-            "status": "failed",
-            "notifications_sent_count": 0,
-            "provider_results": failed,
-        }
-
-    enabled = {
-        provider: effective.get(provider, {}).get("enabled") is True
-        for provider in providers
-    }
-    provider_results: dict[str, dict[str, Any]] = {}
-    senders: list[Any] = []
-
-    if enabled["telegram"]:
-        try:
-            cfg = resolve_telegram_config(owner)
-            senders.append(
-                TelegramSender(
-                    bot_token=cfg.bot_token,
-                    chat_id=cfg.chat_id,
-                    username=owner,
-                )
-            )
-        except Exception:
-            provider_results["telegram"] = _provider_payload(
-                sent=False,
-                status="failed",
-                error="CONFIGURATION_ERROR",
-            )
-    else:
-        provider_results["telegram"] = _provider_payload(
-            sent=False,
-            status="disabled",
-        )
-
-    if enabled["discord"]:
-        try:
-            senders.append(DiscordSender(username=owner))
-        except Exception:
-            provider_results["discord"] = _provider_payload(
-                sent=False,
-                status="failed",
-                error="CONFIGURATION_ERROR",
-            )
-    else:
-        provider_results["discord"] = _provider_payload(
-            sent=False,
-            status="disabled",
-        )
-
-    if enabled["kakao"]:
-        try:
-            senders.append(KakaoSender(username=owner))
-        except Exception:
-            provider_results["kakao"] = _provider_payload(
-                sent=False,
-                status="failed",
-                error="CONFIGURATION_ERROR",
-            )
-    else:
-        provider_results["kakao"] = _provider_payload(
-            sent=False,
-            status="disabled",
-        )
-
+    """Dispatch a Toss session event through the common notification service."""
+    service = UserNotificationService(
+        owner,
+        telegram_resolver=resolve_telegram_config,
+    )
     event = NotificationEvent(
         event_key=event_key,
         event_type=event_type,
@@ -279,55 +196,11 @@ def send_toss_session_notifications(
         username=owner,
         metadata={"kakao_body": _compact_kakao_message(message)},
     )
-
-    for send_result in NotificationDispatcher(senders).dispatch(event):
-        if send_result.success:
-            status = "sent"
-            error = None
-        elif send_result.error_code == "NOT_CONFIGURED":
-            status = "unconfigured"
-            error = None
-        else:
-            status = "failed"
-            error = send_result.error_code or "SEND_FAILED"
-        provider_results[send_result.provider] = _provider_payload(
-            sent=send_result.success,
-            status=status,
-            retryable=send_result.retryable,
-            error=error,
-        )
-
-    for provider in providers:
-        if provider not in provider_results:
-            provider_results[provider] = _provider_payload(
-                sent=False,
-                status="failed",
-                error="SEND_FAILED",
-            )
-
-    sent_count = sum(
-        1 for item in provider_results.values() if item["sent"]
-    )
-    enabled_count = sum(1 for value in enabled.values() if value)
-    if enabled_count == 0:
-        status = "disabled"
-    elif sent_count == enabled_count:
-        status = "sent"
-    elif sent_count > 0:
-        status = "partial"
-    elif all(
-        provider_results[name]["status"] == "unconfigured"
-        for name, is_enabled in enabled.items()
-        if is_enabled
-    ):
-        status = "unconfigured"
-    else:
-        status = "failed"
-
+    report = service.dispatch(event)
     return {
-        "status": status,
-        "notifications_sent_count": sent_count,
-        "provider_results": provider_results,
+        "status": report.status,
+        "notifications_sent_count": report.notifications_sent_count,
+        "provider_results": report.provider_results,
     }
 
 

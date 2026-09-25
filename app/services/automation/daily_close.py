@@ -14,8 +14,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from app.services.telegram_config import TelegramConfig, resolve_telegram_config
 from app.services.telegram_management import send_telegram_message, TelegramManagementError
-from app.services.notifications.dispatcher import NotificationDispatcher
 from app.services.notifications.models import NotificationEvent, NotificationSendResult
+from app.services.notifications.service import UserNotificationService
 from app.services.user_manager import get_user_by_name
 
 logger = logging.getLogger(__name__)
@@ -378,12 +378,30 @@ def _daily_close_provider_payload(
     retryable: bool = False,
     error: str | None = None,
 ) -> dict[str, Any]:
+    """Compatibility payload used only by skip/fallback paths."""
     return {
         "sent": bool(sent),
         "status": status,
         "retryable": bool(retryable),
         "error": error,
     }
+
+
+class _UnavailableTelegramSender:
+    """Convert Telegram resolver failures into a stable configuration error."""
+
+    provider_name = "telegram"
+
+    def is_configured(self) -> bool:
+        raise RuntimeError("telegram configuration unavailable")
+
+    def send(self, event: NotificationEvent, **_kwargs: Any) -> NotificationSendResult:
+        return NotificationSendResult(
+            success=False,
+            provider="telegram",
+            retryable=False,
+            error_code="CONFIGURATION_ERROR",
+        )
 
 
 def send_daily_close_notifications(
@@ -394,11 +412,7 @@ def send_daily_close_notifications(
     telegram_transport: Callable[..., Any] | None = None,
     skip: bool = False,
 ) -> dict[str, Any]:
-    """Dispatch a daily-close summary to all enabled user notification providers.
-
-    Delivery failure is non-fatal and isolated per provider. Legacy Telegram
-    result fields are retained so existing callers remain compatible.
-    """
+    """Dispatch daily-close summary through the common notification service."""
     providers = ("telegram", "discord", "kakao")
     if skip:
         skipped = {
@@ -417,114 +431,37 @@ def send_daily_close_notifications(
             "provider_results": skipped,
         }
 
-    from app.services.notifications.discord import DiscordSender
-    from app.services.notifications.kakao import KakaoSender
-    from app.services.notifications.telegram import TelegramSender
-    from app.services.settings import get_effective_settings
+    sender_overrides: dict[str, Any] = {}
+    enabled_overrides: dict[str, bool] = {}
+    telegram_credentials: tuple[str | None, str | int | None] | None = None
 
-    try:
-        effective = get_effective_settings(username)
-    except Exception:
-        # Scheduling normally validates user settings before daily close runs,
-        # but notification resolution must remain non-fatal if settings become
-        # unreadable between scheduling and delivery.
-        logger.warning("Daily close notification settings unavailable for user")
-        failed = {
-            provider: _daily_close_provider_payload(
-                sent=False,
-                status="failed",
-                error="CONFIGURATION_ERROR",
-            )
-            for provider in providers
-        }
-        return {
-            "telegram_sent": False,
-            "status": "failed",
-            "error": "TELEGRAM_CONFIG_ERROR",
-            "dispatch_status": "failed",
-            "notifications_sent_count": 0,
-            "provider_results": failed,
-        }
-
-    telegram_config: TelegramConfig | None
-    try:
-        telegram_config = resolve_telegram_config(username)
-    except Exception:
-        logger.warning("Daily close Telegram configuration unavailable for user")
-        telegram_config = None
-
-    enabled = {
-        # Production automatic delivery follows the explicit UI switch. The
-        # injected legacy transport keeps its historical config-driven test
-        # contract so old callers remain compatible.
-        "telegram": (
-            bool(telegram_config and telegram_config.enabled)
-            if telegram_transport is not None
-            else effective.get("telegram", {}).get("enabled") is True
-        ),
-        "discord": effective.get("discord", {}).get("enabled") is True,
-        "kakao": effective.get("kakao", {}).get("enabled") is True,
-    }
-
-    provider_results: dict[str, dict[str, Any]] = {}
-    senders: list[Any] = []
-
-    if enabled["telegram"]:
-        if telegram_config is None:
-            provider_results["telegram"] = _daily_close_provider_payload(
-                sent=False,
-                status="failed",
-                error="TELEGRAM_CONFIG_ERROR",
-            )
-        elif telegram_transport is not None:
-            senders.append(
-                _InjectedTelegramSender(telegram_config, telegram_transport)
-            )
+    if telegram_transport is not None:
+        try:
+            telegram_config = resolve_telegram_config(username)
+        except Exception:
+            logger.warning("Daily close Telegram configuration unavailable for user")
+            sender_overrides["telegram"] = _UnavailableTelegramSender()
         else:
-            senders.append(
-                TelegramSender(
-                    bot_token=telegram_config.bot_token,
-                    chat_id=telegram_config.chat_id,
-                    username=username,
-                )
+            sender_overrides["telegram"] = _InjectedTelegramSender(
+                telegram_config,
+                telegram_transport,
             )
-    else:
-        provider_results["telegram"] = _daily_close_provider_payload(
-            sent=False,
-            status="disabled",
-        )
+            telegram_credentials = (
+                telegram_config.bot_token,
+                telegram_config.chat_id,
+            )
+            # Preserve the historical injected-transport contract used by tests
+            # and custom callers. Production automatic delivery follows stored
+            # UI switches.
+            enabled_overrides["telegram"] = bool(telegram_config.enabled)
 
-    if enabled["discord"]:
-        try:
-            senders.append(DiscordSender(username=username))
-        except Exception:
-            logger.warning("Daily close Discord configuration unavailable for user")
-            provider_results["discord"] = _daily_close_provider_payload(
-                sent=False,
-                status="failed",
-                error="CONFIGURATION_ERROR",
-            )
-    else:
-        provider_results["discord"] = _daily_close_provider_payload(
-            sent=False,
-            status="disabled",
-        )
-
-    if enabled["kakao"]:
-        try:
-            senders.append(KakaoSender(username=username))
-        except Exception:
-            logger.warning("Daily close Kakao configuration unavailable for user")
-            provider_results["kakao"] = _daily_close_provider_payload(
-                sent=False,
-                status="failed",
-                error="CONFIGURATION_ERROR",
-            )
-    else:
-        provider_results["kakao"] = _daily_close_provider_payload(
-            sent=False,
-            status="disabled",
-        )
+    service = UserNotificationService(
+        username,
+        telegram_credentials=telegram_credentials,
+        telegram_resolver=resolve_telegram_config,
+        sender_overrides=sender_overrides,
+        enabled_overrides=enabled_overrides,
+    )
 
     event = NotificationEvent(
         event_key=f"daily_close:{username}:{today}",
@@ -534,65 +471,32 @@ def send_daily_close_notifications(
         title=f"Wealth 일일 마감 · {today}",
         metadata={"kakao_body": _compact_daily_close_kakao(message)},
     )
+    report = service.dispatch(event)
 
-    for result in NotificationDispatcher(senders).dispatch(event):
-        if result.success:
-            status = "sent"
-            error_code = None
-        elif result.error_code == "NOT_CONFIGURED":
-            status = "unconfigured"
-            error_code = None
-        else:
-            status = "failed"
-            error_code = (
-                "TELEGRAM_SEND_FAILED"
-                if result.provider == "telegram"
-                else result.error_code or "SEND_FAILED"
-            )
-        provider_results[result.provider] = _daily_close_provider_payload(
-            sent=result.success,
-            status=status,
-            retryable=result.retryable,
-            error=error_code,
-        )
-
-    # Defensive completion in case a custom sender list ever omits a provider.
-    for provider in providers:
-        if provider not in provider_results:
-            provider_results[provider] = _daily_close_provider_payload(
-                sent=False,
-                status="failed",
-                error="SEND_FAILED",
-            )
-
-    sent_count = sum(
-        1 for item in provider_results.values() if item["sent"]
+    telegram_result = report.provider_results.get(
+        "telegram",
+        _daily_close_provider_payload(
+            sent=False,
+            status="failed",
+            error="SEND_FAILED",
+        ),
     )
-    enabled_count = sum(1 for value in enabled.values() if value)
-    if enabled_count == 0:
-        dispatch_status = "disabled"
-    elif sent_count == enabled_count:
-        dispatch_status = "sent"
-    elif sent_count > 0:
-        dispatch_status = "partial"
-    elif all(
-        provider_results[name]["status"] == "unconfigured"
-        for name, is_enabled in enabled.items()
-        if is_enabled
-    ):
-        dispatch_status = "unconfigured"
+    legacy_error: str | None
+    if telegram_result["status"] != "failed":
+        legacy_error = None
+    elif telegram_result.get("error") == "CONFIGURATION_ERROR":
+        legacy_error = "TELEGRAM_CONFIG_ERROR"
     else:
-        dispatch_status = "failed"
+        legacy_error = "TELEGRAM_SEND_FAILED"
 
-    telegram_result = provider_results["telegram"]
     return {
         "telegram_sent": telegram_result["sent"],
-        # Legacy fields intentionally describe the Telegram leg.
+        # Legacy fields intentionally continue to describe the Telegram leg.
         "status": telegram_result["status"],
-        "error": telegram_result["error"],
-        "dispatch_status": dispatch_status,
-        "notifications_sent_count": sent_count,
-        "provider_results": provider_results,
+        "error": legacy_error,
+        "dispatch_status": report.status,
+        "notifications_sent_count": report.notifications_sent_count,
+        "provider_results": report.provider_results,
     }
 
 
