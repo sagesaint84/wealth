@@ -395,6 +395,7 @@ _SENSITIVE_EXPORT_KEYS = {
     "sessiontoken",
     "token",
     "tokencache",
+    "webhookurl",
 }
 
 
@@ -422,6 +423,7 @@ def _is_sensitive_export_key(key: object) -> bool:
             "sessionsecret",
             "token",
             "tokencache",
+            "webhookurl",
         )
     )
 
