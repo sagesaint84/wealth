@@ -6038,6 +6038,7 @@ async def get_web_action_landing(request: Request, token: str) -> HTMLResponse:
 
     # Canonical IPO display resolve: authoritative source is read_market_store_read_only()
     ipo_name = "공모주"
+    matched_ipo = None
     if ipo_id:
         try:
             market_ipos = read_market_store_read_only().get("ipos", [])
@@ -6047,7 +6048,7 @@ async def get_web_action_landing(request: Request, token: str) -> HTMLResponse:
             elif matched_ipo and matched_ipo.get("name"):
                 ipo_name = matched_ipo["name"]
         except Exception as exc:
-            logger.warning("Failed to resolve canonical IPO company name: %s", exc)
+            logger.warning("Failed to resolve canonical IPO company name: %s", type(exc).__name__)
 
     # Expiration check
     if is_action_expired(action):
@@ -6083,7 +6084,7 @@ async def get_web_action_landing(request: Request, token: str) -> HTMLResponse:
     apps = get_user_applications(current_user)
     app_record = apps.get("applications", {}).get(ipo_id, {})
     applied_owners = list(app_record.get("applied_owners") or [])
-    if owner in applied_owners:
+    if action_type == ACTION_TYPE_MARK_IPO_APPLIED and owner in applied_owners:
         return _render_action_card(
             page_title="청약 완료 상태",
             header_title="청약 신청 완료 확인",
@@ -6114,15 +6115,220 @@ async def get_web_action_landing(request: Request, token: str) -> HTMLResponse:
             status_code=200,
         )
     elif action_type == ACTION_TYPE_OPEN_IPO_SALE_FLOW:
+        from app.services.ipo.allocation import allocation_summary, sale_candidates
+        from app.services.ipo.applications import InvalidApplicationError
+
+        # Metadata contains only opaque authoritative identifiers.  Resolve
+        # mutable market facts from the canonical market store on every view.
+        stock_code = str((matched_ipo or {}).get("stock_code") or "")
+        listing_date = str(
+            (matched_ipo or {}).get("actual_listing_date")
+            or (matched_ipo or {}).get("expected_listing_date")
+            or ""
+        )[:10] or None
+
+        # Resolve account mapping before allocation state so that an applied
+        # owner with no bound account is distinct from a mapped owner whose
+        # allocation quantity has not been recorded yet.
+        applicant = (app_record.get("applicants") or {}).get(owner)
+        account_resolved = (
+            isinstance(applicant, dict)
+            and bool(applicant.get("broker_id"))
+            and bool(applicant.get("account_id"))
+        )
+        alloc_status = "UNRESOLVED_ACCOUNT" if not account_resolved else None
+        alloc_data = None
+        candidates: list[dict] = []
+        alloc_error: str | None = None
+        if account_resolved:
+            try:
+                summary = allocation_summary(current_user, ipo_id, owner, stock_code, listing_date)
+                alloc_status = summary.get("status")
+                alloc_data = summary.get("allocation")
+                if alloc_status in ("UNSOLD", "PARTIALLY_SOLD"):
+                    candidates = sale_candidates(current_user, ipo_id, owner, stock_code, listing_date)
+            except InvalidApplicationError:
+                # Canonical application/allocation state is unavailable.  Do
+                # not offer a mutation form from an ambiguous state.
+                alloc_error = "DATA_UNAVAILABLE"
+            except Exception as exc:
+                logger.warning(
+                    "IPO allocation summary unavailable in GET handler: %s",
+                    type(exc).__name__,
+                )
+                alloc_error = "DATA_UNAVAILABLE"
+
+        def _fmt_qty(n: object) -> str:
+            try:
+                return f"{int(n):,}주"
+            except Exception:
+                return "-"
+
+        def _fmt_krw(n: object) -> str:
+            try:
+                v = int(float(str(n)))
+                sign = "+" if v > 0 else ""
+                return f"{sign}{v:,}원"
+            except Exception:
+                return "-"
+
+        if alloc_status == "FULLY_SOLD":
+            return _render_action_card(
+                page_title="매도 기록 완료",
+                header_title="매도 기록 완료",
+                description="해당 배정 물량이 전량 매도 처리 완료되었습니다.",
+                info_dict={
+                    "종목명": ipo_name,
+                    "대상자": owner,
+                    "배정수량": _fmt_qty(alloc_data.get("quantity") if alloc_data else None),
+                    "상태": "전량 매도 완료",
+                },
+                action_content="",
+                status_code=200,
+            )
+
+
+        if alloc_status == "UNRESOLVED_ACCOUNT":
+            return _render_action_card(
+                page_title="계좌 연결 필요",
+                header_title="청약 계좌 연결 필요",
+                description="매도 기록을 연결하려면 먼저 청약 계좌를 연결해 주세요.",
+                info_dict={
+                    "종목명": ipo_name,
+                    "대상자": owner,
+                    "상태": "청약 계좌 연결 필요",
+                },
+                action_content="",
+                status_code=200,
+            )
+
+        if alloc_status == "NO_ALLOCATION":
+            return _render_action_card(
+                page_title="배정 없음",
+                header_title="배정 0주",
+                description="해당 공모주 청약 결과 배정이 이루어지지 않았습니다.",
+                info_dict={
+                    "종목명": ipo_name,
+                    "대상자": owner,
+                    "배정수량": "0주",
+                    "상태": "미배정",
+                },
+                action_content="",
+                status_code=200,
+            )
+
+        if alloc_status == "UNRESOLVED":
+            return _render_action_card(
+                page_title="배정 미기록",
+                header_title="배정수량 미기록",
+                description="배정수량이 아직 기록되지 않았습니다. Wealth에서 배정수량을 먼저 입력해 주세요.",
+                info_dict={
+                    "종목명": ipo_name,
+                    "대상자": owner,
+                    "상태": "배정수량 미기록",
+                },
+                action_content="",
+                status_code=200,
+            )
+
+        if alloc_error:
+            return _render_action_card(
+                page_title="상태 확인 필요",
+                header_title="매도 기록 상태 확인 필요",
+                description="현재 배정 및 매도 연결 상태를 안전하게 확인할 수 없습니다. Wealth에서 상태를 확인해 주세요.",
+                info_dict={"종목명": ipo_name, "대상자": owner, "상태": "확인 필요"},
+                action_content="",
+                status_code=409,
+            )
+
+        if alloc_status == "LINK_DATA_MISSING":
+            return _render_action_card(
+                page_title="데이터 확인 필요",
+                header_title="매도 연결 데이터 오류",
+                description="기존 매도 연결 데이터 확인이 필요합니다. Wealth에서 연결된 실현손익 기록을 확인해 주세요.",
+                info_dict={
+                    "종목명": ipo_name,
+                    "대상자": owner,
+                    "배정수량": _fmt_qty(alloc_data.get("quantity") if alloc_data else None),
+                    "상태": "LINK_DATA_MISSING",
+                },
+                action_content="",
+                status_code=200,
+            )
+
+        # UNSOLD or PARTIALLY_SOLD — show form with candidates
+        sold_qty = alloc_data.get("sold_quantity", 0) if alloc_data else 0
+        remaining_qty = alloc_data.get("remaining_quantity", 0) if alloc_data else 0
+        total_qty = alloc_data.get("quantity", 0) if alloc_data else 0
+
+        if not candidates:
+            form_html = (
+                "<p style='font-size:13px;color:#91a0c1;text-align:center;margin:0'>"
+                "연결 가능한 매도 실현손익 기록이 없습니다.</p>"
+            )
+        else:
+            candidate_options = ""
+            for c in candidates:
+                pnl_id = html.escape(str(c.get("pnl_record_id", "")))
+                date_str = html.escape(str(c.get("date") or "-"))
+                avail = c.get("available_quantity", 0)
+                pnl_krw = c.get("pnl_krw")
+                pnl_label = _fmt_krw(pnl_krw)
+                candidate_options += (
+                    f'<option value="{pnl_id}" data-avail="{avail}">'
+                    f'{date_str} | 가능수량 {avail:,}주 | 실현손익 {pnl_label}'
+                    f'</option>\n'
+                )
+            esc_token = html.escape(token)
+            form_html = f"""<form method="post" action="/a/{esc_token}/link-sale" id="lsform"
+  style="display:flex;flex-direction:column;gap:12px;margin-top:4px">
+  <div>
+    <label style="font-size:12px;color:#7e8ea8;display:block;margin-bottom:4px">매도 실현손익 기록 선택</label>
+    <select name="pnl_record_id" id="pnl_sel" required
+      style="width:100%;padding:10px;border-radius:8px;border:1px solid #3d2c73;
+             background:#080e1e;color:#f3f5ff;font-size:13px;box-sizing:border-box">
+      <option value="">— 기록 선택 —</option>
+      {candidate_options}
+    </select>
+  </div>
+  <div>
+    <label style="font-size:12px;color:#7e8ea8;display:block;margin-bottom:4px">
+      연결 수량 <span id="avail_hint" style="color:#c4b5fd"></span>
+    </label>
+    <input name="matched_quantity" id="qty_inp" type="number" min="1" max="{remaining_qty}" required
+      placeholder="수량 입력"
+      style="width:100%;padding:10px;border-radius:8px;border:1px solid #3d2c73;
+             background:#080e1e;color:#f3f5ff;font-size:13px;box-sizing:border-box" />
+  </div>
+  <button type="submit">매도 기록 연결</button>
+</form>
+<script>
+(function(){{
+  var sel=document.getElementById('pnl_sel');
+  var inp=document.getElementById('qty_inp');
+  var hint=document.getElementById('avail_hint');
+  sel.addEventListener('change',function(){{
+    var opt=sel.options[sel.selectedIndex];
+    var avail=opt.getAttribute('data-avail');
+    if(avail){{hint.textContent='(가능 '+parseInt(avail,10).toLocaleString()+'주)';inp.max=avail;inp.value='';}}
+    else{{hint.textContent='';inp.max='{remaining_qty}';}}
+  }});
+}})();
+</script>"""
+
+        status_label = "매도 전" if alloc_status == "UNSOLD" else f"일부 매도 ({sold_qty:,}주/{total_qty:,}주)"
         return _render_action_card(
-            page_title="매도 기록",
-            header_title="IPO 상장일 매도",
-            description="상장일 매도 기록 기능은 준비 중입니다.",
+            page_title="매도 기록 연결",
+            header_title="IPO 상장일 매도 기록",
+            description="아래에서 실현손익 기록을 선택하고 연결 수량을 입력해 주세요.",
             info_dict={
                 "종목명": ipo_name,
                 "대상자": owner,
+                "배정수량": _fmt_qty(total_qty),
+                "잔여수량": _fmt_qty(remaining_qty),
+                "상태": status_label,
             },
-            action_content="",
+            action_content=form_html,
             status_code=200,
         )
     else:
@@ -6281,3 +6487,336 @@ async def post_web_action_execute(request: Request, token: str) -> HTMLResponse:
             action_content="",
             status_code=200,
         )
+
+
+@app.post("/a/{token}/link-sale", include_in_schema=False)
+async def post_web_action_link_sale(request: Request, token: str) -> HTMLResponse:
+    """Link a P&L record to an IPO allocation (OPEN_IPO_SALE_FLOW)."""
+    from app.services.action_v2 import (
+        ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+        get_web_action_metadata,
+        is_action_expired,
+        mark_web_action_consumed_if_current,
+        validate_action_token,
+    )
+    from app.services.ipo.allocation import (
+        AllocationConflict,
+        allocation_summary,
+        link_sale,
+    )
+    from app.services.ipo.applications import (
+        ApplicationRevisionConflict,
+        InvalidApplicationError,
+        get_user_applications,
+    )
+    from app.services.ipo.store import read_market_store_read_only
+
+    # 1. CSRF same-origin check
+    if not _validate_same_origin_request(request):
+        return _render_action_card(
+            page_title="접근 제한",
+            header_title="요청 검증 실패",
+            description="안전하지 않거나 허용되지 않은 출처에서의 요청입니다.",
+            info_dict={"오류": "CSRF_FORBIDDEN"},
+            action_content="",
+            status_code=403,
+        )
+
+    # 2. Token format validation
+    try:
+        token = validate_action_token(token)
+    except Exception:
+        return _render_action_card(
+            page_title="유효하지 않은 링크",
+            header_title="작업 링크 오류",
+            description="해당 링크가 존재하지 않거나 유효하지 않습니다.",
+            info_dict={"상태": "유효하지 않음"},
+            action_content="",
+            status_code=404,
+        )
+
+    current_user = get_current_username(request)
+    action = get_web_action_metadata(token)
+    if not action:
+        return _render_action_card(
+            page_title="유효하지 않은 링크",
+            header_title="작업 링크 오류",
+            description="해당 링크가 존재하지 않거나 유효하지 않습니다.",
+            info_dict={"상태": "유효하지 않음"},
+            action_content="",
+            status_code=404,
+        )
+
+    # 3. Cross-user authorization
+    if action.get("username") != current_user:
+        return _render_action_card(
+            page_title="접근 제한",
+            header_title="접근 권한 없음",
+            description="해당 작업에 대한 접근 권한이 없습니다. 올바른 계정으로 로그인해 주세요.",
+            info_dict={"요청 계정": current_user},
+            action_content="",
+            status_code=403,
+        )
+
+    # 4. Action type guard — only OPEN_IPO_SALE_FLOW handled here
+    if action.get("action_type") != ACTION_TYPE_OPEN_IPO_SALE_FLOW:
+        return _render_action_card(
+            page_title="지원하지 않는 작업",
+            header_title="알 수 없는 작업",
+            description="지원되지 않는 작업 유형입니다.",
+            info_dict={"작업 유형": str(action.get("action_type"))},
+            action_content="",
+            status_code=400,
+        )
+
+    # 5. Expiry check
+    if is_action_expired(action):
+        return _render_action_card(
+            page_title="만료된 링크",
+            header_title="작업 기한 만료",
+            description="해당 상장일 매도 기록 기한이 이미 만료되었습니다.",
+            info_dict={"상태": "기한 만료"},
+            action_content="",
+            status_code=410,
+        )
+
+    meta = action.get("metadata", {})
+    ipo_id = meta.get("ipo_id") or ""
+    owner = meta.get("owner") or ""
+    stock_code = ""
+    listing_date = None
+
+    # Resolve canonical IPO name for display
+    ipo_name = "공모주"
+    matched_ipo = None
+    try:
+        market_ipos = read_market_store_read_only().get("ipos", [])
+        matched_ipo = next((x for x in market_ipos if x.get("ipo_id") == ipo_id), None)
+        if matched_ipo and matched_ipo.get("company_name"):
+            ipo_name = matched_ipo["company_name"]
+        elif matched_ipo and matched_ipo.get("name"):
+            ipo_name = matched_ipo["name"]
+        if isinstance(matched_ipo, dict):
+            stock_code = str(matched_ipo.get("stock_code") or "")
+            listing_date = str(
+                matched_ipo.get("actual_listing_date")
+                or matched_ipo.get("expected_listing_date")
+                or ""
+            )[:10] or None
+    except Exception as exc:
+        logger.warning("Failed to resolve canonical IPO company name: %s", type(exc).__name__)
+
+    if not isinstance(matched_ipo, dict) or not stock_code or not listing_date:
+        return _render_action_card(
+            page_title="연결 실패",
+            header_title="매도 기록 연결 실패",
+            description="상장 종목 정보를 확인할 수 없습니다.",
+            info_dict={"종목명": ipo_name, "대상자": owner, "상태": "오류"},
+            action_content="",
+            status_code=400,
+        )
+
+    # Re-resolve current application/account state.  The action was valid at
+    # creation time, but a stale link must not bypass current owner/account
+    # eligibility.
+    current_apps = get_user_applications(current_user)
+    current_app = (current_apps.get("applications") or {}).get(ipo_id, {})
+    if owner not in list(current_app.get("applied_owners") or []):
+        return _render_action_card(
+            page_title="연결 실패",
+            header_title="매도 기록 연결 불가",
+            description="현재 청약 신청 상태를 확인해 주세요.",
+            info_dict={"종목명": ipo_name, "상태": "OWNER_NOT_ELIGIBLE"},
+            action_content="",
+            status_code=400,
+        )
+    current_applicant = (current_app.get("applicants") or {}).get(owner)
+    if (
+        not isinstance(current_applicant, dict)
+        or not current_applicant.get("broker_id")
+        or not current_applicant.get("account_id")
+    ):
+        return _render_action_card(
+            page_title="계좌 연결 필요",
+            header_title="청약 계좌 연결 필요",
+            description="매도 기록을 연결하려면 먼저 청약 계좌를 연결해 주세요.",
+            info_dict={"종목명": ipo_name, "대상자": owner, "상태": "UNRESOLVED_ACCOUNT"},
+            action_content="",
+            status_code=400,
+        )
+
+    # A stale action must never create an additional link.  FULLY_SOLD is
+    # derived from allocation links; consume the URL lifecycle only now.
+    try:
+        pre_status = allocation_summary(current_user, ipo_id, owner, stock_code, listing_date).get("status")
+    except InvalidApplicationError:
+        pre_status = "UNRESOLVED"
+    if pre_status == "FULLY_SOLD":
+        try:
+            mark_web_action_consumed_if_current(
+                token, authenticated_username=current_user,
+                action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+            )
+        except Exception as exc:
+            logger.warning("Failed to consume stale fully-sold action: %s", type(exc).__name__)
+        return _render_action_card(
+            page_title="매도 기록 완료", header_title="매도 기록 완료",
+            description="해당 배정 물량이 전량 매도 처리 완료되었습니다.",
+            info_dict={"종목명": ipo_name, "대상자": owner, "상태": "전량 매도 완료"},
+            action_content="", status_code=200,
+        )
+    if pre_status == "LINK_DATA_MISSING":
+        return _render_action_card(
+            page_title="연결 실패", header_title="매도 연결 데이터 오류",
+            description="기존 매도 연결 데이터를 먼저 확인해 주세요.",
+            info_dict={"종목명": ipo_name, "대상자": owner, "상태": "IPO_LINK_DATA_MISSING"},
+            action_content="", status_code=409,
+        )
+    if pre_status in {"NO_ALLOCATION", "UNRESOLVED"}:
+        return _render_action_card(
+            page_title="연결 실패", header_title="매도 기록 연결 불가",
+            description="배정수량 기록을 먼저 확인해 주세요.",
+            info_dict={"종목명": ipo_name, "대상자": owner, "상태": pre_status},
+            action_content="", status_code=400,
+        )
+
+    # 6. Parse POST body
+    try:
+        form = await request.form()
+        pnl_record_id = str(form.get("pnl_record_id") or "").strip()
+        matched_quantity_raw = str(form.get("matched_quantity") or "").strip()
+        if not pnl_record_id:
+            raise ValueError("pnl_record_id is required")
+        matched_quantity = int(matched_quantity_raw)
+        if matched_quantity <= 0:
+            raise ValueError("matched_quantity must be positive")
+    except (ValueError, TypeError) as exc:
+        return _render_action_card(
+            page_title="입력 오류",
+            header_title="입력값 오류",
+            description="입력값을 확인해 주세요.",
+            info_dict={"종목명": ipo_name, "대상자": owner, "상태": "입력 오류"},
+            action_content="",
+            status_code=400,
+        )
+
+    # 7. CAS retry loop: read revision → link_sale → retry on conflict (up to 3)
+    MAX_RETRIES = 3
+    last_error: Exception | None = None
+    link_result: dict | None = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            revision = int(get_user_applications(current_user)["revision"])
+            link_result = link_sale(
+                username=current_user,
+                ipo_id=ipo_id,
+                owner=owner,
+                pnl_record_id=pnl_record_id,
+                matched_quantity=matched_quantity,
+                revision=revision,
+                stock_code=stock_code,
+                listing_date=listing_date,
+            )
+            break
+        except ApplicationRevisionConflict:
+            last_error = None  # retry
+            continue
+        except (InvalidApplicationError, AllocationConflict) as exc:
+            last_error = exc
+            break
+        except Exception as exc:
+            logger.warning("link_sale unexpected error: %s", type(exc).__name__)
+            last_error = exc
+            break
+    else:
+        last_error = RuntimeError("REVISION_CONFLICT_EXHAUSTED")
+
+    if last_error is not None:
+        err_str = str(last_error)
+        user_messages = {
+            "IPO application must be saved before allocation": "신청 정보가 없습니다. Wealth에서 청약 신청 정보를 확인해 주세요.",
+            "Applicant account must be connected before allocation": "증권사 계좌 연결이 필요합니다.",
+            "ALLOCATION_REQUIRED": "배정수량 기록이 필요합니다.",
+            "PNL_RECORD_NOT_FOUND": "선택한 실현손익 기록을 찾을 수 없습니다.",
+            "IPO_SALE_MATCH_INELIGIBLE": "선택한 기록이 이 종목·계좌 조건에 맞지 않습니다.",
+            "ALLOCATION_BELOW_LINKED_QUANTITY": "배정수량보다 연결 수량이 많습니다.",
+            "DUPLICATE_LINK_CONFLICT": "이미 동일한 기록이 연결되어 있습니다.",
+            "ALLOCATION_OVERRUN": "연결 수량이 잔여 배정수량을 초과합니다.",
+            "PNL_OVERRUN": "해당 실현손익 기록의 수량이 초과됩니다.",
+            "REVISION_CONFLICT_EXHAUSTED": "동시 요청 충돌이 반복되었습니다. 잠시 후 다시 시도해 주세요.",
+        }
+        desc = user_messages.get(err_str, "처리 중 오류가 발생했습니다. Wealth에서 상태를 확인한 뒤 다시 시도해 주세요.")
+        return _render_action_card(
+            page_title="연결 실패",
+            header_title="매도 기록 연결 실패",
+            description=desc,
+            info_dict={"종목명": ipo_name, "대상자": owner, "상태": "오류"},
+            action_content="",
+            status_code=400,
+        )
+
+    # 8. Check post-link allocation status to decide if action is fully consumed
+    new_status = "UNSOLD"
+    try:
+        new_summary = allocation_summary(current_user, ipo_id, owner, stock_code, listing_date)
+        new_status = new_summary.get("status", "UNSOLD")
+    except Exception as exc:
+        logger.warning("allocation_summary after link_sale failed: %s", type(exc).__name__)
+
+    if new_status == "FULLY_SOLD":
+        # Action lifecycle is separate from the allocation/P&L authority.
+        try:
+            mark_web_action_consumed_if_current(
+                token,
+                authenticated_username=current_user,
+                action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+            )
+        except Exception as exc:
+            logger.warning("Failed to mark action consumed after FULLY_SOLD: %s", type(exc).__name__)
+
+    # 9. Render success card
+    link_status = (link_result or {}).get("status", "LINKED")
+    if link_status == "IDEMPOTENT":
+        return _render_action_card(
+            page_title="이미 연결됨",
+            header_title="중복 연결 감지",
+            description="동일한 수량과 기록이 이미 연결되어 있습니다.",
+            info_dict={
+                "종목명": ipo_name,
+                "대상자": owner,
+                "연결 수량": f"{matched_quantity:,}주",
+                "상태": "기 연결됨 (변경 없음)",
+            },
+            action_content="",
+            status_code=200,
+        )
+
+    if new_status == "FULLY_SOLD":
+        return _render_action_card(
+            page_title="매도 기록 완료",
+            header_title="전량 매도 기록 완료",
+            description="배정 수량 전체가 매도 기록으로 연결되었습니다.",
+            info_dict={
+                "종목명": ipo_name,
+                "대상자": owner,
+                "연결 수량": f"{matched_quantity:,}주",
+                "상태": "전량 매도 완료",
+            },
+            action_content="",
+            status_code=200,
+        )
+
+    # PARTIALLY_SOLD — still has remaining quantity
+    return _render_action_card(
+        page_title="매도 기록 연결 완료",
+        header_title="매도 기록 연결 완료",
+        description="매도 기록이 연결되었습니다. 잔여 수량이 남아 있으면 추가 연결이 가능합니다.",
+        info_dict={
+            "종목명": ipo_name,
+            "대상자": owner,
+            "연결 수량": f"{matched_quantity:,}주",
+            "상태": "일부 연결 완료",
+        },
+        action_content=f'<a href="/a/{html.escape(token)}" style="display:block;text-align:center;margin-top:8px;font-size:14px;color:#c4b5fd">추가 연결하기 →</a>',
+        status_code=200,
+    )

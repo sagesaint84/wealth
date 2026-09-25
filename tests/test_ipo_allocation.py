@@ -112,5 +112,44 @@ class IpoAllocationTests(unittest.TestCase):
         unlink_sale(self.user,"ipo-a","아빠",sale["id"],3)
         self.assertEqual(allocation_summary(self.user,"ipo-a","아빠","123456","2026-09-30")["allocation"]["remaining_quantity"], 5)
 
+    def test_allocation_summary_statuses(self):
+        # 1. UNRESOLVED: no allocation object
+        unres = allocation_summary(self.user, "ipo-b", "엄마", "123456", "2026-09-30")
+        self.assertEqual(unres["status"], "UNRESOLVED")
+        self.assertIsNone(unres["allocation"])
+
+        # 2. NO_ALLOCATION: allocation exists with quantity 0
+        set_allocation(self.user, "ipo-b", "엄마", 0, 20000, 1)
+        no_alloc = allocation_summary(self.user, "ipo-b", "엄마", "123456", "2026-09-30")
+        self.assertEqual(no_alloc["status"], "NO_ALLOCATION")
+        self.assertIsNotNone(no_alloc["allocation"])
+        self.assertEqual(no_alloc["allocation"]["quantity"], 0)
+        self.assertEqual(no_alloc["allocation"]["sold_quantity"], 0)
+        self.assertEqual(no_alloc["allocation"]["remaining_quantity"], 0)
+
+        # 3. UNSOLD: quantity > 0, 0 sold
+        self.allocate(5, rev=2)
+        unsold = allocation_summary(self.user, "ipo-a", "아빠", "123456", "2026-09-30")
+        self.assertEqual(unsold["status"], "UNSOLD")
+        self.assertEqual(unsold["allocation"]["quantity"], 5)
+        self.assertEqual(unsold["allocation"]["sold_quantity"], 0)
+        self.assertEqual(unsold["allocation"]["remaining_quantity"], 5)
+
+        # 4. PARTIALLY_SOLD: 0 < sold < quantity
+        s1 = self.sale(2, pnl=10000)
+        link_sale(self.user, "ipo-a", "아빠", s1["id"], 2, 3, "123456", "2026-09-30")
+        part = allocation_summary(self.user, "ipo-a", "아빠", "123456", "2026-09-30")
+        self.assertEqual(part["status"], "PARTIALLY_SOLD")
+        self.assertEqual(part["allocation"]["sold_quantity"], 2)
+        self.assertEqual(part["allocation"]["remaining_quantity"], 3)
+
+        # 5. FULLY_SOLD: sold == quantity
+        s2 = self.sale(3, pnl=15000)
+        link_sale(self.user, "ipo-a", "아빠", s2["id"], 3, 4, "123456", "2026-09-30")
+        full = allocation_summary(self.user, "ipo-a", "아빠", "123456", "2026-09-30")
+        self.assertEqual(full["status"], "FULLY_SOLD")
+        self.assertEqual(full["allocation"]["sold_quantity"], 5)
+        self.assertEqual(full["allocation"]["remaining_quantity"], 0)
+
 
 if __name__ == "__main__": unittest.main()

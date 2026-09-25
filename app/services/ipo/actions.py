@@ -253,6 +253,32 @@ def validate_ipo_subscription_eligibility(
     return ipo, apps, app, end
 
 
+def validate_ipo_listing_eligibility(
+    ipo_id: str,
+    owner: str,
+    username: str | None,
+    today: date,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], date]:
+    """Validate listing window and applied owner eligibility. Returns (ipo, apps, app, listing_date)."""
+    ipo = _market_ipo(ipo_id)
+    listing_raw = str(
+        ipo.get("actual_listing_date") or ipo.get("expected_listing_date") or ""
+    )[:10]
+    try:
+        listing_date = datetime.strptime(listing_raw, "%Y-%m-%d").date()
+    except ValueError:
+        raise IpoActionError("LISTING_DATE_NOT_ACTIVE")
+    if listing_date != today:
+        raise IpoActionError("LISTING_DATE_NOT_ACTIVE")
+
+    apps = get_user_applications(username)
+    app = apps.get("applications", {}).get(ipo_id, {})
+    applied = list(app.get("applied_owners") or [])
+    if owner not in applied:
+        raise IpoActionError("OWNER_NOT_ELIGIBLE")
+    return ipo, apps, app, listing_date
+
+
 _validate = validate_ipo_subscription_eligibility
 
 

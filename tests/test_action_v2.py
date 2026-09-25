@@ -45,6 +45,7 @@ from app.services.action_v2 import (
     get_web_action_metadata,
     hash_action_token,
     is_action_expired,
+    mark_web_action_consumed_if_current,
     prune_old_v2_actions,
     validate_action_token,
     _load_v2,
@@ -208,6 +209,130 @@ class ActionV2EngineTests(unittest.TestCase):
         post_sha256 = hashlib.sha256(self.action_file.read_bytes()).hexdigest()
         self.assertEqual(initial_sha256, post_sha256)
 
+    def test_mark_consumed_helper_is_bound_and_keeps_raw_token_out_of_storage(self):
+        market = _make_market_data("ipo-1", "2026-09-01", "2026-09-02")
+        market["ipos"][0]["actual_listing_date"] = self.today.isoformat()
+        apps = _make_user_applications("ipo-1", applied=["본인"], targets=["본인"])
+        with patch("app.services.ipo.actions.read_market_store_read_only", return_value=market), \
+             patch("app.services.ipo.actions.get_user_applications", return_value=apps):
+            action = create_web_action(
+                username="alice", action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                metadata={"ipo_id": "ipo-1", "owner": "본인", "stock_code": "LEAK"},
+                today=self.today, path=self.action_file,
+            )
+        with self.assertRaises(IpoActionError):
+            mark_web_action_consumed_if_current(action["raw_token"], authenticated_username="bob",
+                                                action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW, today=self.today, path=self.action_file)
+        with self.assertRaises(IpoActionError):
+            mark_web_action_consumed_if_current(action["raw_token"], authenticated_username="alice",
+                                                action_type=ACTION_TYPE_MARK_IPO_APPLIED, today=self.today, path=self.action_file)
+        with self.assertRaises(IpoActionError):
+            mark_web_action_consumed_if_current("x" * 32, authenticated_username="alice",
+                                                action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW, today=self.today, path=self.action_file)
+        first = mark_web_action_consumed_if_current(action["raw_token"], authenticated_username="alice",
+                                                    action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW, today=self.today, path=self.action_file)
+        second = mark_web_action_consumed_if_current(action["raw_token"], authenticated_username="alice",
+                                                     action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW, today=self.today, path=self.action_file)
+        self.assertEqual((first["status"], second["status"]), ("consumed", "already_consumed"))
+        saved = self.action_file.read_text(encoding="utf-8")
+        self.assertNotIn(action["raw_token"], saved)
+        self.assertNotIn("LEAK", saved)
+
+    def test_sale_action_expiry_is_forced_to_listing_day_end(self):
+        market = _make_market_data("ipo-1", "2026-09-01", "2026-09-02")
+        market["ipos"][0]["actual_listing_date"] = self.today.isoformat()
+        apps = _make_user_applications("ipo-1", applied=["본인"], targets=["본인"])
+        requested = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
+        with patch("app.services.ipo.actions.read_market_store_read_only", return_value=market), \
+             patch("app.services.ipo.actions.get_user_applications", return_value=apps):
+            action = create_web_action(
+                username="alice",
+                action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                metadata={"ipo_id": "ipo-1", "owner": "본인", "stock_code": "MUST_NOT_PERSIST"},
+                expires_at=requested,
+                today=self.today,
+                path=self.action_file,
+            )
+        expected = datetime.combine(self.today, time(23, 59, 59), tzinfo=KST).astimezone(timezone.utc)
+        self.assertEqual(datetime.fromisoformat(action["expires_at"]), expected)
+        stored = _load_v2(self.action_file)["actions"][action["token_digest"]]
+        self.assertEqual(stored["metadata"], {"ipo_id": "ipo-1", "owner": "본인"})
+        self.assertNotIn("MUST_NOT_PERSIST", self.action_file.read_text(encoding="utf-8"))
+        self.assertTrue(is_action_expired(stored, self.today + timedelta(days=1)))
+
+    def test_mark_consumed_helper_rejects_expired_action_without_writing(self):
+        market = _make_market_data("ipo-1", "2026-09-01", "2026-09-02")
+        market["ipos"][0]["actual_listing_date"] = self.today.isoformat()
+        apps = _make_user_applications("ipo-1", applied=["본인"], targets=["본인"])
+        with patch("app.services.ipo.actions.read_market_store_read_only", return_value=market), \
+             patch("app.services.ipo.actions.get_user_applications", return_value=apps):
+            action = create_web_action(
+                username="alice", action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                metadata={"ipo_id": "ipo-1", "owner": "본인"},
+                today=self.today, path=self.action_file,
+            )
+        before = hashlib.sha256(self.action_file.read_bytes()).hexdigest()
+        with self.assertRaises(IpoActionError) as cm:
+            mark_web_action_consumed_if_current(
+                action["raw_token"], authenticated_username="alice",
+                action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                today=self.today + timedelta(days=1), path=self.action_file,
+            )
+        self.assertEqual(str(cm.exception), "ACTION_EXPIRED")
+        after = hashlib.sha256(self.action_file.read_bytes()).hexdigest()
+        self.assertEqual(before, after)
+        stored = _load_v2(self.action_file)["actions"][action["token_digest"]]
+        self.assertIsNone(stored["consumed_at"])
+
+    def test_sale_action_creation_requires_applied_owner_and_listing_day(self):
+        market = _make_market_data("ipo-1", "2026-09-01", "2026-09-02")
+        market["ipos"][0]["actual_listing_date"] = self.today.isoformat()
+        apps = _make_user_applications("ipo-1", applied=["본인"], targets=["본인", "배우자"])
+        with patch("app.services.ipo.actions.read_market_store_read_only", return_value=market), \
+             patch("app.services.ipo.actions.get_user_applications", return_value=apps):
+            ok = create_web_action(
+                username="alice", action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                metadata={"ipo_id": "ipo-1", "owner": "본인"},
+                today=self.today, path=self.action_file,
+            )
+            self.assertEqual(ok["metadata"], {"ipo_id": "ipo-1", "owner": "본인"})
+            with self.assertRaises(IpoActionError) as wrong_owner:
+                create_web_action(
+                    username="alice", action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                    metadata={"ipo_id": "ipo-1", "owner": "배우자"},
+                    today=self.today, path=self.action_file,
+                )
+            self.assertEqual(str(wrong_owner.exception), "OWNER_NOT_ELIGIBLE")
+            for wrong_day in (self.today - timedelta(days=1), self.today + timedelta(days=1)):
+                with self.assertRaises(IpoActionError) as inactive:
+                    create_web_action(
+                        username="alice", action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                        metadata={"ipo_id": "ipo-1", "owner": "본인"},
+                        today=wrong_day, path=self.action_file,
+                    )
+                self.assertEqual(str(inactive.exception), "LISTING_DATE_NOT_ACTIVE")
+
+        missing_date_market = _make_market_data("ipo-1", "2026-09-01", "2026-09-02")
+        with patch("app.services.ipo.actions.read_market_store_read_only", return_value=missing_date_market), \
+             patch("app.services.ipo.actions.get_user_applications", return_value=apps):
+            with self.assertRaises(IpoActionError) as no_date:
+                create_web_action(
+                    username="alice", action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                    metadata={"ipo_id": "ipo-1", "owner": "본인"},
+                    today=self.today, path=self.action_file,
+                )
+            self.assertEqual(str(no_date.exception), "LISTING_DATE_NOT_ACTIVE")
+
+        with patch("app.services.ipo.actions.read_market_store_read_only", return_value={"ipos": []}), \
+             patch("app.services.ipo.actions.get_user_applications", return_value=apps):
+            with self.assertRaises(IpoActionError) as missing_ipo:
+                create_web_action(
+                    username="alice", action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                    metadata={"ipo_id": "missing", "owner": "본인"},
+                    today=self.today, path=self.action_file,
+                )
+            self.assertEqual(str(missing_ipo.exception), "IPO_NOT_FOUND")
+
     def test_is_action_expired_kst_boundary(self):
         # Subscription end is 2026-09-21
         end_kst = datetime(2026, 9, 21, 23, 59, 59, tzinfo=KST)
@@ -265,23 +390,29 @@ class ActionV2EngineTests(unittest.TestCase):
             self.assertEqual(res2["status"], "already_processed")
 
     def test_open_ipo_sale_flow_not_executable_in_phase2(self):
-        action_res = create_web_action(
-            username="alice",
-            action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
-            metadata={"ipo_id": "ipo-1", "owner": "본인"},
-            today=self.today,
-            path=self.action_file,
-        )
-        raw_token = action_res["raw_token"]
+        market = _make_market_data("ipo-1", "2026-09-01", "2026-09-02")
+        market["ipos"][0]["actual_listing_date"] = self.today.isoformat()
+        apps = _make_user_applications("ipo-1", applied=["본인"], targets=["본인"])
 
-        with self.assertRaises(IpoActionError) as cm:
-            execute_web_action(
-                raw_token,
-                authenticated_username="alice",
+        with patch("app.services.ipo.actions.read_market_store_read_only", return_value=market), \
+             patch("app.services.ipo.actions.get_user_applications", return_value=apps):
+            action_res = create_web_action(
+                username="alice",
+                action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                metadata={"ipo_id": "ipo-1", "owner": "본인"},
                 today=self.today,
                 path=self.action_file,
             )
-        self.assertEqual(str(cm.exception), "ACTION_NOT_EXECUTABLE")
+            raw_token = action_res["raw_token"]
+
+            with self.assertRaises(IpoActionError) as cm:
+                execute_web_action(
+                    raw_token,
+                    authenticated_username="alice",
+                    today=self.today,
+                    path=self.action_file,
+                )
+            self.assertEqual(str(cm.exception), "ACTION_NOT_EXECUTABLE")
 
         # Verify consumed_at was NOT set
         stored = _load_v2(self.action_file)
@@ -626,8 +757,13 @@ class ActionV2HttpIntegrationTests(unittest.TestCase):
     def test_open_ipo_sale_flow_post_execute_returns_400(self):
         self._login_session("alice")
         cur_date = datetime.now(KST).date()
+        market = _make_market_data("ipo-1", "2026-09-01", "2026-09-02")
+        market["ipos"][0]["actual_listing_date"] = cur_date.isoformat()
+        apps = _make_user_applications("ipo-1", applied=["본인"], targets=["본인"])
 
-        with patch("app.services.action_v2.get_action_v2_file_path", return_value=self.action_file):
+        with patch("app.services.ipo.actions.read_market_store_read_only", return_value=market), \
+             patch("app.services.ipo.actions.get_user_applications", return_value=apps), \
+             patch("app.services.action_v2.get_action_v2_file_path", return_value=self.action_file):
             action_res = create_web_action(
                 username="alice",
                 action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,

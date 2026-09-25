@@ -173,7 +173,7 @@ def allocation_summary(username: str | None, ipo_id: str, owner: str, stock_code
         pnl_total += pnl_value; fee_total += fee_value; tax_total += tax_value; proceeds_total += proceeds_value
         links_out.append({"pnl_record_id": link.get("pnl_record_id"), "matched_quantity": qty, "date": record.get("date") if record else None, "pnl_krw": round(pnl_value, 0), "fee": round(fee_value, 0), "tax": round(tax_value, 0), "sell_amount": round(proceeds_value, 0)})
     total=_quantity(allocation.get("quantity"), "allocated_quantity"); remaining=total-sold
-    status="LINK_DATA_MISSING" if has_dangling else "FULLY_SOLD" if total and remaining == 0 else "PARTIALLY_SOLD" if sold else "UNSOLD"
+    status="LINK_DATA_MISSING" if has_dangling else "NO_ALLOCATION" if total == 0 else "FULLY_SOLD" if remaining == 0 else "PARTIALLY_SOLD" if sold else "UNSOLD"
     monetary = None if has_dangling else {"realized_pnl_krw": round(pnl_total, 0), "sell_amount": round(proceeds_total, 0), "fee": round(fee_total, 0), "tax": round(tax_total, 0)}
     return {"status": status, "has_dangling_links": has_dangling, "realized_pnl_complete": not has_dangling,
             "allocation": {"id": allocation.get("id"), "quantity": total, "offer_price": allocation.get("offer_price"),

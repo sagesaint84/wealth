@@ -95,12 +95,41 @@ class SubscriptionReminderTests(unittest.TestCase):
 class ListingReminderTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.user_dir = Path(self.temp.name) / "users"
+        def _get_user_dir(u=None):
+            p = self.user_dir / (u or "alice").strip()
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+        self.user_dir_patches = [
+            patch("app.services.user_manager.get_user_data_dir", side_effect=_get_user_dir),
+            patch("app.services.settings.get_user_data_dir", side_effect=_get_user_dir),
+            patch("app.services.portfolio._get_user_dir", side_effect=_get_user_dir),
+        ]
+        for p in self.user_dir_patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+        self.action_v2_path = Path(self.temp.name) / "action_v2_state.json"
+        p_act_v2 = patch("app.services.action_v2.get_action_v2_file_path", return_value=self.action_v2_path)
+        p_act_v2.start(); self.addCleanup(p_act_v2.stop)
+
         self.notifier = IpoTelegramNotifier(bot_token="x", chat_id="y", state_path=Path(self.temp.name) / "state.json")
         self.notifier.send_message = MagicMock(return_value=True)
 
-    def run_listing(self, market, slot="0850", day=date(2026, 9, 29)):
+    def run_listing(self, market, slot="0850", day=date(2026, 9, 29), apps=None):
+        if apps is None:
+            # Default application state where each ipo in market has applied_owners: ["본인"]
+            apps = {"applications": {}}
+            for item in market.get("ipos", []):
+                iid = item.get("ipo_id")
+                if iid:
+                    apps["applications"][iid] = {
+                        "applied_owners": ["본인"],
+                        "applicants": {"본인": {"broker_id": "mirae", "account_id": "acc-1"}},
+                    }
         return run_ipo_listing_reminders(username="alice", reminder_slot=slot, today=day,
-                                         notifier=self.notifier, market_store=market)
+                                         notifier=self.notifier, market_store=market,
+                                         applications=apps)
 
     def test_expected_and_actual_listing_dates_and_slots_are_deduped(self):
         market = {"ipos": [
@@ -123,10 +152,11 @@ class ListingReminderTests(unittest.TestCase):
 
     def test_notification_state_is_user_scoped(self):
         market = {"ipos": [{"ipo_id": "ipo", "expected_listing_date": "2026-09-29"}]}
-        first = self.run_listing(market)
+        apps = {"applications": {"ipo": {"applied_owners": ["본인"], "applicants": {"본인": {"broker_id": "mirae", "account_id": "acc-1"}}}}}
+        first = self.run_listing(market, apps=apps)
         other = IpoTelegramNotifier(bot_token="x", chat_id="y", state_path=Path(self.temp.name) / "other.json")
         other.send_message = MagicMock(return_value=True)
-        second = run_ipo_listing_reminders(username="bob", reminder_slot="0850", today=date(2026, 9, 29), notifier=other, market_store=market)
+        second = run_ipo_listing_reminders(username="bob", reminder_slot="0850", today=date(2026, 9, 29), notifier=other, market_store=market, applications=apps)
         self.assertEqual((first["notifications_sent_count"], second["notifications_sent_count"]), (1, 1))
 
     def test_custom_listing_slot_uses_neutral_message(self):

@@ -27,6 +27,7 @@ from app.services.ipo.actions import (
     IpoActionAlreadyRunning,
     IpoActionError,
     mark_ipo_owner_applied,
+    validate_ipo_listing_eligibility,
     validate_ipo_subscription_eligibility,
 )
 from app.services.secure_files import atomic_write_private_json
@@ -235,9 +236,20 @@ def create_web_action(
             end_kst = datetime.combine(end, time(23, 59, 59), tzinfo=KST)
             expires_at = end_kst.astimezone(timezone.utc)
     elif action_type == ACTION_TYPE_OPEN_IPO_SALE_FLOW:
-        if expires_at is None:
-            # Default 7 days expiry for sale flow skeleton
-            expires_at = _now_utc() + timedelta(days=7)
+        ipo_id = meta.get("ipo_id")
+        owner = meta.get("owner")
+        if not ipo_id or not owner:
+            raise IpoActionError("MISSING_ACTION_METADATA")
+        _, _, _, listing_date = validate_ipo_listing_eligibility(
+            ipo_id, owner, norm_user, current_today
+        )
+        # Listing-sale actions are valid only through the listing day.  A
+        # caller-supplied expiry must never extend this business boundary.
+        end_kst = datetime.combine(listing_date, time(23, 59, 59), tzinfo=KST)
+        expires_at = end_kst.astimezone(timezone.utc)
+        # Sale actions must not embed mutable account/market facts in durable
+        # metadata.  The route resolves those facts from canonical stores.
+        meta = {"ipo_id": ipo_id, "owner": owner}
 
     raw_token = secrets.token_urlsafe(32)
     validate_action_token(raw_token)
@@ -309,6 +321,46 @@ def get_web_action_metadata(token: str, *, path: Path | str | None = None) -> di
             return None
         # Return deep copy of record for read-only inspection
         return json.loads(json.dumps(record))
+
+
+def mark_web_action_consumed_if_current(
+    token: str,
+    *,
+    authenticated_username: str,
+    action_type: str,
+    today: date | None = None,
+    path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Atomically consume the current user's action of the expected type.
+
+    This is deliberately a small Action V2 persistence boundary for business
+    routes whose canonical mutation has already succeeded.  It never stores
+    the raw token and is idempotent for an already-consumed action.
+    """
+    try:
+        digest = hash_action_token(token)
+    except Exception:
+        raise IpoActionError("ACTION_NOT_FOUND") from None
+    target_path = get_action_v2_file_path(path)
+    with action_v2_lock(target_path):
+        data = _load_v2(target_path)
+        action = data.get("actions", {}).get(digest)
+        if not isinstance(action, dict):
+            raise IpoActionError("ACTION_NOT_FOUND")
+        if action.get("username") != authenticated_username:
+            raise IpoActionError("FORBIDDEN")
+        if action.get("action_type") != action_type:
+            raise IpoActionError("ACTION_TYPE_MISMATCH")
+        # The service boundary is fail-closed even if a route forgot to check
+        # expiry first.  Expired capability URLs must never be consumed.
+        if is_action_expired(action, today):
+            raise IpoActionError("ACTION_EXPIRED")
+        if action.get("consumed_at"):
+            return {"status": "already_consumed", "consumed_at": action["consumed_at"]}
+        action["consumed_at"] = _now_utc().isoformat()
+        prune_old_v2_actions(data)
+        _save_v2(data, target_path)
+        return {"status": "consumed", "consumed_at": action["consumed_at"]}
 
 
 def execute_web_action(

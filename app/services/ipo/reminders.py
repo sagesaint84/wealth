@@ -144,32 +144,42 @@ def run_ipo_listing_reminders(
     *, username: str | None, reminder_slot: str, today: date | None = None,
     notifier: IpoTelegramNotifier | None = None,
     market_store: dict[str, Any] | None = None,
+    applications: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Send user-scoped, non-advisory reminders for IPOs listing today.
-
-    This deliberately reads only the shared market store; unlike subscription
-    reminders it neither reads nor mutates the user's application state.
-    """
+    """Send user-scoped, non-advisory reminders for IPOs listing today."""
     if not _is_valid_reminder_slot(reminder_slot):
         raise ValueError("INVALID_LISTING_REMINDER_SLOT")
     current = today or datetime.now(KST).date()
     store = market_store if market_store is not None else read_market_store_read_only()
+    apps = applications if applications is not None else get_user_applications(username)
     client = notifier or IpoTelegramNotifier(username=username)
     with notification_state_lock(client.state_path):
-        return _run_listing_reminders_locked(client, store, current, reminder_slot)
+        return _run_listing_reminders_locked(client, store, apps, current, reminder_slot, username)
 
 
 def _run_listing_reminders_locked(
     client: IpoTelegramNotifier,
     store: dict[str, Any],
+    apps: dict[str, Any],
     current: date,
     reminder_slot: str,
+    username: str | None,
 ) -> dict[str, Any]:
+    from app.services.ipo.allocation import allocation_summary
+    from app.services.broker_registry import get_display_name
+
     date_str = current.isoformat()
     state = client.load_state()
     sent_keys = state.setdefault("sent_keys", {})
     sent = 0
     eligible = 0
+    fully_sold_count = 0
+    no_allocation_count = 0
+    unresolved_count = 0
+    actionable_owner_count = 0
+
+    user_apps = apps.get("applications", {}) if isinstance(apps, dict) else {}
+
     for ipo in store.get("ipos", []):
         ipo_id = str(ipo.get("ipo_id") or "").strip()
         if not ipo_id:
@@ -187,6 +197,143 @@ def _run_listing_reminders_locked(
         key = f"{ipo_id}:listing_reminder:{date_str}:{reminder_slot}"
         if key in sent_keys:
             continue
+
+        app_record = user_apps.get(ipo_id, {})
+        applied_owners = list(app_record.get("applied_owners") or [])
+        applicants = app_record.get("applicants", {}) or {}
+        stock_code = str(ipo.get("stock_code") or "").strip()
+
+        # If user has no applied owners for this IPO, do not send reminder
+        if not applied_owners:
+            continue
+
+        owner_lines: list[str] = []
+        action_buttons: list[dict[str, str]] = []
+        has_actionable_owners = False
+
+        for owner in applied_owners:
+            applicant = applicants.get(owner)
+            broker_display = None
+            if isinstance(applicant, dict) and applicant.get("broker_id"):
+                broker_display = get_display_name(applicant["broker_id"]) or applicant["broker_id"]
+
+            if not isinstance(applicant, dict) or not applicant.get("account_id") or not applicant.get("broker_id"):
+                # UNRESOLVED_ACCOUNT
+                owner_header = f"{owner} / {broker_display}" if broker_display else owner
+                owner_lines.append(f"{owner_header}\n청약 계좌 연결 필요")
+                has_actionable_owners = True
+                unresolved_count += 1
+                actionable_owner_count += 1
+                # Status check action button
+                if username:
+                    try:
+                        from app.services.action_v2 import ACTION_TYPE_OPEN_IPO_SALE_FLOW, build_action_url, create_web_action
+                        web_action = create_web_action(
+                            action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                            username=username,
+                            source_channel="telegram",
+                            metadata={"ipo_id": ipo_id, "owner": owner},
+                            today=current,
+                        )
+                        action_buttons.append({"text": f"{owner} 상태 확인", "url": build_action_url(web_action["raw_token"])})
+                    except Exception as exc:
+                        logger.warning("IPO listing web action unavailable: %s", type(exc).__name__)
+                continue
+
+            try:
+                summary = allocation_summary(username, ipo_id, owner, stock_code, listing_raw)
+            except Exception as exc:
+                logger.warning("IPO allocation summary unavailable: %s", type(exc).__name__)
+                summary = {"status": "UNRESOLVED"}
+
+            status = summary.get("status")
+            alloc_info = summary.get("allocation") or {}
+            qty = alloc_info.get("quantity", 0)
+            sold = alloc_info.get("sold_quantity", 0)
+            remaining = alloc_info.get("remaining_quantity", 0)
+
+            owner_header = f"{owner} / {broker_display}" if broker_display else owner
+
+            if status == "NO_ALLOCATION":
+                no_allocation_count += 1
+                continue
+            elif status == "FULLY_SOLD":
+                fully_sold_count += 1
+                continue
+            elif status == "UNSOLD":
+                owner_lines.append(f"{owner_header}\n배정 {qty}주 · 매도 0주 · 잔여 {remaining}주")
+                has_actionable_owners = True
+                actionable_owner_count += 1
+                if username:
+                    try:
+                        from app.services.action_v2 import ACTION_TYPE_OPEN_IPO_SALE_FLOW, build_action_url, create_web_action
+                        web_action = create_web_action(
+                            action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                            username=username,
+                            source_channel="telegram",
+                            metadata={"ipo_id": ipo_id, "owner": owner},
+                            today=current,
+                        )
+                        action_buttons.append({"text": f"{owner} 매도 기록", "url": build_action_url(web_action["raw_token"])})
+                    except Exception as exc:
+                        logger.warning("IPO listing web action unavailable: %s", type(exc).__name__)
+            elif status == "PARTIALLY_SOLD":
+                owner_lines.append(f"{owner_header}\n배정 {qty}주 · 매도 {sold}주 · 잔여 {remaining}주")
+                has_actionable_owners = True
+                actionable_owner_count += 1
+                if username:
+                    try:
+                        from app.services.action_v2 import ACTION_TYPE_OPEN_IPO_SALE_FLOW, build_action_url, create_web_action
+                        web_action = create_web_action(
+                            action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                            username=username,
+                            source_channel="telegram",
+                            metadata={"ipo_id": ipo_id, "owner": owner},
+                            today=current,
+                        )
+                        action_buttons.append({"text": f"{owner} 매도 기록", "url": build_action_url(web_action["raw_token"])})
+                    except Exception as exc:
+                        logger.warning("IPO listing web action unavailable: %s", type(exc).__name__)
+            elif status == "LINK_DATA_MISSING":
+                owner_lines.append(f"{owner_header}\n매도 연결 데이터 확인 필요")
+                has_actionable_owners = True
+                actionable_owner_count += 1
+                if username:
+                    try:
+                        from app.services.action_v2 import ACTION_TYPE_OPEN_IPO_SALE_FLOW, build_action_url, create_web_action
+                        web_action = create_web_action(
+                            action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                            username=username,
+                            source_channel="telegram",
+                            metadata={"ipo_id": ipo_id, "owner": owner},
+                            today=current,
+                        )
+                        action_buttons.append({"text": f"{owner} 상태 확인", "url": build_action_url(web_action["raw_token"])})
+                    except Exception as exc:
+                        logger.warning("IPO listing web action unavailable: %s", type(exc).__name__)
+            else:  # UNRESOLVED
+                owner_lines.append(f"{owner_header}\n배정수량 미기록")
+                has_actionable_owners = True
+                unresolved_count += 1
+                actionable_owner_count += 1
+                if username:
+                    try:
+                        from app.services.action_v2 import ACTION_TYPE_OPEN_IPO_SALE_FLOW, build_action_url, create_web_action
+                        web_action = create_web_action(
+                            action_type=ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+                            username=username,
+                            source_channel="telegram",
+                            metadata={"ipo_id": ipo_id, "owner": owner},
+                            today=current,
+                        )
+                        action_buttons.append({"text": f"{owner} 상태 확인", "url": build_action_url(web_action["raw_token"])})
+                    except Exception as exc:
+                        logger.warning("IPO listing web action unavailable: %s", type(exc).__name__)
+
+        # If all applied owners are FULLY_SOLD or NO_ALLOCATION, suppress message
+        if not has_actionable_owners or not owner_lines:
+            continue
+
         price = ipo.get("final_offer_price")
         price_text = f"{int(price):,}원" if isinstance(price, (int, float)) else "미정"
         managers = ", ".join(ipo.get("lead_managers") or []) or "미정"
@@ -199,21 +346,36 @@ def _run_listing_reminders_locked(
         else:
             title = "📌 <b>공모주 오늘 상장 확인</b>"
             guidance = "상장 일정과 현재 주문·보유 상태를 확인하세요."
+
+        details_block = "\n\n".join(owner_lines)
         message = (
             f"{title}\n{ipo.get('company_name') or '공모주'}\n"
             f"• 상장일: {listing_date.isoformat()}\n"
             f"• 공모가: {price_text}\n"
-            f"• 주관사: {managers}\n"
+            f"• 주관사: {managers}\n\n"
+            f"{details_block}\n\n"
             f"{guidance}\n"
         )
-        if client.send_message(message):
+
+        reply_markup = None
+        if action_buttons:
+            reply_markup = {"inline_keyboard": [[btn] for btn in action_buttons]}
+
+        if client.send_message(message, reply_markup=reply_markup):
             sent_keys[key] = datetime.now(KST).isoformat()
             sent += 1
+
     if sent:
         client.save_state(state)
     return {
-        "status": "ok", "slot": reminder_slot,
-        "eligible_ipos": eligible, "notifications_sent_count": sent,
+        "status": "ok",
+        "slot": reminder_slot,
+        "eligible_ipos": eligible,
+        "notifications_sent_count": sent,
+        "fully_sold_count": fully_sold_count,
+        "no_allocation_count": no_allocation_count,
+        "unresolved_count": unresolved_count,
+        "actionable_owner_count": actionable_owner_count,
     }
 
 
