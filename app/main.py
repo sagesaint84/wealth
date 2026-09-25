@@ -808,6 +808,39 @@ async def patch_notification_settings(request: Request) -> dict:
     result["telegram"].update(telegram_secret_status(username))
     return {"version":result["version"],"telegram":result["telegram"],"discord":result["discord"],"kakao":result["kakao"]}
 
+@app.get("/api/settings/notifications/history")
+async def get_notification_history_api(request: Request, limit: int = 20) -> dict:
+    from app.services.notifications.history import (
+        NotificationHistoryError,
+        list_notification_history,
+    )
+    username = get_current_username(request)
+    try:
+        return list_notification_history(username, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(400, detail={"code": str(exc)}) from exc
+    except NotificationHistoryError as exc:
+        raise HTTPException(
+            500, detail={"code": "NOTIFICATION_HISTORY_UNAVAILABLE"}
+        ) from exc
+
+
+@app.delete("/api/settings/notifications/history")
+async def clear_notification_history_api(request: Request) -> dict:
+    from app.services.notifications.history import (
+        NotificationHistoryError,
+        clear_notification_history,
+    )
+    username = get_current_username(request)
+    try:
+        deleted = clear_notification_history(username)
+    except NotificationHistoryError as exc:
+        raise HTTPException(
+            500, detail={"code": "NOTIFICATION_HISTORY_UNAVAILABLE"}
+        ) from exc
+    return {"ok": True, "deleted_count": deleted}
+
+
 @app.patch("/api/settings/telegram/secrets")
 async def patch_telegram_secrets(request: Request) -> dict:
     from app.services.telegram_secrets import update_telegram_secrets, TelegramSecretError
@@ -842,17 +875,30 @@ async def patch_discord_secrets(request: Request) -> dict:
 @app.post("/api/settings/discord/test")
 async def discord_test_message_api(request: Request) -> dict:
     from app.services.notifications.discord import DiscordSender
+    from app.services.notifications.history import record_single_provider_history
     from app.services.notifications.models import NotificationEvent
     username = get_current_username(request)
+    event = NotificationEvent(
+        event_key="integration_test:discord",
+        event_type="integration_test",
+        body="✅ Wealth Discord 연결 테스트가 성공했습니다.",
+        username=username,
+    )
     result = await asyncio.to_thread(
         DiscordSender(username=username).send,
-        NotificationEvent(
-            event_key="discord_test",
-            event_type="integration_test",
-            body="✅ Wealth Discord 연결 테스트가 성공했습니다.",
-            username=username,
-        ),
+        event,
     )
+    try:
+        record_single_provider_history(
+            username,
+            event,
+            provider="discord",
+            success=result.success,
+            retryable=result.retryable,
+            error=result.error_code,
+        )
+    except Exception:
+        pass
     if not result.success:
         raise HTTPException(
             status_code=502 if result.retryable else 409,
@@ -1154,19 +1200,29 @@ async def kakao_oauth_callback_api(
 @app.post("/api/settings/kakao/test")
 async def kakao_test_message_api(request: Request) -> dict:
     """Send one user-triggered test message to the current user's Kakao chat."""
+    from app.services.notifications.history import record_single_provider_history
     from app.services.notifications.kakao import KakaoSender
     from app.services.notifications.models import NotificationEvent
     username = get_current_username(request)
     sender = KakaoSender(username=username)
-    result = await asyncio.to_thread(
-        sender.send,
-        NotificationEvent(
-            event_key="kakao_test",
-            event_type="integration_test",
-            body="✅ Wealth 카카오톡 나에게 보내기 연결 테스트가 성공했습니다.",
-            username=username,
-        ),
+    event = NotificationEvent(
+        event_key="integration_test:kakao",
+        event_type="integration_test",
+        body="✅ Wealth 카카오톡 나에게 보내기 연결 테스트가 성공했습니다.",
+        username=username,
     )
+    result = await asyncio.to_thread(sender.send, event)
+    try:
+        record_single_provider_history(
+            username,
+            event,
+            provider="kakao",
+            success=result.success,
+            retryable=result.retryable,
+            error=result.error_code,
+        )
+    except Exception:
+        pass
     if not result.success:
         status = 502 if result.retryable else 409
         raise HTTPException(
@@ -1190,10 +1246,42 @@ async def kakao_disconnect_api(request: Request) -> dict:
 
 @app.post("/api/settings/telegram/test")
 async def telegram_test_message_api(request: Request) -> dict:
+    from app.services.notifications.history import record_single_provider_history
+    from app.services.notifications.models import NotificationEvent
     from app.services.telegram_config import resolve_telegram_config
     from app.services.telegram_management import send_test_message,TelegramManagementError
-    try:return send_test_message(resolve_telegram_config(get_current_username(request)))
-    except TelegramManagementError as exc: raise _telegram_management_http_error(exc) from exc
+    username = get_current_username(request)
+    event = NotificationEvent(
+        event_key="integration_test:telegram",
+        event_type="integration_test",
+        body="Wealth Telegram 연결 테스트",
+        username=username,
+    )
+    try:
+        result = send_test_message(resolve_telegram_config(username))
+    except TelegramManagementError as exc:
+        try:
+            record_single_provider_history(
+                username,
+                event,
+                provider="telegram",
+                success=False,
+                retryable=str(exc) == "TELEGRAM_API_UNAVAILABLE",
+                error=str(exc),
+            )
+        except Exception:
+            pass
+        raise _telegram_management_http_error(exc) from exc
+    try:
+        record_single_provider_history(
+            username,
+            event,
+            provider="telegram",
+            success=True,
+        )
+    except Exception:
+        pass
+    return result
 
 @app.get("/api/settings/telegram/status")
 async def telegram_management_status_api(request: Request) -> dict:
