@@ -153,6 +153,7 @@ def _load(path: Path) -> dict[str, Any]:
         not isinstance(data, dict)
         or data.get("version") != HISTORY_VERSION
         or not isinstance(data.get("events"), list)
+        or len(data["events"]) > HISTORY_RETENTION
     ):
         raise NotificationHistoryError("NOTIFICATION_HISTORY_STATE_INVALID")
     return {
@@ -272,8 +273,15 @@ def list_notification_history(
             "events": [],
         }
     target = path or history_path(username)
-    with _history_lock(target):
-        data = _load(target)
+    try:
+        with _history_lock(target):
+            data = _load(target)
+    except NotificationHistoryError:
+        raise
+    except OSError as exc:
+        raise NotificationHistoryError(
+            "NOTIFICATION_HISTORY_UNAVAILABLE"
+        ) from exc
     events = list(reversed(data["events"][-limit:]))
     return {
         "version": HISTORY_VERSION,
@@ -291,12 +299,17 @@ def clear_notification_history(
     if path is None and is_test_mode():
         return 0
     target = path or history_path(username)
-    with _history_lock(target):
-        try:
-            data = _load(target)
-            deleted = len(data["events"])
-        except NotificationHistoryError:
-            # Clearing is also the recovery path for a corrupt history file.
-            deleted = 0
-        _save(_empty(), target)
+    try:
+        with _history_lock(target):
+            try:
+                data = _load(target)
+                deleted = len(data["events"])
+            except NotificationHistoryError:
+                # Clearing is also the recovery path for a corrupt history file.
+                deleted = 0
+            _save(_empty(), target)
+    except OSError as exc:
+        raise NotificationHistoryError(
+            "NOTIFICATION_HISTORY_UNAVAILABLE"
+        ) from exc
     return deleted
