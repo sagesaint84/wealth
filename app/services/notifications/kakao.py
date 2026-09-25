@@ -69,7 +69,7 @@ class KakaoSender:
 
     def is_configured(self) -> bool:
         try:
-            app = resolve_kakao_app_config()
+            app = resolve_kakao_app_config(self.username)
             tokens = load_kakao_tokens(self.username)
             return bool(
                 app.app_configured
@@ -92,7 +92,7 @@ class KakaoSender:
         return delay
 
     def _template(self, event: NotificationEvent) -> tuple[dict[str, Any] | None, str | None]:
-        app = resolve_kakao_app_config()
+        app = resolve_kakao_app_config(self.username)
         if not app.public_base_url:
             return None, "PUBLIC_BASE_URL_REQUIRED"
         text = _telegram_html_to_text(event.body).strip()
