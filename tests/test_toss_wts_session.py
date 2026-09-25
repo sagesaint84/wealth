@@ -10,7 +10,12 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from app.services import system_settings
-from app.services.toss_wts_session import get_toss_session_status, run_toss_session_maintenance
+from app.services.toss_wts_session import (
+    get_toss_session_status,
+    run_toss_session_maintenance,
+    send_toss_session_notifications,
+)
+from app.services.notifications.models import NotificationSendResult
 from app.services.automation import dispatcher
 from app.services.automation.execution_state import claim_execution, get_retryable_executions, record_execution_failure
 
@@ -292,6 +297,390 @@ class TossWtsSessionTests(unittest.TestCase):
             ("TOSS_AUTH_OPERATION_BUSY", "AUTH_LOGIN_IN_PROGRESS"),
         )
         self.assertFalse(r["extension_attempted"])
+
+
+    # ------------------------------------------------------------------
+    # Phase 8B — provider-neutral Toss session notifications
+    # ------------------------------------------------------------------
+    def test_toss_session_multichannel_dispatch_success(self):
+        events = {}
+
+        class FakeSender:
+            def __init__(self, provider):
+                self.provider_name = provider
+
+            def is_configured(self):
+                return True
+
+            def send(self, event, **_kwargs):
+                events[self.provider_name] = event
+                return NotificationSendResult(
+                    success=True,
+                    provider=self.provider_name,
+                )
+
+        effective = {
+            "telegram": {"enabled": True},
+            "discord": {"enabled": True},
+            "kakao": {"enabled": True},
+        }
+        tg_cfg = Mock(bot_token="BOT_TOKEN", chat_id=123)
+
+        with patch(
+            "app.services.settings.get_effective_settings",
+            return_value=effective,
+        ), patch(
+            "app.services.toss_wts_session.resolve_telegram_config",
+            return_value=tg_cfg,
+        ), patch(
+            "app.services.notifications.telegram.TelegramSender",
+            return_value=FakeSender("telegram"),
+        ), patch(
+            "app.services.notifications.discord.DiscordSender",
+            return_value=FakeSender("discord"),
+        ), patch(
+            "app.services.notifications.kakao.KakaoSender",
+            return_value=FakeSender("kakao"),
+        ):
+            result = send_toss_session_notifications(
+                USERNAME,
+                "Wealth: " + ("Toss WTS 세션 상태 알림 " * 30),
+                event_key="toss_wts:owner:2026-09-23:test",
+                event_type="toss_wts_test",
+            )
+
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(result["notifications_sent_count"], 3)
+        self.assertEqual(set(events), {"telegram", "discord", "kakao"})
+        self.assertEqual(
+            events["telegram"].event_key,
+            "toss_wts:owner:2026-09-23:test",
+        )
+        self.assertEqual(events["kakao"].event_type, "toss_wts_test")
+        self.assertEqual(events["kakao"].username, USERNAME)
+        self.assertLessEqual(
+            len(events["kakao"].metadata["kakao_body"]),
+            200,
+        )
+
+    def test_toss_session_provider_failure_isolated(self):
+        calls = []
+
+        class FakeSender:
+            def __init__(self, provider, *, raises=False):
+                self.provider_name = provider
+                self.raises = raises
+
+            def is_configured(self):
+                return True
+
+            def send(self, event, **_kwargs):
+                calls.append(self.provider_name)
+                if self.raises:
+                    raise RuntimeError("credential-bearing failure")
+                return NotificationSendResult(
+                    success=True,
+                    provider=self.provider_name,
+                )
+
+        effective = {
+            "telegram": {"enabled": True},
+            "discord": {"enabled": True},
+            "kakao": {"enabled": True},
+        }
+        tg_cfg = Mock(bot_token="BOT_TOKEN", chat_id=123)
+
+        with patch(
+            "app.services.settings.get_effective_settings",
+            return_value=effective,
+        ), patch(
+            "app.services.toss_wts_session.resolve_telegram_config",
+            return_value=tg_cfg,
+        ), patch(
+            "app.services.notifications.telegram.TelegramSender",
+            return_value=FakeSender("telegram"),
+        ), patch(
+            "app.services.notifications.discord.DiscordSender",
+            return_value=FakeSender("discord", raises=True),
+        ), patch(
+            "app.services.notifications.kakao.KakaoSender",
+            return_value=FakeSender("kakao"),
+        ):
+            result = send_toss_session_notifications(
+                USERNAME,
+                "연장 상태",
+                event_key="toss_wts:owner:2026-09-23:partial",
+                event_type="toss_wts_test",
+            )
+
+        self.assertEqual(calls, ["telegram", "discord", "kakao"])
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["notifications_sent_count"], 2)
+        self.assertEqual(
+            result["provider_results"]["discord"]["status"],
+            "failed",
+        )
+        self.assertTrue(
+            result["provider_results"]["discord"]["retryable"]
+        )
+        self.assertEqual(
+            result["provider_results"]["discord"]["error"],
+            "SEND_FAILED",
+        )
+        self.assertTrue(result["provider_results"]["kakao"]["sent"])
+
+    def test_toss_session_disabled_providers_are_not_constructed(self):
+        effective = {
+            "telegram": {"enabled": False},
+            "discord": {"enabled": False},
+            "kakao": {"enabled": False},
+        }
+        with patch(
+            "app.services.settings.get_effective_settings",
+            return_value=effective,
+        ), patch(
+            "app.services.toss_wts_session.resolve_telegram_config"
+        ) as telegram_config, patch(
+            "app.services.notifications.telegram.TelegramSender"
+        ) as telegram_sender, patch(
+            "app.services.notifications.discord.DiscordSender"
+        ) as discord_sender, patch(
+            "app.services.notifications.kakao.KakaoSender"
+        ) as kakao_sender:
+            result = send_toss_session_notifications(
+                USERNAME,
+                "알림",
+                event_key="toss_wts:owner:2026-09-23:disabled",
+                event_type="toss_wts_test",
+            )
+
+        telegram_config.assert_not_called()
+        telegram_sender.assert_not_called()
+        discord_sender.assert_not_called()
+        kakao_sender.assert_not_called()
+        self.assertEqual(result["status"], "disabled")
+        self.assertEqual(result["notifications_sent_count"], 0)
+        for provider in ("telegram", "discord", "kakao"):
+            self.assertEqual(
+                result["provider_results"][provider]["status"],
+                "disabled",
+            )
+
+    def test_toss_session_provider_constructor_failure_isolated(self):
+        class FakeKakao:
+            provider_name = "kakao"
+
+            def is_configured(self):
+                return True
+
+            def send(self, event, **_kwargs):
+                return NotificationSendResult(
+                    success=True,
+                    provider="kakao",
+                )
+
+        effective = {
+            "telegram": {"enabled": False},
+            "discord": {"enabled": True},
+            "kakao": {"enabled": True},
+        }
+        with patch(
+            "app.services.settings.get_effective_settings",
+            return_value=effective,
+        ), patch(
+            "app.services.notifications.discord.DiscordSender",
+            side_effect=RuntimeError("secret-bearing constructor failure"),
+        ), patch(
+            "app.services.notifications.kakao.KakaoSender",
+            return_value=FakeKakao(),
+        ):
+            result = send_toss_session_notifications(
+                USERNAME,
+                "알림",
+                event_key="toss_wts:owner:2026-09-23:constructor",
+                event_type="toss_wts_test",
+            )
+
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["notifications_sent_count"], 1)
+        self.assertEqual(
+            result["provider_results"]["discord"]["error"],
+            "CONFIGURATION_ERROR",
+        )
+        self.assertTrue(result["provider_results"]["kakao"]["sent"])
+
+    def test_maintenance_default_path_uses_multichannel_notification(self):
+        runner = Mock(
+            return_value=self._status(active=False, valid=False, hours=24)
+        )
+        notification = {
+            "status": "partial",
+            "notifications_sent_count": 2,
+            "provider_results": {
+                "telegram": {
+                    "sent": True,
+                    "status": "sent",
+                    "retryable": False,
+                    "error": None,
+                },
+                "discord": {
+                    "sent": False,
+                    "status": "failed",
+                    "retryable": True,
+                    "error": "SEND_FAILED",
+                },
+                "kakao": {
+                    "sent": True,
+                    "status": "sent",
+                    "retryable": False,
+                    "error": None,
+                },
+            },
+        }
+
+        with patch.dict(os.environ, self.env), patch(
+            "app.services.toss_wts_session.send_toss_session_notifications",
+            return_value=notification,
+        ) as notify:
+            result = run_toss_session_maintenance(
+                USERNAME,
+                now=self.now,
+                settings=self.settings,
+                run=runner,
+            )
+
+        self.assertEqual(result["action"], "status_failed")
+        self.assertEqual(result["notification_status"], "partial")
+        self.assertEqual(
+            result["notification_dispatch_status"],
+            "partial",
+        )
+        self.assertEqual(result["notifications_sent_count"], 2)
+        self.assertTrue(
+            result["notification_provider_results"]["telegram"]["sent"]
+        )
+        notify.assert_called_once()
+        self.assertEqual(
+            notify.call_args.kwargs["event_type"],
+            "toss_wts_session_invalid",
+        )
+
+    def test_maintenance_extension_events_have_distinct_event_keys(self):
+        runner = Mock(side_effect=[
+            self._status(hours=24),
+            subprocess.CompletedProcess([], 0, "", ""),
+            self._status(hours=168),
+        ])
+        notifications = []
+
+        def notify(owner, message, *, event_key, event_type):
+            notifications.append((event_key, event_type, message))
+            return {
+                "status": "sent",
+                "notifications_sent_count": 3,
+                "provider_results": {
+                    "telegram": {
+                        "sent": True,
+                        "status": "sent",
+                        "retryable": False,
+                        "error": None,
+                    },
+                    "discord": {
+                        "sent": True,
+                        "status": "sent",
+                        "retryable": False,
+                        "error": None,
+                    },
+                    "kakao": {
+                        "sent": True,
+                        "status": "sent",
+                        "retryable": False,
+                        "error": None,
+                    },
+                },
+            }
+
+        with patch.dict(os.environ, self.env), patch(
+            "app.services.toss_wts_session.send_toss_session_notifications",
+            side_effect=notify,
+        ):
+            result = run_toss_session_maintenance(
+                USERNAME,
+                now=self.now,
+                now_provider=lambda: self.now + timedelta(minutes=1),
+                settings=self.settings,
+                run=runner,
+            )
+
+        self.assertEqual(result["action"], "extended")
+        self.assertEqual(len(notifications), 2)
+        self.assertTrue(
+            notifications[0][0].endswith(":extension_requested")
+        )
+        self.assertEqual(
+            notifications[0][1],
+            "toss_wts_extension_requested",
+        )
+        self.assertTrue(
+            notifications[1][0].endswith(":extension_succeeded")
+        )
+        self.assertEqual(
+            notifications[1][1],
+            "toss_wts_extension_succeeded",
+        )
+        self.assertNotEqual(notifications[0][0], notifications[1][0])
+        self.assertEqual(result["notification_status"], "sent")
+        self.assertEqual(result["notifications_sent_count"], 3)
+
+    def test_multichannel_notification_exception_never_changes_session_result(self):
+        runner = Mock(
+            return_value=self._status(active=False, valid=False, hours=24)
+        )
+        secret_text = "https://discord.com/api/webhooks/SECRET_TEST_URL"
+
+        with patch.dict(os.environ, self.env), patch(
+            "app.services.toss_wts_session.send_toss_session_notifications",
+            side_effect=RuntimeError(secret_text),
+        ):
+            result = run_toss_session_maintenance(
+                USERNAME,
+                now=self.now,
+                settings=self.settings,
+                run=runner,
+            )
+
+        self.assertEqual(result["action"], "status_failed")
+        self.assertEqual(result["notification_status"], "failed")
+        self.assertEqual(result["notification_dispatch_status"], "failed")
+        self.assertEqual(result["notifications_sent_count"], 0)
+        self.assertNotIn(secret_text, str(result))
+
+    def test_maintenance_injected_sender_preserves_legacy_contract(self):
+        runner = Mock(
+            return_value=self._status(active=False, valid=False, hours=24)
+        )
+        legacy_sender = Mock()
+
+        with patch.dict(os.environ, self.env), patch(
+            "app.services.toss_wts_session.resolve_telegram_config",
+            return_value=Mock(),
+        ):
+            result = run_toss_session_maintenance(
+                USERNAME,
+                now=self.now,
+                settings=self.settings,
+                run=runner,
+                sender=legacy_sender,
+            )
+
+        legacy_sender.assert_called_once()
+        self.assertEqual(result["notification_status"], "sent")
+        self.assertEqual(result["notification_dispatch_status"], "sent")
+        self.assertEqual(result["notifications_sent_count"], 1)
+        self.assertEqual(
+            set(result["notification_provider_results"]),
+            {"telegram"},
+        )
 
 if __name__ == "__main__":
     unittest.main()

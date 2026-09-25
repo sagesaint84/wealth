@@ -429,9 +429,37 @@ async def execute_job(
         runner = toss_session_runner or run_toss_session_maintenance
         try:
             res = await asyncio.to_thread(runner, owner, now=now)
+            detail_keys = (
+                "action",
+                "active",
+                "valid",
+                "server_expires_at",
+                "hours_remaining",
+                "extension_attempted",
+                "extension_succeeded",
+                "notification_status",
+                "notification_dispatch_status",
+                "notifications_sent_count",
+                "error_code",
+            )
             if res.get("action") in {"not_required", "extended"}:
-                return {"job": job_type, "scope": scope, "owner": owner, "scheduled_time": scheduled_time, "status": "success", "details": {key: res.get(key) for key in ("action", "active", "valid", "server_expires_at", "hours_remaining", "extension_attempted", "extension_succeeded", "notification_status", "error_code")}}
-            return {"job": job_type, "scope": scope, "owner": owner, "scheduled_time": scheduled_time, "status": "failed", "error": res.get("error_code") or "TOSS_SESSION_MAINTENANCE_FAILED", "details": {key: res.get(key) for key in ("action", "active", "valid", "extension_attempted", "extension_succeeded", "notification_status", "error_code")}}
+                return {
+                    "job": job_type,
+                    "scope": scope,
+                    "owner": owner,
+                    "scheduled_time": scheduled_time,
+                    "status": "success",
+                    "details": {key: res.get(key) for key in detail_keys},
+                }
+            return {
+                "job": job_type,
+                "scope": scope,
+                "owner": owner,
+                "scheduled_time": scheduled_time,
+                "status": "failed",
+                "error": res.get("error_code") or "TOSS_SESSION_MAINTENANCE_FAILED",
+                "details": {key: res.get(key) for key in detail_keys},
+            }
         except Exception:
             logger.exception("Toss session maintenance failed")
             return {"job": job_type, "scope": scope, "owner": owner, "scheduled_time": scheduled_time, "status": "failed", "error": "TOSS_SESSION_MAINTENANCE_FAILED"}

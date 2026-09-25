@@ -262,6 +262,47 @@ class AutomationDispatcherTests(unittest.TestCase):
                 3,
             )
 
+    def test_toss_session_job_surfaces_multichannel_notification_status(self):
+        now = self._make_kst_dt(20, 55)
+        runner = MagicMock(return_value={
+            "action": "extended",
+            "active": True,
+            "valid": True,
+            "server_expires_at": "2026-09-30T20:55:00+09:00",
+            "hours_remaining": 120.0,
+            "extension_attempted": True,
+            "extension_succeeded": True,
+            "notification_status": "partial",
+            "notification_dispatch_status": "partial",
+            "notifications_sent_count": 2,
+            "error_code": None,
+        })
+        job = {
+            "job": "toss_session_maintenance",
+            "scope": "user",
+            "owner": "alice",
+            "scheduled_time": "20:55",
+        }
+
+        result = asyncio.run(
+            execute_job(
+                job,
+                now=now,
+                toss_session_runner=runner,
+            )
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(
+            result["details"]["notification_dispatch_status"],
+            "partial",
+        )
+        self.assertEqual(
+            result["details"]["notifications_sent_count"],
+            2,
+        )
+        runner.assert_called_once_with("alice", now=now)
+
     # 8. Section 56: TEST — DISABLED TASKS DO NOT DISPATCH
     def test_disabled_tasks_not_due(self):
         cfg = default_settings()
