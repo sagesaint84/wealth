@@ -224,6 +224,11 @@ class IpoTelegramNotifier:
         enabled = self._enabled_provider_names()
         names: set[str] = set()
         for sender in self._notification_senders(enabled):
+            # Keep this explicit guard even though the sender builder already
+            # receives enabled providers. It preserves correctness for custom
+            # sender factories/test doubles that may return extra providers.
+            if sender.provider_name not in enabled:
+                continue
             try:
                 if sender.is_configured():
                     names.add(sender.provider_name)
