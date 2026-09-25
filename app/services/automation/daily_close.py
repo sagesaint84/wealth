@@ -433,7 +433,14 @@ def send_daily_close_notifications(
         effective = {}
 
     enabled = {
-        "telegram": bool(telegram_config.enabled),
+        # Production automatic delivery follows the explicit UI switch. The
+        # injected legacy transport keeps its historical config-driven test
+        # contract so old callers remain compatible.
+        "telegram": (
+            bool(telegram_config.enabled)
+            if telegram_transport is not None
+            else effective.get("telegram", {}).get("enabled") is True
+        ),
         "discord": effective.get("discord", {}).get("enabled") is True,
         "kakao": effective.get("kakao", {}).get("enabled") is True,
     }
