@@ -1047,14 +1047,17 @@ async def patch_kakao_app_secrets_api(request: Request) -> dict:
         load_stored_kakao_app_secrets,
         update_kakao_app_secrets,
     )
-    from app.services.kakao_tokens import clear_kakao_tokens
+    from app.services.kakao_tokens import (
+        KakaoTokenError,
+        clear_kakao_tokens,
+    )
     username = get_current_username(request)
     try:
         before = load_stored_kakao_app_secrets(username)
         after = update_kakao_app_secrets(username, await request.json())
         if before["rest_api_key"] != after["rest_api_key"]:
             clear_kakao_tokens(username)
-    except (KakaoAppSecretError, ValueError, AttributeError) as exc:
+    except (KakaoAppSecretError, KakaoTokenError, ValueError, AttributeError) as exc:
         raise HTTPException(400, detail={"code": str(exc)}) from exc
     return kakao_app_secret_status(username)
 
