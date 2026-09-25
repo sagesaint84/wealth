@@ -431,36 +431,34 @@ def send_daily_close_notifications(
             "provider_results": skipped,
         }
 
-    telegram_config: TelegramConfig | None
-    telegram_config_failed = False
-    try:
-        telegram_config = resolve_telegram_config(username)
-    except Exception:
-        logger.warning("Daily close Telegram configuration unavailable for user")
-        telegram_config = None
-        telegram_config_failed = True
-
     sender_overrides: dict[str, Any] = {}
     enabled_overrides: dict[str, bool] = {}
-    if telegram_config_failed:
-        sender_overrides["telegram"] = _UnavailableTelegramSender()
-    elif telegram_transport is not None and telegram_config is not None:
-        sender_overrides["telegram"] = _InjectedTelegramSender(
-            telegram_config,
-            telegram_transport,
-        )
-        # Preserve the historical injected-transport contract used by tests and
-        # custom callers. Production automatic delivery follows stored UI switches.
-        enabled_overrides["telegram"] = bool(telegram_config.enabled)
+    telegram_credentials: tuple[str | None, str | int | None] | None = None
 
-    credentials = (
-        (telegram_config.bot_token, telegram_config.chat_id)
-        if telegram_config is not None
-        else (None, None)
-    )
+    if telegram_transport is not None:
+        try:
+            telegram_config = resolve_telegram_config(username)
+        except Exception:
+            logger.warning("Daily close Telegram configuration unavailable for user")
+            sender_overrides["telegram"] = _UnavailableTelegramSender()
+        else:
+            sender_overrides["telegram"] = _InjectedTelegramSender(
+                telegram_config,
+                telegram_transport,
+            )
+            telegram_credentials = (
+                telegram_config.bot_token,
+                telegram_config.chat_id,
+            )
+            # Preserve the historical injected-transport contract used by tests
+            # and custom callers. Production automatic delivery follows stored
+            # UI switches.
+            enabled_overrides["telegram"] = bool(telegram_config.enabled)
+
     service = UserNotificationService(
         username,
-        telegram_credentials=credentials,
+        telegram_credentials=telegram_credentials,
+        telegram_resolver=resolve_telegram_config,
         sender_overrides=sender_overrides,
         enabled_overrides=enabled_overrides,
     )
