@@ -2,6 +2,11 @@ services:
   dashboard:
     build: .
     container_name: wealth
+    environment:
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      DISCORD_WEALTH_USERNAME: ${DISCORD_WEALTH_USERNAME:-}
+      KAKAO_REST_API_KEY: ${KAKAO_REST_API_KEY:-}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
     ports:
       - "4829:4829"
     volumes:
