@@ -564,6 +564,18 @@ def start_toss_login(
                 except Exception:
                     pass
 
+            # Bootstrap the per-user tossctl config directory before spawning.
+            # New users/servers must not depend on a pre-existing global config dir.
+            try:
+                user_config_dir.mkdir(parents=True, exist_ok=True)
+                if not _IS_WINDOWS:
+                    try:
+                        os.chmod(str(user_config_dir), 0o700)
+                    except OSError:
+                        pass
+            except OSError as exc:
+                raise TossLoginError("AUTH_LOGIN_CONFIG_DIR_FAILED") from exc
+
             # Prepare QR output path (per-user)
             qr = _qr_path(attempt_id, username)
             qr.parent.mkdir(parents=True, exist_ok=True)
