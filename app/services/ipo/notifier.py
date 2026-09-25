@@ -175,15 +175,38 @@ class IpoTelegramNotifier:
         from app.services.notifications.kakao import KakaoSender
         from app.services.notifications.telegram import TelegramSender
 
-        senders: list[Any] = [
-            TelegramSender(
-                bot_token=self.bot_token,
-                chat_id=self.chat_id,
-                username=self.username,
+        # Legacy direct notifier instances without a Wealth username remain
+        # Telegram-only. User-scoped automation honors all provider switches.
+        if not self.username:
+            return [
+                TelegramSender(
+                    bot_token=self.bot_token,
+                    chat_id=self.chat_id,
+                    username=None,
+                )
+            ]
+
+        from app.services.settings import get_effective_settings
+        try:
+            settings = get_effective_settings(self.username)
+        except Exception:
+            logger.warning(
+                "IPO notification provider settings unavailable for user"
             )
-        ]
-        if self.username:
+            return []
+
+        senders: list[Any] = []
+        if settings.get("telegram", {}).get("enabled") is True:
+            senders.append(
+                TelegramSender(
+                    bot_token=self.bot_token,
+                    chat_id=self.chat_id,
+                    username=self.username,
+                )
+            )
+        if settings.get("discord", {}).get("enabled") is True:
             senders.append(DiscordSender(username=self.username))
+        if settings.get("kakao", {}).get("enabled") is True:
             senders.append(KakaoSender(username=self.username))
         return senders
 
