@@ -142,7 +142,7 @@
       connect.disabled = !(data?.app_configured && data?.public_base_url_configured);
       connect.textContent = data?.connected ? '카카오 재연결' : '카카오 연결';
     }
-    if (test) test.disabled = !data?.connected;
+    if (test) test.disabled = !(data?.connected && data?.app_configured);
     if (disconnect) disconnect.disabled = !data?.connected;
   }
 
