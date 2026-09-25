@@ -253,7 +253,11 @@ def clear_notification_history(
     target = path or history_path(username)
     lock = _lock_for(target)
     with lock:
-        data = _load(target)
-        deleted = len(data["events"])
+        try:
+            data = _load(target)
+            deleted = len(data["events"])
+        except NotificationHistoryError:
+            # Clearing is also the recovery path for a corrupt history file.
+            deleted = 0
         _save(_empty(), target)
     return deleted
