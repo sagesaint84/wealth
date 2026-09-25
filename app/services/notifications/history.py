@@ -6,6 +6,7 @@ import json
 import os
 import re
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,47 @@ def _lock_for(path: Path) -> threading.Lock:
     key = str(path.resolve())
     with _LOCKS_GUARD:
         return _LOCKS.setdefault(key, threading.Lock())
+
+
+@contextmanager
+def _history_lock(path: Path):
+    """Serialize read-modify-write cycles across threads and processes."""
+    thread_lock = _lock_for(path)
+    with thread_lock:
+        lock_path = path.with_suffix(".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "posix":
+            os.chmod(lock_path.parent, 0o700)
+        handle = open(lock_path, "a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                if lock_path.stat().st_size == 0:
+                    handle.write(b"0")
+                    handle.flush()
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            if os.name == "posix":
+                os.chmod(lock_path, 0o600)
+            yield
+        finally:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
 
 
 def _sanitize_event_type(value: Any) -> str:
@@ -170,8 +212,7 @@ def record_notification_history(
     if record["status"] not in _STATUS_VALUES:
         record["status"] = "failed"
 
-    lock = _lock_for(target)
-    with lock:
+    with _history_lock(target):
         data = _load(target)
         events = data["events"]
         events.append(record)
@@ -231,8 +272,7 @@ def list_notification_history(
             "events": [],
         }
     target = path or history_path(username)
-    lock = _lock_for(target)
-    with lock:
+    with _history_lock(target):
         data = _load(target)
     events = list(reversed(data["events"][-limit:]))
     return {
@@ -251,8 +291,7 @@ def clear_notification_history(
     if path is None and is_test_mode():
         return 0
     target = path or history_path(username)
-    lock = _lock_for(target)
-    with lock:
+    with _history_lock(target):
         try:
             data = _load(target)
             deleted = len(data["events"])
