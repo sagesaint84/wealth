@@ -8,6 +8,7 @@
   let notificationsSnapshot = null;
   let systemSnapshot = null;
   let webhookSnapshot = null;
+  let kakaoSnapshot = null;
   let tossSessionSnapshot = null;
   let _lastKnownTossStatus = null;  // tracks last polled session status for re-auth guard
 
@@ -98,6 +99,24 @@
     clearBotToken = false;
     clearWebhookSecret = false;
     updateManagementButtons();
+  }
+
+  function renderKakao(data) {
+    kakaoSnapshot = data || {};
+    byId('settingsKakaoAppStatus').textContent = data?.app_configured ? '설정됨' : '미설정';
+    byId('settingsKakaoConnectionStatus').textContent = data?.connected ? '연결됨' : '미연결';
+    byId('settingsKakaoAccessExpiry').textContent = data?.access_expires_at || '없음';
+    byId('settingsKakaoRefreshExpiry').textContent = data?.refresh_expires_at || '없음';
+    byId('settingsKakaoRedirectUri').textContent = data?.redirect_uri || 'Public URL 설정 필요';
+    const connect = byId('settingsKakaoConnect');
+    const test = byId('settingsKakaoTest');
+    const disconnect = byId('settingsKakaoDisconnect');
+    if (connect) {
+      connect.disabled = !(data?.app_configured && data?.public_base_url_configured);
+      connect.textContent = data?.connected ? '카카오 재연결' : '카카오 연결';
+    }
+    if (test) test.disabled = !data?.connected;
+    if (disconnect) disconnect.disabled = !data?.connected;
   }
 
   function renderSystem(data) {
@@ -318,13 +337,15 @@
       api('/api/settings/automation'),
       api('/api/settings/system'),
       api('/api/settings/toss-wts'),
+      api('/api/settings/kakao'),
     ];
 
-    const [notifications, automation, system, toss] = await Promise.all(promises);
+    const [notifications, automation, system, toss, kakao] = await Promise.all(promises);
     renderNotifications(notifications);
     renderAutomation(automation);
     renderSystem(system);
     renderTossSession(toss.toss_wts);
+    renderKakao(kakao);
   }
 
   async function saveSystemSettings() {
@@ -355,11 +376,74 @@
     finally{button.textContent=button.dataset.label;updateManagementButtons();}
   }
 
+  async function reloadKakao() {
+    try {
+      const result = await api('/api/settings/kakao');
+      renderKakao(result);
+      return result;
+    } catch (error) {
+      const message = safeMessage(error, '카카오 연결 상태를 확인하지 못했습니다.');
+      setError('settingsKakaoError', message);
+      throw error;
+    }
+  }
+
+  function startKakaoOAuth() {
+    setError('settingsKakaoError');
+    const popup = window.open(
+      '/api/settings/kakao/oauth/start',
+      'wealth-kakao-oauth',
+      'width=520,height=720,resizable=yes,scrollbars=yes'
+    );
+    if (!popup) {
+      const message = '팝업이 차단되었습니다. 브라우저에서 팝업을 허용한 뒤 다시 시도하세요.';
+      setError('settingsKakaoError', message);
+      toast(message, true);
+    }
+  }
+
+  async function testKakao() {
+    const button = byId('settingsKakaoTest');
+    setError('settingsKakaoError');
+    try {
+      busy(button, true);
+      await api('/api/settings/kakao/test', {method: 'POST'});
+      toast('카카오톡 나에게 테스트 메시지를 전송했습니다.');
+    } catch (error) {
+      const message = safeMessage(error, '카카오톡 테스트 메시지를 보내지 못했습니다.');
+      setError('settingsKakaoError', message);
+      toast(message, true);
+    } finally {
+      busy(button, false);
+      renderKakao(kakaoSnapshot || {});
+    }
+  }
+
+  async function disconnectKakao() {
+    if (!window.confirm('Wealth에 저장된 카카오 연결 토큰을 삭제하시겠습니까?\n필요하면 다시 카카오 로그인을 진행해야 합니다.')) return;
+    const button = byId('settingsKakaoDisconnect');
+    setError('settingsKakaoError');
+    try {
+      busy(button, true);
+      await api('/api/settings/kakao/disconnect', {method: 'POST'});
+      await reloadKakao();
+      toast('Wealth의 카카오 연결 정보를 삭제했습니다.');
+    } catch (error) {
+      const message = safeMessage(error, '카카오 연결 정보를 삭제하지 못했습니다.');
+      setError('settingsKakaoError', message);
+      toast(message, true);
+    } finally {
+      busy(button, false);
+      renderKakao(kakaoSnapshot || {});
+    }
+  }
+
   async function openSettings() {
     const dialog = byId('notificationSettingsDialog');
     byId('settingsLoading').hidden = false;
     byId('settingsContent').hidden = true;
     setError('settingsTelegramError');
+    setError('settingsKakaoError');
     setError('settingsAutomationError');
     dialog.showModal();
     try {
@@ -515,6 +599,9 @@
     byId('settingsClearBot')?.addEventListener('click', () => requestClear('bot'));
     byId('settingsClearWebhook')?.addEventListener('click', () => requestClear('webhook'));
     byId('settingsSaveSystem')?.addEventListener('click', saveSystemSettings);
+    byId('settingsKakaoConnect')?.addEventListener('click', startKakaoOAuth);
+    byId('settingsKakaoTest')?.addEventListener('click', testKakao);
+    byId('settingsKakaoDisconnect')?.addEventListener('click', disconnectKakao);
     byId('settingsCheckTelegram')?.addEventListener('click', checkTelegramStatus);
     byId('settingsSendTest')?.addEventListener('click', () => runManagementOperation('settingsSendTest','/api/settings/telegram/test','전송 중…','Telegram 테스트 메시지를 전송했습니다.'));
     byId('settingsConnectWebhook')?.addEventListener('click', () => {
@@ -536,6 +623,19 @@
       clearWebhookSecret = false;
       byId('settingsClearWebhook').disabled = false;
       byId('settingsClearWebhook').textContent = '저장된 값 삭제';
+    });
+    window.addEventListener('message', async (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'wealth:kakao-oauth') return;
+      if (event.data.ok) {
+        setError('settingsKakaoError');
+        await reloadKakao();
+        toast('카카오톡 나에게 보내기 연결이 완료됐습니다.');
+      } else {
+        const code = event.data?.code || 'KAKAO_OAUTH_FAILED';
+        setError('settingsKakaoError', `카카오 연결 실패 (${code})`);
+        toast('카카오 연결을 완료하지 못했습니다.', true);
+      }
     });
     document.querySelectorAll('[data-settings-close]').forEach((button) => button.addEventListener('click', () => byId('notificationSettingsDialog').close()));
   });

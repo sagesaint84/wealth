@@ -367,6 +367,7 @@ PUBLIC_PATHS = {
     "/manifest.json",
     "/favicon.ico",
     "/api/integrations/telegram/webhook",
+    "/api/integrations/kakao/oauth/callback",
     "/api/kftc/openbanking/oauth/callback",
 }
 
@@ -968,6 +969,144 @@ async def toss_wts_login_cancel_api(request: Request, attempt_id: str) -> dict:
     except TossLoginNotFoundError:
         raise HTTPException(status_code=404, detail={"code":"ATTEMPT_NOT_FOUND"})
 
+
+
+
+def _kakao_management_http_error(exc: Exception) -> HTTPException:
+    code = str(exc)
+    if code in {"KAKAO_OAUTH_UNAVAILABLE", "KAKAO_API_UNAVAILABLE"}:
+        status = 502
+    elif code in {"KAKAO_OAUTH_STATE_INVALID", "KAKAO_AUTHORIZATION_CODE_INVALID"}:
+        status = 400
+    else:
+        status = 409
+    return HTTPException(status_code=status, detail={"code": code})
+
+
+@app.get("/api/settings/kakao")
+async def kakao_settings_status_api(request: Request) -> dict:
+    """Return secret-free Kakao self-message configuration for current user."""
+    username = get_current_username(request)
+    from app.services.kakao_oauth import safe_kakao_status
+    try:
+        return safe_kakao_status(username)
+    except Exception:
+        raise HTTPException(
+            status_code=500, detail={"code": "KAKAO_STATUS_UNAVAILABLE"}
+        )
+
+
+@app.get("/api/settings/kakao/oauth/start")
+async def kakao_oauth_start_api(request: Request) -> RedirectResponse:
+    """Start Kakao Login for the current Wealth user."""
+    username = get_current_username(request)
+    from app.services.kakao_oauth import build_authorize_url, KakaoOAuthError
+    try:
+        url = build_authorize_url(username)
+    except KakaoOAuthError as exc:
+        raise _kakao_management_http_error(exc) from exc
+    return RedirectResponse(url=url, status_code=302)
+
+
+def _kakao_oauth_callback_page(ok: bool, code: str | None = None) -> HTMLResponse:
+    """Small popup completion page; never includes OAuth tokens or secrets."""
+    from app.services.kakao_oauth import resolve_kakao_app_config
+    origin = resolve_kakao_app_config().public_base_url or ""
+    payload = json.dumps(
+        {
+            "type": "wealth:kakao-oauth",
+            "ok": bool(ok),
+            "code": code if not ok else None,
+        },
+        ensure_ascii=False,
+    )
+    target = json.dumps(origin)
+    title = "카카오 연결 완료" if ok else "카카오 연결 실패"
+    message = (
+        "카카오톡 나에게 보내기 연결이 완료되었습니다."
+        if ok
+        else "카카오 연결을 완료하지 못했습니다. Wealth 설정에서 다시 시도해 주세요."
+    )
+    script = ""
+    if origin:
+        script = (
+            "<script>"
+            f"if(window.opener){{window.opener.postMessage({payload},{target});}}"
+            "setTimeout(function(){window.close();},300);"
+            "</script>"
+        )
+    body = (
+        "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
+        f"<title>{html.escape(title)}</title></head>"
+        "<body style='font-family:sans-serif;padding:24px'>"
+        f"<h2>{html.escape(title)}</h2><p>{html.escape(message)}</p>"
+        f"{script}</body></html>"
+    )
+    return HTMLResponse(
+        body,
+        status_code=200 if ok else 400,
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
+
+
+@app.get("/api/integrations/kakao/oauth/callback")
+async def kakao_oauth_callback_api(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> HTMLResponse:
+    """Public Kakao OAuth callback bound to a signed Wealth user state."""
+    from app.services.kakao_oauth import (
+        KakaoOAuthError,
+        consume_oauth_state,
+        exchange_authorization_code,
+    )
+    if error:
+        return _kakao_oauth_callback_page(False, "KAKAO_OAUTH_REJECTED")
+    try:
+        username = consume_oauth_state(state or "")
+        exchange_authorization_code(username, code or "")
+    except KakaoOAuthError as exc:
+        return _kakao_oauth_callback_page(False, str(exc))
+    return _kakao_oauth_callback_page(True)
+
+
+@app.post("/api/settings/kakao/test")
+async def kakao_test_message_api(request: Request) -> dict:
+    """Send one user-triggered test message to the current user's Kakao chat."""
+    from app.services.notifications.kakao import KakaoSender
+    from app.services.notifications.models import NotificationEvent
+    username = get_current_username(request)
+    sender = KakaoSender(username=username)
+    result = await asyncio.to_thread(
+        sender.send,
+        NotificationEvent(
+            event_key="kakao_test",
+            event_type="integration_test",
+            body="✅ Wealth 카카오톡 나에게 보내기 연결 테스트가 성공했습니다.",
+            username=username,
+        ),
+    )
+    if not result.success:
+        status = 502 if result.retryable else 409
+        raise HTTPException(
+            status_code=status,
+            detail={"code": result.error_code or "KAKAO_SEND_FAILED"},
+        )
+    return {"ok": True, "message": "카카오톡 테스트 메시지를 전송했습니다."}
+
+
+@app.post("/api/settings/kakao/disconnect")
+async def kakao_disconnect_api(request: Request) -> dict:
+    """Forget the current user's local Kakao OAuth tokens."""
+    from app.services.kakao_tokens import clear_kakao_tokens, KakaoTokenError
+    username = get_current_username(request)
+    try:
+        clear_kakao_tokens(username)
+    except KakaoTokenError as exc:
+        raise _kakao_management_http_error(exc) from exc
+    return {"ok": True, "message": "Wealth의 카카오 연결 정보를 삭제했습니다."}
 
 
 @app.post("/api/settings/telegram/test")

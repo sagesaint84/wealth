@@ -3538,7 +3538,7 @@
       <div class="dialog-head settings-dialog-head">
         <div>
           <h2 id="notificationSettingsTitle">알림 및 자동화</h2>
-          <p class="dialog-description">Telegram 알림과 Wealth 자동 실행 시간을 관리합니다.</p>
+          <p class="dialog-description">Telegram·카카오 알림과 Wealth 자동 실행 시간을 관리합니다.</p>
         </div>
         <button type="button" class="close" data-settings-close aria-label="닫기">×</button>
       </div>
@@ -3592,6 +3592,35 @@
           <p id="settingsTelegramError" class="settings-error" role="alert" hidden></p>
           <div class="settings-actions"><button id="settingsSaveTelegram" type="button" class="button primary">Telegram 설정 저장</button></div>
         </section>
+
+        <section class="settings-section" aria-labelledby="kakaoSettingsTitle">
+          <div class="settings-section-title">
+            <div>
+              <h3 id="kakaoSettingsTitle">카카오톡 나에게 보내기</h3>
+              <p>카카오 로그인으로 현재 Wealth 사용자와 본인의 카카오톡을 연결합니다.</p>
+            </div>
+          </div>
+          <div class="settings-status-grid">
+            <div><strong>카카오 앱 설정</strong><span id="settingsKakaoAppStatus">확인 중</span></div>
+            <div><strong>내 계정 연결</strong><span id="settingsKakaoConnectionStatus">확인 중</span></div>
+            <div><strong>Access Token 만료</strong><span id="settingsKakaoAccessExpiry">없음</span></div>
+            <div><strong>Refresh Token 만료</strong><span id="settingsKakaoRefreshExpiry">없음</span></div>
+          </div>
+          <div class="settings-management">
+            <h4>OAuth 설정</h4>
+            <p class="settings-help">Kakao Developers에 아래 Redirect URI를 등록하고, 카카오 로그인·카카오톡 메시지 전송(talk_message) 동의항목을 활성화하며, Wealth Public URL 도메인을 제품 링크의 웹 도메인으로 등록해야 합니다.</p>
+            <div class="settings-webhook-details">
+              <span>Redirect URI</span><strong id="settingsKakaoRedirectUri">Public URL 설정 필요</strong>
+            </div>
+            <div class="settings-management-actions">
+              <button id="settingsKakaoConnect" type="button" class="button primary compact">카카오 연결</button>
+              <button id="settingsKakaoTest" type="button" class="button secondary compact">나에게 테스트 보내기</button>
+              <button id="settingsKakaoDisconnect" type="button" class="button secondary compact">연결 정보 삭제</button>
+            </div>
+          </div>
+          <p id="settingsKakaoError" class="settings-error" role="alert" hidden></p>
+        </section>
+
         <section class="settings-section" aria-labelledby="automationSettingsTitle">
           <div class="settings-section-title"><div><h3 id="automationSettingsTitle">자동화</h3><p>시간대: <strong id="settingsTimezone">Asia/Seoul</strong></p></div></div>
           <div class="settings-task"><label><input id="settingsMorningEnabled" type="checkbox"> IPO 오전 갱신</label><input id="settingsMorningTime" class="settings-time" type="text" inputmode="numeric" placeholder="07:30" aria-label="IPO 오전 갱신 시간"></div>
