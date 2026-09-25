@@ -5,7 +5,11 @@
   const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
   let clearBotToken = false;
   let clearWebhookSecret = false;
+  let clearDiscordWebhook = false;
+  let clearKakaoRestApiKey = false;
+  let clearKakaoClientSecret = false;
   let notificationsSnapshot = null;
+  let discordSnapshot = null;
   let systemSnapshot = null;
   let webhookSnapshot = null;
   let kakaoSnapshot = null;
@@ -101,8 +105,31 @@
     updateManagementButtons();
   }
 
+  function renderDiscord(data) {
+    discordSnapshot = data || {};
+    setStatus('settingsDiscordWebhookStatus', data?.webhook_url_configured, data?.webhook_url_source);
+    byId('settingsDiscordWebhookUrl').value = '';
+    byId('settingsClearDiscordWebhook').hidden = data?.webhook_url_source !== 'stored';
+    byId('settingsClearDiscordWebhook').disabled = false;
+    byId('settingsClearDiscordWebhook').textContent = '저장된 값 삭제';
+    byId('settingsDiscordTest').disabled = !data?.webhook_url_configured;
+    clearDiscordWebhook = false;
+  }
+
   function renderKakao(data) {
     kakaoSnapshot = data || {};
+    setStatus('settingsKakaoRestApiKeyStatus', data?.rest_api_key_configured, data?.rest_api_key_source);
+    setStatus('settingsKakaoClientSecretStatus', data?.client_secret_configured, data?.client_secret_source);
+    byId('settingsKakaoRestApiKey').value = '';
+    byId('settingsKakaoClientSecret').value = '';
+    byId('settingsClearKakaoRestApiKey').hidden = data?.rest_api_key_source !== 'stored';
+    byId('settingsClearKakaoClientSecret').hidden = data?.client_secret_source !== 'stored';
+    byId('settingsClearKakaoRestApiKey').disabled = false;
+    byId('settingsClearKakaoClientSecret').disabled = false;
+    byId('settingsClearKakaoRestApiKey').textContent = '저장된 값 삭제';
+    byId('settingsClearKakaoClientSecret').textContent = '저장된 값 삭제';
+    clearKakaoRestApiKey = false;
+    clearKakaoClientSecret = false;
     byId('settingsKakaoAppStatus').textContent = data?.app_configured ? '설정됨' : '미설정';
     byId('settingsKakaoConnectionStatus').textContent = data?.connected ? '연결됨' : '미연결';
     byId('settingsKakaoAccessExpiry').textContent = data?.access_expires_at || '없음';
@@ -115,7 +142,7 @@
       connect.disabled = !(data?.app_configured && data?.public_base_url_configured);
       connect.textContent = data?.connected ? '카카오 재연결' : '카카오 연결';
     }
-    if (test) test.disabled = !data?.connected;
+    if (test) test.disabled = !(data?.connected && data?.app_configured);
     if (disconnect) disconnect.disabled = !data?.connected;
   }
 
@@ -337,14 +364,16 @@
       api('/api/settings/automation'),
       api('/api/settings/system'),
       api('/api/settings/toss-wts'),
+      api('/api/settings/discord'),
       api('/api/settings/kakao'),
     ];
 
-    const [notifications, automation, system, toss, kakao] = await Promise.all(promises);
+    const [notifications, automation, system, toss, discord, kakao] = await Promise.all(promises);
     renderNotifications(notifications);
     renderAutomation(automation);
     renderSystem(system);
     renderTossSession(toss.toss_wts);
+    renderDiscord(discord);
     renderKakao(kakao);
   }
 
@@ -443,6 +472,7 @@
     byId('settingsLoading').hidden = false;
     byId('settingsContent').hidden = true;
     setError('settingsTelegramError');
+    setError('settingsDiscordError');
     setError('settingsKakaoError');
     setError('settingsAutomationError');
     dialog.showModal();
@@ -492,6 +522,86 @@
       setError('settingsTelegramError', message);
       toast(message, true);
       if (nonSecretSaved) await reloadSettings().catch(() => {});
+    } finally {
+      busy(button, false);
+    }
+  }
+
+  async function saveDiscord() {
+    const button = byId('settingsSaveDiscord');
+    setError('settingsDiscordError');
+    try {
+      busy(button, true);
+      const patch = {};
+      const webhook = byId('settingsDiscordWebhookUrl').value.trim();
+      if (webhook) patch.webhook_url = webhook;
+      if (clearDiscordWebhook) patch.clear_webhook_url = true;
+      if (Object.keys(patch).length) {
+        await api('/api/settings/discord/secrets', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(patch),
+        });
+      }
+      const result = await api('/api/settings/discord');
+      renderDiscord(result);
+      toast('Discord 설정을 저장했습니다.');
+    } catch (error) {
+      byId('settingsDiscordWebhookUrl').value = '';
+      const message = safeMessage(error, 'Discord 설정을 저장하지 못했습니다.');
+      setError('settingsDiscordError', message);
+      toast(message, true);
+      await api('/api/settings/discord').then(renderDiscord).catch(() => {});
+    } finally {
+      busy(button, false);
+    }
+  }
+
+  async function testDiscord() {
+    const button = byId('settingsDiscordTest');
+    setError('settingsDiscordError');
+    try {
+      busy(button, true);
+      await api('/api/settings/discord/test', {method: 'POST'});
+      toast('Discord 테스트 메시지를 전송했습니다.');
+    } catch (error) {
+      const message = safeMessage(error, 'Discord 테스트 메시지를 보내지 못했습니다.');
+      setError('settingsDiscordError', message);
+      toast(message, true);
+    } finally {
+      busy(button, false);
+      renderDiscord(discordSnapshot || {});
+    }
+  }
+
+  async function saveKakaoSecrets() {
+    const button = byId('settingsSaveKakaoSecrets');
+    setError('settingsKakaoError');
+    try {
+      busy(button, true);
+      const patch = {};
+      const restApiKey = byId('settingsKakaoRestApiKey').value.trim();
+      const clientSecret = byId('settingsKakaoClientSecret').value.trim();
+      if (restApiKey) patch.rest_api_key = restApiKey;
+      if (clientSecret) patch.client_secret = clientSecret;
+      if (clearKakaoRestApiKey) patch.clear_rest_api_key = true;
+      if (clearKakaoClientSecret) patch.clear_client_secret = true;
+      if (Object.keys(patch).length) {
+        await api('/api/settings/kakao/secrets', {
+          method: 'PATCH',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(patch),
+        });
+      }
+      await reloadKakao();
+      toast('Kakao 앱 키를 저장했습니다.');
+    } catch (error) {
+      byId('settingsKakaoRestApiKey').value = '';
+      byId('settingsKakaoClientSecret').value = '';
+      const message = safeMessage(error, 'Kakao 앱 키를 저장하지 못했습니다.');
+      setError('settingsKakaoError', message);
+      toast(message, true);
+      await reloadKakao().catch(() => {});
     } finally {
       busy(button, false);
     }
@@ -584,9 +694,28 @@
     button.textContent = '삭제 예정';
     button.disabled = true;
   }
+  function requestProviderSecretClear(kind) {
+    const map = {
+      discord: ['Discord Webhook URL', 'settingsClearDiscordWebhook'],
+      kakaoRest: ['Kakao REST API Key', 'settingsClearKakaoRestApiKey'],
+      kakaoClient: ['Kakao Client Secret', 'settingsClearKakaoClientSecret'],
+    };
+    const item = map[kind];
+    if (!item || !window.confirm(`저장된 ${item[0]}을 삭제하시겠습니까?`)) return;
+    if (kind === 'discord') clearDiscordWebhook = true;
+    if (kind === 'kakaoRest') clearKakaoRestApiKey = true;
+    if (kind === 'kakaoClient') clearKakaoClientSecret = true;
+    const button = byId(item[1]);
+    button.textContent = '삭제 예정';
+    button.disabled = true;
+  }
+
 
   document.addEventListener('DOMContentLoaded', () => {
     byId('settingsSaveTelegram')?.addEventListener('click', saveTelegram);
+    byId('settingsSaveDiscord')?.addEventListener('click', saveDiscord);
+    byId('settingsDiscordTest')?.addEventListener('click', testDiscord);
+    byId('settingsSaveKakaoSecrets')?.addEventListener('click', saveKakaoSecrets);
     byId('settingsSaveAutomation')?.addEventListener('click', saveAutomation);
     byId('settingsSetAutomationOwner')?.addEventListener('click', setAutomationOwner);
     byId('settingsClearAutomationOwner')?.addEventListener('click', clearAutomationOwner);
@@ -598,6 +727,9 @@
     byId('settingsAddListingReminder')?.addEventListener('click', () => addReminderRow('', 'settingsListingReminderTimes', '공모주 상장일 알림 시간').focus());
     byId('settingsClearBot')?.addEventListener('click', () => requestClear('bot'));
     byId('settingsClearWebhook')?.addEventListener('click', () => requestClear('webhook'));
+    byId('settingsClearDiscordWebhook')?.addEventListener('click', () => requestProviderSecretClear('discord'));
+    byId('settingsClearKakaoRestApiKey')?.addEventListener('click', () => requestProviderSecretClear('kakaoRest'));
+    byId('settingsClearKakaoClientSecret')?.addEventListener('click', () => requestProviderSecretClear('kakaoClient'));
     byId('settingsSaveSystem')?.addEventListener('click', saveSystemSettings);
     byId('settingsKakaoConnect')?.addEventListener('click', startKakaoOAuth);
     byId('settingsKakaoTest')?.addEventListener('click', testKakao);
@@ -623,6 +755,24 @@
       clearWebhookSecret = false;
       byId('settingsClearWebhook').disabled = false;
       byId('settingsClearWebhook').textContent = '저장된 값 삭제';
+    });
+    byId('settingsDiscordWebhookUrl')?.addEventListener('input', () => {
+      if (!byId('settingsDiscordWebhookUrl').value) return;
+      clearDiscordWebhook = false;
+      byId('settingsClearDiscordWebhook').disabled = false;
+      byId('settingsClearDiscordWebhook').textContent = '저장된 값 삭제';
+    });
+    byId('settingsKakaoRestApiKey')?.addEventListener('input', () => {
+      if (!byId('settingsKakaoRestApiKey').value) return;
+      clearKakaoRestApiKey = false;
+      byId('settingsClearKakaoRestApiKey').disabled = false;
+      byId('settingsClearKakaoRestApiKey').textContent = '저장된 값 삭제';
+    });
+    byId('settingsKakaoClientSecret')?.addEventListener('input', () => {
+      if (!byId('settingsKakaoClientSecret').value) return;
+      clearKakaoClientSecret = false;
+      byId('settingsClearKakaoClientSecret').disabled = false;
+      byId('settingsClearKakaoClientSecret').textContent = '저장된 값 삭제';
     });
     window.addEventListener('message', async (event) => {
       if (event.origin !== window.location.origin) return;

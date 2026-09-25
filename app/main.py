@@ -395,6 +395,7 @@ _SENSITIVE_EXPORT_KEYS = {
     "sessiontoken",
     "token",
     "tokencache",
+    "webhookurl",
 }
 
 
@@ -422,6 +423,7 @@ def _is_sensitive_export_key(key: object) -> bool:
             "sessionsecret",
             "token",
             "tokencache",
+            "webhookurl",
         )
     )
 
@@ -805,6 +807,49 @@ async def patch_telegram_secrets(request: Request) -> dict:
     cfg=resolve_telegram_config(username)
     return {"bot_token_configured":bool(cfg.bot_token),"bot_token_source":cfg.bot_token_source,"webhook_secret_configured":bool(cfg.webhook_secret),"webhook_secret_source":cfg.webhook_secret_source}
 
+@app.get("/api/settings/discord")
+async def get_discord_settings(request: Request) -> dict:
+    from app.services.discord_secrets import discord_secret_status
+    return discord_secret_status(get_current_username(request))
+
+
+@app.patch("/api/settings/discord/secrets")
+async def patch_discord_secrets(request: Request) -> dict:
+    from app.services.discord_secrets import (
+        DiscordSecretError,
+        discord_secret_status,
+        update_discord_secrets,
+    )
+    username = get_current_username(request)
+    try:
+        update_discord_secrets(username, await request.json())
+    except (DiscordSecretError, ValueError, AttributeError) as exc:
+        raise HTTPException(400, detail={"code": str(exc)}) from exc
+    return discord_secret_status(username)
+
+
+@app.post("/api/settings/discord/test")
+async def discord_test_message_api(request: Request) -> dict:
+    from app.services.notifications.discord import DiscordSender
+    from app.services.notifications.models import NotificationEvent
+    username = get_current_username(request)
+    result = await asyncio.to_thread(
+        DiscordSender(username=username).send,
+        NotificationEvent(
+            event_key="discord_test",
+            event_type="integration_test",
+            body="✅ Wealth Discord 연결 테스트가 성공했습니다.",
+            username=username,
+        ),
+    )
+    if not result.success:
+        raise HTTPException(
+            status_code=502 if result.retryable else 409,
+            detail={"code": result.error_code or "DISCORD_SEND_FAILED"},
+        )
+    return {"ok": True, "message": "Discord 테스트 메시지를 전송했습니다."}
+
+
 @app.get("/api/settings/automation")
 async def get_automation_settings(request: Request) -> dict:
     from app.services.settings import get_effective_settings
@@ -996,6 +1041,29 @@ async def kakao_settings_status_api(request: Request) -> dict:
         )
 
 
+@app.patch("/api/settings/kakao/secrets")
+async def patch_kakao_app_secrets_api(request: Request) -> dict:
+    from app.services.kakao_app_secrets import (
+        KakaoAppSecretError,
+        kakao_app_secret_status,
+        load_stored_kakao_app_secrets,
+        update_kakao_app_secrets,
+    )
+    from app.services.kakao_tokens import (
+        KakaoTokenError,
+        clear_kakao_tokens,
+    )
+    username = get_current_username(request)
+    try:
+        before = load_stored_kakao_app_secrets(username)
+        after = update_kakao_app_secrets(username, await request.json())
+        if before["rest_api_key"] != after["rest_api_key"]:
+            clear_kakao_tokens(username)
+    except (KakaoAppSecretError, KakaoTokenError, ValueError, AttributeError) as exc:
+        raise HTTPException(400, detail={"code": str(exc)}) from exc
+    return kakao_app_secret_status(username)
+
+
 @app.get("/api/settings/kakao/oauth/start")
 async def kakao_oauth_start_api(request: Request) -> RedirectResponse:
     """Start Kakao Login for the current Wealth user."""
@@ -1010,8 +1078,8 @@ async def kakao_oauth_start_api(request: Request) -> RedirectResponse:
 
 def _kakao_oauth_callback_page(ok: bool, code: str | None = None) -> HTMLResponse:
     """Small popup completion page; never includes OAuth tokens or secrets."""
-    from app.services.kakao_oauth import resolve_kakao_app_config
-    origin = resolve_kakao_app_config().public_base_url or ""
+    from app.services.system_settings import get_effective_system_settings
+    origin = get_effective_system_settings().get("public_base_url") or ""
     payload = json.dumps(
         {
             "type": "wealth:kakao-oauth",

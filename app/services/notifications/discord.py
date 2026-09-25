@@ -4,13 +4,13 @@ from __future__ import annotations
 import html
 import json
 import logging
-import os
 import re
 import time
 from typing import Any
 from urllib import error, request
 from urllib.parse import urlsplit
 
+from app.services.discord_secrets import load_stored_discord_secrets
 from app.services.notifications.models import NotificationEvent, NotificationSendResult
 
 logger = logging.getLogger(__name__)
@@ -18,16 +18,6 @@ logger = logging.getLogger(__name__)
 _MAX_CONTENT_LENGTH = 2000
 _MAX_RETRY_DELAY_SECONDS = 10.0
 _HTML_TAG_RE = re.compile(r"</?[A-Za-z][^>]*>")
-
-
-def _resolve_environment_webhook(username: str | None) -> str:
-    """Resolve an env webhook only for the explicitly bound Wealth user."""
-    if not username:
-        return ""
-    bound_user = os.getenv("DISCORD_WEALTH_USERNAME", "").strip()
-    if not bound_user or bound_user != username:
-        return ""
-    return os.getenv("DISCORD_WEBHOOK_URL", "").strip()
 
 
 def _is_valid_webhook_url(value: str) -> bool:
@@ -87,8 +77,8 @@ class DiscordSender:
         timeout: float = 10.0,
         max_attempts: int = 3,
     ) -> None:
-        if webhook_url is None:
-            webhook_url = _resolve_environment_webhook(username)
+        if webhook_url is None and username:
+            webhook_url = load_stored_discord_secrets(username)["webhook_url"]
         self._webhook_url = (webhook_url or "").strip()
         self.username = username
         self.timeout = timeout
