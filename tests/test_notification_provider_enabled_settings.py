@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from app.services import settings
 from app.services.ipo.notifier import IpoTelegramNotifier
@@ -100,6 +100,35 @@ class ProviderEnabledSettingsTests(unittest.TestCase):
             configured = notifier.configured_provider_names()
 
         self.assertEqual(configured, {"telegram", "kakao"})
+
+    def test_legacy_custom_send_message_fallback_preserves_reminder_contract(self):
+        notifier = IpoTelegramNotifier(
+            bot_token="bot",
+            chat_id="chat",
+            username="alice",
+        )
+        notifier.send_message = MagicMock(return_value=True)
+        state = {"sent_keys": {}, "provider_sent_keys": {}}
+
+        with patch.object(
+            notifier,
+            "configured_provider_names",
+            return_value=set(),
+        ):
+            sent = notifier.dispatch_message(
+                "legacy:event",
+                "message",
+                state,
+                reply_markup={"inline_keyboard": []},
+            )
+
+        self.assertTrue(sent)
+        notifier.send_message.assert_called_once()
+        self.assertEqual(
+            notifier.send_message.call_args.kwargs["reply_markup"],
+            {"inline_keyboard": []},
+        )
+        self.assertIn("legacy:event", state["sent_keys"])
 
     def test_legacy_direct_notifier_remains_telegram_only(self):
         notifier = IpoTelegramNotifier(
