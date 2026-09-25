@@ -170,21 +170,33 @@ class IpoTelegramNotifier:
             return None, None
         return links[0]
 
-    def _notification_senders(self) -> list[Any]:
-        """Return transport senders without applying automatic-use switches."""
+    def _notification_senders(
+        self,
+        providers: set[str] | None = None,
+    ) -> list[Any]:
+        """Build only the requested transports.
+
+        Direct send_message() calls intentionally request Telegram only for
+        backward compatibility. Automatic IPO dispatch passes the enabled
+        provider set explicitly.
+        """
         from app.services.notifications.discord import DiscordSender
         from app.services.notifications.kakao import KakaoSender
         from app.services.notifications.telegram import TelegramSender
 
-        senders: list[Any] = [
-            TelegramSender(
-                bot_token=self.bot_token,
-                chat_id=self.chat_id,
-                username=self.username,
+        requested = set(providers or {"telegram", "discord", "kakao"})
+        senders: list[Any] = []
+        if "telegram" in requested:
+            senders.append(
+                TelegramSender(
+                    bot_token=self.bot_token,
+                    chat_id=self.chat_id,
+                    username=self.username,
+                )
             )
-        ]
-        if self.username:
+        if self.username and "discord" in requested:
             senders.append(DiscordSender(username=self.username))
+        if self.username and "kakao" in requested:
             senders.append(KakaoSender(username=self.username))
         return senders
 
@@ -211,9 +223,7 @@ class IpoTelegramNotifier:
     def configured_provider_names(self) -> set[str]:
         enabled = self._enabled_provider_names()
         names: set[str] = set()
-        for sender in self._notification_senders():
-            if sender.provider_name not in enabled:
-                continue
+        for sender in self._notification_senders(enabled):
             try:
                 if sender.is_configured():
                     names.add(sender.provider_name)
@@ -243,9 +253,8 @@ class IpoTelegramNotifier:
         if reply_markup is not None:
             metadata["reply_markup"] = reply_markup
 
-        senders = self._notification_senders()
-        if providers is not None:
-            senders = [s for s in senders if s.provider_name in providers]
+        requested = providers if providers is not None else {"telegram"}
+        senders = self._notification_senders(set(requested))
 
         event = NotificationEvent(
             event_key=event_key,
