@@ -313,6 +313,12 @@ class UserNotificationService:
                     error="SEND_FAILED",
                 )
 
+        provider_results = {
+            provider: provider_results[provider]
+            for provider in requested_order
+            if provider in provider_results
+        }
+
         sent_count = sum(
             1
             for provider in active
