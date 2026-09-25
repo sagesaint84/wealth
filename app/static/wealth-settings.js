@@ -284,6 +284,7 @@
       toast(message, true);
     } finally {
       busy(button, false);
+      if ((notificationHistorySnapshot?.count || 0) === 0) button.disabled = true;
     }
   }
 
