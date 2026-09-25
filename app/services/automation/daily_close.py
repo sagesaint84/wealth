@@ -422,7 +422,6 @@ def send_daily_close_notifications(
     from app.services.notifications.telegram import TelegramSender
     from app.services.settings import get_effective_settings
 
-    telegram_config = resolve_telegram_config(username)
     try:
         effective = get_effective_settings(username)
     except Exception:
@@ -430,14 +429,36 @@ def send_daily_close_notifications(
         # but notification resolution must remain non-fatal if settings become
         # unreadable between scheduling and delivery.
         logger.warning("Daily close notification settings unavailable for user")
-        effective = {}
+        failed = {
+            provider: _daily_close_provider_payload(
+                sent=False,
+                status="failed",
+                error="CONFIGURATION_ERROR",
+            )
+            for provider in providers
+        }
+        return {
+            "telegram_sent": False,
+            "status": "failed",
+            "error": "TELEGRAM_CONFIG_ERROR",
+            "dispatch_status": "failed",
+            "notifications_sent_count": 0,
+            "provider_results": failed,
+        }
+
+    telegram_config: TelegramConfig | None
+    try:
+        telegram_config = resolve_telegram_config(username)
+    except Exception:
+        logger.warning("Daily close Telegram configuration unavailable for user")
+        telegram_config = None
 
     enabled = {
         # Production automatic delivery follows the explicit UI switch. The
         # injected legacy transport keeps its historical config-driven test
         # contract so old callers remain compatible.
         "telegram": (
-            bool(telegram_config.enabled)
+            bool(telegram_config and telegram_config.enabled)
             if telegram_transport is not None
             else effective.get("telegram", {}).get("enabled") is True
         ),
@@ -449,7 +470,13 @@ def send_daily_close_notifications(
     senders: list[Any] = []
 
     if enabled["telegram"]:
-        if telegram_transport is not None:
+        if telegram_config is None:
+            provider_results["telegram"] = _daily_close_provider_payload(
+                sent=False,
+                status="failed",
+                error="TELEGRAM_CONFIG_ERROR",
+            )
+        elif telegram_transport is not None:
             senders.append(
                 _InjectedTelegramSender(telegram_config, telegram_transport)
             )
@@ -468,7 +495,15 @@ def send_daily_close_notifications(
         )
 
     if enabled["discord"]:
-        senders.append(DiscordSender(username=username))
+        try:
+            senders.append(DiscordSender(username=username))
+        except Exception:
+            logger.warning("Daily close Discord configuration unavailable for user")
+            provider_results["discord"] = _daily_close_provider_payload(
+                sent=False,
+                status="failed",
+                error="CONFIGURATION_ERROR",
+            )
     else:
         provider_results["discord"] = _daily_close_provider_payload(
             sent=False,
@@ -476,7 +511,15 @@ def send_daily_close_notifications(
         )
 
     if enabled["kakao"]:
-        senders.append(KakaoSender(username=username))
+        try:
+            senders.append(KakaoSender(username=username))
+        except Exception:
+            logger.warning("Daily close Kakao configuration unavailable for user")
+            provider_results["kakao"] = _daily_close_provider_payload(
+                sent=False,
+                status="failed",
+                error="CONFIGURATION_ERROR",
+            )
     else:
         provider_results["kakao"] = _daily_close_provider_payload(
             sent=False,
@@ -713,13 +756,35 @@ async def run_daily_close_for_user(
     # skip_telegram is retained as the legacy public escape hatch; in the
     # multi-channel implementation it skips all outbound notifications so
     # existing no-notify test/maintenance calls remain side-effect free.
-    notification_result = send_daily_close_notifications(
-        safe_user,
-        summary_message,
-        today=today,
-        telegram_transport=telegram_transport,
-        skip=skip_telegram,
-    )
+    try:
+        notification_result = send_daily_close_notifications(
+            safe_user,
+            summary_message,
+            today=today,
+            telegram_transport=telegram_transport,
+            skip=skip_telegram,
+        )
+    except Exception:
+        # Notification plumbing is deliberately non-fatal to the completed
+        # financial snapshot. Never log exception text because a provider may
+        # embed credentials in it.
+        logger.warning("Daily close notification dispatch failed for %s", safe_user)
+        failed_providers = {
+            provider: _daily_close_provider_payload(
+                sent=False,
+                status="failed",
+                error="SEND_FAILED",
+            )
+            for provider in ("telegram", "discord", "kakao")
+        }
+        notification_result = {
+            "telegram_sent": False,
+            "status": "failed",
+            "error": "TELEGRAM_SEND_FAILED",
+            "dispatch_status": "failed",
+            "notifications_sent_count": 0,
+            "provider_results": failed_providers,
+        }
     steps["notification"] = notification_result
 
     return {
