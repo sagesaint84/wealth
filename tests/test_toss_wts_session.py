@@ -344,7 +344,7 @@ class TossWtsSessionTests(unittest.TestCase):
         ):
             result = send_toss_session_notifications(
                 USERNAME,
-                "Wealth: Toss WTS 세션 테스트 알림입니다.",
+                "Wealth: " + ("Toss WTS 세션 상태 알림 " * 30),
                 event_key="toss_wts:owner:2026-09-23:test",
                 event_type="toss_wts_test",
             )
@@ -564,6 +564,96 @@ class TossWtsSessionTests(unittest.TestCase):
             notify.call_args.kwargs["event_type"],
             "toss_wts_session_invalid",
         )
+
+    def test_maintenance_extension_events_have_distinct_event_keys(self):
+        runner = Mock(side_effect=[
+            self._status(hours=24),
+            subprocess.CompletedProcess([], 0, "", ""),
+            self._status(hours=168),
+        ])
+        notifications = []
+
+        def notify(owner, message, *, event_key, event_type):
+            notifications.append((event_key, event_type, message))
+            return {
+                "status": "sent",
+                "notifications_sent_count": 3,
+                "provider_results": {
+                    "telegram": {
+                        "sent": True,
+                        "status": "sent",
+                        "retryable": False,
+                        "error": None,
+                    },
+                    "discord": {
+                        "sent": True,
+                        "status": "sent",
+                        "retryable": False,
+                        "error": None,
+                    },
+                    "kakao": {
+                        "sent": True,
+                        "status": "sent",
+                        "retryable": False,
+                        "error": None,
+                    },
+                },
+            }
+
+        with patch.dict(os.environ, self.env), patch(
+            "app.services.toss_wts_session.send_toss_session_notifications",
+            side_effect=notify,
+        ):
+            result = run_toss_session_maintenance(
+                USERNAME,
+                now=self.now,
+                now_provider=lambda: self.now + timedelta(minutes=1),
+                settings=self.settings,
+                run=runner,
+            )
+
+        self.assertEqual(result["action"], "extended")
+        self.assertEqual(len(notifications), 2)
+        self.assertTrue(
+            notifications[0][0].endswith(":extension_requested")
+        )
+        self.assertEqual(
+            notifications[0][1],
+            "toss_wts_extension_requested",
+        )
+        self.assertTrue(
+            notifications[1][0].endswith(":extension_succeeded")
+        )
+        self.assertEqual(
+            notifications[1][1],
+            "toss_wts_extension_succeeded",
+        )
+        self.assertNotEqual(notifications[0][0], notifications[1][0])
+        self.assertEqual(result["notification_status"], "sent")
+        self.assertEqual(result["notifications_sent_count"], 3)
+
+    def test_multichannel_notification_exception_never_changes_session_result(self):
+        runner = Mock(
+            return_value=self._status(active=False, valid=False, hours=24)
+        )
+        secret_text = "https://discord.com/api/webhooks/SECRET_TEST_URL"
+
+        with patch.dict(os.environ, self.env), patch(
+            "app.services.toss_wts_session.send_toss_session_notifications",
+            side_effect=RuntimeError(secret_text),
+        ):
+            result = run_toss_session_maintenance(
+                USERNAME,
+                now=self.now,
+                settings=self.settings,
+                run=runner,
+            )
+
+        self.assertEqual(result["action"], "status_failed")
+        self.assertEqual(result["notification_status"], "failed")
+        self.assertEqual(result["notification_dispatch_status"], "failed")
+        self.assertEqual(result["notifications_sent_count"], 0)
+        self.assertNotIn(secret_text, str(result))
 
     def test_maintenance_injected_sender_preserves_legacy_contract(self):
         runner = Mock(
