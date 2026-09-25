@@ -292,7 +292,15 @@ class UserNotificationService:
             event,
             send_options=send_options,
         )
-        all_results = tuple([*construction_results, *dispatch_results])
+        result_by_provider = {
+            result.provider: result
+            for result in [*construction_results, *dispatch_results]
+        }
+        all_results = tuple(
+            result_by_provider[provider]
+            for provider in requested_order
+            if provider in result_by_provider
+        )
         for result in all_results:
             provider_results[result.provider] = self._result_payload(result)
 
