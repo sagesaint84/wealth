@@ -170,54 +170,35 @@ class IpoTelegramNotifier:
             return None, None
         return links[0]
 
+    def _notification_service(self):
+        from app.services.notifications.service import UserNotificationService
+
+        return UserNotificationService(
+            self.username,
+            telegram_credentials=(self.bot_token, self.chat_id),
+        )
+
     def _notification_senders(
         self,
         providers: set[str] | None = None,
     ) -> list[Any]:
-        """Build only the requested transports.
+        """Build requested transports through the common notification service.
 
         Direct send_message() calls intentionally request Telegram only for
-        backward compatibility. Automatic IPO dispatch passes the enabled
-        provider set explicitly.
+        backward compatibility. Automatic IPO dispatch passes enabled providers.
         """
-        from app.services.notifications.discord import DiscordSender
-        from app.services.notifications.kakao import KakaoSender
-        from app.services.notifications.telegram import TelegramSender
-
-        requested = set(providers or {"telegram", "discord", "kakao"})
-        senders: list[Any] = []
-        if "telegram" in requested:
-            senders.append(
-                TelegramSender(
-                    bot_token=self.bot_token,
-                    chat_id=self.chat_id,
-                    username=self.username,
-                )
-            )
-        if self.username and "discord" in requested:
-            senders.append(DiscordSender(username=self.username))
-        if self.username and "kakao" in requested:
-            senders.append(KakaoSender(username=self.username))
-        return senders
+        senders, _failures = self._notification_service().build_senders(
+            providers,
+            respect_enabled=False,
+        )
+        return list(senders)
 
     def _enabled_provider_names(self) -> set[str]:
         """Resolve per-user switches for automatic IPO delivery only."""
-        if not self.username:
-            return {"telegram"}
-
-        from app.services.settings import get_effective_settings
-        try:
-            settings = get_effective_settings(self.username)
-        except Exception:
-            logger.warning(
-                "IPO notification provider settings unavailable for user"
-            )
+        enabled = self._notification_service().enabled_provider_names()
+        if self.username and not enabled:
+            # Fail closed on unreadable settings or all providers disabled.
             return set()
-
-        enabled: set[str] = set()
-        for provider in ("telegram", "discord", "kakao"):
-            if settings.get(provider, {}).get("enabled") is True:
-                enabled.add(provider)
         return enabled
 
     def configured_provider_names(self) -> set[str]:
