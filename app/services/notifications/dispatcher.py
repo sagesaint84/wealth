@@ -34,11 +34,24 @@ class NotificationDispatcher:
         results: list[NotificationSendResult] = []
         options = send_options or {}
         for sender in self._senders:
-            if sender.is_configured():
-                kwargs = dict(options.get(sender.provider_name, {}))
-                res = sender.send(event, **kwargs)
-                results.append(res)
-            else:
+            try:
+                configured = sender.is_configured()
+            except Exception:
+                logger.warning(
+                    "Notification provider configuration check failed: %s",
+                    sender.provider_name,
+                )
+                results.append(
+                    NotificationSendResult(
+                        success=False,
+                        provider=sender.provider_name,
+                        retryable=False,
+                        error_code="CONFIGURATION_ERROR",
+                    )
+                )
+                continue
+
+            if not configured:
                 results.append(
                     NotificationSendResult(
                         success=False,
@@ -47,6 +60,25 @@ class NotificationDispatcher:
                         error_code="NOT_CONFIGURED",
                     )
                 )
+                continue
+
+            kwargs = dict(options.get(sender.provider_name, {}))
+            try:
+                res = sender.send(event, **kwargs)
+            except Exception:
+                # Do not log the exception object; provider exceptions may
+                # contain credential-bearing URLs or access tokens.
+                logger.warning(
+                    "Notification provider raised unexpectedly: %s",
+                    sender.provider_name,
+                )
+                res = NotificationSendResult(
+                    success=False,
+                    provider=sender.provider_name,
+                    retryable=True,
+                    error_code="SEND_FAILED",
+                )
+            results.append(res)
         return results
 
     @staticmethod
