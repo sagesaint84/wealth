@@ -216,6 +216,44 @@ class NotificationFoundationTests(unittest.TestCase):
         mock_sender1.send.assert_called_once_with(event)
         mock_sender2.send.assert_not_called()
 
+    def test_notification_dispatcher_isolates_unexpected_provider_exception(self):
+        failing = MagicMock(spec=NotificationSender)
+        failing.provider_name = "discord"
+        failing.is_configured.return_value = True
+        failing.send.side_effect = RuntimeError("secret-bearing provider failure")
+
+        succeeding = MagicMock(spec=NotificationSender)
+        succeeding.provider_name = "kakao"
+        succeeding.is_configured.return_value = True
+        succeeding.send.return_value = NotificationSendResult(
+            success=True, provider="kakao"
+        )
+
+        event = NotificationEvent(event_key="e1", event_type="test", body="body")
+        results = NotificationDispatcher([failing, succeeding]).dispatch(event)
+
+        self.assertEqual([r.provider for r in results], ["discord", "kakao"])
+        self.assertFalse(results[0].success)
+        self.assertTrue(results[0].retryable)
+        self.assertEqual(results[0].error_code, "SEND_FAILED")
+        self.assertTrue(results[1].success)
+        succeeding.send.assert_called_once_with(event)
+
+    def test_notification_dispatcher_passes_provider_specific_send_options(self):
+        sender = MagicMock(spec=NotificationSender)
+        sender.provider_name = "telegram"
+        sender.is_configured.return_value = True
+        sender.send.return_value = NotificationSendResult(
+            success=True, provider="telegram"
+        )
+        event = NotificationEvent(event_key="e1", event_type="test", body="body")
+        hook = MagicMock()
+        NotificationDispatcher([sender]).dispatch(
+            event,
+            send_options={"telegram": {"_sleep": hook}},
+        )
+        sender.send.assert_called_once_with(event, _sleep=hook)
+
     def test_notification_dispatcher_send_direct(self):
         mock_sender = MagicMock(spec=NotificationSender)
         mock_sender.send.return_value = NotificationSendResult(success=True, provider="mock")
