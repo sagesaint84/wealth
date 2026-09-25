@@ -176,6 +176,42 @@ def record_notification_history(
         _save(data, target)
 
 
+def record_single_provider_history(
+    username: str,
+    event: Any,
+    *,
+    provider: str,
+    success: bool,
+    retryable: bool = False,
+    error: str | None = None,
+    path: Path | None = None,
+    now: datetime | None = None,
+) -> None:
+    """Record a direct/manual provider send without requiring the common service."""
+    if provider not in _PROVIDER_VALUES:
+        raise ValueError("NOTIFICATION_PROVIDER_INVALID")
+
+    class _Report:
+        status = "sent" if success else "failed"
+        notifications_sent_count = 1 if success else 0
+        provider_results = {
+            provider: {
+                "sent": bool(success),
+                "status": "sent" if success else "failed",
+                "retryable": bool(retryable),
+                "error": None if success else _sanitize_error(error),
+            }
+        }
+
+    record_notification_history(
+        username,
+        event,
+        _Report(),
+        path=path,
+        now=now,
+    )
+
+
 def list_notification_history(
     username: str,
     *,
