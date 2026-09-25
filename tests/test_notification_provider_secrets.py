@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,8 @@ from app.services.discord_secrets import (
     secret_path as discord_secret_path,
     update_discord_secrets,
 )
+from app.services.kakao_oauth import resolve_kakao_app_config
+from app.services.notifications.discord import DiscordSender
 from app.services.kakao_app_secrets import (
     KakaoAppSecretError,
     kakao_app_secret_status,
@@ -130,6 +133,30 @@ class NotificationProviderSecretTests(unittest.TestCase):
         self.assertEqual(status["client_secret_source"], "stored")
         self.assertNotIn("REST_SECRET", json.dumps(status))
         self.assertNotIn("CLIENT_SECRET", json.dumps(status))
+
+    def test_discord_and_kakao_do_not_fall_back_to_environment_credentials(self):
+        env = {
+            "DISCORD_WEBHOOK_URL": WEBHOOK,
+            "DISCORD_WEALTH_USERNAME": "alice",
+            "KAKAO_REST_API_KEY": "ENV_REST_KEY",
+            "KAKAO_CLIENT_SECRET": "ENV_CLIENT_SECRET",
+        }
+        with patch.dict(os.environ, env, clear=False), patch(
+            "app.services.notifications.discord.load_stored_discord_secrets",
+            return_value={"webhook_url": ""},
+        ):
+            self.assertFalse(DiscordSender(username="alice").is_configured())
+
+        with patch.dict(os.environ, env, clear=False), patch(
+            "app.services.kakao_oauth.load_stored_kakao_app_secrets",
+            return_value={"rest_api_key": "", "client_secret": ""},
+        ), patch(
+            "app.services.kakao_oauth.get_effective_system_settings",
+            return_value={"public_base_url": "https://wealth.example.com"},
+        ):
+            config = resolve_kakao_app_config("alice")
+        self.assertIsNone(config.rest_api_key)
+        self.assertIsNone(config.client_secret)
 
     def test_invalid_secret_patch_is_fail_closed(self):
         with self.assertRaises(DiscordSecretError):
