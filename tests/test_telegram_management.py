@@ -61,8 +61,8 @@ class TelegramManagementApiTests(unittest.TestCase):
    self.assertEqual(self.client('user').patch('/api/settings/system',json={'public_base_url':'https://wealth.example.com'}).status_code,403)
    self.assertEqual(self.client().patch('/api/settings/system',json={'public_base_url':'https://wealth.example.com'}).status_code,200)
  def test_test_message_uses_authenticated_user_config(self):
-  with patch('app.services.telegram_config.resolve_telegram_config',return_value=TelegramManagementTests().cfg()),patch('app.services.telegram_management.send_test_message',return_value={'ok':True,'message':'sent'}) as send:
-   response=self.client('user').post('/api/settings/telegram/test');self.assertEqual(response.status_code,200);send.assert_called_once();self.assertEqual(send.call_args.args[0].username,'alice')
+  with patch('app.services.telegram_config.resolve_telegram_config',return_value=TelegramManagementTests().cfg()),patch('app.services.telegram_management.send_test_message',return_value={'ok':True,'message':'sent'}) as send,patch('app.services.notifications.history.record_single_provider_history') as record:
+   response=self.client('user').post('/api/settings/telegram/test');self.assertEqual(response.status_code,200);send.assert_called_once();self.assertEqual(send.call_args.args[0].username,'alice');record.assert_called_once();self.assertEqual(record.call_args.args[0],'alice');self.assertEqual(record.call_args.kwargs['provider'],'telegram');self.assertTrue(record.call_args.kwargs['success'])
  def test_connect_requires_admin_and_matching_owner(self):
   system={'telegram_webhook_owner':'bob','public_base_url':'https://wealth.example.com'}
   with patch('app.services.system_settings.get_effective_system_settings',return_value=system):
