@@ -95,7 +95,12 @@ class KakaoSender:
         app = resolve_kakao_app_config(self.username)
         if not app.public_base_url:
             return None, "PUBLIC_BASE_URL_REQUIRED"
-        text = _telegram_html_to_text(event.body).strip()
+        raw_text = (
+            event.metadata.get("kakao_body")
+            if event.metadata and isinstance(event.metadata.get("kakao_body"), str)
+            else event.body
+        )
+        text = _telegram_html_to_text(raw_text).strip()
         if not text:
             return None, "MESSAGE_EMPTY"
         if len(text) > _MAX_TEXT_LENGTH:

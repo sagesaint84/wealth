@@ -1,4 +1,8 @@
-"""Wealth IPO Telegram Notifier Service.
+"""Wealth IPO multi-channel notification service.
+
+The legacy IpoTelegramNotifier name is retained for compatibility while
+outbound IPO notifications are dispatched to configured Telegram, Discord,
+and Kakao transports.
 
 Supports:
 - Subscription tomorrow / today / last day reminders
@@ -12,14 +16,15 @@ Supports:
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import threading
-import os
 from contextlib import contextmanager
 from typing import Any
 from urllib import parse, request
@@ -79,7 +84,7 @@ def notification_state_lock(state_path: Path):
 
 
 class IpoTelegramNotifier:
-    """Sends IPO notifications to Telegram with atomic deduplication state tracking."""
+    """Compatibility facade for provider-neutral IPO notification dispatch."""
 
     def __init__(
         self,
@@ -94,7 +99,9 @@ class IpoTelegramNotifier:
             if cfg: bot_token=cfg.bot_token; chat_id=cfg.chat_id
         self.bot_token = bot_token or ''
         self.chat_id = chat_id or ''
+        self.username = username
         self.state_path = state_path or NOTIFICATION_STATE_FILE
+        self._last_send_results = []
 
     def is_configured(self) -> bool:
         return bool(self.bot_token and self.chat_id)
@@ -102,13 +109,19 @@ class IpoTelegramNotifier:
     def load_state(self) -> dict[str, Any]:
         with _NOTIFIER_LOCK:
             if not self.state_path.exists():
-                return {"sent_keys": {}, "last_sent_at": {}, "snapshots": {}}
+                return {
+                    "sent_keys": {},
+                    "provider_sent_keys": {},
+                    "last_sent_at": {},
+                    "snapshots": {},
+                }
             try:
                 with open(self.state_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 if not isinstance(data, dict):
                     raise IpoNotifierStateError(f"Notification state at {self.state_path} is not a valid JSON object")
                 data.setdefault("sent_keys", {})
+                data.setdefault("provider_sent_keys", {})
                 data.setdefault("last_sent_at", {})
                 data.setdefault("snapshots", {})
                 return data
@@ -123,22 +136,179 @@ class IpoTelegramNotifier:
                 json.dump(state, f, ensure_ascii=False, indent=2)
             tmp_path.replace(self.state_path)
 
-    def send_message(self, text: str, parse_mode: str = "HTML", reply_markup: dict[str, Any] | None = None) -> bool:
-        from app.services.notifications.models import NotificationEvent
+    @staticmethod
+    def _compact_kakao_body(text: str) -> str:
+        compact = re.sub(r"(?is)<\s*br\s*/?\s*>", "\n", text)
+        compact = re.sub(r"</?[A-Za-z][^>]*>", "", compact)
+        compact = html.unescape(compact)
+        compact = re.sub(r"\n{3,}", "\n\n", compact).strip()
+        if len(compact) <= 200:
+            return compact
+        return compact[:199].rstrip() + "…"
+
+    @staticmethod
+    def _single_web_action(
+        reply_markup: dict[str, Any] | None,
+    ) -> tuple[str | None, str | None]:
+        if not isinstance(reply_markup, dict):
+            return None, None
+        keyboard = reply_markup.get("inline_keyboard")
+        if not isinstance(keyboard, list):
+            return None, None
+        links: list[tuple[str, str]] = []
+        for row in keyboard:
+            if not isinstance(row, list):
+                continue
+            for button in row:
+                if not isinstance(button, dict):
+                    continue
+                url = button.get("url")
+                if isinstance(url, str) and url.strip():
+                    label = str(button.get("text") or "Wealth에서 확인").strip()
+                    links.append((url.strip(), label or "Wealth에서 확인"))
+        if len(links) != 1:
+            return None, None
+        return links[0]
+
+    def _notification_senders(self) -> list[Any]:
+        from app.services.notifications.discord import DiscordSender
+        from app.services.notifications.kakao import KakaoSender
         from app.services.notifications.telegram import TelegramSender
 
-        sender = TelegramSender(bot_token=self.bot_token, chat_id=self.chat_id)
-        metadata = {"reply_markup": reply_markup} if reply_markup is not None else {}
+        senders: list[Any] = [
+            TelegramSender(
+                bot_token=self.bot_token,
+                chat_id=self.chat_id,
+                username=self.username,
+            )
+        ]
+        if self.username:
+            senders.append(DiscordSender(username=self.username))
+            senders.append(KakaoSender(username=self.username))
+        return senders
+
+    def configured_provider_names(self) -> set[str]:
+        names: set[str] = set()
+        for sender in self._notification_senders():
+            try:
+                if sender.is_configured():
+                    names.add(sender.provider_name)
+            except Exception:
+                logger.warning(
+                    "IPO notification provider configuration check failed: %s",
+                    sender.provider_name,
+                )
+        return names
+
+    def send_message(
+        self,
+        text: str,
+        parse_mode: str = "HTML",
+        reply_markup: dict[str, Any] | None = None,
+        *,
+        event_key: str = "ipo_message",
+        providers: set[str] | None = None,
+    ) -> bool:
+        from app.services.notifications.dispatcher import NotificationDispatcher
+        from app.services.notifications.models import NotificationEvent
+
+        action_url, action_label = self._single_web_action(reply_markup)
+        metadata: dict[str, Any] = {
+            "kakao_body": self._compact_kakao_body(text),
+        }
+        if reply_markup is not None:
+            metadata["reply_markup"] = reply_markup
+
+        senders = self._notification_senders()
+        if providers is not None:
+            senders = [s for s in senders if s.provider_name in providers]
+
         event = NotificationEvent(
-            event_key="ipo_message",
+            event_key=event_key,
             event_type="ipo_alert",
             body=text,
+            username=self.username,
             parse_mode=parse_mode,
+            action_url=action_url,
+            action_label=action_label,
             metadata=metadata,
         )
-        # Use urlopen/time from this module if patched in legacy tests
-        result = sender.send(event, _urlopen=request.urlopen, _sleep=time.sleep)
-        return result.success
+        dispatcher = NotificationDispatcher(senders)
+        # Preserve notifier-module urlopen/sleep patching used by legacy
+        # Telegram tests without leaking those hooks to other providers.
+        self._last_send_results = dispatcher.dispatch(
+            event,
+            send_options={
+                "telegram": {
+                    "_urlopen": request.urlopen,
+                    "_sleep": time.sleep,
+                }
+            },
+        )
+        for result in self._last_send_results:
+            if not result.success and result.error_code != "NOT_CONFIGURED":
+                logger.warning(
+                    "IPO notification provider failed: provider=%s retryable=%s code=%s",
+                    result.provider,
+                    result.retryable,
+                    result.error_code or "SEND_FAILED",
+                )
+        return any(result.success for result in self._last_send_results)
+
+    def dispatch_message(
+        self,
+        event_key: str,
+        text: str,
+        state: dict[str, Any],
+        *,
+        parse_mode: str = "HTML",
+        reply_markup: dict[str, Any] | None = None,
+    ) -> bool:
+        """Send only providers that have not already succeeded for this key."""
+        sent_keys = state.setdefault("sent_keys", {})
+        if event_key in sent_keys:
+            return False
+
+        configured = self.configured_provider_names()
+        if not configured:
+            return False
+
+        by_event = state.setdefault("provider_sent_keys", {})
+        provider_state = by_event.setdefault(event_key, {})
+        if not isinstance(provider_state, dict):
+            raise IpoNotifierStateError("IPO_PROVIDER_NOTIFICATION_STATE_INVALID")
+
+        pending = configured - set(provider_state)
+        if not pending:
+            return False
+
+        self._last_send_results = []
+        sent_any = self.send_message(
+            text,
+            parse_mode=parse_mode,
+            reply_markup=reply_markup,
+            event_key=event_key,
+            providers=pending,
+        )
+
+        now_iso = datetime.now(KST).isoformat()
+        newly_sent: set[str] = set()
+        if self._last_send_results:
+            for result in self._last_send_results:
+                if result.success and result.provider in pending:
+                    provider_state[result.provider] = now_iso
+                    newly_sent.add(result.provider)
+        elif sent_any:
+            # Compatibility for existing tests/callers that replace
+            # send_message with a bool-returning mock.
+            for provider in pending:
+                provider_state[provider] = now_iso
+                newly_sent.add(provider)
+
+        if configured.issubset(set(provider_state)):
+            sent_keys[event_key] = now_iso
+
+        return bool(newly_sent)
 
     def answer_callback_query(self, callback_query_id: str, text: str = "") -> bool:
         if not self.is_configured() or not callback_query_id:
@@ -199,8 +369,7 @@ class IpoTelegramNotifier:
                 if dry_run:
                     notifications_sent.append(k)
                     return True
-                if self.send_message(m):
-                    sent_keys[k] = datetime.now().isoformat()
+                if self.dispatch_message(k, m, state):
                     notifications_sent.append(k)
                     return True
                 return False

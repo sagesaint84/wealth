@@ -119,6 +119,32 @@ class KakaoSenderTests(unittest.TestCase):
         token.assert_not_called()
         opener.assert_not_called()
 
+    def test_compact_kakao_body_metadata_allows_long_generic_event(self):
+        captured = {}
+
+        def opener(req, timeout=10):
+            captured["req"] = req
+            return FakeResponse()
+
+        with patch(
+            "app.services.notifications.kakao.get_valid_access_token",
+            return_value="ACCESS_SECRET",
+        ):
+            result = KakaoSender(username="alice").send(
+                NotificationEvent(
+                    event_key="compact",
+                    event_type="ipo_alert",
+                    body="가" * 500,
+                    metadata={"kakao_body": "공모주 알림 요약"},
+                ),
+                _urlopen=opener,
+            )
+
+        self.assertTrue(result.success)
+        form = parse_qs(captured["req"].data.decode("utf-8"))
+        template = json.loads(form["template_object"][0])
+        self.assertEqual(template["text"], "공모주 알림 요약")
+
     def test_message_over_200_chars_fails_before_token_or_network(self):
         opener = MagicMock()
         token = MagicMock()
