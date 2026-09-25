@@ -79,6 +79,39 @@ class IpoMultiChannelNotificationTests(unittest.TestCase):
         self.assertEqual(senders[1].kwargs[0], {})
         self.assertEqual(senders[2].kwargs[0], {})
 
+    def test_send_message_records_common_notification_history(self):
+        notifier = IpoTelegramNotifier(
+            bot_token="bot",
+            chat_id="chat",
+            username="alice",
+        )
+        sender = FakeSender(
+            "telegram",
+            NotificationSendResult(success=True, provider="telegram"),
+        )
+        with patch.object(
+            notifier,
+            "_notification_senders",
+            return_value=[sender],
+        ), patch(
+            "app.services.notifications.history.record_notification_history"
+        ) as record:
+            self.assertTrue(
+                notifier.send_message(
+                    "IPO history",
+                    event_key="ipo:history",
+                )
+            )
+
+        record.assert_called_once()
+        self.assertEqual(record.call_args.args[0], "alice")
+        event = record.call_args.args[1]
+        report = record.call_args.args[2]
+        self.assertEqual(event.event_type, "ipo_alert")
+        self.assertEqual(event.event_key, "ipo:history")
+        self.assertEqual(report.status, "sent")
+        self.assertEqual(report.notifications_sent_count, 1)
+
     def test_multiple_web_actions_are_not_collapsed_to_one_owner(self):
         markup = {
             "inline_keyboard": [
