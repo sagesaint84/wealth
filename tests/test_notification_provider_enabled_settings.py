@@ -67,7 +67,7 @@ class ProviderEnabledSettingsTests(unittest.TestCase):
                 path=self.path,
             )
 
-    def test_ipo_sender_list_honors_user_switches(self):
+    def test_automatic_ipo_dispatch_honors_user_switches(self):
         notifier = IpoTelegramNotifier(
             bot_token="bot",
             chat_id="chat",
@@ -78,16 +78,28 @@ class ProviderEnabledSettingsTests(unittest.TestCase):
         effective["discord"]["enabled"] = False
         effective["kakao"]["enabled"] = True
 
+        class Sender:
+            def __init__(self, provider_name):
+                self.provider_name = provider_name
+
+            def is_configured(self):
+                return True
+
         with patch(
             "app.services.settings.get_effective_settings",
             return_value=effective,
+        ), patch.object(
+            notifier,
+            "_notification_senders",
+            return_value=[
+                Sender("telegram"),
+                Sender("discord"),
+                Sender("kakao"),
+            ],
         ):
-            senders = notifier._notification_senders()
+            configured = notifier.configured_provider_names()
 
-        self.assertEqual(
-            [sender.provider_name for sender in senders],
-            ["telegram", "kakao"],
-        )
+        self.assertEqual(configured, {"telegram", "kakao"})
 
     def test_legacy_direct_notifier_remains_telegram_only(self):
         notifier = IpoTelegramNotifier(
