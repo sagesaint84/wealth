@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -10,6 +9,10 @@ from urllib import error, parse, request
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
+from app.services.kakao_app_secrets import (
+    kakao_app_secret_status,
+    load_stored_kakao_app_secrets,
+)
 from app.services.kakao_tokens import (
     KakaoTokenState,
     load_kakao_tokens,
@@ -47,11 +50,12 @@ class KakaoAppConfig:
         return bool(self.rest_api_key and self.redirect_uri)
 
 
-def resolve_kakao_app_config() -> KakaoAppConfig:
+def resolve_kakao_app_config(username: str) -> KakaoAppConfig:
     system = get_effective_system_settings()
+    stored = load_stored_kakao_app_secrets(username)
     return KakaoAppConfig(
-        rest_api_key=os.getenv("KAKAO_REST_API_KEY", "").strip() or None,
-        client_secret=os.getenv("KAKAO_CLIENT_SECRET", "").strip() or None,
+        rest_api_key=stored["rest_api_key"] or None,
+        client_secret=stored["client_secret"] or None,
         public_base_url=system.get("public_base_url"),
     )
 
@@ -92,7 +96,7 @@ def consume_oauth_state(state: str) -> str:
 
 
 def build_authorize_url(username: str) -> str:
-    config = resolve_kakao_app_config()
+    config = resolve_kakao_app_config(username)
     if not config.rest_api_key:
         raise KakaoOAuthError("KAKAO_APP_NOT_CONFIGURED")
     if not config.redirect_uri:
@@ -110,6 +114,7 @@ def build_authorize_url(username: str) -> str:
 
 
 def _token_request(
+    username: str,
     payload: dict[str, str],
     *,
     opener=request.urlopen,
@@ -162,6 +167,7 @@ def exchange_authorization_code(
     if not isinstance(code, str) or not code:
         raise KakaoOAuthError("KAKAO_AUTHORIZATION_CODE_INVALID")
     result = _token_request(
+        username,
         {
             "grant_type": "authorization_code",
             "redirect_uri": config.redirect_uri,
@@ -187,6 +193,7 @@ def refresh_kakao_tokens(
     if not current.refresh_token:
         raise KakaoOAuthError("KAKAO_REFRESH_TOKEN_MISSING")
     result = _token_request(
+        username,
         {
             "grant_type": "refresh_token",
             "refresh_token": current.refresh_token,
