@@ -120,7 +120,7 @@ def _token_request(
     opener=request.urlopen,
     timeout: float = 10.0,
 ) -> dict:
-    config = resolve_kakao_app_config()
+    config = resolve_kakao_app_config(username)
     if not config.rest_api_key:
         raise KakaoOAuthError("KAKAO_APP_NOT_CONFIGURED")
     form = {**payload, "client_id": config.rest_api_key}
@@ -161,7 +161,7 @@ def exchange_authorization_code(
     opener=request.urlopen,
     now: datetime | None = None,
 ) -> KakaoTokenState:
-    config = resolve_kakao_app_config()
+    config = resolve_kakao_app_config(username)
     if not config.redirect_uri:
         raise KakaoOAuthError("PUBLIC_BASE_URL_REQUIRED")
     if not isinstance(code, str) or not code:
@@ -238,12 +238,13 @@ def get_valid_access_token(
 
 
 def safe_kakao_status(username: str) -> dict[str, object]:
-    config = resolve_kakao_app_config()
+    config = resolve_kakao_app_config(username)
     status = token_status(username)
+    secret_status = kakao_app_secret_status(username)
     return {
         "app_configured": config.app_configured,
-        "client_secret_configured": bool(config.client_secret),
         "public_base_url_configured": bool(config.public_base_url),
         "redirect_uri": config.redirect_uri,
+        **secret_status,
         **status,
     }
