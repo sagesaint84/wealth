@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, Mock, patch
 
 from app.services.notifications.models import NotificationEvent, NotificationSendResult
 from app.services.notifications.service import UserNotificationService
@@ -194,7 +194,7 @@ class UserNotificationServiceTests(unittest.TestCase):
         self.assertTrue(report.provider_results["telegram"]["sent"])
 
     def test_disabled_telegram_does_not_resolve_credentials(self):
-        resolver = unittest.mock.MagicMock()
+        resolver = MagicMock()
         settings = {
             "telegram": {"enabled": False},
             "discord": {"enabled": False},
@@ -214,8 +214,8 @@ class UserNotificationServiceTests(unittest.TestCase):
         self.assertEqual(report.status, "disabled")
 
     def test_enabled_telegram_resolves_credentials_lazily(self):
-        resolver = unittest.mock.MagicMock()
-        resolver.return_value = unittest.mock.Mock(
+        resolver = MagicMock()
+        resolver.return_value = Mock(
             bot_token="TOKEN",
             chat_id=123,
         )
