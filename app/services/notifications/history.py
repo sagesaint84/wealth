@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.services.network_policy import is_test_mode
 from app.services.settings import _path as settings_path
 
 HISTORY_VERSION = 1
@@ -145,6 +146,8 @@ def record_notification_history(
     now: datetime | None = None,
 ) -> None:
     """Persist one delivery report without storing notification content or secrets."""
+    if path is None and is_test_mode():
+        return
     target = path or history_path(username)
     created_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
     raw_key = str(getattr(event, "event_key", "") or "")
@@ -220,6 +223,13 @@ def list_notification_history(
 ) -> dict[str, Any]:
     if type(limit) is not int or not 1 <= limit <= HISTORY_RETENTION:
         raise ValueError("NOTIFICATION_HISTORY_LIMIT_INVALID")
+    if path is None and is_test_mode():
+        return {
+            "version": HISTORY_VERSION,
+            "retention": HISTORY_RETENTION,
+            "count": 0,
+            "events": [],
+        }
     target = path or history_path(username)
     lock = _lock_for(target)
     with lock:
@@ -238,6 +248,8 @@ def clear_notification_history(
     *,
     path: Path | None = None,
 ) -> int:
+    if path is None and is_test_mode():
+        return 0
     target = path or history_path(username)
     lock = _lock_for(target)
     with lock:
