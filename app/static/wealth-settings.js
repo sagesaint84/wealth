@@ -87,6 +87,8 @@
     const telegram = data.telegram;
     notificationsSnapshot = telegram;
     byId('settingsTelegramEnabled').checked = telegram.enabled === true;
+    byId('settingsDiscordEnabled').checked = data.discord?.enabled === true;
+    byId('settingsKakaoEnabled').checked = data.kakao?.enabled === true;
     byId('settingsChatId').value = telegram.chat_id ?? '';
     byId('settingsAllowedUserId').value = telegram.allowed_user_id ?? '';
     byId('settingsAllowedChatId').value = telegram.allowed_chat_id ?? '';
@@ -530,8 +532,15 @@
   async function saveDiscord() {
     const button = byId('settingsSaveDiscord');
     setError('settingsDiscordError');
+    let nonSecretSaved = false;
     try {
       busy(button, true);
+      await api('/api/settings/notifications', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({discord: {enabled: byId('settingsDiscordEnabled').checked}}),
+      });
+      nonSecretSaved = true;
       const patch = {};
       const webhook = byId('settingsDiscordWebhookUrl').value.trim();
       if (webhook) patch.webhook_url = webhook;
@@ -543,15 +552,14 @@
           body: JSON.stringify(patch),
         });
       }
-      const result = await api('/api/settings/discord');
-      renderDiscord(result);
+      await reloadSettings();
       toast('Discord 설정을 저장했습니다.');
     } catch (error) {
       byId('settingsDiscordWebhookUrl').value = '';
-      const message = safeMessage(error, 'Discord 설정을 저장하지 못했습니다.');
+      const message = nonSecretSaved ? '사용 여부는 저장되었지만 Discord 비밀정보 저장에 실패했습니다. 현재 상태를 다시 불러옵니다.' : safeMessage(error, 'Discord 설정을 저장하지 못했습니다.');
       setError('settingsDiscordError', message);
       toast(message, true);
-      await api('/api/settings/discord').then(renderDiscord).catch(() => {});
+      await reloadSettings().catch(() => {});
     } finally {
       busy(button, false);
     }
@@ -577,8 +585,15 @@
   async function saveKakaoSecrets() {
     const button = byId('settingsSaveKakaoSecrets');
     setError('settingsKakaoError');
+    let nonSecretSaved = false;
     try {
       busy(button, true);
+      await api('/api/settings/notifications', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({kakao: {enabled: byId('settingsKakaoEnabled').checked}}),
+      });
+      nonSecretSaved = true;
       const patch = {};
       const restApiKey = byId('settingsKakaoRestApiKey').value.trim();
       const clientSecret = byId('settingsKakaoClientSecret').value.trim();
@@ -593,15 +608,15 @@
           body: JSON.stringify(patch),
         });
       }
-      await reloadKakao();
-      toast('Kakao 앱 키를 저장했습니다.');
+      await reloadSettings();
+      toast('Kakao 앱 키와 사용 여부를 저장했습니다.');
     } catch (error) {
       byId('settingsKakaoRestApiKey').value = '';
       byId('settingsKakaoClientSecret').value = '';
-      const message = safeMessage(error, 'Kakao 앱 키를 저장하지 못했습니다.');
+      const message = nonSecretSaved ? '사용 여부는 저장되었지만 Kakao 비밀정보 저장에 실패했습니다. 현재 상태를 다시 불러옵니다.' : safeMessage(error, 'Kakao 앱 키를 저장하지 못했습니다.');
       setError('settingsKakaoError', message);
       toast(message, true);
-      await reloadKakao().catch(() => {});
+      await reloadSettings().catch(() => {});
     } finally {
       busy(button, false);
     }

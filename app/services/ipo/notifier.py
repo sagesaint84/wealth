@@ -170,26 +170,65 @@ class IpoTelegramNotifier:
             return None, None
         return links[0]
 
-    def _notification_senders(self) -> list[Any]:
+    def _notification_senders(
+        self,
+        providers: set[str] | None = None,
+    ) -> list[Any]:
+        """Build only the requested transports.
+
+        Direct send_message() calls intentionally request Telegram only for
+        backward compatibility. Automatic IPO dispatch passes the enabled
+        provider set explicitly.
+        """
         from app.services.notifications.discord import DiscordSender
         from app.services.notifications.kakao import KakaoSender
         from app.services.notifications.telegram import TelegramSender
 
-        senders: list[Any] = [
-            TelegramSender(
-                bot_token=self.bot_token,
-                chat_id=self.chat_id,
-                username=self.username,
+        requested = set(providers or {"telegram", "discord", "kakao"})
+        senders: list[Any] = []
+        if "telegram" in requested:
+            senders.append(
+                TelegramSender(
+                    bot_token=self.bot_token,
+                    chat_id=self.chat_id,
+                    username=self.username,
+                )
             )
-        ]
-        if self.username:
+        if self.username and "discord" in requested:
             senders.append(DiscordSender(username=self.username))
+        if self.username and "kakao" in requested:
             senders.append(KakaoSender(username=self.username))
         return senders
 
+    def _enabled_provider_names(self) -> set[str]:
+        """Resolve per-user switches for automatic IPO delivery only."""
+        if not self.username:
+            return {"telegram"}
+
+        from app.services.settings import get_effective_settings
+        try:
+            settings = get_effective_settings(self.username)
+        except Exception:
+            logger.warning(
+                "IPO notification provider settings unavailable for user"
+            )
+            return set()
+
+        enabled: set[str] = set()
+        for provider in ("telegram", "discord", "kakao"):
+            if settings.get(provider, {}).get("enabled") is True:
+                enabled.add(provider)
+        return enabled
+
     def configured_provider_names(self) -> set[str]:
+        enabled = self._enabled_provider_names()
         names: set[str] = set()
-        for sender in self._notification_senders():
+        for sender in self._notification_senders(enabled):
+            # Keep this explicit guard even though the sender builder already
+            # receives enabled providers. It preserves correctness for custom
+            # sender factories/test doubles that may return extra providers.
+            if sender.provider_name not in enabled:
+                continue
             try:
                 if sender.is_configured():
                     names.add(sender.provider_name)
@@ -219,9 +258,8 @@ class IpoTelegramNotifier:
         if reply_markup is not None:
             metadata["reply_markup"] = reply_markup
 
-        senders = self._notification_senders()
-        if providers is not None:
-            senders = [s for s in senders if s.provider_name in providers]
+        requested = providers if providers is not None else {"telegram"}
+        senders = self._notification_senders(set(requested))
 
         event = NotificationEvent(
             event_key=event_key,
@@ -271,6 +309,19 @@ class IpoTelegramNotifier:
 
         configured = self.configured_provider_names()
         if not configured:
+            # Compatibility for legacy/custom callers that replace send_message
+            # with their own bool-returning transport. Automatic production
+            # paths use the class method and therefore remain fail-closed when
+            # no enabled/configured provider exists.
+            if "send_message" in self.__dict__:
+                sent = self.send_message(
+                    text,
+                    parse_mode=parse_mode,
+                    reply_markup=reply_markup,
+                )
+                if sent:
+                    sent_keys[event_key] = datetime.now(KST).isoformat()
+                    return True
             return False
 
         by_event = state.setdefault("provider_sent_keys", {})
