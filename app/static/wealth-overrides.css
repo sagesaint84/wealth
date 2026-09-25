@@ -5783,7 +5783,7 @@ dialog.dialog .dialog-actions {
 .settings-history-provider{padding:4px 7px;border-radius:6px;background:#111b31;font-size:10.5px;color:#cbd5e1}
 .settings-history-provider.sent{color:#86efac}.settings-history-provider.failed{color:#fda4af}.settings-history-provider.disabled,.settings-history-provider.unconfigured,.settings-history-provider.skipped{color:#94a3b8}
 [data-theme="white"] .settings-dialog-head{background:#fff}[data-theme="white"] .settings-section,[data-theme="white"] .settings-secret-card,[data-theme="white"] .settings-history-item{background:#f8fafc}[data-theme="white"] .settings-secret-card input,[data-theme="white"] .settings-fields input,[data-theme="white"] .settings-time,[data-theme="white"] .settings-reminder-row input{background:#fff;color:#172033}[data-theme="white"] .settings-history-provider{background:#eef2f7;color:#475569}
-@media(max-width:620px){.settings-content{padding:12px}.settings-secret-grid,.settings-fields,.settings-status-grid{grid-template-columns:1fr}.settings-task{grid-template-columns:1fr}.settings-task>label{padding-top:0}.settings-time,.settings-reminder-row input{max-width:none}.settings-reminder-row{align-items:center}}
+@media(max-width:620px){.settings-content{padding:12px}.settings-secret-grid,.settings-fields,.settings-status-grid{grid-template-columns:1fr}.settings-task{grid-template-columns:1fr}.settings-task>label{padding-top:0}.settings-time,.settings-reminder-row input{max-width:none}.settings-reminder-row{align-items:center}.settings-history-actions{width:100%;justify-content:flex-start}.settings-history-head{align-items:flex-start}}
 
 
 
