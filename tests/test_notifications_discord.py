@@ -4,7 +4,6 @@ from __future__ import annotations
 import io
 import json
 import logging
-import os
 import unittest
 from urllib.error import HTTPError
 from unittest.mock import MagicMock, patch
@@ -41,12 +40,14 @@ class DiscordSenderTests(unittest.TestCase):
         self.assertTrue(sender.is_configured())
         self.assertEqual(sender.provider_name, "discord")
 
-    def test_environment_webhook_is_user_bound(self):
-        env = {
-            "DISCORD_WEBHOOK_URL": WEBHOOK,
-            "DISCORD_WEALTH_USERNAME": "alice",
-        }
-        with patch.dict(os.environ, env, clear=False):
+    def test_stored_webhook_is_user_bound(self):
+        def stored(username):
+            return {"webhook_url": WEBHOOK if username == "alice" else ""}
+
+        with patch(
+            "app.services.notifications.discord.load_stored_discord_secrets",
+            side_effect=stored,
+        ):
             self.assertTrue(DiscordSender(username="alice").is_configured())
             self.assertFalse(DiscordSender(username="bob").is_configured())
             self.assertFalse(DiscordSender(username=None).is_configured())
