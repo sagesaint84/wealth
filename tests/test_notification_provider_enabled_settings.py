@@ -101,6 +101,35 @@ class ProviderEnabledSettingsTests(unittest.TestCase):
 
         self.assertEqual(configured, {"telegram", "kakao"})
 
+    def test_direct_send_message_requests_telegram_transport_only(self):
+        notifier = IpoTelegramNotifier(
+            bot_token="bot",
+            chat_id="chat",
+            username="alice",
+        )
+
+        class Sender:
+            provider_name = "telegram"
+
+            def is_configured(self):
+                return True
+
+            def send(self, event, **kwargs):
+                from app.services.notifications.models import NotificationSendResult
+                return NotificationSendResult(
+                    success=True,
+                    provider="telegram",
+                )
+
+        with patch.object(
+            notifier,
+            "_notification_senders",
+            return_value=[Sender()],
+        ) as build:
+            self.assertTrue(notifier.send_message("safe"))
+
+        build.assert_called_once_with({"telegram"})
+
     def test_legacy_custom_send_message_fallback_preserves_reminder_contract(self):
         notifier = IpoTelegramNotifier(
             bot_token="bot",
