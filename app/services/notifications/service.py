@@ -7,7 +7,7 @@ build NotificationEvent objects and keep any domain-specific deduplication.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from app.services.notifications.dispatcher import NotificationDispatcher
 from app.services.notifications.models import NotificationEvent, NotificationSendResult
@@ -58,11 +58,13 @@ class UserNotificationService:
         username: str | None,
         *,
         telegram_credentials: tuple[str | None, str | int | None] | None = None,
+        telegram_resolver: Callable[[str], Any] | None = None,
         sender_overrides: Mapping[str, NotificationSender] | None = None,
         enabled_overrides: Mapping[str, bool] | None = None,
     ) -> None:
         self.username = username
         self.telegram_credentials = telegram_credentials
+        self.telegram_resolver = telegram_resolver
         self.sender_overrides = dict(sender_overrides or {})
         self.enabled_overrides = dict(enabled_overrides or {})
 
@@ -114,9 +116,12 @@ class UserNotificationService:
                 if not self.username:
                     credentials = (None, None)
                 else:
-                    from app.services.telegram_config import resolve_telegram_config
+                    if self.telegram_resolver is not None:
+                        cfg = self.telegram_resolver(self.username)
+                    else:
+                        from app.services.telegram_config import resolve_telegram_config
 
-                    cfg = resolve_telegram_config(self.username)
+                        cfg = resolve_telegram_config(self.username)
                     credentials = (cfg.bot_token, cfg.chat_id)
             bot_token, chat_id = credentials
             return TelegramSender(
