@@ -84,7 +84,7 @@ def notification_state_lock(state_path: Path):
 
 
 class IpoTelegramNotifier:
-    """Sends IPO notifications to Telegram with atomic deduplication state tracking."""
+    """Compatibility facade for provider-neutral IPO notification dispatch."""
 
     def __init__(
         self,
@@ -280,7 +280,6 @@ class IpoTelegramNotifier:
 
         pending = configured - set(provider_state)
         if not pending:
-            sent_keys[event_key] = datetime.now(KST).isoformat()
             return False
 
         self._last_send_results = []
