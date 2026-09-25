@@ -316,15 +316,16 @@ def create_mark_applied_action(
     source_channel: str,
     *,
     today: date | None = None,
-    path: Path = ACTION_FILE,
+    path: Path | None = None,
 ) -> dict[str, Any]:
     """Validate and create a MARK_IPO_APPLIED action token. Returns action metadata copy."""
+    target_path = path if path is not None else ACTION_FILE
     today = today or datetime.now(KST).date()
     _, _, _, end = _validate(ipo_id, owner, username, today)
     expires_at = _subscription_expiry(end)
 
-    with action_state_lock(path):
-        data = _load(path)
+    with action_state_lock(target_path):
+        data = _load(target_path)
         aid = secrets.token_urlsafe(24)
         while aid in data["actions"]:
             aid = secrets.token_urlsafe(24)
@@ -340,7 +341,7 @@ def create_mark_applied_action(
             "consumed_at": None,
             "source_channel": source_channel,
         }
-        _save(data, path)
+        _save(data, target_path)
         return data["actions"][aid].copy()
 
 
@@ -352,7 +353,7 @@ def execute_action(
     action_id: str,
     *,
     today: date | None = None,
-    path: Path = ACTION_FILE,
+    path: Path | None = None,
 ) -> dict[str, Any]:
     """Execute a stored action (MARK_IPO_APPLIED).
 
@@ -367,9 +368,10 @@ def execute_action(
     8. Atomic save
     9. Return command result
     """
+    target_path = path if path is not None else ACTION_FILE
     today = today or datetime.now(KST).date()
-    with action_state_lock(path):
-        data = _load(path)
+    with action_state_lock(target_path):
+        data = _load(target_path)
         action = data["actions"].get(action_id)
         if action is None:
             raise IpoActionError("ACTION_NOT_FOUND")

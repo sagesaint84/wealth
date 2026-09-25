@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import argparse
 from datetime import date, datetime
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from app.services.ipo.applications import get_user_applications
 from app.services.ipo.notifier import IpoTelegramNotifier, KST, notification_state_lock
@@ -87,19 +90,47 @@ def _run_reminders_locked(
         if should_warn:
             message += "청약 마감 시간이 가까워지고 있습니다. 증권사별 실제 청약 접수 마감 시간을 확인하세요.\n"
         markup = None
+        callback_buttons = []
         try:
             from app.services.ipo.telegram_interactive import interactive_config
             if interactive_config() is not None:
                 from app.services.ipo.actions import create_mark_applied_action
-                buttons=[]
                 for owner in missing:
-                    action=create_mark_applied_action(username, ipo_id, owner, "telegram", today=current)
-                    callback=f"ipoa:{action['action_id']}"
-                    if len(callback.encode('utf-8')) <= 64:
-                        buttons.append({"text": f"{owner} 청약 완료", "callback_data": callback})
-                if buttons: markup={"inline_keyboard":[buttons]}
+                    action = create_mark_applied_action(username, ipo_id, owner, "telegram", today=current)
+                    callback = f"ipoa:{action['action_id']}"
+                    if len(callback.encode("utf-8")) <= 64:
+                        callback_buttons.append({"text": f"{owner} 청약 완료", "callback_data": callback})
         except Exception:
-            markup = None
+            callback_buttons = []
+
+        web_action_rows = []
+        if username:
+            from app.services.action_v2 import (
+                ACTION_TYPE_MARK_IPO_APPLIED,
+                build_action_url,
+                create_web_action,
+            )
+            for owner in missing:
+                try:
+                    web_action = create_web_action(
+                        action_type=ACTION_TYPE_MARK_IPO_APPLIED,
+                        username=username,
+                        source_channel="telegram",
+                        metadata={"ipo_id": ipo_id, "owner": owner},
+                        today=current,
+                    )
+                    action_url = build_action_url(web_action["raw_token"])
+                    web_action_rows.append([{"text": f"{owner} Wealth에서 확인", "url": action_url}])
+                except Exception as exc:
+                    logger.warning("IPO web action link unavailable: %s", type(exc).__name__)
+
+        keyboard = []
+        if callback_buttons:
+            keyboard.append(callback_buttons)
+        if web_action_rows:
+            keyboard.extend(web_action_rows)
+        if keyboard:
+            markup = {"inline_keyboard": keyboard}
         if client.send_message(message, reply_markup=markup):
             sent_keys[key] = datetime.now(KST).isoformat()
             sent += 1

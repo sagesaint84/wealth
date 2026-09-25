@@ -4,7 +4,7 @@ from datetime import date
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from app.services.ipo.notifier import IpoTelegramNotifier
 from app.services.ipo.reminders import run_ipo_listing_reminders, run_ipo_subscription_reminders
@@ -13,6 +13,12 @@ from app.services.ipo.reminders import run_ipo_listing_reminders, run_ipo_subscr
 class SubscriptionReminderTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.action_path = Path(self.temp.name) / "action_state.json"
+        self.action_v2_path = Path(self.temp.name) / "action_v2_state.json"
+        p_act = patch("app.services.ipo.actions.ACTION_FILE", self.action_path)
+        p_act.start(); self.addCleanup(p_act.stop)
+        p_act_v2 = patch("app.services.action_v2.get_action_v2_file_path", return_value=self.action_v2_path)
+        p_act_v2.start(); self.addCleanup(p_act_v2.stop)
         self.notifier = IpoTelegramNotifier(bot_token="x", chat_id="y", state_path=Path(self.temp.name) / "state.json")
         self.notifier.send_message = MagicMock(return_value=True)
         self.market = {"ipos": [{"ipo_id": "ipo", "company_name": "테스트", "subscription_start": "2026-09-20", "subscription_end": "2026-09-21", "lead_managers": ["한국투자증권"]}]}
