@@ -100,6 +100,25 @@ class KakaoSenderTests(unittest.TestCase):
         )
         self.assertEqual(template["button_title"], "매도 기록")
 
+    def test_empty_message_fails_before_token_or_network(self):
+        opener = MagicMock()
+        token = MagicMock()
+        with patch(
+            "app.services.notifications.kakao.get_valid_access_token", token
+        ):
+            result = KakaoSender(username="alice").send(
+                NotificationEvent(
+                    event_key="empty",
+                    event_type="test",
+                    body="<br>",
+                ),
+                _urlopen=opener,
+            )
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, "MESSAGE_EMPTY")
+        token.assert_not_called()
+        opener.assert_not_called()
+
     def test_message_over_200_chars_fails_before_token_or_network(self):
         opener = MagicMock()
         token = MagicMock()
