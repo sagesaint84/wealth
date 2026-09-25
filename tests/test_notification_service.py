@@ -193,6 +193,84 @@ class UserNotificationServiceTests(unittest.TestCase):
         self.assertEqual(report.notifications_sent_count, 1)
         self.assertTrue(report.provider_results["telegram"]["sent"])
 
+    def test_disabled_telegram_does_not_resolve_credentials(self):
+        resolver = unittest.mock.MagicMock()
+        settings = {
+            "telegram": {"enabled": False},
+            "discord": {"enabled": False},
+            "kakao": {"enabled": False},
+        }
+        service = UserNotificationService(
+            "alice",
+            telegram_resolver=resolver,
+        )
+        with patch(
+            "app.services.settings.get_effective_settings",
+            return_value=settings,
+        ):
+            report = service.dispatch(self._event())
+
+        resolver.assert_not_called()
+        self.assertEqual(report.status, "disabled")
+
+    def test_enabled_telegram_resolves_credentials_lazily(self):
+        resolver = unittest.mock.MagicMock()
+        resolver.return_value = unittest.mock.Mock(
+            bot_token="TOKEN",
+            chat_id=123,
+        )
+        sender = FakeSender("telegram")
+        settings = {
+            "telegram": {"enabled": True},
+            "discord": {"enabled": False},
+            "kakao": {"enabled": False},
+        }
+        with patch(
+            "app.services.settings.get_effective_settings",
+            return_value=settings,
+        ), patch(
+            "app.services.notifications.telegram.TelegramSender",
+            return_value=sender,
+        ):
+            report = UserNotificationService(
+                "alice",
+                telegram_resolver=resolver,
+            ).dispatch(self._event())
+
+        resolver.assert_called_once_with("alice")
+        self.assertEqual(report.status, "sent")
+        self.assertTrue(report.provider_results["telegram"]["sent"])
+
+    def test_sender_constructor_failure_isolated(self):
+        kakao = FakeSender("kakao")
+        settings = {
+            "telegram": {"enabled": False},
+            "discord": {"enabled": True},
+            "kakao": {"enabled": True},
+        }
+        with patch(
+            "app.services.settings.get_effective_settings",
+            return_value=settings,
+        ), patch(
+            "app.services.notifications.discord.DiscordSender",
+            side_effect=RuntimeError("secret webhook failure"),
+        ), patch(
+            "app.services.notifications.kakao.KakaoSender",
+            return_value=kakao,
+        ):
+            report = UserNotificationService("alice").dispatch(
+                self._event()
+            )
+
+        self.assertEqual(report.status, "partial")
+        self.assertEqual(report.notifications_sent_count, 1)
+        self.assertEqual(
+            report.provider_results["discord"]["error"],
+            "CONFIGURATION_ERROR",
+        )
+        self.assertTrue(report.provider_results["kakao"]["sent"])
+        self.assertNotIn("secret webhook failure", str(report))
+
     def test_send_options_are_forwarded_only_to_matching_provider(self):
         telegram = FakeSender("telegram")
         kakao = FakeSender("kakao")
