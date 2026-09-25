@@ -187,6 +187,17 @@ class NotificationHistoryTests(unittest.TestCase):
         ):
             list_notification_history("alice", path=self.path)
 
+    def test_clear_recovers_corrupt_history_file(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text("{bad", encoding="utf-8")
+        self.assertEqual(
+            clear_notification_history("alice", path=self.path),
+            0,
+        )
+        result = list_notification_history("alice", path=self.path)
+        self.assertEqual(result["events"], [])
+        self.assertEqual(result["count"], 0)
+
     def test_invalid_limit_is_rejected(self):
         for limit in (0, 101, "20"):
             with self.assertRaisesRegex(
