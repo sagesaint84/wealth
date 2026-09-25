@@ -96,6 +96,8 @@ class KakaoSender:
         if not app.public_base_url:
             return None, "PUBLIC_BASE_URL_REQUIRED"
         text = _telegram_html_to_text(event.body).strip()
+        if not text:
+            return None, "MESSAGE_EMPTY"
         if len(text) > _MAX_TEXT_LENGTH:
             return None, "MESSAGE_TOO_LONG"
         target = app.public_base_url
