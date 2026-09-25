@@ -276,7 +276,9 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
              patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
              patch("app.main.get_full_dashboard_for_user", dash_mock), \
              patch("app.services.automation.daily_close.resolve_telegram_config",
-                   return_value=TelegramConfig(username=self.username, enabled=True, bot_token=None, chat_id=None)):
+                   return_value=TelegramConfig(username=self.username, enabled=True, bot_token=None, chat_id=None)), \
+             patch("app.services.settings.get_effective_settings",
+                   return_value={"telegram": {"enabled": True}, "discord": {"enabled": False}, "kakao": {"enabled": False}}):
             result = _async(run_daily_close_for_user(self.username))
 
         self.assertTrue(result["ok"])
@@ -614,6 +616,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
             chat_id=123,
         )
         effective = {
+            "telegram": {"enabled": True},
             "discord": {"enabled": True},
             "kakao": {"enabled": True},
         }
@@ -682,6 +685,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
             chat_id=123,
         )
         effective = {
+            "telegram": {"enabled": True},
             "discord": {"enabled": True},
             "kakao": {"enabled": True},
         }
@@ -735,6 +739,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
             chat_id=123,
         )
         effective = {
+            "telegram": {"enabled": False},
             "discord": {"enabled": False},
             "kakao": {"enabled": False},
         }
@@ -769,6 +774,43 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
                 result["provider_results"][provider]["status"],
                 "disabled",
             )
+
+    def test_daily_close_automatic_telegram_honors_explicit_usage_switch(self):
+        """An env-compatible Telegram config cannot override the UI usage switch."""
+        cfg = TelegramConfig(
+            username=self.username,
+            enabled=True,
+            bot_token="ENV_OR_STORED_TOKEN",
+            chat_id=123,
+        )
+        effective = {
+            "telegram": {"enabled": False},
+            "discord": {"enabled": False},
+            "kakao": {"enabled": False},
+        }
+
+        with patch(
+            "app.services.automation.daily_close.resolve_telegram_config",
+            return_value=cfg,
+        ), patch(
+            "app.services.settings.get_effective_settings",
+            return_value=effective,
+        ), patch(
+            "app.services.notifications.telegram.TelegramSender"
+        ) as telegram_sender:
+            result = send_daily_close_notifications(
+                self.username,
+                "일일 마감",
+                today="2026-09-21",
+            )
+
+        telegram_sender.assert_not_called()
+        self.assertFalse(result["telegram_sent"])
+        self.assertEqual(
+            result["provider_results"]["telegram"]["status"],
+            "disabled",
+        )
+        self.assertEqual(result["dispatch_status"], "disabled")
 
     def test_daily_close_skip_legacy_flag_skips_all_outbound(self):
         """Legacy skip_telegram remains a side-effect-free no-notify escape hatch."""
