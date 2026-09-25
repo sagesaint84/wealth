@@ -15,6 +15,8 @@ from typing import Any, Callable
 from app.services.system_settings import resolve_toss_wts_settings
 from app.services.telegram_config import resolve_telegram_config
 from app.services.telegram_management import TelegramManagementError, send_telegram_message
+from app.services.notifications.dispatcher import NotificationDispatcher
+from app.services.notifications.models import NotificationEvent, NotificationSendResult
 
 KST = timezone(timedelta(hours=9))
 
@@ -132,6 +134,245 @@ def _notify(owner: str, message: str, sender: Callable[..., Any]) -> str:
         return "failed"
 
 
+
+def _compact_kakao_message(message: str) -> str:
+    text = " ".join(message.split()).strip()
+    if len(text) <= 200:
+        return text
+    return text[:199].rstrip() + "…"
+
+
+def _provider_payload(
+    *,
+    sent: bool,
+    status: str,
+    retryable: bool = False,
+    error: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "sent": bool(sent),
+        "status": status,
+        "retryable": bool(retryable),
+        "error": error,
+    }
+
+
+def _legacy_notification_result(
+    owner: str,
+    message: str,
+    sender: Callable[..., Any],
+) -> dict[str, Any]:
+    status = _notify(owner, message, sender)
+    return {
+        "status": status,
+        "notifications_sent_count": 1 if status == "sent" else 0,
+        "provider_results": {
+            "telegram": _provider_payload(
+                sent=status == "sent",
+                status=status,
+                retryable=status == "failed",
+                error=None if status == "sent" else "TELEGRAM_SEND_FAILED",
+            )
+        },
+    }
+
+
+def send_toss_session_notifications(
+    owner: str,
+    message: str,
+    *,
+    event_key: str,
+    event_type: str,
+) -> dict[str, Any]:
+    """Dispatch a Toss session event to all enabled providers.
+
+    Provider configuration/send failures are isolated and never expose raw
+    credentials, webhook URLs, OAuth tokens, or exception text.
+    """
+    providers = ("telegram", "discord", "kakao")
+
+    from app.services.notifications.discord import DiscordSender
+    from app.services.notifications.kakao import KakaoSender
+    from app.services.notifications.telegram import TelegramSender
+    from app.services.settings import get_effective_settings
+
+    try:
+        effective = get_effective_settings(owner)
+    except Exception:
+        failed = {
+            provider: _provider_payload(
+                sent=False,
+                status="failed",
+                error="CONFIGURATION_ERROR",
+            )
+            for provider in providers
+        }
+        return {
+            "status": "failed",
+            "notifications_sent_count": 0,
+            "provider_results": failed,
+        }
+
+    enabled = {
+        provider: effective.get(provider, {}).get("enabled") is True
+        for provider in providers
+    }
+    provider_results: dict[str, dict[str, Any]] = {}
+    senders: list[Any] = []
+
+    if enabled["telegram"]:
+        try:
+            cfg = resolve_telegram_config(owner)
+            senders.append(
+                TelegramSender(
+                    bot_token=cfg.bot_token,
+                    chat_id=cfg.chat_id,
+                    username=owner,
+                )
+            )
+        except Exception:
+            provider_results["telegram"] = _provider_payload(
+                sent=False,
+                status="failed",
+                error="CONFIGURATION_ERROR",
+            )
+    else:
+        provider_results["telegram"] = _provider_payload(
+            sent=False,
+            status="disabled",
+        )
+
+    if enabled["discord"]:
+        try:
+            senders.append(DiscordSender(username=owner))
+        except Exception:
+            provider_results["discord"] = _provider_payload(
+                sent=False,
+                status="failed",
+                error="CONFIGURATION_ERROR",
+            )
+    else:
+        provider_results["discord"] = _provider_payload(
+            sent=False,
+            status="disabled",
+        )
+
+    if enabled["kakao"]:
+        try:
+            senders.append(KakaoSender(username=owner))
+        except Exception:
+            provider_results["kakao"] = _provider_payload(
+                sent=False,
+                status="failed",
+                error="CONFIGURATION_ERROR",
+            )
+    else:
+        provider_results["kakao"] = _provider_payload(
+            sent=False,
+            status="disabled",
+        )
+
+    event = NotificationEvent(
+        event_key=event_key,
+        event_type=event_type,
+        body=message,
+        username=owner,
+        metadata={"kakao_body": _compact_kakao_message(message)},
+    )
+
+    for send_result in NotificationDispatcher(senders).dispatch(event):
+        if send_result.success:
+            status = "sent"
+            error = None
+        elif send_result.error_code == "NOT_CONFIGURED":
+            status = "unconfigured"
+            error = None
+        else:
+            status = "failed"
+            error = send_result.error_code or "SEND_FAILED"
+        provider_results[send_result.provider] = _provider_payload(
+            sent=send_result.success,
+            status=status,
+            retryable=send_result.retryable,
+            error=error,
+        )
+
+    for provider in providers:
+        if provider not in provider_results:
+            provider_results[provider] = _provider_payload(
+                sent=False,
+                status="failed",
+                error="SEND_FAILED",
+            )
+
+    sent_count = sum(
+        1 for item in provider_results.values() if item["sent"]
+    )
+    enabled_count = sum(1 for value in enabled.values() if value)
+    if enabled_count == 0:
+        status = "disabled"
+    elif sent_count == enabled_count:
+        status = "sent"
+    elif sent_count > 0:
+        status = "partial"
+    elif all(
+        provider_results[name]["status"] == "unconfigured"
+        for name, is_enabled in enabled.items()
+        if is_enabled
+    ):
+        status = "unconfigured"
+    else:
+        status = "failed"
+
+    return {
+        "status": status,
+        "notifications_sent_count": sent_count,
+        "provider_results": provider_results,
+    }
+
+
+def _apply_notification_result(
+    result: dict[str, Any],
+    notification: dict[str, Any],
+) -> None:
+    result["notification_status"] = notification["status"]
+    result["notification_dispatch_status"] = notification["status"]
+    result["notifications_sent_count"] = notification["notifications_sent_count"]
+    result["notification_provider_results"] = notification["provider_results"]
+
+
+def _notify_maintenance_event(
+    result: dict[str, Any],
+    *,
+    owner: str,
+    message: str,
+    event_key: str,
+    event_type: str,
+    sender: Callable[..., Any] | None,
+) -> None:
+    try:
+        notification = (
+            _legacy_notification_result(owner, message, sender)
+            if sender is not None
+            else send_toss_session_notifications(
+                owner,
+                message,
+                event_key=event_key,
+                event_type=event_type,
+            )
+        )
+    except Exception:
+        # Notification failures must never alter the Toss session maintenance
+        # outcome. Do not log exception text because provider exceptions may
+        # contain credentials or webhook URLs.
+        notification = {
+            "status": "failed",
+            "notifications_sent_count": 0,
+            "provider_results": {},
+        }
+    _apply_notification_result(result, notification)
+
+
 def run_toss_session_maintenance(
     owner_username: str,
     *,
@@ -139,7 +380,7 @@ def run_toss_session_maintenance(
     now_provider: Callable[[], datetime] | None = None,
     settings: dict[str, Any] | None = None,
     run: Callable[..., Any] = subprocess.run,
-    sender: Callable[..., Any] = send_telegram_message,
+    sender: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Perform at most one approval-gated extension and always post-verify it.
 
@@ -173,14 +414,20 @@ def run_toss_session_maintenance(
         "extension_attempted": False,
         "extension_succeeded": False,
         "notification_status": "not_sent",
+        "notification_dispatch_status": "not_sent",
+        "notifications_sent_count": 0,
+        "notification_provider_results": {},
         "error_code": status["error_code"],
     }
 
     if not status["active"] or not status["valid"]:
-        result["notification_status"] = _notify(
-            owner_username,
-            "Wealth: Toss WTS 세션이 유효하지 않습니다. 수동 연장 또는 QR 재인증이 필요할 수 있습니다.",
-            sender,
+        _notify_maintenance_event(
+            result,
+            owner=owner_username,
+            message="Wealth: Toss WTS 세션이 유효하지 않습니다. 수동 연장 또는 QR 재인증이 필요할 수 있습니다.",
+            event_key=f"toss_wts:{owner_username}:{current.date().isoformat()}:session_invalid",
+            event_type="toss_wts_session_invalid",
+            sender=sender,
         )
         return result
 
@@ -228,10 +475,13 @@ def run_toss_session_maintenance(
 
             # Flag intention and notify before the blocking subprocess
             result["extension_attempted"] = True
-            result["notification_status"] = _notify(
-                owner_username,
-                "Wealth: Toss WTS 세션 연장을 요청합니다. Toss 앱 승인이 필요할 수 있습니다.",
-                sender,
+            _notify_maintenance_event(
+                result,
+                owner=owner_username,
+                message="Wealth: Toss WTS 세션 연장을 요청합니다. Toss 앱 승인이 필요할 수 있습니다.",
+                event_key=f"toss_wts:{owner_username}:{current.date().isoformat()}:extension_requested",
+                event_type="toss_wts_extension_requested",
+                sender=sender,
             )
 
             # Run extend subprocess while holding the advisory lock
@@ -269,10 +519,13 @@ def run_toss_session_maintenance(
 
     if not extended:
         result.update({"action": "extension_failed", "error_code": extend_error})
-        result["notification_status"] = _notify(
-            owner_username,
-            "Wealth: Toss WTS 세션 연장에 실패했습니다. 수동 연장 또는 QR 재인증이 필요할 수 있습니다.",
-            sender,
+        _notify_maintenance_event(
+            result,
+            owner=owner_username,
+            message="Wealth: Toss WTS 세션 연장에 실패했습니다. 수동 연장 또는 QR 재인증이 필요할 수 있습니다.",
+            event_key=f"toss_wts:{owner_username}:{current.date().isoformat()}:extension_failed",
+            event_type="toss_wts_extension_failed",
+            sender=sender,
         )
         return result
 
@@ -288,16 +541,22 @@ def run_toss_session_maintenance(
     })
     if verified["active"] and verified["valid"]:
         result.update({"action": "extended", "extension_succeeded": True, "error_code": None})
-        result["notification_status"] = _notify(
-            owner_username,
-            f"Wealth: Toss WTS 세션 연장이 확인되었습니다. 서버 만료: {verified['server_expires_at']}",
-            sender,
+        _notify_maintenance_event(
+            result,
+            owner=owner_username,
+            message=f"Wealth: Toss WTS 세션 연장이 확인되었습니다. 서버 만료: {verified['server_expires_at']}",
+            event_key=f"toss_wts:{owner_username}:{verified_at.date().isoformat()}:extension_succeeded",
+            event_type="toss_wts_extension_succeeded",
+            sender=sender,
         )
     else:
         result["action"] = "extension_failed"
-        result["notification_status"] = _notify(
-            owner_username,
-            "Wealth: Toss WTS 세션 연장 후 상태 확인에 실패했습니다. 수동 확인이 필요합니다.",
-            sender,
+        _notify_maintenance_event(
+            result,
+            owner=owner_username,
+            message="Wealth: Toss WTS 세션 연장 후 상태 확인에 실패했습니다. 수동 확인이 필요합니다.",
+            event_key=f"toss_wts:{owner_username}:{verified_at.date().isoformat()}:post_verify_failed",
+            event_type="toss_wts_post_verify_failed",
+            sender=sender,
         )
     return result
