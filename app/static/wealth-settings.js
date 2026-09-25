@@ -14,6 +14,7 @@
   let webhookSnapshot = null;
   let kakaoSnapshot = null;
   let tossSessionSnapshot = null;
+  let notificationHistorySnapshot = null;
   let _lastKnownTossStatus = null;  // tracks last polled session status for re-auth guard
 
   function sourceLabel(configured, source) {
@@ -146,6 +147,144 @@
     }
     if (test) test.disabled = !(data?.connected && data?.app_configured);
     if (disconnect) disconnect.disabled = !data?.connected;
+  }
+
+
+  const notificationEventLabels = {
+    ipo_alert: 'IPO 알림',
+    daily_close_summary: '일일 마감 요약',
+    toss_wts_session_invalid: 'Toss WTS 세션 이상',
+    toss_wts_extension_requested: 'Toss WTS 세션 연장 요청',
+    toss_wts_extension_failed: 'Toss WTS 세션 연장 실패',
+    toss_wts_extension_succeeded: 'Toss WTS 세션 연장 성공',
+    toss_wts_post_verify_failed: 'Toss WTS 연장 후 확인 실패',
+    integration_test: '연결 테스트',
+  };
+  const notificationStatusLabels = {
+    sent: '성공',
+    partial: '일부 성공',
+    failed: '실패',
+    disabled: '사용 안 함',
+    unconfigured: '미설정',
+    skipped: '건너뜀',
+  };
+  const providerLabels = {
+    telegram: 'Telegram',
+    discord: 'Discord',
+    kakao: 'Kakao',
+  };
+
+  function formatNotificationHistoryTime(value) {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '시각 확인 불가';
+    return parsed.toLocaleString('ko-KR', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  }
+
+  function renderNotificationHistory(data) {
+    notificationHistorySnapshot = data || {events: [], count: 0, retention: 100};
+    const list = byId('settingsNotificationHistoryList');
+    const summary = byId('settingsNotificationHistorySummary');
+    const clear = byId('settingsNotificationHistoryClear');
+    if (!list || !summary) return;
+
+    list.replaceChildren();
+    if (data && data.unavailable) {
+      summary.textContent = '최근 알림 이력을 불러오지 못했습니다.';
+      setError('settingsNotificationHistoryError', '알림 이력은 현재 확인할 수 없습니다. 다른 설정과 실제 알림 전송에는 영향을 주지 않습니다.');
+      if (clear) clear.disabled = true;
+      return;
+    }
+
+    setError('settingsNotificationHistoryError');
+    const events = Array.isArray(data && data.events) ? data.events : [];
+    const count = Number.isInteger(data && data.count) ? data.count : events.length;
+    const retention = Number.isInteger(data && data.retention) ? data.retention : 100;
+    summary.textContent = '저장 ' + count + '건 · 최근 ' + events.length + '건 표시 · 최대 ' + retention + '건 보관';
+    if (clear) clear.disabled = count === 0;
+
+    if (!events.length) {
+      const empty = document.createElement('div');
+      empty.className = 'settings-history-empty';
+      empty.textContent = '아직 기록된 알림 전송 이력이 없습니다.';
+      list.append(empty);
+      return;
+    }
+
+    for (const item of events) {
+      const card = document.createElement('div');
+      card.className = 'settings-history-item';
+
+      const head = document.createElement('div');
+      head.className = 'settings-history-head';
+      const main = document.createElement('div');
+      main.className = 'settings-history-main';
+      const title = document.createElement('strong');
+      title.textContent = notificationEventLabels[item.event_type] || item.event_type || '알림';
+      const meta = document.createElement('span');
+      const trace = item.event_key_fingerprint ? ' · 추적 ' + item.event_key_fingerprint : '';
+      meta.textContent = formatNotificationHistoryTime(item.created_at) + trace;
+      main.append(title, meta);
+
+      const badge = document.createElement('span');
+      const status = notificationStatusLabels[item.status] ? item.status : 'failed';
+      badge.className = 'settings-history-badge ' + status;
+      badge.textContent = notificationStatusLabels[status];
+      head.append(main, badge);
+      card.append(head);
+
+      const providerRow = document.createElement('div');
+      providerRow.className = 'settings-history-providers';
+      const providers = item.providers && typeof item.providers === 'object' ? item.providers : {};
+      for (const provider of ['telegram', 'discord', 'kakao']) {
+        const result = providers[provider];
+        if (!result) continue;
+        const providerStatus = notificationStatusLabels[result.status] ? result.status : 'failed';
+        const pill = document.createElement('span');
+        pill.className = 'settings-history-provider ' + providerStatus;
+        const error = result.error ? ' · ' + result.error : '';
+        pill.textContent = providerLabels[provider] + ' ' + notificationStatusLabels[providerStatus] + error;
+        providerRow.append(pill);
+      }
+      if (providerRow.children.length) card.append(providerRow);
+      list.append(card);
+    }
+  }
+
+  async function reloadNotificationHistory() {
+    try {
+      const result = await api('/api/settings/notifications/history?limit=20');
+      renderNotificationHistory(result);
+      return result;
+    } catch (error) {
+      renderNotificationHistory({events: [], count: 0, retention: 100, unavailable: true});
+      throw error;
+    }
+  }
+
+  async function clearNotificationHistory() {
+    if (!window.confirm('현재 사용자에게 저장된 알림 전송 이력을 모두 비우시겠습니까?')) return;
+    const button = byId('settingsNotificationHistoryClear');
+    setError('settingsNotificationHistoryError');
+    try {
+      busy(button, true);
+      const result = await api('/api/settings/notifications/history', {method: 'DELETE'});
+      await reloadNotificationHistory();
+      toast('알림 전송 이력 ' + (result.deleted_count || 0) + '건을 비웠습니다.');
+    } catch (error) {
+      const message = safeMessage(error, '알림 전송 이력을 비우지 못했습니다.');
+      setError('settingsNotificationHistoryError', message);
+      toast(message, true);
+    } finally {
+      busy(button, false);
+    }
   }
 
   function renderSystem(data) {
@@ -368,15 +507,22 @@
       api('/api/settings/toss-wts'),
       api('/api/settings/discord'),
       api('/api/settings/kakao'),
+      api('/api/settings/notifications/history?limit=20').catch(() => ({
+        events: [],
+        count: 0,
+        retention: 100,
+        unavailable: true,
+      })),
     ];
 
-    const [notifications, automation, system, toss, discord, kakao] = await Promise.all(promises);
+    const [notifications, automation, system, toss, discord, kakao, history] = await Promise.all(promises);
     renderNotifications(notifications);
     renderAutomation(automation);
     renderSystem(system);
     renderTossSession(toss.toss_wts);
     renderDiscord(discord);
     renderKakao(kakao);
+    renderNotificationHistory(history);
   }
 
   async function saveSystemSettings() {
@@ -400,11 +546,11 @@
     finally {busy(button,false);}
   }
 
-  async function runManagementOperation(buttonId,url,loadingMessage,successMessage) {
+  async function runManagementOperation(buttonId,url,loadingMessage,successMessage,refreshHistory=false) {
     const button=byId(buttonId);setError('settingsTelegramError');
     try {button.dataset.label??=button.textContent;button.disabled=true;button.textContent=loadingMessage;await api(url,{method:'POST'});toast(successMessage);await checkTelegramStatus();}
     catch(error){const message=safeMessage(error,'Telegram 작업을 완료하지 못했습니다.');setError('settingsTelegramError',message);toast(message,true);}
-    finally{button.textContent=button.dataset.label;updateManagementButtons();}
+    finally{button.textContent=button.dataset.label;updateManagementButtons();if(refreshHistory) await reloadNotificationHistory().catch(() => {});}
   }
 
   async function reloadKakao() {
@@ -447,6 +593,7 @@
     } finally {
       busy(button, false);
       renderKakao(kakaoSnapshot || {});
+      await reloadNotificationHistory().catch(() => {});
     }
   }
 
@@ -476,6 +623,7 @@
     setError('settingsTelegramError');
     setError('settingsDiscordError');
     setError('settingsKakaoError');
+    setError('settingsNotificationHistoryError');
     setError('settingsAutomationError');
     dialog.showModal();
     try {
@@ -579,6 +727,7 @@
     } finally {
       busy(button, false);
       renderDiscord(discordSnapshot || {});
+      await reloadNotificationHistory().catch(() => {});
     }
   }
 
@@ -749,8 +898,10 @@
     byId('settingsKakaoConnect')?.addEventListener('click', startKakaoOAuth);
     byId('settingsKakaoTest')?.addEventListener('click', testKakao);
     byId('settingsKakaoDisconnect')?.addEventListener('click', disconnectKakao);
+    byId('settingsNotificationHistoryRefresh')?.addEventListener('click', () => reloadNotificationHistory().catch(() => {}));
+    byId('settingsNotificationHistoryClear')?.addEventListener('click', clearNotificationHistory);
     byId('settingsCheckTelegram')?.addEventListener('click', checkTelegramStatus);
-    byId('settingsSendTest')?.addEventListener('click', () => runManagementOperation('settingsSendTest','/api/settings/telegram/test','전송 중…','Telegram 테스트 메시지를 전송했습니다.'));
+    byId('settingsSendTest')?.addEventListener('click', () => runManagementOperation('settingsSendTest','/api/settings/telegram/test','전송 중…','Telegram 테스트 메시지를 전송했습니다.',true));
     byId('settingsConnectWebhook')?.addEventListener('click', () => {
       if (webhookSnapshot?.configured && !webhookSnapshot.matches_expected && !window.confirm('현재 Telegram webhook이 다른 URL을 사용 중입니다. Wealth URL로 변경하시겠습니까?')) return;
       runManagementOperation('settingsConnectWebhook','/api/settings/telegram/webhook/connect','연결 중…','Telegram webhook을 연결했습니다.');
