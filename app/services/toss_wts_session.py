@@ -15,7 +15,7 @@ from typing import Any, Callable
 from app.services.system_settings import resolve_toss_wts_settings
 from app.services.telegram_config import resolve_telegram_config
 from app.services.telegram_management import TelegramManagementError, send_telegram_message
-from app.services.notifications.models import NotificationEvent, NotificationSendResult
+from app.services.notifications.models import NotificationEvent
 from app.services.notifications.service import UserNotificationService
 
 KST = timezone(timedelta(hours=9))
@@ -177,23 +177,6 @@ def _legacy_notification_result(
     }
 
 
-class _UnavailableTelegramSender:
-    """Convert Telegram resolver failures into a stable configuration error."""
-
-    provider_name = "telegram"
-
-    def is_configured(self) -> bool:
-        raise RuntimeError("telegram configuration unavailable")
-
-    def send(self, event: NotificationEvent, **_kwargs: Any) -> NotificationSendResult:
-        return NotificationSendResult(
-            success=False,
-            provider="telegram",
-            retryable=False,
-            error_code="CONFIGURATION_ERROR",
-        )
-
-
 def send_toss_session_notifications(
     owner: str,
     message: str,
@@ -202,26 +185,9 @@ def send_toss_session_notifications(
     event_type: str,
 ) -> dict[str, Any]:
     """Dispatch a Toss session event through the common notification service."""
-    telegram_config = None
-    telegram_failed = False
-    try:
-        telegram_config = resolve_telegram_config(owner)
-    except Exception:
-        telegram_failed = True
-
-    sender_overrides: dict[str, Any] = {}
-    if telegram_failed:
-        sender_overrides["telegram"] = _UnavailableTelegramSender()
-
-    credentials = (
-        (telegram_config.bot_token, telegram_config.chat_id)
-        if telegram_config is not None
-        else (None, None)
-    )
     service = UserNotificationService(
         owner,
-        telegram_credentials=credentials,
-        sender_overrides=sender_overrides,
+        telegram_resolver=resolve_telegram_config,
     )
     event = NotificationEvent(
         event_key=event_key,
