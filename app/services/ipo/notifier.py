@@ -229,8 +229,8 @@ class IpoTelegramNotifier:
         event_key: str = "ipo_message",
         providers: set[str] | None = None,
     ) -> bool:
-        from app.services.notifications.dispatcher import NotificationDispatcher
         from app.services.notifications.models import NotificationEvent
+        from app.services.notifications.service import UserNotificationService
 
         action_url, action_label = self._single_web_action(reply_markup)
         metadata: dict[str, Any] = {
@@ -252,11 +252,24 @@ class IpoTelegramNotifier:
             action_label=action_label,
             metadata=metadata,
         )
-        dispatcher = NotificationDispatcher(senders)
+        actual_providers = {
+            sender.provider_name
+            for sender in senders
+        }
+        service = UserNotificationService(
+            self.username,
+            telegram_credentials=(self.bot_token, self.chat_id),
+            sender_overrides={
+                sender.provider_name: sender
+                for sender in senders
+            },
+        )
         # Preserve notifier-module urlopen/sleep patching used by legacy
         # Telegram tests without leaking those hooks to other providers.
-        self._last_send_results = dispatcher.dispatch(
+        report = service.dispatch(
             event,
+            providers=actual_providers,
+            respect_enabled=False,
             send_options={
                 "telegram": {
                     "_urlopen": request.urlopen,
@@ -264,6 +277,7 @@ class IpoTelegramNotifier:
                 }
             },
         )
+        self._last_send_results = list(report.results)
         for result in self._last_send_results:
             if not result.success and result.error_code != "NOT_CONFIGURED":
                 logger.warning(
