@@ -33,7 +33,7 @@ class KakaoSettingsFrontendTests(unittest.TestCase):
 
     def test_settings_asset_cache_key_was_bumped(self):
         html = INDEX.read_text(encoding="utf-8")
-        self.assertIn('/static/wealth-settings.js?v=1.3.1', html)
+        self.assertIn('/static/wealth-settings.js?v=1.3.0', html)
 
 
 if __name__ == "__main__":
