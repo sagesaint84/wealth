@@ -131,8 +131,12 @@ def _run_reminders_locked(
             keyboard.extend(web_action_rows)
         if keyboard:
             markup = {"inline_keyboard": keyboard}
-        if client.send_message(message, reply_markup=markup):
-            sent_keys[key] = datetime.now(KST).isoformat()
+        if client.dispatch_message(
+            key,
+            message,
+            state,
+            reply_markup=markup,
+        ):
             sent += 1
     if sent:
         client.save_state(state)
@@ -361,8 +365,12 @@ def _run_listing_reminders_locked(
         if action_buttons:
             reply_markup = {"inline_keyboard": [[btn] for btn in action_buttons]}
 
-        if client.send_message(message, reply_markup=reply_markup):
-            sent_keys[key] = datetime.now(KST).isoformat()
+        if client.dispatch_message(
+            key,
+            message,
+            state,
+            reply_markup=reply_markup,
+        ):
             sent += 1
 
     if sent:
