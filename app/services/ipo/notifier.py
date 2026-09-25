@@ -124,32 +124,21 @@ class IpoTelegramNotifier:
             tmp_path.replace(self.state_path)
 
     def send_message(self, text: str, parse_mode: str = "HTML", reply_markup: dict[str, Any] | None = None) -> bool:
-        if not self.is_configured():
-            logger.info("Telegram not configured. Message skipped: %s", text[:50])
-            return False
+        from app.services.notifications.models import NotificationEvent
+        from app.services.notifications.telegram import TelegramSender
 
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        payload = {
-            "chat_id": self.chat_id,
-            "text": text,
-            "parse_mode": parse_mode,
-            "disable_web_page_preview": True,
-        }
-        if reply_markup is not None:
-            payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False, separators=(",", ":"))
-        data = parse.urlencode(payload).encode("utf-8")
-        req = request.Request(url, data=data, method="POST")
-
-        for attempt in range(3):
-            try:
-                with request.urlopen(req, timeout=10) as resp:
-                    if resp.status == 200:
-                        return True
-            except Exception:
-                # Handle 429 rate limit or network error
-                logger.warning("Telegram send failed (attempt %d)", attempt + 1)
-                time.sleep(1.0 * (attempt + 1))
-        return False
+        sender = TelegramSender(bot_token=self.bot_token, chat_id=self.chat_id)
+        metadata = {"reply_markup": reply_markup} if reply_markup is not None else {}
+        event = NotificationEvent(
+            event_key="ipo_message",
+            event_type="ipo_alert",
+            body=text,
+            parse_mode=parse_mode,
+            metadata=metadata,
+        )
+        # Use urlopen/time from this module if patched in legacy tests
+        result = sender.send(event, _urlopen=request.urlopen, _sleep=time.sleep)
+        return result.success
 
     def answer_callback_query(self, callback_query_id: str, text: str = "") -> bool:
         if not self.is_configured() or not callback_query_id:
