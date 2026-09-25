@@ -785,17 +785,28 @@ async def get_notification_settings(request: Request) -> dict:
     from app.services.settings import get_effective_settings
     from app.services.telegram_config import telegram_secret_status
     username=get_current_username(request); result=get_effective_settings(username); result["telegram"].update(telegram_secret_status(username))
-    return {"version": result["version"], "telegram": result["telegram"]}
+    return {"version": result["version"], "telegram": result["telegram"], "discord": result["discord"], "kakao": result["kakao"]}
 
 @app.patch("/api/settings/notifications")
 async def patch_notification_settings(request: Request) -> dict:
     from app.services.settings import patch_settings, SettingsValidationError
     body = await request.json()
-    try: result=patch_settings(get_current_username(request), {"telegram": body.get("telegram", body)})
+    if not isinstance(body, dict):
+        raise HTTPException(400, detail={"code": "INVALID_PATCH"})
+    provider_keys = {"telegram", "discord", "kakao"}
+    if set(body) & provider_keys:
+        if set(body) - provider_keys:
+            raise HTTPException(400, detail={"code": "INVALID_PATCH"})
+        patch = {key: body[key] for key in provider_keys if key in body}
+    else:
+        # Backward-compatible direct Telegram payload.
+        patch = {"telegram": body}
+    username = get_current_username(request)
+    try: result=patch_settings(username, patch)
     except (SettingsValidationError, ValueError, AttributeError) as exc: raise HTTPException(400, detail={"code":str(exc)}) from exc
     from app.services.telegram_config import telegram_secret_status
-    result["telegram"].update(telegram_secret_status(get_current_username(request)))
-    return {"version":result["version"],"telegram":result["telegram"]}
+    result["telegram"].update(telegram_secret_status(username))
+    return {"version":result["version"],"telegram":result["telegram"],"discord":result["discord"],"kakao":result["kakao"]}
 
 @app.patch("/api/settings/telegram/secrets")
 async def patch_telegram_secrets(request: Request) -> dict:
