@@ -228,7 +228,15 @@ class AutomationDispatcherTests(unittest.TestCase):
         cfg["automation"]["daily_close"]["time"] = "20:45"
 
         now = self._make_kst_dt(20, 45)
-        mock_close = AsyncMock(return_value={"ok": True, "telegram_sent": True, "notification_status": "sent", "stock_record_saved": True, "net_record_saved": True})
+        mock_close = AsyncMock(return_value={
+            "ok": True,
+            "telegram_sent": True,
+            "notification_status": "sent",
+            "notification_dispatch_status": "sent",
+            "notifications_sent_count": 3,
+            "stock_record_saved": True,
+            "net_record_saved": True,
+        })
 
         with patch("app.services.automation.dispatcher.list_users", return_value=[{"username": "alice", "role": "user"}]), \
              patch("app.services.automation.dispatcher.resolve_global_automation_owner", return_value="alice"), \
@@ -245,6 +253,14 @@ class AutomationDispatcherTests(unittest.TestCase):
             mock_close.assert_called_once_with("alice", now=now)
             self.assertEqual(result["jobs"][0]["status"], "success")
             self.assertTrue(result["jobs"][0]["details"]["telegram_sent"])
+            self.assertEqual(
+                result["jobs"][0]["details"]["notification_dispatch_status"],
+                "sent",
+            )
+            self.assertEqual(
+                result["jobs"][0]["details"]["notifications_sent_count"],
+                3,
+            )
 
     # 8. Section 56: TEST — DISABLED TASKS DO NOT DISPATCH
     def test_disabled_tasks_not_due(self):

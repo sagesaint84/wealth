@@ -30,8 +30,10 @@ from app.services.automation.daily_close import (
     build_daily_close_summary,
     run_daily_close,
     run_daily_close_for_user,
+    send_daily_close_notifications,
     send_daily_close_telegram,
 )
+from app.services.notifications.models import NotificationSendResult
 from app.services.telegram_config import TelegramConfig
 
 KST = timezone(timedelta(hours=9))
@@ -274,7 +276,9 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
              patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
              patch("app.main.get_full_dashboard_for_user", dash_mock), \
              patch("app.services.automation.daily_close.resolve_telegram_config",
-                   return_value=TelegramConfig(username=self.username, enabled=True, bot_token=None, chat_id=None)):
+                   return_value=TelegramConfig(username=self.username, enabled=True, bot_token=None, chat_id=None)), \
+             patch("app.services.settings.get_effective_settings",
+                   return_value={"telegram": {"enabled": True}, "discord": {"enabled": False}, "kakao": {"enabled": False}}):
             result = _async(run_daily_close_for_user(self.username))
 
         self.assertTrue(result["ok"])
@@ -585,7 +589,340 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
         shared_send.assert_called_once_with(cfg, "공용 전송 테스트")
 
     # -----------------------------------------------------------------------
-    # 13. FX Refresh Inclusion & Failure Semantics
+    # 13. Multi-channel daily close notifications
+    # -----------------------------------------------------------------------
+    def test_daily_close_multichannel_dispatch_success(self):
+        """Enabled Telegram, Discord and Kakao all receive the same close event."""
+        events = {}
+
+        class FakeSender:
+            def __init__(self, provider):
+                self.provider_name = provider
+
+            def is_configured(self):
+                return True
+
+            def send(self, event, **_kwargs):
+                events[self.provider_name] = event
+                return NotificationSendResult(
+                    success=True,
+                    provider=self.provider_name,
+                )
+
+        cfg = TelegramConfig(
+            username=self.username,
+            enabled=True,
+            bot_token="TOKEN",
+            chat_id=123,
+        )
+        effective = {
+            "telegram": {"enabled": True},
+            "discord": {"enabled": True},
+            "kakao": {"enabled": True},
+        }
+        long_message = "📊 Wealth 일일 마감 · 2026-09-21\n" + ("가나다라마바사\n" * 80)
+
+        with patch(
+            "app.services.automation.daily_close.resolve_telegram_config",
+            return_value=cfg,
+        ), patch(
+            "app.services.settings.get_effective_settings",
+            return_value=effective,
+        ), patch(
+            "app.services.notifications.telegram.TelegramSender",
+            return_value=FakeSender("telegram"),
+        ), patch(
+            "app.services.notifications.discord.DiscordSender",
+            return_value=FakeSender("discord"),
+        ), patch(
+            "app.services.notifications.kakao.KakaoSender",
+            return_value=FakeSender("kakao"),
+        ):
+            result = send_daily_close_notifications(
+                self.username,
+                long_message,
+                today="2026-09-21",
+            )
+
+        self.assertTrue(result["telegram_sent"])
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(result["dispatch_status"], "sent")
+        self.assertEqual(result["notifications_sent_count"], 3)
+        self.assertEqual(set(events), {"telegram", "discord", "kakao"})
+        self.assertEqual(events["discord"].body, long_message)
+        self.assertEqual(events["kakao"].event_type, "daily_close_summary")
+        self.assertEqual(events["kakao"].username, self.username)
+        self.assertLessEqual(
+            len(events["kakao"].metadata["kakao_body"]),
+            200,
+        )
+
+    def test_daily_close_provider_failure_isolated(self):
+        """A Discord exception must not block Telegram or Kakao delivery."""
+        calls = []
+
+        class FakeSender:
+            def __init__(self, provider, *, raises=False):
+                self.provider_name = provider
+                self.raises = raises
+
+            def is_configured(self):
+                return True
+
+            def send(self, event, **_kwargs):
+                calls.append(self.provider_name)
+                if self.raises:
+                    raise RuntimeError("credential-bearing failure")
+                return NotificationSendResult(
+                    success=True,
+                    provider=self.provider_name,
+                )
+
+        cfg = TelegramConfig(
+            username=self.username,
+            enabled=True,
+            bot_token="TOKEN",
+            chat_id=123,
+        )
+        effective = {
+            "telegram": {"enabled": True},
+            "discord": {"enabled": True},
+            "kakao": {"enabled": True},
+        }
+
+        with patch(
+            "app.services.automation.daily_close.resolve_telegram_config",
+            return_value=cfg,
+        ), patch(
+            "app.services.settings.get_effective_settings",
+            return_value=effective,
+        ), patch(
+            "app.services.notifications.telegram.TelegramSender",
+            return_value=FakeSender("telegram"),
+        ), patch(
+            "app.services.notifications.discord.DiscordSender",
+            return_value=FakeSender("discord", raises=True),
+        ), patch(
+            "app.services.notifications.kakao.KakaoSender",
+            return_value=FakeSender("kakao"),
+        ):
+            result = send_daily_close_notifications(
+                self.username,
+                "일일 마감",
+                today="2026-09-21",
+            )
+
+        self.assertEqual(calls, ["telegram", "discord", "kakao"])
+        self.assertTrue(result["telegram_sent"])
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(result["dispatch_status"], "partial")
+        self.assertEqual(result["notifications_sent_count"], 2)
+        self.assertEqual(
+            result["provider_results"]["discord"]["status"],
+            "failed",
+        )
+        self.assertTrue(
+            result["provider_results"]["discord"]["retryable"]
+        )
+        self.assertEqual(
+            result["provider_results"]["discord"]["error"],
+            "SEND_FAILED",
+        )
+        self.assertTrue(result["provider_results"]["kakao"]["sent"])
+
+    def test_daily_close_disabled_providers_are_not_constructed(self):
+        """Usage switches exclude providers without deleting their credentials."""
+        cfg = TelegramConfig(
+            username=self.username,
+            enabled=False,
+            bot_token="TOKEN",
+            chat_id=123,
+        )
+        effective = {
+            "telegram": {"enabled": False},
+            "discord": {"enabled": False},
+            "kakao": {"enabled": False},
+        }
+
+        with patch(
+            "app.services.automation.daily_close.resolve_telegram_config",
+            return_value=cfg,
+        ), patch(
+            "app.services.settings.get_effective_settings",
+            return_value=effective,
+        ), patch(
+            "app.services.notifications.telegram.TelegramSender"
+        ) as telegram_sender, patch(
+            "app.services.notifications.discord.DiscordSender"
+        ) as discord_sender, patch(
+            "app.services.notifications.kakao.KakaoSender"
+        ) as kakao_sender:
+            result = send_daily_close_notifications(
+                self.username,
+                "일일 마감",
+                today="2026-09-21",
+            )
+
+        telegram_sender.assert_not_called()
+        discord_sender.assert_not_called()
+        kakao_sender.assert_not_called()
+        self.assertEqual(result["dispatch_status"], "disabled")
+        self.assertEqual(result["notifications_sent_count"], 0)
+        self.assertEqual(result["status"], "disabled")
+        for provider in ("telegram", "discord", "kakao"):
+            self.assertEqual(
+                result["provider_results"][provider]["status"],
+                "disabled",
+            )
+
+    def test_daily_close_provider_constructor_failure_isolated(self):
+        """A bad Discord secret store must not block a configured Kakao sender."""
+        calls = []
+
+        class FakeKakao:
+            provider_name = "kakao"
+
+            def is_configured(self):
+                return True
+
+            def send(self, event, **_kwargs):
+                calls.append(event.event_type)
+                return NotificationSendResult(
+                    success=True,
+                    provider="kakao",
+                )
+
+        cfg = TelegramConfig(
+            username=self.username,
+            enabled=False,
+        )
+        effective = {
+            "telegram": {"enabled": False},
+            "discord": {"enabled": True},
+            "kakao": {"enabled": True},
+        }
+
+        with patch(
+            "app.services.automation.daily_close.resolve_telegram_config",
+            return_value=cfg,
+        ), patch(
+            "app.services.settings.get_effective_settings",
+            return_value=effective,
+        ), patch(
+            "app.services.notifications.discord.DiscordSender",
+            side_effect=RuntimeError("secret-bearing constructor failure"),
+        ), patch(
+            "app.services.notifications.kakao.KakaoSender",
+            return_value=FakeKakao(),
+        ):
+            result = send_daily_close_notifications(
+                self.username,
+                "일일 마감",
+                today="2026-09-21",
+            )
+
+        self.assertEqual(calls, ["daily_close_summary"])
+        self.assertEqual(result["dispatch_status"], "partial")
+        self.assertEqual(result["notifications_sent_count"], 1)
+        self.assertEqual(
+            result["provider_results"]["discord"]["error"],
+            "CONFIGURATION_ERROR",
+        )
+        self.assertTrue(result["provider_results"]["kakao"]["sent"])
+
+    def test_daily_close_automatic_telegram_honors_explicit_usage_switch(self):
+        """An env-compatible Telegram config cannot override the UI usage switch."""
+        cfg = TelegramConfig(
+            username=self.username,
+            enabled=True,
+            bot_token="ENV_OR_STORED_TOKEN",
+            chat_id=123,
+        )
+        effective = {
+            "telegram": {"enabled": False},
+            "discord": {"enabled": False},
+            "kakao": {"enabled": False},
+        }
+
+        with patch(
+            "app.services.automation.daily_close.resolve_telegram_config",
+            return_value=cfg,
+        ), patch(
+            "app.services.settings.get_effective_settings",
+            return_value=effective,
+        ), patch(
+            "app.services.notifications.telegram.TelegramSender"
+        ) as telegram_sender:
+            result = send_daily_close_notifications(
+                self.username,
+                "일일 마감",
+                today="2026-09-21",
+            )
+
+        telegram_sender.assert_not_called()
+        self.assertFalse(result["telegram_sent"])
+        self.assertEqual(
+            result["provider_results"]["telegram"]["status"],
+            "disabled",
+        )
+        self.assertEqual(result["dispatch_status"], "disabled")
+
+    def test_daily_close_skip_legacy_flag_skips_all_outbound(self):
+        """Legacy skip_telegram remains a side-effect-free no-notify escape hatch."""
+        result = send_daily_close_notifications(
+            self.username,
+            "일일 마감",
+            today="2026-09-21",
+            skip=True,
+        )
+        self.assertFalse(result["telegram_sent"])
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["dispatch_status"], "skipped")
+        self.assertEqual(result["notifications_sent_count"], 0)
+        for provider in ("telegram", "discord", "kakao"):
+            self.assertEqual(
+                result["provider_results"][provider]["status"],
+                "skipped",
+            )
+
+    def test_notification_plumbing_failure_does_not_fail_financial_close(self):
+        """Completed financial snapshots remain successful if notification plumbing fails."""
+        now_fixed = datetime(2026, 9, 21, 21, 0, 0, tzinfo=KST)
+        with patch(
+            "app.main.sync_all_accounts_for_user",
+            AsyncMock(return_value=self._sample_sync_result()),
+        ), patch(
+            "app.main.refresh_prices_for_user",
+            AsyncMock(return_value=self._sample_price_result()),
+        ), patch(
+            "app.main.get_full_dashboard_for_user",
+            MagicMock(return_value=self._sample_dashboard()),
+        ), patch(
+            "app.services.automation.daily_close.send_daily_close_notifications",
+            side_effect=RuntimeError("credential-bearing notification failure"),
+        ):
+            result = _async(
+                run_daily_close_for_user(
+                    self.username,
+                    now=now_fixed,
+                )
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "success")
+        self.assertTrue(result["stock_record_saved"])
+        self.assertTrue(result["net_record_saved"])
+        self.assertFalse(result["telegram_sent"])
+        self.assertEqual(result["notification_status"], "failed")
+        self.assertEqual(result["notification_dispatch_status"], "failed")
+        self.assertEqual(result["notifications_sent_count"], 0)
+        self.assertNotIn(
+            "credential-bearing notification failure",
+            str(result),
+        )
+
+    # -----------------------------------------------------------------------
+    # 14. FX Refresh Inclusion & Failure Semantics
     # -----------------------------------------------------------------------
     def test_price_refresh_demonstrably_includes_fx_refresh(self):
         """Demonstrate that refresh_prices_for_user includes FX rate refresh and persists it."""

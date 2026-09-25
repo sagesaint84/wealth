@@ -556,6 +556,12 @@ async def execute_job(
                     "details": {
                         "telegram_sent": res.get("telegram_sent", False),
                         "notification_status": res.get("notification_status"),
+                        "notification_dispatch_status": res.get(
+                            "notification_dispatch_status"
+                        ),
+                        "notifications_sent_count": res.get(
+                            "notifications_sent_count", 0
+                        ),
                         "stock_record_saved": res.get("stock_record_saved", False),
                         "net_record_saved": res.get("net_record_saved", False),
                     },
