@@ -775,6 +775,61 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
                 "disabled",
             )
 
+    def test_daily_close_provider_constructor_failure_isolated(self):
+        """A bad Discord secret store must not block a configured Kakao sender."""
+        calls = []
+
+        class FakeKakao:
+            provider_name = "kakao"
+
+            def is_configured(self):
+                return True
+
+            def send(self, event, **_kwargs):
+                calls.append(event.event_type)
+                return NotificationSendResult(
+                    success=True,
+                    provider="kakao",
+                )
+
+        cfg = TelegramConfig(
+            username=self.username,
+            enabled=False,
+        )
+        effective = {
+            "telegram": {"enabled": False},
+            "discord": {"enabled": True},
+            "kakao": {"enabled": True},
+        }
+
+        with patch(
+            "app.services.automation.daily_close.resolve_telegram_config",
+            return_value=cfg,
+        ), patch(
+            "app.services.settings.get_effective_settings",
+            return_value=effective,
+        ), patch(
+            "app.services.notifications.discord.DiscordSender",
+            side_effect=RuntimeError("secret-bearing constructor failure"),
+        ), patch(
+            "app.services.notifications.kakao.KakaoSender",
+            return_value=FakeKakao(),
+        ):
+            result = send_daily_close_notifications(
+                self.username,
+                "일일 마감",
+                today="2026-09-21",
+            )
+
+        self.assertEqual(calls, ["daily_close_summary"])
+        self.assertEqual(result["dispatch_status"], "partial")
+        self.assertEqual(result["notifications_sent_count"], 1)
+        self.assertEqual(
+            result["provider_results"]["discord"]["error"],
+            "CONFIGURATION_ERROR",
+        )
+        self.assertTrue(result["provider_results"]["kakao"]["sent"])
+
     def test_daily_close_automatic_telegram_honors_explicit_usage_switch(self):
         """An env-compatible Telegram config cannot override the UI usage switch."""
         cfg = TelegramConfig(
@@ -829,6 +884,42 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
                 result["provider_results"][provider]["status"],
                 "skipped",
             )
+
+    def test_notification_plumbing_failure_does_not_fail_financial_close(self):
+        """Completed financial snapshots remain successful if notification plumbing fails."""
+        now_fixed = datetime(2026, 9, 21, 21, 0, 0, tzinfo=KST)
+        with patch(
+            "app.main.sync_all_accounts_for_user",
+            AsyncMock(return_value=self._sample_sync_result()),
+        ), patch(
+            "app.main.refresh_prices_for_user",
+            AsyncMock(return_value=self._sample_price_result()),
+        ), patch(
+            "app.main.get_full_dashboard_for_user",
+            MagicMock(return_value=self._sample_dashboard()),
+        ), patch(
+            "app.services.automation.daily_close.send_daily_close_notifications",
+            side_effect=RuntimeError("credential-bearing notification failure"),
+        ):
+            result = _async(
+                run_daily_close_for_user(
+                    self.username,
+                    now=now_fixed,
+                )
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "success")
+        self.assertTrue(result["stock_record_saved"])
+        self.assertTrue(result["net_record_saved"])
+        self.assertFalse(result["telegram_sent"])
+        self.assertEqual(result["notification_status"], "failed")
+        self.assertEqual(result["notification_dispatch_status"], "failed")
+        self.assertEqual(result["notifications_sent_count"], 0)
+        self.assertNotIn(
+            "credential-bearing notification failure",
+            str(result),
+        )
 
     # -----------------------------------------------------------------------
     # 14. FX Refresh Inclusion & Failure Semantics
