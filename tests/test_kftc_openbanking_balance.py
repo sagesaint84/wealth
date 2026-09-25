@@ -339,8 +339,8 @@ class KftcOpenBankingBalanceTests(unittest.IsolatedAsyncioTestCase):
             "rsp_code": "A0000",
         }
 
-        from app.services.kftc_openbanking_client import KftcProviderError
-        err_401 = KftcProviderError("Token unauthorized", code="401", rsp_code="401")
+        from app.services.kftc_openbanking_client import KftcAuthError
+        err_401 = KftcAuthError("Token unauthorized", code="401", http_status=401)
 
         mock_fetch = AsyncMock(side_effect=[err_401, mock_success_res])
         mock_refresh = AsyncMock(return_value={"status": "valid"})
@@ -352,6 +352,192 @@ class KftcOpenBankingBalanceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(res["balance_amt"], 880000)
             self.assertEqual(mock_refresh.await_count, 1)
             self.assertEqual(mock_fetch.await_count, 2)
+
+    async def test_preview_balance_service_a0002_does_not_trigger_refresh(self):
+        self._setup_alice_account()
+
+        from app.services.kftc_openbanking_client import KftcProviderError
+        err_a0002 = KftcProviderError(
+            "KFTC balance error (A0002)",
+            code="A0002",
+            rsp_code="A0002",
+            bank_rsp_code="",
+            rsp_message="조회대상계좌가 존재하지 않습니다.",
+            http_status=200,
+        )
+
+        mock_fetch = AsyncMock(side_effect=err_a0002)
+        mock_refresh = AsyncMock()
+
+        with patch("app.services.kftc_openbanking_service.fetch_account_balance", mock_fetch), \
+             patch("app.services.kftc_openbanking_service.refresh_user_token", mock_refresh), \
+             patch("app.services.kftc_openbanking_service.is_user_allowed_kftc", return_value=True):
+            with self.assertRaises(service.KftcServiceError) as ctx:
+                await service.preview_account_balance("alice", "kftc-acc-alice-1")
+
+            self.assertEqual(ctx.exception.code, "A0002")
+            self.assertIn("A0002", str(ctx.exception))
+            # Critical verification: A0002 MUST NOT trigger token refresh!
+            self.assertEqual(mock_refresh.await_count, 0)
+            self.assertEqual(mock_fetch.await_count, 1)
+
+    async def test_preview_balance_service_second_401_does_not_loop(self):
+        self._setup_alice_account()
+
+        from app.services.kftc_openbanking_client import KftcAuthError
+        err_401_first = KftcAuthError("First 401", code="401", http_status=401)
+        err_401_second = KftcAuthError("Second 401", code="401", http_status=401)
+
+        mock_fetch = AsyncMock(side_effect=[err_401_first, err_401_second])
+        mock_refresh = AsyncMock(return_value={"status": "valid"})
+
+        with patch("app.services.kftc_openbanking_service.fetch_account_balance", mock_fetch), \
+             patch("app.services.kftc_openbanking_service.refresh_user_token", mock_refresh), \
+             patch("app.services.kftc_openbanking_service.is_user_allowed_kftc", return_value=True):
+            with self.assertRaises(service.KftcServiceError) as ctx:
+                await service.preview_account_balance("alice", "kftc-acc-alice-1")
+
+            self.assertEqual(ctx.exception.code, "TOKEN_EXPIRED")
+            # Refreshed exactly once, attempted twice, no infinite retry
+            self.assertEqual(mock_refresh.await_count, 1)
+            self.assertEqual(mock_fetch.await_count, 2)
+
+    async def test_preview_balance_service_bank_error_does_not_trigger_refresh(self):
+        self._setup_alice_account()
+
+        from app.services.kftc_openbanking_client import KftcProviderError
+        err_bank = KftcProviderError(
+            "Bank error (824)",
+            code="BANK_824",
+            rsp_code="824",
+            bank_rsp_code="824",
+            http_status=200,
+        )
+
+        mock_fetch = AsyncMock(side_effect=err_bank)
+        mock_refresh = AsyncMock()
+
+        with patch("app.services.kftc_openbanking_service.fetch_account_balance", mock_fetch), \
+             patch("app.services.kftc_openbanking_service.refresh_user_token", mock_refresh), \
+             patch("app.services.kftc_openbanking_service.is_user_allowed_kftc", return_value=True):
+            with self.assertRaises(service.KftcServiceError) as ctx:
+                await service.preview_account_balance("alice", "kftc-acc-alice-1")
+
+            self.assertEqual(ctx.exception.code, "BANK_824")
+            self.assertEqual(mock_refresh.await_count, 0)
+            self.assertEqual(mock_fetch.await_count, 1)
+
+    async def test_httpx_mock_transport_kftc_query_log_redaction(self):
+        """Integration test: verify httpx AsyncClient logging redacts KFTC queries from real LogRecord and Formatter."""
+        import logging
+        import httpx
+
+        captured: list[str] = []
+
+        class CaptureHandler(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                captured.append(self.format(record))
+
+        logger = logging.getLogger("httpx")
+        handler = CaptureHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+        old_level = logger.level
+        logger.setLevel(logging.INFO)
+        logger.addHandler(handler)
+        try:
+            mock_transport = httpx.MockTransport(
+                lambda request: httpx.Response(
+                    200,
+                    json={
+                        "rsp_code": "A0000",
+                        "bank_rsp_code": "000",
+                        "balance_amt": "50000",
+                        "available_amt": "50000",
+                    },
+                )
+            )
+
+            fake_fintech_num = "123456789012345678901234"
+            fake_bank_tran_id = "XXXXXXXXXXU000000001"
+            fake_tran_dtime = "20260925093000"
+
+            async with httpx.AsyncClient(transport=mock_transport) as client:
+                await client.get(
+                    "https://testapi.openbanking.or.kr/v2.0/account/balance/fin_num",
+                    params={
+                        "fintech_use_num": fake_fintech_num,
+                        "bank_tran_id": fake_bank_tran_id,
+                        "tran_dtime": fake_tran_dtime,
+                    },
+                    headers={"Authorization": "Bearer secret_fake_token"},
+                )
+
+            self.assertTrue(len(captured) > 0, "No httpx logs captured")
+            combined_logs = "\n".join(captured)
+
+            # Strict assertions: no sensitive identifiers anywhere in formatted logs
+            self.assertNotIn(fake_fintech_num, combined_logs)
+            self.assertNotIn(fake_bank_tran_id, combined_logs)
+            self.assertNotIn(fake_tran_dtime, combined_logs)
+            self.assertNotIn("secret_fake_token", combined_logs)
+            self.assertNotIn("fintech_use_num=", combined_logs)
+            self.assertNotIn("bank_tran_id=", combined_logs)
+            self.assertNotIn("tran_dtime=", combined_logs)
+
+            # URL path remains visible, query string is replaced with ?[REDACTED]
+            self.assertIn("https://testapi.openbanking.or.kr/v2.0/account/balance/fin_num?[REDACTED]", combined_logs)
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(old_level)
+
+    def test_kftc_log_redaction_filter(self):
+        import logging
+        from app.services.kftc_openbanking_client import KftcLogRedactionFilter
+
+        redaction_filter = KftcLogRedactionFilter()
+
+        # Log record containing KFTC testapi URL with sensitive query params
+        raw_url = "https://testapi.openbanking.or.kr/v2.0/account/balance/fin_num?bank_tran_id=1234567890U123456789&fintech_use_num=120230226588951223594984&tran_dtime=20260925090000"
+        record = logging.LogRecord(
+            name="httpx",
+            level=logging.INFO,
+            pathname="client.py",
+            lineno=100,
+            msg='HTTP Request: GET %s "HTTP/1.1 200 OK"',
+            args=(raw_url,),
+            exc_info=None,
+        )
+
+        redaction_filter.filter(record)
+        rendered = record.msg % record.args
+
+        # Ensure fintech_use_num and bank_tran_id are stripped from log message
+        self.assertNotIn("fintech_use_num=", rendered)
+        self.assertNotIn("bank_tran_id=", rendered)
+        self.assertNotIn("120230226588951223594984", rendered)
+        self.assertIn("https://testapi.openbanking.or.kr/v2.0/account/balance/fin_num?[REDACTED]", rendered)
+
+    def test_provider_message_sanitization(self):
+        from app.services.kftc_openbanking_client import sanitize_provider_message
+
+        # Control characters and excess whitespace
+        dirty = "Error occurred:\r\n\tDetails: \x00\x1fSomething bad\n\n\thappened."
+        clean = sanitize_provider_message(dirty)
+        self.assertEqual(clean, "Error occurred: Details: Something bad happened.")
+
+        # Max length truncation
+        long_msg = "A" * 300
+        truncated = sanitize_provider_message(long_msg, max_len=50)
+        self.assertEqual(len(truncated), 53)  # 50 chars + "..."
+        self.assertTrue(truncated.endswith("..."))
+
+        # Echoed fintech_use_num (24 digits) and bank_tran_id (20 chars) in provider message
+        echoed_msg = "Account 120230226588951223594984 failed for tran 1234567890U000000001"
+        sanitized_echo = sanitize_provider_message(echoed_msg)
+        self.assertNotIn("120230226588951223594984", sanitized_echo)
+        self.assertNotIn("1234567890U000000001", sanitized_echo)
+        self.assertIn("[REDACTED_FINTECH_NUM]", sanitized_echo)
+        self.assertIn("[REDACTED_BANK_TRAN_ID]", sanitized_echo)
 
     async def test_preview_balance_service_scope_check(self):
         # Setup tokens without 'inquiry' scope

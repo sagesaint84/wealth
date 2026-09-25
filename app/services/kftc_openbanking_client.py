@@ -9,6 +9,7 @@ Enforces:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -21,6 +22,56 @@ from app.services.kftc_openbanking_config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ==============================================================================
+# Logging Redaction: Prevent KFTC URL queries and sensitive tokens from leaking
+# ==============================================================================
+
+class KftcLogRedactionFilter(logging.Filter):
+    """Filter to redact sensitive query parameters from KFTC HTTP log records."""
+
+    _KFTC_URL_PATTERN = re.compile(
+        r"https?://(?:testapi|openapi)\.openbanking\.or\.kr[^\s\"']*",
+        re.IGNORECASE,
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str) and ("openbanking.or.kr" in record.msg or "?" in record.msg):
+            record.msg = self._redact_text(record.msg)
+
+        if record.args:
+            if isinstance(record.args, tuple):
+                record.args = tuple(self._redact_arg(a) for a in record.args)
+            elif isinstance(record.args, dict):
+                record.args = {k: self._redact_arg(v) for k, v in record.args.items()}
+        return True
+
+    @classmethod
+    def _redact_arg(cls, arg: Any) -> Any:
+        if arg is None:
+            return None
+        # Check if arg is string or URL-like object matching KFTC hosts
+        arg_str = str(arg)
+        if "openbanking.or.kr" in arg_str.lower():
+            return cls._redact_text(arg_str)
+        return arg
+
+    @classmethod
+    def _redact_text(cls, text: str) -> str:
+        def replace_url(m: re.Match[str]) -> str:
+            full = m.group(0)
+            if "?" in full:
+                base, _ = full.split("?", 1)
+                return f"{base}?[REDACTED]"
+            return full
+        return cls._KFTC_URL_PATTERN.sub(replace_url, text)
+
+
+# Attach filter to httpx logger to sanitize KFTC query logs
+_httpx_logger = logging.getLogger("httpx")
+if not any(isinstance(f, KftcLogRedactionFilter) for f in _httpx_logger.filters):
+    _httpx_logger.addFilter(KftcLogRedactionFilter())
+
 
 CONNECT_TIMEOUT = 10.0
 READ_TIMEOUT = 15.0
@@ -35,14 +86,44 @@ class KftcClientError(Exception):
 
 
 class KftcAuthError(KftcClientError):
-    def __init__(self, message: str = "KFTC authentication failed", code: str = "KFTC_AUTH_ERROR"):
+    def __init__(self, message: str = "KFTC authentication failed", code: str = "KFTC_AUTH_ERROR", http_status: int | None = None):
         super().__init__(message, code=code)
+        self.http_status = http_status
+
+
+def sanitize_provider_message(msg: Any, max_len: int = 200) -> str:
+    """Sanitize provider message: strip control characters, sensitive identifiers, and truncate."""
+    if not msg:
+        return ""
+    s = str(msg).strip()
+    # Remove newlines, tabs, and non-printable control characters
+    s = re.sub(r"[\r\n\t\x00-\x1f\x7f-\x9f]", " ", s)
+    s = " ".join(s.split())
+    # Mask potentially echoed sensitive identifiers (e.g. 24-digit fintech_use_num, 20-char bank_tran_id)
+    s = re.sub(r"\b\d{24}\b", "[REDACTED_FINTECH_NUM]", s)
+    s = re.sub(r"\b[A-Za-z0-9]{10}U[A-Za-z0-9]{9}\b", "[REDACTED_BANK_TRAN_ID]", s)
+    if len(s) > max_len:
+        s = s[:max_len] + "..."
+    return s
 
 
 class KftcProviderError(KftcClientError):
-    def __init__(self, message: str = "KFTC provider error", code: str = "KFTC_PROVIDER_ERROR", rsp_code: str | None = None):
+    def __init__(
+        self,
+        message: str = "KFTC provider error",
+        code: str = "KFTC_PROVIDER_ERROR",
+        rsp_code: str | None = None,
+        bank_rsp_code: str | None = None,
+        rsp_message: str | None = None,
+        bank_rsp_message: str | None = None,
+        http_status: int | None = None,
+    ):
         super().__init__(message, code=code)
         self.rsp_code = rsp_code
+        self.bank_rsp_code = bank_rsp_code
+        self.rsp_message = sanitize_provider_message(rsp_message)
+        self.bank_rsp_message = sanitize_provider_message(bank_rsp_message)
+        self.http_status = http_status
 
 
 class KftcNetworkError(KftcClientError):
@@ -446,20 +527,49 @@ async def fetch_account_balance(
     if not isinstance(body, dict):
         raise KftcProviderError("Invalid JSON structure from KFTC balance endpoint", code="MALFORMED_JSON")
 
+    if resp.status_code == 401:
+        rsp_code = str(body.get("rsp_code") or "401").strip()
+        logger.warning("KFTC balance inquiry unauthorized (401)")
+        raise KftcAuthError("KFTC balance inquiry unauthorized (401)", code=rsp_code, http_status=401)
+
     if resp.status_code != 200:
         rsp_code = str(body.get("rsp_code") or "HTTP_ERROR").strip()
         logger.warning("KFTC balance inquiry HTTP %d with rsp_code %s", resp.status_code, rsp_code)
-        raise KftcProviderError(f"KFTC balance inquiry failed ({rsp_code})", code=rsp_code, rsp_code=rsp_code)
+        raise KftcProviderError(
+            f"KFTC balance inquiry failed ({rsp_code})",
+            code=rsp_code,
+            rsp_code=rsp_code,
+            bank_rsp_code=body.get("bank_rsp_code"),
+            rsp_message=body.get("rsp_message"),
+            bank_rsp_message=body.get("bank_rsp_message"),
+            http_status=resp.status_code,
+        )
 
     rsp_code = str(body.get("rsp_code") or "").strip()
     if rsp_code != "A0000":
         logger.warning("KFTC balance inquiry returned non-success rsp_code: %s", rsp_code)
-        raise KftcProviderError(f"KFTC balance error ({rsp_code})", code=rsp_code, rsp_code=rsp_code)
+        raise KftcProviderError(
+            f"KFTC balance error ({rsp_code})",
+            code=rsp_code,
+            rsp_code=rsp_code,
+            bank_rsp_code=body.get("bank_rsp_code"),
+            rsp_message=body.get("rsp_message"),
+            bank_rsp_message=body.get("bank_rsp_message"),
+            http_status=resp.status_code,
+        )
 
     bank_rsp_code = str(body.get("bank_rsp_code") or "").strip()
     if bank_rsp_code and bank_rsp_code != "000":
         logger.warning("Participant bank returned non-success code: %s", bank_rsp_code)
-        raise KftcProviderError(f"Bank error ({bank_rsp_code})", code=f"BANK_{bank_rsp_code}", rsp_code=bank_rsp_code)
+        raise KftcProviderError(
+            f"Bank error ({bank_rsp_code})",
+            code=f"BANK_{bank_rsp_code}",
+            rsp_code=bank_rsp_code,
+            bank_rsp_code=bank_rsp_code,
+            rsp_message=body.get("rsp_message"),
+            bank_rsp_message=body.get("bank_rsp_message"),
+            http_status=resp.status_code,
+        )
 
     # balance_amt: SN(13) signed numeric string, e.g. "150000" or "-50000"
     raw_balance = body.get("balance_amt")

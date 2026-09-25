@@ -488,14 +488,11 @@ async def preview_account_balance(
                 client=client,
             )
             break
-        except KftcProviderError as exc:
-            # Check for token expiration / unauthorized indicator (401 or A0002 / OAUTH_ERROR / 401)
-            is_unauthorized = (
-                exc.code in {"401", "A0002", "UNAUTHORIZED", "INVALID_TOKEN", "TOKEN_EXPIRED"}
-                or exc.rsp_code in {"401", "A0002"}
-            )
+        except KftcAuthError as exc:
+            # Automatic token refresh: on HTTP 401 unauthorized, refresh token at most once and retry
+            is_unauthorized = exc.code in {"401", "UNAUTHORIZED", "INVALID_TOKEN", "TOKEN_EXPIRED"} or getattr(exc, "http_status", None) == 401
             if is_unauthorized and attempt < max_attempts:
-                logger.info("Balance inquiry for %s received %s; refreshing token and retrying once", username, exc.code)
+                logger.info("Balance inquiry for %s received 401/unauthorized; refreshing token and retrying once", username)
                 try:
                     await refresh_user_token(username, client=client)
                     refreshed_tokens = get_decrypted_user_tokens(username)
@@ -509,8 +506,23 @@ async def preview_account_balance(
                     logger.warning("Token refresh attempt failed for %s during 401 retry: %s", username, refresh_exc)
                     raise KftcServiceError("토큰 만료 후 재발급에 실패했습니다. 다시 연결하세요.", code="TOKEN_EXPIRED") from refresh_exc
 
-            logger.warning("KFTC balance inquiry failed for user %s: code=%s", username, exc.code)
-            raise KftcServiceError(f"잔액 조회 실패: {exc.code}", code=exc.code) from exc
+            logger.warning("KFTC balance inquiry unauthorized for user %s: code=%s", username, exc.code)
+            raise KftcServiceError("인증이 만료되었습니다. 다시 연결하세요.", code="TOKEN_EXPIRED") from exc
+        except KftcProviderError as exc:
+            # Provider business errors (including A0002 data error): do NOT refresh token
+            logger.warning(
+                "KFTC balance inquiry provider error for user %s: rsp_code=%s, bank_rsp_code=%s, http_status=%s",
+                username,
+                exc.rsp_code,
+                exc.bank_rsp_code,
+                exc.http_status,
+            )
+            detail_msg = f" ({exc.rsp_code})" if exc.rsp_code else ""
+            if config.get("environment") == "test":
+                err_msg = f"KFTC TESTBED 잔액조회 응답을 처리하지 못했습니다.{detail_msg}"
+            else:
+                err_msg = f"잔액 조회 실패: {exc.code}"
+            raise KftcServiceError(err_msg, code=exc.code) from exc
         except KftcClientError as exc:
             logger.warning("KFTC client error during balance inquiry for user %s: code=%s", username, exc.code)
             raise KftcServiceError(f"잔액 조회 오류: {exc.code}", code=exc.code) from exc
