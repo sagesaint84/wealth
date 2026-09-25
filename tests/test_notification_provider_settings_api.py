@@ -56,12 +56,18 @@ class NotificationProviderSettingsApiTests(unittest.TestCase):
         with patch(
             "app.services.notifications.discord.DiscordSender.send",
             return_value=NotificationSendResult(success=True, provider="discord"),
-        ) as send:
+        ) as send, patch(
+            "app.services.notifications.history.record_single_provider_history"
+        ) as record:
             response = self.client.post("/api/settings/discord/test")
         self.assertEqual(response.status_code, 200)
         event = send.call_args.args[0]
         self.assertEqual(event.username, "alice")
         self.assertEqual(event.event_type, "integration_test")
+        record.assert_called_once()
+        self.assertEqual(record.call_args.args[:2], ("alice", event))
+        self.assertEqual(record.call_args.kwargs["provider"], "discord")
+        self.assertTrue(record.call_args.kwargs["success"])
 
     def test_kakao_secret_patch_is_user_scoped_and_never_returns_values(self):
         before = {"rest_api_key": "OLD", "client_secret": "OLD_SECRET"}
