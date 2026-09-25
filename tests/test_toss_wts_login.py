@@ -78,6 +78,62 @@ def _reset_thread_lock_for_user(env: dict | None, username: str = USERNAME):
             pass
 
 
+class DataRootTests(unittest.TestCase):
+    def test_default_data_root_matches_app_persistent_data_directory(self):
+        import app.services.toss_wts_auth_guard as g
+
+        with patch.dict(os.environ, {"WEALTH_DATA_DIR": ""}, clear=False):
+            expected = Path(g.__file__).resolve().parents[2] / "data"
+            self.assertEqual(g._data_root(), expected)
+
+
+class ConfigBootstrapTests(unittest.TestCase):
+    def test_login_bootstraps_missing_per_user_config_before_spawn(self):
+        import app.services.toss_wts_login as m
+
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        env = {"WEALTH_DATA_DIR": temp.name}
+        settings = _make_settings(Path(temp.name))
+        captured = {}
+
+        def fake_popen(argv, **kwargs):
+            config_dir = Path(argv[argv.index("--config-dir") + 1])
+            self.assertTrue(config_dir.is_dir())
+            captured["config_dir"] = config_dir
+            proc = Mock()
+            proc.pid = 11113
+            proc.wait = Mock(return_value=0)
+            return proc
+
+        with patch.dict(os.environ, env), \
+             patch("app.services.toss_wts_auth_guard.get_pid_start_time", return_value=None), \
+             patch.object(
+                 m,
+                 "_start_watcher",
+                 side_effect=lambda attempt_id, _proc: m._watcher_registry.update({
+                     attempt_id: {"reaped": False, "exit_code": None}
+                 }),
+             ), \
+             patch("app.services.toss_wts_session.get_toss_session_status",
+                   return_value={"active": False, "valid": False}):
+            attempt_id = m.start_toss_login(
+                settings,
+                username=USERNAME_B,
+                _popen=fake_popen,
+                now_provider=lambda: NOW,
+            )
+
+        expected = (
+            Path(temp.name) / "toss-wts" / "users" / USERNAME_B / "config"
+        )
+        self.assertEqual(captured["config_dir"], expected)
+        self.assertTrue(expected.is_dir())
+        with m._watcher_lock:
+            m._watcher_registry.pop(attempt_id, None)
+        _reset_thread_lock_for_user(env, USERNAME_B)
+
+
 class _LoginBase(unittest.TestCase):
     """Base: temp dir, settings, env, _start() helper."""
 
