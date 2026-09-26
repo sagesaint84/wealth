@@ -3,7 +3,6 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.main import app
