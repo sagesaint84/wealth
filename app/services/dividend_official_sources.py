@@ -682,6 +682,21 @@ async def enrich_dividend_summary_with_official_sources(
     _apply_confirmed_future_overrides(
         summary, holdings, fx_rate=fx_rate, as_of=day
     )
+    try:
+        from app.services.etf_kind_distributions import (
+            enrich_dividend_summary_with_kind_etf_distributions,
+        )
+
+        summary = await enrich_dividend_summary_with_kind_etf_distributions(
+            summary,
+            holdings,
+            as_of=day,
+            fx_rate=fx_rate,
+            client=client,
+        )
+    except Exception:
+        policy = summary.setdefault("forecast_source_policy", {})
+        policy["kind_etf_status"] = "kind_enrichment_failed"
     return summary
 
 
