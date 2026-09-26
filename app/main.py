@@ -1831,6 +1831,71 @@ async def get_dividends(request: Request, owner: str = "모두") -> dict:
     return summary
 
 
+@app.post("/api/dividends/financial-income-simulation")
+async def simulate_financial_income(request: Request) -> JSONResponse:
+    """Return a stateless annual financial-income screening projection."""
+    username = get_current_username(request)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "FINANCIAL_INCOME_REQUEST_INVALID"},
+            headers={"Cache-Control": "no-store"},
+        ) from exc
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "FINANCIAL_INCOME_REQUEST_INVALID"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    allowed_fields = {
+        "owner",
+        "expected_remaining_interest_gross_krw",
+        "current_month_remaining_dividend_gross_krw",
+    }
+    if set(body) - allowed_fields:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "FINANCIAL_INCOME_REQUEST_INVALID"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    owner = body.get("owner", "모두")
+    if not isinstance(owner, str) or not owner.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "FINANCIAL_INCOME_OWNER_INVALID"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    from app.services.tax import (
+        FinancialIncomeProjectionError,
+        get_financial_income_projection_for_user,
+    )
+
+    try:
+        result = await get_financial_income_projection_for_user(
+            username,
+            owner=owner.strip(),
+            expected_remaining_interest_gross_krw=body.get(
+                "expected_remaining_interest_gross_krw", 0.0
+            ),
+            current_month_remaining_dividend_gross_krw=body.get(
+                "current_month_remaining_dividend_gross_krw", 0.0
+            ),
+        )
+    except FinancialIncomeProjectionError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": str(exc)},
+            headers={"Cache-Control": "no-store"},
+        ) from exc
+
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/actual-dividends")
 async def get_actual_dividends(request: Request, owner: str = "모두", year: str | None = None) -> dict:
     """Return actual dividend records and 12-month summary."""
