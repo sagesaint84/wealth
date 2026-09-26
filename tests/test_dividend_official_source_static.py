@@ -24,6 +24,9 @@ class DividendOfficialSourceStaticTests(unittest.TestCase):
         self.assertIn("KIND", js)
         self.assertIn("missing_api_key", js)
         self.assertIn("confirmed_amount", js)
+        self.assertIn("opendart_confirmed_disclosure", js)
+        self.assertIn("confirmed_numeric_override", js)
+        self.assertIn("지급예정일", js)
         self.assertIn("naver", js)
         self.assertIn("yahoo_history", js)
 
