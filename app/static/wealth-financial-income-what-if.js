@@ -310,13 +310,16 @@
 
     let statusClass = 'safe';
     let statusText = '2천만원 기준 미만';
-    if (scenarioState.reached === true) {
+    if (scenarioState.exceeded === true) {
       statusClass = 'danger';
-      statusText = '2천만원 기준 도달/초과';
+      statusText = '2천만원 초과';
+    } else if (scenarioState.at_or_above === true) {
+      statusClass = 'warn';
+      statusText = '2천만원 도달 · 초과 아님';
     } else if (projected !== null && Number(projected) >= 10_000_000) {
       statusClass = 'warn';
       statusText = '주의 구간';
-    } else if (scenarioState.reached === null) {
+    } else if (scenarioState.exceeded === null) {
       statusClass = 'unknown';
       statusText = '예상치 확인 불가';
     }

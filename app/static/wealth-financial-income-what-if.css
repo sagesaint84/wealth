@@ -289,3 +289,8 @@
   .fi-what-if-panel { padding: 13px; }
   .fi-what-if-grid.two { grid-template-columns: 1fr; }
 }
+
+.fi-what-if-investment-fields[hidden],
+#fiWhatIfEtfTaxGainWrap[hidden] {
+  display: none;
+}

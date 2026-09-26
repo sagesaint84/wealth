@@ -1967,6 +1967,13 @@ async def simulate_financial_income_what_if(request: Request) -> JSONResponse:
                 detail={"code": "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID"},
                 headers={"Cache-Control": "no-store"},
             )
+        asset_type = investment_scenario.get("asset_type")
+        if not isinstance(asset_type, str) or not asset_type.strip():
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID"},
+                headers={"Cache-Control": "no-store"},
+            )
 
     from app.services.tax import (
         FinancialIncomeProjectionError,
