@@ -35,6 +35,7 @@ jobs:
         run: mkdir -p data/users/sagesaint data/users/alice
 
       - name: Run five unrelated failures independently on B2
+        continue-on-error: true
         run: |
           python -m unittest \
             tests.test_kftc_openbanking_balance.KftcOpenBankingBalanceTests.test_secure_files_fsync_before_replace_and_retry \
@@ -67,6 +68,7 @@ jobs:
           mkdir -p /tmp/wealth-main/data/users/sagesaint /tmp/wealth-main/data/users/alice
 
       - name: Run same five tests independently on main
+        continue-on-error: true
         working-directory: /tmp/wealth-main
         run: |
           python -m unittest \
