@@ -56,6 +56,7 @@ class HighDividendSpecialTaxTest(unittest.TestCase):
         self.assertTrue(result["special_rule_applied"])
         self.assertFalse(result["automatic_application"])
         self.assertTrue(result["filing_application_required"])
+        self.assertTrue(result["filing_application_required_for_special_treatment"])
         self.assertFalse(result["local_income_tax_included"])
         self.assertFalse(result["eligibility"]["determined_by_service"])
         self.assertTrue(result["rule_context"]["screening_only"])
@@ -69,6 +70,8 @@ class HighDividendSpecialTaxTest(unittest.TestCase):
             separate_taxation_requested=False,
         )
         self.assertFalse(result["special_rule_applied"])
+        self.assertFalse(result["filing_application_required"])
+        self.assertTrue(result["filing_application_required_for_special_treatment"])
         self.assertEqual(result["excluded_from_comprehensive_tax_threshold_krw"], 0)
         self.assertIsNone(result["national_income_tax_krw"])
         self.assertIsNone(result["applied_bracket"])
@@ -80,6 +83,7 @@ class HighDividendSpecialTaxTest(unittest.TestCase):
             separate_taxation_requested=True,
         )
         self.assertFalse(result["special_rule_applied"])
+        self.assertFalse(result["filing_application_required"])
         self.assertEqual(result["excluded_from_comprehensive_tax_threshold_krw"], 0)
         self.assertIsNone(result["national_income_tax_krw"])
 
