@@ -17,6 +17,11 @@ from tests.test_financial_income_article62_comparison import (
 )
 
 
+_ARTICLE60_CONFIRMATION_FIELD = (
+    "no_other_article60_preceding_tax_reductions_or_credits_confirmed"
+)
+
+
 def foreign_item(
     *,
     country_code: object = "US",
@@ -39,6 +44,7 @@ def payload_with_foreign_credit(**overrides: object) -> dict[str, object]:
         **payload(ordinary_interest_14_krw=30_000_000),
         "comprehensive_income_amount_for_foreign_tax_credit_krw": 30_000_000,
         "foreign_tax_credit_items": [foreign_item()],
+        _ARTICLE60_CONFIRMATION_FIELD: True,
     }
     values.update(overrides)
     return values
@@ -50,9 +56,9 @@ class ForeignTaxCreditTests(unittest.TestCase):
             **payload(ordinary_interest_14_krw=30_000_000)
         )
         self.assertEqual(
-            result["comprehensive_income_amount_for_foreign_tax_credit_krw"],
-            0,
+            result["comprehensive_income_amount_for_foreign_tax_credit_krw"], 0
         )
+        self.assertFalse(result[_ARTICLE60_CONFIRMATION_FIELD])
         self.assertEqual(result["foreign_tax_credit_items"], [])
         self.assertEqual(result["foreign_tax_credit_krw"], 0)
         self.assertEqual(
@@ -69,22 +75,18 @@ class ForeignTaxCreditTests(unittest.TestCase):
             **payload_with_foreign_credit()
         )
         self.assertEqual(
-            result["article62_comparison_tax_before_credits_krw"],
-            4_200_000,
+            result["article62_comparison_tax_before_credits_krw"], 4_200_000
         )
         self.assertEqual(
-            result["foreign_tax_credit_limit_basis_income_total_krw"],
-            10_000_000,
+            result["foreign_tax_credit_limit_basis_income_total_krw"], 10_000_000
         )
         self.assertEqual(result["foreign_tax_credit_aggregate_limit_krw"], 1_400_000)
         self.assertEqual(
-            result["eligible_current_year_foreign_income_tax_total_krw"],
-            1_500_000,
+            result["eligible_current_year_foreign_income_tax_total_krw"], 1_500_000
         )
         self.assertEqual(result["foreign_tax_credit_krw"], 1_400_000)
         self.assertEqual(
-            result["uncredited_current_year_foreign_income_tax_total_krw"],
-            100_000,
+            result["uncredited_current_year_foreign_income_tax_total_krw"], 100_000
         )
         self.assertEqual(
             result[
@@ -96,21 +98,19 @@ class ForeignTaxCreditTests(unittest.TestCase):
         self.assertEqual(country["country_code"], "US")
         self.assertEqual(country["foreign_tax_credit_limit_krw"], 1_400_000)
         self.assertEqual(
-            country["foreign_tax_credit_within_country_limit_krw"],
-            1_400_000,
+            country["foreign_tax_credit_within_country_limit_krw"], 1_400_000
         )
 
     def test_foreign_credit_applies_before_explicit_prepaid_withholding(self):
-        values = payload_with_prepaid(
-            ordinary_interest_14_krw=30_000_000,
-            prepaid_interest_income_withholding_tax_krw=2_800_000,
-        )
-        values.update(
-            {
-                "comprehensive_income_amount_for_foreign_tax_credit_krw": 30_000_000,
-                "foreign_tax_credit_items": [foreign_item()],
-            }
-        )
+        values: dict[str, object] = {
+            **payload_with_prepaid(
+                ordinary_interest_14_krw=30_000_000,
+                prepaid_interest_income_withholding_tax_krw=2_800_000,
+            ),
+            "comprehensive_income_amount_for_foreign_tax_credit_krw": 30_000_000,
+            "foreign_tax_credit_items": [foreign_item()],
+            _ARTICLE60_CONFIRMATION_FIELD: True,
+        }
         result = calculate_financial_income_article62_comparison_2026(**values)
         self.assertEqual(result["foreign_tax_credit_krw"], 1_400_000)
         self.assertEqual(
@@ -146,16 +146,11 @@ class ForeignTaxCreditTests(unittest.TestCase):
         self.assertEqual(result["foreign_tax_credit_aggregate_limit_krw"], 1_400_000)
         self.assertEqual(result["foreign_tax_credit_country_limit_total_krw"], 1_400_000)
         self.assertEqual(
-            result["foreign_tax_credit_within_country_limits_total_krw"],
-            1_000_000,
+            result["foreign_tax_credit_within_country_limits_total_krw"], 1_000_000
         )
         self.assertEqual(result["foreign_tax_credit_krw"], 1_000_000)
-        self.assertEqual(
-            result["uncredited_current_year_foreign_income_tax_total_krw"],
-            0,
-        )
 
-    def test_noncarryable_dividend_credit_is_applied_before_foreign_credit(self):
+    def test_dividend_credit_is_applied_before_current_year_foreign_credit(self):
         result = calculate_financial_income_article62_comparison_2026(
             **payload_with_foreign_credit(
                 ordinary_interest_14_krw=10_000_000,
@@ -170,7 +165,9 @@ class ForeignTaxCreditTests(unittest.TestCase):
                 ],
             )
         )
-        self.assertEqual(result["article62_comparison_tax_before_credits_krw"], 10_360_000)
+        self.assertEqual(
+            result["article62_comparison_tax_before_credits_krw"], 10_360_000
+        )
         self.assertEqual(result["dividend_tax_credit_krw"], 500_000)
         self.assertEqual(
             result["article62_tax_after_dividend_credit_before_other_credits_krw"],
@@ -179,19 +176,25 @@ class ForeignTaxCreditTests(unittest.TestCase):
         self.assertEqual(result["foreign_tax_credit_aggregate_limit_krw"], 10_360_000)
         self.assertEqual(result["foreign_tax_credit_krw"], 9_860_000)
         self.assertEqual(
-            result["foreign_tax_credit_reduced_by_prior_noncarryable_credits_krw"],
+            result["foreign_tax_credit_reduced_by_preceding_dividend_credit_krw"],
             500_000,
         )
         self.assertEqual(
-            result["uncredited_current_year_foreign_income_tax_total_krw"],
-            500_000,
+            result["uncredited_current_year_foreign_income_tax_total_krw"], 500_000
         )
-        self.assertEqual(
-            result[
-                "article62_tax_after_dividend_and_foreign_tax_credit_before_other_credits_krw"
-            ],
-            0,
-        )
+
+    def test_unmodeled_article60_preceding_items_fail_closed(self):
+        for confirmation in (False, None, 0, 1, "true"):
+            with self.subTest(confirmation=confirmation):
+                with self.assertRaisesRegex(
+                    PersonalComprehensiveTaxError,
+                    "ARTICLE57_OTHER_ARTICLE60_PRECEDING_ITEMS_UNSUPPORTED",
+                ):
+                    calculate_financial_income_article62_comparison_2026(
+                        **payload_with_foreign_credit(
+                            **{_ARTICLE60_CONFIRMATION_FIELD: confirmation}
+                        )
+                    )
 
     def test_foreign_credit_does_not_change_local_income_tax_result(self):
         result = calculate_financial_income_article62_comparison_2026(
@@ -223,6 +226,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
             "prepaid_dividend_local_income_tax_special_withholding_krw": 0,
             "comprehensive_income_amount_for_foreign_tax_credit_krw": 30_000_000,
             "foreign_tax_credit_items": [foreign_item()],
+            _ARTICLE60_CONFIRMATION_FIELD: True,
         }
         result = calculate_financial_income_article62_comparison_2026(**values)
         self.assertEqual(result["foreign_tax_credit_krw"], 1_400_000)
@@ -240,16 +244,24 @@ class ForeignTaxCreditTests(unittest.TestCase):
         )
 
     def test_foreign_tax_credit_fields_are_all_or_none(self):
-        with self.assertRaisesRegex(
-            PersonalComprehensiveTaxError,
-            "ARTICLE57_FOREIGN_TAX_CREDIT_INPUTS_INCOMPLETE",
-        ):
-            calculate_financial_income_article62_comparison_2026(
-                **{
-                    **payload(ordinary_interest_14_krw=30_000_000),
-                    "comprehensive_income_amount_for_foreign_tax_credit_krw": 30_000_000,
-                }
-            )
+        incomplete_payloads = (
+            {
+                **payload(ordinary_interest_14_krw=30_000_000),
+                "comprehensive_income_amount_for_foreign_tax_credit_krw": 30_000_000,
+            },
+            {
+                **payload(ordinary_interest_14_krw=30_000_000),
+                "comprehensive_income_amount_for_foreign_tax_credit_krw": 30_000_000,
+                "foreign_tax_credit_items": [foreign_item()],
+            },
+        )
+        for values in incomplete_payloads:
+            with self.subTest(values=values):
+                with self.assertRaisesRegex(
+                    PersonalComprehensiveTaxError,
+                    "ARTICLE57_FOREIGN_TAX_CREDIT_INPUTS_INCOMPLETE",
+                ):
+                    calculate_financial_income_article62_comparison_2026(**values)
 
     def test_comprehensive_income_amount_must_be_positive_finite_number(self):
         for bad_value in (0, True, -1, float("nan"), float("inf"), "bad"):
@@ -260,9 +272,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
                 ):
                     calculate_financial_income_article62_comparison_2026(
                         **payload_with_foreign_credit(
-                            comprehensive_income_amount_for_foreign_tax_credit_krw=(
-                                bad_value
-                            )
+                            comprehensive_income_amount_for_foreign_tax_credit_krw=bad_value
                         )
                     )
 
@@ -271,12 +281,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
             [],
             "bad",
             [{"country_code": "US"}],
-            [
-                {
-                    **foreign_item(),
-                    "unexpected": 1,
-                }
-            ],
+            [{**foreign_item(), "unexpected": 1}],
         )
         for bad_value in invalid_items:
             with self.subTest(bad_value=bad_value):
@@ -301,9 +306,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
                         **payload_with_foreign_credit(
                             foreign_tax_credit_items=[
                                 foreign_item(
-                                    eligible_current_year_foreign_income_tax_krw=(
-                                        bad_value
-                                    )
+                                    eligible_current_year_foreign_income_tax_krw=bad_value
                                 )
                             ]
                         )
@@ -316,8 +319,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
             )
         )
         self.assertEqual(
-            normalized["foreign_tax_credit_items"][0]["country_code"],
-            "US",
+            normalized["foreign_tax_credit_items"][0]["country_code"], "US"
         )
 
         with self.assertRaisesRegex(
@@ -338,7 +340,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
             )
 
     def test_country_code_shape_is_fail_closed(self):
-        for bad_value in ("", "US KR", True, None):
+        for bad_value in ("", "USA", "U1", "US KR", True, None):
             with self.subTest(bad_value=bad_value):
                 with self.assertRaisesRegex(
                     PersonalComprehensiveTaxError,
@@ -359,11 +361,11 @@ class ForeignTaxCreditTests(unittest.TestCase):
         ):
             calculate_financial_income_article62_comparison_2026(
                 **payload_with_foreign_credit(
-                    comprehensive_income_amount_for_foreign_tax_credit_krw=9_999_999,
+                    comprehensive_income_amount_for_foreign_tax_credit_krw=9_999_999
                 )
             )
 
-    def test_metadata_keeps_carryforward_and_treaty_checks_out_of_scope(self):
+    def test_metadata_keeps_unimplemented_carryforward_and_treaty_checks_explicit(self):
         result = calculate_financial_income_article62_comparison_2026(
             **payload_with_foreign_credit()
         )
@@ -371,6 +373,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
         self.assertTrue(quality["foreign_tax_credit_calculated"])
         self.assertTrue(quality["foreign_tax_credit_limit_basis_user_provided"])
         self.assertTrue(quality["foreign_tax_credit_eligibility_user_asserted"])
+        self.assertTrue(quality["foreign_tax_credit_article60_scope_confirmed"])
         self.assertFalse(
             quality["foreign_tax_credit_prior_year_carryforward_calculated"]
         )
@@ -385,24 +388,18 @@ class ForeignTaxCreditTests(unittest.TestCase):
         context = result["rule_context"]
         self.assertEqual(context["foreign_tax_credit_verified_on"], "2026-09-27")
         self.assertEqual(
-            context["foreign_tax_credit_legal_basis"],
-            "소득세법 제57조 제1항",
+            context["foreign_tax_credit_legal_basis"], "소득세법 제57조 제1항"
         )
         self.assertEqual(
-            context["foreign_tax_credit_order_legal_basis"],
-            "소득세법 제60조 제1항",
+            context["foreign_tax_credit_order_legal_basis"], "소득세법 제60조 제1항"
         )
         self.assertNotIn("foreign tax credit", context["not_calculated"])
         self.assertIn(
-            "prior-year foreign tax credit carryforward",
+            "current-year excess foreign tax carryforward determination",
             context["not_calculated"],
         )
         self.assertIn(
-            "foreign-tax-credit carryforward eligibility/exclusion",
-            context["not_calculated"],
-        )
-        self.assertIn(
-            "미공제액을 곧바로 10년 이월공제액으로 표시하지 않습니다",
+            "곧바로 10년 이월공제액으로 표시하지 않습니다",
             context["foreign_tax_credit_note"],
         )
 
@@ -428,14 +425,7 @@ class ForeignTaxCreditApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("cache-control"), "no-store")
-        body = response.json()
-        self.assertEqual(body["foreign_tax_credit_krw"], 1_400_000)
-        self.assertEqual(
-            body[
-                "article62_tax_after_dividend_and_foreign_tax_credit_before_other_credits_krw"
-            ],
-            2_800_000,
-        )
+        self.assertEqual(response.json()["foreign_tax_credit_krw"], 1_400_000)
 
     def test_api_rejects_partial_foreign_credit_input_with_stable_code(self):
         response = self.client.post(
@@ -452,11 +442,25 @@ class ForeignTaxCreditApiTests(unittest.TestCase):
             "ARTICLE57_FOREIGN_TAX_CREDIT_INPUTS_INCOMPLETE",
         )
 
+    def test_api_rejects_unconfirmed_article60_scope_with_stable_code(self):
+        response = self.client.post(
+            "/api/dividends/financial-income-article62-comparison",
+            json=payload_with_foreign_credit(
+                **{_ARTICLE60_CONFIRMATION_FIELD: False}
+            ),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.headers.get("cache-control"), "no-store")
+        self.assertEqual(
+            response.json()["detail"]["code"],
+            "ARTICLE57_OTHER_ARTICLE60_PRECEDING_ITEMS_UNSUPPORTED",
+        )
+
     def test_api_rejects_invalid_country_basis_with_stable_code(self):
         response = self.client.post(
             "/api/dividends/financial-income-article62-comparison",
             json=payload_with_foreign_credit(
-                comprehensive_income_amount_for_foreign_tax_credit_krw=1_000_000,
+                comprehensive_income_amount_for_foreign_tax_credit_krw=1_000_000
             ),
         )
         self.assertEqual(response.status_code, 400)
