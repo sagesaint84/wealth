@@ -9,6 +9,11 @@ from app.services.tax.financial_income import (
     build_financial_income_projection,
     get_financial_income_projection_for_user,
 )
+from app.services.tax.family_financial_income import (
+    FamilyFinancialIncomeRiskError,
+    build_family_financial_income_risk,
+    get_family_financial_income_risk_for_user,
+)
 from app.services.tax.high_dividend_2026 import (
     HighDividendSpecialTaxError,
     calculate_high_dividend_separate_tax_2026,
@@ -30,6 +35,9 @@ __all__ = [
     "FinancialIncomeProjectionError",
     "build_financial_income_projection",
     "get_financial_income_projection_for_user",
+    "FamilyFinancialIncomeRiskError",
+    "build_family_financial_income_risk",
+    "get_family_financial_income_risk_for_user",
     "HighDividendSpecialTaxError",
     "calculate_high_dividend_separate_tax_2026",
     "ASSET_DOMESTIC_DIVIDEND_STOCK",
