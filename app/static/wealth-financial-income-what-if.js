@@ -304,6 +304,7 @@
     const whatIf = data?.what_if || {};
     const threshold = whatIf?.thresholds?.comprehensive_tax || {};
     const scenarioState = threshold?.scenario || {};
+    const watchState = whatIf?.thresholds?.watch?.scenario || {};
     const projected = whatIf.scenario_projected_gross_screening_income_krw;
     const baseline = whatIf.baseline_projected_gross_screening_income_krw;
     const remaining = scenarioState.remaining_krw;
@@ -316,7 +317,7 @@
     } else if (scenarioState.at_or_above === true) {
       statusClass = 'warn';
       statusText = '2천만원 도달 · 초과 아님';
-    } else if (projected !== null && Number(projected) >= 10_000_000) {
+    } else if (watchState.at_or_above === true) {
       statusClass = 'warn';
       statusText = '주의 구간';
     } else if (scenarioState.exceeded === null) {
