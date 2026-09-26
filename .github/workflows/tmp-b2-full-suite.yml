@@ -28,6 +28,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Prepare existing default user directory
+        run: mkdir -p data/users/sagesaint
+
       - name: Run full unittest suite
         env:
           WEALTH_ENV: test
