@@ -8,14 +8,14 @@
 
 ## 1. 현재 개발 상태
 
-현재 작업 단계는 **Phase 10.5B-2 — 추가 배당/매매 What-if 확장**입니다.
+현재 작업 단계는 **Phase 10.5B-3 — 배우자/자녀 분산 시뮬레이션**입니다.
 
 현재 작업:
 
-- branch: `phase10-5b2-whatif-trading-expansion`
+- branch: `phase10-5b3-family-allocation-simulation`
 - base: `main`
 - 상태: 구현/검증 중
-- 작업 시작 기준 main: `a8883c2` (PR #26 merge)
+- 작업 시작 기준 main: `404059a` (PR #27 merge)
 
 B-2 목표:
 
@@ -39,7 +39,9 @@ B-2 목표:
 - [x] 10.5A-4.3 미래 배당 확정공시 구조화 — PR #24 merge (`86a07ea`)
 - [x] 10.5A-4.4 국내 ETF 분배금 공식 Source 개선 — PR #25 merge (`39ca928`)
 - [x] 10.5B-1 가족 금융소득 위험 보기 — PR #26 merge (`a8883c2`)
-- [ ] 10.5B-2 추가 배당/매매 What-if 확장 — 진행 중
+- [x] 10.5B-2 추가 배당/매매 What-if 확장 — PR #27 merge (`404059a`)
+- [ ] 10.5B-3 배우자/자녀 분산 시뮬레이션 — 진행 중
+- 다음 단계: 10.5B-4 개인 종합과세 정밀화
 
 세부 후속 순서는 `docs/ROADMAP.md`를 따른다.
 
@@ -60,6 +62,14 @@ B-2 목표:
 - 가족 구성원은 `settings.family_members` 순서를 따른다.
 - `모두`/미등록 소유자의 데이터는 구성원에게 임의 배분하지 않는다.
 - 자동 미래 이자 forecast는 아직 없으며 B-1은 기존 projection 기본값(추가 이자 0원)을 사용한다.
+
+### 배우자/자녀 분산 시뮬레이션
+
+- 등록된 `settings.family_members` 사이의 가상 금융소득 배분만 request 단위로 비교한다.
+- 실제 portfolio, holding owner, 배당 기록, 가족 설정을 변경하거나 scenario를 저장하지 않는다.
+- source forecast를 초과하는 금액과 미확정 source forecast 배분은 fail-closed로 거부한다.
+- 가족 합계는 보존 확인용 참고값이며 법정 threshold를 적용하지 않는다.
+- 이 결과는 금융소득 배분 가정에 따른 screening 비교이며, 실제 증여·명의·소득 귀속의 법률/세무 판단을 포함하지 않는다.
 
 ### 개인 vs 가족법인 비교
 

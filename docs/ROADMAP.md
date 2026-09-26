@@ -7,35 +7,30 @@
 
 ## 1. 현재 우선순위
 
-### Phase 10.5B-2 — 추가 배당/매매 What-if 확장
+### Phase 10.5B-3 — 배우자/자녀 분산 시뮬레이션
 
 상태: 구현/검증 중
 
-B-1 가족 금융소득 위험 보기는 PR #26 (`a8883c2`)로 완료되었습니다.
+B-2 추가 배당/매매 What-if 확장은 PR #27 merge commit `404059a`로 완료되었습니다.
 
 목표:
 
-- 추가 배당/이자와 함께 해외주식 실현차익을 별도 매매 레이어로 표시
-- 국내상장 해외 ETF 과세기준금액을 금융소득 screening에 반영
-- 해외주식 실현차익은 금융소득 1천/2천만원 판정에서 제외
-- 빠른 매매 입력만으로 불충분한 해외주식 양도세는 미계산으로 명시
-- 개인 vs 가족법인 비교에서 수동 입력을 우선하고 빠른 매매 가정을 fallback으로 연결
-- 기존 What-if/high-dividend/family-risk 회귀 유지
+- 가상 미래 금융소득을 등록 가족 구성원 간에 배분했을 때 개인별 screening 전/후 비교
+- 가족 합계는 reference-only로 보존 여부만 표시
+- 증여세·명의신탁·실질귀속·소득 귀속 판단 및 실제 이전은 계산/실행하지 않음
 
 완료 기준:
 
-- ETF 과세기준금액 금융소득 포함 테스트
-- 해외주식 실현차익 금융소득 제외 테스트
-- 정확히 2천만원 경계 유지
-- 새 입력 validation/API no-store/legacy call contract 테스트
-- 투자비교 fallback이 수동값을 덮어쓰지 않는 static guard
+- source/destination·금액 validation 및 source forecast 상한 테스트
+- 개인별 1천/2천만원 재계산과 정확히 2천만원 경계 테스트
+- unavailable forecast, authenticated scope, no-store, stateless UI 테스트
 - JS 문법/Python compile/`git diff --check`
 - 전체 unittest suite 및 사용자 로컬 검증
 - PR Ready → merge → GHCR build success
 
 ## 2. 다음 단계
 
-다음 제품 단계는 `Phase 10.5B-3 — 배우자/자녀 분산 시뮬레이션`이며 아래 3절을 따른다.
+다음 제품 단계는 `Phase 10.5B-4 — 개인 종합과세 정밀화`입니다.
 
 ## 3. 금융소득/가족 세금 확장
 
@@ -52,7 +47,7 @@ B-1 가족 금융소득 위험 보기는 PR #26 (`a8883c2`)로 완료되었습�
 
 ### Phase 10.5B-2 — 추가 배당/매매 What-if 확장
 
-상태: 진행 중. 상세 목표/완료 기준은 이 문서 1절을 따른다.
+상태: 완료 — PR #27 merge (`404059a`).
 
 - 추가 배당금
 - 추가 이자

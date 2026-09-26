@@ -1850,6 +1850,33 @@ async def financial_income_family_risk(request: Request) -> JSONResponse:
     return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
 
+@app.post("/api/dividends/financial-income-family-allocation-simulation")
+async def financial_income_family_allocation_simulation(request: Request) -> JSONResponse:
+    """Compare a hypothetical family financial-income allocation without writes."""
+    username = get_current_username(request)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail={"code": "FAMILY_ALLOCATION_REQUEST_INVALID"}, headers={"Cache-Control": "no-store"}) from exc
+    if (
+        not isinstance(body, dict)
+        or set(body) != {"allocations"}
+        or not isinstance(body.get("allocations"), list)
+    ):
+        raise HTTPException(status_code=400, detail={"code": "FAMILY_ALLOCATION_REQUEST_INVALID"}, headers={"Cache-Control": "no-store"})
+    from app.services.tax import (
+        FamilyFinancialIncomeAllocationError,
+        get_family_financial_income_allocation_simulation_for_user,
+    )
+    try:
+        result = await get_family_financial_income_allocation_simulation_for_user(
+            username, allocations=body["allocations"]
+        )
+    except FamilyFinancialIncomeAllocationError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}, headers={"Cache-Control": "no-store"}) from exc
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/dividends/financial-income-simulation")
 async def simulate_financial_income(request: Request) -> JSONResponse:
     """Return a stateless annual financial-income screening projection."""
