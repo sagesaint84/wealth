@@ -25,8 +25,10 @@ from app.services.tax.high_dividend_2026 import (
 )
 from app.services.tax.personal_comprehensive_tax_2026 import (
     PersonalComprehensiveTaxError,
-    calculate_financial_income_article62_comparison_2026,
     calculate_personal_comprehensive_tax_basic_rate_2026,
+)
+from app.services.tax.local_income_tax_2026 import (
+    calculate_financial_income_article62_comparison_2026,
 )
 from app.services.tax.investment_tax import (
     ASSET_DOMESTIC_DIVIDEND_STOCK,
