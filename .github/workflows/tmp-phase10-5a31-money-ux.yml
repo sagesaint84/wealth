@@ -1,0 +1,59 @@
+name: Temporary Phase 10.5A3.1 money UX
+
+on:
+  push:
+    branches: [phase10-5a31-money-input-ux]
+    paths: [.github/workflows/tmp-phase10-5a31-money-ux.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase10-5a31-money-input-ux
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Wire money UX module
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('app/static/index.html')
+          text = path.read_text(encoding='utf-8')
+          marker = '<script src="/static/wealth.js?v=1.3.0"></script>'
+          insert = marker + '\n    <script src="/static/wealth-money-input.js?v=1.3.0"></script>'
+          if '/static/wealth-money-input.js?v=1.3.0' not in text:
+              if marker not in text:
+                  raise SystemExit('wealth.js script marker not found')
+              text = text.replace(marker, insert, 1)
+              path.write_text(text, encoding='utf-8')
+      - name: Check JavaScript syntax and formatter outputs
+        run: |
+          node --check app/static/wealth-money-input.js
+          node <<'NODE'
+          const assert = require('assert');
+          const money = require('./app/static/wealth-money-input.js');
+          assert.strictEqual(money.formatKrwDigits(5000000), '5,000,000원');
+          assert.strictEqual(money.formatKoreanAmount(5000000), '5백만 원');
+          assert.strictEqual(money.formatKrwDigits(1000000000), '1,000,000,000원');
+          assert.strictEqual(money.formatKoreanAmount(1000000000), '10억 원');
+          assert.strictEqual(money.formatKrwDigits(7000050), '7,000,050원');
+          assert.strictEqual(money.formatKoreanAmount(7000050), '7백만 50 원');
+          assert.strictEqual(money.formatKoreanAmount(-3500000), '-3백 50만 원 (마이너스)');
+          NODE
+      - name: Run money UX and Phase 10.5A3 static tests
+        run: |
+          python -m unittest tests.test_money_input_ux tests.test_financial_income_what_if_static -v
+      - name: Commit patch and remove temporary workflow
+        run: |
+          rm .github/workflows/tmp-phase10-5a31-money-ux.yml
+          git config user.name wealth-phase-builder
+          git config user.email actions@users.noreply.github.com
+          git add -A
+          git commit -m "feat: wire shared KRW amount previews"
+          git push origin HEAD:phase10-5a31-money-input-ux
