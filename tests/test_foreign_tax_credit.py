@@ -175,7 +175,9 @@ class ForeignTaxCreditTests(unittest.TestCase):
         )
         self.assertEqual(result["foreign_tax_credit_krw"], 4_200_000)
         self.assertEqual(
-            result["foreign_tax_credit_reduced_by_preceding_dividend_credit_krw"],
+            result[
+                "foreign_tax_credit_reduced_by_available_national_income_tax_cap_krw"
+            ],
             1_400_000,
         )
 
@@ -205,7 +207,9 @@ class ForeignTaxCreditTests(unittest.TestCase):
         self.assertEqual(result["foreign_tax_credit_country_limit_total_krw"], 10_360_000)
         self.assertEqual(result["foreign_tax_credit_krw"], 9_860_000)
         self.assertEqual(
-            result["foreign_tax_credit_reduced_by_preceding_dividend_credit_krw"],
+            result[
+                "foreign_tax_credit_reduced_by_available_national_income_tax_cap_krw"
+            ],
             500_000,
         )
         self.assertEqual(
