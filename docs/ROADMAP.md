@@ -18,6 +18,7 @@ B-4 first increment는 PR #29 merge commit `2a98442`로 완료되었습니다.
 - 명시 입력 금융소득 category의 제62조 A/B 국세 비교산출세액
 - 명시 input gross-up eligible dividend만 10% 배당가산
 - 최종 세액·기납부세액·지방소득세·외국납부세액공제는 계산하지 않음
+- 출자공동사업자 배당소득의 제62조 특수 비교는 미구현이며 다른 종합소득 입력에서 제외
 
 ## 2. 다음 단계
 

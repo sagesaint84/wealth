@@ -11,10 +11,12 @@ from app.services.tax.personal_comprehensive_tax_2026 import (
 def payload(**overrides):
     result = {
         "ordinary_interest_14_krw": 0, "ordinary_dividend_14_krw": 0,
-        "nonbusiness_loan_interest_25_krw": 0, "nonbusiness_loan_interest_14_krw": 0,
+        "nonbusiness_loan_interest_25_krw": 0,
+        "online_investment_linked_nonbusiness_loan_interest_14_krw": 0,
         "nonwithheld_interest_14_krw": 0, "nonwithheld_nonbusiness_loan_interest_25_krw": 0,
         "nonwithheld_dividend_14_krw": 0, "gross_up_eligible_dividend_krw": 0,
-        "other_comprehensive_income_krw": 0, "income_deduction_krw": 0,
+        "other_comprehensive_income_excluding_partnership_dividend_krw": 0,
+        "income_deduction_krw": 0,
     }
     result.update(overrides)
     return result
@@ -76,15 +78,41 @@ class Article62ComparisonTests(unittest.TestCase):
         self.assertTrue(result["data_quality"]["financial_income_categories_user_classified"])
         self.assertTrue(result["data_quality"]["non_taxable_or_separate_tax_income_excluded_by_caller"])
         self.assertFalse(result["data_quality"]["legal_tax_determination"])
+        self.assertFalse(result["data_quality"]["partnership_dividend_article62_special_rule_calculated"])
+        self.assertTrue(result["data_quality"]["other_comprehensive_income_excludes_partnership_dividend"])
         self.assertEqual(result["rule_context"]["article62_legal_basis"], "소득세법 제62조")
+        self.assertIn(
+            "Article 17(1)(8) partnership-dividend Article 62 special comparison",
+            result["rule_context"]["not_calculated"],
+        )
 
     def test_a_b_and_equal_outcomes_are_preserved_above_threshold(self):
-        a_wins = calculate_financial_income_article62_comparison_2026(**payload(ordinary_interest_14_krw=100_000_000, other_comprehensive_income_krw=1_000_000_000))
+        a_wins = calculate_financial_income_article62_comparison_2026(**payload(ordinary_interest_14_krw=100_000_000, other_comprehensive_income_excluding_partnership_dividend_krw=1_000_000_000))
         self.assertGreater(a_wins["comparison_a_krw"], a_wins["comparison_b_krw"])
         b_wins = calculate_financial_income_article62_comparison_2026(**payload(nonbusiness_loan_interest_25_krw=20_000_001))
         self.assertGreater(b_wins["comparison_b_krw"], b_wins["comparison_a_krw"])
         equal = calculate_financial_income_article62_comparison_2026(**payload(ordinary_interest_14_krw=20_000_001))
         self.assertEqual(equal["comparison_a_krw"], equal["comparison_b_krw"])
+
+    def test_narrowed_input_categories_are_explicit_and_old_names_are_rejected(self):
+        other_income = calculate_financial_income_article62_comparison_2026(**payload(
+            other_comprehensive_income_excluding_partnership_dividend_krw=1_000_000,
+        ))
+        self.assertEqual(other_income["comparison_b_krw"], 60_000)
+        online_category = calculate_financial_income_article62_comparison_2026(**payload(
+            ordinary_interest_14_krw=20_000_000,
+            online_investment_linked_nonbusiness_loan_interest_14_krw=10_000_000,
+        ))
+        self.assertEqual(online_category["comparison_b_krw"], 4_200_000)
+        for old_field in (
+            "other_comprehensive_income_krw",
+            "nonbusiness_loan_interest_14_krw",
+        ):
+            with self.subTest(old_field=old_field):
+                with self.assertRaises(PersonalComprehensiveTaxError):
+                    calculate_financial_income_article62_comparison_2026(
+                        **{**payload(), old_field: 0}
+                    )
 
     def test_inputs_fail_closed(self):
         for bad in (-1, True, float("nan"), float("inf")):

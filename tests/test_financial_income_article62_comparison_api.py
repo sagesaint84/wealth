@@ -20,3 +20,24 @@ class Article62ComparisonApiTests(unittest.TestCase):
     def test_unknown_field_rejected(self):
         response = self.client.post("/api/dividends/financial-income-article62-comparison", json={**payload(), "username":"bob"})
         self.assertEqual(response.status_code, 400); self.assertEqual(response.headers.get("cache-control"), "no-store")
+
+    def test_renamed_input_fields_are_required_at_the_api_boundary(self):
+        accepted = self.client.post(
+            "/api/dividends/financial-income-article62-comparison",
+            json=payload(
+                other_comprehensive_income_excluding_partnership_dividend_krw=1_000_000,
+                online_investment_linked_nonbusiness_loan_interest_14_krw=1_000_000,
+            ),
+        )
+        self.assertEqual(accepted.status_code, 200)
+        for old_field in (
+            "other_comprehensive_income_krw",
+            "nonbusiness_loan_interest_14_krw",
+        ):
+            with self.subTest(old_field=old_field):
+                response = self.client.post(
+                    "/api/dividends/financial-income-article62-comparison",
+                    json={**payload(), old_field: 0},
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.headers.get("cache-control"), "no-store")
