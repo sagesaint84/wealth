@@ -7,30 +7,22 @@
 
 ## 1. 현재 우선순위
 
-### Phase 10.5B-3 — 배우자/자녀 분산 시뮬레이션
+### Phase 10.5B-4 — 개인 종합과세 정밀화
 
-상태: 구현/검증 중
+상태: 진행 중
 
-B-2 추가 배당/매매 What-if 확장은 PR #27 merge commit `404059a`로 완료되었습니다.
+B-3 배우자/자녀 분산 시뮬레이션은 PR #28 merge commit `6d71cc2`로 완료되었습니다.
 
-목표:
+첫 increment:
 
-- 가상 미래 금융소득을 등록 가족 구성원 간에 배분했을 때 개인별 screening 전/후 비교
-- 가족 합계는 reference-only로 보존 여부만 표시
-- 증여세·명의신탁·실질귀속·소득 귀속 판단 및 실제 이전은 계산/실행하지 않음
-
-완료 기준:
-
-- source/destination·금액 validation 및 source forecast 상한 테스트
-- 개인별 1천/2천만원 재계산과 정확히 2천만원 경계 테스트
-- unavailable forecast, authenticated scope, no-store, stateless UI 테스트
-- JS 문법/Python compile/`git diff --check`
-- 전체 unittest suite 및 사용자 로컬 검증
-- PR Ready → merge → GHCR build success
+- 사용자가 명시적으로 입력한 과세표준과 금융소득 포함 가정의 2026 국세 기본세율 전/후 비교
+- 2,000만원 금융소득 threshold는 기존 개인별 screening 계약을 유지
+- 세율과 source metadata는 2026 rule module에서만 제공
+- stateless request/response이며 기존 portfolio 또는 금융소득 기록을 변경하지 않음
 
 ## 2. 다음 단계
 
-다음 제품 단계는 `Phase 10.5B-4 — 개인 종합과세 정밀화`입니다.
+후속 increment는 실제 금융소득 종합과세 비교산식에 필요한 입력·공제·공시 근거를 별도로 검증한 뒤 진행합니다.
 
 ## 3. 금융소득/가족 세금 확장
 
@@ -57,6 +49,8 @@ B-2 추가 배당/매매 What-if 확장은 PR #27 merge commit `404059a`로 완�
 
 ### Phase 10.5B-3 — 배우자/자녀 분산 시뮬레이션
 
+상태: 완료 — PR #28 merge (`6d71cc2`).
+
 - 자산 또는 미래 투자금 배분 시 개인별 금융소득 변화
 - 단순 세금 절감 추천이 아니라 결과 비교 중심
 - 증여세/명의신탁/실질귀속 등 법적 쟁점은 계산 범위에서 별도 표시
@@ -78,6 +72,7 @@ B-2 추가 배당/매매 What-if 확장은 PR #27 merge commit `404059a`로 완�
 - UI에 세율 상수 하드코딩 금지
 - 공식 자료 검증일 기록
 - 법률/세무 최종 판단과 screening을 구분
+- 첫 increment에서는 원천징수 기납부세액, 개인지방소득세, 외국납부세액공제, 소득공제·세액공제, 배당가산을 추정하지 않음
 
 ## 4. 후속 세무·사회보험 영역
 

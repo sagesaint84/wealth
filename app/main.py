@@ -1877,6 +1877,47 @@ async def financial_income_family_allocation_simulation(request: Request) -> JSO
     return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
 
+@app.post("/api/dividends/financial-income-personal-comprehensive-tax")
+async def financial_income_personal_comprehensive_tax(request: Request) -> JSONResponse:
+    """Compare explicit tax-base scenarios using the 2026 national basic rates."""
+    get_current_username(request)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "PERSONAL_COMPREHENSIVE_TAX_REQUEST_INVALID"},
+            headers={"Cache-Control": "no-store"},
+        ) from exc
+
+    required_fields = {
+        "tax_base_before_financial_income_krw",
+        "financial_income_gross_krw",
+        "assumed_financial_income_included_in_tax_base_krw",
+    }
+    if not isinstance(body, dict) or set(body) != required_fields:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "PERSONAL_COMPREHENSIVE_TAX_REQUEST_INVALID"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    from app.services.tax import (
+        PersonalComprehensiveTaxError,
+        calculate_personal_comprehensive_tax_basic_rate_2026,
+    )
+
+    try:
+        result = calculate_personal_comprehensive_tax_basic_rate_2026(**body)
+    except PersonalComprehensiveTaxError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": str(exc)},
+            headers={"Cache-Control": "no-store"},
+        ) from exc
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/dividends/financial-income-simulation")
 async def simulate_financial_income(request: Request) -> JSONResponse:
     """Return a stateless annual financial-income screening projection."""

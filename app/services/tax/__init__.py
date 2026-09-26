@@ -23,6 +23,10 @@ from app.services.tax.high_dividend_2026 import (
     HighDividendSpecialTaxError,
     calculate_high_dividend_separate_tax_2026,
 )
+from app.services.tax.personal_comprehensive_tax_2026 import (
+    PersonalComprehensiveTaxError,
+    calculate_personal_comprehensive_tax_basic_rate_2026,
+)
 from app.services.tax.investment_tax import (
     ASSET_DOMESTIC_DIVIDEND_STOCK,
     ASSET_KR_LISTED_US_ETF,
@@ -48,6 +52,8 @@ __all__ = [
     "get_family_financial_income_allocation_simulation_for_user",
     "HighDividendSpecialTaxError",
     "calculate_high_dividend_separate_tax_2026",
+    "PersonalComprehensiveTaxError",
+    "calculate_personal_comprehensive_tax_basic_rate_2026",
     "ASSET_DOMESTIC_DIVIDEND_STOCK",
     "ASSET_KR_LISTED_US_ETF",
     "ASSET_US_DIRECT",
