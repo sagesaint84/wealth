@@ -1,0 +1,296 @@
+.fi-what-if-panel {
+  margin: 16px 0 18px;
+  padding: 18px;
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(14, 165, 233, 0.035));
+}
+
+.fi-what-if-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.fi-what-if-head h3 {
+  margin: 2px 0 5px;
+  font-size: 17px;
+}
+
+.fi-what-if-head p {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.fi-what-if-kicker {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  color: #818cf8;
+}
+
+.fi-what-if-badge {
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: #c7d2fe;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(129, 140, 248, 0.24);
+}
+
+.fi-what-if-form {
+  display: grid;
+  gap: 12px;
+}
+
+.fi-what-if-section {
+  padding: 13px;
+  border-radius: 11px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.fi-what-if-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.fi-what-if-section-title strong,
+.fi-what-if-subhead {
+  font-size: 13px;
+  color: #e2e8f0;
+}
+
+.fi-what-if-section-title small,
+.fi-what-if-form label small {
+  color: #7f8ea3;
+  font-size: 10.5px;
+}
+
+.fi-what-if-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.fi-what-if-grid.one { grid-template-columns: 1fr; }
+.fi-what-if-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.fi-what-if-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.fi-what-if-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: #b9c3d5;
+}
+
+.fi-what-if-form input,
+.fi-what-if-form select {
+  width: 100%;
+  min-height: 36px;
+  box-sizing: border-box;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #e2e8f0;
+  padding: 7px 9px;
+  font: inherit;
+}
+
+.fi-what-if-form input:focus,
+.fi-what-if-form select:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.fi-what-if-toggle {
+  flex-direction: row !important;
+  align-items: center;
+  cursor: pointer;
+}
+
+.fi-what-if-toggle input,
+.fi-check input {
+  width: auto;
+  min-height: auto;
+  margin: 0;
+}
+
+.fi-what-if-toggle > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fi-what-if-investment-fields {
+  margin-top: 12px;
+  display: grid;
+  gap: 11px;
+}
+
+.fi-what-if-subhead {
+  margin-top: 2px;
+  font-weight: 700;
+}
+
+.fi-what-if-details {
+  margin-top: 2px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px dashed rgba(148, 163, 184, 0.2);
+}
+
+.fi-what-if-details summary {
+  cursor: pointer;
+  color: #a5b4fc;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.fi-what-if-details[open] summary {
+  margin-bottom: 10px;
+}
+
+.fi-check {
+  flex-direction: row !important;
+  align-items: center;
+}
+
+.fi-what-if-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fi-what-if-status {
+  min-height: 18px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.fi-what-if-status.success { color: #86efac; }
+.fi-what-if-status.error { color: #fca5a5; }
+
+.fi-what-if-result {
+  margin-top: 14px;
+}
+
+.fi-what-if-placeholder,
+.fi-what-if-error {
+  padding: 13px;
+  border-radius: 9px;
+  background: rgba(15, 23, 42, 0.38);
+  color: #94a3b8;
+  font-size: 11.5px;
+}
+
+.fi-what-if-error { color: #fca5a5; }
+
+.fi-result-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fi-result-card {
+  padding: 12px;
+  min-width: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.52);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fi-result-card > span {
+  font-size: 10.5px;
+  color: #94a3b8;
+}
+
+.fi-result-card > strong {
+  font-size: 16px;
+  color: #e2e8f0;
+  overflow-wrap: anywhere;
+}
+
+.fi-result-card > small {
+  font-size: 10.5px;
+  color: #7f8ea3;
+}
+
+.fi-result-card.emphasized {
+  border-color: rgba(99, 102, 241, 0.34);
+  background: rgba(79, 70, 229, 0.08);
+}
+
+.fi-result-card.safe { border-color: rgba(34, 197, 94, 0.28); }
+.fi-result-card.safe > strong { color: #86efac; }
+.fi-result-card.warn { border-color: rgba(234, 179, 8, 0.34); }
+.fi-result-card.warn > strong { color: #fde047; }
+.fi-result-card.danger { border-color: rgba(239, 68, 68, 0.34); }
+.fi-result-card.danger > strong { color: #fca5a5; }
+.fi-result-card.unknown > strong { color: #cbd5e1; }
+.fi-result-card.gain > strong { color: #86efac; }
+.fi-result-card.loss > strong { color: #fca5a5; }
+
+.fi-compare-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.fi-compare-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 9px;
+}
+
+.fi-compare-title strong { font-size: 13px; }
+.fi-compare-title span,
+.fi-compare-meta {
+  font-size: 10.5px;
+  color: #7f8ea3;
+}
+
+.fi-compare-meta { margin-top: 8px; }
+
+.fi-what-if-disclaimer {
+  margin-top: 12px;
+  padding: 10px 11px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.06);
+  color: #b7a98a;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .fi-what-if-grid.three,
+  .fi-result-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .fi-what-if-panel { padding: 13px; }
+  .fi-what-if-grid.two { grid-template-columns: 1fr; }
+}
+
+.fi-what-if-investment-fields[hidden],
+#fiWhatIfEtfTaxGainWrap[hidden] {
+  display: none;
+}
