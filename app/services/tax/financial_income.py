@@ -12,7 +12,7 @@ adjustment when it has better information.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 import math
 from typing import Any
 
@@ -24,6 +24,8 @@ from app.services.tax.rules_2026 import (
     RULE_YEAR,
 )
 
+KST = timezone(timedelta(hours=9))
+
 
 class FinancialIncomeProjectionError(ValueError):
     """Raised when projection inputs are unsafe or internally inconsistent."""
@@ -31,9 +33,9 @@ class FinancialIncomeProjectionError(ValueError):
 
 def _coerce_date(value: date | datetime | str | None) -> date:
     if value is None:
-        return datetime.now().astimezone().date()
+        return datetime.now(KST).date()
     if isinstance(value, datetime):
-        return value.astimezone().date() if value.tzinfo else value.date()
+        return value.astimezone(KST).date() if value.tzinfo else value.date()
     if isinstance(value, date):
         return value
     if isinstance(value, str):
@@ -56,7 +58,9 @@ def _non_negative_money(value: object, code: str) -> float:
     return amount
 
 
-def _forecast_months(forecast_summary: dict[str, Any], *, after_month: int) -> tuple[float | None, list[int]]:
+def _forecast_months(
+    forecast_summary: dict[str, Any], *, after_month: int
+) -> tuple[float | None, list[int]]:
     """Return estimated dividends for months strictly after ``after_month``.
 
     ``None`` means the dividend forecast is unavailable. Malformed available
@@ -97,7 +101,9 @@ def _forecast_months(forecast_summary: dict[str, Any], *, after_month: int) -> t
     return total, sorted(included_months)
 
 
-def _threshold_state(amount: float | None, threshold: float) -> dict[str, Any] | None:
+def _threshold_state(
+    amount: float | None, threshold: float
+) -> dict[str, Any] | None:
     if amount is None:
         return None
     remaining = max(0.0, threshold - amount)
@@ -107,7 +113,9 @@ def _threshold_state(amount: float | None, threshold: float) -> dict[str, Any] |
         "remaining_krw": round(remaining),
         "exceeded": amount > threshold,
         "at_or_above": amount >= threshold,
-        "progress_percent": round((amount / threshold) * 100.0, 1) if threshold > 0 else None,
+        "progress_percent": (
+            round((amount / threshold) * 100.0, 1) if threshold > 0 else None
+        ),
     }
 
 
@@ -156,7 +164,9 @@ def build_financial_income_projection(
     current month; the current month is deliberately excluded because realized
     records may already contain part of it.
     """
-    if not isinstance(actual_summary, dict) or not isinstance(forecast_summary, dict):
+    if not isinstance(actual_summary, dict) or not isinstance(
+        forecast_summary, dict
+    ):
         raise FinancialIncomeProjectionError("FINANCIAL_INCOME_INPUT_INVALID")
 
     day = _coerce_date(as_of)
@@ -199,7 +209,9 @@ def build_financial_income_projection(
     components = {
         "actual_dividend_krw": round(actual_dividend),
         "actual_interest_krw": round(actual_interest),
-        "current_month_remaining_dividend_adjustment_krw": round(current_month_adjustment),
+        "current_month_remaining_dividend_adjustment_krw": round(
+            current_month_adjustment
+        ),
         "future_months_estimated_dividend_krw": (
             round(future_dividend) if future_dividend is not None else None
         ),
@@ -226,7 +238,9 @@ def build_financial_income_projection(
         "thresholds": _threshold_bundle(actual_total, known_floor, projected_total),
         "rule_context": {
             "year": RULE_YEAR,
-            "comprehensive_tax_threshold_krw": FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW,
+            "comprehensive_tax_threshold_krw": (
+                FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW
+            ),
             "watch_threshold_krw": FINANCIAL_INCOME_WATCH_THRESHOLD_KRW,
             "watch_threshold_statutory": False,
             "official_source": OFFICIAL_SOURCE_URL,
