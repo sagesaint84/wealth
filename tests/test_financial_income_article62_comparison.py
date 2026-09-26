@@ -29,6 +29,11 @@ class Article62ComparisonTests(unittest.TestCase):
         self.assertEqual(exact["article62_method"], "comparison_b_only")
         self.assertEqual(exact["comparison_b_krw"], 0)
         self.assertEqual(exact["article62_comparison_tax_before_credits_krw"], 0)
+        self.assertEqual(exact["dividend_tax_credit_krw"], 0)
+        self.assertEqual(
+            exact["article62_tax_after_dividend_credit_before_other_credits_krw"],
+            0,
+        )
         self.assertTrue(exact["data_quality"]["withheld_financial_income_separate_tax_below_threshold_not_included"])
 
     def test_twenty_million_plus_one_uses_greater_of_a_and_b(self):
@@ -36,6 +41,7 @@ class Article62ComparisonTests(unittest.TestCase):
         self.assertTrue(above["financial_income_threshold"]["exceeded"])
         self.assertEqual(above["article62_comparison_tax_before_credits_krw"], max(above["comparison_a_krw"], above["comparison_b_krw"]))
         self.assertEqual(above["comparison_a_krw"], above["comparison_b_krw"])
+        self.assertEqual(above["dividend_tax_credit_krw"], 0)
 
     def test_below_threshold_nonwithheld_categories_use_their_explicit_rates(self):
         cases = (
@@ -72,15 +78,72 @@ class Article62ComparisonTests(unittest.TestCase):
         self.assertEqual(fully_above["gross_up_target_dividend_krw"], 10_000_000)
         self.assertEqual(fully_above["dividend_gross_up_amount_krw"], 1_000_000)
 
+    def test_dividend_tax_credit_is_zero_when_comparison_b_wins(self):
+        result = calculate_financial_income_article62_comparison_2026(**payload(
+            ordinary_interest_14_krw=10_000_000,
+            gross_up_eligible_dividend_krw=15_000_000,
+        ))
+        self.assertEqual(result["dividend_gross_up_amount_krw"], 500_000)
+        self.assertEqual(result["comparison_a_krw"], 3_130_000)
+        self.assertEqual(result["comparison_b_krw"], 3_500_000)
+        self.assertEqual(result["article62_comparison_tax_before_credits_krw"], 3_500_000)
+        self.assertEqual(result["dividend_tax_credit_limit_krw"], 0)
+        self.assertEqual(result["dividend_tax_credit_krw"], 0)
+        self.assertEqual(
+            result["article62_tax_after_dividend_credit_before_other_credits_krw"],
+            3_500_000,
+        )
+
+    def test_dividend_tax_credit_can_apply_full_gross_up_amount(self):
+        result = calculate_financial_income_article62_comparison_2026(**payload(
+            ordinary_interest_14_krw=10_000_000,
+            gross_up_eligible_dividend_krw=15_000_000,
+            other_comprehensive_income_excluding_partnership_dividend_krw=50_000_000,
+        ))
+        self.assertEqual(result["dividend_gross_up_amount_krw"], 500_000)
+        self.assertEqual(result["comparison_a_krw"], 10_360_000)
+        self.assertEqual(result["comparison_b_krw"], 9_740_000)
+        self.assertEqual(result["dividend_tax_credit_limit_krw"], 620_000)
+        self.assertEqual(result["dividend_tax_credit_krw"], 500_000)
+        self.assertEqual(
+            result["article62_tax_after_dividend_credit_before_other_credits_krw"],
+            9_860_000,
+        )
+
+    def test_dividend_tax_credit_is_capped_by_comparison_tax_difference(self):
+        result = calculate_financial_income_article62_comparison_2026(**payload(
+            ordinary_interest_14_krw=10_000_000,
+            gross_up_eligible_dividend_krw=15_000_000,
+            other_comprehensive_income_excluding_partnership_dividend_krw=13_000_000,
+        ))
+        self.assertEqual(result["dividend_gross_up_amount_krw"], 500_000)
+        self.assertEqual(result["comparison_a_krw"], 4_315_000)
+        self.assertEqual(result["comparison_b_krw"], 4_280_000)
+        self.assertEqual(result["dividend_tax_credit_limit_krw"], 35_000)
+        self.assertEqual(result["dividend_tax_credit_krw"], 35_000)
+        self.assertEqual(
+            result["article62_tax_after_dividend_credit_before_other_credits_krw"],
+            4_280_000,
+        )
+
     def test_metadata_is_explicit_and_not_a_final_tax_payable_calculation(self):
         result = calculate_financial_income_article62_comparison_2026(**payload())
-        self.assertFalse(result["data_quality"]["dividend_tax_credit_calculated"])
+        self.assertTrue(result["data_quality"]["dividend_tax_credit_calculated"])
+        self.assertTrue(result["data_quality"]["dividend_tax_credit_user_classification_dependent"])
+        self.assertFalse(result["data_quality"]["other_tax_credits_calculated"])
         self.assertTrue(result["data_quality"]["financial_income_categories_user_classified"])
         self.assertTrue(result["data_quality"]["non_taxable_or_separate_tax_income_excluded_by_caller"])
         self.assertFalse(result["data_quality"]["legal_tax_determination"])
         self.assertFalse(result["data_quality"]["partnership_dividend_article62_special_rule_calculated"])
         self.assertTrue(result["data_quality"]["other_comprehensive_income_excludes_partnership_dividend"])
         self.assertEqual(result["rule_context"]["article62_legal_basis"], "소득세법 제62조")
+        self.assertEqual(result["rule_context"]["dividend_tax_credit_legal_basis"], "소득세법 제56조")
+        self.assertEqual(
+            result["rule_context"]["dividend_tax_credit_order_legal_basis"],
+            "소득세법 시행령 제116조의2",
+        )
+        self.assertEqual(result["rule_context"]["dividend_tax_credit_verified_on"], "2026-09-27")
+        self.assertIn("article62_comparison_tax_before_credits_krw", result["rule_context"]["dividend_tax_credit_formula"])
         self.assertIn(
             "Article 17(1)(8) partnership-dividend Article 62 special comparison",
             result["rule_context"]["not_calculated"],
