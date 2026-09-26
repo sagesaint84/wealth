@@ -1,0 +1,71 @@
+name: Temporary Phase 10.5A4.4 KIND probe
+
+on:
+  push:
+    branches:
+      - phase10-5a44-domestic-etf-official-source
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe KIND ETF pages
+        shell: bash
+        run: |
+          python - <<'PY'
+          from html.parser import HTMLParser
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+          import re
+
+          BASE='https://kind.krx.co.kr'
+          UA='Mozilla/5.0 Wealth-A44-Probe/1.0'
+
+          def get(path, params=None):
+              url=BASE+path
+              if params:
+                  url += '?' + urlencode(params)
+              req=Request(url, headers={'User-Agent':UA, 'Accept-Language':'ko-KR,ko;q=0.9'})
+              with urlopen(req, timeout=15) as r:
+                  raw=r.read()
+                  enc=r.headers.get_content_charset() or 'utf-8'
+                  try: text=raw.decode(enc)
+                  except UnicodeDecodeError: text=raw.decode('euc-kr','replace')
+                  print('GET', r.status, r.geturl(), 'bytes=', len(raw), 'encoding=', enc)
+                  return text
+
+          class ProbeParser(HTMLParser):
+              def __init__(self):
+                  super().__init__(); self.forms=[]; self.inputs=[]; self.links=[]
+              def handle_starttag(self, tag, attrs):
+                  d=dict(attrs)
+                  if tag=='form': self.forms.append((d.get('id'), d.get('name'), d.get('method'), d.get('action')))
+                  if tag=='input':
+                      n=d.get('name')
+                      if n: self.inputs.append((n,d.get('value'),d.get('type')))
+                  if tag=='a':
+                      h=d.get('href')
+                      if h: self.links.append(h)
+
+          html=get('/disclosure/disclosurebystocktype.do', {'method':'searchDisclosureByStockTypeEtf'})
+          p=ProbeParser(); p.feed(html)
+          print('FORMS', p.forms[-10:])
+          print('INPUT_NAMES', p.inputs[-80:])
+          print('DISCLOSURE_LINK_SAMPLES', [x for x in p.links if 'discl' in x.lower()][:30])
+          for needle in ['searchDisclosureByStockTypeEtf','searchDisclosureByStockTypeEtfSub','reportName','fromDate','toDate','repIsuSrtCd','ETF이익금분배']:
+              print('NEEDLE', needle, 'count=', html.count(needle))
+              m=re.search('.{0,180}'+re.escape(needle)+'.{0,300}', html, re.S|re.I)
+              if m: print('CTX', re.sub(r'\\s+',' ',m.group(0))[:600])
+
+          html2=get('/disclosureSimpleSearch.do', {'method':'disclosureSimpleSearchMain','repIsuSrtCd':'A379800'})
+          p2=ProbeParser(); p2.feed(html2)
+          print('SIMPLE_LINKS', [x for x in p2.links if 'disclsviewer' in x.lower()][:50])
+          for needle in ['ETF이익금분배','379800','disclsviewer','acptNo','acptno']:
+              print('SIMPLE_NEEDLE', needle, 'count=', html2.count(needle))
+              m=re.search('.{0,200}'+re.escape(needle)+'.{0,500}', html2, re.S|re.I)
+              if m: print('SIMPLE_CTX', re.sub(r'\\s+',' ',m.group(0))[:900])
+          PY
