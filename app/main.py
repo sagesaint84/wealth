@@ -1831,6 +1831,25 @@ async def get_dividends(request: Request, owner: str = "모두") -> dict:
     return summary
 
 
+@app.get("/api/dividends/financial-income-family-risk")
+async def financial_income_family_risk(request: Request) -> JSONResponse:
+    """Return per-family-member financial-income screening risk."""
+    username = get_current_username(request)
+    from app.services.tax import (
+        FamilyFinancialIncomeRiskError,
+        get_family_financial_income_risk_for_user,
+    )
+    try:
+        result = await get_family_financial_income_risk_for_user(username)
+    except FamilyFinancialIncomeRiskError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": str(exc)},
+            headers={"Cache-Control": "no-store"},
+        ) from exc
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/dividends/financial-income-simulation")
 async def simulate_financial_income(request: Request) -> JSONResponse:
     """Return a stateless annual financial-income screening projection."""
