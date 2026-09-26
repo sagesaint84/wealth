@@ -95,13 +95,13 @@ class LocalIncomeTaxArticle93ComparisonTests(unittest.TestCase):
     def test_local_scope_metadata_is_explicit(self):
         result = calculate_financial_income_article62_comparison_2026(**payload())
         quality = result["data_quality"]
+        self.assertTrue(quality["local_income_tax_calculated"])
         self.assertTrue(quality["local_income_tax_article93_comparison_calculated"])
         self.assertTrue(quality["local_income_tax_standard_rate_only"])
         self.assertFalse(quality["local_income_tax_ordinance_rate_adjustment_calculated"])
         self.assertFalse(quality["local_income_tax_dividend_credit_calculated"])
         self.assertFalse(quality["local_income_tax_prepaid_special_withholding_calculated"])
         self.assertFalse(quality["local_income_tax_final_payment_or_refund_calculated"])
-        self.assertFalse(quality["local_income_tax_calculated"])
         context = result["rule_context"]
         self.assertEqual(
             context["local_financial_income_comparison_legal_basis"],
@@ -157,6 +157,7 @@ class LocalIncomeTaxArticle93ApiTests(unittest.TestCase):
             body["article93_local_income_tax_before_credits_krw"],
             1_036_000,
         )
+        self.assertTrue(body["data_quality"]["local_income_tax_calculated"])
         self.assertTrue(
             body["data_quality"]["local_income_tax_article93_comparison_calculated"]
         )
