@@ -156,7 +156,108 @@ def calculate_personal_comprehensive_tax_basic_rate_2026(
     }
 
 
+_ARTICLE62_FIELDS = frozenset({
+    "ordinary_interest_14_krw", "ordinary_dividend_14_krw",
+    "nonbusiness_loan_interest_25_krw",
+    "online_investment_linked_nonbusiness_loan_interest_14_krw",
+    "nonwithheld_interest_14_krw", "nonwithheld_nonbusiness_loan_interest_25_krw",
+    "nonwithheld_dividend_14_krw", "gross_up_eligible_dividend_krw",
+    "other_comprehensive_income_excluding_partnership_dividend_krw",
+    "income_deduction_krw",
+})
+
+
+def calculate_financial_income_article62_comparison_2026(**values: object) -> dict[str, Any]:
+    """Return the bounded Article 62 national-tax comparison before credits.
+
+    Financial-income categories and gross-up eligibility are explicit caller
+    assumptions; no portfolio or withholding classification is inferred.
+    """
+    if set(values) != _ARTICLE62_FIELDS:
+        raise PersonalComprehensiveTaxError("ARTICLE62_REQUEST_INVALID")
+    amounts = {
+        name: _nonnegative_won(value, "ARTICLE62_AMOUNT_INVALID")
+        for name, value in values.items()
+    }
+    financial_keys = _ARTICLE62_FIELDS - {
+        "other_comprehensive_income_excluding_partnership_dividend_krw",
+        "income_deduction_krw",
+    }
+    financial_income = sum(amounts[name] for name in financial_keys)
+    gross_up_eligible_dividend = amounts["gross_up_eligible_dividend_krw"]
+    other_income = amounts[
+        "other_comprehensive_income_excluding_partnership_dividend_krw"
+    ]
+    deduction = amounts["income_deduction_krw"]
+    excess = max(0, financial_income - FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW)
+    gross_up_target_dividend = min(gross_up_eligible_dividend, excess)
+    gross_up = int(round(gross_up_target_dividend * 0.10))
+    progressive_base = max(0, excess + gross_up + other_income - deduction)
+    comparison_a = _national_basic_rate_tax(progressive_base) + 2_800_000
+    all_financial_income_withholding_equivalent = (
+        (amounts["ordinary_interest_14_krw"] + amounts["ordinary_dividend_14_krw"]
+         + amounts["online_investment_linked_nonbusiness_loan_interest_14_krw"]
+         + amounts["nonwithheld_interest_14_krw"]
+         + amounts["nonwithheld_dividend_14_krw"] + amounts["gross_up_eligible_dividend_krw"]) * 0.14
+        + (amounts["nonbusiness_loan_interest_25_krw"]
+           + amounts["nonwithheld_nonbusiness_loan_interest_25_krw"]) * 0.25
+    )
+    nonwithheld_financial_income_withholding_equivalent = (
+        (amounts["nonwithheld_interest_14_krw"]
+         + amounts["nonwithheld_dividend_14_krw"]) * 0.14
+        + amounts["nonwithheld_nonbusiness_loan_interest_25_krw"] * 0.25
+    )
+    other_tax_base = max(0, other_income - deduction)
+    exceeded = financial_income > FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW
+    withholding_equivalent = (
+        all_financial_income_withholding_equivalent
+        if exceeded
+        else nonwithheld_financial_income_withholding_equivalent
+    )
+    comparison_b = int(round(withholding_equivalent)) + _national_basic_rate_tax(other_tax_base)
+    return {
+        "year": RULE_YEAR,
+        "financial_income_taxable_total_krw": financial_income,
+        "financial_income_threshold": _threshold_state(financial_income),
+        "inputs": amounts,
+        "gross_up_eligible_dividend_krw": gross_up_eligible_dividend,
+        "gross_up_target_dividend_krw": gross_up_target_dividend,
+        "dividend_gross_up_amount_krw": gross_up,
+        "gross_up_eligibility_user_asserted": gross_up_eligible_dividend > 0,
+        "comparison_a_krw": comparison_a if exceeded else None,
+        "comparison_b_krw": comparison_b,
+        "article62_comparison_tax_before_credits_krw": max(comparison_a, comparison_b) if exceeded else comparison_b,
+        "article62_method": "greater_of_a_b" if exceeded else "comparison_b_only",
+        "data_quality": {
+            "screening_only": True, "legal_tax_determination": False,
+            "stateless": True, "dividend_tax_credit_calculated": False,
+            "withholding_tax_paid_credit_calculated": False,
+            "local_income_tax_calculated": False, "foreign_tax_credit_calculated": False,
+            "withheld_financial_income_separate_tax_below_threshold_not_included": (
+                not exceeded
+            ),
+            "financial_income_categories_user_classified": True,
+            "non_taxable_or_separate_tax_income_excluded_by_caller": True,
+            "partnership_dividend_article62_special_rule_calculated": False,
+            "other_comprehensive_income_excludes_partnership_dividend": True,
+        },
+        "rule_context": {
+            "year": RULE_YEAR, "verified_on": RULE_VERIFIED_ON,
+            "article62_legal_basis": "소득세법 제62조",
+            "withholding_rate_legal_basis": "소득세법 제129조",
+            "gross_up_legal_basis": "소득세법 제17조 제3항",
+            "partnership_dividend_special_rule_legal_basis": "소득세법 제62조 제2호 나목",
+            "official_financial_income_return_form_source_url": OFFICIAL_FINANCIAL_INCOME_RETURN_FORM_SOURCE_URL,
+            "not_calculated": ["dividend tax credit", "withholding tax paid credit", "local income tax", "foreign tax credit", "final legal/tax determination", "Article 17(1)(8) partnership-dividend Article 62 special comparison"],
+            "below_threshold_withheld_income_note": (
+                "20,000,000원 이하의 원천징수 금융소득은 이 Article 62 종합과세 비교에 포함하지 않습니다."
+            ),
+        },
+    }
+
+
 __all__ = [
     "PersonalComprehensiveTaxError",
     "calculate_personal_comprehensive_tax_basic_rate_2026",
+    "calculate_financial_income_article62_comparison_2026",
 ]

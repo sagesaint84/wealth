@@ -7,18 +7,18 @@
 
 ## 1. 현재 우선순위
 
-### Phase 10.5B-4 — 개인 종합과세 정밀화
+### Phase 10.5B-4.1 — 금융소득 종합과세 비교산출세액
 
 상태: 진행 중
 
-B-3 배우자/자녀 분산 시뮬레이션은 PR #28 merge commit `6d71cc2`로 완료되었습니다.
+B-4 first increment는 PR #29 merge commit `2a98442`로 완료되었습니다.
 
-첫 increment:
+현재 increment:
 
-- 사용자가 명시적으로 입력한 과세표준과 금융소득 포함 가정의 2026 국세 기본세율 전/후 비교
-- 2,000만원 금융소득 threshold는 기존 개인별 screening 계약을 유지
-- 세율과 source metadata는 2026 rule module에서만 제공
-- stateless request/response이며 기존 portfolio 또는 금융소득 기록을 변경하지 않음
+- 명시 입력 금융소득 category의 제62조 A/B 국세 비교산출세액
+- 명시 input gross-up eligible dividend만 10% 배당가산
+- 최종 세액·기납부세액·지방소득세·외국납부세액공제는 계산하지 않음
+- 출자공동사업자 배당소득의 제62조 특수 비교는 미구현이며 다른 종합소득 입력에서 제외
 
 ## 2. 다음 단계
 
