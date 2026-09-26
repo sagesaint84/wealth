@@ -9,6 +9,43 @@
 
 ### Phase 10.5B-1 — 가족 금융소득 위험 보기
 
+상태: 구현/검증 중
+
+A-4.4 국내 ETF 분배금 공식 Source 개선은 PR #25 (`39ca928`)로 완료되었습니다.
+
+목표:
+
+- 등록 가족 구성원별 실제 YTD + 미래 예상 배당 기반 금융소득 projection을 계산한다.
+- 개인별 1,000만원 watch / 2,000만원 종합과세 screening 상태를 표시한다.
+- 정확히 2,000만원은 `도달 · 초과 아님`, 2,000만원 초과는 `초과`로 구분한다.
+- 가족 합계는 참고값으로만 제공하고 개인별 법정 threshold와 혼동하지 않는다.
+- 미분류 소유자 데이터가 있으면 가족 참고 합계의 불완전성을 명시한다.
+- 일부 구성원 forecast가 unavailable이면 projected 가족 합계를 부분합으로 표시하지 않는다.
+- 기존 financial-income projection과 DART/KIND/Naver/Yahoo source 계층을 재사용한다.
+
+완료 기준:
+
+- 구성원 순서/소유자 scoping 테스트
+- 정확히 2,000만원 경계 테스트
+- 1,000만원 watch / 2,000만원 개인별 위험 집계 테스트
+- 가족 합계에 statutory threshold를 적용하지 않는 guard
+- 미분류 소유자/forecast unavailable completeness guard
+- authenticated-user only API / `Cache-Control: no-store`
+- 예상 탭 개인별 위험 UI 및 가족 참고 합계 경고
+- 기존 financial-income projection/What-if 회귀 통과
+- 전체 unittest suite 통과
+- 사용자 로컬 검증 완료
+- PR Ready → merge
+- GHCR build success
+
+## 2. 다음 단계
+
+다음 제품 단계는 `Phase 10.5B-2 — 추가 배당/매매 What-if 확장`이며 아래 3절을 따른다.
+
+## 3. 금융소득/가족 세금 확장
+
+### Phase 10.5B-1 — 가족 금융소득 위험 보기
+
 상태: 진행 중. 상세 목표/완료 기준은 이 문서 1절을 따른다.
 
 핵심 원칙:
