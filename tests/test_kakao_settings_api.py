@@ -96,13 +96,19 @@ class KakaoSettingsApiTests(unittest.TestCase):
         with patch(
             "app.services.notifications.kakao.KakaoSender.send",
             return_value=NotificationSendResult(success=True, provider="kakao"),
-        ) as send:
+        ) as send, patch(
+            "app.services.notifications.history.record_single_provider_history"
+        ) as record:
             response = self.client.post("/api/settings/kakao/test")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["ok"])
         event = send.call_args.args[0]
         self.assertEqual(event.username, "alice")
         self.assertEqual(event.event_type, "integration_test")
+        record.assert_called_once()
+        self.assertEqual(record.call_args.args[:2], ("alice", event))
+        self.assertEqual(record.call_args.kwargs["provider"], "kakao")
+        self.assertTrue(record.call_args.kwargs["success"])
 
     def test_disconnect_clears_only_current_users_tokens(self):
         with patch("app.services.kakao_tokens.clear_kakao_tokens") as clear:

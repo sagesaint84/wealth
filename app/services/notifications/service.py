@@ -7,6 +7,7 @@ build NotificationEvent objects and keep any domain-specific deduplication.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Any, Callable, Mapping, Sequence
 
 from app.services.notifications.dispatcher import NotificationDispatcher
@@ -14,6 +15,7 @@ from app.services.notifications.models import NotificationEvent, NotificationSen
 from app.services.notifications.sender import NotificationSender
 
 PROVIDER_NAMES: tuple[str, ...] = ("telegram", "discord", "kakao")
+logger = logging.getLogger(__name__)
 
 
 def _provider_payload(
@@ -224,6 +226,24 @@ class UserNotificationService:
             error=result.error_code or "SEND_FAILED",
         )
 
+    def _finalize_report(
+        self,
+        event: NotificationEvent,
+        report: NotificationDispatchReport,
+    ) -> NotificationDispatchReport:
+        """Best-effort history persistence; delivery outcome must never depend on it."""
+        if not self.username:
+            return report
+        try:
+            from app.services.notifications.history import record_notification_history
+
+            record_notification_history(self.username, event, report)
+        except Exception:
+            # History is observability only. Never log exception text because a
+            # storage/provider exception may contain sensitive details.
+            logger.warning("Notification history write failed for user")
+        return report
+
     def dispatch(
         self,
         event: NotificationEvent,
@@ -254,13 +274,16 @@ class UserNotificationService:
             )
             for result in results:
                 provider_results[result.provider] = self._result_payload(result)
-            return NotificationDispatchReport(
-                status="failed",
-                notifications_sent_count=0,
-                provider_results=provider_results,
-                results=results,
-                enabled_providers=frozenset(),
-                requested_providers=frozenset(requested),
+            return self._finalize_report(
+                event,
+                NotificationDispatchReport(
+                    status="failed",
+                    notifications_sent_count=0,
+                    provider_results=provider_results,
+                    results=results,
+                    enabled_providers=frozenset(),
+                    requested_providers=frozenset(requested),
+                ),
             )
 
         active = requested & enabled
@@ -338,11 +361,14 @@ class UserNotificationService:
         else:
             status = "failed"
 
-        return NotificationDispatchReport(
-            status=status,
-            notifications_sent_count=sent_count,
-            provider_results=provider_results,
-            results=all_results,
-            enabled_providers=frozenset(active),
-            requested_providers=frozenset(requested),
+        return self._finalize_report(
+            event,
+            NotificationDispatchReport(
+                status=status,
+                notifications_sent_count=sent_count,
+                provider_results=provider_results,
+                results=all_results,
+                enabled_providers=frozenset(active),
+                requested_providers=frozenset(requested),
+            ),
         )

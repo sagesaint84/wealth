@@ -271,6 +271,56 @@ class UserNotificationServiceTests(unittest.TestCase):
         self.assertTrue(report.provider_results["kakao"]["sent"])
         self.assertNotIn("secret webhook failure", str(report))
 
+    def test_dispatch_requests_secret_safe_history_recording(self):
+        telegram = FakeSender("telegram")
+        settings = {
+            "telegram": {"enabled": True},
+            "discord": {"enabled": False},
+            "kakao": {"enabled": False},
+        }
+        service = UserNotificationService(
+            "alice",
+            sender_overrides={"telegram": telegram},
+        )
+        event = self._event()
+        with patch(
+            "app.services.settings.get_effective_settings",
+            return_value=settings,
+        ), patch(
+            "app.services.notifications.history.record_notification_history"
+        ) as record:
+            report = service.dispatch(event)
+
+        self.assertEqual(report.status, "sent")
+        record.assert_called_once()
+        self.assertEqual(record.call_args.args[0], "alice")
+        self.assertIs(record.call_args.args[1], event)
+        self.assertIs(record.call_args.args[2], report)
+
+    def test_history_write_failure_never_changes_delivery_result(self):
+        telegram = FakeSender("telegram")
+        settings = {
+            "telegram": {"enabled": True},
+            "discord": {"enabled": False},
+            "kakao": {"enabled": False},
+        }
+        service = UserNotificationService(
+            "alice",
+            sender_overrides={"telegram": telegram},
+        )
+        with patch(
+            "app.services.settings.get_effective_settings",
+            return_value=settings,
+        ), patch(
+            "app.services.notifications.history.record_notification_history",
+            side_effect=RuntimeError("history disk failure SECRET"),
+        ):
+            report = service.dispatch(self._event())
+
+        self.assertEqual(report.status, "sent")
+        self.assertEqual(report.notifications_sent_count, 1)
+        self.assertTrue(report.provider_results["telegram"]["sent"])
+
     def test_send_options_are_forwarded_only_to_matching_provider(self):
         telegram = FakeSender("telegram")
         kakao = FakeSender("kakao")
