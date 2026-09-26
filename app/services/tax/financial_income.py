@@ -1,13 +1,19 @@
 """Financial-income projection for Phase 10.5A.
 
-The projection deliberately combines authoritative realized records with only
+The projection deliberately combines existing realized records with only
 future-month dividend estimates. It never subtracts YTD realized dividends from
 an annual forward estimate because current holdings may differ from holdings
 that produced earlier realized income.
 
-Current-month forecast is excluded by default to avoid double counting against
-realized records. A caller may supply an explicit current-month remaining
-adjustment when it has better information.
+Two concepts are kept separate:
+- cash income: the existing ``amount_krw`` values actually recorded as received;
+- gross screening income: a best-effort pre-withholding amount used only to
+  screen proximity to the statutory 20M KRW financial-income threshold.
+
+The screening result is NOT a legal comprehensive-tax determination. Existing
+records do not yet classify every non-taxable / separately-taxed item, including
+the 2026 high-dividend special taxation regime. Current-month forecast is also
+excluded automatically to avoid double counting against realized records.
 """
 
 from __future__ import annotations
@@ -19,7 +25,8 @@ from typing import Any
 from app.services.tax.rules_2026 import (
     FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW,
     FINANCIAL_INCOME_WATCH_THRESHOLD_KRW,
-    OFFICIAL_SOURCE_URL,
+    OFFICIAL_HIGH_DIVIDEND_SOURCE_URL,
+    OFFICIAL_RULE_SOURCE_URL,
     RULE_VERIFIED_ON,
     RULE_YEAR,
 )
@@ -58,6 +65,15 @@ def _non_negative_money(value: object, code: str) -> float:
     return amount
 
 
+def _optional_non_negative_money(
+    value: object,
+    code: str,
+) -> float | None:
+    if value is None or value == "":
+        return None
+    return _non_negative_money(value, code)
+
+
 def _forecast_months(
     forecast_summary: dict[str, Any], *, after_month: int
 ) -> tuple[float | None, list[int]]:
@@ -65,7 +81,7 @@ def _forecast_months(
 
     ``None`` means the dividend forecast is unavailable. Malformed available
     data raises instead of silently becoming zero, because that would
-    understate projected financial income.
+    understate the screening projection.
     """
     if forecast_summary.get("unavailable") is True:
         return None, []
@@ -101,6 +117,109 @@ def _forecast_months(
     return total, sorted(included_months)
 
 
+def _record_gross_screening_krw(
+    record: dict[str, Any],
+) -> tuple[float, bool, str]:
+    """Resolve one realized record to a gross screening amount in KRW.
+
+    Preferred basis:
+    1. explicit gross_amount;
+    2. deposited amount + explicit tax + fee;
+    3. amount_krw cash fallback (basis incomplete).
+
+    ``complete`` only describes whether the pre-withholding amount can be
+    reconstructed. It does not mean tax-treatment classification is complete.
+    """
+    if not isinstance(record, dict):
+        raise FinancialIncomeProjectionError("FINANCIAL_INCOME_RECORD_INVALID")
+
+    cash_krw = _non_negative_money(
+        record.get("amount_krw"), "FINANCIAL_INCOME_RECORD_INVALID"
+    )
+    currency = str(record.get("currency") or "KRW").strip().upper()
+    if currency == "KRW":
+        multiplier = 1.0
+    elif currency == "USD":
+        fx = _optional_non_negative_money(
+            record.get("fx_rate"), "FINANCIAL_INCOME_RECORD_INVALID"
+        )
+        multiplier = fx if fx is not None and fx > 0 else None
+    else:
+        multiplier = None
+
+    gross = _optional_non_negative_money(
+        record.get("gross_amount"), "FINANCIAL_INCOME_RECORD_INVALID"
+    )
+    if gross is not None and multiplier is not None:
+        return gross * multiplier, True, "gross_amount"
+
+    tax = _optional_non_negative_money(
+        record.get("tax"), "FINANCIAL_INCOME_RECORD_INVALID"
+    )
+    amount = _optional_non_negative_money(
+        record.get("amount"), "FINANCIAL_INCOME_RECORD_INVALID"
+    )
+    fee = _optional_non_negative_money(
+        record.get("fee"), "FINANCIAL_INCOME_RECORD_INVALID"
+    )
+    if tax is not None and amount is not None and multiplier is not None:
+        return (amount + tax + (fee or 0.0)) * multiplier, True, "net_plus_tax"
+
+    return cash_krw, False, "cash_fallback"
+
+
+def _actual_gross_screening_basis(
+    actual_summary: dict[str, Any],
+    *,
+    actual_cash_total: float,
+) -> dict[str, Any]:
+    dividend_records = actual_summary.get("records")
+    interest_records = actual_summary.get("interest_records")
+    records: list[dict[str, Any]] = []
+    if isinstance(dividend_records, list):
+        records.extend(dividend_records)
+    if isinstance(interest_records, list):
+        records.extend(interest_records)
+
+    expected_count = int(actual_summary.get("record_count") or 0) + int(
+        actual_summary.get("interest_record_count") or 0
+    )
+    if not records:
+        return {
+            "amount_krw": actual_cash_total,
+            "gross_basis_complete": actual_cash_total == 0.0 and expected_count == 0,
+            "record_detail_complete": actual_cash_total == 0.0 and expected_count == 0,
+            "record_count": expected_count,
+            "gross_basis_record_count": 0,
+            "fallback_record_count": expected_count,
+            "basis_sources": {},
+        }
+
+    amount = 0.0
+    gross_basis_count = 0
+    fallback_count = 0
+    basis_sources: dict[str, int] = {}
+    for record in records:
+        resolved, complete, source = _record_gross_screening_krw(record)
+        amount += resolved
+        basis_sources[source] = basis_sources.get(source, 0) + 1
+        if complete:
+            gross_basis_count += 1
+        else:
+            fallback_count += 1
+
+    record_detail_complete = expected_count in {0, len(records)}
+    return {
+        "amount_krw": amount,
+        "gross_basis_complete": fallback_count == 0 and record_detail_complete,
+        "record_detail_complete": record_detail_complete,
+        "record_count": max(expected_count, len(records)),
+        "gross_basis_record_count": gross_basis_count,
+        "fallback_record_count": fallback_count,
+        "basis_sources": basis_sources,
+    }
+
+
 def _threshold_state(
     amount: float | None, threshold: float
 ) -> dict[str, Any] | None:
@@ -120,18 +239,22 @@ def _threshold_state(
 
 
 def _threshold_bundle(
-    actual_amount: float,
-    known_floor: float,
-    projected_amount: float | None,
+    actual_screening: float,
+    known_screening: float,
+    projected_screening: float | None,
 ) -> dict[str, Any]:
     def one(kind: str, threshold: float, *, statutory: bool) -> dict[str, Any]:
         return {
             "kind": kind,
-            "statutory": statutory,
+            "statutory_threshold": statutory,
+            "screening_only": True,
+            "legal_tax_determination": False,
             "threshold_krw": round(threshold),
-            "actual": _threshold_state(actual_amount, threshold),
-            "known_projection_floor": _threshold_state(known_floor, threshold),
-            "projected": _threshold_state(projected_amount, threshold),
+            "actual_gross_screening": _threshold_state(actual_screening, threshold),
+            "known_gross_screening": _threshold_state(known_screening, threshold),
+            "projected_gross_screening": _threshold_state(
+                projected_screening, threshold
+            ),
         }
 
     return {
@@ -141,7 +264,7 @@ def _threshold_bundle(
             statutory=False,
         ),
         "comprehensive_tax": one(
-            "comprehensive_tax",
+            "comprehensive_tax_screening",
             float(FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW),
             statutory=True,
         ),
@@ -154,15 +277,16 @@ def build_financial_income_projection(
     *,
     as_of: date | datetime | str | None = None,
     owner: str = "모두",
-    expected_remaining_interest_krw: float = 0.0,
-    current_month_remaining_dividend_krw: float = 0.0,
+    expected_remaining_interest_gross_krw: float = 0.0,
+    current_month_remaining_dividend_gross_krw: float = 0.0,
 ) -> dict[str, Any]:
-    """Combine realized financial income with remaining-year estimates.
+    """Build a gross-income screening projection from existing data.
 
-    Realized dividend and interest amounts come from the existing dividend
-    record store. Automatic dividend forecast includes only months after the
-    current month; the current month is deliberately excluded because realized
-    records may already contain part of it.
+    Realized cash values remain visible, but threshold screening prefers
+    pre-withholding gross amounts when the record contains enough information.
+    Future automatic dividend forecast includes only months after the current
+    month. Manual remaining-interest/current-month adjustments are explicitly
+    defined as gross KRW amounts.
     """
     if not isinstance(actual_summary, dict) or not isinstance(
         forecast_summary, dict
@@ -178,64 +302,104 @@ def build_financial_income_projection(
     if target_year != day.year:
         raise FinancialIncomeProjectionError("FINANCIAL_INCOME_YEAR_MISMATCH")
 
-    actual_dividend = _non_negative_money(
+    actual_dividend_cash = _non_negative_money(
         actual_summary.get("total_actual_dividend_krw"),
         "FINANCIAL_INCOME_ACTUAL_DIVIDEND_INVALID",
     )
-    actual_interest = _non_negative_money(
+    actual_interest_cash = _non_negative_money(
         actual_summary.get("total_actual_interest_krw"),
         "FINANCIAL_INCOME_ACTUAL_INTEREST_INVALID",
     )
-    expected_interest = _non_negative_money(
-        expected_remaining_interest_krw,
+    expected_interest_gross = _non_negative_money(
+        expected_remaining_interest_gross_krw,
         "FINANCIAL_INCOME_EXPECTED_INTEREST_INVALID",
     )
-    current_month_adjustment = _non_negative_money(
-        current_month_remaining_dividend_krw,
+    current_month_dividend_gross = _non_negative_money(
+        current_month_remaining_dividend_gross_krw,
         "FINANCIAL_INCOME_CURRENT_MONTH_ADJUSTMENT_INVALID",
     )
 
-    future_dividend, included_months = _forecast_months(
+    actual_cash_total = actual_dividend_cash + actual_interest_cash
+    actual_screening = _actual_gross_screening_basis(
+        actual_summary,
+        actual_cash_total=actual_cash_total,
+    )
+    actual_gross_screening = float(actual_screening["amount_krw"])
+
+    future_dividend_gross, included_months = _forecast_months(
         forecast_summary, after_month=day.month
     )
 
-    actual_total = actual_dividend + actual_interest
-    known_floor = actual_total + expected_interest + current_month_adjustment
-    projection_complete = future_dividend is not None
-    projected_total = (
-        known_floor + future_dividend if projection_complete else None
+    known_gross_screening = (
+        actual_gross_screening
+        + expected_interest_gross
+        + current_month_dividend_gross
     )
-
-    components = {
-        "actual_dividend_krw": round(actual_dividend),
-        "actual_interest_krw": round(actual_interest),
-        "current_month_remaining_dividend_adjustment_krw": round(
-            current_month_adjustment
-        ),
-        "future_months_estimated_dividend_krw": (
-            round(future_dividend) if future_dividend is not None else None
-        ),
-        "expected_remaining_interest_krw": round(expected_interest),
-    }
+    forecast_complete = future_dividend_gross is not None
+    projected_gross_screening = (
+        known_gross_screening + future_dividend_gross
+        if forecast_complete
+        else None
+    )
 
     return {
         "year": target_year,
         "as_of": day.isoformat(),
         "owner": str(owner or "모두"),
-        "projection_complete": projection_complete,
-        "forecast_unavailable": not projection_complete,
-        "actual_financial_income_krw": round(actual_total),
-        "known_projection_floor_krw": round(known_floor),
-        "projected_financial_income_krw": (
-            round(projected_total) if projected_total is not None else None
+        "forecast_complete": forecast_complete,
+        "forecast_unavailable": not forecast_complete,
+        "actual_cash_income_krw": round(actual_cash_total),
+        "actual_gross_screening_income_krw": round(actual_gross_screening),
+        "known_gross_screening_income_krw": round(known_gross_screening),
+        "projected_gross_screening_income_krw": (
+            round(projected_gross_screening)
+            if projected_gross_screening is not None
+            else None
         ),
-        "components": components,
+        "components": {
+            "actual_dividend_cash_krw": round(actual_dividend_cash),
+            "actual_interest_cash_krw": round(actual_interest_cash),
+            "current_month_remaining_dividend_gross_adjustment_krw": round(
+                current_month_dividend_gross
+            ),
+            "future_months_estimated_dividend_gross_krw": (
+                round(future_dividend_gross)
+                if future_dividend_gross is not None
+                else None
+            ),
+            "expected_remaining_interest_gross_krw": round(
+                expected_interest_gross
+            ),
+        },
         "forecast_basis": {
             "automatic_current_month_included": False,
             "included_future_months": included_months,
-            "method": "actual_ytd_plus_future_month_forecast_plus_manual_adjustments",
+            "method": "realized_gross_screening_plus_future_month_forecast_plus_manual_gross_adjustments",
         },
-        "thresholds": _threshold_bundle(actual_total, known_floor, projected_total),
+        "data_quality": {
+            "actual_gross_basis_complete": bool(
+                actual_screening["gross_basis_complete"]
+            ),
+            "actual_record_detail_complete": bool(
+                actual_screening["record_detail_complete"]
+            ),
+            "actual_record_count": int(actual_screening["record_count"]),
+            "actual_gross_basis_record_count": int(
+                actual_screening["gross_basis_record_count"]
+            ),
+            "actual_cash_fallback_record_count": int(
+                actual_screening["fallback_record_count"]
+            ),
+            "actual_basis_sources": dict(actual_screening["basis_sources"]),
+            "tax_treatment_classification_complete": False,
+            "high_dividend_special_rule_applied": False,
+            "screening_only": True,
+        },
+        "thresholds": _threshold_bundle(
+            actual_gross_screening,
+            known_gross_screening,
+            projected_gross_screening,
+        ),
         "rule_context": {
             "year": RULE_YEAR,
             "comprehensive_tax_threshold_krw": (
@@ -243,9 +407,13 @@ def build_financial_income_projection(
             ),
             "watch_threshold_krw": FINANCIAL_INCOME_WATCH_THRESHOLD_KRW,
             "watch_threshold_statutory": False,
-            "official_source": OFFICIAL_SOURCE_URL,
+            "official_sources": [
+                OFFICIAL_RULE_SOURCE_URL,
+                OFFICIAL_HIGH_DIVIDEND_SOURCE_URL,
+            ],
             "verified_on": RULE_VERIFIED_ON,
             "tax_liability_calculated": False,
+            "tax_treatment_classification_applied": False,
         },
     }
 
@@ -275,10 +443,10 @@ async def get_financial_income_projection_for_user(
     *,
     owner: str = "모두",
     as_of: date | datetime | str | None = None,
-    expected_remaining_interest_krw: float = 0.0,
-    current_month_remaining_dividend_krw: float = 0.0,
+    expected_remaining_interest_gross_krw: float = 0.0,
+    current_month_remaining_dividend_gross_krw: float = 0.0,
 ) -> dict[str, Any]:
-    """Build a projection from the user's existing realized and forecast data."""
+    """Build a screening projection from the user's existing financial data."""
     from app.services.dividend_records import get_actual_dividend_summary
     from app.services.portfolio import get_dashboard
     from app.services.web_finance import get_web_dividend_summary
@@ -307,8 +475,12 @@ async def get_financial_income_projection_for_user(
         forecast,
         as_of=day,
         owner=normalized_owner,
-        expected_remaining_interest_krw=expected_remaining_interest_krw,
-        current_month_remaining_dividend_krw=current_month_remaining_dividend_krw,
+        expected_remaining_interest_gross_krw=(
+            expected_remaining_interest_gross_krw
+        ),
+        current_month_remaining_dividend_gross_krw=(
+            current_month_remaining_dividend_gross_krw
+        ),
     )
     result["source_counts"] = {
         "actual_dividend_records": int(actual.get("record_count") or 0),
