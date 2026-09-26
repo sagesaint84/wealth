@@ -6,6 +6,12 @@ from app.services.automation.daily_close import (
     run_daily_close_for_user,
     send_daily_close_telegram,
 )
+from app.services.automation.reliability import install_execution_state_reliability
+
+# Install the reliability policy before dispatcher imports the execution-state
+# retry query.  This keeps the existing dispatcher/claim/dedupe implementation
+# intact while adding bounded backoff and safe same-day catch-up in production.
+install_execution_state_reliability()
 
 __all__ = [
     "build_daily_close_summary",

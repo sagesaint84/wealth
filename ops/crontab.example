@@ -1,6 +1,9 @@
 # Example production schedule (server local timezone: Asia/Seoul)
-# Toss WTS session checking remains host-managed for now.
-# Wealth scheduled jobs are dispatched inside the container every minute.
+# Wealth scheduled jobs, including per-user Toss WTS session maintenance, are
+# dispatched inside the container every minute.
+#
+# Legacy host Toss checker is intentionally disabled after the per-user cutover.
+# Keep the script only as an emergency/manual diagnostic; do not schedule both.
+# DISABLED: 55 20 * * * /usr/local/sbin/toss-session-check.sh
 
-55 20 * * * /usr/local/sbin/toss-session-check.sh
 * * * * * /usr/bin/docker exec wealth python -m app.services.automation.dispatcher >> /var/log/wealth-automation-dispatcher.log 2>&1
