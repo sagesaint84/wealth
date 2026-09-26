@@ -31,6 +31,21 @@ PERSONAL_COMPREHENSIVE_INCOME_TAX_BRACKETS = (
     (None, 0.45),
 )
 
+# Local Tax Act Article 92(1) standard rates for comprehensive individual local
+# income tax. A local government may vary these rates by ordinance within 50%
+# under Article 92(2), so the B-4.4 comparison helper reports standard-rate
+# results only and does not infer a taxpayer's ordinance-adjusted rate.
+LOCAL_PERSONAL_COMPREHENSIVE_INCOME_TAX_STANDARD_BRACKETS = (
+    (14_000_000, 0.006),
+    (50_000_000, 0.015),
+    (88_000_000, 0.024),
+    (150_000_000, 0.035),
+    (300_000_000, 0.038),
+    (500_000_000, 0.040),
+    (1_000_000_000, 0.042),
+    (None, 0.045),
+)
+
 # Dividend gross-up rate under Income Tax Act Article 17(3). The Article 56
 # dividend tax credit is based on the gross-up amount, subject to the official
 # financial-income return form's comparison-tax ceiling.
@@ -85,6 +100,18 @@ OFFICIAL_DIVIDEND_TAX_CREDIT_ENFORCEMENT_SOURCE_URL = (
 OFFICIAL_PREPAID_WITHHOLDING_LAW_SOURCE_URL = (
     "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1032881459"
 )
+OFFICIAL_LOCAL_INCOME_TAX_BASE_SOURCE_URL = (
+    "https://law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1032059543"
+)
+OFFICIAL_LOCAL_INCOME_TAX_RATE_SOURCE_URL = (
+    "https://law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1026500915"
+)
+OFFICIAL_LOCAL_FINANCIAL_INCOME_COMPARISON_SOURCE_URL = (
+    "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1027080671"
+)
+OFFICIAL_LOCAL_INCOME_TAX_RETURN_FORM_SOURCE_URL = (
+    "https://www.law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=160799993&gubun="
+)
 OFFICIAL_HIGH_DIVIDEND_LAW_SOURCE_URL = (
     "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1033275259"
 )
@@ -97,3 +124,4 @@ OFFICIAL_HIGH_DIVIDEND_SOURCE_URL = (
 RULE_VERIFIED_ON = "2026-09-26"
 DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 PREPAID_FINANCIAL_WITHHOLDING_VERIFIED_ON = "2026-09-27"
+LOCAL_INCOME_TAX_COMPARISON_VERIFIED_ON = "2026-09-27"
