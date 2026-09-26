@@ -22,63 +22,19 @@ jobs:
         with:
           python-version: '3.12'
       - name: Append official-source wrapper
-        shell: python
-        run: |
-          from pathlib import Path
-
-          path = Path('app/services/web_finance.py')
-          text = path.read_text(encoding='utf-8')
-          marker = '# Phase 10.5A-4.1 official dividend forecast source enrichment'
-          if marker not in text:
-              text += r'''
-
-
-# Phase 10.5A-4.1 official dividend forecast source enrichment
-_legacy_get_web_dividend_summary = get_web_dividend_summary
-
-
-async def get_web_dividend_summary(
-    holdings: list[dict[str, Any]], fx_rate: float = 1385.0
-) -> dict[str, Any]:
-    """Return the legacy forecast enriched with official domestic evidence.
-
-    Official-source failures intentionally fail open so the existing Naver/Yahoo
-    forecast remains available.  OpenDART historical DPS is fill-only and never
-    overwrites a non-zero legacy estimate.
-    """
-    summary = await _legacy_get_web_dividend_summary(holdings, fx_rate=fx_rate)
-    try:
-        from app.services.dividend_official_sources import (
-            enrich_dividend_summary_with_official_sources,
-        )
-
-        return await enrich_dividend_summary_with_official_sources(
-            summary,
-            holdings,
-            fx_rate=fx_rate,
-        )
-    except Exception:
-        if isinstance(summary, dict):
-            summary["forecast_source_policy"] = {
-                "status": "official_enrichment_failed",
-                "confirmed_amount_requires_structured_verification": True,
-                "legacy_forecast_preserved": True,
-            }
-        return summary
-'''
-              path.write_text(text, encoding='utf-8')
+        run: python scripts/tmp_patch_phase10_5a41.py
       - name: Install targeted dependency
         run: python -m pip install --quiet httpx
       - name: Run official-source tests
         run: python -m unittest tests.test_dividend_official_sources -v
       - name: Compile changed services
         run: python -m py_compile app/services/dividend_official_sources.py app/services/web_finance.py
-      - name: Commit wrapper and remove temporary workflow
+      - name: Commit wrapper and remove temporary helpers
         if: always()
         run: |
           git config user.name wealth-phase-builder
           git config user.email actions@users.noreply.github.com
           git add app/services/web_finance.py
-          git rm .github/workflows/tmp-phase10-5a41-official-dividend.yml
+          git rm .github/workflows/tmp-phase10-5a41-official-dividend.yml scripts/tmp_patch_phase10_5a41.py
           git commit -m "feat: enrich dividend forecasts with official sources" || true
           git push origin HEAD:phase10-5a41-official-dividend-forecast
