@@ -7,33 +7,32 @@
 
 ## 1. 현재 우선순위
 
-### Phase 10.5A-4.4 — 국내 ETF 분배금 공식 Source 개선
+### Phase 10.5B-1 — 가족 금융소득 위험 보기
 
 상태: 구현/검증 중
 
-A-4.3 미래 배당 확정공시 구조화는 PR #24 (`86a07ea`)로 완료되었습니다.
+A-4.4 국내 ETF 분배금 공식 Source 개선은 PR #25 (`39ca928`)로 완료되었습니다.
 
 목표:
 
-- Naver가 ETF로 식별한 국내상장 ETF만 KIND 공식 Source 대상으로 한다.
-- KIND `ETF이익금분배신고(분배금안내)(일괄공시)` 검색 결과에서 접수번호를 찾는다.
-- KIND viewer의 공식 `/external/` 문서에서 ISIN·기준일·지급예정일·분배금을 구조 검증한다.
-- 기준일 월의 기존 휴리스틱 항목을 공식 지급월/금액으로 이동·교체한다.
-- 기존 양수 forecast에서 안전한 월 매칭이 없으면 공식 이벤트는 evidence-only로 유지한다.
-- 기존 forecast가 0이면 구조 검증된 공식 이벤트로 새 배당 일정을 만들 수 있다.
-- KIND 장애 시 기존 Naver/OpenDART/Yahoo forecast를 보존한다.
-- 새 API key나 사용자 secret 계약을 추가하지 않는다.
+- 등록 가족 구성원별 실제 YTD + 미래 예상 배당 기반 금융소득 projection을 계산한다.
+- 개인별 1,000만원 watch / 2,000만원 종합과세 screening 상태를 표시한다.
+- 정확히 2,000만원은 `도달 · 초과 아님`, 2,000만원 초과는 `초과`로 구분한다.
+- 가족 합계는 참고값으로만 제공하고 개인별 법정 threshold와 혼동하지 않는다.
+- 미분류 소유자 데이터가 있으면 가족 참고 합계의 불완전성을 명시한다.
+- 일부 구성원 forecast가 unavailable이면 projected 가족 합계를 부분합으로 표시하지 않는다.
+- 기존 financial-income projection과 DART/KIND/Naver/Yahoo source 계층을 재사용한다.
 
 완료 기준:
 
-- 숫자형/영문 혼합 국내 ISIN → 단축코드 변환 테스트
-- KIND ETF 검색 결과에서 분배금 공시만 선택하는 테스트
-- viewer `/external/` 문서 경로 및 분배금 표 구조 파싱 테스트
-- 기준일 월 → 실제 지급월 이동/금액 교체 테스트
-- legacy 0에서 구조 검증된 이벤트 생성 테스트
-- 안전한 월 매칭 실패 시 evidence-only guard
-- 비ETF 미조회 / 네트워크 장애 fail-open guard
-- A-4.1/A-4.3 및 금융소득 projection 회귀 통과
+- 구성원 순서/소유자 scoping 테스트
+- 정확히 2,000만원 경계 테스트
+- 1,000만원 watch / 2,000만원 개인별 위험 집계 테스트
+- 가족 합계에 statutory threshold를 적용하지 않는 guard
+- 미분류 소유자/forecast unavailable completeness guard
+- authenticated-user only API / `Cache-Control: no-store`
+- 예상 탭 개인별 위험 UI 및 가족 참고 합계 경고
+- 기존 financial-income projection/What-if 회귀 통과
 - 전체 unittest suite 통과
 - 사용자 로컬 검증 완료
 - PR Ready → merge
@@ -41,15 +40,20 @@ A-4.3 미래 배당 확정공시 구조화는 PR #24 (`86a07ea`)로 완료되었
 
 ## 2. 다음 단계
 
-다음 제품 단계는 `Phase 10.5B-1 — 가족 금융소득 위험 보기`이며 아래 3절을 따른다.
+다음 제품 단계는 `Phase 10.5B-2 — 추가 배당/매매 What-if 확장`이며 아래 3절을 따른다.
 
 ## 3. 금융소득/가족 세금 확장
 
 ### Phase 10.5B-1 — 가족 금융소득 위험 보기
 
-- 본인/배우자/자녀 등 소유자별 예상 금융소득
-- 1,000만원 watch / 2,000만원 screening 상태
-- 가족 전체 합계는 참고값으로만 제공하고 개인별 세법 기준과 혼동하지 않음
+상태: 진행 중. 상세 목표/완료 기준은 이 문서 1절을 따른다.
+
+핵심 원칙:
+
+- 본인/배우자/자녀 등 등록 소유자별 예상 금융소득
+- 1,000만원 watch / 2,000만원 screening 상태는 개인별 판정
+- 가족 전체 합계는 참고값으로만 제공
+- 미분류 데이터는 임의 배분하지 않음
 
 ### Phase 10.5B-2 — 추가 배당/매매 What-if 확장
 
