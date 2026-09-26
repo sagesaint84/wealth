@@ -1,7 +1,7 @@
 """Secret-safe automation execution status for the settings UI.
 
 Reads the existing persistent automation execution state and projects only
-operational metadata needed by the current user.  No raw exceptions, paths,
+operational metadata needed by the current user. No raw exceptions, paths,
 credentials, notification bodies, or provider responses are exposed.
 """
 from __future__ import annotations
@@ -16,8 +16,11 @@ from app.services.automation.execution_state import (
     ExecutionStateError,
     load_execution_state,
 )
-from app.services.settings import _TIME, get_effective_settings
-from app.services.system_settings import resolve_toss_wts_settings
+from app.services.settings import _TIME
+from app.services.system_settings import (
+    get_effective_system_settings,
+    resolve_toss_wts_settings,
+)
 
 KST = timezone(timedelta(hours=9))
 STATUS_VERSION = 1
@@ -36,35 +39,10 @@ _JOB_LABELS = {
 _DETAIL_KEYS = {
     "ipo_refresh_morning": {"total_ipos", "status"},
     "ipo_refresh_evening": {"total_ipos", "status"},
-    "ipo_reminder": {
-        "notifications_sent_count",
-        "eligible_ipos",
-        "all_applied_count",
-    },
-    "ipo_listing_reminder": {
-        "notifications_sent_count",
-        "eligible_ipos",
-    },
-    "daily_close": {
-        "notification_status",
-        "notification_dispatch_status",
-        "notifications_sent_count",
-        "stock_record_saved",
-        "net_record_saved",
-    },
-    "toss_session_maintenance": {
-        "action",
-        "active",
-        "valid",
-        "server_expires_at",
-        "hours_remaining",
-        "extension_attempted",
-        "extension_succeeded",
-        "notification_status",
-        "notification_dispatch_status",
-        "notifications_sent_count",
-        "error_code",
-    },
+    "ipo_reminder": {"notifications_sent_count", "eligible_ipos", "all_applied_count"},
+    "ipo_listing_reminder": {"notifications_sent_count", "eligible_ipos"},
+    "daily_close": {"notification_status", "notification_dispatch_status", "notifications_sent_count", "stock_record_saved", "net_record_saved"},
+    "toss_session_maintenance": {"action", "active", "valid", "server_expires_at", "hours_remaining", "extension_attempted", "extension_succeeded", "notification_status", "notification_dispatch_status", "notifications_sent_count", "error_code"},
 }
 
 
@@ -81,13 +59,7 @@ def _now_kst(now: datetime | None) -> datetime:
 
 
 def _valid_times(values: Iterable[Any]) -> list[str]:
-    return sorted(
-        {
-            value
-            for value in values
-            if isinstance(value, str) and _TIME.fullmatch(value)
-        }
-    )
+    return sorted({value for value in values if isinstance(value, str) and _TIME.fullmatch(value)})
 
 
 def _occurrence(day: datetime, value: str) -> datetime:
@@ -95,30 +67,14 @@ def _occurrence(day: datetime, value: str) -> datetime:
     return datetime.combine(day.date(), time(hour, minute), tzinfo=KST)
 
 
-def _schedule_window(
-    times: list[str],
-    *,
-    enabled: bool,
-    now: datetime,
-) -> tuple[str | None, str | None]:
-    """Return latest expected occurrence and next occurrence in KST."""
+def _schedule_window(times: list[str], *, enabled: bool, now: datetime) -> tuple[str | None, str | None]:
     if not enabled or not times:
         return None, None
-
     today_occurrences = [_occurrence(now, value) for value in times]
     future = [item for item in today_occurrences if item > now]
-    if future:
-        next_dt = min(future)
-    else:
-        tomorrow = now + timedelta(days=1)
-        next_dt = _occurrence(tomorrow, times[0])
-
+    next_dt = min(future) if future else _occurrence(now + timedelta(days=1), times[0])
     past = [item for item in today_occurrences if item <= now]
-    if past:
-        expected = max(past)
-    else:
-        yesterday = now - timedelta(days=1)
-        expected = _occurrence(yesterday, times[-1])
+    expected = max(past) if past else _occurrence(now - timedelta(days=1), times[-1])
     return expected.isoformat(), next_dt.isoformat()
 
 
@@ -197,11 +153,7 @@ def _project_record(record: dict[str, Any]) -> dict[str, Any]:
         "duration_seconds": _duration_seconds(record),
         "attempt_count": int(record.get("attempt_count") or 0),
         "retryable": record.get("retryable") is not False,
-        "error_code": (
-            str(record.get("last_error_code"))[:64]
-            if record.get("last_error_code")
-            else None
-        ),
+        "error_code": str(record.get("last_error_code"))[:64] if record.get("last_error_code") else None,
         "details": _safe_details(job, record.get("details")),
     }
 
@@ -211,12 +163,7 @@ def _record_relevant(record: dict[str, Any], username: str) -> bool:
         return record.get("job") in {"ipo_refresh_morning", "ipo_refresh_evening"}
     if record.get("username") == username:
         return record.get("job") in _JOB_LABELS
-    # Toss session descriptors historically stored the user in owner rather
-    # than username while still using user scope.
-    return (
-        record.get("job") == "toss_session_maintenance"
-        and record.get("owner") == username
-    )
+    return record.get("job") == "toss_session_maintenance" and record.get("owner") == username
 
 
 def _record_sort_value(record: dict[str, Any]) -> datetime:
@@ -231,30 +178,19 @@ def _record_sort_value(record: dict[str, Any]) -> datetime:
     return datetime.min.replace(tzinfo=KST)
 
 
-def _health_status(
-    *,
-    enabled: bool,
-    configured: bool,
-    expected_at: str | None,
-    last_record: dict[str, Any] | None,
-    records: list[dict[str, Any]],
-    now: datetime,
-) -> str:
+def _health_status(*, enabled: bool, configured: bool, expected_at: str | None, last_record: dict[str, Any] | None, records: list[dict[str, Any]], now: datetime) -> str:
     if not enabled:
         return "disabled"
     if not configured:
         return "unconfigured"
-
     if expected_at:
         try:
             expected_dt = datetime.fromisoformat(expected_at)
         except ValueError:
             expected_dt = None
         if expected_dt is not None and now >= expected_dt + timedelta(minutes=MISSED_GRACE_MINUTES):
-            matched = any(_record_scheduled_at(rec) == expected_dt.isoformat() for rec in records)
-            if not matched:
+            if not any(_record_scheduled_at(rec) == expected_dt.isoformat() for rec in records):
                 return "missed"
-
     if not last_record:
         return "never_run"
     status = str(last_record.get("status") or "").upper()
@@ -277,29 +213,11 @@ def _health_status(
     return "unknown"
 
 
-def _job_summary(
-    *,
-    job: str,
-    scope: str,
-    enabled: bool,
-    configured: bool,
-    times: list[str],
-    reason: str | None,
-    records: list[dict[str, Any]],
-    now: datetime,
-) -> dict[str, Any]:
+def _job_summary(*, job: str, scope: str, enabled: bool, configured: bool, times: list[str], reason: str | None, records: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
     expected_at, next_at = _schedule_window(times, enabled=enabled and configured, now=now)
     own_records = [record for record in records if record.get("job") == job]
     own_records.sort(key=_record_sort_value, reverse=True)
     last_record = own_records[0] if own_records else None
-    health = _health_status(
-        enabled=enabled,
-        configured=configured,
-        expected_at=expected_at,
-        last_record=last_record,
-        records=own_records,
-        now=now,
-    )
     return {
         "job": job,
         "label": _JOB_LABELS[job],
@@ -310,51 +228,44 @@ def _job_summary(
         "schedules": times,
         "last_expected_at": expected_at,
         "next_run_at": next_at,
-        "health": health,
+        "health": _health_status(enabled=enabled, configured=configured, expected_at=expected_at, last_record=last_record, records=own_records, now=now),
         "last_execution": _project_record(last_record) if last_record else None,
     }
 
 
-def build_automation_status(
-    username: str,
-    *,
-    now: datetime | None = None,
-    state_path: Path | None = None,
-    recent_limit: int = 20,
-) -> dict[str, Any]:
+def build_automation_status(username: str, *, settings: dict[str, Any] | None = None, now: datetime | None = None, state_path: Path | None = None, recent_limit: int = 20) -> dict[str, Any]:
     """Build the current user's operational automation status projection."""
     if type(recent_limit) is not int or not 1 <= recent_limit <= MAX_RECENT:
         raise ValueError("AUTOMATION_STATUS_LIMIT_INVALID")
     current = _now_kst(now)
-
     try:
-        user_settings = get_effective_settings(username)
+        if settings is None:
+            from app.services.settings import get_effective_settings
+            settings = get_effective_settings(username, include_automation_status=False)
         state = load_execution_state(state_path)
     except (ExecutionStateCorruptError, ExecutionStateError, OSError) as exc:
         raise AutomationStatusError("AUTOMATION_STATUS_UNAVAILABLE") from exc
     except Exception as exc:
         raise AutomationStatusError("AUTOMATION_STATUS_UNAVAILABLE") from exc
 
-    relevant_records = [
-        dict(record)
-        for record in state.get("executions", {}).values()
-        if isinstance(record, dict) and _record_relevant(record, username)
-    ]
+    relevant_records = [dict(record) for record in state.get("executions", {}).values() if isinstance(record, dict) and _record_relevant(record, username)]
 
-    # Global IPO refresh jobs use the configured global automation owner's
-    # schedule, not the viewer's own settings.
     try:
-        from app.services.automation.dispatcher import resolve_global_automation_owner
-
-        global_owner = resolve_global_automation_owner()
-        global_settings = get_effective_settings(global_owner) if global_owner else None
+        system_settings = get_effective_system_settings()
+        global_owner = system_settings.get("automation_owner")
+        if global_owner == username:
+            global_settings = settings
+        elif global_owner:
+            from app.services.settings import get_effective_settings
+            global_settings = get_effective_settings(global_owner, include_automation_status=False)
+        else:
+            global_settings = None
     except Exception:
         global_owner = None
         global_settings = None
 
     global_automation = (global_settings or {}).get("automation") or {}
-    user_automation = user_settings.get("automation") or {}
-
+    user_automation = settings.get("automation") or {}
     global_configured = global_owner is not None and global_settings is not None
     global_reason = None if global_configured else "NO_GLOBAL_AUTOMATION_OWNER"
 
@@ -370,14 +281,8 @@ def build_automation_status(
         toss_cfg = {}
     allowed_users = set(toss_cfg.get("allowed_users") or [])
     toss_allowed = not allowed_users or username in allowed_users
-    toss_global_enabled = (
-        toss_cfg.get("enabled") is True
-        and toss_cfg.get("session_check_enabled") is True
-        and toss_allowed
-    )
-    toss_user_enabled = (
-        user_settings.get("toss_wts", {}).get("session_check_enabled") is True
-    )
+    toss_global_enabled = toss_cfg.get("enabled") is True and toss_cfg.get("session_check_enabled") is True and toss_allowed
+    toss_user_enabled = settings.get("toss_wts", {}).get("session_check_enabled") is True
     toss_configured = bool(toss_global_enabled)
     toss_enabled = bool(toss_global_enabled and toss_user_enabled)
     if not toss_allowed:
@@ -390,80 +295,22 @@ def build_automation_status(
         toss_reason = None
 
     jobs = [
-        _job_summary(
-            job="ipo_refresh_morning",
-            scope="global",
-            enabled=morning.get("enabled") is True,
-            configured=global_configured,
-            times=_valid_times([morning.get("time")]),
-            reason=global_reason,
-            records=relevant_records,
-            now=current,
-        ),
-        _job_summary(
-            job="ipo_reminder",
-            scope="user",
-            enabled=reminders.get("enabled") is True,
-            configured=True,
-            times=_valid_times(reminders.get("times") or []),
-            reason=None,
-            records=relevant_records,
-            now=current,
-        ),
-        _job_summary(
-            job="ipo_listing_reminder",
-            scope="user",
-            enabled=listing.get("enabled") is True,
-            configured=True,
-            times=_valid_times(listing.get("times") or []),
-            reason=None,
-            records=relevant_records,
-            now=current,
-        ),
-        _job_summary(
-            job="ipo_refresh_evening",
-            scope="global",
-            enabled=evening.get("enabled") is True,
-            configured=global_configured,
-            times=_valid_times([evening.get("time")]),
-            reason=global_reason,
-            records=relevant_records,
-            now=current,
-        ),
-        _job_summary(
-            job="daily_close",
-            scope="user",
-            enabled=daily.get("enabled") is True,
-            configured=True,
-            times=_valid_times([daily.get("time")]),
-            reason=None,
-            records=relevant_records,
-            now=current,
-        ),
-        _job_summary(
-            job="toss_session_maintenance",
-            scope="user",
-            enabled=toss_enabled,
-            configured=toss_configured,
-            times=_valid_times([toss_cfg.get("session_check_time")]),
-            reason=toss_reason,
-            records=relevant_records,
-            now=current,
-        ),
+        _job_summary(job="ipo_refresh_morning", scope="global", enabled=morning.get("enabled") is True, configured=global_configured, times=_valid_times([morning.get("time")]), reason=global_reason, records=relevant_records, now=current),
+        _job_summary(job="ipo_reminder", scope="user", enabled=reminders.get("enabled") is True, configured=True, times=_valid_times(reminders.get("times") or []), reason=None, records=relevant_records, now=current),
+        _job_summary(job="ipo_listing_reminder", scope="user", enabled=listing.get("enabled") is True, configured=True, times=_valid_times(listing.get("times") or []), reason=None, records=relevant_records, now=current),
+        _job_summary(job="ipo_refresh_evening", scope="global", enabled=evening.get("enabled") is True, configured=global_configured, times=_valid_times([evening.get("time")]), reason=global_reason, records=relevant_records, now=current),
+        _job_summary(job="daily_close", scope="user", enabled=daily.get("enabled") is True, configured=True, times=_valid_times([daily.get("time")]), reason=None, records=relevant_records, now=current),
+        _job_summary(job="toss_session_maintenance", scope="user", enabled=toss_enabled, configured=toss_configured, times=_valid_times([toss_cfg.get("session_check_time")]), reason=toss_reason, records=relevant_records, now=current),
     ]
 
     relevant_records.sort(key=_record_sort_value, reverse=True)
     recent = [_project_record(record) for record in relevant_records[:recent_limit]]
-
     counts = {
         "success": sum(1 for job in jobs if job["health"] == "success"),
-        "warning": sum(
-            1 for job in jobs if job["health"] in {"failed", "stale", "missed"}
-        ),
+        "warning": sum(1 for job in jobs if job["health"] in {"failed", "stale", "missed"}),
         "running": sum(1 for job in jobs if job["health"] == "running"),
         "enabled": sum(1 for job in jobs if job["enabled"]),
     }
-
     return {
         "version": STATUS_VERSION,
         "timezone": "Asia/Seoul",
