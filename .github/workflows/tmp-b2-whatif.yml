@@ -52,6 +52,9 @@ jobs:
       - name: Apply Phase 10.5B2 integration
         run: python scripts/tmp_b2_apply.py
 
+      - name: Apply UI review fix
+        run: python scripts/tmp_b2_review_fix.py
+
       - name: Run focused tests
         env:
           WEALTH_ENV: test
@@ -90,6 +93,7 @@ jobs:
       - name: Commit verified implementation and self-clean
         run: |
           rm -f scripts/tmp_b2_apply.py
+          rm -f scripts/tmp_b2_review_fix.py
           rm -f .github/workflows/tmp-b2-whatif.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
