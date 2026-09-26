@@ -80,7 +80,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
         self.assertEqual(
             result["foreign_tax_credit_limit_basis_income_total_krw"], 10_000_000
         )
-        self.assertEqual(result["foreign_tax_credit_aggregate_limit_krw"], 1_400_000)
+        self.assertEqual(result["foreign_tax_credit_country_limit_total_krw"], 1_400_000)
         self.assertEqual(
             result["eligible_current_year_foreign_income_tax_total_krw"], 1_500_000
         )
@@ -143,12 +143,41 @@ class ForeignTaxCreditTests(unittest.TestCase):
                 ]
             )
         )
-        self.assertEqual(result["foreign_tax_credit_aggregate_limit_krw"], 1_400_000)
         self.assertEqual(result["foreign_tax_credit_country_limit_total_krw"], 1_400_000)
         self.assertEqual(
             result["foreign_tax_credit_within_country_limits_total_krw"], 1_000_000
         )
         self.assertEqual(result["foreign_tax_credit_krw"], 1_000_000)
+
+    def test_sum_of_country_basis_may_exceed_comprehensive_income(self):
+        result = calculate_financial_income_article62_comparison_2026(
+            **payload_with_foreign_credit(
+                foreign_tax_credit_items=[
+                    foreign_item(
+                        country_code="US",
+                        limit_basis_foreign_source_income_krw=20_000_000,
+                        eligible_current_year_foreign_income_tax_krw=3_000_000,
+                    ),
+                    foreign_item(
+                        country_code="JP",
+                        limit_basis_foreign_source_income_krw=20_000_000,
+                        eligible_current_year_foreign_income_tax_krw=3_000_000,
+                    ),
+                ]
+            )
+        )
+        self.assertEqual(
+            result["foreign_tax_credit_limit_basis_income_total_krw"], 40_000_000
+        )
+        self.assertEqual(result["foreign_tax_credit_country_limit_total_krw"], 5_600_000)
+        self.assertEqual(
+            result["foreign_tax_credit_within_country_limits_total_krw"], 5_600_000
+        )
+        self.assertEqual(result["foreign_tax_credit_krw"], 4_200_000)
+        self.assertEqual(
+            result["foreign_tax_credit_reduced_by_preceding_dividend_credit_krw"],
+            1_400_000,
+        )
 
     def test_dividend_credit_is_applied_before_current_year_foreign_credit(self):
         result = calculate_financial_income_article62_comparison_2026(
@@ -173,7 +202,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
             result["article62_tax_after_dividend_credit_before_other_credits_krw"],
             9_860_000,
         )
-        self.assertEqual(result["foreign_tax_credit_aggregate_limit_krw"], 10_360_000)
+        self.assertEqual(result["foreign_tax_credit_country_limit_total_krw"], 10_360_000)
         self.assertEqual(result["foreign_tax_credit_krw"], 9_860_000)
         self.assertEqual(
             result["foreign_tax_credit_reduced_by_preceding_dividend_credit_krw"],
@@ -354,10 +383,10 @@ class ForeignTaxCreditTests(unittest.TestCase):
                         )
                     )
 
-    def test_limit_basis_cannot_exceed_comprehensive_income_amount(self):
+    def test_each_country_basis_cannot_exceed_comprehensive_income_amount(self):
         with self.assertRaisesRegex(
             PersonalComprehensiveTaxError,
-            "ARTICLE57_FOREIGN_TAX_CREDIT_BASIS_EXCEEDS_COMPREHENSIVE_INCOME",
+            "ARTICLE57_FOREIGN_TAX_CREDIT_COUNTRY_BASIS_EXCEEDS_COMPREHENSIVE_INCOME",
         ):
             calculate_financial_income_article62_comparison_2026(
                 **payload_with_foreign_credit(
@@ -374,6 +403,9 @@ class ForeignTaxCreditTests(unittest.TestCase):
         self.assertTrue(quality["foreign_tax_credit_limit_basis_user_provided"])
         self.assertTrue(quality["foreign_tax_credit_eligibility_user_asserted"])
         self.assertTrue(quality["foreign_tax_credit_article60_scope_confirmed"])
+        self.assertFalse(
+            quality["foreign_tax_credit_country_code_iso_membership_verified_by_service"]
+        )
         self.assertFalse(
             quality["foreign_tax_credit_prior_year_carryforward_calculated"]
         )
@@ -467,7 +499,7 @@ class ForeignTaxCreditApiTests(unittest.TestCase):
         self.assertEqual(response.headers.get("cache-control"), "no-store")
         self.assertEqual(
             response.json()["detail"]["code"],
-            "ARTICLE57_FOREIGN_TAX_CREDIT_BASIS_EXCEEDS_COMPREHENSIVE_INCOME",
+            "ARTICLE57_FOREIGN_TAX_CREDIT_COUNTRY_BASIS_EXCEEDS_COMPREHENSIVE_INCOME",
         )
 
 
