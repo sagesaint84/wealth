@@ -37,8 +37,10 @@ class AutomationStatusFrontendTests(unittest.TestCase):
         self.assertIn("다음 예정", STATUS_JS)
         self.assertIn("시도 횟수", STATUS_JS)
 
-    def test_status_refresh_uses_existing_authenticated_settings_endpoint(self):
-        self.assertIn("window.api('/api/settings/automation')", STATUS_JS)
+    def test_status_refresh_uses_authenticated_same_origin_settings_endpoint(self):
+        self.assertIn("getJson('/api/settings/automation')", STATUS_JS)
+        self.assertIn("credentials: 'same-origin'", STATUS_JS)
+        self.assertNotIn("window.api", STATUS_JS)
         self.assertIn("settingsAutomationStatusRefresh", STATUS_JS)
         self.assertIn("automation._status", STATUS_JS)
 
