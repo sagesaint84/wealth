@@ -7,46 +7,41 @@
 
 ## 1. 현재 우선순위
 
-### Phase 10.5B-1 — 가족 금융소득 위험 보기
+### Phase 10.5B-2 — 추가 배당/매매 What-if 확장
 
 상태: 구현/검증 중
 
-A-4.4 국내 ETF 분배금 공식 Source 개선은 PR #25 (`39ca928`)로 완료되었습니다.
+B-1 가족 금융소득 위험 보기는 PR #26 (`a8883c2`)로 완료되었습니다.
 
 목표:
 
-- 등록 가족 구성원별 실제 YTD + 미래 예상 배당 기반 금융소득 projection을 계산한다.
-- 개인별 1,000만원 watch / 2,000만원 종합과세 screening 상태를 표시한다.
-- 정확히 2,000만원은 `도달 · 초과 아님`, 2,000만원 초과는 `초과`로 구분한다.
-- 가족 합계는 참고값으로만 제공하고 개인별 법정 threshold와 혼동하지 않는다.
-- 미분류 소유자 데이터가 있으면 가족 참고 합계의 불완전성을 명시한다.
-- 일부 구성원 forecast가 unavailable이면 projected 가족 합계를 부분합으로 표시하지 않는다.
-- 기존 financial-income projection과 DART/KIND/Naver/Yahoo source 계층을 재사용한다.
+- 추가 배당/이자와 함께 해외주식 실현차익을 별도 매매 레이어로 표시
+- 국내상장 해외 ETF 과세기준금액을 금융소득 screening에 반영
+- 해외주식 실현차익은 금융소득 1천/2천만원 판정에서 제외
+- 빠른 매매 입력만으로 불충분한 해외주식 양도세는 미계산으로 명시
+- 개인 vs 가족법인 비교에서 수동 입력을 우선하고 빠른 매매 가정을 fallback으로 연결
+- 기존 What-if/high-dividend/family-risk 회귀 유지
 
 완료 기준:
 
-- 구성원 순서/소유자 scoping 테스트
-- 정확히 2,000만원 경계 테스트
-- 1,000만원 watch / 2,000만원 개인별 위험 집계 테스트
-- 가족 합계에 statutory threshold를 적용하지 않는 guard
-- 미분류 소유자/forecast unavailable completeness guard
-- authenticated-user only API / `Cache-Control: no-store`
-- 예상 탭 개인별 위험 UI 및 가족 참고 합계 경고
-- 기존 financial-income projection/What-if 회귀 통과
-- 전체 unittest suite 통과
-- 사용자 로컬 검증 완료
-- PR Ready → merge
-- GHCR build success
+- ETF 과세기준금액 금융소득 포함 테스트
+- 해외주식 실현차익 금융소득 제외 테스트
+- 정확히 2천만원 경계 유지
+- 새 입력 validation/API no-store/legacy call contract 테스트
+- 투자비교 fallback이 수동값을 덮어쓰지 않는 static guard
+- JS 문법/Python compile/`git diff --check`
+- 전체 unittest suite 및 사용자 로컬 검증
+- PR Ready → merge → GHCR build success
 
 ## 2. 다음 단계
 
-다음 제품 단계는 `Phase 10.5B-2 — 추가 배당/매매 What-if 확장`이며 아래 3절을 따른다.
+다음 제품 단계는 `Phase 10.5B-3 — 배우자/자녀 분산 시뮬레이션`이며 아래 3절을 따른다.
 
 ## 3. 금융소득/가족 세금 확장
 
 ### Phase 10.5B-1 — 가족 금융소득 위험 보기
 
-상태: 진행 중. 상세 목표/완료 기준은 이 문서 1절을 따른다.
+상태: 완료 — PR #26 (`a8883c2`).
 
 핵심 원칙:
 
@@ -56,6 +51,8 @@ A-4.4 국내 ETF 분배금 공식 Source 개선은 PR #25 (`39ca928`)로 완료�
 - 미분류 데이터는 임의 배분하지 않음
 
 ### Phase 10.5B-2 — 추가 배당/매매 What-if 확장
+
+상태: 진행 중. 상세 목표/완료 기준은 이 문서 1절을 따른다.
 
 - 추가 배당금
 - 추가 이자

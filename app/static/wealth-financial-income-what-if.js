@@ -64,6 +64,19 @@
                 <small>세전 원화 기준</small>
               </label>
             </div>
+            <div class="fi-what-if-subhead">추가 매매 가정</div>
+            <div class="fi-what-if-grid two">
+              <label>
+                <span>해외주식 실현차익 가정</span>
+                <input id="fiWhatIfForeignShareGain" type="number" min="0" step="10000" value="0" data-korean-currency />
+                <small>금융소득 2천만원 판정에는 포함하지 않음</small>
+              </label>
+              <label>
+                <span>국내상장 해외 ETF 과세기준금액</span>
+                <input id="fiWhatIfKrOverseasEtfTaxableGain" type="number" min="0" step="10000" value="0" data-korean-currency />
+                <small>배당소득 성격의 screening 금액으로 금융소득에 포함</small>
+              </label>
+            </div>
           </div>
 
           <div class="fi-what-if-section">
@@ -104,6 +117,11 @@
             </label>
 
             <div id="fiWhatIfInvestmentFields" class="fi-what-if-investment-fields" hidden>
+              <label class="fi-check">
+                <input id="fiWhatIfUseQuickTrading" type="checkbox" checked />
+                <span>빠른 매매 가정을 비교 입력의 보조값으로 사용</span>
+              </label>
+              <small>수동 매매차익이 0이거나 ETF 과세대상 매매이익이 빈칸일 때만 위 값을 사용합니다.</small>
               <div class="fi-what-if-grid three">
                 <label>
                   <span>투자 유형</span>
@@ -244,10 +262,15 @@
     if (!boolValue('fiWhatIfInvestmentEnabled')) return null;
     const assetType = document.getElementById('fiWhatIfAssetType')?.value || 'domestic_dividend_stock';
     const etfInput = document.getElementById('fiWhatIfEtfTaxGain');
+    const useQuickTrading = boolValue('fiWhatIfUseQuickTrading');
+    let realizedGain = numberValue('fiWhatIfRealizedGain');
+    if (useQuickTrading && assetType === 'us_direct' && realizedGain === 0) {
+      realizedGain = numberValue('fiWhatIfForeignShareGain');
+    }
     const scenario = {
       asset_type: assetType,
       annual_distribution_krw: numberValue('fiWhatIfDistribution'),
-      annual_realized_gain_krw: numberValue('fiWhatIfRealizedGain'),
+      annual_realized_gain_krw: realizedGain,
       existing_corporate_taxable_income_krw: numberValue('fiWhatIfCorporateBase'),
       corporate_deductible_expenses_krw: numberValue('fiWhatIfCorporateExpense'),
       corporation_to_owner_distribution_krw: numberValue('fiWhatIfOwnerDistribution'),
@@ -258,8 +281,12 @@
       foreign_subsidiary_exclusion_qualified: boolValue('fiWhatIfForeignSubsidiaryQualified'),
       foreign_ownership_pct: numberValue('fiWhatIfForeignOwnership'),
     };
-    if (assetType === 'kr_listed_us_etf' && etfInput && etfInput.value !== '') {
-      scenario.taxable_etf_gain_krw = numberValue('fiWhatIfEtfTaxGain');
+    if (assetType === 'kr_listed_us_etf' && etfInput) {
+      if (etfInput.value !== '') {
+        scenario.taxable_etf_gain_krw = numberValue('fiWhatIfEtfTaxGain');
+      } else if (useQuickTrading) {
+        scenario.taxable_etf_gain_krw = numberValue('fiWhatIfKrOverseasEtfTaxableGain');
+      }
     }
     return scenario;
   }
@@ -268,6 +295,8 @@
     const values = [
       payload.additional_dividend_gross_krw,
       payload.additional_interest_gross_krw,
+      payload.additional_foreign_share_realized_gain_krw,
+      payload.additional_kr_listed_overseas_etf_taxable_gain_krw,
     ];
     if (payload.high_dividend_scenario) {
       values.push(payload.high_dividend_scenario.special_dividend_income_krw);
@@ -300,6 +329,8 @@
       owner: currentOwnerValue(),
       additional_dividend_gross_krw: numberValue('fiWhatIfExtraDividend'),
       additional_interest_gross_krw: numberValue('fiWhatIfExtraInterest'),
+      additional_foreign_share_realized_gain_krw: numberValue('fiWhatIfForeignShareGain'),
+      additional_kr_listed_overseas_etf_taxable_gain_krw: numberValue('fiWhatIfKrOverseasEtfTaxableGain'),
     };
     const highDividendScenario = buildHighDividendScenario();
     if (highDividendScenario) payload.high_dividend_scenario = highDividendScenario;
@@ -396,6 +427,43 @@
       </div>
     `;
 
+    const tradingImpact = whatIf?.trading_impact;
+    if (tradingImpact) {
+      const foreign = tradingImpact.foreign_shares || {};
+      const etf = tradingImpact.kr_listed_overseas_etf || {};
+      const rateText = Number.isFinite(Number(etf.estimated_withholding_rate))
+        ? `${(Number(etf.estimated_withholding_rate) * 100).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}%`
+        : '확인 불가';
+      const foreignTaxText = foreign.capital_gain_tax_calculated === false
+        ? '금융소득 판정 미포함 · 양도세는 빠른 입력만으로 미계산'
+        : '금융소득 판정 미포함';
+      html += `
+        <div class="fi-compare-block">
+          <div class="fi-compare-title">
+            <strong>추가 매매 영향</strong>
+            <span>금융소득과 양도소득 레이어를 구분합니다.</span>
+          </div>
+          <div class="fi-result-grid comparison">
+            <div class="fi-result-card">
+              <span>해외주식 실현차익</span>
+              <strong>${money(foreign.realized_gain_krw || 0)}</strong>
+              <small>${foreignTaxText}</small>
+            </div>
+            <div class="fi-result-card">
+              <span>국내상장 해외 ETF 과세기준금액</span>
+              <strong>${money(etf.taxable_gain_krw || 0)}</strong>
+              <small>금융소득에 포함</small>
+            </div>
+            <div class="fi-result-card">
+              <span>ETF 예상 원천징수</span>
+              <strong>${money(etf.estimated_withholding_krw || 0)}</strong>
+              <small>${rateText} screening · 최종세액 아님</small>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     const highDividend = whatIf?.high_dividend_special_tax;
     if (highDividend) {
       const applied = highDividend.special_rule_applied === true;
@@ -468,7 +536,7 @@
 
     html += `
       <div class="fi-what-if-disclaimer">
-        이 결과는 2026년 기준 사전 screening입니다. 고배당 특례는 공식 공시 확인과 신고 신청을 사용자가 가정한 경우에만 반영하며, 지방소득세·금융소득 종합과세 최종세액·건강보험료·급여/퇴직금 인출·증여/상속세는 포함하지 않습니다.
+        이 결과는 2026년 기준 사전 screening입니다. 해외주식 실현차익은 금융소득 판정과 분리하며 빠른 매매 입력만으로 양도소득세를 확정하지 않습니다. 고배당 특례는 공식 공시 확인과 신고 신청을 사용자가 가정한 경우에만 반영하며, 지방소득세·금융소득 종합과세 최종세액·건강보험료·급여/퇴직금 인출·증여/상속세는 포함하지 않습니다.
       </div>
     `;
     root.innerHTML = html;

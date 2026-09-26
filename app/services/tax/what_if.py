@@ -13,6 +13,7 @@ from typing import Any
 from app.services.tax.financial_income import get_financial_income_projection_for_user
 from app.services.tax.high_dividend_2026 import calculate_high_dividend_separate_tax_2026
 from app.services.tax.investment_tax import compare_investment_tax_2026
+from app.services.tax.investment_tax import rules_2026 as investment_rules
 from app.services.tax.rules_2026 import (
     FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW,
     FINANCIAL_INCOME_WATCH_THRESHOLD_KRW,
@@ -106,11 +107,50 @@ def _high_dividend_special_result(
     )
 
 
+def _trading_impact(
+    *,
+    foreign_share_realized_gain_krw: float,
+    kr_listed_overseas_etf_taxable_gain_krw: float,
+) -> dict[str, Any]:
+    etf_withholding = (
+        kr_listed_overseas_etf_taxable_gain_krw
+        * investment_rules.GENERAL_DIVIDEND_WITHHOLDING_RATE
+    )
+    return {
+        "foreign_shares": {
+            "realized_gain_krw": _won(foreign_share_realized_gain_krw),
+            "financial_income_addition_krw": 0,
+            "included_in_financial_income_screening": False,
+            "capital_gain_tax_calculated": False,
+            "note": (
+                "해외주식 실현차익은 금융소득 종합과세 판정에 포함하지 않습니다. "
+                "이 빠른 입력만으로는 연간 순손익과 기본공제 사용상태를 확정할 수 없어 "
+                "양도소득세는 계산하지 않습니다."
+            ),
+        },
+        "kr_listed_overseas_etf": {
+            "taxable_gain_krw": _won(kr_listed_overseas_etf_taxable_gain_krw),
+            "financial_income_addition_krw": _won(
+                kr_listed_overseas_etf_taxable_gain_krw
+            ),
+            "included_in_financial_income_screening": True,
+            "estimated_withholding_rate": investment_rules.GENERAL_DIVIDEND_WITHHOLDING_RATE,
+            "estimated_withholding_krw": _won(etf_withholding),
+            "final_tax_calculated": False,
+        },
+        "screening_only": True,
+        "legal_tax_determination": False,
+    }
+
+
+
 def build_financial_income_what_if(
     baseline_projection: dict[str, Any],
     *,
     additional_dividend_gross_krw: object = 0,
     additional_interest_gross_krw: object = 0,
+    additional_foreign_share_realized_gain_krw: object = 0,
+    additional_kr_listed_overseas_etf_taxable_gain_krw: object = 0,
     high_dividend_scenario: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Apply hypothetical extra financial income to an existing projection."""
@@ -126,7 +166,23 @@ def build_financial_income_what_if(
         additional_interest_gross_krw,
         "FINANCIAL_INCOME_WHAT_IF_INTEREST_INVALID",
     )
-    scenario_addition = additional_dividend + additional_interest
+    additional_foreign_share_gain = _nonnegative(
+        additional_foreign_share_realized_gain_krw,
+        "FINANCIAL_INCOME_WHAT_IF_FOREIGN_SHARE_GAIN_INVALID",
+    )
+    additional_kr_overseas_etf_gain = _nonnegative(
+        additional_kr_listed_overseas_etf_taxable_gain_krw,
+        "FINANCIAL_INCOME_WHAT_IF_KR_OVERSEAS_ETF_GAIN_INVALID",
+    )
+    scenario_addition = (
+        additional_dividend
+        + additional_interest
+        + additional_kr_overseas_etf_gain
+    )
+    trading_impact = _trading_impact(
+        foreign_share_realized_gain_krw=additional_foreign_share_gain,
+        kr_listed_overseas_etf_taxable_gain_krw=additional_kr_overseas_etf_gain,
+    )
     high_dividend_special = _high_dividend_special_result(
         high_dividend_scenario,
         additional_dividend_gross_krw=additional_dividend,
@@ -183,7 +239,14 @@ def build_financial_income_what_if(
         "baseline_projected_gross_screening_income_krw": baseline_projected,
         "additional_dividend_gross_krw": _won(additional_dividend),
         "additional_interest_gross_krw": _won(additional_interest),
+        "additional_foreign_share_realized_gain_krw": _won(
+            additional_foreign_share_gain
+        ),
+        "additional_kr_listed_overseas_etf_taxable_gain_krw": _won(
+            additional_kr_overseas_etf_gain
+        ),
         "scenario_addition_gross_krw": _won(scenario_addition),
+        "trading_impact": trading_impact,
         "scenario_projected_gross_screening_income_krw": scenario_projected,
         "scenario_comprehensive_tax_screening_income_krw": scenario_comprehensive_amount,
         "high_dividend_special_tax": high_dividend_special,
@@ -225,6 +288,8 @@ async def get_financial_income_what_if_for_user(
     current_month_remaining_dividend_gross_krw: object = 0,
     additional_dividend_gross_krw: object = 0,
     additional_interest_gross_krw: object = 0,
+    additional_foreign_share_realized_gain_krw: object = 0,
+    additional_kr_listed_overseas_etf_taxable_gain_krw: object = 0,
     high_dividend_scenario: dict[str, Any] | None = None,
     investment_scenario: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -240,6 +305,12 @@ async def get_financial_income_what_if_for_user(
         baseline,
         additional_dividend_gross_krw=additional_dividend_gross_krw,
         additional_interest_gross_krw=additional_interest_gross_krw,
+        additional_foreign_share_realized_gain_krw=(
+            additional_foreign_share_realized_gain_krw
+        ),
+        additional_kr_listed_overseas_etf_taxable_gain_krw=(
+            additional_kr_listed_overseas_etf_taxable_gain_krw
+        ),
         high_dividend_scenario=high_dividend_scenario,
     )
 
@@ -281,6 +352,21 @@ async def get_financial_income_what_if_for_user(
                 round(float(personal_financial_income or 0))
             ),
             "server_scoped_from_authenticated_user": True,
+            "quick_trading_inputs": {
+                "foreign_share_realized_gain_krw": _won(
+                    _nonnegative(
+                        additional_foreign_share_realized_gain_krw,
+                        "FINANCIAL_INCOME_WHAT_IF_FOREIGN_SHARE_GAIN_INVALID",
+                    )
+                ),
+                "kr_listed_overseas_etf_taxable_gain_krw": _won(
+                    _nonnegative(
+                        additional_kr_listed_overseas_etf_taxable_gain_krw,
+                        "FINANCIAL_INCOME_WHAT_IF_KR_OVERSEAS_ETF_GAIN_INVALID",
+                    )
+                ),
+                "server_auto_overwrite": False,
+            },
         }
         result["investment_comparison"] = comparison
 
