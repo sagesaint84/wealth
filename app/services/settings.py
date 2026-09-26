@@ -55,6 +55,7 @@ def _merge(base: dict, patch: dict) -> dict:
     out=copy.deepcopy(base)
     for key,value in patch.items(): out[key]=_merge(out[key],value) if isinstance(value,dict) and isinstance(out.get(key),dict) else copy.deepcopy(value)
     return out
+
 def _validate(doc: Any) -> dict:
     # ``toss_wts`` was added after version 1 had already been persisted.  An
     # absent section is therefore a valid legacy document and is normalized to
@@ -81,11 +82,13 @@ def _validate(doc: Any) -> dict:
     toss = doc["toss_wts"]
     if not isinstance(toss, dict) or set(toss) != {"session_check_enabled"} or type(toss["session_check_enabled"]) is not bool: raise SettingsValidationError("INVALID_TOSS_WTS_SETTINGS")
     return doc
+
 def load_stored_settings(username:str, *, path:Path|None=None)->dict|None:
     path=path or _path(username)
     if not path.exists(): return None
     try: return _validate(json.loads(path.read_text(encoding="utf-8")))
     except (json.JSONDecodeError,UnicodeError,SettingsError) as exc: raise SettingsError("SETTINGS_STATE_INVALID") from exc
+
 def _save(doc:dict,path:Path)->None:
     tmp=path.with_suffix(".tmp")
     try:
@@ -93,11 +96,13 @@ def _save(doc:dict,path:Path)->None:
         with open(tmp,"w",encoding="utf-8") as f: json.dump(doc,f,ensure_ascii=False,indent=2,allow_nan=False);f.flush();os.fsync(f.fileno())
         os.replace(tmp,path)
     except Exception: tmp.unlink(missing_ok=True);raise
+
 def _env_id(key:str)->int|None:
     raw=os.getenv(key,"").strip()
     try:return int(raw) if raw else None
     except ValueError:return None
-def get_effective_settings(username:str, *, path:Path|None=None)->dict:
+
+def get_effective_settings(username:str, *, path:Path|None=None, include_automation_status:bool=True)->dict:
     path=path or _path(username); stored=load_stored_settings(username,path=path); result=_merge(default_settings(),stored or {})
     bound=os.getenv("TELEGRAM_WEALTH_USERNAME","").strip()==username
     sources={}
@@ -107,7 +112,25 @@ def get_effective_settings(username:str, *, path:Path|None=None)->dict:
                 value=_env_id(key)
                 if value is not None: result["telegram"][field]=value;sources[f"telegram.{field}"]="environment"
     result["telegram"].update({"bot_token_configured":bool(os.getenv("TELEGRAM_BOT_TOKEN","").strip()) and bound,"bot_token_source":"environment" if bound and os.getenv("TELEGRAM_BOT_TOKEN","").strip() else "none","webhook_secret_configured":bool(os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip()) and bound,"webhook_secret_source":"environment" if bound and os.getenv("TELEGRAM_WEBHOOK_SECRET","").strip() else "none","sources":sources})
+    if include_automation_status:
+        try:
+            from app.services.automation.status import build_automation_status
+            result["automation"]["_status"] = build_automation_status(
+                username,
+                settings=result,
+            )
+        except Exception:
+            # Operational visibility is read-only and must never make settings,
+            # scheduling, notification dispatch, or authentication fail.
+            result["automation"]["_status"] = {
+                "version": 1,
+                "unavailable": True,
+                "code": "AUTOMATION_STATUS_UNAVAILABLE",
+                "jobs": [],
+                "recent": [],
+            }
     return result
+
 def patch_settings(username:str, patch:dict, *, path:Path|None=None)->dict:
     path=path or _path(username)
     if not isinstance(patch,dict) or "version" in patch: raise SettingsValidationError("INVALID_PATCH")
