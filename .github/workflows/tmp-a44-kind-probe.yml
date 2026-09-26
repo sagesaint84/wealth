@@ -13,46 +13,61 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Probe KIND viewer contract
+      - name: Resolve KIND viewer contract
         shell: bash
         run: |
           python - <<'PY'
           from http.cookiejar import CookieJar
+          from urllib.parse import urljoin
           from urllib.request import Request, build_opener, HTTPCookieProcessor
           import re
 
           BASE='https://kind.krx.co.kr'
-          MAIN='/disclosure/disclosurebystocktype.do?method=searchDisclosureByStockTypeEtf'
+          PAGE=BASE+'/disclosure/disclosurebystocktype.do?method=searchDisclosureByStockTypeEtf'
           UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36'
           opener=build_opener(HTTPCookieProcessor(CookieJar()))
-          req=Request(BASE+MAIN, headers={'User-Agent':UA,'Accept-Language':'ko-KR,ko;q=0.9'})
-          with opener.open(req, timeout=15) as r:
-              raw=r.read(); enc=r.headers.get_content_charset() or 'utf-8'
-              try: html=raw.decode(enc)
-              except UnicodeDecodeError: html=raw.decode('euc-kr','replace')
-          for needle in ['function openDisclsViewer','openDisclsViewer =','openDisclsViewer(','disclsviewer','viewer.do','acptno','acptNo']:
-              print('\nNEEDLE',needle,'count=',html.lower().count(needle.lower()))
-              for m in list(re.finditer(re.escape(needle),html,re.I))[:8]:
-                  lo=max(0,m.start()-700); hi=min(len(html),m.end()+1600)
-                  print(re.sub(r'\s+',' ',html[lo:hi])[:2400])
+
+          def get(url):
+              req=Request(url,headers={'User-Agent':UA,'Referer':PAGE,'Accept-Language':'ko-KR,ko;q=0.9'})
+              with opener.open(req,timeout=15) as r:
+                  raw=r.read(); enc=r.headers.get_content_charset() or 'utf-8'
+                  try: text=raw.decode(enc)
+                  except UnicodeDecodeError: text=raw.decode('euc-kr','replace')
+                  return r.geturl(),text
+
+          _,html=get(PAGE)
           scripts=re.findall(r'<script[^>]+src=["\']([^"\']+)["\']',html,re.I)
-          print('\nSCRIPTS', scripts)
+          print('SCRIPTS',scripts)
           for src in scripts:
-              if src.startswith('//'): url='https:'+src
-              elif src.startswith('http'): url=src
-              elif src.startswith('/'): url=BASE+src
-              else: url=BASE+'/'+src
+              url=urljoin(PAGE,src)
               try:
-                  rq=Request(url, headers={'User-Agent':UA,'Referer':BASE+MAIN})
-                  with opener.open(rq,timeout=15) as rr:
-                      b=rr.read(); e=rr.headers.get_content_charset() or 'utf-8'
-                      try: text=b.decode(e)
-                      except UnicodeDecodeError: text=b.decode('euc-kr','replace')
-                  if 'openDisclsViewer' in text:
-                      print('\nFOUND_IN_SCRIPT',url)
-                      for m in list(re.finditer('openDisclsViewer',text,re.I))[:6]:
-                          lo=max(0,m.start()-600); hi=min(len(text),m.end()+1400)
-                          print(re.sub(r'\s+',' ',text[lo:hi])[:2200])
+                  final,text=get(url)
+                  if 'openDisclsViewer' in text or 'external/' in text:
+                      print('\nFOUND',final)
+                      for needle in ['function openDisclsViewer','openDisclsViewer','external/','acptNo']:
+                          for m in list(re.finditer(re.escape(needle),text,re.I))[:8]:
+                              lo=max(0,m.start()-700); hi=min(len(text),m.end()+1800)
+                              print('CTX',needle,re.sub(r'\s+',' ',text[lo:hi])[:2600])
               except Exception as exc:
-                  print('SCRIPT_ERROR',url,type(exc).__name__)
+                  print('ERR',url,type(exc).__name__,str(exc)[:160])
+
+          # Probe likely viewer entry with a known ETF distribution receipt if the
+          # common script reveals a URL-shaped path.  Only public GETs; no mutation.
+          candidates=[
+            BASE+'/common/disclsviewer.do?method=search&acptno=20260729000913',
+            BASE+'/common/disclsviewer.do?method=search&acptNo=20260729000913',
+            BASE+'/disclosure/details.do?method=searchDetailsMain&acptno=20260729000913',
+          ]
+          for url in candidates:
+              try:
+                  final,text=get(url)
+                  print('\nCANDIDATE',url,'=>',final,'len=',len(text),
+                        'distribution=',text.count('분배금'), 'external=',text.count('/external/'))
+                  for needle in ['/external/','분배금','20260729000913','68659']:
+                      m=re.search(re.escape(needle),text,re.I)
+                      if m:
+                          lo=max(0,m.start()-500); hi=min(len(text),m.end()+900)
+                          print('CCTX',needle,re.sub(r'\s+',' ',text[lo:hi])[:1600])
+              except Exception as exc:
+                  print('CANDIDATE_ERR',url,type(exc).__name__,str(exc)[:200])
           PY
