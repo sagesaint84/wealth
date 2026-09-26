@@ -124,12 +124,12 @@ def calculate_financial_income_article62_comparison_2026(
 ) -> dict[str, Any]:
     """Return the existing Article 62/local result plus optional Article 57 credit.
 
-    Foreign-tax-credit inputs are all-or-none.  The caller supplies Form 11
+    Foreign-tax-credit inputs are all-or-none. The caller supplies Form 11
     comprehensive income, one official-form-ready basis amount and eligible
-    current-year foreign income tax amount per ISO country, and an explicit
+    current-year foreign income tax amount per country, and an explicit
     confirmation that no tax reduction, non-carryforward credit, prior-year
     carryforward credit, or other unmodeled Article 60 item must be applied
-    before this current-year foreign tax credit.  If that confirmation cannot
+    before this current-year foreign tax credit. If that confirmation cannot
     be made, this narrow increment fails closed instead of overstating credit.
     """
 
@@ -154,7 +154,6 @@ def calculate_financial_income_article62_comparison_2026(
     article60_scope_confirmed = False
     calculated_items: list[dict[str, int | str]] = []
     total_limit_basis_income = 0
-    aggregate_limit = 0
     country_limit_total = 0
     eligible_foreign_tax_total = 0
     within_country_limits_total = 0
@@ -182,25 +181,13 @@ def calculate_financial_income_article62_comparison_2026(
         normalized_items = _foreign_tax_credit_items(
             values["foreign_tax_credit_items"]
         )
-        total_limit_basis_income = sum(
-            int(item["limit_basis_foreign_source_income_krw"])
-            for item in normalized_items
-        )
-        if total_limit_basis_income > comprehensive_income_amount:
-            raise PersonalComprehensiveTaxError(
-                "ARTICLE57_FOREIGN_TAX_CREDIT_BASIS_EXCEEDS_COMPREHENSIVE_INCOME"
-            )
-
-        aggregate_limit = int(
-            round(
-                article62_tax_before_credits
-                * total_limit_basis_income
-                / comprehensive_income_amount
-            )
-        )
 
         for item in normalized_items:
             basis_income = int(item["limit_basis_foreign_source_income_krw"])
+            if basis_income > comprehensive_income_amount:
+                raise PersonalComprehensiveTaxError(
+                    "ARTICLE57_FOREIGN_TAX_CREDIT_COUNTRY_BASIS_EXCEEDS_COMPREHENSIVE_INCOME"
+                )
             eligible_foreign_tax = int(
                 item["eligible_current_year_foreign_income_tax_krw"]
             )
@@ -224,20 +211,17 @@ def calculate_financial_income_article62_comparison_2026(
                     ),
                 }
             )
+            total_limit_basis_income += basis_income
             country_limit_total += country_limit
             eligible_foreign_tax_total += eligible_foreign_tax
             within_country_limits_total += within_country_limit
 
-        credit_before_article60_cap = min(
-            within_country_limits_total,
-            aggregate_limit,
-        )
         foreign_tax_credit = min(
-            credit_before_article60_cap,
+            within_country_limits_total,
             tax_after_dividend_credit,
         )
         reduced_by_preceding_dividend_credit = (
-            credit_before_article60_cap - foreign_tax_credit
+            within_country_limits_total - foreign_tax_credit
         )
         uncredited_current_year_foreign_tax = (
             eligible_foreign_tax_total - foreign_tax_credit
@@ -266,7 +250,6 @@ def calculate_financial_income_article62_comparison_2026(
             "foreign_tax_credit_limit_basis_income_total_krw": (
                 total_limit_basis_income
             ),
-            "foreign_tax_credit_aggregate_limit_krw": aggregate_limit,
             "foreign_tax_credit_country_limit_total_krw": country_limit_total,
             "eligible_current_year_foreign_income_tax_total_krw": (
                 eligible_foreign_tax_total
@@ -299,6 +282,7 @@ def calculate_financial_income_article62_comparison_2026(
             "foreign_tax_credit_limit_basis_user_provided": foreign_inputs_provided,
             "foreign_tax_credit_eligibility_user_asserted": foreign_inputs_provided,
             "foreign_tax_credit_article60_scope_confirmed": article60_scope_confirmed,
+            "foreign_tax_credit_country_code_iso_membership_verified_by_service": False,
             "foreign_tax_credit_current_year_only": foreign_inputs_provided,
             "foreign_tax_credit_prior_year_carryforward_calculated": False,
             "foreign_tax_credit_carryforward_calculated": False,
@@ -322,6 +306,7 @@ def calculate_financial_income_article62_comparison_2026(
             "foreign-source-income corresponding-expense allocation",
             "foreign loss-country basis adjustment",
             "foreign tax treaty eligibility verification",
+            "ISO country-code membership verification",
             "local-income-tax foreign tax credit",
         ]
         for item in foreign_scope_items:
@@ -347,19 +332,21 @@ def calculate_financial_income_article62_comparison_2026(
                 OFFICIAL_FOREIGN_TAX_CREDIT_FORM_SOURCE_URL
             ),
             "foreign_tax_credit_limit_formula": (
-                "article62_comparison_tax_before_credits_krw * "
-                "foreign_tax_credit_limit_basis_income_total_krw / "
+                "per country: article62_comparison_tax_before_credits_krw * "
+                "limit_basis_foreign_source_income_krw / "
                 "comprehensive_income_amount_for_foreign_tax_credit_krw"
             ),
             "foreign_tax_credit_note": (
                 "소득세법 제57조와 별지 제11호서식의 국가별 공제한도 구조를 적용합니다. "
-                "국가별 기준 국외원천소득은 대응비용ㆍ감면ㆍ결손국가 조정이 끝난 신고서 "
-                "기준금액을 사용자가 명시해야 하고, 입력 외국소득세액의 시행령 제117조 "
-                "및 조세조약상 공제 적격성도 사용자 확인값으로 취급합니다. 소득세법 "
-                "제60조상 현재 모델의 배당세액공제 외에 먼저 적용할 세액감면ㆍ비이월 "
-                "세액공제ㆍ전기 이월 세액공제 등이 없다는 명시 확인이 있을 때만 당기 "
-                "외국납부세액공제를 계산합니다. 당기 미공제액은 이월배제액 등을 계산하지 "
-                "않았으므로 곧바로 10년 이월공제액으로 표시하지 않습니다."
+                "각 국가의 기준 국외원천소득은 대응비용ㆍ감면ㆍ결손국가 조정이 끝난 신고서 "
+                "기준금액을 사용자가 명시해야 하며, 각 국가별 기준금액은 종합소득금액을 "
+                "초과할 수 없습니다. 여러 국가 기준금액의 단순 합계를 종합소득금액과 "
+                "비교해 거부하지는 않습니다. 입력 외국소득세액의 시행령 제117조 및 "
+                "조세조약상 공제 적격성과 ISO 국가코드 실재 여부는 사용자 확인값으로 "
+                "취급합니다. 소득세법 제60조상 현재 모델의 배당세액공제 외에 먼저 적용할 "
+                "세액감면ㆍ비이월 세액공제ㆍ전기 이월 세액공제 등이 없다는 명시 확인이 "
+                "있을 때만 당기 외국납부세액공제를 계산합니다. 당기 미공제액은 이월배제액 "
+                "등을 계산하지 않았으므로 곧바로 10년 이월공제액으로 표시하지 않습니다."
             ),
             "partial_balance_note": (
                 "모델링된 배당세액공제, 명시 확인 범위의 당기 국세 외국납부세액공제 및 "
