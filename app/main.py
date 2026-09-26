@@ -1827,7 +1827,7 @@ async def get_dividends(request: Request, owner: str = "모두") -> dict:
             if (h.get("owner") == owner) or (acct_map.get(h.get("account_id")) == owner)
         ]
     fx_rate = full.get("fx_rates", {}).get("USD", 1385.0)
-    summary = await get_web_dividend_summary(holdings, fx_rate=fx_rate)
+    summary = await get_web_dividend_summary(holdings, fx_rate=fx_rate, username=username)
     return summary
 
 

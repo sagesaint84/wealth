@@ -1042,7 +1042,7 @@ _legacy_get_web_dividend_summary = get_web_dividend_summary
 
 
 async def get_web_dividend_summary(
-    holdings: list[dict[str, Any]], fx_rate: float = 1385.0
+    holdings: list[dict[str, Any]], fx_rate: float = 1385.0, *, username: str | None = None
 ) -> dict[str, Any]:
     """Return the legacy forecast enriched with official domestic evidence.
 
@@ -1059,6 +1059,7 @@ async def get_web_dividend_summary(
         return await enrich_dividend_summary_with_official_sources(
             summary,
             holdings,
+            username=username,
             fx_rate=fx_rate,
         )
     except Exception:

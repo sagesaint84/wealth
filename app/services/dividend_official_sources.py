@@ -19,7 +19,6 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 import io
 import math
-import os
 import time
 from typing import Any, Iterable
 import xml.etree.ElementTree as ET
@@ -28,6 +27,7 @@ import zipfile
 import httpx
 
 from app.services.network_policy import external_network_allowed
+from app.services.ipo.dart_client import DartClient
 
 KST = timezone(timedelta(hours=9))
 
@@ -237,6 +237,7 @@ async def _fetch_recent_decision(
 async def get_official_dividend_evidence(
     holdings: Iterable[dict[str, Any]],
     *,
+    username: str | None = None,
     api_key: str | None = None,
     as_of: date | datetime | None = None,
     client: httpx.AsyncClient | None = None,
@@ -247,7 +248,13 @@ async def get_official_dividend_evidence(
     OpenDART is not configured or unavailable.
     """
     network_allowed = external_network_allowed()
-    key = (api_key if api_key is not None else os.getenv("WEALTH_OPENDART_API_KEY", "")).strip()
+    if api_key is not None:
+        key = api_key.strip()
+        credential_source = "explicit" if key else "unconfigured"
+    else:
+        dart_client = DartClient(username=username)
+        key = dart_client.api_key
+        credential_source = dart_client.credential_source
     day = as_of.date() if isinstance(as_of, datetime) else (as_of or _now_kst().date())
 
     domestic_codes = sorted(
@@ -263,6 +270,7 @@ async def get_official_dividend_evidence(
     policy = {
         "network_allowed": network_allowed,
         "opendart_configured": bool(key),
+        "opendart_credential_source": credential_source,
         "kind_reference_url": KIND_DIVIDEND_INFO_URL,
         "opendart_guide_url": OPENDART_GUIDE_URL,
         "confirmed_amount_requires_structured_verification": True,
@@ -400,6 +408,7 @@ async def enrich_dividend_summary_with_official_sources(
     summary: dict[str, Any],
     holdings: list[dict[str, Any]],
     *,
+    username: str | None = None,
     fx_rate: float = 1385.0,
     api_key: str | None = None,
     as_of: date | datetime | None = None,
@@ -410,6 +419,7 @@ async def enrich_dividend_summary_with_official_sources(
         return summary
     evidence_result = await get_official_dividend_evidence(
         holdings,
+        username=username,
         api_key=api_key,
         as_of=as_of,
         client=client,

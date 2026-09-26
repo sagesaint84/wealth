@@ -494,7 +494,9 @@ async def get_financial_income_projection_for_user(
         holdings, accounts, normalized_owner
     )
     fx_rate = dashboard.get("fx_rates", {}).get("USD", 1385.0)
-    forecast = await get_web_dividend_summary(scoped_holdings, fx_rate=fx_rate)
+    forecast = await get_web_dividend_summary(
+        scoped_holdings, fx_rate=fx_rate, username=username
+    )
     actual = get_actual_dividend_summary(
         owner=normalized_owner,
         year=str(day.year),
