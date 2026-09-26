@@ -133,6 +133,11 @@ class FamilyFinancialIncomeRiskBuilderTests(unittest.TestCase):
         self.assertFalse(result["family_reference"]["reference_complete"])
         self.assertTrue(result["unassigned"]["has_unassigned_income_sources"])
 
+    def test_no_members_is_not_a_complete_family_reference(self):
+        result = build_family_financial_income_risk([], as_of="2026-09-26")
+        self.assertFalse(result["family_reference"]["reference_complete"])
+        self.assertEqual(result["member_count"], 0)
+
 
 class FamilyFinancialIncomeRiskOrchestrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_uses_configured_member_order_and_keeps_unassigned_separate(self):
@@ -151,6 +156,7 @@ class FamilyFinancialIncomeRiskOrchestrationTests(unittest.IsolatedAsyncioTestCa
                 {"code": "AAA", "account_id": "a1", "quantity": 1},
                 {"code": "BBB", "account_id": "a2", "quantity": 1},
                 {"code": "CCC", "account_id": "a3", "quantity": 1},
+                {"code": "DDD", "account_id": "a1", "owner": "아빠", "quantity": 1},
             ],
             "fx_rates": {"USD": 1400.0},
         }
@@ -208,7 +214,8 @@ class FamilyFinancialIncomeRiskOrchestrationTests(unittest.IsolatedAsyncioTestCa
         self.assertEqual(result["configured_members"], ["엄마", "아빠"])
         self.assertEqual([row["owner"] for row in result["members"]], ["엄마", "아빠"])
         self.assertEqual(web_mock.await_count, 2)
-        self.assertEqual(result["unassigned"]["holding_count"], 1)
+        self.assertEqual(result["unassigned"]["holding_count"], 2)
+        self.assertEqual(result["unassigned"]["ownership_conflict_count"], 1)
         self.assertEqual(result["unassigned"]["actual_record_count"], 1)
         self.assertNotIn("모두", result["configured_members"])
         self.assertFalse(result["family_reference"]["reference_complete"])

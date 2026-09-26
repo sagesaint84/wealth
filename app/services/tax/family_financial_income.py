@@ -28,7 +28,6 @@ from app.services.dividend_records import (
 from app.services.portfolio import get_dashboard, read_portfolio
 from app.services.tax.financial_income import (
     FinancialIncomeProjectionError,
-    _filter_holdings_for_owner,
     build_financial_income_projection,
 )
 from app.services.web_finance import get_web_dividend_summary
@@ -81,14 +80,38 @@ def _account_owner_map(accounts: list[dict[str, Any]]) -> dict[str, str]:
     return result
 
 
-def _effective_holding_owner(
+def _holding_owner_resolution(
     holding: dict[str, Any], account_owners: dict[str, str]
-) -> str:
+) -> tuple[str, bool]:
+    """Resolve one family owner without allowing double attribution.
+
+    A named holding owner takes precedence only when it agrees with the named
+    account owner. Conflicting named owners are treated as ambiguous and are
+    excluded from every member projection until the data is corrected.
+    """
     direct = str(holding.get("owner") or "").strip()
-    if direct and direct != "모두":
-        return direct
     account_owner = account_owners.get(str(holding.get("account_id")), "모두")
-    return account_owner if account_owner else "모두"
+    direct_named = direct if direct and direct != "모두" else ""
+    account_named = account_owner if account_owner and account_owner != "모두" else ""
+    if direct_named and account_named and direct_named != account_named:
+        return "소유자 충돌", True
+    return direct_named or account_named or "모두", False
+
+
+def _scoped_holdings_for_member(
+    holdings: list[dict[str, Any]],
+    accounts: list[dict[str, Any]],
+    owner: str,
+) -> list[dict[str, Any]]:
+    account_owners = _account_owner_map(accounts)
+    scoped: list[dict[str, Any]] = []
+    for holding in holdings:
+        if not isinstance(holding, dict):
+            continue
+        resolved, conflict = _holding_owner_resolution(holding, account_owners)
+        if not conflict and resolved == owner:
+            scoped.append(holding)
+    return scoped
 
 
 def _unassigned_income_sources(
@@ -103,14 +126,19 @@ def _unassigned_income_sources(
     account_owners = _account_owner_map(accounts)
 
     holding_count = 0
+    ownership_conflict_count = 0
     record_count = 0
     labels: set[str] = set()
 
     for holding in holdings:
         if not isinstance(holding, dict):
             continue
-        owner = _effective_holding_owner(holding, account_owners)
-        if owner not in allowed:
+        owner, conflict = _holding_owner_resolution(holding, account_owners)
+        if conflict:
+            holding_count += 1
+            ownership_conflict_count += 1
+            labels.add("소유자 충돌")
+        elif owner not in allowed:
             holding_count += 1
             labels.add(owner or "모두")
 
@@ -126,6 +154,7 @@ def _unassigned_income_sources(
 
     return {
         "holding_count": holding_count,
+        "ownership_conflict_count": ownership_conflict_count,
         "actual_record_count": record_count,
         "owner_labels": sorted(labels),
         "has_unassigned_income_sources": bool(holding_count or record_count),
@@ -215,7 +244,7 @@ def build_family_financial_income_risk(
 
     unassigned_state = dict(unassigned or {})
     has_unassigned = bool(unassigned_state.get("has_unassigned_income_sources"))
-    family_reference_complete = projected_complete and not has_unassigned
+    family_reference_complete = bool(rows) and projected_complete and not has_unassigned
 
     return {
         "year": day.year,
@@ -281,7 +310,7 @@ async def get_family_financial_income_risk_for_user(
     )
 
     async def build_one(owner: str) -> dict[str, Any]:
-        scoped_holdings = _filter_holdings_for_owner(holdings, accounts, owner)
+        scoped_holdings = _scoped_holdings_for_member(holdings, accounts, owner)
         forecast = await get_web_dividend_summary(
             scoped_holdings,
             fx_rate=fx_rate,

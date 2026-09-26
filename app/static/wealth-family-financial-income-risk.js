@@ -114,7 +114,7 @@
         ? `<div class="family-fi-risk-grid">${members.map(memberCard).join('')}</div>`
         : '<div class="family-fi-risk-placeholder">등록된 가족 구성원이 없습니다.</div>'}
       ${incomplete
-        ? `<div class="family-fi-risk-warning">가족 참고 합계가 불완전합니다. 소유자 미분류 보유자산 ${Number(unassigned.holding_count || 0).toLocaleString('ko-KR')}건 · 올해 실제 금융소득 기록 ${Number(unassigned.actual_record_count || 0).toLocaleString('ko-KR')}건을 확인하세요.</div>`
+        ? `<div class="family-fi-risk-warning">가족 참고 합계가 불완전합니다. 소유자 미분류 보유자산 ${Number(unassigned.holding_count || 0).toLocaleString('ko-KR')}건(소유자 충돌 ${Number(unassigned.ownership_conflict_count || 0).toLocaleString('ko-KR')}건 포함) · 올해 실제 금융소득 기록 ${Number(unassigned.actual_record_count || 0).toLocaleString('ko-KR')}건을 확인하세요.</div>`
         : ''}
       <div class="family-fi-risk-note" style="margin-top:10px;">screening only · 최종 종합소득세/지방소득세를 확정하지 않습니다.</div>
     `;
