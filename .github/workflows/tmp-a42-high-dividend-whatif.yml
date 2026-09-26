@@ -39,6 +39,9 @@ jobs:
       - name: Apply Phase 10.5A4.2 patch
         run: python .github/patch_a42_high_dividend_whatif.py
 
+      - name: Preserve legacy API service-call shape
+        run: python .github/fix_a42_api_compat.py
+
       - name: Run focused tests
         run: |
           python -m unittest \
@@ -64,7 +67,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/patch_a42_high_dividend_whatif.py .github/workflows/tmp-a42-high-dividend-whatif.yml
+          git rm .github/patch_a42_high_dividend_whatif.py .github/fix_a42_api_compat.py .github/workflows/tmp-a42-high-dividend-whatif.yml
           git add -A
           git commit -m "feat: connect high-dividend special tax to what-if"
           git push origin HEAD:phase10-5a42-high-dividend-whatif
