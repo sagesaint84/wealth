@@ -28,6 +28,27 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Fix temporary helper
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/tmp_b2_apply.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''# The build signature was already replaced above, so replace the next occurrence only.
+          text = what_if.read_text(encoding="utf-8")
+          first = text.find(needle)
+          second = text.find(needle, first + 1) if first >= 0 else -1
+          if second < 0:
+              raise SystemExit("user scoped signature pattern not found")
+          text = text[:second] + text[second:].replace(needle, replacement, 1)
+          what_if.write_text(text, encoding="utf-8")
+          '''
+          new = '''# The build signature was already changed above, leaving exactly one legacy\n# user-scoped signature to replace.\nreplace_once(what_if, needle, replacement)\n'''
+          if old not in text:
+              raise SystemExit('temporary helper fix pattern not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
       - name: Apply Phase 10.5B2 integration
         run: python scripts/tmp_b2_apply.py
 
