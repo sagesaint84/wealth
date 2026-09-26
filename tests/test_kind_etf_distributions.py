@@ -166,6 +166,11 @@ class KindEtfEnrichmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["total_annual_dividend_krw"], 2_070)
         self.assertEqual(row["forecast_source"]["numeric_source"], "kind_etf_confirmed_overlay")
         self.assertEqual(row["forecast_source"]["kind_etf_numeric_override_count"], 1)
+        self.assertEqual(row["div_yield"], round((207 / 20_000) * 100, 2))
+        self.assertEqual(
+            result["monthly_schedule"][7]["items"][0]["div_yield"],
+            row["div_yield"],
+        )
         self.assertTrue(official["events"][0]["numeric_override"])
 
     async def test_zero_legacy_forecast_can_create_multiple_confirmed_events(self):
@@ -263,6 +268,76 @@ class KindEtfEnrichmentTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(result["total_annual_dividend_krw"], 1_000)
         self.assertEqual(result["forecast_source_policy"]["kind_etf_status"], "network_disabled")
+
+
+    async def test_latest_correction_wins_even_when_payment_date_changes(self):
+        kind._KIND_EVENT_CACHE.clear()
+        filings = [
+            {"receipt_no": "20260729000001", "filing_datetime": "2026-07-29 10:00"},
+            {"receipt_no": "20260730000001", "filing_datetime": "2026-07-30 10:00"},
+        ]
+
+        async def fake_events(_client, filing, *, target_code):
+            if filing["receipt_no"] == "20260729000001":
+                return [{
+                    "short_code": target_code,
+                    "record_date": "2026-07-31",
+                    "payment_date": "2026-08-04",
+                    "amount_per_unit_krw": 100,
+                    "filing_datetime": filing["filing_datetime"],
+                    "receipt_no": filing["receipt_no"],
+                }]
+            return [{
+                "short_code": target_code,
+                "record_date": "2026-07-31",
+                "payment_date": "2026-08-05",
+                "amount_per_unit_krw": 120,
+                "filing_datetime": filing["filing_datetime"],
+                "receipt_no": filing["receipt_no"],
+            }]
+
+        with (
+            patch.object(kind, "external_network_allowed", return_value=True),
+            patch.object(kind, "_search_filings", new=AsyncMock(return_value=filings)),
+            patch.object(kind, "_events_from_receipt", side_effect=fake_events),
+        ):
+            result = await kind.fetch_kind_etf_distribution_events(
+                "379800", as_of=date(2026, 9, 26), client=AsyncMock()
+            )
+        self.assertEqual(len(result["events"]), 1)
+        self.assertEqual(result["events"][0]["receipt_no"], "20260730000001")
+        self.assertEqual(result["events"][0]["payment_date"], "2026-08-05")
+        self.assertEqual(result["events"][0]["amount_per_unit_krw"], 120)
+
+    async def test_current_year_cache_returns_fresh_event_dicts(self):
+        kind._KIND_EVENT_CACHE.clear()
+        filings = [{"receipt_no": "20260729000001", "filing_datetime": "2026-07-29 10:00"}]
+        events = [{
+            "short_code": "379800",
+            "record_date": "2026-07-31",
+            "payment_date": "2026-08-04",
+            "amount_per_unit_krw": 100,
+            "filing_datetime": "2026-07-29 10:00",
+            "receipt_no": "20260729000001",
+        }]
+        search = AsyncMock(return_value=filings)
+        receipt = AsyncMock(return_value=events)
+        with (
+            patch.object(kind, "external_network_allowed", return_value=True),
+            patch.object(kind, "_search_filings", new=search),
+            patch.object(kind, "_events_from_receipt", new=receipt),
+        ):
+            first = await kind.fetch_kind_etf_distribution_events(
+                "379800", as_of=date(2026, 9, 26), client=AsyncMock()
+            )
+            first["events"][0]["numeric_override"] = True
+            second = await kind.fetch_kind_etf_distribution_events(
+                "379800", as_of=date(2026, 9, 26), client=AsyncMock()
+            )
+        self.assertEqual(search.await_count, 1)
+        self.assertTrue(second["cached"])
+        self.assertNotIn("numeric_override", second["events"][0])
+
 
 
 if __name__ == "__main__":

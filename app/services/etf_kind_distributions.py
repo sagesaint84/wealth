@@ -25,6 +25,7 @@ from datetime import date, datetime, timedelta, timezone
 from html.parser import HTMLParser
 import math
 import re
+import time
 from typing import Any, Iterable
 
 import httpx
@@ -41,6 +42,8 @@ KIND_ETF_SEARCH_URL = KIND_BASE_URL + "/disclosure/disclosurebystocktype.do"
 KIND_VIEWER_URL = KIND_BASE_URL + "/common/disclsviewer.do"
 KIND_ETF_DISTRIBUTION_TITLE = "ETF이익금분배신고(분배금안내)(일괄공시)"
 KIND_MAX_FILINGS_PER_ETF = 15
+KIND_EVENT_CACHE_TTL_SECONDS = 30 * 60
+_KIND_EVENT_CACHE: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
 
 _HEADERS = {
     "User-Agent": (
@@ -322,12 +325,25 @@ async def fetch_kind_etf_distribution_events(
     if not external_network_allowed():
         return {"status": "network_disabled", "events": []}
 
+    cache_key = (clean_code, day.year)
+    cached = _KIND_EVENT_CACHE.get(cache_key)
+    now = time.monotonic()
+    if cached and now - cached[0] < KIND_EVENT_CACHE_TTL_SECONDS:
+        payload = cached[1]
+        return {
+            **payload,
+            "events": [dict(event) for event in payload.get("events", [])],
+            "cached": True,
+        }
+
     own_client = client is None
     http = client or httpx.AsyncClient()
     try:
         filings = await _search_filings(http, clean_code, as_of=day)
         if not filings:
-            return {"status": "no_official_filing", "events": []}
+            payload = {"status": "no_official_filing", "events": [], "filing_count": 0}
+            _KIND_EVENT_CACHE[cache_key] = (time.monotonic(), payload)
+            return dict(payload)
         tasks = [
             _events_from_receipt(http, filing, target_code=clean_code)
             for filing in filings
@@ -339,12 +355,11 @@ async def fetch_kind_etf_distribution_events(
                 events.extend(batch)
 
         # A correction / later filing for the same economic event wins.
-        selected: dict[tuple[str, str, str], dict[str, Any]] = {}
+        selected: dict[tuple[str, str], dict[str, Any]] = {}
         for event in events:
             key = (
                 str(event.get("short_code") or ""),
                 str(event.get("record_date") or ""),
-                str(event.get("payment_date") or ""),
             )
             existing = selected.get(key)
             if existing is None or (
@@ -359,10 +374,15 @@ async def fetch_kind_etf_distribution_events(
             selected.values(),
             key=lambda item: (item.get("payment_date") or "", item.get("receipt_no") or ""),
         )
-        return {
+        payload = {
             "status": "ok" if final_events else "no_structured_distribution",
-            "events": final_events,
+            "events": [dict(event) for event in final_events],
             "filing_count": len(filings),
+        }
+        _KIND_EVENT_CACHE[cache_key] = (time.monotonic(), payload)
+        return {
+            **payload,
+            "events": [dict(event) for event in payload["events"]],
         }
     except Exception:
         return {"status": "kind_unavailable", "events": []}
@@ -600,6 +620,32 @@ async def enrich_dividend_summary_with_kind_etf_distributions(
             source["kind_etf_numeric_override_count"] = applied
             if applied:
                 source["numeric_source"] = "kind_etf_confirmed_overlay"
+                holding = next(
+                    (
+                        item
+                        for item in holdings
+                        if isinstance(item, dict)
+                        and _stock_code(item.get("code")) == _stock_code(row.get("code"))
+                        and str(item.get("currency") or "KRW").upper() == "KRW"
+                    ),
+                    {},
+                )
+                price = _money(holding.get("current_price")) or _money(holding.get("purchase_price")) or 0.0
+                if price > 0:
+                    row["div_yield"] = round(
+                        ((_money(row.get("annual_div_per_share")) or 0.0) / price) * 100.0,
+                        2,
+                    )
+                    for bucket in _schedule_buckets(summary).values():
+                        items = bucket.get("items") if isinstance(bucket, dict) else None
+                        if not isinstance(items, list):
+                            continue
+                        for schedule_item in items:
+                            if (
+                                isinstance(schedule_item, dict)
+                                and _stock_code(schedule_item.get("code")) == _stock_code(row.get("code"))
+                            ):
+                                schedule_item["div_yield"] = row["div_yield"]
             total_applied += applied
             total_delta += delta
 
