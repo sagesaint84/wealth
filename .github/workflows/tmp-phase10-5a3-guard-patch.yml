@@ -1,0 +1,59 @@
+name: Temporary Phase 10.5A3 guard patch
+
+on:
+  push:
+    branches:
+      - phase10-5a3-what-if-simulator
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase10-5a3-what-if-simulator
+          fetch-depth: 0
+
+      - name: Align threshold UI and request guards
+        shell: python
+        run: |
+          from pathlib import Path
+
+          main_path = Path("app/main.py")
+          text = main_path.read_text(encoding="utf-8")
+          needle = '''        if set(investment_scenario) - allowed_investment_fields:\n            raise HTTPException(\n                status_code=400,\n                detail={"code": "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID"},\n                headers={"Cache-Control": "no-store"},\n            )\n'''
+          replacement = needle + '''        asset_type = investment_scenario.get("asset_type")\n        if not isinstance(asset_type, str) or not asset_type.strip():\n            raise HTTPException(\n                status_code=400,\n                detail={"code": "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID"},\n                headers={"Cache-Control": "no-store"},\n            )\n'''
+          if needle not in text:
+              raise SystemExit("main.py investment guard marker not found")
+          text = text.replace(needle, replacement, 1)
+          main_path.write_text(text, encoding="utf-8")
+
+          js_path = Path("app/static/wealth-financial-income-what-if.js")
+          js = js_path.read_text(encoding="utf-8")
+          old = '''    if (scenarioState.reached === true) {\n      statusClass = 'danger';\n      statusText = '2천만원 기준 도달/초과';\n    } else if (projected !== null && Number(projected) >= 10_000_000) {\n      statusClass = 'warn';\n      statusText = '주의 구간';\n    } else if (scenarioState.reached === null) {\n      statusClass = 'unknown';\n      statusText = '예상치 확인 불가';\n    }\n'''
+          new = '''    if (scenarioState.exceeded === true) {\n      statusClass = 'danger';\n      statusText = '2천만원 초과';\n    } else if (scenarioState.at_or_above === true) {\n      statusClass = 'warn';\n      statusText = '2천만원 도달 · 초과 아님';\n    } else if (projected !== null && Number(projected) >= 10_000_000) {\n      statusClass = 'warn';\n      statusText = '주의 구간';\n    } else if (scenarioState.exceeded === null) {\n      statusClass = 'unknown';\n      statusText = '예상치 확인 불가';\n    }\n'''
+          if old not in js:
+              raise SystemExit("JS threshold marker not found")
+          js_path.write_text(js.replace(old, new, 1), encoding="utf-8")
+
+          css_path = Path("app/static/wealth-financial-income-what-if.css")
+          css = css_path.read_text(encoding="utf-8")
+          hidden_rule = "\n.fi-what-if-investment-fields[hidden],\n#fiWhatIfEtfTaxGainWrap[hidden] {\n  display: none;\n}\n"
+          if hidden_rule.strip() not in css:
+              css += hidden_rule
+              css_path.write_text(css, encoding="utf-8")
+
+      - name: Commit patch and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/tmp-phase10-5a3-guard-patch.yml
+          git config user.name "wealth-phase-builder"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/main.py app/static/wealth-financial-income-what-if.js app/static/wealth-financial-income-what-if.css .github/workflows/tmp-phase10-5a3-guard-patch.yml
+          git diff --cached --check
+          git commit -m "fix: harden financial income what-if boundaries"
+          git push origin HEAD:phase10-5a3-what-if-simulator
