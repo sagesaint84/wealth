@@ -34,6 +34,33 @@ class AutomationStatusSettingsTests(unittest.TestCase):
         self.assertIs(build.call_args.kwargs["settings"], result)
         self.assertFalse(self.path.exists())
 
+    def test_missing_global_automation_owner_is_presented_as_unconfigured(self):
+        status = {
+            "version": 1,
+            "jobs": [
+                {
+                    "job": "ipo_refresh_morning",
+                    "health": "disabled",
+                    "reason": "NO_GLOBAL_AUTOMATION_OWNER",
+                },
+                {
+                    "job": "daily_close",
+                    "health": "disabled",
+                    "reason": None,
+                },
+            ],
+            "recent": [],
+        }
+        with patch(
+            "app.services.automation.status.build_automation_status",
+            return_value=status,
+        ):
+            result = settings.get_effective_settings("alice", path=self.path)
+
+        jobs = result["automation"]["_status"]["jobs"]
+        self.assertEqual(jobs[0]["health"], "unconfigured")
+        self.assertEqual(jobs[1]["health"], "disabled")
+
     def test_internal_callers_can_skip_operational_status(self):
         with patch(
             "app.services.automation.status.build_automation_status"
