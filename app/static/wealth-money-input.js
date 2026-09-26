@@ -47,19 +47,21 @@
     const parsed = parseAmount(value);
     if (parsed === null || parsed === 0) return '';
     const negative = parsed < 0;
-    let amount = Math.abs(Math.round(parsed));
-    if (!amount) return '';
+    const integer = Math.abs(Math.round(parsed));
+    if (!integer) return '';
 
     const units = ['', '만', '억', '조', '경'];
     const chunks = [];
     let unitIndex = 0;
+    let amount = integer;
     while (amount > 0 && unitIndex < units.length) {
       const chunk = amount % 10000;
       if (chunk) chunks.unshift(`${formatChunk(chunk)}${units[unitIndex]}`);
       amount = Math.floor(amount / 10000);
       unitIndex += 1;
     }
-    const rendered = `${chunks.join(' ')} 원`.replace(/\s+원$/, ' 원');
+    const joined = chunks.join(' ');
+    const rendered = integer % 10000 ? `${joined}원` : `${joined} 원`;
     return negative ? `-${rendered} (마이너스)` : rendered;
   }
 
@@ -194,11 +196,22 @@
   const start = () => {
     scan(document);
     const observer = new MutationObserver(records => {
-      records.forEach(record => record.addedNodes.forEach(node => {
-        if (node?.nodeType === 1) scan(node);
-      }));
+      records.forEach(record => {
+        if (record.type === 'childList') {
+          record.addedNodes.forEach(node => {
+            if (node?.nodeType === 1) scan(node);
+          });
+        } else if (record.type === 'attributes' && record.attributeName === 'open') {
+          scan(record.target);
+        }
+      });
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['open'],
+    });
   };
 
   if (document.readyState === 'loading') {
