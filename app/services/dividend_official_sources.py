@@ -27,13 +27,15 @@ import zipfile
 import httpx
 
 from app.services.network_policy import external_network_allowed
-from app.services.ipo.dart_client import DartClient
+from app.services.dividend_confirmed_disclosures import parse_dividend_decision_document
+from app.services.ipo.dart_client import DartClient, extract_document_text_from_zip
 
 KST = timezone(timedelta(hours=9))
 
 OPENDART_CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 OPENDART_DIVIDEND_URL = "https://opendart.fss.or.kr/api/alotMatter.json"
 OPENDART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
+OPENDART_DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 DART_VIEWER_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 KIND_DIVIDEND_INFO_URL = (
     "https://kind.krx.co.kr/dividendsinfo/dividendinfo.do?method=searchDividendInfoMain"
@@ -234,6 +236,33 @@ async def _fetch_recent_decision(
     return _latest_dividend_decision(payload.get("list"))
 
 
+async def _fetch_structured_decision(
+    client: httpx.AsyncClient,
+    api_key: str,
+    decision: dict[str, Any],
+    *,
+    as_of: date,
+) -> dict[str, Any] | None:
+    receipt_no = str(decision.get("receipt_no") or "").strip()
+    if not receipt_no:
+        return None
+    response = await client.get(
+        OPENDART_DOCUMENT_URL,
+        params={"crtfc_key": api_key, "rcept_no": receipt_no},
+        timeout=10.0,
+    )
+    response.raise_for_status()
+    document_text = extract_document_text_from_zip(response.content)
+    return parse_dividend_decision_document(
+        document_text,
+        report_name=str(decision.get("report_name") or ""),
+        receipt_no=receipt_no,
+        receipt_date=str(decision.get("receipt_date") or ""),
+        viewer_url=str(decision.get("viewer_url") or ""),
+        as_of=as_of,
+    )
+
+
 async def get_official_dividend_evidence(
     holdings: Iterable[dict[str, Any]],
     *,
@@ -274,6 +303,8 @@ async def get_official_dividend_evidence(
         "kind_reference_url": KIND_DIVIDEND_INFO_URL,
         "opendart_guide_url": OPENDART_GUIDE_URL,
         "confirmed_amount_requires_structured_verification": True,
+        "confirmed_numeric_override_requires_safe_payment_month": True,
+        "opendart_document_url": OPENDART_DOCUMENT_URL,
         "priority": [
             "official_confirmed_disclosure",
             "official_periodic_report_history",
@@ -308,11 +339,30 @@ async def get_official_dividend_evidence(
                 recent = await _fetch_recent_decision(
                     http, key, corp_code, as_of=day
                 )
+                structured = None
+                if recent:
+                    try:
+                        structured = await _fetch_structured_decision(
+                            http, key, recent, as_of=day
+                        )
+                    except Exception:
+                        structured = {
+                            **recent,
+                            "structured_verification": False,
+                            "confirmed_amount": False,
+                            "confirmed_payment_date": False,
+                            "ordinary_cash_dps_krw": None,
+                            "record_date": None,
+                            "payment_date": None,
+                            "future_payment": None,
+                            "reason": "document_parse_failed",
+                        }
                 evidence[code] = {
                     "official_data_available": bool(periodic.get("available") or recent),
                     "corp_code": corp_code,
                     "historical": periodic,
                     "recent_decision_disclosure": recent,
+                    "structured_decision_disclosure": structured,
                 }
             except Exception:
                 evidence[code] = {
@@ -404,6 +454,134 @@ def _rebuild_summary_from_holdings(
     rows.sort(key=lambda value: value.get("annual_payout_krw") or 0, reverse=True)
 
 
+def _apply_confirmed_future_overrides(
+    summary: dict[str, Any],
+    holdings: list[dict[str, Any]],
+    *,
+    fx_rate: float,
+    as_of: date,
+) -> bool:
+    rows = summary.get("holding_dividends")
+    schedule = summary.get("monthly_schedule")
+    if not isinstance(rows, list) or not isinstance(schedule, list):
+        return False
+
+    bucket_by_month = {
+        int(bucket.get("month")): bucket
+        for bucket in schedule
+        if isinstance(bucket, dict) and isinstance(bucket.get("month"), (int, float))
+    }
+    changed = False
+    total_delta = 0.0
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        source = row.get("forecast_source")
+        if not isinstance(source, dict):
+            continue
+        structured = source.get("structured_decision_disclosure")
+        if not isinstance(structured, dict) or structured.get("confirmed_amount") is not True:
+            continue
+        source["confirmed_numeric_override"] = False
+        payment_text = str(structured.get("payment_date") or "").strip()
+        if not payment_text:
+            source["confirmed_numeric_override_reason"] = "payment_date_unavailable"
+            continue
+        try:
+            payment_day = date.fromisoformat(payment_text)
+        except ValueError:
+            source["confirmed_numeric_override_reason"] = "payment_date_invalid"
+            continue
+        if payment_day < as_of or payment_day.year != as_of.year:
+            source["confirmed_numeric_override_reason"] = "payment_date_outside_current_future_window"
+            continue
+
+        dps = _money(structured.get("ordinary_cash_dps_krw"))
+        qty = _money(row.get("quantity")) or 0.0
+        if dps is None or dps <= 0 or qty <= 0:
+            source["confirmed_numeric_override_reason"] = "amount_or_quantity_unavailable"
+            continue
+        month = payment_day.month
+        bucket = bucket_by_month.get(month)
+        if not isinstance(bucket, dict):
+            source["confirmed_numeric_override_reason"] = "monthly_schedule_unavailable"
+            continue
+        items = bucket.get("items")
+        if not isinstance(items, list):
+            items = []
+            bucket["items"] = items
+        code = _stock_code(row.get("code"))
+        existing = next(
+            (item for item in items if isinstance(item, dict) and _stock_code(item.get("code")) == code),
+            None,
+        )
+        current_annual = _money(row.get("annual_payout_krw")) or 0.0
+        if existing is None and current_annual > 0:
+            source["confirmed_numeric_override_reason"] = "payment_month_not_in_existing_schedule"
+            continue
+
+        new_payout = round(qty * dps)
+        old_payout = _money(existing.get("payout_krw")) if existing else 0.0
+        old_payout = old_payout or 0.0
+        delta = new_payout - old_payout
+        if existing is None:
+            existing = {
+                "code": code,
+                "name": row.get("name") or code,
+                "quantity": qty,
+                "currency": "KRW",
+                "payout_krw": 0,
+                "payout_orig": 0,
+                "div_yield": row.get("div_yield") or 0.0,
+            }
+            items.append(existing)
+            payout_months = row.get("payout_months")
+            if not isinstance(payout_months, list):
+                payout_months = []
+            if month not in payout_months:
+                payout_months.append(month)
+                payout_months.sort()
+            row["payout_months"] = payout_months
+
+        existing["payout_krw"] = new_payout
+        existing["payout_orig"] = new_payout
+        existing["forecast_source"] = "opendart_confirmed_disclosure"
+        bucket["total_krw"] = round((_money(bucket.get("total_krw")) or 0.0) + delta)
+        items.sort(key=lambda value: value.get("payout_krw") or 0, reverse=True)
+
+        row["annual_payout_krw"] = round(current_annual + delta)
+        current_orig = _money(row.get("annual_payout_orig")) or current_annual
+        row["annual_payout_orig"] = round(current_orig + delta, 2)
+        row["annual_div_per_share"] = round(row["annual_payout_orig"] / qty, 4)
+        source["numeric_source"] = "opendart_confirmed_disclosure"
+        source["confirmed_numeric_override"] = True
+        source["confirmed_numeric_override_reason"] = None
+        source["confirmed_payment_month"] = month
+        total_delta += delta
+        changed = True
+
+    if not changed:
+        return False
+
+    total = (_money(summary.get("total_annual_dividend_krw")) or 0.0) + total_delta
+    summary["total_annual_dividend_krw"] = round(total)
+    summary["monthly_avg_dividend_krw"] = round(total / 12.0)
+
+    total_eval = 0.0
+    for holding in holdings:
+        if not isinstance(holding, dict):
+            continue
+        qty = _money(holding.get("quantity")) or 0.0
+        price = _money(holding.get("current_price")) or _money(holding.get("purchase_price")) or 0.0
+        currency = str(holding.get("currency") or "KRW").upper()
+        total_eval += qty * price * (fx_rate if currency == "USD" else 1.0)
+    if total_eval > 0:
+        summary["portfolio_yield"] = round((total / total_eval) * 100.0, 2)
+    rows.sort(key=lambda value: value.get("annual_payout_krw") or 0, reverse=True)
+    return True
+
+
 async def enrich_dividend_summary_with_official_sources(
     summary: dict[str, Any],
     holdings: list[dict[str, Any]],
@@ -452,6 +630,11 @@ async def enrich_dividend_summary_with_official_sources(
 
         evidence = evidence_map.get(code) if isinstance(evidence_map.get(code), dict) else {}
         historical = evidence.get("historical") if isinstance(evidence.get("historical"), dict) else {}
+        structured = (
+            evidence.get("structured_decision_disclosure")
+            if isinstance(evidence.get("structured_decision_disclosure"), dict)
+            else None
+        )
         official_dps = _money(historical.get("ordinary_cash_dps_krw"))
         legacy_dps = _money(row.get("annual_div_per_share")) or 0.0
         numeric_source = "naver"
@@ -466,7 +649,9 @@ async def enrich_dividend_summary_with_official_sources(
             "official_historical_annual_div_per_share_krw": official_dps,
             "official_business_year": historical.get("business_year"),
             "recent_decision_disclosure": evidence.get("recent_decision_disclosure"),
-            "confirmed_amount": False,
+            "structured_decision_disclosure": structured,
+            "confirmed_amount": bool(structured and structured.get("confirmed_amount") is True),
+            "confirmed_numeric_override": False,
             "kind_reference_url": KIND_DIVIDEND_INFO_URL,
             "opendart_reference_url": OPENDART_GUIDE_URL,
             "safe_fill_only": True,
@@ -474,6 +659,10 @@ async def enrich_dividend_summary_with_official_sources(
 
     if changed:
         _rebuild_summary_from_holdings(summary, holdings, fx_rate=fx_rate)
+    day = as_of.date() if isinstance(as_of, datetime) else (as_of or _now_kst().date())
+    _apply_confirmed_future_overrides(
+        summary, holdings, fx_rate=fx_rate, as_of=day
+    )
     return summary
 
 

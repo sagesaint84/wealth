@@ -6,6 +6,7 @@
   if (!originalRender) return;
 
   function sourceLabel(source) {
+    if (source === 'opendart_confirmed_disclosure') return 'OpenDART 확정 공시';
     if (source === 'opendart_historical_fill') return 'OpenDART 공식 이력 보정';
     if (source === 'naver') return '네이버 추정';
     if (source === 'yahoo_history') return 'Yahoo 최근 배당 이력';
@@ -46,6 +47,7 @@
     let recentDecisionCount = 0;
     let officialEvidenceCount = 0;
     let confirmedAmountCount = 0;
+    let confirmedOverrideCount = 0;
 
     rows.forEach((row) => {
       const source = row?.forecast_source || {};
@@ -54,6 +56,7 @@
       if (source.official_data_available) officialEvidenceCount += 1;
       if (source.recent_decision_disclosure) recentDecisionCount += 1;
       if (source.confirmed_amount === true) confirmedAmountCount += 1;
+      if (source.confirmed_numeric_override === true) confirmedOverrideCount += 1;
     });
 
     const title = document.createElement('div');
@@ -84,6 +87,9 @@
     if (confirmedAmountCount > 0) {
       pieces.push(`구조 검증된 확정금액 ${confirmedAmountCount}종목`);
     }
+    if (confirmedOverrideCount > 0) {
+      pieces.push(`확정 공시 금액 반영 ${confirmedOverrideCount}종목`);
+    }
     detail.textContent = pieces.length
       ? pieces.join(' · ')
       : '현재 보유종목의 배당 자료가 없습니다.';
@@ -95,7 +101,7 @@
     if (status === 'missing_api_key') {
       note.textContent = '현재 금액은 네이버/Yahoo 기반 추정입니다. OpenDART 키를 설정하면 공식 이력과 최근 공시 존재 여부를 함께 확인합니다.';
     } else {
-      note.textContent = '공식 과거 DPS는 기존 추정이 없을 때만 보정하며, 배당결정 공시가 존재해도 금액이 구조적으로 검증되지 않으면 확정금액으로 표시하지 않습니다.';
+      note.textContent = '배당결정 원문에서 주당배당금이 구조 검증된 경우만 확정금액으로 표시합니다. 지급예정일이 확인되고 기존 예상월과 안전하게 매칭될 때만 해당 월 추정금액을 확정 공시값으로 교체하며, 지급일은 임의 생성하지 않습니다.';
     }
     banner.appendChild(note);
 
