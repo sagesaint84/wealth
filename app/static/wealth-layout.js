@@ -53,7 +53,6 @@
       ${Object.keys(views).filter(key => key !== 'home').map(key => `<section data-wealth-page="${key}" aria-label="${views[key][0]}" hidden></section>`).join('')}
     </div>`;
   root.prepend(layout);
-  // Turn compact legacy secondary strings into explicit label/value rows.
   const splitMetricRows = (card, rows) => {
     if (!card) return;
     const content = card.querySelector(':scope > div:last-child');
@@ -99,8 +98,6 @@
     detailHead.append(recordToolbar);
     recordSide.prepend(detailHead);
   }
-  // Create page-local navigation exactly where it is used. Keeping these nodes
-  // out of the legacy content root prevents orphan tabs if layout relocation fails.
   const assetCategoryTabs = document.createElement('div');
   assetCategoryTabs.id = 'assetCategoryTabs';
   assetCategoryTabs.className = 'account-category-tabs wealth-section-tabs';
@@ -113,7 +110,6 @@
     <button type="button" class="account-cat-tab" data-cat="real_estate">🏠 부동산 (<span id="realEstateTabCount">0</span>)</button>`;
   page('assets').append(assetCategoryTabs);
   move('accountsPanel', page('assets'));
-
   const incomeTabs = document.createElement('div');
   incomeTabs.id = 'incomeTabs';
   incomeTabs.className = 'wealth-section-tabs income-tabs';
@@ -127,8 +123,6 @@
     <button type="button" class="income-tab" data-income="ipo" role="tab" aria-selected="false">🔔 공모주</button>`;
   page('income').append(incomeTabs);
   ['calendarPanel', 'realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel', 'ipoPanel'].forEach(id => move(id, page('income')));
-  // Preserve delegated edit/delete handlers while placing destructive actions
-  // behind an explicit disclosure. Renderers may replace the lists at any time.
   const accountsPanel = document.getElementById('accountsPanel');
   function enhanceAccountLists() {
     accountsPanel.querySelectorAll('.mini-delete-button').forEach(button => {
@@ -155,7 +149,6 @@
   settingsCard.innerHTML = '<h3>계정과 연결</h3><p class="wealth-help">가족 구성원과 증권사 연결을 설정합니다. 연결 작업은 버튼을 눌렀을 때 실행됩니다.</p><div class="wealth-settings-actions"></div>';
   page('settings').append(settingsCard);
   const actions = settingsCard.querySelector('.wealth-settings-actions');
-  // Retain admin/password actions in the global header for the separate admin view.
   ['topbarFamilyBtn', 'userOpenApiBtn', 'notificationSettingsBtn'].forEach(id => move(id, actions));
   const footer = document.getElementById('appCommonFooter');
   const footerParent = footer?.parentNode;
@@ -207,7 +200,6 @@
       layout.dataset.incomeTab = incomeTab;
       window.setIncomeTab?.(incomeTab, { updateHash: false });
     }
-    // Charts drawn while hidden need their visible dimensions recalculated.
     window.dispatchEvent(new CustomEvent('wealth:view', { detail: requested === 'ledger' ? 'ledger' : key }));
   }
   window.addEventListener('hashchange', () => navigate(true));
@@ -297,3 +289,7 @@
     });
   });
 })();
+
+// Settings operational status is an optional UI module. It fails independently
+// so dashboard navigation remains available even if the module cannot load.
+import('/static/wealth-automation-status.js?v=1.3.0').catch(() => {});
