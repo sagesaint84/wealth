@@ -156,7 +156,77 @@ def calculate_personal_comprehensive_tax_basic_rate_2026(
     }
 
 
+_ARTICLE62_FIELDS = frozenset({
+    "ordinary_interest_14_krw", "ordinary_dividend_14_krw",
+    "nonbusiness_loan_interest_25_krw", "nonbusiness_loan_interest_14_krw",
+    "nonwithheld_interest_14_krw", "nonwithheld_nonbusiness_loan_interest_25_krw",
+    "nonwithheld_dividend_14_krw", "gross_up_eligible_dividend_krw",
+    "other_comprehensive_income_krw", "income_deduction_krw",
+})
+
+
+def calculate_financial_income_article62_comparison_2026(**values: object) -> dict[str, Any]:
+    """Return the bounded Article 62 national-tax comparison before credits.
+
+    Financial-income categories and gross-up eligibility are explicit caller
+    assumptions; no portfolio or withholding classification is inferred.
+    """
+    if set(values) != _ARTICLE62_FIELDS:
+        raise PersonalComprehensiveTaxError("ARTICLE62_REQUEST_INVALID")
+    amounts = {
+        name: _nonnegative_won(value, "ARTICLE62_AMOUNT_INVALID")
+        for name, value in values.items()
+    }
+    financial_keys = _ARTICLE62_FIELDS - {
+        "other_comprehensive_income_krw", "income_deduction_krw"
+    }
+    financial_income = sum(amounts[name] for name in financial_keys)
+    gross_up = int(round(amounts["gross_up_eligible_dividend_krw"] * 0.10))
+    other_income = amounts["other_comprehensive_income_krw"]
+    deduction = amounts["income_deduction_krw"]
+    excess = max(0, financial_income - FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW)
+    progressive_base = max(0, excess + gross_up + other_income - deduction)
+    comparison_a = _national_basic_rate_tax(progressive_base) + 2_800_000
+    withholding_equivalent = (
+        (amounts["ordinary_interest_14_krw"] + amounts["ordinary_dividend_14_krw"]
+         + amounts["nonbusiness_loan_interest_14_krw"] + amounts["nonwithheld_interest_14_krw"]
+         + amounts["nonwithheld_dividend_14_krw"] + amounts["gross_up_eligible_dividend_krw"]) * 0.14
+        + (amounts["nonbusiness_loan_interest_25_krw"]
+           + amounts["nonwithheld_nonbusiness_loan_interest_25_krw"]) * 0.25
+    )
+    other_tax_base = max(0, other_income - deduction)
+    comparison_b = int(round(withholding_equivalent)) + _national_basic_rate_tax(other_tax_base)
+    exceeded = financial_income > FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW
+    return {
+        "year": RULE_YEAR,
+        "financial_income_taxable_total_krw": financial_income,
+        "financial_income_threshold": _threshold_state(financial_income),
+        "inputs": amounts,
+        "dividend_gross_up_amount_krw": gross_up,
+        "gross_up_eligibility_user_asserted": amounts["gross_up_eligible_dividend_krw"] > 0,
+        "comparison_a_krw": comparison_a if exceeded else None,
+        "comparison_b_krw": comparison_b,
+        "article62_comparison_tax_before_credits_krw": max(comparison_a, comparison_b) if exceeded else comparison_b,
+        "article62_method": "greater_of_a_b" if exceeded else "comparison_b_only",
+        "data_quality": {
+            "screening_only": True, "legal_tax_determination": False,
+            "stateless": True, "dividend_tax_credit_calculated": False,
+            "withholding_tax_paid_credit_calculated": False,
+            "local_income_tax_calculated": False, "foreign_tax_credit_calculated": False,
+        },
+        "rule_context": {
+            "year": RULE_YEAR, "verified_on": RULE_VERIFIED_ON,
+            "article62_legal_basis": "소득세법 제62조",
+            "withholding_rate_legal_basis": "소득세법 제129조",
+            "gross_up_legal_basis": "소득세법 제17조 제3항",
+            "official_financial_income_return_form_source_url": OFFICIAL_FINANCIAL_INCOME_RETURN_FORM_SOURCE_URL,
+            "not_calculated": ["dividend tax credit", "withholding tax paid credit", "local income tax", "foreign tax credit", "final legal/tax determination"],
+        },
+    }
+
+
 __all__ = [
     "PersonalComprehensiveTaxError",
     "calculate_personal_comprehensive_tax_basic_rate_2026",
+    "calculate_financial_income_article62_comparison_2026",
 ]

@@ -1918,6 +1918,24 @@ async def financial_income_personal_comprehensive_tax(request: Request) -> JSONR
     return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
 
+@app.post("/api/dividends/financial-income-article62-comparison")
+async def financial_income_article62_comparison(request: Request) -> JSONResponse:
+    """Return a stateless Article 62 comparison before credits."""
+    get_current_username(request)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail={"code": "ARTICLE62_REQUEST_INVALID"}, headers={"Cache-Control": "no-store"}) from exc
+    from app.services.tax import PersonalComprehensiveTaxError, calculate_financial_income_article62_comparison_2026
+    try:
+        result = calculate_financial_income_article62_comparison_2026(**body) if isinstance(body, dict) else None
+    except PersonalComprehensiveTaxError as exc:
+        raise HTTPException(status_code=400, detail={"code": str(exc)}, headers={"Cache-Control": "no-store"}) from exc
+    if result is None:
+        raise HTTPException(status_code=400, detail={"code": "ARTICLE62_REQUEST_INVALID"}, headers={"Cache-Control": "no-store"})
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/dividends/financial-income-simulation")
 async def simulate_financial_income(request: Request) -> JSONResponse:
     """Return a stateless annual financial-income screening projection."""
