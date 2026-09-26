@@ -554,6 +554,20 @@ def _apply_confirmed_future_overrides(
         current_orig = _money(row.get("annual_payout_orig")) or current_annual
         row["annual_payout_orig"] = round(current_orig + delta, 2)
         row["annual_div_per_share"] = round(row["annual_payout_orig"] / qty, 4)
+        holding = next(
+            (
+                item
+                for item in holdings
+                if isinstance(item, dict)
+                and _stock_code(item.get("code")) == code
+                and str(item.get("currency") or "KRW").upper() == "KRW"
+            ),
+            {},
+        )
+        price = _money(holding.get("current_price")) or _money(holding.get("purchase_price")) or 0.0
+        if price > 0:
+            row["div_yield"] = round((row["annual_div_per_share"] / price) * 100.0, 2)
+            existing["div_yield"] = row["div_yield"]
         source["numeric_source"] = "opendart_confirmed_disclosure"
         source["confirmed_numeric_override"] = True
         source["confirmed_numeric_override_reason"] = None
@@ -567,6 +581,11 @@ def _apply_confirmed_future_overrides(
     total = (_money(summary.get("total_annual_dividend_krw")) or 0.0) + total_delta
     summary["total_annual_dividend_krw"] = round(total)
     summary["monthly_avg_dividend_krw"] = round(total / 12.0)
+    summary["dividend_paying_count"] = sum(
+        1
+        for row in rows
+        if isinstance(row, dict) and (_money(row.get("annual_payout_krw")) or 0.0) > 0
+    )
 
     total_eval = 0.0
     for holding in holdings:

@@ -202,7 +202,25 @@ class ConfirmedDividendForecastIntegrationTests(unittest.IsolatedAsyncioTestCase
         self.assertEqual(row["annual_payout_krw"], 6000)
         self.assertEqual(result["monthly_schedule"][11]["total_krw"], 6000)
         self.assertEqual(row["payout_months"], [12])
+        self.assertEqual(result["dividend_paying_count"], 1)
         self.assertTrue(row["forecast_source"]["confirmed_numeric_override"])
+
+    def test_latest_correction_filing_wins(self):
+        selected = official._latest_dividend_decision([
+            {
+                "report_nm": "현금ㆍ현물배당 결정",
+                "rcept_no": "20260313000100",
+                "rcept_dt": "20260313",
+            },
+            {
+                "report_nm": "[정정]현금ㆍ현물배당 결정",
+                "rcept_no": "20260420000276",
+                "rcept_dt": "20260420",
+            },
+        ])
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected["receipt_no"], "20260420000276")
+        self.assertFalse(selected["confirmed_amount"])
 
 
 if __name__ == "__main__":
