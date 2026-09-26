@@ -68,6 +68,34 @@
 
           <div class="fi-what-if-section">
             <label class="fi-what-if-toggle">
+              <input id="fiWhatIfHighDividendEnabled" type="checkbox" />
+              <span>
+                <strong>2026 고배당기업 분리과세 특례 가정</strong>
+                <small>공식 공시 확인과 실제 신고 시 신청 가정을 별도로 입력합니다.</small>
+              </span>
+            </label>
+            <div id="fiWhatIfHighDividendFields" class="fi-what-if-investment-fields" hidden>
+              <div class="fi-what-if-grid three">
+                <label>
+                  <span>특례 배당금액</span>
+                  <input id="fiWhatIfHighDividendAmount" type="number" min="0" step="10000" value="0" data-korean-currency />
+                  <small>위 추가 배당 가정 중 특례 대상이라고 가정할 금액</small>
+                </label>
+                <label class="fi-check">
+                  <input id="fiWhatIfHighDividendConfirmed" type="checkbox" />
+                  <span>공식 공시에서 고배당기업 확인함</span>
+                </label>
+                <label class="fi-check">
+                  <input id="fiWhatIfHighDividendRequested" type="checkbox" />
+                  <span>신고 시 분리과세 신청 가정</span>
+                </label>
+              </div>
+              <small>앱이 배당수익률로 적격 여부를 추정하지 않습니다. 공식 공시 확인이 전제이며 지방소득세·최종 신고세액은 별도입니다.</small>
+            </div>
+          </div>
+
+          <div class="fi-what-if-section">
+            <label class="fi-what-if-toggle">
               <input id="fiWhatIfInvestmentEnabled" type="checkbox" />
               <span>
                 <strong>개인 vs 가족법인 투자방법도 비교</strong>
@@ -170,14 +198,22 @@
     if (!summary) return;
     summary.insertAdjacentHTML('afterend', panelMarkup());
 
+    document.getElementById('fiWhatIfHighDividendEnabled')?.addEventListener('change', syncHighDividendFields);
     document.getElementById('fiWhatIfInvestmentEnabled')?.addEventListener('change', syncInvestmentFields);
     document.getElementById('fiWhatIfAssetType')?.addEventListener('change', syncInvestmentFields);
     document.getElementById('financialIncomeWhatIfForm')?.addEventListener('submit', event => {
       event.preventDefault();
       runSimulation();
     });
+    syncHighDividendFields();
     syncInvestmentFields();
     syncVisibility();
+  }
+
+  function syncHighDividendFields() {
+    const enabled = boolValue('fiWhatIfHighDividendEnabled');
+    const fields = document.getElementById('fiWhatIfHighDividendFields');
+    if (fields) fields.hidden = !enabled;
   }
 
   function syncInvestmentFields() {
@@ -193,6 +229,15 @@
     const panel = document.getElementById('financialIncomeWhatIfPanel');
     if (!panel) return;
     panel.style.display = estimatedModeActive() ? 'block' : 'none';
+  }
+
+  function buildHighDividendScenario() {
+    if (!boolValue('fiWhatIfHighDividendEnabled')) return null;
+    return {
+      special_dividend_income_krw: numberValue('fiWhatIfHighDividendAmount'),
+      high_dividend_company_confirmed: boolValue('fiWhatIfHighDividendConfirmed'),
+      separate_taxation_requested: boolValue('fiWhatIfHighDividendRequested'),
+    };
   }
 
   function buildInvestmentScenario() {
@@ -224,6 +269,9 @@
       payload.additional_dividend_gross_krw,
       payload.additional_interest_gross_krw,
     ];
+    if (payload.high_dividend_scenario) {
+      values.push(payload.high_dividend_scenario.special_dividend_income_krw);
+    }
     if (payload.investment_scenario) {
       values.push(
         payload.investment_scenario.annual_distribution_krw,
@@ -253,6 +301,8 @@
       additional_dividend_gross_krw: numberValue('fiWhatIfExtraDividend'),
       additional_interest_gross_krw: numberValue('fiWhatIfExtraInterest'),
     };
+    const highDividendScenario = buildHighDividendScenario();
+    if (highDividendScenario) payload.high_dividend_scenario = highDividendScenario;
     const investmentScenario = buildInvestmentScenario();
     if (investmentScenario) payload.investment_scenario = investmentScenario;
 
@@ -306,6 +356,7 @@
     const scenarioState = threshold?.scenario || {};
     const watchState = whatIf?.thresholds?.watch?.scenario || {};
     const projected = whatIf.scenario_projected_gross_screening_income_krw;
+    const comprehensiveProjected = whatIf.scenario_comprehensive_tax_screening_income_krw;
     const baseline = whatIf.baseline_projected_gross_screening_income_krw;
     const remaining = scenarioState.remaining_krw;
 
@@ -335,7 +386,7 @@
         <div class="fi-result-card emphasized">
           <span>What-if 적용 후</span>
           <strong>${money(projected)}</strong>
-          <small>추가 가정 ${money(whatIf.scenario_addition_gross_krw || 0)}</small>
+          <small>추가 가정 ${money(whatIf.scenario_addition_gross_krw || 0)} · 종합과세 판정대상 ${money(comprehensiveProjected)}</small>
         </div>
         <div class="fi-result-card ${statusClass}">
           <span>금융소득 종합과세 screening</span>
@@ -344,6 +395,38 @@
         </div>
       </div>
     `;
+
+    const highDividend = whatIf?.high_dividend_special_tax;
+    if (highDividend) {
+      const applied = highDividend.special_rule_applied === true;
+      const confirmed = highDividend.high_dividend_company_confirmed_by_user === true;
+      const requested = highDividend.separate_taxation_requested === true;
+      html += `
+        <div class="fi-compare-block">
+          <div class="fi-compare-title">
+            <strong>2026 고배당기업 분리과세 특례</strong>
+            <span>${applied ? '특례 적용 가정' : '특례 미적용'} · screening-only</span>
+          </div>
+          <div class="fi-result-grid comparison">
+            <div class="fi-result-card">
+              <span>공식 공시 확인</span>
+              <strong>${confirmed ? '확인함' : '미확인'}</strong>
+              <small>앱 자동 적격판정 아님</small>
+            </div>
+            <div class="fi-result-card">
+              <span>2천만원 판정 제외액</span>
+              <strong>${money(highDividend.excluded_from_comprehensive_tax_threshold_krw || 0)}</strong>
+              <small>${requested ? '분리과세 신청 가정' : '신청 가정 없음'}</small>
+            </div>
+            <div class="fi-result-card">
+              <span>특례 국세 예상액</span>
+              <strong>${money(highDividend.national_income_tax_krw)}</strong>
+              <small>지방소득세·최종 신고세액 미포함</small>
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
     const comparison = data?.investment_comparison;
     if (comparison) {
@@ -385,7 +468,7 @@
 
     html += `
       <div class="fi-what-if-disclaimer">
-        이 결과는 2026년 기준 사전 screening입니다. 금융소득 종합과세 최종세액, 고배당 특례, 건강보험료, 급여·퇴직금 인출, 증여·상속세는 포함하지 않습니다.
+        이 결과는 2026년 기준 사전 screening입니다. 고배당 특례는 공식 공시 확인과 신고 신청을 사용자가 가정한 경우에만 반영하며, 지방소득세·금융소득 종합과세 최종세액·건강보험료·급여/퇴직금 인출·증여/상속세는 포함하지 않습니다.
       </div>
     `;
     root.innerHTML = html;
