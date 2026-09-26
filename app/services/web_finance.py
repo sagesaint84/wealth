@@ -903,6 +903,7 @@ async def fetch_kr_dividend(client: httpx.AsyncClient, code: str, current_price:
         "payout_months": payout_months,
         "div_yield": dvd_yield,
         "div_count": len(payout_months),
+        "is_etf": is_etf,
     }
 
 
@@ -1012,6 +1013,7 @@ async def get_web_dividend_summary(holdings: list[dict[str, Any]], fx_rate: floa
             "annual_payout_krw": round(annual_payout_krw, 0),
             "annual_payout_orig": round(annual_payout_orig, 2),
             "payout_months": payout_months,
+            "is_etf": bool(d_info.get("is_etf")),
         })
 
     portfolio_yield = round((total_annual_krw / total_eval_krw * 100), 2) if total_eval_krw > 0 else 0.0

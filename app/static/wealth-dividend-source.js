@@ -6,6 +6,7 @@
   if (!originalRender) return;
 
   function sourceLabel(source) {
+    if (source === 'kind_etf_confirmed_overlay') return 'KIND ETF 확정 분배금 반영';
     if (source === 'opendart_confirmed_disclosure') return 'OpenDART 확정 공시';
     if (source === 'opendart_historical_fill') return 'OpenDART 공식 이력 보정';
     if (source === 'naver') return '네이버 추정';
@@ -48,6 +49,8 @@
     let officialEvidenceCount = 0;
     let confirmedAmountCount = 0;
     let confirmedOverrideCount = 0;
+    let kindEtfConfirmedEventCount = 0;
+    let kindEtfOverrideCount = 0;
 
     rows.forEach((row) => {
       const source = row?.forecast_source || {};
@@ -57,6 +60,8 @@
       if (source.recent_decision_disclosure) recentDecisionCount += 1;
       if (source.confirmed_amount === true) confirmedAmountCount += 1;
       if (source.confirmed_numeric_override === true) confirmedOverrideCount += 1;
+      kindEtfConfirmedEventCount += Number(source.kind_etf_confirmed_event_count || 0);
+      kindEtfOverrideCount += Number(source.kind_etf_numeric_override_count || 0);
     });
 
     const title = document.createElement('div');
@@ -90,6 +95,12 @@
     if (confirmedOverrideCount > 0) {
       pieces.push(`확정 공시 금액 반영 ${confirmedOverrideCount}종목`);
     }
+    if (kindEtfConfirmedEventCount > 0) {
+      pieces.push(`KIND ETF 확정 분배 이벤트 ${kindEtfConfirmedEventCount}건`);
+    }
+    if (kindEtfOverrideCount > 0) {
+      pieces.push(`KIND ETF 공식금액 반영 ${kindEtfOverrideCount}건`);
+    }
     detail.textContent = pieces.length
       ? pieces.join(' · ')
       : '현재 보유종목의 배당 자료가 없습니다.';
@@ -111,7 +122,7 @@
     links.style.gap = '10px';
     links.style.flexWrap = 'wrap';
 
-    const kindUrl = policy.kind_reference_url;
+    const kindUrl = policy.kind_etf_reference_url || policy.kind_reference_url;
     const dartUrl = policy.opendart_guide_url;
     if (typeof dartUrl === 'string' && dartUrl.startsWith('https://')) {
       const link = document.createElement('a');
@@ -127,7 +138,7 @@
       link.href = kindUrl;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
-      link.textContent = 'KIND 배당정보 ↗';
+      link.textContent = 'KIND ETF/배당정보 ↗';
       link.style.color = '#7dd3fc';
       links.appendChild(link);
     }

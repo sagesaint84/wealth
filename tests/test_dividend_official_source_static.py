@@ -39,5 +39,21 @@ class DividendOfficialSourceStaticTests(unittest.TestCase):
         self.assertIn("legacy_forecast_preserved", source)
 
 
+    def test_kind_etf_official_overlay_is_wired(self):
+        web = (ROOT / "app" / "services" / "web_finance.py").read_text(encoding="utf-8")
+        official = (ROOT / "app" / "services" / "dividend_official_sources.py").read_text(
+            encoding="utf-8"
+        )
+        ui = (ROOT / "app" / "static" / "wealth-dividend-source.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"is_etf": is_etf', web)
+        self.assertIn('"is_etf": bool(d_info.get("is_etf"))', web)
+        self.assertIn("enrich_dividend_summary_with_kind_etf_distributions", official)
+        self.assertIn("kind_etf_confirmed_overlay", ui)
+        self.assertIn("kind_etf_numeric_override_count", ui)
+
+
+
 if __name__ == "__main__":
     unittest.main()

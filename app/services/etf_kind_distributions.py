@@ -398,6 +398,24 @@ def _find_item(bucket: dict[str, Any] | None, code: str) -> dict[str, Any] | Non
     )
 
 
+def _find_replaceable_item(
+    bucket: dict[str, Any] | None, code: str
+) -> dict[str, Any] | None:
+    """Find only a legacy/heuristic item, never a KIND event added earlier."""
+    if not isinstance(bucket, dict) or not isinstance(bucket.get("items"), list):
+        return None
+    return next(
+        (
+            item
+            for item in bucket["items"]
+            if isinstance(item, dict)
+            and _stock_code(item.get("code")) == code
+            and item.get("forecast_source") != "kind_etf_distribution"
+        ),
+        None,
+    )
+
+
 def _remove_item(bucket: dict[str, Any], item: dict[str, Any]) -> float:
     old = _money(item.get("payout_krw")) or 0.0
     bucket["items"].remove(item)
@@ -451,9 +469,9 @@ def _apply_kind_events_to_row(
         payment_bucket = buckets.get(payment_day.month)
         if payment_bucket is None:
             continue
-        existing = _find_item(record_bucket, code)
+        existing = _find_replaceable_item(record_bucket, code)
         if existing is None:
-            existing = _find_item(payment_bucket, code)
+            existing = _find_replaceable_item(payment_bucket, code)
             source_bucket = payment_bucket if existing is not None else None
         else:
             source_bucket = record_bucket
