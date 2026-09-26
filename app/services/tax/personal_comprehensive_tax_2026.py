@@ -129,6 +129,13 @@ def calculate_personal_comprehensive_tax_basic_rate_2026(
         "rule_context": {
             "year": RULE_YEAR,
             "verified_on": RULE_VERIFIED_ON,
+            "basic_rate_legal_basis": "소득세법 제55조 제1항",
+            "financial_income_threshold_legal_basis": "소득세법 제14조 제3항 제6호",
+            "financial_income_threshold_amount_only_screening": True,
+            "nonwithheld_financial_income_exception_evaluated": False,
+            "financial_income_threshold_note": (
+                "2천만원 이하라는 금액만으로 최종 종합과세 제외 여부를 판정하지 않습니다."
+            ),
             "official_basic_rate_source_url": (
                 OFFICIAL_PERSONAL_COMPREHENSIVE_TAX_RATE_SOURCE_URL
             ),
@@ -137,6 +144,7 @@ def calculate_personal_comprehensive_tax_basic_rate_2026(
             ),
             "not_calculated": [
                 "final financial-income comprehensive-tax comparison formula",
+                "nonwithheld financial-income exception",
                 "income deductions and tax credits",
                 "dividend gross-up and dividend tax credit",
                 "withholding tax already paid",
