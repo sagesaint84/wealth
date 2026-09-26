@@ -1,7 +1,7 @@
 """Stateless Phase 10.5A-3 financial-income What-if orchestration.
 
 This layer combines the verified annual financial-income projection with optional
-personal-vs-family-corporation investment-tax screening.  It intentionally does
+personal-vs-family-corporation investment-tax screening. It intentionally does
 not persist scenarios or turn screening estimates into legal tax determinations.
 """
 
@@ -23,6 +23,8 @@ class FinancialIncomeWhatIfError(ValueError):
 
 
 def _nonnegative(value: object, code: str) -> float:
+    if isinstance(value, bool):
+        raise FinancialIncomeWhatIfError(code)
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
@@ -41,15 +43,27 @@ def _threshold_state(amount: int | None, threshold: int) -> dict[str, Any]:
         return {
             "amount_krw": None,
             "threshold_krw": threshold,
-            "reached": None,
             "remaining_krw": None,
+            "exceeded": None,
+            "at_or_above": None,
         }
     return {
         "amount_krw": amount,
         "threshold_krw": threshold,
-        "reached": amount >= threshold,
         "remaining_krw": max(threshold - amount, 0),
+        "exceeded": amount > threshold,
+        "at_or_above": amount >= threshold,
     }
+
+
+def _crossed(
+    before: dict[str, Any], after: dict[str, Any], *, state_key: str
+) -> bool | None:
+    before_state = before.get(state_key)
+    after_state = after.get(state_key)
+    if before_state is None or after_state is None:
+        return None
+    return (not bool(before_state)) and bool(after_state)
 
 
 def build_financial_income_what_if(
@@ -59,6 +73,9 @@ def build_financial_income_what_if(
     additional_interest_gross_krw: object = 0,
 ) -> dict[str, Any]:
     """Apply hypothetical extra financial income to an existing projection."""
+
+    if not isinstance(baseline_projection, dict):
+        raise FinancialIncomeWhatIfError("FINANCIAL_INCOME_WHAT_IF_BASELINE_INVALID")
 
     additional_dividend = _nonnegative(
         additional_dividend_gross_krw,
@@ -105,11 +122,6 @@ def build_financial_income_what_if(
         scenario_projected, FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW
     )
 
-    def _crossed(before: dict[str, Any], after: dict[str, Any]) -> bool | None:
-        if before["reached"] is None or after["reached"] is None:
-            return None
-        return (not before["reached"]) and bool(after["reached"])
-
     return {
         "baseline_known_gross_screening_income_krw": baseline_known,
         "baseline_projected_gross_screening_income_krw": baseline_projected,
@@ -121,13 +133,19 @@ def build_financial_income_what_if(
             "watch": {
                 "baseline": watch_baseline,
                 "scenario": watch_scenario,
-                "crossed_by_scenario": _crossed(watch_baseline, watch_scenario),
+                "crossed_by_scenario": _crossed(
+                    watch_baseline,
+                    watch_scenario,
+                    state_key="at_or_above",
+                ),
             },
             "comprehensive_tax": {
                 "baseline": comprehensive_baseline,
                 "scenario": comprehensive_scenario,
                 "crossed_by_scenario": _crossed(
-                    comprehensive_baseline, comprehensive_scenario
+                    comprehensive_baseline,
+                    comprehensive_scenario,
+                    state_key="exceeded",
                 ),
                 "screening_only": True,
                 "legal_tax_determination": False,
@@ -173,7 +191,9 @@ async def get_financial_income_what_if_for_user(
     }
 
     if investment_scenario is not None:
-        if not isinstance(investment_scenario, dict):
+        if not isinstance(investment_scenario, dict) or not isinstance(
+            investment_scenario.get("asset_type"), str
+        ):
             raise FinancialIncomeWhatIfError(
                 "FINANCIAL_INCOME_WHAT_IF_INVESTMENT_SCENARIO_INVALID"
             )
@@ -189,11 +209,12 @@ async def get_financial_income_what_if_for_user(
             personal_basis = "projected_gross_screening_income"
 
         compare_kwargs = dict(investment_scenario)
+        # Never trust a client-provided personal baseline. It is always replaced
+        # by the authenticated user's scoped projection/known amount.
         compare_kwargs["existing_personal_financial_income_krw"] = (
             personal_financial_income
         )
         comparison = compare_investment_tax_2026(**compare_kwargs)
-        comparison.setdefault("data_quality", {})
         comparison["what_if_context"] = {
             "existing_personal_financial_income_source": personal_basis,
             "existing_personal_financial_income_krw": int(
