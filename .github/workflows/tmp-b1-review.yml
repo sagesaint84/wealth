@@ -1,0 +1,68 @@
+name: Temporary Phase 10.5B1 review checks
+
+on:
+  push:
+    branches:
+      - phase10-5b1-family-financial-income-risk
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-24.04
+    env:
+      WEALTH_ENV: test
+      WEALTH_TEST_SIGNING_SECRET: b1-review-test-signing-secret
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: phase10-5b1-family-financial-income-risk
+          fetch-depth: 0
+
+      - name: Install project dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Apply review guards
+        run: python .github/patch_b1_review.py
+
+      - name: Run focused tests
+        run: |
+          python -m unittest \
+            tests.test_family_financial_income_risk \
+            tests.test_family_financial_income_risk_api \
+            tests.test_family_financial_income_risk_static \
+            tests.test_financial_income_projection \
+            tests.test_financial_income_projection_guards \
+            tests.test_financial_income_what_if \
+            tests.test_financial_income_what_if_api \
+            -v
+
+      - name: Check JavaScript
+        run: node --check app/static/wealth-family-financial-income-risk.js
+
+      - name: Compile changed Python
+        run: |
+          python -m py_compile \
+            app/services/tax/family_financial_income.py \
+            app/services/tax/__init__.py \
+            app/main.py
+
+      - name: Check docs structure
+        run: |
+          grep -q '^## 2. 다음 단계$' docs/ROADMAP.md
+          grep -q '^## 3. 금융소득/가족 세금 확장$' docs/ROADMAP.md
+          grep -q 'PR #25 merge (`39ca928`)' docs/PROJECT_STATE.md
+
+      - name: Check whitespace
+        run: git diff --check
+
+      - name: Commit verified review fixes and self-clean
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/patch_b1_review.py .github/workflows/tmp-b1-review.yml
+          git add -A
+          git commit -m "fix: guard family financial income ownership"
+          git push origin HEAD:phase10-5b1-family-financial-income-risk
