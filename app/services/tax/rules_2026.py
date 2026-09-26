@@ -51,6 +51,13 @@ LOCAL_PERSONAL_COMPREHENSIVE_INCOME_TAX_STANDARD_BRACKETS = (
 # financial-income return form's comparison-tax ceiling.
 DIVIDEND_GROSS_UP_RATE = 0.10
 
+# Local Tax Special Treatment Control Act Article 95(1): the local dividend tax
+# credit equals 10% of the amount added to gross receipts under Income Tax Act
+# Article 17(3). The eligible dividend base is limited by Article 95(3) to the
+# dividend income included in the comprehensive tax base above the statutory
+# financial-income threshold.
+LOCAL_DIVIDEND_TAX_CREDIT_RATE_ON_GROSS_UP = 0.10
+
 # 2026 high-dividend-company special separate-taxation brackets.
 # These are national income-tax rates only. Local income tax is separate and is
 # deliberately not folded into this rule table.
@@ -112,6 +119,9 @@ OFFICIAL_LOCAL_FINANCIAL_INCOME_COMPARISON_SOURCE_URL = (
 OFFICIAL_LOCAL_INCOME_TAX_RETURN_FORM_SOURCE_URL = (
     "https://www.law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=160799993&gubun="
 )
+OFFICIAL_LOCAL_DIVIDEND_TAX_CREDIT_LAW_SOURCE_URL = (
+    "https://law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1024240555"
+)
 OFFICIAL_HIGH_DIVIDEND_LAW_SOURCE_URL = (
     "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1033275259"
 )
@@ -125,3 +135,4 @@ RULE_VERIFIED_ON = "2026-09-26"
 DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 PREPAID_FINANCIAL_WITHHOLDING_VERIFIED_ON = "2026-09-27"
 LOCAL_INCOME_TAX_COMPARISON_VERIFIED_ON = "2026-09-27"
+LOCAL_DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
