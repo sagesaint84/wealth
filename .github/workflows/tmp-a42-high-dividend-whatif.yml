@@ -1,0 +1,57 @@
+name: Temporary Phase 10.5A4.2 checks
+
+on:
+  push:
+    branches:
+      - phase10-5a42-high-dividend-whatif
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    env:
+      WEALTH_ENV: test
+      WEALTH_TEST_SIGNING_SECRET: a42-temporary-test-signing-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase10-5a42-high-dividend-whatif
+          fetch-depth: 0
+
+      - name: Install project dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Apply Phase 10.5A4.2 patch
+        run: python .github/patch_a42_high_dividend_whatif.py
+
+      - name: Run focused tests
+        run: |
+          python -m unittest \
+            tests.test_high_dividend_what_if \
+            tests.test_high_dividend_what_if_static \
+            tests.test_high_dividend_special_tax \
+            tests.test_high_dividend_special_tax_guards \
+            tests.test_financial_income_what_if \
+            tests.test_financial_income_what_if_api \
+            tests.test_financial_income_what_if_static \
+            -v
+
+      - name: Check JavaScript
+        run: node --check app/static/wealth-financial-income-what-if.js
+
+      - name: Compile changed Python
+        run: python -m py_compile app/services/tax/what_if.py app/main.py
+
+      - name: Check whitespace
+        run: git diff --check
+
+      - name: Commit verified implementation and self-clean
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/patch_a42_high_dividend_whatif.py .github/workflows/tmp-a42-high-dividend-whatif.yml
+          git add -A
+          git commit -m "feat: connect high-dividend special tax to what-if"
+          git push origin HEAD:phase10-5a42-high-dividend-whatif
