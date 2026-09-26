@@ -1,0 +1,41 @@
+name: Temporary Phase 10.5A4 final checks
+
+on:
+  push:
+    branches:
+      - phase10-5a4-high-dividend-special-tax
+
+permissions:
+  contents: write
+
+jobs:
+  verify-cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase10-5a4-high-dividend-special-tax
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run isolated high dividend tests
+        run: |
+          python -m unittest \
+            tests.test_high_dividend_special_tax \
+            tests.test_high_dividend_special_tax_guards \
+            -v
+      - name: Compile high dividend tax modules
+        run: |
+          python -m py_compile \
+            app/services/tax/rules_2026.py \
+            app/services/tax/high_dividend_2026.py \
+            app/services/tax/__init__.py
+      - name: Remove temporary workflow
+        if: always()
+        run: |
+          git config user.name wealth-phase-builder
+          git config user.email actions@users.noreply.github.com
+          git rm .github/workflows/tmp-phase10-5a4-final.yml
+          git commit -m "chore: remove temporary high dividend final check"
+          git push origin HEAD:phase10-5a4-high-dividend-special-tax
