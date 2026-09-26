@@ -17,6 +17,20 @@ FINANCIAL_INCOME_WATCH_THRESHOLD_KRW = 10_000_000
 # excluded when the applicable legal treatment is positively identified.
 FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW = 20_000_000
 
+# Personal comprehensive-income basic rates. These rates are only used by the
+# B-4 input-based comparison helper; that helper does not reconstruct a final
+# financial-income comprehensive-tax return.
+PERSONAL_COMPREHENSIVE_INCOME_TAX_BRACKETS = (
+    (14_000_000, 0.06),
+    (50_000_000, 0.15),
+    (88_000_000, 0.24),
+    (150_000_000, 0.35),
+    (300_000_000, 0.38),
+    (500_000_000, 0.40),
+    (1_000_000_000, 0.42),
+    (None, 0.45),
+)
+
 # 2026 high-dividend-company special separate-taxation brackets.
 # These are national income-tax rates only. Local income tax is separate and is
 # deliberately not folded into this rule table.
@@ -50,6 +64,12 @@ HIGH_DIVIDEND_SPECIAL_LAST_QUALIFYING_BUSINESS_YEAR_END = "2028-12-31"
 #    - 분리과세 신청 시 해당 특례배당은 금융소득 2천만원 초과 판정에서 제외
 OFFICIAL_RULE_SOURCE_URL = (
     "https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=151083979&gubun="
+)
+OFFICIAL_PERSONAL_COMPREHENSIVE_TAX_RATE_SOURCE_URL = (
+    "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1026637493"
+)
+OFFICIAL_FINANCIAL_INCOME_RETURN_FORM_SOURCE_URL = (
+    "https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=153744873&gubun="
 )
 OFFICIAL_HIGH_DIVIDEND_LAW_SOURCE_URL = (
     "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1033275259"
