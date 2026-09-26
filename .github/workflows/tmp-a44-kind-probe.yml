@@ -1,4 +1,4 @@
-name: Temporary Phase 10.5A4.4 KIND probe
+name: Temporary Phase 10.5A4.4 checks
 
 on:
   push:
@@ -6,68 +6,61 @@ on:
       - phase10-5a44-domestic-etf-official-source
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  WEALTH_ENV: test
+  WEALTH_TEST_SIGNING_SECRET: a44-temporary-test-signing-secret
 
 jobs:
-  probe:
+  patch-and-verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Resolve KIND viewer contract
-        shell: bash
+        with:
+          ref: phase10-5a44-domestic-etf-official-source
+          fetch-depth: 0
+
+      - name: Install project dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Apply Phase 10.5A4.4 integration
+        run: python .github/apply_a44_kind_etf.py
+
+      - name: Run focused tests
         run: |
-          python - <<'PY'
-          from http.cookiejar import CookieJar
-          from urllib.parse import urljoin
-          from urllib.request import Request, build_opener, HTTPCookieProcessor
-          import re
+          python -m unittest \
+            tests.test_kind_etf_distributions \
+            tests.test_dividend_confirmed_disclosures \
+            tests.test_dividend_official_sources \
+            tests.test_dividend_official_source_static \
+            tests.test_dividend_official_user_scope \
+            tests.test_dart_user_openapi \
+            tests.test_financial_income_projection \
+            tests.test_financial_income_projection_guards \
+            -v
 
-          BASE='https://kind.krx.co.kr'
-          PAGE=BASE+'/disclosure/disclosurebystocktype.do?method=searchDisclosureByStockTypeEtf'
-          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36'
-          opener=build_opener(HTTPCookieProcessor(CookieJar()))
+      - name: Check JavaScript
+        run: node --check app/static/wealth-dividend-source.js
 
-          def get(url):
-              req=Request(url,headers={'User-Agent':UA,'Referer':PAGE,'Accept-Language':'ko-KR,ko;q=0.9'})
-              with opener.open(req,timeout=15) as r:
-                  raw=r.read(); enc=r.headers.get_content_charset() or 'utf-8'
-                  try: text=raw.decode(enc)
-                  except UnicodeDecodeError: text=raw.decode('euc-kr','replace')
-                  return r.geturl(),text
+      - name: Compile changed Python
+        run: |
+          python -m py_compile \
+            app/services/etf_kind_distributions.py \
+            app/services/dividend_official_sources.py \
+            app/services/web_finance.py
 
-          _,html=get(PAGE)
-          scripts=re.findall(r'<script[^>]+src=["\']([^"\']+)["\']',html,re.I)
-          print('SCRIPTS',scripts)
-          for src in scripts:
-              url=urljoin(PAGE,src)
-              try:
-                  final,text=get(url)
-                  if 'openDisclsViewer' in text or 'external/' in text:
-                      print('\nFOUND',final)
-                      for needle in ['function openDisclsViewer','openDisclsViewer','external/','acptNo']:
-                          for m in list(re.finditer(re.escape(needle),text,re.I))[:8]:
-                              lo=max(0,m.start()-700); hi=min(len(text),m.end()+1800)
-                              print('CTX',needle,re.sub(r'\s+',' ',text[lo:hi])[:2600])
-              except Exception as exc:
-                  print('ERR',url,type(exc).__name__,str(exc)[:160])
+      - name: Check whitespace
+        run: git diff --check
 
-          # Probe likely viewer entry with a known ETF distribution receipt if the
-          # common script reveals a URL-shaped path.  Only public GETs; no mutation.
-          candidates=[
-            BASE+'/common/disclsviewer.do?method=search&acptno=20260729000913',
-            BASE+'/common/disclsviewer.do?method=search&acptNo=20260729000913',
-            BASE+'/disclosure/details.do?method=searchDetailsMain&acptno=20260729000913',
-          ]
-          for url in candidates:
-              try:
-                  final,text=get(url)
-                  print('\nCANDIDATE',url,'=>',final,'len=',len(text),
-                        'distribution=',text.count('분배금'), 'external=',text.count('/external/'))
-                  for needle in ['/external/','분배금','20260729000913','68659']:
-                      m=re.search(re.escape(needle),text,re.I)
-                      if m:
-                          lo=max(0,m.start()-500); hi=min(len(text),m.end()+900)
-                          print('CCTX',needle,re.sub(r'\s+',' ',text[lo:hi])[:1600])
-              except Exception as exc:
-                  print('CANDIDATE_ERR',url,type(exc).__name__,str(exc)[:200])
-          PY
+      - name: Commit verified implementation and self-clean
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f \
+            .github/patch_a44_kind_etf.py \
+            .github/apply_a44_kind_etf.py \
+            .github/workflows/tmp-a44-kind-probe.yml
+          git add -A
+          git commit -m "feat: add official KIND ETF distributions"
+          git push origin HEAD:phase10-5a44-domestic-etf-official-source
