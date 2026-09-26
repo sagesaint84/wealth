@@ -45,6 +45,7 @@
     const counts = {};
     let recentDecisionCount = 0;
     let officialEvidenceCount = 0;
+    let confirmedAmountCount = 0;
 
     rows.forEach((row) => {
       const source = row?.forecast_source || {};
@@ -52,6 +53,7 @@
       counts[numeric] = (counts[numeric] || 0) + 1;
       if (source.official_data_available) officialEvidenceCount += 1;
       if (source.recent_decision_disclosure) recentDecisionCount += 1;
+      if (source.confirmed_amount === true) confirmedAmountCount += 1;
     });
 
     const title = document.createElement('div');
@@ -78,6 +80,9 @@
       .map(([source, count]) => `${sourceLabel(source)} ${count}종목`);
     if (recentDecisionCount > 0) {
       pieces.push(`최근 배당결정 공시 ${recentDecisionCount}건`);
+    }
+    if (confirmedAmountCount > 0) {
+      pieces.push(`구조 검증된 확정금액 ${confirmedAmountCount}종목`);
     }
     detail.textContent = pieces.length
       ? pieces.join(' · ')
