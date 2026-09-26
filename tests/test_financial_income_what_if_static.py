@@ -38,6 +38,13 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
         self.assertIn("2천만원 도달 · 초과 아님", js)
         self.assertIn("2천만원 초과", js)
 
+    def test_watch_threshold_state_is_server_driven(self):
+        js = (ROOT / "app" / "static" / "wealth-financial-income-what-if.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("watchState.at_or_above === true", js)
+        self.assertNotIn("10_000_000", js)
+
 
 if __name__ == "__main__":
     unittest.main()
