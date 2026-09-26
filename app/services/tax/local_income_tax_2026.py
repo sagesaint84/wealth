@@ -127,6 +127,7 @@ def calculate_financial_income_article62_comparison_2026(**values: object) -> di
     data_quality = result["data_quality"]
     data_quality.update(
         {
+            "local_income_tax_calculated": True,
             "local_income_tax_article93_comparison_calculated": True,
             "local_income_tax_standard_rate_only": True,
             "local_income_tax_ordinance_rate_adjustment_calculated": False,
