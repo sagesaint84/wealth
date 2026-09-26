@@ -158,7 +158,7 @@ def calculate_financial_income_article62_comparison_2026(
     eligible_foreign_tax_total = 0
     within_country_limits_total = 0
     foreign_tax_credit = 0
-    reduced_by_preceding_dividend_credit = 0
+    reduced_by_available_national_income_tax_cap = 0
     uncredited_current_year_foreign_tax = 0
 
     article62_tax_before_credits = result[
@@ -220,7 +220,7 @@ def calculate_financial_income_article62_comparison_2026(
             within_country_limits_total,
             tax_after_dividend_credit,
         )
-        reduced_by_preceding_dividend_credit = (
+        reduced_by_available_national_income_tax_cap = (
             within_country_limits_total - foreign_tax_credit
         )
         uncredited_current_year_foreign_tax = (
@@ -257,8 +257,8 @@ def calculate_financial_income_article62_comparison_2026(
             "foreign_tax_credit_within_country_limits_total_krw": (
                 within_country_limits_total
             ),
-            "foreign_tax_credit_reduced_by_preceding_dividend_credit_krw": (
-                reduced_by_preceding_dividend_credit
+            "foreign_tax_credit_reduced_by_available_national_income_tax_cap_krw": (
+                reduced_by_available_national_income_tax_cap
             ),
             "foreign_tax_credit_krw": foreign_tax_credit,
             "uncredited_current_year_foreign_income_tax_total_krw": (
