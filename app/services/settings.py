@@ -102,6 +102,20 @@ def _env_id(key:str)->int|None:
     try:return int(raw) if raw else None
     except ValueError:return None
 
+def _normalize_automation_status_for_ui(status: Any) -> Any:
+    """Correct presentation-only states without changing persisted settings."""
+    if not isinstance(status, dict):
+        return status
+    jobs = status.get("jobs")
+    if not isinstance(jobs, list):
+        return status
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        if job.get("reason") == "NO_GLOBAL_AUTOMATION_OWNER":
+            job["health"] = "unconfigured"
+    return status
+
 def get_effective_settings(username:str, *, path:Path|None=None, include_automation_status:bool=True)->dict:
     path=path or _path(username); stored=load_stored_settings(username,path=path); result=_merge(default_settings(),stored or {})
     bound=os.getenv("TELEGRAM_WEALTH_USERNAME","").strip()==username
@@ -115,10 +129,11 @@ def get_effective_settings(username:str, *, path:Path|None=None, include_automat
     if include_automation_status:
         try:
             from app.services.automation.status import build_automation_status
-            result["automation"]["_status"] = build_automation_status(
+            status = build_automation_status(
                 username,
                 settings=result,
             )
+            result["automation"]["_status"] = _normalize_automation_status_for_ui(status)
         except Exception:
             # Operational visibility is read-only and must never make settings,
             # scheduling, notification dispatch, or authentication fail.
