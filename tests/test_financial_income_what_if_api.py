@@ -111,6 +111,22 @@ class FinancialIncomeWhatIfApiTests(unittest.TestCase):
             "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID",
         )
 
+    def test_missing_investment_asset_type_is_rejected_before_service(self):
+        with patch(
+            "app.services.tax.get_financial_income_what_if_for_user",
+            new=AsyncMock(),
+        ) as service:
+            response = self.client.post(
+                "/api/dividends/financial-income-what-if",
+                json={"investment_scenario": {}},
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["detail"]["code"],
+            "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID",
+        )
+        service.assert_not_awaited()
+
     def test_blank_owner_is_rejected(self):
         response = self.client.post(
             "/api/dividends/financial-income-what-if",
