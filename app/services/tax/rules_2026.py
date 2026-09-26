@@ -1,8 +1,8 @@
-"""2026 financial-income projection thresholds.
+"""2026 financial-income and high-dividend special-tax rules.
 
-This module intentionally contains only thresholds needed for projection/status
-output. Full income-tax, tax-treatment classification, high-dividend special
-rules, and health-insurance calculations belong to later Phase 10.5 modules.
+Only rules that are backed by official 2026 sources belong here. Product UI
+must consume these constants through service output rather than hard-coding tax
+thresholds or rates.
 """
 
 RULE_YEAR = 2026
@@ -13,20 +13,49 @@ RULE_YEAR = 2026
 FINANCIAL_INCOME_WATCH_THRESHOLD_KRW = 10_000_000
 
 # Statutory comprehensive taxation threshold for annual taxable financial
-# income (interest + dividend income). Phase 10.5A-1 uses this only as a
-# screening marker because the existing record model does not yet classify all
-# non-taxable / separately taxed income or the 2026 high-dividend special case.
+# income (interest + dividend income). Separately taxed / non-taxable income is
+# excluded when the applicable legal treatment is positively identified.
 FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW = 20_000_000
 
+# 2026 high-dividend-company special separate-taxation brackets.
+# These are national income-tax rates only. Local income tax is separate and is
+# deliberately not folded into this rule table.
+HIGH_DIVIDEND_SPECIAL_TAX_BRACKETS = (
+    (20_000_000, 0.14),
+    (300_000_000, 0.20),
+    (5_000_000_000, 0.25),
+    (None, 0.30),
+)
+
+# High-dividend-company statutory qualification headline tests. The product
+# does not infer company eligibility from market data; qualification should be
+# confirmed from the issuer's KIND disclosure / official filing.
+HIGH_DIVIDEND_PAYOUT_RATIO_PRIMARY_PCT = 40.0
+HIGH_DIVIDEND_PAYOUT_RATIO_GROWTH_ROUTE_PCT = 25.0
+HIGH_DIVIDEND_DIVIDEND_GROWTH_ROUTE_PCT = 10.0
+HIGH_DIVIDEND_SPECIAL_FIRST_PAYMENT_DATE = "2026-01-01"
+HIGH_DIVIDEND_SPECIAL_LAST_QUALIFYING_BUSINESS_YEAR_END = "2028-12-31"
+
 # Official basis verified 2026-09-26:
-# 1) 국가법령정보센터, 소득세법 시행규칙 별지 제40호서식(1), 개정 2025-03-21.
+# 1) 국가법령정보센터, 소득세법 시행규칙 별지 제40호서식(1)
 #    - 금융소득 종합과세기준금액 20,000,000원
-#    - 배당액은 원천징수세액 차감 전 총배당액으로 기재
 #    - 비과세/분리과세 이자·배당소득은 작성 대상에서 제외
-# 2) 국세청 2026-03-09 안내: 2026년부터 일정 고배당기업 배당소득에
-#    별도 분리과세 특례가 도입됨.
+# 2) 조세특례제한법 제104조의27
+#    - 고배당기업 특례배당소득은 신청 시 종합소득과세표준에 합산하지 않음
+#    - 상장법인(코넥스 제외), 배당 유지 및 배당성향/증가 요건 등 규정
+# 3) 조세특례제한법 시행령 제104조의24
+#    - 특례배당소득 범위, 배당성향 산정 및 분리과세 신청 절차
+# 4) 국세청 2026-03-09 안내
+#    - 특례배당소득 세율: 14% / 20% / 25% / 30% (지방세 별도)
+#    - 분리과세 신청 시 해당 특례배당은 금융소득 2천만원 초과 판정에서 제외
 OFFICIAL_RULE_SOURCE_URL = (
     "https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=151083979&gubun="
+)
+OFFICIAL_HIGH_DIVIDEND_LAW_SOURCE_URL = (
+    "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1033275259"
+)
+OFFICIAL_HIGH_DIVIDEND_ENFORCEMENT_SOURCE_URL = (
+    "https://law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1032481661"
 )
 OFFICIAL_HIGH_DIVIDEND_SOURCE_URL = (
     "https://www.nts.go.kr/nts/na/ntt/selectNttInfo.do?nttSn=1349597"
