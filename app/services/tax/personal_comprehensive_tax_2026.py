@@ -1,9 +1,8 @@
 """Narrow, input-based 2026 personal comprehensive-income tax comparison.
 
-This B-4 increment applies the verified national basic-rate table only to a
-tax base explicitly supplied by the caller. It deliberately does not derive a
-tax base from portfolio data or claim to reproduce the financial-income
-comparison calculation used in a final Korean comprehensive-income return.
+This B-4 increment applies verified national-tax rules to caller-supplied tax
+inputs. It deliberately does not derive a final return from portfolio data or
+claim to calculate final Korean comprehensive-income tax payable/refundable.
 """
 
 from __future__ import annotations
@@ -19,7 +18,9 @@ from app.services.tax.rules_2026 import (
     OFFICIAL_DIVIDEND_TAX_CREDIT_LAW_SOURCE_URL,
     OFFICIAL_FINANCIAL_INCOME_RETURN_FORM_SOURCE_URL,
     OFFICIAL_PERSONAL_COMPREHENSIVE_TAX_RATE_SOURCE_URL,
+    OFFICIAL_PREPAID_WITHHOLDING_LAW_SOURCE_URL,
     PERSONAL_COMPREHENSIVE_INCOME_TAX_BRACKETS,
+    PREPAID_FINANCIAL_WITHHOLDING_VERIFIED_ON,
     RULE_VERIFIED_ON,
     RULE_YEAR,
 )
@@ -170,21 +171,46 @@ _ARTICLE62_FIELDS = frozenset({
     "income_deduction_krw",
 })
 
+_PREPAID_FINANCIAL_WITHHOLDING_FIELDS = frozenset({
+    "prepaid_interest_income_withholding_tax_krw",
+    "prepaid_dividend_income_withholding_tax_krw",
+})
+
 
 def calculate_financial_income_article62_comparison_2026(**values: object) -> dict[str, Any]:
-    """Return bounded Article 62 tax plus the Article 56 dividend tax credit.
+    """Return bounded Article 62/56 results and optional prepaid withholding.
 
     Financial-income categories and gross-up eligibility are explicit caller
-    assumptions; no portfolio or withholding classification is inferred. The
-    returned post-credit amount is still before other credits and is not a
-    final tax-payable determination.
+    assumptions; no portfolio or withholding classification is inferred.
+
+    The two optional prepaid-withholding fields, when supplied together, are
+    actual national income-tax amounts already withheld from comprehensive
+    financial income. They are not inferred from the gross-income categories,
+    and local income tax must not be included. The signed partial balance after
+    subtracting them is still before other credits/prepaid taxes/additions and
+    is therefore not a final payable or refundable tax determination.
     """
-    if set(values) != _ARTICLE62_FIELDS:
+    provided_fields = set(values)
+    if not _ARTICLE62_FIELDS.issubset(provided_fields):
         raise PersonalComprehensiveTaxError("ARTICLE62_REQUEST_INVALID")
+    extra_fields = provided_fields - _ARTICLE62_FIELDS
+    if extra_fields not in (set(), set(_PREPAID_FINANCIAL_WITHHOLDING_FIELDS)):
+        raise PersonalComprehensiveTaxError("ARTICLE62_REQUEST_INVALID")
+
+    prepaid_inputs_provided = bool(extra_fields)
+    base_values = {name: values[name] for name in _ARTICLE62_FIELDS}
     amounts = {
         name: _nonnegative_won(value, "ARTICLE62_AMOUNT_INVALID")
-        for name, value in values.items()
+        for name, value in base_values.items()
     }
+    prepaid_amounts = {
+        name: _nonnegative_won(
+            values.get(name, 0),
+            "ARTICLE62_PREPAID_WITHHOLDING_AMOUNT_INVALID",
+        )
+        for name in _PREPAID_FINANCIAL_WITHHOLDING_FIELDS
+    }
+
     financial_keys = _ARTICLE62_FIELDS - {
         "other_comprehensive_income_excluding_partnership_dividend_krw",
         "income_deduction_krw",
@@ -233,6 +259,29 @@ def calculate_financial_income_article62_comparison_2026(**values: object) -> di
     dividend_tax_credit = min(gross_up, dividend_tax_credit_limit)
     tax_after_dividend_credit = article62_tax_before_credits - dividend_tax_credit
 
+    prepaid_financial_withholding_total = sum(prepaid_amounts.values())
+    if not exceeded and prepaid_financial_withholding_total:
+        raise PersonalComprehensiveTaxError(
+            "ARTICLE62_PREPAID_WITHHOLDING_BELOW_THRESHOLD_INVALID"
+        )
+    partial_balance_after_financial_withholding = (
+        tax_after_dividend_credit - prepaid_financial_withholding_total
+    )
+
+    not_calculated = [
+        "other income-tax credits or reductions",
+        "other prepaid income taxes",
+        "interim prepayment tax",
+        "additional tax or penalties",
+        "local income tax",
+        "foreign tax credit",
+        "final legal/tax determination",
+        "final payment or refund amount",
+        "Article 17(1)(8) partnership-dividend Article 62 special comparison",
+    ]
+    if not prepaid_inputs_provided:
+        not_calculated.insert(0, "prepaid financial-income withholding tax")
+
     return {
         "year": RULE_YEAR,
         "financial_income_taxable_total_krw": financial_income,
@@ -251,6 +300,18 @@ def calculate_financial_income_article62_comparison_2026(**values: object) -> di
         "article62_tax_after_dividend_credit_before_other_credits_krw": (
             tax_after_dividend_credit
         ),
+        "prepaid_interest_income_withholding_tax_krw": prepaid_amounts[
+            "prepaid_interest_income_withholding_tax_krw"
+        ],
+        "prepaid_dividend_income_withholding_tax_krw": prepaid_amounts[
+            "prepaid_dividend_income_withholding_tax_krw"
+        ],
+        "prepaid_financial_income_withholding_tax_total_krw": (
+            prepaid_financial_withholding_total
+        ),
+        "partial_national_income_tax_balance_after_explicit_financial_withholding_krw": (
+            partial_balance_after_financial_withholding
+        ),
         "data_quality": {
             "screening_only": True,
             "legal_tax_determination": False,
@@ -258,7 +319,13 @@ def calculate_financial_income_article62_comparison_2026(**values: object) -> di
             "dividend_tax_credit_calculated": True,
             "dividend_tax_credit_user_classification_dependent": True,
             "other_tax_credits_calculated": False,
-            "withholding_tax_paid_credit_calculated": False,
+            "withholding_tax_paid_credit_calculated": prepaid_inputs_provided,
+            "prepaid_financial_withholding_inputs_provided": prepaid_inputs_provided,
+            "prepaid_financial_withholding_user_provided": prepaid_inputs_provided,
+            "prepaid_financial_withholding_national_income_tax_only": True,
+            "local_income_tax_withholding_excluded": True,
+            "other_prepaid_income_taxes_calculated": False,
+            "final_payment_or_refund_calculated": False,
             "local_income_tax_calculated": False,
             "foreign_tax_credit_calculated": False,
             "withheld_financial_income_separate_tax_below_threshold_not_included": (
@@ -273,11 +340,15 @@ def calculate_financial_income_article62_comparison_2026(**values: object) -> di
             "year": RULE_YEAR,
             "verified_on": RULE_VERIFIED_ON,
             "dividend_tax_credit_verified_on": DIVIDEND_TAX_CREDIT_VERIFIED_ON,
+            "prepaid_financial_withholding_verified_on": (
+                PREPAID_FINANCIAL_WITHHOLDING_VERIFIED_ON
+            ),
             "article62_legal_basis": "소득세법 제62조",
             "withholding_rate_legal_basis": "소득세법 제129조",
             "gross_up_legal_basis": "소득세법 제17조 제3항",
             "dividend_tax_credit_legal_basis": "소득세법 제56조",
             "dividend_tax_credit_order_legal_basis": "소득세법 시행령 제116조의2",
+            "prepaid_financial_withholding_legal_basis": "소득세법 제76조 제3항 제4호",
             "partnership_dividend_special_rule_legal_basis": "소득세법 제62조 제2호 나목",
             "official_financial_income_return_form_source_url": (
                 OFFICIAL_FINANCIAL_INCOME_RETURN_FORM_SOURCE_URL
@@ -288,18 +359,23 @@ def calculate_financial_income_article62_comparison_2026(**values: object) -> di
             "official_dividend_tax_credit_enforcement_source_url": (
                 OFFICIAL_DIVIDEND_TAX_CREDIT_ENFORCEMENT_SOURCE_URL
             ),
+            "official_prepaid_withholding_law_source_url": (
+                OFFICIAL_PREPAID_WITHHOLDING_LAW_SOURCE_URL
+            ),
             "dividend_tax_credit_formula": (
                 "min(dividend_gross_up_amount_krw, "
                 "article62_comparison_tax_before_credits_krw - comparison_b_krw)"
             ),
-            "not_calculated": [
-                "withholding tax paid credit",
-                "other income-tax credits or reductions",
-                "local income tax",
-                "foreign tax credit",
-                "final legal/tax determination",
-                "Article 17(1)(8) partnership-dividend Article 62 special comparison",
-            ],
+            "prepaid_financial_withholding_note": (
+                "이자ㆍ배당 지급자가 실제 원천징수한 국세 소득세 금액만 입력합니다. "
+                "지방소득세는 포함하지 않으며, 총 금융소득이 2천만원 이하인 경우의 "
+                "일반 원천징수 금융소득은 이 종합과세 계산의 기납부세액으로 재산입하지 않습니다."
+            ),
+            "partial_balance_note": (
+                "기납부 금융소득 원천징수세액을 반영한 부분 계산값이며 다른 세액공제ㆍ"
+                "기납부세액ㆍ가산세 등이 빠져 있어 최종 납부 또는 환급세액이 아닙니다."
+            ),
+            "not_calculated": not_calculated,
             "below_threshold_withheld_income_note": (
                 "20,000,000원 이하의 원천징수 금융소득은 이 Article 62 종합과세 비교에 포함하지 않습니다."
             ),

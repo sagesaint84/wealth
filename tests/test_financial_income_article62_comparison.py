@@ -22,6 +22,15 @@ def payload(**overrides):
     return result
 
 
+def payload_with_prepaid(**overrides):
+    result = payload(
+        prepaid_interest_income_withholding_tax_krw=0,
+        prepaid_dividend_income_withholding_tax_krw=0,
+    )
+    result.update(overrides)
+    return result
+
+
 class Article62ComparisonTests(unittest.TestCase):
     def test_twenty_million_withheld_interest_uses_b_only_without_readding_withheld_tax(self):
         exact = calculate_financial_income_article62_comparison_2026(**payload(ordinary_interest_14_krw=20_000_000))
@@ -32,6 +41,12 @@ class Article62ComparisonTests(unittest.TestCase):
         self.assertEqual(exact["dividend_tax_credit_krw"], 0)
         self.assertEqual(
             exact["article62_tax_after_dividend_credit_before_other_credits_krw"],
+            0,
+        )
+        self.assertFalse(exact["data_quality"]["withholding_tax_paid_credit_calculated"])
+        self.assertEqual(exact["prepaid_financial_income_withholding_tax_total_krw"], 0)
+        self.assertEqual(
+            exact["partial_national_income_tax_balance_after_explicit_financial_withholding_krw"],
             0,
         )
         self.assertTrue(exact["data_quality"]["withheld_financial_income_separate_tax_below_threshold_not_included"])
@@ -126,11 +141,73 @@ class Article62ComparisonTests(unittest.TestCase):
             4_280_000,
         )
 
+    def test_explicit_prepaid_financial_withholding_is_subtracted_above_threshold(self):
+        result = calculate_financial_income_article62_comparison_2026(**payload_with_prepaid(
+            ordinary_interest_14_krw=30_000_000,
+            prepaid_interest_income_withholding_tax_krw=4_200_000,
+        ))
+        self.assertEqual(
+            result["article62_tax_after_dividend_credit_before_other_credits_krw"],
+            4_200_000,
+        )
+        self.assertEqual(result["prepaid_interest_income_withholding_tax_krw"], 4_200_000)
+        self.assertEqual(result["prepaid_dividend_income_withholding_tax_krw"], 0)
+        self.assertEqual(result["prepaid_financial_income_withholding_tax_total_krw"], 4_200_000)
+        self.assertEqual(
+            result["partial_national_income_tax_balance_after_explicit_financial_withholding_krw"],
+            0,
+        )
+        self.assertTrue(result["data_quality"]["withholding_tax_paid_credit_calculated"])
+        self.assertTrue(result["data_quality"]["prepaid_financial_withholding_inputs_provided"])
+        self.assertTrue(result["data_quality"]["prepaid_financial_withholding_national_income_tax_only"])
+        self.assertTrue(result["data_quality"]["local_income_tax_withholding_excluded"])
+        self.assertFalse(result["data_quality"]["final_payment_or_refund_calculated"])
+        self.assertEqual(
+            result["rule_context"]["prepaid_financial_withholding_legal_basis"],
+            "소득세법 제76조 제3항 제4호",
+        )
+
+    def test_prepaid_withholding_negative_partial_balance_is_not_labeled_refund(self):
+        result = calculate_financial_income_article62_comparison_2026(**payload_with_prepaid(
+            ordinary_interest_14_krw=30_000_000,
+            prepaid_interest_income_withholding_tax_krw=5_000_000,
+        ))
+        self.assertEqual(
+            result["partial_national_income_tax_balance_after_explicit_financial_withholding_krw"],
+            -800_000,
+        )
+        self.assertFalse(result["data_quality"]["final_payment_or_refund_calculated"])
+        self.assertIn("최종 납부 또는 환급세액이 아닙니다", result["rule_context"]["partial_balance_note"])
+
+    def test_prepaid_withholding_is_rejected_below_threshold(self):
+        with self.assertRaisesRegex(
+            PersonalComprehensiveTaxError,
+            "ARTICLE62_PREPAID_WITHHOLDING_BELOW_THRESHOLD_INVALID",
+        ):
+            calculate_financial_income_article62_comparison_2026(**payload_with_prepaid(
+                ordinary_interest_14_krw=20_000_000,
+                prepaid_interest_income_withholding_tax_krw=2_800_000,
+            ))
+
+    def test_prepaid_withholding_fields_are_all_or_none_and_local_tax_is_rejected(self):
+        with self.assertRaisesRegex(PersonalComprehensiveTaxError, "ARTICLE62_REQUEST_INVALID"):
+            calculate_financial_income_article62_comparison_2026(**payload(
+                ordinary_interest_14_krw=30_000_000,
+                prepaid_interest_income_withholding_tax_krw=4_200_000,
+            ))
+        with self.assertRaisesRegex(PersonalComprehensiveTaxError, "ARTICLE62_REQUEST_INVALID"):
+            calculate_financial_income_article62_comparison_2026(**{
+                **payload_with_prepaid(ordinary_interest_14_krw=30_000_000),
+                "prepaid_local_income_tax_krw": 420_000,
+            })
+
     def test_metadata_is_explicit_and_not_a_final_tax_payable_calculation(self):
         result = calculate_financial_income_article62_comparison_2026(**payload())
         self.assertTrue(result["data_quality"]["dividend_tax_credit_calculated"])
         self.assertTrue(result["data_quality"]["dividend_tax_credit_user_classification_dependent"])
         self.assertFalse(result["data_quality"]["other_tax_credits_calculated"])
+        self.assertFalse(result["data_quality"]["withholding_tax_paid_credit_calculated"])
+        self.assertFalse(result["data_quality"]["prepaid_financial_withholding_inputs_provided"])
         self.assertTrue(result["data_quality"]["financial_income_categories_user_classified"])
         self.assertTrue(result["data_quality"]["non_taxable_or_separate_tax_income_excluded_by_caller"])
         self.assertFalse(result["data_quality"]["legal_tax_determination"])
@@ -143,7 +220,9 @@ class Article62ComparisonTests(unittest.TestCase):
             "소득세법 시행령 제116조의2",
         )
         self.assertEqual(result["rule_context"]["dividend_tax_credit_verified_on"], "2026-09-27")
+        self.assertEqual(result["rule_context"]["prepaid_financial_withholding_verified_on"], "2026-09-27")
         self.assertIn("article62_comparison_tax_before_credits_krw", result["rule_context"]["dividend_tax_credit_formula"])
+        self.assertIn("prepaid financial-income withholding tax", result["rule_context"]["not_calculated"])
         self.assertIn(
             "Article 17(1)(8) partnership-dividend Article 62 special comparison",
             result["rule_context"]["not_calculated"],
@@ -182,5 +261,10 @@ class Article62ComparisonTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 with self.assertRaises(PersonalComprehensiveTaxError):
                     calculate_financial_income_article62_comparison_2026(**payload(ordinary_interest_14_krw=bad))
+                with self.assertRaises(PersonalComprehensiveTaxError):
+                    calculate_financial_income_article62_comparison_2026(**payload_with_prepaid(
+                        ordinary_interest_14_krw=30_000_000,
+                        prepaid_interest_income_withholding_tax_krw=bad,
+                    ))
         with self.assertRaises(PersonalComprehensiveTaxError):
             calculate_financial_income_article62_comparison_2026(**{**payload(), "unknown": 0})
