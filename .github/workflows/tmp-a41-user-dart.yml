@@ -1,0 +1,53 @@
+name: Temporary A4.1 user DART fix
+
+on:
+  push:
+    branches:
+      - phase10-5a41-official-dividend-forecast
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    runs-on: ubuntu-latest
+    env:
+      WEALTH_ENV: test
+      WEALTH_TEST_SIGNING_SECRET: a41-temporary-test-signing-secret
+      DART_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase10-5a41-official-dividend-forecast
+          fetch-depth: 0
+
+      - name: Fetch main
+        run: git fetch origin main:refs/remotes/origin/main
+
+      - name: Apply user-scoped DART patch
+        run: python .github/patch_a41_user_dart.py
+
+      - name: Remove parallel env configuration
+        run: git checkout origin/main -- .env.example docker-compose.yml docker-compose.ghcr.yml
+
+      - name: Run focused tests
+        run: |
+          python -m unittest tests.test_dividend_official_sources tests.test_dividend_official_source_static tests.test_dividend_official_user_scope tests.test_dart_user_openapi -v
+
+      - name: Check JavaScript
+        run: node --check app/static/wealth-dividend-source.js
+
+      - name: Compile changed Python
+        run: python -m py_compile app/services/dividend_official_sources.py app/services/web_finance.py app/services/tax/financial_income.py app/main.py
+
+      - name: Check whitespace
+        run: git diff --check
+
+      - name: Commit verified fix and self-clean
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/patch_a41_user_dart.py .github/workflows/tmp-a41-user-dart.yml
+          git add -A
+          git commit -m "fix: reuse user-scoped DART credentials"
+          git push origin HEAD:phase10-5a41-official-dividend-forecast
