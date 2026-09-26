@@ -8,25 +8,23 @@
 
 ## 1. 현재 개발 상태
 
-현재 작업 단계는 **Phase 10.5A-4.1 — 공식 공시 기반 배당예상 Source 계층**입니다.
+현재 작업 단계는 **Phase 10.5A-4.2 — 고배당 분리과세 What-if 연결**입니다.
 
-현재 PR:
+현재 작업:
 
-- PR: `#22`
-- branch: `phase10-5a41-official-dividend-forecast`
+- branch: `phase10-5a42-high-dividend-whatif`
 - base: `main`
-- 상태: Draft
-- 작업 시작 기준 main: `6c0f8a3`
-- 이 문서 추가 직전 기능 HEAD: `2d38657` (`fix: reuse user-scoped DART credentials`)
+- 상태: 구현/검증 중
+- 작업 시작 기준 main: `19b0af2` (PR #22 merge)
 
-PR #22의 목표:
+A-4.2 목표:
 
-1. 기존 Naver/Yahoo 배당 예상을 유지한다.
-2. 국내 종목에 OpenDART 공식 자료를 추가한다.
-3. 기존 국내 예상 DPS가 없을 때만 직전 사업연도 OpenDART 공식 DPS로 보정한다.
-4. 최근 배당결정 공시가 존재해도 구조적으로 금액을 검증하지 못한 경우 `confirmed_amount=false`를 유지한다.
-5. DART 장애 또는 미설정 상태에서도 기존 예상은 계속 동작한다.
-6. 사용자별 DART 인증정보를 기존 OpenAPI 저장소에서 재사용한다.
+1. A-4 고배당 분리과세 규칙 엔진을 A-3 What-if에 연결한다.
+2. 공식 공시 확인 상태와 사용자의 신고 시 특례 신청 가정을 분리한다.
+3. 특례 적용 시 2,000만원 종합과세 screening 대상 금액에서 적격 특례배당만 제외한다.
+4. 1,000만원 제품 watch는 총 금융소득 기준을 유지한다.
+5. 공식 확인 없이 특례를 요청하면 fail-closed로 거부한다.
+6. 결과는 screening-only이며 지방소득세/최종 신고세액을 확정하지 않는다.
 
 ## 2. Phase 10.5 완료/진행 현황
 
@@ -36,7 +34,8 @@ PR #22의 목표:
 - [x] 10.5A-3 금융소득 What-if / 퀵 시뮬레이터
 - [x] 10.5A-3.1 공통 KRW 금액 입력 UX 정비
 - [x] 10.5A-4 2026 고배당기업 배당소득 분리과세 규칙 엔진
-- [ ] 10.5A-4.1 공식 공시 기반 배당예상 Source 계층 — PR #22 진행 중
+- [x] 10.5A-4.1 공식 공시 기반 배당예상 Source 계층 — PR #22 merge (`19b0af2`)
+- [ ] 10.5A-4.2 고배당 분리과세 What-if 연결 — 진행 중
 
 세부 후속 순서는 `docs/ROADMAP.md`를 따른다.
 

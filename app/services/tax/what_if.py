@@ -11,6 +11,7 @@ import math
 from typing import Any
 
 from app.services.tax.financial_income import get_financial_income_projection_for_user
+from app.services.tax.high_dividend_2026 import calculate_high_dividend_separate_tax_2026
 from app.services.tax.investment_tax import compare_investment_tax_2026
 from app.services.tax.rules_2026 import (
     FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW,
@@ -66,11 +67,51 @@ def _crossed(
     return (not bool(before_state)) and bool(after_state)
 
 
+_HIGH_DIVIDEND_SCENARIO_FIELDS = frozenset(
+    {
+        "special_dividend_income_krw",
+        "high_dividend_company_confirmed",
+        "separate_taxation_requested",
+    }
+)
+
+
+def _high_dividend_special_result(
+    scenario: dict[str, Any] | None,
+    *,
+    additional_dividend_gross_krw: float,
+) -> dict[str, Any] | None:
+    if scenario is None:
+        return None
+    if not isinstance(scenario, dict) or set(scenario) - _HIGH_DIVIDEND_SCENARIO_FIELDS:
+        raise FinancialIncomeWhatIfError(
+            "FINANCIAL_INCOME_WHAT_IF_HIGH_DIVIDEND_SCENARIO_INVALID"
+        )
+    amount = _nonnegative(
+        scenario.get("special_dividend_income_krw", 0),
+        "FINANCIAL_INCOME_WHAT_IF_HIGH_DIVIDEND_AMOUNT_INVALID",
+    )
+    if amount > additional_dividend_gross_krw:
+        raise FinancialIncomeWhatIfError(
+            "FINANCIAL_INCOME_WHAT_IF_HIGH_DIVIDEND_EXCEEDS_ADDITIONAL_DIVIDEND"
+        )
+    return calculate_high_dividend_separate_tax_2026(
+        amount,
+        high_dividend_company_confirmed=scenario.get(
+            "high_dividend_company_confirmed", False
+        ),
+        separate_taxation_requested=scenario.get(
+            "separate_taxation_requested", False
+        ),
+    )
+
+
 def build_financial_income_what_if(
     baseline_projection: dict[str, Any],
     *,
     additional_dividend_gross_krw: object = 0,
     additional_interest_gross_krw: object = 0,
+    high_dividend_scenario: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Apply hypothetical extra financial income to an existing projection."""
 
@@ -86,6 +127,15 @@ def build_financial_income_what_if(
         "FINANCIAL_INCOME_WHAT_IF_INTEREST_INVALID",
     )
     scenario_addition = additional_dividend + additional_interest
+    high_dividend_special = _high_dividend_special_result(
+        high_dividend_scenario,
+        additional_dividend_gross_krw=additional_dividend,
+    )
+    excluded_from_comprehensive = (
+        int(high_dividend_special.get("excluded_from_comprehensive_tax_threshold_krw", 0))
+        if high_dividend_special
+        else 0
+    )
 
     try:
         baseline_known = int(
@@ -109,6 +159,12 @@ def build_financial_income_what_if(
             ) from exc
         scenario_projected = _won(baseline_projected + scenario_addition)
 
+    scenario_comprehensive_amount = (
+        None
+        if scenario_projected is None
+        else max(scenario_projected - excluded_from_comprehensive, 0)
+    )
+
     watch_baseline = _threshold_state(
         baseline_projected, FINANCIAL_INCOME_WATCH_THRESHOLD_KRW
     )
@@ -119,7 +175,7 @@ def build_financial_income_what_if(
         baseline_projected, FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW
     )
     comprehensive_scenario = _threshold_state(
-        scenario_projected, FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW
+        scenario_comprehensive_amount, FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW
     )
 
     return {
@@ -129,6 +185,8 @@ def build_financial_income_what_if(
         "additional_interest_gross_krw": _won(additional_interest),
         "scenario_addition_gross_krw": _won(scenario_addition),
         "scenario_projected_gross_screening_income_krw": scenario_projected,
+        "scenario_comprehensive_tax_screening_income_krw": scenario_comprehensive_amount,
+        "high_dividend_special_tax": high_dividend_special,
         "thresholds": {
             "watch": {
                 "baseline": watch_baseline,
@@ -167,6 +225,7 @@ async def get_financial_income_what_if_for_user(
     current_month_remaining_dividend_gross_krw: object = 0,
     additional_dividend_gross_krw: object = 0,
     additional_interest_gross_krw: object = 0,
+    high_dividend_scenario: dict[str, Any] | None = None,
     investment_scenario: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a user-scoped financial-income What-if response without writes."""
@@ -181,6 +240,7 @@ async def get_financial_income_what_if_for_user(
         baseline,
         additional_dividend_gross_krw=additional_dividend_gross_krw,
         additional_interest_gross_krw=additional_interest_gross_krw,
+        high_dividend_scenario=high_dividend_scenario,
     )
 
     result: dict[str, Any] = {

@@ -1921,6 +1921,7 @@ async def simulate_financial_income_what_if(request: Request) -> JSONResponse:
         "current_month_remaining_dividend_gross_krw",
         "additional_dividend_gross_krw",
         "additional_interest_gross_krw",
+        "high_dividend_scenario",
         "investment_scenario",
     }
     if set(body) - allowed_fields:
@@ -1937,6 +1938,26 @@ async def simulate_financial_income_what_if(request: Request) -> JSONResponse:
             detail={"code": "FINANCIAL_INCOME_OWNER_INVALID"},
             headers={"Cache-Control": "no-store"},
         )
+
+    high_dividend_scenario = body.get("high_dividend_scenario")
+    if high_dividend_scenario is not None:
+        if not isinstance(high_dividend_scenario, dict):
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID"},
+                headers={"Cache-Control": "no-store"},
+            )
+        allowed_high_dividend_fields = {
+            "special_dividend_income_krw",
+            "high_dividend_company_confirmed",
+            "separate_taxation_requested",
+        }
+        if set(high_dividend_scenario) - allowed_high_dividend_fields:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID"},
+                headers={"Cache-Control": "no-store"},
+            )
 
     investment_scenario = body.get("investment_scenario")
     if investment_scenario is not None:
@@ -1978,6 +1999,7 @@ async def simulate_financial_income_what_if(request: Request) -> JSONResponse:
     from app.services.tax import (
         FinancialIncomeProjectionError,
         FinancialIncomeWhatIfError,
+        HighDividendSpecialTaxError,
         InvestmentTaxComparisonError,
         get_financial_income_what_if_for_user,
     )
@@ -1999,10 +2021,16 @@ async def simulate_financial_income_what_if(request: Request) -> JSONResponse:
                 "additional_interest_gross_krw", 0.0
             ),
             investment_scenario=investment_scenario,
+            **(
+                {"high_dividend_scenario": high_dividend_scenario}
+                if high_dividend_scenario is not None
+                else {}
+            ),
         )
     except (
         FinancialIncomeProjectionError,
         FinancialIncomeWhatIfError,
+        HighDividendSpecialTaxError,
         InvestmentTaxComparisonError,
     ) as exc:
         raise HTTPException(
