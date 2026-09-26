@@ -2,9 +2,8 @@
 
 Phase 10.5B-4.5 keeps the existing national/local comparison contract intact and
 adds a bounded Income Tax Act Article 57 calculation only when the caller
-provides official-form-ready foreign-tax-credit inputs.  It does not infer
-foreign-source income, treaty eligibility, corresponding expenses, loss-country
-adjustments, prior-year carryforwards, or local-income-tax foreign tax credits.
+provides official-form-ready inputs and confirms that no unmodeled Article 60
+item must precede the current-year foreign tax credit.
 """
 
 from __future__ import annotations
@@ -16,9 +15,7 @@ from typing import Any
 from app.services.tax.local_income_tax_2026 import (
     calculate_financial_income_article62_comparison_2026 as _calculate_base,
 )
-from app.services.tax.personal_comprehensive_tax_2026 import (
-    PersonalComprehensiveTaxError,
-)
+from app.services.tax.personal_comprehensive_tax_2026 import PersonalComprehensiveTaxError
 from app.services.tax.rules_2026 import (
     FOREIGN_TAX_CREDIT_VERIFIED_ON,
     OFFICIAL_FOREIGN_TAX_CREDIT_ENFORCEMENT_SOURCE_URL,
@@ -31,6 +28,7 @@ _FOREIGN_TAX_CREDIT_FIELDS = frozenset(
     {
         "comprehensive_income_amount_for_foreign_tax_credit_krw",
         "foreign_tax_credit_items",
+        "no_other_article60_preceding_tax_reductions_or_credits_confirmed",
     }
 )
 _FOREIGN_TAX_CREDIT_ITEM_FIELDS = frozenset(
@@ -40,7 +38,7 @@ _FOREIGN_TAX_CREDIT_ITEM_FIELDS = frozenset(
         "eligible_current_year_foreign_income_tax_krw",
     }
 )
-_COUNTRY_CODE_RE = re.compile(r"[A-Z0-9][A-Z0-9._-]{0,15}")
+_COUNTRY_CODE_RE = re.compile(r"[A-Z]{2}")
 
 
 def _nonnegative_won(value: object, code: str) -> int:
@@ -60,6 +58,14 @@ def _positive_won(value: object, code: str) -> int:
     if amount <= 0:
         raise PersonalComprehensiveTaxError(code)
     return amount
+
+
+def _article60_scope_confirmation(value: object) -> bool:
+    if value is not True:
+        raise PersonalComprehensiveTaxError(
+            "ARTICLE57_OTHER_ARTICLE60_PRECEDING_ITEMS_UNSUPPORTED"
+        )
+    return True
 
 
 def _country_code(value: object) -> str:
@@ -97,7 +103,6 @@ def _foreign_tax_credit_items(value: object) -> list[dict[str, int | str]]:
                 "ARTICLE57_FOREIGN_TAX_CREDIT_COUNTRY_DUPLICATE"
             )
         seen_country_codes.add(country_code)
-
         normalized.append(
             {
                 "country_code": country_code,
@@ -119,19 +124,13 @@ def calculate_financial_income_article62_comparison_2026(
 ) -> dict[str, Any]:
     """Return the existing Article 62/local result plus optional Article 57 credit.
 
-    The optional foreign-tax-credit input is all-or-none:
-
-    * ``comprehensive_income_amount_for_foreign_tax_credit_krw`` is Form 11
-      row 12 (comprehensive income amount), supplied by the caller.
-    * ``foreign_tax_credit_items`` contains one item per country.  Each item
-      supplies the caller-verified Form 11 row-10 basis amount and the current
-      year foreign income tax that is eligible under Income Tax Act Enforcement
-      Decree Article 117(1), including treaty-limit screening by the caller.
-
-    The service calculates only current-year national income-tax credit.  It
-    deliberately does not calculate prior-year carryforwards, the Article
-    117(10) carryforward-exclusion amount, corresponding-expense allocation,
-    loss-country basis adjustments, or the separate local-income-tax credit.
+    Foreign-tax-credit inputs are all-or-none.  The caller supplies Form 11
+    comprehensive income, one official-form-ready basis amount and eligible
+    current-year foreign income tax amount per ISO country, and an explicit
+    confirmation that no tax reduction, non-carryforward credit, prior-year
+    carryforward credit, or other unmodeled Article 60 item must be applied
+    before this current-year foreign tax credit.  If that confirmation cannot
+    be made, this narrow increment fails closed instead of overstating credit.
     """
 
     provided_fields = set(values)
@@ -152,7 +151,7 @@ def calculate_financial_income_article62_comparison_2026(
     result = _calculate_base(**base_values)
 
     comprehensive_income_amount = 0
-    normalized_items: list[dict[str, int | str]] = []
+    article60_scope_confirmed = False
     calculated_items: list[dict[str, int | str]] = []
     total_limit_basis_income = 0
     aggregate_limit = 0
@@ -160,7 +159,7 @@ def calculate_financial_income_article62_comparison_2026(
     eligible_foreign_tax_total = 0
     within_country_limits_total = 0
     foreign_tax_credit = 0
-    reduced_by_prior_noncarryable_credits = 0
+    reduced_by_preceding_dividend_credit = 0
     uncredited_current_year_foreign_tax = 0
 
     article62_tax_before_credits = result[
@@ -174,6 +173,11 @@ def calculate_financial_income_article62_comparison_2026(
         comprehensive_income_amount = _positive_won(
             values["comprehensive_income_amount_for_foreign_tax_credit_krw"],
             "ARTICLE57_COMPREHENSIVE_INCOME_AMOUNT_INVALID",
+        )
+        article60_scope_confirmed = _article60_scope_confirmation(
+            values[
+                "no_other_article60_preceding_tax_reductions_or_credits_confirmed"
+            ]
         )
         normalized_items = _foreign_tax_credit_items(
             values["foreign_tax_credit_items"]
@@ -215,7 +219,7 @@ def calculate_financial_income_article62_comparison_2026(
                     "foreign_tax_credit_within_country_limit_krw": (
                         within_country_limit
                     ),
-                    "uncredited_due_to_country_limit_before_other_credit_order_krw": (
+                    "uncredited_due_to_country_limit_before_article60_order_krw": (
                         eligible_foreign_tax - within_country_limit
                     ),
                 }
@@ -224,16 +228,16 @@ def calculate_financial_income_article62_comparison_2026(
             eligible_foreign_tax_total += eligible_foreign_tax
             within_country_limits_total += within_country_limit
 
-        credit_before_prior_credit_order_cap = min(
+        credit_before_article60_cap = min(
             within_country_limits_total,
             aggregate_limit,
         )
         foreign_tax_credit = min(
-            credit_before_prior_credit_order_cap,
+            credit_before_article60_cap,
             tax_after_dividend_credit,
         )
-        reduced_by_prior_noncarryable_credits = (
-            credit_before_prior_credit_order_cap - foreign_tax_credit
+        reduced_by_preceding_dividend_credit = (
+            credit_before_article60_cap - foreign_tax_credit
         )
         uncredited_current_year_foreign_tax = (
             eligible_foreign_tax_total - foreign_tax_credit
@@ -255,6 +259,9 @@ def calculate_financial_income_article62_comparison_2026(
             "comprehensive_income_amount_for_foreign_tax_credit_krw": (
                 comprehensive_income_amount
             ),
+            "no_other_article60_preceding_tax_reductions_or_credits_confirmed": (
+                article60_scope_confirmed
+            ),
             "foreign_tax_credit_items": calculated_items,
             "foreign_tax_credit_limit_basis_income_total_krw": (
                 total_limit_basis_income
@@ -267,8 +274,8 @@ def calculate_financial_income_article62_comparison_2026(
             "foreign_tax_credit_within_country_limits_total_krw": (
                 within_country_limits_total
             ),
-            "foreign_tax_credit_reduced_by_prior_noncarryable_credits_krw": (
-                reduced_by_prior_noncarryable_credits
+            "foreign_tax_credit_reduced_by_preceding_dividend_credit_krw": (
+                reduced_by_preceding_dividend_credit
             ),
             "foreign_tax_credit_krw": foreign_tax_credit,
             "uncredited_current_year_foreign_income_tax_total_krw": (
@@ -288,15 +295,10 @@ def calculate_financial_income_article62_comparison_2026(
         {
             "foreign_tax_credit_calculated": foreign_inputs_provided,
             "foreign_tax_credit_inputs_provided": foreign_inputs_provided,
-            "foreign_tax_credit_country_level_inputs_provided": (
-                foreign_inputs_provided
-            ),
-            "foreign_tax_credit_limit_basis_user_provided": (
-                foreign_inputs_provided
-            ),
-            "foreign_tax_credit_eligibility_user_asserted": (
-                foreign_inputs_provided
-            ),
+            "foreign_tax_credit_country_level_inputs_provided": foreign_inputs_provided,
+            "foreign_tax_credit_limit_basis_user_provided": foreign_inputs_provided,
+            "foreign_tax_credit_eligibility_user_asserted": foreign_inputs_provided,
+            "foreign_tax_credit_article60_scope_confirmed": article60_scope_confirmed,
             "foreign_tax_credit_current_year_only": foreign_inputs_provided,
             "foreign_tax_credit_prior_year_carryforward_calculated": False,
             "foreign_tax_credit_carryforward_calculated": False,
@@ -315,7 +317,7 @@ def calculate_financial_income_article62_comparison_2026(
             item for item in not_calculated if item != "foreign tax credit"
         ]
         foreign_scope_items = [
-            "prior-year foreign tax credit carryforward",
+            "current-year excess foreign tax carryforward determination",
             "foreign-tax-credit carryforward eligibility/exclusion",
             "foreign-source-income corresponding-expense allocation",
             "foreign loss-country basis adjustment",
@@ -333,7 +335,7 @@ def calculate_financial_income_article62_comparison_2026(
             "foreign_tax_credit_carryforward_legal_basis": "소득세법 제57조 제2항",
             "foreign_tax_credit_order_legal_basis": "소득세법 제60조 제1항",
             "foreign_tax_credit_enforcement_legal_basis": (
-                "소득세법 시행령 제117조 제1항ㆍ제2항ㆍ제3항ㆍ제10항"
+                "소득세법 시행령 제117조 제1항ㆍ제2항ㆍ제3항ㆍ제7항ㆍ제10항"
             ),
             "official_foreign_tax_credit_law_source_url": (
                 OFFICIAL_FOREIGN_TAX_CREDIT_LAW_SOURCE_URL
@@ -350,18 +352,20 @@ def calculate_financial_income_article62_comparison_2026(
                 "comprehensive_income_amount_for_foreign_tax_credit_krw"
             ),
             "foreign_tax_credit_note": (
-                "소득세법 제57조와 외국납부세액공제신청서의 국가별 공제한도 구조를 "
-                "적용합니다. 국가별 기준 국외원천소득은 대응비용ㆍ감면ㆍ결손국가 조정이 "
-                "끝난 신고서 기준금액을 사용자가 명시해야 하며, 입력한 외국소득세액이 "
-                "시행령 제117조 제1항 및 조세조약상 공제대상인지도 사용자가 확인한 값으로 "
-                "취급합니다. 전기 이월액과 시행령 제117조 제10항 이월배제액은 계산하지 "
-                "않으므로 미공제액을 곧바로 10년 이월공제액으로 표시하지 않습니다."
+                "소득세법 제57조와 별지 제11호서식의 국가별 공제한도 구조를 적용합니다. "
+                "국가별 기준 국외원천소득은 대응비용ㆍ감면ㆍ결손국가 조정이 끝난 신고서 "
+                "기준금액을 사용자가 명시해야 하고, 입력 외국소득세액의 시행령 제117조 "
+                "및 조세조약상 공제 적격성도 사용자 확인값으로 취급합니다. 소득세법 "
+                "제60조상 현재 모델의 배당세액공제 외에 먼저 적용할 세액감면ㆍ비이월 "
+                "세액공제ㆍ전기 이월 세액공제 등이 없다는 명시 확인이 있을 때만 당기 "
+                "외국납부세액공제를 계산합니다. 당기 미공제액은 이월배제액 등을 계산하지 "
+                "않았으므로 곧바로 10년 이월공제액으로 표시하지 않습니다."
             ),
             "partial_balance_note": (
-                "배당세액공제와 제공된 경우의 당기 국세 외국납부세액공제, 명시적 금융소득 "
-                "원천징수 기납부세액을 반영한 부분 계산값입니다. 다른 세액공제ㆍ감면, 다른 "
-                "기납부세액, 중간예납, 가산세 등이 빠져 있어 최종 납부 또는 환급세액이 "
-                "아닙니다."
+                "모델링된 배당세액공제, 명시 확인 범위의 당기 국세 외국납부세액공제 및 "
+                "금융소득 원천징수 기납부세액을 반영한 부분 계산값입니다. 다른 세액감면ㆍ"
+                "세액공제ㆍ기납부세액ㆍ중간예납ㆍ가산세 등이 빠져 있어 최종 납부 또는 "
+                "환급세액이 아닙니다."
             ),
             "not_calculated": not_calculated,
         }
