@@ -77,7 +77,7 @@ HIGH_DIVIDEND_DIVIDEND_GROWTH_ROUTE_PCT = 10.0
 HIGH_DIVIDEND_SPECIAL_FIRST_PAYMENT_DATE = "2026-01-01"
 HIGH_DIVIDEND_SPECIAL_LAST_QUALIFYING_BUSINESS_YEAR_END = "2028-12-31"
 
-# Official basis verified 2026-09-26:
+# Official basis verified 2026-09-27:
 # 1) 국가법령정보센터, 소득세법 시행규칙 별지 제40호서식(1)
 #    - 금융소득 종합과세기준금액 20,000,000원
 #    - 비과세/분리과세 이자·배당소득은 작성 대상에서 제외
@@ -88,7 +88,9 @@ HIGH_DIVIDEND_SPECIAL_LAST_QUALIFYING_BUSINESS_YEAR_END = "2028-12-31"
 #    - 특례배당소득 범위, 배당성향 산정 및 분리과세 신청 절차
 # 4) 국세청 2026-03-09 안내
 #    - 특례배당소득 세율: 14% / 20% / 25% / 30% (지방세 별도)
-#    - 분리과세 신청 시 해당 특례배당은 금융소득 2천만원 초과 판정에서 제외
+# 5) 소득세법 제57조, 시행령 제117조, 시행규칙 별지 제11호서식
+#    - 국외원천소득과 종합소득금액 비율로 국세 외국납부세액공제 한도 계산
+#    - 국가별 한도, 대응비용, 조세조약상 공제대상세액, 10년 이월 구조를 구분
 OFFICIAL_RULE_SOURCE_URL = (
     "https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=151083979&gubun="
 )
@@ -106,6 +108,15 @@ OFFICIAL_DIVIDEND_TAX_CREDIT_ENFORCEMENT_SOURCE_URL = (
 )
 OFFICIAL_PREPAID_WITHHOLDING_LAW_SOURCE_URL = (
     "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1032881459"
+)
+OFFICIAL_FOREIGN_TAX_CREDIT_LAW_SOURCE_URL = (
+    "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1033240233"
+)
+OFFICIAL_FOREIGN_TAX_CREDIT_ENFORCEMENT_SOURCE_URL = (
+    "https://www.law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1019675245"
+)
+OFFICIAL_FOREIGN_TAX_CREDIT_FORM_SOURCE_URL = (
+    "https://www.law.go.kr/flDownload.do?bylClsCd=110202&flSeq=160077771&gubun="
 )
 OFFICIAL_LOCAL_INCOME_TAX_BASE_SOURCE_URL = (
     "https://law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1032059543"
@@ -137,9 +148,10 @@ OFFICIAL_HIGH_DIVIDEND_ENFORCEMENT_SOURCE_URL = (
 OFFICIAL_HIGH_DIVIDEND_SOURCE_URL = (
     "https://www.nts.go.kr/nts/na/ntt/selectNttInfo.do?nttSn=1349597"
 )
-RULE_VERIFIED_ON = "2026-09-26"
+RULE_VERIFIED_ON = "2026-09-27"
 DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 PREPAID_FINANCIAL_WITHHOLDING_VERIFIED_ON = "2026-09-27"
+FOREIGN_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 LOCAL_INCOME_TAX_COMPARISON_VERIFIED_ON = "2026-09-27"
 LOCAL_DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 LOCAL_PREPAID_SPECIAL_WITHHOLDING_VERIFIED_ON = "2026-09-27"
