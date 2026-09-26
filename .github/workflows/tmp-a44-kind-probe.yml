@@ -13,13 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Probe KIND ETF POST response
+      - name: Probe KIND viewer contract
         shell: bash
         run: |
           python - <<'PY'
-          from html.parser import HTMLParser
           from http.cookiejar import CookieJar
-          from urllib.parse import urlencode
           from urllib.request import Request, build_opener, HTTPCookieProcessor
           import re
 
@@ -27,63 +25,34 @@ jobs:
           MAIN='/disclosure/disclosurebystocktype.do?method=searchDisclosureByStockTypeEtf'
           UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36'
           opener=build_opener(HTTPCookieProcessor(CookieJar()))
-
-          def decode(resp, raw):
-              enc=resp.headers.get_content_charset() or 'utf-8'
-              try: return raw.decode(enc)
-              except UnicodeDecodeError: return raw.decode('euc-kr','replace')
-
-          def get_main():
-              req=Request(BASE+MAIN, headers={'User-Agent':UA,'Accept-Language':'ko-KR,ko;q=0.9'})
-              with opener.open(req, timeout=15) as r:
-                  raw=r.read(); print('MAIN',r.status,'bytes=',len(raw)); return decode(r,raw)
-
-          def post_search(code):
-              form={
-                'method':'searchDisclosureByStockTypeEtfSub',
-                'forward':'disclosurebystocktype_etf_sub',
-                'currentPageSize':'100',
-                'pageIndex':'1',
-                'orderMode':'',
-                'orderStat':'',
-                'etfIsuSrtCd':code,
-                'reportCd':'',
-                'reportTmp':'',
-                'etfIsuSrtNm':'KODEX 미국S&P500',
-                'reportNm':'ETF이익금분배',
-                'fromDate':'2026-01-01',
-                'toDate':'2026-09-26',
-              }
-              data=urlencode(form).encode()
-              req=Request(BASE+'/disclosure/disclosurebystocktype.do', data=data, headers={
-                'User-Agent':UA,
-                'Accept':'text/html, */*; q=0.01',
-                'Accept-Language':'ko-KR,ko;q=0.9',
-                'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
-                'Referer':BASE+MAIN,
-                'X-Requested-With':'XMLHttpRequest',
-              })
-              with opener.open(req, timeout=20) as r:
-                  raw=r.read(); text=decode(r,raw)
-                  print('\nPOST_CODE',code,'status=',r.status,'url=',r.geturl(),'bytes=',len(raw))
-                  return text
-
-          class Tags(HTMLParser):
-              def __init__(self): super().__init__(); self.tags=[]
-              def handle_starttag(self,tag,attrs):
-                  d=dict(attrs)
-                  h=d.get('href',''); o=d.get('onclick','')
-                  if any(x in (h+' '+o).lower() for x in ['viewer','acpt','discls','detail']):
-                      self.tags.append((tag,h,o))
-
-          get_main()
-          for code in ['379800','A379800','']:
-              text=post_search(code)
-              print('COUNTS', {n:text.lower().count(n.lower()) for n in ['ETF이익금분배','379800','openDisclsViewer','acptNo','acptno','68659','외부링크','분배금']})
-              p=Tags(); p.feed(text)
-              print('VIEWER_TAGS',p.tags[:40])
-              for needle in ['ETF이익금분배','379800','openDisclsViewer','acptNo','68659','분배금']:
-                  for m in list(re.finditer(re.escape(needle),text,re.I))[:3]:
-                      lo=max(0,m.start()-450); hi=min(len(text),m.end()+850)
-                      print('CTX',needle,re.sub(r'\s+',' ',text[lo:hi])[:1400])
+          req=Request(BASE+MAIN, headers={'User-Agent':UA,'Accept-Language':'ko-KR,ko;q=0.9'})
+          with opener.open(req, timeout=15) as r:
+              raw=r.read(); enc=r.headers.get_content_charset() or 'utf-8'
+              try: html=raw.decode(enc)
+              except UnicodeDecodeError: html=raw.decode('euc-kr','replace')
+          for needle in ['function openDisclsViewer','openDisclsViewer =','openDisclsViewer(','disclsviewer','viewer.do','acptno','acptNo']:
+              print('\nNEEDLE',needle,'count=',html.lower().count(needle.lower()))
+              for m in list(re.finditer(re.escape(needle),html,re.I))[:8]:
+                  lo=max(0,m.start()-700); hi=min(len(html),m.end()+1600)
+                  print(re.sub(r'\s+',' ',html[lo:hi])[:2400])
+          scripts=re.findall(r'<script[^>]+src=["\']([^"\']+)["\']',html,re.I)
+          print('\nSCRIPTS', scripts)
+          for src in scripts:
+              if src.startswith('//'): url='https:'+src
+              elif src.startswith('http'): url=src
+              elif src.startswith('/'): url=BASE+src
+              else: url=BASE+'/'+src
+              try:
+                  rq=Request(url, headers={'User-Agent':UA,'Referer':BASE+MAIN})
+                  with opener.open(rq,timeout=15) as rr:
+                      b=rr.read(); e=rr.headers.get_content_charset() or 'utf-8'
+                      try: text=b.decode(e)
+                      except UnicodeDecodeError: text=b.decode('euc-kr','replace')
+                  if 'openDisclsViewer' in text:
+                      print('\nFOUND_IN_SCRIPT',url)
+                      for m in list(re.finditer('openDisclsViewer',text,re.I))[:6]:
+                          lo=max(0,m.start()-600); hi=min(len(text),m.end()+1400)
+                          print(re.sub(r'\s+',' ',text[lo:hi])[:2200])
+              except Exception as exc:
+                  print('SCRIPT_ERROR',url,type(exc).__name__)
           PY
