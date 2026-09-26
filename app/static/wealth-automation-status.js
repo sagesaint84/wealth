@@ -30,8 +30,16 @@
     extension_succeeded: '연장 성공',
   };
 
-  function byId(id) {
-    return document.getElementById(id);
+  const byId = (id) => document.getElementById(id);
+
+  async function getJson(path) {
+    const response = await fetch(path, {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: {'Accept': 'application/json'},
+    });
+    if (!response.ok) throw new Error('AUTOMATION_STATUS_REQUEST_FAILED');
+    return response.json();
   }
 
   function addStyles() {
@@ -63,9 +71,7 @@
   function createPanel() {
     let panel = byId('settingsAutomationStatusPanel');
     if (panel) return panel;
-    const ownerSection = byId('settingsAutomationOwnerSection');
-    const tossSection = byId('settingsTossSessionSection');
-    const anchor = ownerSection || tossSection;
+    const anchor = byId('settingsAutomationOwnerSection') || byId('settingsTossSessionSection');
     if (!anchor || !anchor.parentElement) return null;
 
     panel = document.createElement('div');
@@ -141,9 +147,7 @@
     return String(value);
   }
 
-  function healthInfo(value) {
-    return HEALTH[value] || HEALTH.unknown;
-  }
+  const healthInfo = (value) => HEALTH[value] || HEALTH.unknown;
 
   function makeBadge(health) {
     const info = healthInfo(health);
@@ -292,12 +296,12 @@
 
   async function refreshStatus(showError) {
     const panel = createPanel();
-    if (!panel || typeof window.api !== 'function') return;
+    if (!panel) return;
     const button = byId('settingsAutomationStatusRefresh');
     const error = byId('settingsAutomationStatusError');
     if (button) button.disabled = true;
     try {
-      const result = await window.api('/api/settings/automation');
+      const result = await getJson('/api/settings/automation');
       renderStatus(result && result.automation && result.automation._status);
     } catch (_error) {
       if (showError && error) {
@@ -318,8 +322,9 @@
       if (dialog.hasAttribute('open')) refreshStatus(false);
     });
     observer.observe(dialog, {attributes: true, attributeFilter: ['open']});
+    if (dialog.hasAttribute('open')) refreshStatus(false);
     byId('settingsSaveAutomation')?.addEventListener('click', () => {
-      window.setTimeout(() => refreshStatus(false), 400);
+      window.setTimeout(() => refreshStatus(false), 600);
     });
   }
 
