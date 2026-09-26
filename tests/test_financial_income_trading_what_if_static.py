@@ -48,7 +48,8 @@ class FinancialIncomeTradingWhatIfStaticTests(unittest.TestCase):
         self.assertIn("fiWhatIfUseQuickTrading", self.source)
         self.assertIn("fiWhatIfForeignShareGain", self.source)
         self.assertIn("fiWhatIfKrOverseasEtfTaxableGain", self.source)
-        self.assertIn("etfInput.value === ''", self.source)
+        self.assertIn("etfInput.value !== ''", self.source)
+        self.assertIn("else if (useQuickTrading)", self.source)
 
     def test_scenario_remains_stateless(self):
         lowered = self.source.lower()
