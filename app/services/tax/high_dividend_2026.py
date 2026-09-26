@@ -19,6 +19,7 @@ from app.services.tax.rules_2026 import (
     HIGH_DIVIDEND_PAYOUT_RATIO_PRIMARY_PCT,
     HIGH_DIVIDEND_SPECIAL_FIRST_PAYMENT_DATE,
     HIGH_DIVIDEND_SPECIAL_LAST_QUALIFYING_BUSINESS_YEAR_END,
+    HIGH_DIVIDEND_SPECIAL_TAX_BRACKETS,
     OFFICIAL_HIGH_DIVIDEND_ENFORCEMENT_SOURCE_URL,
     OFFICIAL_HIGH_DIVIDEND_LAW_SOURCE_URL,
     OFFICIAL_HIGH_DIVIDEND_SOURCE_URL,
@@ -53,15 +54,30 @@ def _won(value: float) -> int:
     return int(round(value))
 
 
+def _bracket_code(upper_bound: int | None, rate: float) -> str:
+    if upper_bound == 20_000_000 and rate == 0.14:
+        return "14pct_to_20m"
+    if upper_bound == 300_000_000 and rate == 0.20:
+        return "20pct_to_300m"
+    if upper_bound == 5_000_000_000 and rate == 0.25:
+        return "25pct_to_5b"
+    if upper_bound is None and rate == 0.30:
+        return "30pct_over_5b"
+    raise HighDividendSpecialTaxError("HIGH_DIVIDEND_RULE_TABLE_INVALID")
+
+
 def _national_tax(amount: float) -> tuple[float, str]:
-    """Return national income tax before local income tax."""
-    if amount <= 20_000_000:
-        return amount * 0.14, "14pct_to_20m"
-    if amount <= 300_000_000:
-        return 2_800_000 + (amount - 20_000_000) * 0.20, "20pct_to_300m"
-    if amount <= 5_000_000_000:
-        return 58_800_000 + (amount - 300_000_000) * 0.25, "25pct_to_5b"
-    return 1_233_800_000 + (amount - 5_000_000_000) * 0.30, "30pct_over_5b"
+    """Return national income tax before local income tax from the rule table."""
+    tax = 0.0
+    lower_bound = 0.0
+    for upper_bound, rate in HIGH_DIVIDEND_SPECIAL_TAX_BRACKETS:
+        bracket_end = float(upper_bound) if upper_bound is not None else amount
+        taxable = max(0.0, min(amount, bracket_end) - lower_bound)
+        tax += taxable * rate
+        if upper_bound is None or amount <= upper_bound:
+            return tax, _bracket_code(upper_bound, rate)
+        lower_bound = float(upper_bound)
+    raise HighDividendSpecialTaxError("HIGH_DIVIDEND_RULE_TABLE_INVALID")
 
 
 def calculate_high_dividend_separate_tax_2026(
@@ -126,7 +142,8 @@ def calculate_high_dividend_separate_tax_2026(
         ),
         "applied_bracket": bracket,
         "local_income_tax_included": False,
-        "filing_application_required": True,
+        "filing_application_required": applied,
+        "filing_application_required_for_special_treatment": True,
         "automatic_application": False,
         "eligibility": {
             "determined_by_service": False,
