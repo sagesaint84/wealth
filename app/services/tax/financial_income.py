@@ -123,7 +123,7 @@ def _record_gross_screening_krw(
     """Resolve one realized record to a gross screening amount in KRW.
 
     Preferred basis:
-    1. explicit gross_amount;
+    1. explicit positive gross_amount;
     2. deposited amount + explicit tax + fee;
     3. amount_krw cash fallback (basis incomplete).
 
@@ -150,7 +150,7 @@ def _record_gross_screening_krw(
     gross = _optional_non_negative_money(
         record.get("gross_amount"), "FINANCIAL_INCOME_RECORD_INVALID"
     )
-    if gross is not None and multiplier is not None:
+    if gross is not None and gross > 0 and multiplier is not None:
         return gross * multiplier, True, "gross_amount"
 
     tax = _optional_non_negative_money(
@@ -162,7 +162,12 @@ def _record_gross_screening_krw(
     fee = _optional_non_negative_money(
         record.get("fee"), "FINANCIAL_INCOME_RECORD_INVALID"
     )
-    if tax is not None and amount is not None and multiplier is not None:
+    if (
+        tax is not None
+        and amount is not None
+        and amount > 0
+        and multiplier is not None
+    ):
         return (amount + tax + (fee or 0.0)) * multiplier, True, "net_plus_tax"
 
     return cash_krw, False, "cash_fallback"
@@ -192,7 +197,10 @@ def _actual_gross_screening_basis(
             "record_count": expected_count,
             "gross_basis_record_count": 0,
             "fallback_record_count": expected_count,
-            "basis_sources": {},
+            "aggregate_cash_floor_applied": actual_cash_total > 0.0,
+            "basis_sources": (
+                {"aggregate_cash_fallback": 1} if actual_cash_total > 0.0 else {}
+            ),
         }
 
     amount = 0.0
@@ -208,14 +216,29 @@ def _actual_gross_screening_basis(
         else:
             fallback_count += 1
 
+    missing_count = max(0, expected_count - len(records))
+    if missing_count:
+        fallback_count += missing_count
+        basis_sources["missing_record_detail"] = missing_count
+
+    aggregate_cash_floor_applied = amount < actual_cash_total
+    if aggregate_cash_floor_applied:
+        amount = actual_cash_total
+        basis_sources["aggregate_cash_floor"] = 1
+
     record_detail_complete = expected_count in {0, len(records)}
     return {
         "amount_krw": amount,
-        "gross_basis_complete": fallback_count == 0 and record_detail_complete,
+        "gross_basis_complete": (
+            fallback_count == 0
+            and record_detail_complete
+            and not aggregate_cash_floor_applied
+        ),
         "record_detail_complete": record_detail_complete,
         "record_count": max(expected_count, len(records)),
         "gross_basis_record_count": gross_basis_count,
         "fallback_record_count": fallback_count,
+        "aggregate_cash_floor_applied": aggregate_cash_floor_applied,
         "basis_sources": basis_sources,
     }
 
@@ -294,6 +317,9 @@ def build_financial_income_projection(
         raise FinancialIncomeProjectionError("FINANCIAL_INCOME_INPUT_INVALID")
 
     day = _coerce_date(as_of)
+    if day.year != RULE_YEAR:
+        raise FinancialIncomeProjectionError("FINANCIAL_INCOME_RULE_YEAR_UNSUPPORTED")
+
     target_year_raw = actual_summary.get("year") or day.year
     try:
         target_year = int(str(target_year_raw))
@@ -389,6 +415,9 @@ def build_financial_income_projection(
             ),
             "actual_cash_fallback_record_count": int(
                 actual_screening["fallback_record_count"]
+            ),
+            "aggregate_cash_floor_applied": bool(
+                actual_screening["aggregate_cash_floor_applied"]
             ),
             "actual_basis_sources": dict(actual_screening["basis_sources"]),
             "tax_treatment_classification_complete": False,
