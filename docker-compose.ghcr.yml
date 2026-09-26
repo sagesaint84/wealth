@@ -4,6 +4,8 @@ services:
     container_name: wealth
     ports:
       - "127.0.0.1:4829:4829"
+    environment:
+      - WEALTH_OPENDART_API_KEY=${WEALTH_OPENDART_API_KEY:-}
     volumes:
       - ./data:/app/data
       - ./toss-wts/bin/tossctl:/opt/toss-wts/tossctl:ro
