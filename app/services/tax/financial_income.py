@@ -81,7 +81,8 @@ def _forecast_months(
 
     ``None`` means the dividend forecast is unavailable. Malformed available
     data raises instead of silently becoming zero, because that would
-    understate the screening projection.
+    understate the screening projection. ``included_months`` contains only
+    future months with a positive forecast amount.
     """
     if forecast_summary.get("unavailable") is True:
         return None, []
@@ -112,7 +113,8 @@ def _forecast_months(
         )
         if month > after_month:
             total += amount
-            included_months.append(month)
+            if amount > 0:
+                included_months.append(month)
 
     return total, sorted(included_months)
 
