@@ -31,6 +31,11 @@ PERSONAL_COMPREHENSIVE_INCOME_TAX_BRACKETS = (
     (None, 0.45),
 )
 
+# Dividend gross-up rate under Income Tax Act Article 17(3). The Article 56
+# dividend tax credit is based on the gross-up amount, subject to the official
+# financial-income return form's comparison-tax ceiling.
+DIVIDEND_GROSS_UP_RATE = 0.10
+
 # 2026 high-dividend-company special separate-taxation brackets.
 # These are national income-tax rates only. Local income tax is separate and is
 # deliberately not folded into this rule table.
@@ -71,6 +76,12 @@ OFFICIAL_PERSONAL_COMPREHENSIVE_TAX_RATE_SOURCE_URL = (
 OFFICIAL_FINANCIAL_INCOME_RETURN_FORM_SOURCE_URL = (
     "https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=153744873&gubun="
 )
+OFFICIAL_DIVIDEND_TAX_CREDIT_LAW_SOURCE_URL = (
+    "https://www.law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1032880527"
+)
+OFFICIAL_DIVIDEND_TAX_CREDIT_ENFORCEMENT_SOURCE_URL = (
+    "https://www.law.go.kr/LSW/lsSideInfoP.do?docCls=jo&joBrNo=02&joNo=0116&lsiSeq=286211&urlMode=lsScJoRltInfoR"
+)
 OFFICIAL_HIGH_DIVIDEND_LAW_SOURCE_URL = (
     "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1033275259"
 )
@@ -81,3 +92,4 @@ OFFICIAL_HIGH_DIVIDEND_SOURCE_URL = (
     "https://www.nts.go.kr/nts/na/ntt/selectNttInfo.do?nttSn=1349597"
 )
 RULE_VERIFIED_ON = "2026-09-26"
+DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
