@@ -1,0 +1,47 @@
+name: Temporary Phase 10.5A3.1 final check
+
+on:
+  push:
+    branches: [phase10-5a31-money-input-ux]
+    paths: [.github/workflows/tmp-phase10-5a31-final-check.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  verify-cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase10-5a31-money-input-ux
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check JavaScript syntax and pure formatting
+        run: |
+          node --check app/static/wealth-money-input.js
+          node <<'NODE'
+          const assert = require('assert');
+          const money = require('./app/static/wealth-money-input.js');
+          assert.strictEqual(money.formatKrwDigits(5000000), '5,000,000원');
+          assert.strictEqual(money.formatKoreanAmount(5000000), '5백만 원');
+          assert.strictEqual(money.formatKrwDigits(1000000000), '1,000,000,000원');
+          assert.strictEqual(money.formatKoreanAmount(1000000000), '10억 원');
+          assert.strictEqual(money.formatKrwDigits(7000050), '7,000,050원');
+          assert.strictEqual(money.formatKoreanAmount(7000050), '7백만 50원');
+          assert.strictEqual(money.formatKoreanAmount(-3500000), '-3백 50만 원 (마이너스)');
+          assert.strictEqual(money.formatKrwDigits(0), '0원');
+          NODE
+      - name: Run targeted unittest regression
+        run: |
+          python -m unittest tests.test_money_input_ux tests.test_financial_income_what_if_static -v
+      - name: Remove temporary workflow
+        run: |
+          rm .github/workflows/tmp-phase10-5a31-final-check.yml
+          git config user.name wealth-phase-builder
+          git config user.email actions@users.noreply.github.com
+          git add -A
+          git commit -m "chore: remove temporary money ux check"
+          git push origin HEAD:phase10-5a31-money-input-ux
