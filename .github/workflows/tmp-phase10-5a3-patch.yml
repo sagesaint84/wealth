@@ -1,0 +1,174 @@
+name: Temporary Phase 10.5A3 patch
+
+on:
+  push:
+    branches:
+      - phase10-5a3-what-if-simulator
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase10-5a3-what-if-simulator
+          fetch-depth: 0
+
+      - name: Patch stateless What-if API and static asset references
+        shell: python
+        run: |
+          from pathlib import Path
+          from textwrap import dedent
+
+          main_path = Path("app/main.py")
+          main_text = main_path.read_text(encoding="utf-8")
+          route = dedent('''
+          @app.post("/api/dividends/financial-income-what-if")
+          async def simulate_financial_income_what_if(request: Request) -> JSONResponse:
+              """Return a stateless financial-income and investment-method What-if."""
+              username = get_current_username(request)
+              try:
+                  body = await request.json()
+              except Exception as exc:
+                  raise HTTPException(
+                      status_code=400,
+                      detail={"code": "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID"},
+                      headers={"Cache-Control": "no-store"},
+                  ) from exc
+              if not isinstance(body, dict):
+                  raise HTTPException(
+                      status_code=400,
+                      detail={"code": "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID"},
+                      headers={"Cache-Control": "no-store"},
+                  )
+
+              allowed_fields = {
+                  "owner",
+                  "expected_remaining_interest_gross_krw",
+                  "current_month_remaining_dividend_gross_krw",
+                  "additional_dividend_gross_krw",
+                  "additional_interest_gross_krw",
+                  "investment_scenario",
+              }
+              if set(body) - allowed_fields:
+                  raise HTTPException(
+                      status_code=400,
+                      detail={"code": "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID"},
+                      headers={"Cache-Control": "no-store"},
+                  )
+
+              owner = body.get("owner", "모두")
+              if not isinstance(owner, str) or not owner.strip():
+                  raise HTTPException(
+                      status_code=400,
+                      detail={"code": "FINANCIAL_INCOME_OWNER_INVALID"},
+                      headers={"Cache-Control": "no-store"},
+                  )
+
+              investment_scenario = body.get("investment_scenario")
+              if investment_scenario is not None:
+                  if not isinstance(investment_scenario, dict):
+                      raise HTTPException(
+                          status_code=400,
+                          detail={"code": "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID"},
+                          headers={"Cache-Control": "no-store"},
+                      )
+                  allowed_investment_fields = {
+                      "asset_type",
+                      "annual_distribution_krw",
+                      "annual_realized_gain_krw",
+                      "taxable_etf_gain_krw",
+                      "existing_corporate_taxable_income_krw",
+                      "corporate_deductible_expenses_krw",
+                      "corporation_to_owner_distribution_krw",
+                      "domestic_dividend_exclusion_eligible",
+                      "domestic_dividend_ownership_pct",
+                      "domestic_dividend_holding_months",
+                      "us_treaty_parent_rate_qualified",
+                      "foreign_subsidiary_exclusion_qualified",
+                      "foreign_ownership_pct",
+                  }
+                  if set(investment_scenario) - allowed_investment_fields:
+                      raise HTTPException(
+                          status_code=400,
+                          detail={"code": "FINANCIAL_INCOME_WHAT_IF_REQUEST_INVALID"},
+                          headers={"Cache-Control": "no-store"},
+                      )
+
+              from app.services.tax import (
+                  FinancialIncomeProjectionError,
+                  FinancialIncomeWhatIfError,
+                  InvestmentTaxComparisonError,
+                  get_financial_income_what_if_for_user,
+              )
+
+              try:
+                  result = await get_financial_income_what_if_for_user(
+                      username,
+                      owner=owner.strip(),
+                      expected_remaining_interest_gross_krw=body.get(
+                          "expected_remaining_interest_gross_krw", 0.0
+                      ),
+                      current_month_remaining_dividend_gross_krw=body.get(
+                          "current_month_remaining_dividend_gross_krw", 0.0
+                      ),
+                      additional_dividend_gross_krw=body.get(
+                          "additional_dividend_gross_krw", 0.0
+                      ),
+                      additional_interest_gross_krw=body.get(
+                          "additional_interest_gross_krw", 0.0
+                      ),
+                      investment_scenario=investment_scenario,
+                  )
+              except (
+                  FinancialIncomeProjectionError,
+                  FinancialIncomeWhatIfError,
+                  InvestmentTaxComparisonError,
+              ) as exc:
+                  raise HTTPException(
+                      status_code=400,
+                      detail={"code": str(exc)},
+                      headers={"Cache-Control": "no-store"},
+                  ) from exc
+
+              return JSONResponse(result, headers={"Cache-Control": "no-store"})
+          ''').strip()
+
+          main_marker = '@app.get("/api/actual-dividends")'
+          if '/api/dividends/financial-income-what-if' not in main_text:
+              if main_text.count(main_marker) != 1:
+                  raise SystemExit(f"expected one main marker, got {main_text.count(main_marker)}")
+              main_text = main_text.replace(main_marker, route + "\n\n\n" + main_marker, 1)
+              main_path.write_text(main_text, encoding="utf-8")
+
+          index_path = Path("app/static/index.html")
+          index_text = index_path.read_text(encoding="utf-8")
+          css_line = '    <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css?v=1.3.0" />'
+          css_marker = '    <link rel="stylesheet" href="/static/wealth-layout.css?v=1.3.0" />'
+          if css_line not in index_text:
+              if index_text.count(css_marker) != 1:
+                  raise SystemExit(f"expected one css marker, got {index_text.count(css_marker)}")
+              index_text = index_text.replace(css_marker, css_marker + "\n" + css_line, 1)
+
+          js_line = '    <script src="/static/wealth-financial-income-what-if.js?v=1.3.0"></script>'
+          js_marker = '    <script src="/static/wealth.js?v=1.3.0"></script>'
+          if js_line not in index_text:
+              if index_text.count(js_marker) != 1:
+                  raise SystemExit(f"expected one js marker, got {index_text.count(js_marker)}")
+              index_text = index_text.replace(js_marker, js_marker + "\n" + js_line, 1)
+          index_path.write_text(index_text, encoding="utf-8")
+
+      - name: Commit patch and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/tmp-phase10-5a3-patch.yml
+          git config user.name "wealth-phase-builder"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/main.py app/static/index.html .github/workflows/tmp-phase10-5a3-patch.yml
+          git diff --cached --check
+          git commit -m "feat: wire financial income what-if api and ui"
+          git push origin HEAD:phase10-5a3-what-if-simulator
