@@ -26,10 +26,26 @@ class FinancialIncomeWhatIfTests(unittest.IsolatedAsyncioTestCase):
             result["scenario_projected_gross_screening_income_krw"], 20_250_000
         )
         comprehensive = result["thresholds"]["comprehensive_tax"]
-        self.assertFalse(comprehensive["baseline"]["reached"])
-        self.assertTrue(comprehensive["scenario"]["reached"])
+        self.assertFalse(comprehensive["baseline"]["exceeded"])
+        self.assertTrue(comprehensive["scenario"]["exceeded"])
         self.assertTrue(comprehensive["crossed_by_scenario"])
         self.assertEqual(comprehensive["scenario"]["remaining_krw"], 0)
+
+    def test_exact_twenty_million_is_at_threshold_but_not_exceeded(self):
+        result = build_financial_income_what_if(
+            {
+                "known_gross_screening_income_krw": 19_000_000,
+                "projected_gross_screening_income_krw": 19_500_000,
+            },
+            additional_dividend_gross_krw=500_000,
+        )
+
+        scenario = result["thresholds"]["comprehensive_tax"]["scenario"]
+        self.assertTrue(scenario["at_or_above"])
+        self.assertFalse(scenario["exceeded"])
+        self.assertFalse(
+            result["thresholds"]["comprehensive_tax"]["crossed_by_scenario"]
+        )
 
     def test_unavailable_projection_stays_unknown(self):
         result = build_financial_income_what_if(
@@ -42,7 +58,7 @@ class FinancialIncomeWhatIfTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(result["scenario_projected_gross_screening_income_krw"])
         self.assertIsNone(
-            result["thresholds"]["comprehensive_tax"]["scenario"]["reached"]
+            result["thresholds"]["comprehensive_tax"]["scenario"]["exceeded"]
         )
         self.assertFalse(result["data_quality"]["scenario_projected_available"])
 
@@ -57,6 +73,19 @@ class FinancialIncomeWhatIfTests(unittest.IsolatedAsyncioTestCase):
                     "projected_gross_screening_income_krw": 0,
                 },
                 additional_dividend_gross_krw=-1,
+            )
+
+    def test_boolean_money_input_is_rejected(self):
+        with self.assertRaisesRegex(
+            FinancialIncomeWhatIfError,
+            "FINANCIAL_INCOME_WHAT_IF_INTEREST_INVALID",
+        ):
+            build_financial_income_what_if(
+                {
+                    "known_gross_screening_income_krw": 0,
+                    "projected_gross_screening_income_krw": 0,
+                },
+                additional_interest_gross_krw=True,
             )
 
     def test_invalid_baseline_is_rejected(self):
@@ -137,7 +166,7 @@ class FinancialIncomeWhatIfTests(unittest.IsolatedAsyncioTestCase):
             "known_gross_screening_income",
         )
 
-    async def test_non_object_investment_scenario_is_rejected(self):
+    async def test_invalid_investment_scenario_is_rejected(self):
         baseline = {
             "known_gross_screening_income_krw": 0,
             "projected_gross_screening_income_krw": 0,
@@ -146,13 +175,15 @@ class FinancialIncomeWhatIfTests(unittest.IsolatedAsyncioTestCase):
             "app.services.tax.what_if.get_financial_income_projection_for_user",
             new=AsyncMock(return_value=baseline),
         ):
-            with self.assertRaisesRegex(
-                FinancialIncomeWhatIfError,
-                "FINANCIAL_INCOME_WHAT_IF_INVESTMENT_SCENARIO_INVALID",
-            ):
-                await get_financial_income_what_if_for_user(
-                    "alice", investment_scenario=[]  # type: ignore[arg-type]
-                )
+            for scenario in ([], {}, {"asset_type": 123}):
+                with self.subTest(scenario=scenario):
+                    with self.assertRaisesRegex(
+                        FinancialIncomeWhatIfError,
+                        "FINANCIAL_INCOME_WHAT_IF_INVESTMENT_SCENARIO_INVALID",
+                    ):
+                        await get_financial_income_what_if_for_user(
+                            "alice", investment_scenario=scenario  # type: ignore[arg-type]
+                        )
 
 
 if __name__ == "__main__":
