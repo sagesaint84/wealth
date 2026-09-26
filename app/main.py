@@ -1940,6 +1940,8 @@ async def simulate_financial_income_what_if(request: Request) -> JSONResponse:
         "current_month_remaining_dividend_gross_krw",
         "additional_dividend_gross_krw",
         "additional_interest_gross_krw",
+        "additional_foreign_share_realized_gain_krw",
+        "additional_kr_listed_overseas_etf_taxable_gain_krw",
         "high_dividend_scenario",
         "investment_scenario",
     }
@@ -2040,6 +2042,24 @@ async def simulate_financial_income_what_if(request: Request) -> JSONResponse:
                 "additional_interest_gross_krw", 0.0
             ),
             investment_scenario=investment_scenario,
+            **(
+                {
+                    "additional_foreign_share_realized_gain_krw": body.get(
+                        "additional_foreign_share_realized_gain_krw"
+                    )
+                }
+                if "additional_foreign_share_realized_gain_krw" in body
+                else {}
+            ),
+            **(
+                {
+                    "additional_kr_listed_overseas_etf_taxable_gain_krw": body.get(
+                        "additional_kr_listed_overseas_etf_taxable_gain_krw"
+                    )
+                }
+                if "additional_kr_listed_overseas_etf_taxable_gain_krw" in body
+                else {}
+            ),
             **(
                 {"high_dividend_scenario": high_dividend_scenario}
                 if high_dividend_scenario is not None
