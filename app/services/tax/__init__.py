@@ -16,6 +16,11 @@ from app.services.tax.investment_tax import (
     InvestmentTaxComparisonError,
     compare_investment_tax_2026,
 )
+from app.services.tax.what_if import (
+    FinancialIncomeWhatIfError,
+    build_financial_income_what_if,
+    get_financial_income_what_if_for_user,
+)
 
 __all__ = [
     "FinancialIncomeProjectionError",
@@ -26,4 +31,7 @@ __all__ = [
     "ASSET_US_DIRECT",
     "InvestmentTaxComparisonError",
     "compare_investment_tax_2026",
+    "FinancialIncomeWhatIfError",
+    "build_financial_income_what_if",
+    "get_financial_income_what_if_for_user",
 ]
