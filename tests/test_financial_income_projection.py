@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -48,7 +49,9 @@ class FinancialIncomeProjectionTests(unittest.TestCase):
             12_000_000,
         )
         self.assertEqual(result["projected_financial_income_krw"], 19_700_000)
-        self.assertEqual(result["forecast_basis"]["included_future_months"], [10, 11, 12])
+        self.assertEqual(
+            result["forecast_basis"]["included_future_months"], [10, 11, 12]
+        )
         self.assertFalse(result["forecast_basis"]["automatic_current_month_included"])
         self.assertEqual(
             result["thresholds"]["comprehensive_tax"]["projected"]["remaining_krw"],
@@ -58,6 +61,21 @@ class FinancialIncomeProjectionTests(unittest.TestCase):
             result["thresholds"]["comprehensive_tax"]["projected"]["at_or_above"]
         )
         self.assertFalse(result["rule_context"]["tax_liability_calculated"])
+
+    def test_aware_datetime_is_resolved_in_korea_time(self):
+        result = build_financial_income_projection(
+            {
+                "year": "2026",
+                "total_actual_dividend_krw": 0,
+                "total_actual_interest_krw": 0,
+            },
+            {"monthly_schedule": _schedule({2: 1000})},
+            as_of=datetime(2025, 12, 31, 16, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(result["as_of"], "2026-01-01")
+        self.assertEqual(result["forecast_basis"]["included_future_months"], [2])
+        self.assertEqual(result["projected_financial_income_krw"], 1000)
 
     def test_unavailable_forecast_never_silently_becomes_zero(self):
         result = build_financial_income_projection(
