@@ -28,8 +28,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Prepare existing default user directory
-        run: mkdir -p data/users/sagesaint
+      - name: Prepare existing test user directories
+        run: mkdir -p data/users/sagesaint data/users/alice
 
       - name: Run full unittest suite
         env:
