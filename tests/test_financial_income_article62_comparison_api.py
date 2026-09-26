@@ -4,7 +4,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 import app.main as main
 from app.main import app
-from tests.test_financial_income_article62_comparison import payload
+from tests.test_financial_income_article62_comparison import payload, payload_with_prepaid
 
 class Article62ComparisonApiTests(unittest.TestCase):
     def setUp(self):
@@ -19,7 +19,10 @@ class Article62ComparisonApiTests(unittest.TestCase):
         self.assertIn("dividend_tax_credit_krw", body)
         self.assertIn("dividend_tax_credit_limit_krw", body)
         self.assertIn("article62_tax_after_dividend_credit_before_other_credits_krw", body)
+        self.assertIn("prepaid_financial_income_withholding_tax_total_krw", body)
+        self.assertIn("partial_national_income_tax_balance_after_explicit_financial_withholding_krw", body)
         self.assertTrue(body["data_quality"]["dividend_tax_credit_calculated"])
+        self.assertFalse(body["data_quality"]["withholding_tax_paid_credit_calculated"])
         self.assertFalse(body["data_quality"]["legal_tax_determination"])
         self.client.cookies.clear()
         self.assertEqual(self.client.post("/api/dividends/financial-income-article62-comparison", json=payload()).status_code, 401)
@@ -66,4 +69,60 @@ class Article62ComparisonApiTests(unittest.TestCase):
         self.assertEqual(
             body["article62_tax_after_dividend_credit_before_other_credits_krw"],
             4_280_000,
+        )
+
+    def test_explicit_prepaid_financial_withholding_is_additive_api_input(self):
+        response = self.client.post(
+            "/api/dividends/financial-income-article62-comparison",
+            json=payload_with_prepaid(
+                ordinary_interest_14_krw=30_000_000,
+                prepaid_interest_income_withholding_tax_krw=4_200_000,
+            ),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("cache-control"), "no-store")
+        body = response.json()
+        self.assertEqual(body["prepaid_financial_income_withholding_tax_total_krw"], 4_200_000)
+        self.assertEqual(
+            body["partial_national_income_tax_balance_after_explicit_financial_withholding_krw"],
+            0,
+        )
+        self.assertTrue(body["data_quality"]["withholding_tax_paid_credit_calculated"])
+        self.assertTrue(body["data_quality"]["local_income_tax_withholding_excluded"])
+        self.assertFalse(body["data_quality"]["final_payment_or_refund_calculated"])
+
+    def test_prepaid_financial_withholding_rejects_partial_or_local_tax_inputs(self):
+        partial = self.client.post(
+            "/api/dividends/financial-income-article62-comparison",
+            json=payload(
+                ordinary_interest_14_krw=30_000_000,
+                prepaid_interest_income_withholding_tax_krw=4_200_000,
+            ),
+        )
+        self.assertEqual(partial.status_code, 400)
+        self.assertEqual(partial.headers.get("cache-control"), "no-store")
+
+        local_tax = self.client.post(
+            "/api/dividends/financial-income-article62-comparison",
+            json={
+                **payload_with_prepaid(ordinary_interest_14_krw=30_000_000),
+                "prepaid_local_income_tax_krw": 420_000,
+            },
+        )
+        self.assertEqual(local_tax.status_code, 400)
+        self.assertEqual(local_tax.headers.get("cache-control"), "no-store")
+
+    def test_prepaid_financial_withholding_rejects_below_threshold_readdition(self):
+        response = self.client.post(
+            "/api/dividends/financial-income-article62-comparison",
+            json=payload_with_prepaid(
+                ordinary_interest_14_krw=20_000_000,
+                prepaid_interest_income_withholding_tax_krw=2_800_000,
+            ),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.headers.get("cache-control"), "no-store")
+        self.assertEqual(
+            response.json()["detail"]["code"],
+            "ARTICLE62_PREPAID_WITHHOLDING_BELOW_THRESHOLD_INVALID",
         )
