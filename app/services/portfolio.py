@@ -521,57 +521,133 @@ def get_dashboard(data: dict[str, Any] | None = None, username: str | None = Non
         account["weight"] = account["market_value_krw"] / total_value * 100 if total_value else 0
 
     today_str = datetime.now(timezone.utc).astimezone().date().isoformat()
-    previous_value = 0.0
-    previous_date = None
+    existing_records: list[dict[str, Any]] = []
 
-    # 1. asset_records.json에서 오늘 이전의 가장 최근 기록 조회
+    # Load stock-record history once. Each owner metric below selects its own
+    # latest strictly-prior record and session provenance from this list.
     try:
         rec_file = _get_user_dir(username) / "asset_records.json"
         if rec_file.exists():
             rec_data = json.loads(rec_file.read_text(encoding="utf-8"))
-            past_records = [
-                r for r in rec_data.get("records", [])
-                if isinstance(r, dict)
-                and (r.get("owner") or "모두") == "모두"
-                and r.get("date")
-                and r.get("date") < today_str
-                and to_number(r.get("total_value_krw")) > 0
+            existing_records = [
+                record for record in rec_data.get("records", []) if isinstance(record, dict)
             ]
-            if past_records:
-                past_records.sort(key=lambda x: x["date"])
-                last_rec = past_records[-1]
-                previous_value = to_number(last_rec["total_value_krw"])
-                previous_date = last_rec["date"]
     except Exception:
         pass
 
-    # 2. 보유종목의 실제 당일 등락 금액 합산 계산
+    # 2. 보유종목의 표시용 1D 등락 금액 합산 계산. This value has no
+    # prior-session gate and therefore is not canonical dashboard price P/L.
     holding_day_gain = 0.0
-    has_day_rates = False
     for h in enriched:
         val = h["market_value_krw"]
         r = h.get("day_change_rate") or 0.0
         if r != 0 and (100 + r) > 0:
-            has_day_rates = True
             holding_day_gain += val * (r / (100 + r))
 
-    # 3. 만약 이전 자산기록이 없거나 daily_snapshot이 오래되어 오차가 큰 경우 보유종목 등락 합산으로 자동 보정
-    # asset_records의 total_value_krw는 stock-only 평가액이다. 따라서 이
-    # fallback도 예수금을 포함하지 않은 동일 basis에서 계산해야 한다.
-    if previous_value <= 0:
-        if has_day_rates and total_stock_value > holding_day_gain:
-            previous_value = total_stock_value - holding_day_gain
-            previous_date = "전일"
-        else:
-            daily_snapshot = data.get("settings", {}).get("daily_snapshot", {})
-            if daily_snapshot.get("date") and daily_snapshot.get("date") < today_str:
-                previous_value = to_number(daily_snapshot.get("value_krw"))
-                previous_date = daily_snapshot.get("date")
+    # Reuse the canonical stock-record calculator and its per-instrument
+    # session provenance. Record-to-record valuation change remains separate:
+    # it may include quantity changes, trades, or FX translation.
+    from app.services.asset_records import build_stock_record_from_holdings
 
-    # previous_value is an asset-record stock valuation, not a brokerage
-    # account total.  Keep the comparison stock-only so cash movements cannot
-    # appear as a stock valuation change.
-    day_change = (total_stock_value - previous_value) if previous_value > 0 else None
+    account_owner = {
+        str(account.get("id")): str(account.get("owner") or "모두")
+        for account in data.get("accounts", [])
+        if account.get("id")
+    }
+    target_owners = ["모두"]
+    for account in data.get("accounts", []):
+        owner_name = str(account.get("owner") or "모두").strip()
+        if owner_name and owner_name != "모두" and owner_name not in target_owners:
+            target_owners.append(owner_name)
+    for holding in data.get("holdings", []):
+        owner_name = str(holding.get("owner") or "").strip()
+        if owner_name and owner_name != "모두" and owner_name not in target_owners:
+            target_owners.append(owner_name)
+
+    daily_metrics_by_owner: dict[str, dict[str, Any]] = {}
+    for owner_name in target_owners:
+        owner_holdings = (
+            enriched
+            if owner_name == "모두"
+            else [
+                holding
+                for holding in enriched
+                if str(holding.get("owner") or "").strip() == owner_name
+                or account_owner.get(str(holding.get("account_id"))) == owner_name
+            ]
+        )
+        prior_records = [
+            record
+            for record in existing_records
+            if (record.get("owner") or "모두") == owner_name
+            and record.get("date")
+            and record.get("date") < today_str
+        ]
+        prior_records.sort(key=lambda record: str(record.get("date") or ""))
+        prior_record = prior_records[-1] if prior_records else None
+        prior_sessions = (
+            prior_record.get("holdings_session")
+            if prior_record and isinstance(prior_record.get("holdings_session"), dict)
+            else {}
+        )
+        canonical = build_stock_record_from_holdings(
+            owner_holdings,
+            owner=owner_name,
+            today=today_str,
+            fx_rates=fx_rates,
+            prev_session_map=prior_sessions,
+        )
+
+        provenance_count = 0
+        for holding in owner_holdings:
+            code = str(holding.get("code") or "").strip().upper()
+            currency = str(holding.get("currency") or "KRW").upper()
+            key = f"{currency}:{code}" if code else ""
+            current_session = holding.get("record_day_change_as_of") or holding.get("day_change_as_of")
+            if key and key in prior_sessions and current_session:
+                provenance_count += 1
+        if not owner_holdings or provenance_count == len(owner_holdings):
+            price_profit_status = "complete"
+        elif provenance_count > 0:
+            price_profit_status = "partial"
+        else:
+            price_profit_status = "unavailable"
+
+        current_owner_value = sum(to_number(item.get("market_value_krw")) for item in owner_holdings)
+        previous_owner_value = to_number(prior_record.get("total_value_krw")) if prior_record else 0.0
+        record_change = (
+            current_owner_value - previous_owner_value if previous_owner_value > 0 else None
+        )
+        record_change_rate = (
+            record_change / previous_owner_value * 100
+            if record_change is not None and previous_owner_value > 0
+            else None
+        )
+        owner_holding_day_gain = 0.0
+        for item in owner_holdings:
+            display_rate = to_number(item.get("day_change_rate"))
+            if display_rate != 0 and 100 + display_rate > 0:
+                owner_holding_day_gain += (
+                    to_number(item.get("market_value_krw"))
+                    * display_rate
+                    / (100 + display_rate)
+                )
+        daily_metrics_by_owner[owner_name] = {
+            "date": prior_record.get("date") if prior_record else None,
+            "value_krw": previous_owner_value if previous_owner_value > 0 else None,
+            "day_profit_krw": (
+                canonical.get("day_profit_krw")
+                if price_profit_status != "unavailable"
+                else None
+            ),
+            "price_profit_status": price_profit_status,
+            "record_change_krw": record_change,
+            "record_change_rate": record_change_rate,
+            # Backward-compatible aliases retain record-change semantics.
+            "change_krw": record_change,
+            "change_rate": record_change_rate,
+            "holding_day_gain": owner_holding_day_gain,
+        }
 
     currency_summary: dict[str, dict[str, float]] = {
         "KRW": {
@@ -727,13 +803,8 @@ def get_dashboard(data: dict[str, Any] | None = None, username: str | None = Non
             "account_count": len(account_list),
             "holding_day_gain": holding_day_gain,
         },
-        "day_change": {
-            "date": previous_date,
-            "value_krw": previous_value,
-            "change_krw": day_change,
-            "change_rate": day_change / previous_value * 100 if day_change is not None and previous_value else None,
-            "holding_day_gain": holding_day_gain,
-        },
+        "day_change": daily_metrics_by_owner.get("모두", {}),
+        "daily_metrics_by_owner": daily_metrics_by_owner,
         "accounts": account_list,
         "holdings": enriched,
         "fx_rates": fx_rates,
