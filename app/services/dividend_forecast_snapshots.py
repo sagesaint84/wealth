@@ -73,9 +73,7 @@ def _portfolio_basis(holdings: object) -> list[dict[str, Any]]:
     for raw in holdings:
         if not isinstance(raw, dict):
             continue
-        result.append(
-            _copy_present(raw, ("code", "name", "currency", "quantity"))
-        )
+        result.append(_copy_present(raw, ("code", "name", "currency", "quantity")))
     return result
 
 
@@ -164,10 +162,7 @@ def build_dividend_forecast_snapshot(
     if not isinstance(forecast_summary, dict):
         raise ValueError("forecast_summary must be an object")
     as_of = _iso_date(as_of_date, "as_of_date")
-    fx_rate = _finite_number(
-        capture_fx_rate_usd_krw,
-        "capture_fx_rate_usd_krw",
-    )
+    fx_rate = _finite_number(capture_fx_rate_usd_krw, "capture_fx_rate_usd_krw")
     aggregate_fields = (
         "total_annual_dividend_krw",
         "monthly_avg_dividend_krw",
@@ -185,15 +180,9 @@ def build_dividend_forecast_snapshot(
         "capture_fx_rate_usd_krw": fx_rate,
         "portfolio_basis": _portfolio_basis(holdings),
         "forecast_aggregate": _copy_present(forecast_summary, aggregate_fields),
-        "holding_forecasts": _holding_forecasts(
-            forecast_summary.get("holding_dividends")
-        ),
-        "monthly_schedule": _monthly_schedule(
-            forecast_summary.get("monthly_schedule")
-        ),
-        "forecast_source_policy": deepcopy(
-            forecast_summary.get("forecast_source_policy")
-        ),
+        "holding_forecasts": _holding_forecasts(forecast_summary.get("holding_dividends")),
+        "monthly_schedule": _monthly_schedule(forecast_summary.get("monthly_schedule")),
+        "forecast_source_policy": deepcopy(forecast_summary.get("forecast_source_policy")),
     }
 
 
@@ -222,9 +211,7 @@ def _read_storage_unlocked(path: Path) -> dict[str, Any]:
     return raw
 
 
-def list_dividend_forecast_snapshots(
-    username: str | None = None,
-) -> list[dict[str, Any]]:
+def list_dividend_forecast_snapshots(username: str | None = None) -> list[dict[str, Any]]:
     with _LOCK:
         data = _read_storage_unlocked(_get_snapshot_file(username))
         return deepcopy(data["snapshots"])
@@ -248,10 +235,7 @@ def upsert_dividend_forecast_snapshot(
         replacement["as_of_date"] = as_of
         existing_index: int | None = None
         for index, current in enumerate(data["snapshots"]):
-            if (
-                str(current.get("owner") or "") == owner
-                and str(current.get("as_of_date") or "") == as_of
-            ):
+            if str(current.get("owner") or "") == owner and str(current.get("as_of_date") or "") == as_of:
                 existing_index = index
                 replacement["id"] = current.get("id") or replacement.get("id")
                 break
@@ -260,10 +244,7 @@ def upsert_dividend_forecast_snapshot(
         else:
             data["snapshots"][existing_index] = replacement
         data["snapshots"].sort(
-            key=lambda item: (
-                str(item.get("as_of_date") or ""),
-                str(item.get("owner") or ""),
-            )
+            key=lambda item: (str(item.get("as_of_date") or ""), str(item.get("owner") or ""))
         )
         data["updated_at"] = _now_iso()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -283,7 +264,21 @@ def upsert_dividend_forecast_snapshot(
             raise DividendForecastSnapshotStorageError(
                 "dividend forecast snapshot storage write failed"
             ) from exc
-        return deepcopy(replacement)
+        saved = deepcopy(replacement)
+
+    # Scheduled snapshots are the single daily-close hinge for Dividend
+    # Intelligence alerts. Alert delivery is explicitly opt-in and non-fatal;
+    # snapshot persistence never depends on notification availability.
+    if username and str(saved.get("trigger") or "") == "scheduled":
+        try:
+            from app.services.dividend_intelligence import (
+                dispatch_scheduled_dividend_intelligence_alerts,
+            )
+
+            dispatch_scheduled_dividend_intelligence_alerts(username, saved)
+        except Exception:
+            pass
+    return saved
 
 
 def classify_forecast_source(item: dict[str, Any]) -> str:
@@ -425,11 +420,7 @@ def evaluate_dividend_forecast_snapshot(
             key = (code, year, month)
             current = predicted.setdefault(
                 key,
-                {
-                    "amount": 0.0,
-                    "sources": set(),
-                    "event_identities": [],
-                },
+                {"amount": 0.0, "sources": set(), "event_identities": []},
             )
             current["amount"] += payout
             current["sources"].add(classify_forecast_source(item))
@@ -448,9 +439,7 @@ def evaluate_dividend_forecast_snapshot(
         else:
             attribution_status = "complete"
         bucket_complete = attribution_status == "complete"
-        forecast_attribution_complete = (
-            forecast_attribution_complete and bucket_complete
-        )
+        forecast_attribution_complete = forecast_attribution_complete and bucket_complete
         monthly_bucket_results.append(
             {
                 "month": occurrence_key,
@@ -506,9 +495,7 @@ def evaluate_dividend_forecast_snapshot(
         sources = sorted(pred["sources"]) if pred else ["unknown"]
         source_class = sources[0] if len(sources) == 1 else "mixed"
         identities = list(dict.fromkeys(pred["event_identities"])) if pred else []
-        identity_match = bool(
-            set(identities) & actual_identities.get((code, year, month), set())
-        )
+        identity_match = bool(set(identities) & actual_identities.get((code, year, month), set()))
         if identity_match:
             identity_match_count += 1
         monthly_results.append(
@@ -518,11 +505,7 @@ def evaluate_dividend_forecast_snapshot(
                 "predicted_krw": round(predicted_amount),
                 "actual_payment_present": (code, year, month) in actual_timing,
                 "payment_month_hit": predicted_amount > 0 and (code, year, month) in actual_timing,
-                "actual_comparable_gross_krw": (
-                    round(actual_amount)
-                    if (code, year, month) in actual_gross
-                    else None
-                ),
+                "actual_comparable_gross_krw": round(actual_amount) if (code, year, month) in actual_gross else None,
                 "source_class": source_class,
                 "event_identity": identities[0] if len(identities) == 1 else None,
                 "event_identities": identities,
@@ -557,19 +540,9 @@ def evaluate_dividend_forecast_snapshot(
         "gross_comparable_record_count": gross_count,
         "cash_only_record_count": cash_only_count,
         "amount_accuracy_complete": amount_complete,
-        "absolute_error_krw": (
-            round(abs(predicted_total - actual_total)) if amount_complete else None
-        ),
-        "mae_krw": (
-            round(error_sum / len(absolute_errors))
-            if amount_complete and absolute_errors
-            else None
-        ),
-        "wape_percent": (
-            round((error_sum / actual_total) * 100.0, 2)
-            if amount_complete and error_sum is not None and actual_total > 0
-            else None
-        ),
+        "absolute_error_krw": round(abs(predicted_total - actual_total)) if amount_complete else None,
+        "mae_krw": round(error_sum / len(absolute_errors)) if amount_complete and absolute_errors else None,
+        "wape_percent": round((error_sum / actual_total) * 100.0, 2) if amount_complete and error_sum is not None and actual_total > 0 else None,
         "monthly_results": monthly_results,
         "monthly_bucket_results": monthly_bucket_results,
         "source_metrics": source_metrics,
