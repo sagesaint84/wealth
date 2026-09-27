@@ -11,9 +11,10 @@
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
-  const estimated = () => document.querySelector(
-    '#dividendModeTabs .heatmap-tab.active'
-  )?.dataset?.divMode === 'estimated';
+  const taxWorkspaceActive = () => {
+    if (window.WealthTaxWorkspace?.isActive) return window.WealthTaxWorkspace.isActive();
+    return document.querySelector('.account-cat-tab.active')?.dataset?.cat === 'tax';
+  };
 
   function options(members) {
     return members
@@ -92,12 +93,13 @@
 
   async function load() {
     if (
-      !estimated()
+      !taxWorkspaceActive()
       || document.querySelector('#familyFinancialIncomeAllocationPanel')?.dataset.loaded
     ) return;
     try {
       await request([]);
-      document.querySelector('#familyFinancialIncomeAllocationPanel').dataset.loaded = 'true';
+      const panel = document.querySelector('#familyFinancialIncomeAllocationPanel');
+      if (panel) panel.dataset.loaded = 'true';
     } catch (err) {
       error(err?.message);
     }
@@ -114,7 +116,7 @@
   }
 
   document.addEventListener('click', event => {
-    if (event.target?.closest?.('#dividendModeTabs .heatmap-tab')) {
+    if (event.target?.closest?.('.account-cat-tab[data-cat="tax"]')) {
       window.setTimeout(load, 0);
     }
   });
