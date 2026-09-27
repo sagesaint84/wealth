@@ -354,15 +354,16 @@ def evaluate_dividend_forecast_snapshot(
     snapshot_day = date.fromisoformat(str(snapshot.get("as_of_date") or ""))
     through_day = date.fromisoformat(through_date)
     current_month_start = date(through_day.year, through_day.month, 1)
-    eligible_months = [
-        month
-        for month in range(snapshot_day.month + 1, 13)
-        if date(snapshot_day.year, month, 1) < current_month_start
-    ]
-    evaluated_month_keys = [
-        f"{snapshot_day.year:04d}-{month:02d}" for month in eligible_months
-    ]
-    if not eligible_months:
+    month_occurrences: list[tuple[int, int, str]] = []
+    for offset in range(1, 13):
+        zero_based = snapshot_day.month - 1 + offset
+        year = snapshot_day.year + (zero_based // 12)
+        month = (zero_based % 12) + 1
+        month_start = date(year, month, 1)
+        if month_start < current_month_start:
+            month_occurrences.append((year, month, f"{year:04d}-{month:02d}"))
+    evaluated_month_keys = [key for _, _, key in month_occurrences]
+    if not month_occurrences:
         return {
             "status": "evaluation_horizon_unavailable",
             "snapshot_id": snapshot.get("id"),
@@ -371,24 +372,57 @@ def evaluate_dividend_forecast_snapshot(
             "network_access_used": False,
         }
 
-    predicted: dict[tuple[str, int], dict[str, Any]] = {}
-    for bucket in snapshot.get("monthly_schedule") or []:
+    raw_schedule = snapshot.get("monthly_schedule") or []
+    bucket_by_month: dict[int, dict[str, Any]] = {}
+    for bucket in raw_schedule:
         if not isinstance(bucket, dict):
             continue
         try:
             month = int(bucket.get("month"))
         except (TypeError, ValueError):
             continue
-        if month not in eligible_months:
+        if 1 <= month <= 12:
+            bucket_by_month[month] = bucket
+
+    predicted: dict[tuple[str, int, int], dict[str, Any]] = {}
+    monthly_bucket_results: list[dict[str, Any]] = []
+    predicted_total = 0.0
+    unattributed_total = 0.0
+    forecast_attribution_complete = True
+    for year, month, occurrence_key in month_occurrences:
+        bucket = bucket_by_month.get(month)
+        if bucket is None:
+            monthly_bucket_results.append(
+                {
+                    "month": occurrence_key,
+                    "bucket_total_krw": 0,
+                    "attributed_item_krw": 0,
+                    "unattributed_forecast_krw": 0,
+                    "attribution_status": "bucket_missing",
+                }
+            )
+            forecast_attribution_complete = False
             continue
+        raw_bucket_total = _finite_number(bucket.get("total_krw"), "total_krw")
+        bucket_total_valid = raw_bucket_total is not None and raw_bucket_total >= 0
+        bucket_total = raw_bucket_total if bucket_total_valid else 0.0
+        predicted_total += bucket_total
+        attributed_item_total = 0.0
+        item_amounts_valid = True
         for item in bucket.get("items") or []:
             if not isinstance(item, dict):
                 continue
             code = normalize_dividend_code(item.get("code"))
             if code is None:
+                item_amounts_valid = False
                 continue
-            payout = _finite_number(item.get("payout_krw"), "payout_krw") or 0.0
-            key = (code, month)
+            payout_value = _finite_number(item.get("payout_krw"), "payout_krw")
+            if payout_value is None or payout_value < 0:
+                item_amounts_valid = False
+                continue
+            payout = payout_value
+            attributed_item_total += payout
+            key = (code, year, month)
             current = predicted.setdefault(
                 key,
                 {
@@ -403,9 +437,33 @@ def evaluate_dividend_forecast_snapshot(
             if identity:
                 current["event_identities"].append(str(identity))
 
-    actual_timing: set[tuple[str, int]] = set()
-    actual_gross: dict[tuple[str, int], float] = {}
-    actual_identities: dict[tuple[str, int], set[str]] = {}
+        residual = max(0.0, bucket_total - attributed_item_total)
+        unattributed_total += residual
+        if not bucket_total_valid or not item_amounts_valid:
+            attribution_status = "invalid_bucket_or_item_amount"
+        elif attributed_item_total > bucket_total:
+            attribution_status = "items_exceed_bucket_total"
+        elif attributed_item_total < bucket_total:
+            attribution_status = "unattributed_residual"
+        else:
+            attribution_status = "complete"
+        bucket_complete = attribution_status == "complete"
+        forecast_attribution_complete = (
+            forecast_attribution_complete and bucket_complete
+        )
+        monthly_bucket_results.append(
+            {
+                "month": occurrence_key,
+                "bucket_total_krw": round(bucket_total),
+                "attributed_item_krw": round(attributed_item_total),
+                "unattributed_forecast_krw": round(residual),
+                "attribution_status": attribution_status,
+            }
+        )
+
+    actual_timing: set[tuple[str, int, int]] = set()
+    actual_gross: dict[tuple[str, int, int], float] = {}
+    actual_identities: dict[tuple[str, int, int], set[str]] = {}
     gross_count = 0
     cash_only_count = 0
     for record in actual_records:
@@ -420,8 +478,9 @@ def evaluate_dividend_forecast_snapshot(
         code = normalize_dividend_code(record.get("code"))
         if code is None:
             continue
+        year = int(month_key[:4])
         month = int(month_key[-2:])
-        key = (code, month)
+        key = (code, year, month)
         actual_timing.add(key)
         actual_identity = str(record.get("event_identity") or "").strip()
         if actual_identity:
@@ -436,33 +495,33 @@ def evaluate_dividend_forecast_snapshot(
     keys = sorted(set(predicted) | actual_timing)
     monthly_results: list[dict[str, Any]] = []
     absolute_errors: list[float] = []
-    predicted_total = 0.0
     actual_total = sum(actual_gross.values())
     identity_match_count = 0
-    for code, month in keys:
-        pred = predicted.get((code, month))
+    for code, year, month in keys:
+        pred = predicted.get((code, year, month))
         predicted_amount = float(pred["amount"]) if pred else 0.0
-        predicted_total += predicted_amount
-        actual_amount = actual_gross.get((code, month), 0.0)
-        if cash_only_count == 0:
+        actual_amount = actual_gross.get((code, year, month), 0.0)
+        if cash_only_count == 0 and forecast_attribution_complete:
             absolute_errors.append(abs(predicted_amount - actual_amount))
         sources = sorted(pred["sources"]) if pred else ["unknown"]
         source_class = sources[0] if len(sources) == 1 else "mixed"
         identities = list(dict.fromkeys(pred["event_identities"])) if pred else []
         identity_match = bool(
-            set(identities) & actual_identities.get((code, month), set())
+            set(identities) & actual_identities.get((code, year, month), set())
         )
         if identity_match:
             identity_match_count += 1
         monthly_results.append(
             {
-                "month": f"{snapshot_day.year:04d}-{month:02d}",
+                "month": f"{year:04d}-{month:02d}",
                 "code": code,
                 "predicted_krw": round(predicted_amount),
-                "actual_payment_present": (code, month) in actual_timing,
-                "payment_month_hit": predicted_amount > 0 and (code, month) in actual_timing,
+                "actual_payment_present": (code, year, month) in actual_timing,
+                "payment_month_hit": predicted_amount > 0 and (code, year, month) in actual_timing,
                 "actual_comparable_gross_krw": (
-                    round(actual_amount) if (code, month) in actual_gross else None
+                    round(actual_amount)
+                    if (code, year, month) in actual_gross
+                    else None
                 ),
                 "source_class": source_class,
                 "event_identity": identities[0] if len(identities) == 1 else None,
@@ -471,7 +530,7 @@ def evaluate_dividend_forecast_snapshot(
             }
         )
 
-    amount_complete = cash_only_count == 0
+    amount_complete = cash_only_count == 0 and forecast_attribution_complete
     error_sum = sum(absolute_errors) if amount_complete else None
     source_metrics: dict[str, dict[str, Any]] = {}
     if amount_complete and gross_count > 0:
@@ -492,6 +551,8 @@ def evaluate_dividend_forecast_snapshot(
         "through_date": through_day.isoformat(),
         "evaluated_months": evaluated_month_keys,
         "predicted_remaining_krw": round(predicted_total),
+        "unattributed_forecast_krw": round(unattributed_total),
+        "forecast_attribution_complete": forecast_attribution_complete,
         "actual_comparable_gross_krw": round(actual_total),
         "gross_comparable_record_count": gross_count,
         "cash_only_record_count": cash_only_count,
@@ -510,6 +571,7 @@ def evaluate_dividend_forecast_snapshot(
             else None
         ),
         "monthly_results": monthly_results,
+        "monthly_bucket_results": monthly_bucket_results,
         "source_metrics": source_metrics,
         "official_event_identity_match_count": identity_match_count,
         "historical_point_in_time_only": True,

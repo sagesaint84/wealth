@@ -43,7 +43,7 @@ def _forecast() -> dict:
         "monthly_schedule": [
             {
                 "month": month,
-                "total_krw": 1_200_000 if month == 10 else 0,
+                "total_krw": 1_214_000 if month == 10 else 0,
                 "items": (
                     [
                         {
@@ -179,6 +179,99 @@ class DividendForecastSnapshotStorageTests(unittest.TestCase):
 
 
 class DividendForecastSnapshotEvaluatorTests(unittest.TestCase):
+    def test_bucket_total_preserves_unattributed_residual(self):
+        snapshot = _snapshot()
+        october = snapshot["monthly_schedule"][9]
+        october["total_krw"] = 1_000_000
+        october["items"] = [
+            {
+                "code": "005930",
+                "payout_krw": 300_000,
+                "forecast_source": "opendart_confirmed_disclosure",
+            }
+        ]
+
+        result = evaluate_dividend_forecast_snapshot(
+            snapshot, [], through_date="2026-11-01"
+        )
+
+        self.assertEqual(result["predicted_remaining_krw"], 1_000_000)
+        self.assertEqual(result["unattributed_forecast_krw"], 700_000)
+        self.assertFalse(result["forecast_attribution_complete"])
+        self.assertEqual(result["monthly_results"][0]["predicted_krw"], 300_000)
+        quality = result["monthly_bucket_results"][0]
+        self.assertEqual(quality["bucket_total_krw"], 1_000_000)
+        self.assertEqual(quality["attributed_item_krw"], 300_000)
+        self.assertEqual(quality["unattributed_forecast_krw"], 700_000)
+
+    def test_equal_bucket_and_item_totals_are_fully_attributed(self):
+        snapshot = _snapshot()
+        result = evaluate_dividend_forecast_snapshot(
+            snapshot, [], through_date="2026-11-01"
+        )
+        self.assertEqual(result["predicted_remaining_krw"], 1_214_000)
+        self.assertEqual(result["unattributed_forecast_krw"], 0)
+        self.assertTrue(result["forecast_attribution_complete"])
+
+    def test_item_sum_above_bucket_total_is_flagged_without_negative_residual(self):
+        snapshot = _snapshot()
+        october = snapshot["monthly_schedule"][9]
+        october["total_krw"] = 300_000
+        october["items"] = [
+            {"code": "005930", "payout_krw": 500_000, "forecast_source": "naver"}
+        ]
+        result = evaluate_dividend_forecast_snapshot(
+            snapshot, [], through_date="2026-11-01"
+        )
+        self.assertEqual(result["predicted_remaining_krw"], 300_000)
+        self.assertEqual(result["unattributed_forecast_krw"], 0)
+        self.assertFalse(result["forecast_attribution_complete"])
+        quality = result["monthly_bucket_results"][0]
+        self.assertEqual(quality["attributed_item_krw"], 500_000)
+        self.assertEqual(quality["attribution_status"], "items_exceed_bucket_total")
+
+    def test_december_snapshot_maps_january_to_next_year(self):
+        snapshot = _snapshot()
+        snapshot["as_of_date"] = "2026-12-27"
+        for bucket in snapshot["monthly_schedule"]:
+            bucket["total_krw"] = 100_000 if bucket["month"] == 1 else 0
+            bucket["items"] = (
+                [{"code": "005930", "payout_krw": 100_000}]
+                if bucket["month"] == 1
+                else []
+            )
+        result = evaluate_dividend_forecast_snapshot(
+            snapshot, [], through_date="2027-02-01"
+        )
+        self.assertEqual(result["evaluated_months"], ["2027-01"])
+        self.assertEqual(result["predicted_remaining_krw"], 100_000)
+
+    def test_horizon_crosses_year_boundary_in_chronological_order(self):
+        snapshot = _snapshot()
+        for bucket in snapshot["monthly_schedule"]:
+            bucket["total_krw"] = 100_000 if bucket["month"] in {10, 11, 12, 1} else 0
+            bucket["items"] = []
+        result = evaluate_dividend_forecast_snapshot(
+            snapshot, [], through_date="2027-02-01"
+        )
+        self.assertEqual(
+            result["evaluated_months"],
+            ["2026-10", "2026-11", "2026-12", "2027-01"],
+        )
+        self.assertEqual(result["predicted_remaining_krw"], 400_000)
+
+    def test_next_year_current_month_remains_excluded(self):
+        snapshot = _snapshot()
+        snapshot["as_of_date"] = "2026-12-27"
+        january = snapshot["monthly_schedule"][0]
+        january["total_krw"] = 100_000
+        january["items"] = [{"code": "005930", "payout_krw": 100_000}]
+        result = evaluate_dividend_forecast_snapshot(
+            snapshot, [], through_date="2027-01-15"
+        )
+        self.assertEqual(result["evaluated_months"], [])
+        self.assertEqual(result["status"], "evaluation_horizon_unavailable")
+
     def test_current_incomplete_month_is_excluded_then_completed_month_is_evaluated(self):
         snapshot = _snapshot()
         actual = [{"date": "2026-10-05", "code": "005930", "amount_krw": 900_000}]
