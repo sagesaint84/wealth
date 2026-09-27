@@ -20,7 +20,7 @@ from app.services.tax.rules_2026 import (
     OFFICIAL_FINAL_RETURN_PREPAID_TAX_LAW_SOURCE_URL,
     OFFICIAL_INCOME_TAX_REFUND_LAW_SOURCE_URL,
     OFFICIAL_INTERIM_PREPAYMENT_LAW_SOURCE_URL,
-    OFFICIAL_RULE_SOURCE_URL,
+    OFFICIAL_INTERIM_PREPAYMENT_RETURN_FORM_SOURCE_URL,
 )
 
 _INTERIM_PREPAYMENT_FIELD = "prepaid_interim_income_tax_krw"
@@ -148,7 +148,9 @@ def calculate_financial_income_article62_comparison_2026(
             "official_income_tax_refund_law_source_url": (
                 OFFICIAL_INCOME_TAX_REFUND_LAW_SOURCE_URL
             ),
-            "official_income_tax_return_form_source_url": OFFICIAL_RULE_SOURCE_URL,
+            "official_income_tax_return_form_source_url": (
+                OFFICIAL_INTERIM_PREPAYMENT_RETURN_FORM_SOURCE_URL
+            ),
             "interim_prepayment_note": (
                 "소득세법 제76조 제3항 제1호에 따라 제65조의 중간예납세액은 "
                 "확정신고납부 시 공제되는 기납부세액입니다. 별지 제40호서식(1)도 "
