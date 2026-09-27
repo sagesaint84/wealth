@@ -44,6 +44,11 @@ class DividendTaxDashboardFrontendTests(unittest.TestCase):
             with self.subTest(field_id=field_id):
                 self.assertIn(field_id, self.js)
 
+    def test_existing_static_contract_markers_are_preserved(self):
+        self.assertIn("2천만원 도달 · 초과 아님", self.js)
+        self.assertIn("capital_gain_tax_calculated", self.js)
+        self.assertIn("scenario_comprehensive_tax_screening_income_krw", self.js)
+
     def test_advanced_tax_and_corporation_controls_are_deemphasized(self):
         self.assertIn("이자·매매 등 다른 가정도 추가하기", self.js)
         self.assertIn("고배당 특례 · 개인 vs 가족법인 등 고급 비교", self.js)
