@@ -513,9 +513,10 @@ async def run_daily_close_for_user(
     1. account_sync: sync all configured broker accounts
     2. price_refresh: refresh market prices and USD/KRW FX rates
     3. dashboard: compile full portfolio and asset dashboard
-    4. snapshot: persist stock records and net-worth snapshots for all owners
-    5. summary: generate formatted human-readable summary
-    6. notification: dispatch to enabled Telegram / Discord / Kakao providers
+    4. dividend_forecast_snapshot: freeze the current enriched dividend forecast
+    5. snapshot: persist stock records and net-worth snapshots for all owners
+    6. summary: generate formatted human-readable summary
+    7. notification: dispatch to enabled Telegram / Discord / Kakao providers
 
     Returns machine-readable result dictionary with status and metrics.
     """
@@ -595,7 +596,55 @@ async def run_daily_close_for_user(
             "notification_status": "skipped",
         }
 
-    # 4. snapshot
+    # 4. dividend forecast snapshot (independent and non-fatal)
+    try:
+        from app.services.dividend_forecast_snapshots import (
+            build_dividend_forecast_snapshot,
+            upsert_dividend_forecast_snapshot,
+        )
+        from app.services.web_finance import get_web_dividend_summary
+
+        holdings = data.get("holdings") or []
+        fx_rate = _number((data.get("fx_rates") or {}).get("USD"))
+        if fx_rate <= 0:
+            fx_rate = _number(price_result.get("fx_rate"))
+        forecast = await get_web_dividend_summary(
+            holdings,
+            fx_rate=fx_rate,
+            username=safe_user,
+        )
+        if not isinstance(forecast, dict) or forecast.get("unavailable") is True:
+            steps["dividend_forecast_snapshot"] = {
+                "status": "unavailable",
+                "reason": "FORECAST_UNAVAILABLE",
+            }
+        else:
+            forecast_snapshot = build_dividend_forecast_snapshot(
+                forecast,
+                holdings,
+                as_of_date=today,
+                owner="모두",
+                source="daily_close",
+                trigger="scheduled",
+                capture_fx_rate_usd_krw=fx_rate if fx_rate > 0 else None,
+            )
+            saved_forecast_snapshot = upsert_dividend_forecast_snapshot(
+                forecast_snapshot,
+                username=safe_user,
+            )
+            steps["dividend_forecast_snapshot"] = {
+                "status": "success",
+                "snapshot_id": saved_forecast_snapshot.get("id"),
+                "as_of_date": saved_forecast_snapshot.get("as_of_date"),
+            }
+    except Exception:
+        logger.warning("Daily close dividend forecast snapshot failed for %s", safe_user)
+        steps["dividend_forecast_snapshot"] = {
+            "status": "failed",
+            "error": "DIVIDEND_FORECAST_SNAPSHOT_FAILED",
+        }
+
+    # 5. stock/net-worth snapshot
     from app.main import auto_save_all_owner_snapshots, save_all_owner_net_worth_snapshots
     from app.services.asset_records import list_asset_records
     try:

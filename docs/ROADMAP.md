@@ -17,19 +17,19 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 - 10.5C-1 배당 세금 대시보드 — PR #41 merge (`f046f22d`), 운영 배포 확인
 - 10.5C-2 세후 배당 현금흐름 보기 — PR #42 merge (`fcf14ba`)
 - 10.5C-3 일간 가격손익과 평가액 변화 분리 — PR #43 merge (`89ad76a`)
+- 10.5C-4 Dividend event identity & high-confidence actual/forecast dedup — PR #44 merge (`b235934d`)
 
-현재 increment: **10.5C-4 Dividend event identity & high-confidence actual/forecast dedup**
+현재 increment: **10.5C-4.1 Dividend forecast point-in-time measurement foundation**
 
-- 공식 배당기준일 기반 identity를 우선하고 기준일이 없을 때만 공식 source event ID를 fallback으로 사용
-- OpenDART/KIND confirmed schedule item에 event identity와 current-holding entitlement 한계 metadata 제공
-- actual과 official forecast의 명시 identity 또는 동일 종목 exact payment date가 일치할 때만 1:1 dedup
-- matched item 금액만 차감하고 월 bucket의 heuristic/residual 금액은 보존
-- Naver/Yahoo heuristic forecast에는 추측성 identity를 만들거나 자동 dedup하지 않음
-- Toss source fingerprint는 입금 transaction identity로 유지
+- daily close 당시 최종 enriched forecast를 사용자별 daily snapshot으로 보존
+- 현재 source나 holdings로 과거 forecast를 재생성하지 않는 look-ahead-free evaluation
+- snapshot 다음 달부터 완료된 월까지만 gross MAE/WAPE와 지급월 적중 측정 기반 제공
+- cash-only actual은 gross forecast 금액오차에 섞지 않고 지급월 분석에만 사용
+- 과거 snapshot이 없으면 historical point-in-time accuracy unavailable로 명시
 
 ## 2. 다음 단계
 
-C-4 이후 우선순위 후보:
+C-4.1 이후 우선순위 후보:
 
 1. **C-5 포트폴리오 세후 배당수익률**
    - 보유자산별 예상 세전 배당과 원천징수 후 현금흐름 비교

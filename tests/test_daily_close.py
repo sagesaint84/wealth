@@ -210,6 +210,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
         self.assertEqual(steps["account_sync"]["status"], "success")
         self.assertEqual(steps["price_refresh"]["status"], "success")
         self.assertEqual(steps["dashboard"]["status"], "success")
+        self.assertEqual(steps["dividend_forecast_snapshot"]["status"], "unavailable")
         self.assertEqual(steps["snapshot"]["status"], "success")
         self.assertEqual(steps["summary"]["status"], "success")
         self.assertEqual(steps["notification"]["status"], "sent")
@@ -225,6 +226,87 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
         self.assertEqual(sent_messages[0][0], self.username)
         self.assertIn("📊 Wealth 일일 마감 · 2026-09-21", sent_messages[0][1])
         self.assertIn("💎 순자산:", sent_messages[0][1])
+
+    def test_dividend_forecast_snapshot_success_is_recorded(self):
+        forecast = {
+            "total_annual_dividend_krw": 1000,
+            "monthly_avg_dividend_krw": 83,
+            "portfolio_yield": 1.0,
+            "dividend_paying_count": 1,
+            "holding_dividends": [],
+            "monthly_schedule": [],
+        }
+        with (
+            patch(
+                "app.main.sync_all_accounts_for_user",
+                AsyncMock(return_value=self._sample_sync_result()),
+            ),
+            patch(
+                "app.main.refresh_prices_for_user",
+                AsyncMock(return_value=self._sample_price_result()),
+            ),
+            patch(
+                "app.main.get_full_dashboard_for_user",
+                MagicMock(return_value=self._sample_dashboard()),
+            ),
+            patch(
+                "app.services.web_finance.get_web_dividend_summary",
+                AsyncMock(return_value=forecast),
+            ),
+            patch(
+                "app.services.dividend_forecast_snapshots.upsert_dividend_forecast_snapshot"
+            ) as save,
+            patch(
+                "app.services.automation.daily_close.resolve_telegram_config",
+                return_value=TelegramConfig(username=self.username, enabled=False),
+            ),
+        ):
+            result = _async(
+                run_daily_close_for_user(
+                    self.username,
+                    now=datetime(2026, 9, 21, 21, 0, tzinfo=KST),
+                )
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            result["steps"]["dividend_forecast_snapshot"]["status"], "success"
+        )
+        save.assert_called_once()
+
+    def test_dividend_forecast_snapshot_failure_is_non_fatal(self):
+        with (
+            patch(
+                "app.main.sync_all_accounts_for_user",
+                AsyncMock(return_value=self._sample_sync_result()),
+            ),
+            patch(
+                "app.main.refresh_prices_for_user",
+                AsyncMock(return_value=self._sample_price_result()),
+            ),
+            patch(
+                "app.main.get_full_dashboard_for_user",
+                MagicMock(return_value=self._sample_dashboard()),
+            ),
+            patch(
+                "app.services.web_finance.get_web_dividend_summary",
+                AsyncMock(side_effect=RuntimeError("provider secret detail")),
+            ),
+            patch(
+                "app.services.automation.daily_close.resolve_telegram_config",
+                return_value=TelegramConfig(username=self.username, enabled=False),
+            ),
+        ):
+            result = _async(run_daily_close_for_user(self.username))
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["stock_record_saved"])
+        self.assertTrue(result["net_record_saved"])
+        self.assertEqual(result["notification_status"], "disabled")
+        step = result["steps"]["dividend_forecast_snapshot"]
+        self.assertEqual(step["status"], "failed")
+        self.assertEqual(step["error"], "DIVIDEND_FORECAST_SNAPSHOT_FAILED")
+        self.assertNotIn("provider secret detail", str(result))
 
     # -----------------------------------------------------------------------
     # 4. Telegram Config Resolution (Stored resolver, no .env)
