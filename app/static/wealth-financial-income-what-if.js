@@ -9,6 +9,11 @@
     return `₩${Math.round(Number(value)).toLocaleString('ko-KR')}`;
   }
 
+  function percent(value) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return '확인 불가';
+    return `${Number(value).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+  }
+
   function currentOwnerValue() {
     try {
       if (typeof currentOwner === 'string' && currentOwner.trim()) return currentOwner;
@@ -59,7 +64,7 @@
           <div>
             <span class="fi-what-if-kicker">DIVIDEND TAX DASHBOARD</span>
             <h3>배당 세금 대시보드</h3>
-            <p>올해 예상 금융소득과 2천만원 기준까지의 여유를 보고, 배당을 더 받을 때 어떻게 달라지는지 빠르게 확인합니다.</p>
+            <p>올해 예상 금융소득과 2천만원 기준까지의 여유를 보고, 배당을 더 받을 때 세전·원천징수 후 현금흐름이 어떻게 달라지는지 빠르게 확인합니다.</p>
           </div>
           <span class="fi-what-if-badge">자산관리용 · 저장 안 함</span>
         </div>
@@ -79,6 +84,23 @@
               <div class="fi-dividend-presets" aria-label="추가 배당 빠른 가정">
                 ${presetMarkup()}
               </div>
+            </div>
+            <div class="fi-what-if-grid two">
+              <label>
+                <span>세후 현금흐름 기준</span>
+                <select id="fiWhatIfAfterTaxAssetType">
+                  <option value="">계산 안 함</option>
+                  <option value="domestic_dividend_stock">일반 국내 배당주</option>
+                  <option value="kr_listed_us_etf">국내상장 해외 ETF 분배금</option>
+                  <option value="us_direct">미국주식 · 미국 ETF 직투 배당</option>
+                </select>
+                <small>배당 유형을 명시한 경우에만 기존 verified tax screening을 재사용합니다.</small>
+              </label>
+              <label>
+                <span>투자금액 (선택)</span>
+                <input id="fiWhatIfAfterTaxInvestment" type="number" min="0" step="100000" value="0" inputmode="numeric" data-korean-currency />
+                <small>입력하면 원천징수 후 배당수익률을 함께 계산합니다.</small>
+              </label>
             </div>
           </div>
 
@@ -252,6 +274,9 @@
     document.getElementById('fiWhatIfHighDividendEnabled')?.addEventListener('change', syncHighDividendFields);
     document.getElementById('fiWhatIfInvestmentEnabled')?.addEventListener('change', syncInvestmentFields);
     document.getElementById('fiWhatIfAssetType')?.addEventListener('change', syncInvestmentFields);
+    document.getElementById('fiWhatIfAfterTaxAssetType')?.addEventListener('change', () => {
+      if (estimatedModeActive()) runSimulation();
+    });
     document.getElementById('financialIncomeWhatIfForm')?.addEventListener('submit', event => {
       event.preventDefault();
       runSimulation();
@@ -301,7 +326,30 @@
     };
   }
 
+  function buildDashboardCashflowScenario() {
+    if (boolValue('fiWhatIfInvestmentEnabled')) return null;
+    const assetType = document.getElementById('fiWhatIfAfterTaxAssetType')?.value || '';
+    const extraDividend = numberValue('fiWhatIfExtraDividend');
+    if (!assetType || !(extraDividend > 0)) return null;
+    return {
+      asset_type: assetType,
+      annual_distribution_krw: extraDividend,
+      annual_realized_gain_krw: 0,
+      existing_corporate_taxable_income_krw: 0,
+      corporate_deductible_expenses_krw: 0,
+      corporation_to_owner_distribution_krw: 0,
+      domestic_dividend_exclusion_eligible: false,
+      domestic_dividend_ownership_pct: 0,
+      domestic_dividend_holding_months: 0,
+      us_treaty_parent_rate_qualified: false,
+      foreign_subsidiary_exclusion_qualified: false,
+      foreign_ownership_pct: 0,
+    };
+  }
+
   function buildInvestmentScenario() {
+    const dashboardScenario = buildDashboardCashflowScenario();
+    if (dashboardScenario) return dashboardScenario;
     if (!boolValue('fiWhatIfInvestmentEnabled')) return null;
     const assetType = document.getElementById('fiWhatIfAssetType')?.value || 'domestic_dividend_stock';
     const etfInput = document.getElementById('fiWhatIfEtfTaxGain');
@@ -355,6 +403,7 @@
       payload.additional_interest_gross_krw,
       payload.additional_foreign_share_realized_gain_krw,
       payload.additional_kr_listed_overseas_etf_taxable_gain_krw,
+      numberValue('fiWhatIfAfterTaxInvestment'),
     ];
     if (payload.high_dividend_scenario) values.push(payload.high_dividend_scenario.special_dividend_income_krw);
     if (payload.investment_scenario) {
@@ -419,6 +468,26 @@
     if (watchState.at_or_above === true) return { className: 'warn', text: '주의 구간' };
     if (scenarioState.exceeded === null) return { className: 'unknown', text: '예상치 확인 불가' };
     return { className: 'safe', text: '2천만원 기준 미만' };
+  }
+
+  function afterTaxAssetLabel(assetType) {
+    if (assetType === 'domestic_dividend_stock') return '일반 국내 배당주';
+    if (assetType === 'kr_listed_us_etf') return '국내상장 해외 ETF 분배금';
+    if (assetType === 'us_direct') return '미국주식 · 미국 ETF 직투 배당';
+    return '선택 안 함';
+  }
+
+  function afterTaxBasisNote(assetType) {
+    if (assetType === 'domestic_dividend_stock') {
+      return '일반 국내 배당 원천징수(국세 14% + 개인지방소득세 1.4%) 기준입니다.';
+    }
+    if (assetType === 'kr_listed_us_etf') {
+      return '국내상장 해외 ETF의 알려진 원천징수 세금만 반영한 screening입니다.';
+    }
+    if (assetType === 'us_direct') {
+      return '미국 일반 조약 원천징수 15%만 반영하며 한국 최종세액·외국납부세액공제는 계산하지 않습니다.';
+    }
+    return '';
   }
 
   function renderResult(data) {
@@ -489,6 +558,33 @@
       `;
     }
 
+    const comparison = data?.investment_comparison;
+    const afterTaxAssetType = document.getElementById('fiWhatIfAfterTaxAssetType')?.value || '';
+    const advancedInvestmentEnabled = boolValue('fiWhatIfInvestmentEnabled');
+    if (comparison && afterTaxAssetType && !advancedInvestmentEnabled) {
+      const individual = comparison.individual || {};
+      const taxes = individual.taxes || {};
+      const knownTax = Number(taxes.known_tax_total_krw || 0);
+      const afterKnownTaxCash = Number(individual.after_known_tax_cash_krw || 0);
+      const investmentAmount = numberValue('fiWhatIfAfterTaxInvestment');
+      const afterTaxYield = investmentAmount > 0 ? (afterKnownTaxCash / investmentAmount) * 100 : null;
+      const comprehensiveWarning = individual.comprehensive_tax_screening === true
+        ? ' 금융소득 2천만원 초과 screening 상태이므로 최종 종합소득세는 별도입니다.'
+        : '';
+      html += `
+        <div class="fi-compare-block">
+          <div class="fi-compare-title"><strong>추가 배당 세후 현금흐름</strong><span>${afterTaxAssetLabel(afterTaxAssetType)} · screening-only</span></div>
+          <div class="fi-result-grid dashboard">
+            <div class="fi-result-card"><span>세전 추가 배당</span><strong>${money(additionalDividend)}</strong><small>사용자 가정</small></div>
+            <div class="fi-result-card"><span>알려진 원천징수·세금</span><strong>${money(knownTax)}</strong><small>최종 신고세액 아님</small></div>
+            <div class="fi-result-card emphasized"><span>원천징수 후 예상 수령액</span><strong>${money(afterKnownTaxCash)}</strong><small>현재 알려진 세금만 차감</small></div>
+            <div class="fi-result-card"><span>원천징수 후 배당수익률</span><strong>${afterTaxYield === null ? '투자금액 입력 필요' : percent(afterTaxYield)}</strong><small>원천징수 후 현금 ÷ 투자금액</small></div>
+          </div>
+          <div class="fi-compare-meta">${afterTaxBasisNote(afterTaxAssetType)}${comprehensiveWarning}</div>
+        </div>
+      `;
+    }
+
     const tradingImpact = whatIf?.trading_impact;
     if (tradingImpact && (Number(tradingImpact?.foreign_shares?.realized_gain_krw || 0) > 0 || Number(tradingImpact?.kr_listed_overseas_etf?.taxable_gain_krw || 0) > 0)) {
       const foreign = tradingImpact.foreign_shares || {};
@@ -523,8 +619,7 @@
       `;
     }
 
-    const comparison = data?.investment_comparison;
-    if (comparison) {
+    if (comparison && advancedInvestmentEnabled) {
       const compare = comparison.comparison || {};
       const individual = Number(compare.individual_known_after_tax_value_krw || 0);
       const corporation = Number(compare.family_corporation_known_after_tax_value_krw || 0);
@@ -547,7 +642,7 @@
 
     html += `
       <div class="fi-what-if-disclaimer">
-        이 화면은 배당·금융소득 자산관리 의사결정용입니다. 2천만원 기준과 추가 배당의 영향을 빠르게 보는 screening이며, 종합소득세 신고서의 모든 공제·기납부세액·가산세를 채우거나 최종 납부·환급세액을 확정하지 않습니다.
+        이 화면은 배당·금융소득 자산관리 의사결정용입니다. 세후 표시는 현재 확인 가능한 원천징수·알려진 세금만 반영한 현금흐름 screening이며, 종합소득세 신고서의 모든 공제·기납부세액·가산세 또는 최종 납부·환급세액을 확정하지 않습니다.
       </div>
     `;
     root.innerHTML = html;
