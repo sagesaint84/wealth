@@ -16,28 +16,29 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 - 10.5B-4.9 납세조합공제 선행 세액공제 — PR #40 merge (`7d97cd4a`)
 - 10.5C-1 배당 세금 대시보드 — PR #41 merge (`f046f22d`), 운영 배포 확인
 - 10.5C-2 세후 배당 현금흐름 보기 — PR #42 merge (`fcf14ba`)
+- 10.5C-3 일간 가격손익과 평가액 변화 분리 — PR #43 merge (`89ad76a`)
 
-현재 increment: **10.5C-3 일간 가격손익과 평가액 변화 분리**
+현재 increment: **10.5C-4 Dividend event identity & high-confidence actual/forecast dedup**
 
-- session provenance가 전진한 종목만 canonical `day_profit_krw`에 반영
-- 메인 화면에는 canonical 값을 `당일 가격변동 손익`으로 표시
-- 현재 평가액과 직전 stock record 평가액의 차이는 `전 기록 대비 평가액 변화`로 별도 표시
-- 수량 변경·매수·매도·환율 환산 효과를 가격손익과 혼합하지 않음
-- prior session 기준이 없거나 stale 표시 rate만 있으면 가격손익을 unavailable로 표시
-- 새로운 holiday calendar나 별도 일간 손익 계산식을 추가하지 않음
+- 공식 배당기준일 기반 identity를 우선하고 기준일이 없을 때만 공식 source event ID를 fallback으로 사용
+- OpenDART/KIND confirmed schedule item에 event identity와 current-holding entitlement 한계 metadata 제공
+- actual과 official forecast의 명시 identity 또는 동일 종목 exact payment date가 일치할 때만 1:1 dedup
+- matched item 금액만 차감하고 월 bucket의 heuristic/residual 금액은 보존
+- Naver/Yahoo heuristic forecast에는 추측성 identity를 만들거나 자동 dedup하지 않음
+- Toss source fingerprint는 입금 transaction identity로 유지
 
 ## 2. 다음 단계
 
-C-3 이후 우선순위 후보:
+C-4 이후 우선순위 후보:
 
-1. **C-4 포트폴리오 세후 배당수익률**
+1. **C-5 포트폴리오 세후 배당수익률**
    - 보유자산별 예상 세전 배당과 원천징수 후 현금흐름 비교
    - 취득원가/평가금액 중 어떤 분모를 쓰는지 명확히 구분
    - 국내/미국/ETF별 계산 가능 범위를 별도 표시
-2. **C-5 2천만원 접근 What-if 개선**
+2. **C-6 2천만원 접근 What-if 개선**
    - 추가 배당 100만/500만/1,000만원 시나리오 비교
    - 기준 초과 여부와 남은 여유를 더 직관적으로 표시
-3. **C-6 가족별 배당 분산 보기 단순화**
+3. **C-7 가족별 배당 분산 보기 단순화**
    - 본인/배우자/자녀별 예상 금융소득과 2천만원 여유를 자산배분 관점에서 비교
    - 증여/명의/실질귀속 판단은 추천하지 않고 경고만 유지
 

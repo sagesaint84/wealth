@@ -152,6 +152,11 @@ def create_dividend_record(payload: dict[str, Any], username: str | None = None)
         if value is not None:
             record[field] = str(value).strip()
 
+    for field in ("event_identity", "record_date", "payment_date"):
+        value = payload.get(field)
+        if value is not None:
+            record[field] = str(value).strip()
+
     for field in ("source_scope_verified", "imported_by_user_action"):
         if field in payload:
             if type(payload[field]) is not bool:
@@ -202,6 +207,10 @@ def update_dividend_record(record_id: str, payload: dict[str, Any], username: st
     target["broker"] = str(payload.get("broker", target.get("broker", ""))).strip()
     target["account_name"] = str(payload.get("account_name", target.get("account_name", ""))).strip()
     target["memo"] = str(payload.get("memo", target.get("memo", ""))).strip()
+    for field in ("event_identity", "record_date", "payment_date"):
+        if field in payload:
+            value = payload[field]
+            target[field] = str(value).strip() if value is not None else ""
     target["updated_at"] = datetime.now().astimezone().isoformat()
 
     write_dividend_records(records, username)

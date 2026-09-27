@@ -172,6 +172,16 @@ class KindEtfEnrichmentTests(unittest.IsolatedAsyncioTestCase):
             row["div_yield"],
         )
         self.assertTrue(official["events"][0]["numeric_override"])
+        item = result["monthly_schedule"][7]["items"][0]
+        self.assertEqual(
+            item["event_identity"],
+            "dividend:v1:379800:record:2026-07-31",
+        )
+        self.assertEqual(item["event_identity_confidence"], "official")
+        self.assertEqual(item["receipt_no"], "20260729000913")
+        self.assertEqual(item["forecast_source"], "kind_etf_distribution")
+        self.assertEqual(item["quantity_basis"], "current_holding")
+        self.assertFalse(item["entitlement_confirmed"])
 
     async def test_zero_legacy_forecast_can_create_multiple_confirmed_events(self):
         summary = make_summary(annual=0)
