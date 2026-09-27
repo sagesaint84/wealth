@@ -112,6 +112,23 @@ def calculate_financial_income_article62_comparison_2026(
         if item not in not_calculated:
             not_calculated.append(item)
 
+    if interim_input_provided:
+        partial_balance_note = (
+            "모델링된 배당세액공제, 당기 국세 외국납부세액공제, 금융소득 원천징수 "
+            "기납부세액 및 사용자가 명시한 중간예납세액까지 반영한 부분 계산값입니다. "
+            "토지등 매매차익 예정신고세액, 수시부과세액, 다른 소득 원천징수세액, "
+            "납세조합 징수세액ㆍ공제액, 가산세 및 다른 미구현 세액공제ㆍ감면이 빠져 "
+            "있어 최종 납부 또는 환급세액이 아닙니다."
+        )
+    else:
+        partial_balance_note = (
+            "모델링된 배당세액공제, 당기 국세 외국납부세액공제 및 금융소득 원천징수 "
+            "기납부세액까지 반영한 부분 계산값입니다. 중간예납세액, 토지등 매매차익 "
+            "예정신고세액, 수시부과세액, 다른 소득 원천징수세액, 납세조합 징수세액ㆍ"
+            "공제액, 가산세 및 다른 미구현 세액공제ㆍ감면이 빠져 있어 최종 납부 또는 "
+            "환급세액이 아닙니다."
+        )
+
     rule_context.update(
         {
             "interim_prepaid_income_tax_verified_on": (
@@ -139,13 +156,7 @@ def calculate_financial_income_article62_comparison_2026(
                 "신고서 또는 홈택스 등에서 확인된 실제 반영액만 사용자 명시 입력으로 "
                 "받고 전년도 세액의 2분의 1이나 중간예납추계액을 자동 계산하지 않습니다."
             ),
-            "partial_balance_note": (
-                "모델링된 배당세액공제, 당기 국세 외국납부세액공제, 금융소득 원천징수 "
-                "기납부세액 및 사용자가 명시한 중간예납세액까지 반영한 부분 계산값입니다. "
-                "토지등 매매차익 예정신고세액, 수시부과세액, 다른 소득 원천징수세액, "
-                "납세조합 징수세액ㆍ공제액, 가산세 및 다른 미구현 세액공제ㆍ감면이 빠져 "
-                "있어 음수여도 최종 환급세액으로 확정하지 않습니다."
-            ),
+            "partial_balance_note": partial_balance_note,
             "not_calculated": not_calculated,
         }
     )
