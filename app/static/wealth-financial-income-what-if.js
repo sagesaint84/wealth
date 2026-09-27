@@ -538,7 +538,7 @@
           <small>${otherAddition > 0 ? `기타 금융소득 가정 ${money(otherAddition)} 별도` : '배당만 빠르게 비교'}</small>
         </div>
         <div class="fi-result-card ${status.className}">
-          <span>적용 후 예상 금융소득</span>
+          <span>배당 추가 후 예상 금융소득</span>
           <strong>${money(projected)}</strong>
           <small>${status.text} · ${scenarioRemainingText}</small>
         </div>
