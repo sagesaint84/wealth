@@ -17,6 +17,7 @@
 - 상태: 구현/로컬 검증 완료, PR #38 merge 대기
 - 작업 시작 기준 main: `e6232566` (PR #37 merge)
 - 검증된 code HEAD: `8deacd1`
+- 전체 테스트: `Ran 2260 tests in 125.174s` / `OK`
 
 B-4.7 목표:
 
