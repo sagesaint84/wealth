@@ -7,7 +7,10 @@ results.  The family reference total is never thresholded.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
+
+_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
 
 
 def _enabled(username: str) -> bool:
@@ -52,4 +55,25 @@ async def dispatch_scheduled_family_financial_income_alerts(
         }
 
 
-__all__ = ["dispatch_scheduled_family_financial_income_alerts"]
+def schedule_scheduled_family_financial_income_alerts(
+    username: str,
+    *,
+    as_of: str,
+) -> bool:
+    """Queue the async B-1 alert pass on daily close's running event loop."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    task = loop.create_task(
+        dispatch_scheduled_family_financial_income_alerts(username, as_of=as_of)
+    )
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return True
+
+
+__all__ = [
+    "dispatch_scheduled_family_financial_income_alerts",
+    "schedule_scheduled_family_financial_income_alerts",
+]
