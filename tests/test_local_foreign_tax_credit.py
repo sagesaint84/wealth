@@ -8,24 +8,14 @@ from fastapi.testclient import TestClient
 import app.main as main
 from app.main import app
 from app.services.tax import calculate_financial_income_article62_comparison_2026
-from tests.test_financial_income_article62_comparison import payload_with_prepaid
+from tests.test_financial_income_article62_comparison import payload, payload_with_prepaid
 from tests.test_foreign_tax_credit import foreign_item, payload_with_foreign_credit
 
 
 class LocalForeignTaxCreditTests(unittest.TestCase):
     def test_absent_national_foreign_credit_inputs_leave_local_credit_unapplied(self):
         result = calculate_financial_income_article62_comparison_2026(
-            ordinary_interest_14_krw=30_000_000,
-            ordinary_dividend_14_krw=0,
-            nonbusiness_loan_interest_25_krw=0,
-            online_investment_linked_nonbusiness_loan_interest_14_krw=0,
-            nonwithheld_interest_14_krw=0,
-            nonwithheld_dividend_14_krw=0,
-            nonwithheld_nonbusiness_loan_interest_25_krw=0,
-            gross_up_eligible_dividend_krw=0,
-            partnership_dividend_krw=0,
-            other_comprehensive_income_excluding_partnership_dividend_krw=0,
-            income_deduction_krw=0,
+            **payload(ordinary_interest_14_krw=30_000_000)
         )
         self.assertEqual(result["foreign_tax_credit_krw"], 0)
         self.assertEqual(result["local_foreign_tax_credit_krw"], 0)
