@@ -106,6 +106,8 @@ class ConfirmedDividendForecastIntegrationTests(unittest.IsolatedAsyncioTestCase
                         "confirmed_amount": True,
                         "structured_verification": True,
                         "ordinary_cash_dps_krw": 1250,
+                        "receipt_no": "20260926000123",
+                        "record_date": "2026-08-31",
                         "payment_date": "2026-11-20",
                         "future_payment": True,
                     },
@@ -131,6 +133,18 @@ class ConfirmedDividendForecastIntegrationTests(unittest.IsolatedAsyncioTestCase
         self.assertEqual(row["forecast_source"]["numeric_source"], "opendart_confirmed_disclosure")
         self.assertTrue(row["forecast_source"]["confirmed_amount"])
         self.assertTrue(row["forecast_source"]["confirmed_numeric_override"])
+        item = november["items"][0]
+        self.assertEqual(
+            item["event_identity"],
+            "dividend:v1:005930:record:2026-08-31",
+        )
+        self.assertEqual(item["event_identity_confidence"], "official")
+        self.assertEqual(item["record_date"], "2026-08-31")
+        self.assertEqual(item["payment_date"], "2026-11-20")
+        self.assertEqual(item["receipt_no"], "20260926000123")
+        self.assertEqual(item["forecast_source"], "opendart_confirmed_disclosure")
+        self.assertEqual(item["quantity_basis"], "current_holding")
+        self.assertFalse(item["entitlement_confirmed"])
 
     async def test_confirmed_amount_without_payment_date_keeps_numeric_fallback(self):
         summary = {

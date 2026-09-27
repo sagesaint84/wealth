@@ -8,22 +8,22 @@
 
 ## 1. 현재 개발 상태
 
-현재 작업 단계는 **Phase 10.5C-3 — 일간 가격손익과 평가액 변화 분리**입니다.
+현재 작업 단계는 **Phase 10.5C-4 — Dividend event identity & high-confidence actual/forecast dedup**입니다.
 
 현재 작업:
 
-- branch: `phase10-5c3-daily-price-profit-separation`
+- branch: `phase10-5c4-dividend-event-identity`
 - base: `main`
-- 작업 시작 기준 main: `fcf14ba` (PR #42 merge)
+- 작업 시작 기준 main: `89ad76a` (PR #43 merge)
 - 상태: 구현 및 검증 진행 중
 
-C-3 목표:
+C-4 목표:
 
-1. 기존 session-gated canonical `day_profit_krw`를 메인 대시보드의 `당일 가격변동 손익`으로 사용한다.
-2. 현재 주식 평가액과 직전 stock record 평가액의 차이는 `전 기록 대비 평가액 변화`로 별도 표시한다.
-3. 수량 변경, 매수·매도, 환율 환산 효과를 canonical 가격손익으로 혼합하지 않는다.
-4. 이전 session provenance가 없으면 표시용 stale 1D rate를 가격손익으로 승격하지 않고 기준 없음으로 표시한다.
-5. KRX/미국 휴장 여부는 별도 holiday calendar가 아니라 기존 source session/as-of 계약을 그대로 사용한다.
+1. OpenDART/KIND 공식 확정 배당에 동일 경제적 이벤트를 식별하는 안정적인 identity를 부여한다.
+2. actual record와 official forecast가 명시 identity 또는 동일 종목의 공식 지급일로 정확히 일치할 때만 forecast 한 건을 제외한다.
+3. 월·유사금액·근사 날짜·종목명 기반 fuzzy matching은 사용하지 않는다.
+4. 현재 보유수량 기반 forecast와 배당기준일 entitlement 확정을 구분한다.
+5. Toss import fingerprint는 입금 transaction identity로 유지하고 배당 economic-event identity로 승격하지 않는다.
 
 방향 전환:
 
@@ -61,7 +61,8 @@ C-3 목표:
 - [x] 10.5B-4.9 납세조합공제 선행 세액공제 — PR #40 merge (`7d97cd4a`)
 - [x] 10.5C-1 배당 세금 대시보드 — PR #41 merge (`f046f22d`), 운영 배포 확인
 - [x] 10.5C-2 세후 배당 현금흐름 보기 — PR #42 merge (`fcf14ba`)
-- [ ] 10.5C-3 일간 가격손익과 평가액 변화 분리 — 진행 중
+- [x] 10.5C-3 일간 가격손익과 평가액 변화 분리 — PR #43 merge (`89ad76a`)
+- [ ] 10.5C-4 official confirmed dividend event identity와 high-confidence actual/forecast dedup — 진행 중
 
 세부 후속 순서는 `docs/ROADMAP.md`를 따른다.
 
@@ -209,6 +210,15 @@ A-4.4 KIND ETF 분배금 보강:
 공식 과거 이력과 미래 확정 배당은 같은 의미가 아니다.
 `공시가 존재한다`와 `미래 지급액을 구조적으로 검증했다`도 반드시 구분한다.
 `confirmed_amount=true`와 `confirmed_numeric_override=true`도 구분한다. 전자는 공시 금액 구조 검증, 후자는 안전한 월별 예상 교체까지 완료됐음을 의미한다.
+
+### C-4 배당 이벤트 identity / actual-forecast 중복 제거
+
+- 경제적 이벤트 identity는 공식적으로 확인된 `종목코드 + 배당기준일`을 최우선으로 사용한다.
+- 기준일이 없을 때만 OpenDART/KIND의 공식 event ID를 fallback identity로 사용할 수 있다.
+- actual과 forecast의 명시 identity가 같거나, official forecast의 정확한 지급일과 동일 종목 actual 지급일이 같을 때만 자동 제외한다.
+- Naver/Yahoo 등 heuristic forecast는 자동 dedup하지 않으며 월·유사금액·근사 날짜 매칭도 사용하지 않는다.
+- 공식 확정 DPS에 현재 보유수량을 곱한 값은 entitlement 확정이 아니며 `quantity_basis=current_holding`, `entitlement_confirmed=false`로 표시한다.
+- matched item의 금액만 월 bucket에서 차감하고 나머지 heuristic/residual 금액은 유지한다.
 
 ## 5. 사용자별 DART 인증 계약
 

@@ -28,6 +28,7 @@ import httpx
 
 from app.services.network_policy import external_network_allowed
 from app.services.dividend_confirmed_disclosures import parse_dividend_decision_document
+from app.services.dividend_event_identity import build_dividend_event_identity
 from app.services.ipo.dart_client import DartClient, extract_document_text_from_zip
 
 KST = timezone(timedelta(hours=9))
@@ -547,6 +548,18 @@ def _apply_confirmed_future_overrides(
         existing["payout_krw"] = new_payout
         existing["payout_orig"] = new_payout
         existing["forecast_source"] = "opendart_confirmed_disclosure"
+        existing["event_identity"] = build_dividend_event_identity(
+            code=code,
+            record_date=structured.get("record_date"),
+            source="opendart",
+            source_event_id=structured.get("receipt_no"),
+        )
+        existing["event_identity_confidence"] = "official"
+        existing["record_date"] = structured.get("record_date")
+        existing["payment_date"] = payment_day.isoformat()
+        existing["receipt_no"] = structured.get("receipt_no")
+        existing["quantity_basis"] = "current_holding"
+        existing["entitlement_confirmed"] = False
         bucket["total_krw"] = round((_money(bucket.get("total_krw")) or 0.0) + delta)
         items.sort(key=lambda value: value.get("payout_krw") or 0, reverse=True)
 

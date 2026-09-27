@@ -22,6 +22,8 @@ from datetime import date, datetime, timedelta, timezone
 import math
 from typing import Any
 
+from app.services.dividend_event_identity import normalize_dividend_code
+
 from app.services.tax.rules_2026 import (
     FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW,
     FINANCIAL_INCOME_WATCH_THRESHOLD_KRW,
@@ -75,8 +77,8 @@ def _optional_non_negative_money(
 
 
 def _forecast_months(
-    forecast_summary: dict[str, Any], *, after_month: int
-) -> tuple[float | None, list[int]]:
+    forecast_summary: dict[str, Any], *, after_month: int, actual_records: object = None
+) -> tuple[float | None, list[int], int, float]:
     """Return estimated dividends for months strictly after ``after_month``.
 
     ``None`` means the dividend forecast is unavailable. Malformed available
@@ -85,7 +87,7 @@ def _forecast_months(
     future months with a positive forecast amount.
     """
     if forecast_summary.get("unavailable") is True:
-        return None, []
+        return None, [], 0, 0.0
 
     schedule = forecast_summary.get("monthly_schedule")
     if isinstance(schedule, dict):
@@ -98,6 +100,7 @@ def _forecast_months(
     total = 0.0
     included_months: list[int] = []
     seen_months: set[int] = set()
+    future_buckets: list[tuple[int, float, list[dict[str, Any]]]] = []
     for raw in items:
         if not isinstance(raw, dict):
             raise FinancialIncomeProjectionError("FINANCIAL_INCOME_FORECAST_INVALID")
@@ -112,11 +115,74 @@ def _forecast_months(
             raw.get("total_krw"), "FINANCIAL_INCOME_FORECAST_INVALID"
         )
         if month > after_month:
-            total += amount
-            if amount > 0:
-                included_months.append(month)
+            raw_items = raw.get("items")
+            official_items = (
+                [item for item in raw_items if isinstance(item, dict)]
+                if isinstance(raw_items, list)
+                else []
+            )
+            future_buckets.append((month, amount, official_items))
 
-    return total, sorted(included_months)
+    actuals = (
+        [record for record in actual_records if isinstance(record, dict)]
+        if isinstance(actual_records, list)
+        else []
+    )
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for bucket_index, (_, _, bucket_items) in enumerate(future_buckets):
+        for item in bucket_items:
+            if item.get("event_identity_confidence") == "official":
+                candidates.append((bucket_index, item))
+
+    consumed_candidates: set[int] = set()
+    matched_by_bucket: dict[int, float] = {}
+    dedup_count = 0
+    for actual in actuals:
+        actual_identity = str(actual.get("event_identity") or "").strip()
+        actual_code = normalize_dividend_code(actual.get("code"))
+        actual_date = str(actual.get("date") or "").strip()
+        match_index: int | None = None
+
+        if actual_identity:
+            for index, (_, item) in enumerate(candidates):
+                if index in consumed_candidates:
+                    continue
+                if str(item.get("event_identity") or "").strip() == actual_identity:
+                    match_index = index
+                    break
+        if match_index is None and actual_code and actual_date:
+            for index, (_, item) in enumerate(candidates):
+                if index in consumed_candidates:
+                    continue
+                if (
+                    normalize_dividend_code(item.get("code")) == actual_code
+                    and str(item.get("payment_date") or "").strip() == actual_date
+                ):
+                    match_index = index
+                    break
+        if match_index is None:
+            continue
+
+        bucket_index, item = candidates[match_index]
+        payout = _non_negative_money(
+            item.get("payout_krw"), "FINANCIAL_INCOME_FORECAST_INVALID"
+        )
+        consumed_candidates.add(match_index)
+        matched_by_bucket[bucket_index] = (
+            matched_by_bucket.get(bucket_index, 0.0) + payout
+        )
+        dedup_count += 1
+
+    dedup_amount = 0.0
+    for bucket_index, (month, amount, _) in enumerate(future_buckets):
+        deducted = min(amount, matched_by_bucket.get(bucket_index, 0.0))
+        remaining = amount - deducted
+        total += remaining
+        dedup_amount += deducted
+        if remaining > 0:
+            included_months.append(month)
+
+    return total, sorted(included_months), dedup_count, dedup_amount
 
 
 def _record_gross_screening_krw(
@@ -354,8 +420,10 @@ def build_financial_income_projection(
     )
     actual_gross_screening = float(actual_screening["amount_krw"])
 
-    future_dividend_gross, included_months = _forecast_months(
-        forecast_summary, after_month=day.month
+    future_dividend_gross, included_months, dedup_count, dedup_amount = _forecast_months(
+        forecast_summary,
+        after_month=day.month,
+        actual_records=actual_summary.get("records"),
     )
 
     known_gross_screening = (
@@ -402,6 +470,9 @@ def build_financial_income_projection(
         "forecast_basis": {
             "automatic_current_month_included": False,
             "included_future_months": included_months,
+            "dividend_event_dedup_applied_count": dedup_count,
+            "dividend_event_dedup_amount_krw": round(dedup_amount),
+            "dividend_event_dedup_high_confidence_only": True,
             "method": "realized_gross_screening_plus_future_month_forecast_plus_manual_gross_adjustments",
         },
         "data_quality": {
@@ -425,6 +496,8 @@ def build_financial_income_projection(
             "tax_treatment_classification_complete": False,
             "high_dividend_special_rule_applied": False,
             "screening_only": True,
+            "dividend_event_identity_supported": True,
+            "heuristic_forecast_event_dedup_applied": False,
         },
         "thresholds": _threshold_bundle(
             actual_gross_screening,

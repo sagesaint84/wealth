@@ -28,6 +28,8 @@ import re
 import time
 from typing import Any, Iterable
 
+from app.services.dividend_event_identity import build_dividend_event_identity
+
 import httpx
 
 from app.services.network_policy import external_network_allowed
@@ -518,6 +520,15 @@ def _apply_kind_events_to_row(
             "record_date": record_day.isoformat(),
             "payment_date": payment_day.isoformat(),
             "receipt_no": event.get("receipt_no"),
+            "event_identity": build_dividend_event_identity(
+                code=code,
+                record_date=record_day.isoformat(),
+                source="kind",
+                source_event_id=event.get("receipt_no"),
+            ),
+            "event_identity_confidence": "official",
+            "quantity_basis": "current_holding",
+            "entitlement_confirmed": False,
         }
         payment_bucket.setdefault("items", []).append(target_item)
         payment_bucket["items"].sort(
