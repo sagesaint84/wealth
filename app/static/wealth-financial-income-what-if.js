@@ -2,6 +2,7 @@
   'use strict';
 
   const API_PATH = '/api/dividends/financial-income-what-if';
+  const DIVIDEND_PRESETS = [1e6, 5e6, 10e6];
 
   function money(value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) return '확인 불가';
@@ -34,177 +35,209 @@
     return Boolean(document.getElementById(id)?.checked);
   }
 
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  function presetMarkup() {
+    return DIVIDEND_PRESETS.map(value => `
+      <button type="button" class="fi-dividend-preset" data-dividend-preset="${value}">
+        +${Math.round(value / 10_000).toLocaleString('ko-KR')}만
+      </button>
+    `).join('');
+  }
+
   function panelMarkup() {
     return `
-      <section id="financialIncomeWhatIfPanel" class="fi-what-if-panel" aria-label="금융소득 What-if 시뮬레이터">
+      <section id="financialIncomeWhatIfPanel" class="fi-what-if-panel" aria-label="배당 세금 대시보드">
         <div class="fi-what-if-head">
           <div>
-            <span class="fi-what-if-kicker">FINANCIAL INCOME WHAT-IF</span>
-            <h3>금융소득 영향 · 개인 vs 가족법인</h3>
-            <p>현재 예상 금융소득에 추가 배당·이자를 가정하고, 같은 투자수익을 개인과 가족법인으로 비교합니다.</p>
+            <span class="fi-what-if-kicker">DIVIDEND TAX DASHBOARD</span>
+            <h3>배당 세금 대시보드</h3>
+            <p>올해 예상 금융소득과 2천만원 기준까지의 여유를 보고, 배당을 더 받을 때 어떻게 달라지는지 빠르게 확인합니다.</p>
           </div>
-          <span class="fi-what-if-badge">저장 안 함 · 2026 screening</span>
+          <span class="fi-what-if-badge">자산관리용 · 저장 안 함</span>
         </div>
 
         <form id="financialIncomeWhatIfForm" class="fi-what-if-form">
-          <div class="fi-what-if-section">
+          <div class="fi-what-if-section fi-dividend-primary">
             <div class="fi-what-if-section-title">
-              <strong>빠른 금융소득 시나리오</strong>
-              <small>현재 보유자산의 실제+예상 금융소득을 기준으로 계산합니다.</small>
+              <strong>배당을 더 받는다면?</strong>
+              <small>현재 보유자산의 실제 + 예상 금융소득을 기준으로 비교합니다.</small>
             </div>
-            <div class="fi-what-if-grid two">
-              <label>
+            <div class="fi-dividend-input-row">
+              <label class="fi-dividend-input">
                 <span>추가 배당 가정</span>
-                <input id="fiWhatIfExtraDividend" type="number" min="0" step="10000" value="0" inputmode="numeric" />
-                <small>세전 원화 기준</small>
+                <input id="fiWhatIfExtraDividend" type="number" min="0" step="10000" value="0" inputmode="numeric" data-korean-currency />
+                <small>세전 원화 기준 · 실제 자산이나 배당 기록은 변경하지 않습니다.</small>
               </label>
-              <label>
-                <span>추가 이자 가정</span>
-                <input id="fiWhatIfExtraInterest" type="number" min="0" step="10000" value="0" inputmode="numeric" />
-                <small>세전 원화 기준</small>
-              </label>
-            </div>
-            <div class="fi-what-if-subhead">추가 매매 가정</div>
-            <div class="fi-what-if-grid two">
-              <label>
-                <span>해외주식 실현차익 가정</span>
-                <input id="fiWhatIfForeignShareGain" type="number" min="0" step="10000" value="0" data-korean-currency />
-                <small>금융소득 2천만원 판정에는 포함하지 않음</small>
-              </label>
-              <label>
-                <span>국내상장 해외 ETF 과세기준금액</span>
-                <input id="fiWhatIfKrOverseasEtfTaxableGain" type="number" min="0" step="10000" value="0" data-korean-currency />
-                <small>배당소득 성격의 screening 금액으로 금융소득에 포함</small>
-              </label>
+              <div class="fi-dividend-presets" aria-label="추가 배당 빠른 가정">
+                ${presetMarkup()}
+              </div>
             </div>
           </div>
 
-          <div class="fi-what-if-section">
-            <label class="fi-what-if-toggle">
-              <input id="fiWhatIfHighDividendEnabled" type="checkbox" />
-              <span>
-                <strong>2026 고배당기업 분리과세 특례 가정</strong>
-                <small>공식 공시 확인과 실제 신고 시 신청 가정을 별도로 입력합니다.</small>
-              </span>
-            </label>
-            <div id="fiWhatIfHighDividendFields" class="fi-what-if-investment-fields" hidden>
-              <div class="fi-what-if-grid three">
+          <details class="fi-what-if-details fi-secondary-scenarios">
+            <summary>이자·매매 등 다른 가정도 추가하기</summary>
+            <div class="fi-secondary-scenario-body">
+              <div class="fi-what-if-grid two">
                 <label>
-                  <span>특례 배당금액</span>
-                  <input id="fiWhatIfHighDividendAmount" type="number" min="0" step="10000" value="0" data-korean-currency />
-                  <small>위 추가 배당 가정 중 특례 대상이라고 가정할 금액</small>
+                  <span>추가 이자 가정</span>
+                  <input id="fiWhatIfExtraInterest" type="number" min="0" step="10000" value="0" inputmode="numeric" data-korean-currency />
+                  <small>세전 원화 기준</small>
                 </label>
-                <label class="fi-check">
-                  <input id="fiWhatIfHighDividendConfirmed" type="checkbox" />
-                  <span>공식 공시에서 고배당기업 확인함</span>
-                </label>
-                <label class="fi-check">
-                  <input id="fiWhatIfHighDividendRequested" type="checkbox" />
-                  <span>신고 시 분리과세 신청 가정</span>
+                <label>
+                  <span>국내상장 해외 ETF 과세기준금액</span>
+                  <input id="fiWhatIfKrOverseasEtfTaxableGain" type="number" min="0" step="10000" value="0" data-korean-currency />
+                  <small>배당소득 성격의 screening 금액으로 금융소득에 포함</small>
                 </label>
               </div>
-              <small>앱이 배당수익률로 적격 여부를 추정하지 않습니다. 공식 공시 확인이 전제이며 지방소득세·최종 신고세액은 별도입니다.</small>
+              <div class="fi-what-if-grid one">
+                <label>
+                  <span>해외주식 실현차익 가정</span>
+                  <input id="fiWhatIfForeignShareGain" type="number" min="0" step="10000" value="0" data-korean-currency />
+                  <small>금융소득 2천만원 판정에는 포함하지 않으며 이 입력만으로 양도소득세를 계산하지 않습니다.</small>
+                </label>
+              </div>
             </div>
-          </div>
+          </details>
 
-          <div class="fi-what-if-section">
-            <label class="fi-what-if-toggle">
-              <input id="fiWhatIfInvestmentEnabled" type="checkbox" />
-              <span>
-                <strong>개인 vs 가족법인 투자방법도 비교</strong>
-                <small>국내 배당주 · 국내상장 미국 ETF · 미국직투</small>
-              </span>
-            </label>
-
-            <div id="fiWhatIfInvestmentFields" class="fi-what-if-investment-fields" hidden>
-              <label class="fi-check">
-                <input id="fiWhatIfUseQuickTrading" type="checkbox" checked />
-                <span>빠른 매매 가정을 비교 입력의 보조값으로 사용</span>
-              </label>
-              <small>수동 매매차익이 0이거나 ETF 과세대상 매매이익이 빈칸일 때만 위 값을 사용합니다.</small>
-              <div class="fi-what-if-grid three">
-                <label>
-                  <span>투자 유형</span>
-                  <select id="fiWhatIfAssetType">
-                    <option value="domestic_dividend_stock">국내 배당주</option>
-                    <option value="kr_listed_us_etf">국내상장 미국 ETF</option>
-                    <option value="us_direct">미국주식 · 미국 ETF 직투</option>
-                  </select>
+          <details class="fi-what-if-details fi-advanced-scenarios">
+            <summary>고배당 특례 · 개인 vs 가족법인 등 고급 비교</summary>
+            <div class="fi-advanced-scenario-body">
+              <div class="fi-what-if-section fi-nested-section">
+                <label class="fi-what-if-toggle">
+                  <input id="fiWhatIfHighDividendEnabled" type="checkbox" />
+                  <span>
+                    <strong>2026 고배당기업 분리과세 특례 가정</strong>
+                    <small>공식 공시 확인과 실제 신고 시 신청 가정을 별도로 입력합니다.</small>
+                  </span>
                 </label>
-                <label>
-                  <span>연간 배당·분배금</span>
-                  <input id="fiWhatIfDistribution" type="number" min="0" step="10000" value="0" />
-                </label>
-                <label>
-                  <span>연간 실현 매매차익</span>
-                  <input id="fiWhatIfRealizedGain" type="number" min="0" step="10000" value="0" />
-                </label>
-              </div>
-
-              <div id="fiWhatIfEtfTaxGainWrap" class="fi-what-if-grid one" hidden>
-                <label>
-                  <span>ETF 과세대상 매매이익</span>
-                  <input id="fiWhatIfEtfTaxGain" type="number" min="0" step="10000" placeholder="모르면 비워두기" />
-                  <small>비우면 실제 매매차익을 보수적 screening 값으로 사용합니다.</small>
-                </label>
-              </div>
-
-              <div class="fi-what-if-subhead">가족법인 가정</div>
-              <div class="fi-what-if-grid three">
-                <label>
-                  <span>기존 법인 과세소득</span>
-                  <input id="fiWhatIfCorporateBase" type="number" min="0" step="100000" value="0" />
-                </label>
-                <label>
-                  <span>투자 관련 손금</span>
-                  <input id="fiWhatIfCorporateExpense" type="number" min="0" step="10000" value="0" />
-                </label>
-                <label>
-                  <span>법인 → 개인 배당 인출</span>
-                  <input id="fiWhatIfOwnerDistribution" type="number" min="0" step="10000" value="0" />
-                </label>
-              </div>
-
-              <details class="fi-what-if-details">
-                <summary>고급 세법 가정</summary>
-                <div class="fi-what-if-grid three">
-                  <label class="fi-check">
-                    <input id="fiWhatIfDomesticExclusionEligible" type="checkbox" />
-                    <span>국내 수입배당 익금불산입 적격</span>
-                  </label>
-                  <label>
-                    <span>국내법인 지분율 (%)</span>
-                    <input id="fiWhatIfDomesticOwnership" type="number" min="0" max="100" step="0.1" value="0" />
-                  </label>
-                  <label>
-                    <span>국내법인 보유 개월</span>
-                    <input id="fiWhatIfDomesticHoldingMonths" type="number" min="0" step="1" value="0" />
-                  </label>
-                  <label class="fi-check">
-                    <input id="fiWhatIfUsTreatyQualified" type="checkbox" />
-                    <span>한미조약 법인 10% 배당세율 적격</span>
-                  </label>
-                  <label class="fi-check">
-                    <input id="fiWhatIfForeignSubsidiaryQualified" type="checkbox" />
-                    <span>외국자회사 95% 익금불산입 적격</span>
-                  </label>
-                  <label>
-                    <span>미국법인 지분율 (%)</span>
-                    <input id="fiWhatIfForeignOwnership" type="number" min="0" max="100" step="0.1" value="0" />
-                  </label>
+                <div id="fiWhatIfHighDividendFields" class="fi-what-if-investment-fields" hidden>
+                  <div class="fi-what-if-grid three">
+                    <label>
+                      <span>특례 배당금액</span>
+                      <input id="fiWhatIfHighDividendAmount" type="number" min="0" step="10000" value="0" data-korean-currency />
+                      <small>추가 배당 가정 중 특례 대상이라고 가정할 금액</small>
+                    </label>
+                    <label class="fi-check">
+                      <input id="fiWhatIfHighDividendConfirmed" type="checkbox" />
+                      <span>공식 공시에서 고배당기업 확인함</span>
+                    </label>
+                    <label class="fi-check">
+                      <input id="fiWhatIfHighDividendRequested" type="checkbox" />
+                      <span>신고 시 분리과세 신청 가정</span>
+                    </label>
+                  </div>
+                  <small>앱이 배당수익률로 적격 여부를 추정하지 않습니다. 공식 공시 확인이 전제입니다.</small>
                 </div>
-              </details>
+              </div>
+
+              <div class="fi-what-if-section fi-nested-section">
+                <label class="fi-what-if-toggle">
+                  <input id="fiWhatIfInvestmentEnabled" type="checkbox" />
+                  <span>
+                    <strong>개인 vs 가족법인 투자방법도 비교</strong>
+                    <small>국내 배당주 · 국내상장 미국 ETF · 미국직투</small>
+                  </span>
+                </label>
+
+                <div id="fiWhatIfInvestmentFields" class="fi-what-if-investment-fields" hidden>
+                  <label class="fi-check">
+                    <input id="fiWhatIfUseQuickTrading" type="checkbox" checked />
+                    <span>빠른 매매 가정을 비교 입력의 보조값으로 사용</span>
+                  </label>
+                  <small>수동 매매차익이 0이거나 ETF 과세대상 매매이익이 빈칸일 때만 위 값을 사용합니다.</small>
+                  <div class="fi-what-if-grid three">
+                    <label>
+                      <span>투자 유형</span>
+                      <select id="fiWhatIfAssetType">
+                        <option value="domestic_dividend_stock">국내 배당주</option>
+                        <option value="kr_listed_us_etf">국내상장 미국 ETF</option>
+                        <option value="us_direct">미국주식 · 미국 ETF 직투</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>연간 배당·분배금</span>
+                      <input id="fiWhatIfDistribution" type="number" min="0" step="10000" value="0" />
+                    </label>
+                    <label>
+                      <span>연간 실현 매매차익</span>
+                      <input id="fiWhatIfRealizedGain" type="number" min="0" step="10000" value="0" />
+                    </label>
+                  </div>
+
+                  <div id="fiWhatIfEtfTaxGainWrap" class="fi-what-if-grid one" hidden>
+                    <label>
+                      <span>ETF 과세대상 매매이익</span>
+                      <input id="fiWhatIfEtfTaxGain" type="number" min="0" step="10000" placeholder="모르면 비워두기" />
+                      <small>비우면 실제 매매차익을 보수적 screening 값으로 사용합니다.</small>
+                    </label>
+                  </div>
+
+                  <div class="fi-what-if-subhead">가족법인 가정</div>
+                  <div class="fi-what-if-grid three">
+                    <label>
+                      <span>기존 법인 과세소득</span>
+                      <input id="fiWhatIfCorporateBase" type="number" min="0" step="100000" value="0" />
+                    </label>
+                    <label>
+                      <span>투자 관련 손금</span>
+                      <input id="fiWhatIfCorporateExpense" type="number" min="0" step="10000" value="0" />
+                    </label>
+                    <label>
+                      <span>법인 → 개인 배당 인출</span>
+                      <input id="fiWhatIfOwnerDistribution" type="number" min="0" step="10000" value="0" />
+                    </label>
+                  </div>
+
+                  <details class="fi-what-if-details">
+                    <summary>고급 세법 가정</summary>
+                    <div class="fi-what-if-grid three">
+                      <label class="fi-check">
+                        <input id="fiWhatIfDomesticExclusionEligible" type="checkbox" />
+                        <span>국내 수입배당 익금불산입 적격</span>
+                      </label>
+                      <label>
+                        <span>국내법인 지분율 (%)</span>
+                        <input id="fiWhatIfDomesticOwnership" type="number" min="0" max="100" step="0.1" value="0" />
+                      </label>
+                      <label>
+                        <span>국내법인 보유 개월</span>
+                        <input id="fiWhatIfDomesticHoldingMonths" type="number" min="0" step="1" value="0" />
+                      </label>
+                      <label class="fi-check">
+                        <input id="fiWhatIfUsTreatyQualified" type="checkbox" />
+                        <span>한미조약 법인 10% 배당세율 적격</span>
+                      </label>
+                      <label class="fi-check">
+                        <input id="fiWhatIfForeignSubsidiaryQualified" type="checkbox" />
+                        <span>외국자회사 95% 익금불산입 적격</span>
+                      </label>
+                      <label>
+                        <span>미국법인 지분율 (%)</span>
+                        <input id="fiWhatIfForeignOwnership" type="number" min="0" max="100" step="0.1" value="0" />
+                      </label>
+                    </div>
+                  </details>
+                </div>
+              </div>
             </div>
-          </div>
+          </details>
 
           <div class="fi-what-if-actions">
-            <button id="fiWhatIfRun" type="submit" class="button primary">계산</button>
+            <button id="fiWhatIfRun" type="submit" class="button primary">배당 영향 계산</button>
             <span id="fiWhatIfStatus" class="fi-what-if-status" role="status"></span>
           </div>
         </form>
 
         <div id="financialIncomeWhatIfResult" class="fi-what-if-result" aria-live="polite">
-          <div class="fi-what-if-placeholder">예상 탭에서 계산하면 결과가 여기에 표시됩니다.</div>
+          <div class="fi-what-if-placeholder">예상 배당 기준을 불러오면 현재 상태가 여기에 표시됩니다.</div>
         </div>
       </section>
     `;
@@ -223,9 +256,19 @@
       event.preventDefault();
       runSimulation();
     });
+    document.querySelectorAll('[data-dividend-preset]').forEach(button => {
+      button.addEventListener('click', () => {
+        const input = document.getElementById('fiWhatIfExtraDividend');
+        if (!input) return;
+        input.value = button.dataset.dividendPreset || '0';
+        runSimulation();
+      });
+    });
+
     syncHighDividendFields();
     syncInvestmentFields();
     syncVisibility();
+    if (estimatedModeActive()) window.setTimeout(() => runSimulation(), 0);
   }
 
   function syncHighDividendFields() {
@@ -291,40 +334,7 @@
     return scenario;
   }
 
-  function validatePayload(payload) {
-    const values = [
-      payload.additional_dividend_gross_krw,
-      payload.additional_interest_gross_krw,
-      payload.additional_foreign_share_realized_gain_krw,
-      payload.additional_kr_listed_overseas_etf_taxable_gain_krw,
-    ];
-    if (payload.high_dividend_scenario) {
-      values.push(payload.high_dividend_scenario.special_dividend_income_krw);
-    }
-    if (payload.investment_scenario) {
-      values.push(
-        payload.investment_scenario.annual_distribution_krw,
-        payload.investment_scenario.annual_realized_gain_krw,
-        payload.investment_scenario.existing_corporate_taxable_income_krw,
-        payload.investment_scenario.corporate_deductible_expenses_krw,
-        payload.investment_scenario.corporation_to_owner_distribution_krw,
-        payload.investment_scenario.domestic_dividend_ownership_pct,
-        payload.investment_scenario.domestic_dividend_holding_months,
-        payload.investment_scenario.foreign_ownership_pct,
-      );
-      if ('taxable_etf_gain_krw' in payload.investment_scenario) {
-        values.push(payload.investment_scenario.taxable_etf_gain_krw);
-      }
-    }
-    return values.every(value => Number.isFinite(Number(value)) && Number(value) >= 0);
-  }
-
-  async function runSimulation() {
-    const status = document.getElementById('fiWhatIfStatus');
-    const button = document.getElementById('fiWhatIfRun');
-    const result = document.getElementById('financialIncomeWhatIfResult');
-    if (!status || !button || !result || !estimatedModeActive()) return;
-
+  function buildPayload() {
     const payload = {
       owner: currentOwnerValue(),
       additional_dividend_gross_krw: numberValue('fiWhatIfExtraDividend'),
@@ -336,7 +346,40 @@
     if (highDividendScenario) payload.high_dividend_scenario = highDividendScenario;
     const investmentScenario = buildInvestmentScenario();
     if (investmentScenario) payload.investment_scenario = investmentScenario;
+    return payload;
+  }
 
+  function validatePayload(payload) {
+    const values = [
+      payload.additional_dividend_gross_krw,
+      payload.additional_interest_gross_krw,
+      payload.additional_foreign_share_realized_gain_krw,
+      payload.additional_kr_listed_overseas_etf_taxable_gain_krw,
+    ];
+    if (payload.high_dividend_scenario) values.push(payload.high_dividend_scenario.special_dividend_income_krw);
+    if (payload.investment_scenario) {
+      values.push(
+        payload.investment_scenario.annual_distribution_krw,
+        payload.investment_scenario.annual_realized_gain_krw,
+        payload.investment_scenario.existing_corporate_taxable_income_krw,
+        payload.investment_scenario.corporate_deductible_expenses_krw,
+        payload.investment_scenario.corporation_to_owner_distribution_krw,
+        payload.investment_scenario.domestic_dividend_ownership_pct,
+        payload.investment_scenario.domestic_dividend_holding_months,
+        payload.investment_scenario.foreign_ownership_pct,
+      );
+      if ('taxable_etf_gain_krw' in payload.investment_scenario) values.push(payload.investment_scenario.taxable_etf_gain_krw);
+    }
+    return values.every(value => Number.isFinite(Number(value)) && Number(value) >= 0);
+  }
+
+  async function runSimulation() {
+    const status = document.getElementById('fiWhatIfStatus');
+    const button = document.getElementById('fiWhatIfRun');
+    const result = document.getElementById('financialIncomeWhatIfResult');
+    if (!status || !button || !result || !estimatedModeActive()) return;
+
+    const payload = buildPayload();
     if (!validatePayload(payload)) {
       status.textContent = '0 이상의 숫자만 입력하세요.';
       status.className = 'fi-what-if-status error';
@@ -370,95 +413,96 @@
     }
   }
 
-  function escapeHtml(value) {
-    return String(value)
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#039;');
+  function statusForScenario(scenarioState, watchState) {
+    if (scenarioState.exceeded === true) return { className: 'danger', text: '2천만원 초과' };
+    if (scenarioState.at_or_above === true) return { className: 'warn', text: '2천만원 도달 · 초과 아님' };
+    if (watchState.at_or_above === true) return { className: 'warn', text: '주의 구간' };
+    if (scenarioState.exceeded === null) return { className: 'unknown', text: '예상치 확인 불가' };
+    return { className: 'safe', text: '2천만원 기준 미만' };
   }
 
   function renderResult(data) {
     const root = document.getElementById('financialIncomeWhatIfResult');
     if (!root) return;
+
     const whatIf = data?.what_if || {};
     const threshold = whatIf?.thresholds?.comprehensive_tax || {};
+    const baselineState = threshold?.baseline || {};
     const scenarioState = threshold?.scenario || {};
     const watchState = whatIf?.thresholds?.watch?.scenario || {};
+    const status = statusForScenario(scenarioState, watchState);
+    const baseline = whatIf.baseline_projected_gross_screening_income_krw;
     const projected = whatIf.scenario_projected_gross_screening_income_krw;
     const comprehensiveProjected = whatIf.scenario_comprehensive_tax_screening_income_krw;
-    const baseline = whatIf.baseline_projected_gross_screening_income_krw;
-    const remaining = scenarioState.remaining_krw;
+    const additionalDividend = Number(whatIf.additional_dividend_gross_krw || 0);
+    const totalAddition = Number(whatIf.scenario_addition_gross_krw || 0);
+    const otherAddition = Math.max(totalAddition - additionalDividend, 0);
+    const baselineRemaining = baselineState.remaining_krw;
+    const scenarioRemaining = scenarioState.remaining_krw;
 
-    let statusClass = 'safe';
-    let statusText = '2천만원 기준 미만';
-    if (scenarioState.exceeded === true) {
-      statusClass = 'danger';
-      statusText = '2천만원 초과';
-    } else if (scenarioState.at_or_above === true) {
-      statusClass = 'warn';
-      statusText = '2천만원 도달 · 초과 아님';
-    } else if (watchState.at_or_above === true) {
-      statusClass = 'warn';
-      statusText = '주의 구간';
-    } else if (scenarioState.exceeded === null) {
-      statusClass = 'unknown';
-      statusText = '예상치 확인 불가';
-    }
+    const baselineRemainingText = baselineRemaining === null || baselineRemaining === undefined
+      ? '예상치 확인 불가'
+      : (baselineState.at_or_above ? '기준 도달' : money(baselineRemaining));
+    const scenarioRemainingText = scenarioRemaining === null || scenarioRemaining === undefined
+      ? '미래 배당 예측 데이터가 필요합니다.'
+      : (scenarioState.at_or_above ? '2천만원 기준에 도달했습니다.' : `2천만원까지 ${money(scenarioRemaining)} 남음`);
 
     let html = `
-      <div class="fi-result-grid">
+      <div class="fi-result-grid dashboard">
         <div class="fi-result-card">
-          <span>현재 연간 예상</span>
+          <span>올해 예상 금융소득</span>
           <strong>${money(baseline)}</strong>
-          <small>실제 + 향후 예상 기준</small>
+          <small>현재 실제 + 향후 예상</small>
+        </div>
+        <div class="fi-result-card ${baselineState.at_or_above ? 'warn' : 'safe'}">
+          <span>2천만원까지 여유</span>
+          <strong>${baselineRemainingText}</strong>
+          <small>현재 예상 기준</small>
         </div>
         <div class="fi-result-card emphasized">
-          <span>What-if 적용 후</span>
-          <strong>${money(projected)}</strong>
-          <small>추가 가정 ${money(whatIf.scenario_addition_gross_krw || 0)} · 종합과세 판정대상 ${money(comprehensiveProjected)}</small>
+          <span>추가 배당 가정</span>
+          <strong>${money(additionalDividend)}</strong>
+          <small>${otherAddition > 0 ? `기타 금융소득 가정 ${money(otherAddition)} 별도` : '배당만 빠르게 비교'}</small>
         </div>
-        <div class="fi-result-card ${statusClass}">
-          <span>금융소득 종합과세 screening</span>
-          <strong>${statusText}</strong>
-          <small>${remaining === null || remaining === undefined ? '미래 배당 예측 데이터가 필요합니다.' : `2천만원까지 ${money(remaining)}`}</small>
+        <div class="fi-result-card ${status.className}">
+          <span>배당 추가 후</span>
+          <strong>${money(projected)}</strong>
+          <small>${status.text} · ${scenarioRemainingText}</small>
         </div>
       </div>
     `;
 
+    const crossed = threshold?.crossed_by_scenario === true;
+    if (crossed) {
+      html += `
+        <div class="fi-decision-note danger">
+          <strong>추가 배당으로 2천만원 기준을 넘습니다.</strong>
+          <span>이 화면은 자산배분 판단용 screening입니다. 종합소득 최종 신고세액을 확정하는 계산서는 아닙니다.</span>
+        </div>
+      `;
+    } else if (additionalDividend > 0 && scenarioState.exceeded === false) {
+      html += `
+        <div class="fi-decision-note safe">
+          <strong>현재 가정에서는 2천만원 기준 이하입니다.</strong>
+          <span>${scenarioRemainingText}</span>
+        </div>
+      `;
+    }
+
     const tradingImpact = whatIf?.trading_impact;
-    if (tradingImpact) {
+    if (tradingImpact && (Number(tradingImpact?.foreign_shares?.realized_gain_krw || 0) > 0 || Number(tradingImpact?.kr_listed_overseas_etf?.taxable_gain_krw || 0) > 0)) {
       const foreign = tradingImpact.foreign_shares || {};
       const etf = tradingImpact.kr_listed_overseas_etf || {};
-      const rateText = Number.isFinite(Number(etf.estimated_withholding_rate))
-        ? `${(Number(etf.estimated_withholding_rate) * 100).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}%`
-        : '확인 불가';
       const foreignTaxText = foreign.capital_gain_tax_calculated === false
-        ? '금융소득 판정 미포함 · 양도세는 빠른 입력만으로 미계산'
+        ? '금융소득 판정 미포함 · 양도세 미계산'
         : '금융소득 판정 미포함';
       html += `
         <div class="fi-compare-block">
-          <div class="fi-compare-title">
-            <strong>추가 매매 영향</strong>
-            <span>금융소득과 양도소득 레이어를 구분합니다.</span>
-          </div>
+          <div class="fi-compare-title"><strong>다른 가정의 영향</strong><span>배당 판단과 분리해서 봅니다.</span></div>
           <div class="fi-result-grid comparison">
-            <div class="fi-result-card">
-              <span>해외주식 실현차익</span>
-              <strong>${money(foreign.realized_gain_krw || 0)}</strong>
-              <small>${foreignTaxText}</small>
-            </div>
-            <div class="fi-result-card">
-              <span>국내상장 해외 ETF 과세기준금액</span>
-              <strong>${money(etf.taxable_gain_krw || 0)}</strong>
-              <small>금융소득에 포함</small>
-            </div>
-            <div class="fi-result-card">
-              <span>ETF 예상 원천징수</span>
-              <strong>${money(etf.estimated_withholding_krw || 0)}</strong>
-              <small>${rateText} screening · 최종세액 아님</small>
-            </div>
+            <div class="fi-result-card"><span>해외주식 실현차익</span><strong>${money(foreign.realized_gain_krw || 0)}</strong><small>${foreignTaxText}</small></div>
+            <div class="fi-result-card"><span>해외 ETF 과세기준금액</span><strong>${money(etf.taxable_gain_krw || 0)}</strong><small>금융소득에 포함</small></div>
+            <div class="fi-result-card"><span>ETF 예상 원천징수</span><strong>${money(etf.estimated_withholding_krw || 0)}</strong><small>screening · 최종세액 아님</small></div>
           </div>
         </div>
       `;
@@ -467,30 +511,13 @@
     const highDividend = whatIf?.high_dividend_special_tax;
     if (highDividend) {
       const applied = highDividend.special_rule_applied === true;
-      const confirmed = highDividend.high_dividend_company_confirmed_by_user === true;
-      const requested = highDividend.separate_taxation_requested === true;
       html += `
         <div class="fi-compare-block">
-          <div class="fi-compare-title">
-            <strong>2026 고배당기업 분리과세 특례</strong>
-            <span>${applied ? '특례 적용 가정' : '특례 미적용'} · screening-only</span>
-          </div>
+          <div class="fi-compare-title"><strong>2026 고배당기업 분리과세 특례</strong><span>${applied ? '특례 적용 가정' : '특례 미적용'} · screening-only</span></div>
           <div class="fi-result-grid comparison">
-            <div class="fi-result-card">
-              <span>공식 공시 확인</span>
-              <strong>${confirmed ? '확인함' : '미확인'}</strong>
-              <small>앱 자동 적격판정 아님</small>
-            </div>
-            <div class="fi-result-card">
-              <span>2천만원 판정 제외액</span>
-              <strong>${money(highDividend.excluded_from_comprehensive_tax_threshold_krw || 0)}</strong>
-              <small>${requested ? '분리과세 신청 가정' : '신청 가정 없음'}</small>
-            </div>
-            <div class="fi-result-card">
-              <span>특례 국세 예상액</span>
-              <strong>${money(highDividend.national_income_tax_krw)}</strong>
-              <small>지방소득세·최종 신고세액 미포함</small>
-            </div>
+            <div class="fi-result-card"><span>공식 공시 확인</span><strong>${highDividend.high_dividend_company_confirmed_by_user === true ? '확인함' : '미확인'}</strong><small>앱 자동 적격판정 아님</small></div>
+            <div class="fi-result-card"><span>2천만원 판정 제외액</span><strong>${money(highDividend.excluded_from_comprehensive_tax_threshold_krw || 0)}</strong><small>종합과세 판정대상 ${money(comprehensiveProjected)}</small></div>
+            <div class="fi-result-card"><span>특례 국세 예상액</span><strong>${money(highDividend.national_income_tax_krw)}</strong><small>지방소득세·최종 신고세액 미포함</small></div>
           </div>
         </div>
       `;
@@ -507,36 +534,20 @@
       const ownerLayer = comparison.corporation_to_owner || {};
       html += `
         <div class="fi-compare-block">
-          <div class="fi-compare-title">
-            <strong>투자방법 비교</strong>
-            <span>screening-only · 최종 종합소득세/건보료 미포함</span>
-          </div>
+          <div class="fi-compare-title"><strong>투자방법 고급 비교</strong><span>필요할 때만 참고 · screening-only</span></div>
           <div class="fi-result-grid comparison">
-            <div class="fi-result-card">
-              <span>개인 투자 세후 알려진 금액</span>
-              <strong>${money(individual)}</strong>
-            </div>
-            <div class="fi-result-card">
-              <span>가족법인 세후 알려진 금액</span>
-              <strong>${money(corporation)}</strong>
-              <small>법인 유보 + 개인 배당 실수령 합계</small>
-            </div>
-            <div class="fi-result-card ${diffClass}">
-              <span>현재 가정 우세</span>
-              <strong>${winner}</strong>
-              <small>가족법인 - 개인 ${difference >= 0 ? '+' : ''}${money(difference)}</small>
-            </div>
+            <div class="fi-result-card"><span>개인 투자 세후 알려진 금액</span><strong>${money(individual)}</strong></div>
+            <div class="fi-result-card"><span>가족법인 세후 알려진 금액</span><strong>${money(corporation)}</strong><small>법인 유보 + 개인 배당 실수령</small></div>
+            <div class="fi-result-card ${diffClass}"><span>현재 가정 우세</span><strong>${winner}</strong><small>가족법인 - 개인 ${difference >= 0 ? '+' : ''}${money(difference)}</small></div>
           </div>
-          <div class="fi-compare-meta">
-            법인 내부 유보 ${money(ownerLayer.retained_in_corporation_krw || 0)} · 개인 배당 실수령 ${money(ownerLayer.owner_cash_after_withholding_krw || 0)}
-          </div>
+          <div class="fi-compare-meta">법인 내부 유보 ${money(ownerLayer.retained_in_corporation_krw || 0)} · 개인 배당 실수령 ${money(ownerLayer.owner_cash_after_withholding_krw || 0)}</div>
         </div>
       `;
     }
 
     html += `
       <div class="fi-what-if-disclaimer">
-        이 결과는 2026년 기준 사전 screening입니다. 해외주식 실현차익은 금융소득 판정과 분리하며 빠른 매매 입력만으로 양도소득세를 확정하지 않습니다. 고배당 특례는 공식 공시 확인과 신고 신청을 사용자가 가정한 경우에만 반영하며, 지방소득세·금융소득 종합과세 최종세액·건강보험료·급여/퇴직금 인출·증여/상속세는 포함하지 않습니다.
+        이 화면은 배당·금융소득 자산관리 의사결정용입니다. 2천만원 기준과 추가 배당의 영향을 빠르게 보는 screening이며, 종합소득세 신고서의 모든 공제·기납부세액·가산세를 채우거나 최종 납부·환급세액을 확정하지 않습니다.
       </div>
     `;
     root.innerHTML = html;
@@ -553,9 +564,7 @@
         return;
       }
       const ownerTab = event.target.closest?.('.family-tabs .family-tab');
-      if (ownerTab && estimatedModeActive()) {
-        window.setTimeout(() => runSimulation(), 0);
-      }
+      if (ownerTab && estimatedModeActive()) window.setTimeout(() => runSimulation(), 0);
     });
   }
 

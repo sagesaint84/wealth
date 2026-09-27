@@ -22,7 +22,9 @@
 
 .fi-what-if-head p {
   margin: 0;
+  max-width: 760px;
   font-size: 12px;
+  line-height: 1.55;
   color: #94a3b8;
 }
 
@@ -55,6 +57,15 @@
   background: rgba(15, 23, 42, 0.34);
 }
 
+.fi-dividend-primary {
+  border-color: rgba(99, 102, 241, 0.26);
+  background: rgba(79, 70, 229, 0.07);
+}
+
+.fi-nested-section {
+  background: rgba(15, 23, 42, 0.24);
+}
+
 .fi-what-if-section-title {
   display: flex;
   align-items: baseline;
@@ -73,6 +84,44 @@
 .fi-what-if-form label small {
   color: #7f8ea3;
   font-size: 10.5px;
+}
+
+.fi-dividend-input-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.fi-dividend-input input {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.fi-dividend-presets {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.fi-dividend-preset {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid rgba(129, 140, 248, 0.28);
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.09);
+  color: #c7d2fe;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.fi-dividend-preset:hover,
+.fi-dividend-preset:focus-visible {
+  border-color: rgba(129, 140, 248, 0.55);
+  background: rgba(99, 102, 241, 0.17);
+  outline: none;
 }
 
 .fi-what-if-grid {
@@ -144,10 +193,10 @@
 }
 
 .fi-what-if-details {
-  margin-top: 2px;
-  padding: 9px 10px;
-  border-radius: 8px;
+  padding: 10px 11px;
+  border-radius: 9px;
   border: 1px dashed rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.18);
 }
 
 .fi-what-if-details summary {
@@ -157,8 +206,14 @@
   font-weight: 700;
 }
 
-.fi-what-if-details[open] summary {
+.fi-what-if-details[open] > summary {
   margin-bottom: 10px;
+}
+
+.fi-secondary-scenario-body,
+.fi-advanced-scenario-body {
+  display: grid;
+  gap: 10px;
 }
 
 .fi-check {
@@ -202,6 +257,10 @@
   gap: 10px;
 }
 
+.fi-result-grid.dashboard {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .fi-result-card {
   padding: 12px;
   min-width: 0;
@@ -227,6 +286,7 @@
 .fi-result-card > small {
   font-size: 10.5px;
   color: #7f8ea3;
+  line-height: 1.45;
 }
 
 .fi-result-card.emphasized {
@@ -243,6 +303,33 @@
 .fi-result-card.unknown > strong { color: #cbd5e1; }
 .fi-result-card.gain > strong { color: #86efac; }
 .fi-result-card.loss > strong { color: #fca5a5; }
+
+.fi-decision-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 10px;
+  padding: 10px 11px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.fi-decision-note.safe {
+  border: 1px solid rgba(34, 197, 94, 0.24);
+  background: rgba(34, 197, 94, 0.06);
+  color: #bbf7d0;
+}
+
+.fi-decision-note.danger {
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  background: rgba(239, 68, 68, 0.06);
+  color: #fecaca;
+}
+
+.fi-decision-note span {
+  color: #94a3b8;
+}
 
 .fi-compare-block {
   margin-top: 12px;
@@ -278,16 +365,24 @@
   line-height: 1.5;
 }
 
+@media (max-width: 1100px) {
+  .fi-result-grid.dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 900px) {
   .fi-what-if-grid.three,
-  .fi-result-grid {
+  .fi-result-grid,
+  .fi-result-grid.dashboard {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 640px) {
   .fi-what-if-panel { padding: 13px; }
-  .fi-what-if-grid.two { grid-template-columns: 1fr; }
+  .fi-what-if-grid.two,
+  .fi-dividend-input-row { grid-template-columns: 1fr; }
+  .fi-dividend-presets { align-items: stretch; }
+  .fi-dividend-preset { flex: 1 1 auto; }
 }
 
 .fi-what-if-investment-fields[hidden],
