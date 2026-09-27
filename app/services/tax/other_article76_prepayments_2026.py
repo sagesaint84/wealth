@@ -2,7 +2,9 @@
 
 Phase 10.5B-4.8 extends the existing partial national income-tax balance with
 explicitly supplied non-financial comprehensive-income withholding tax and tax
-association amounts. The service never derives those amounts from gross income.
+association collected income tax. The service never derives those amounts from
+gross income. Tax-association credit is deliberately deferred because it is a
+tax credit that must participate in the preceding Article 60 credit ordering.
 """
 
 from __future__ import annotations
@@ -22,12 +24,8 @@ from app.services.tax.rules_2026 import (
 )
 
 _OTHER_WITHHOLDING_FIELD = "prepaid_other_comprehensive_income_withholding_tax_krw"
-_TAX_ASSOCIATION_FIELDS = frozenset(
-    {
-        "prepaid_tax_association_collected_income_tax_krw",
-        "tax_association_credit_krw",
-    }
-)
+_TAX_ASSOCIATION_COLLECTED_FIELD = "prepaid_tax_association_collected_income_tax_krw"
+_UNSUPPORTED_TAX_ASSOCIATION_CREDIT_FIELD = "tax_association_credit_krw"
 
 
 def _nonnegative_won(value: object, code: str) -> int:
@@ -45,18 +43,20 @@ def _nonnegative_won(value: object, code: str) -> int:
 def calculate_financial_income_article62_comparison_2026(
     **values: object,
 ) -> dict[str, Any]:
-    """Return B-4.7 results plus explicit Article 76(3)(4)-(5) deductions."""
+    """Return B-4.7 results plus explicit Article 76(3)(4)-(5) prepaid tax."""
+
+    if _UNSUPPORTED_TAX_ASSOCIATION_CREDIT_FIELD in values:
+        raise PersonalComprehensiveTaxError(
+            "ARTICLE76_TAX_ASSOCIATION_CREDIT_REQUIRES_PRECEDING_CREDIT_MODEL"
+        )
 
     other_withholding_input_provided = _OTHER_WITHHOLDING_FIELD in values
-    association_inputs_present = _TAX_ASSOCIATION_FIELDS.intersection(values)
-    if association_inputs_present and association_inputs_present != _TAX_ASSOCIATION_FIELDS:
-        raise PersonalComprehensiveTaxError("ARTICLE76_TAX_ASSOCIATION_INPUTS_INCOMPLETE")
-    tax_association_inputs_provided = association_inputs_present == _TAX_ASSOCIATION_FIELDS
+    tax_association_input_provided = _TAX_ASSOCIATION_COLLECTED_FIELD in values
 
     base_values = {
         name: value
         for name, value in values.items()
-        if name != _OTHER_WITHHOLDING_FIELD and name not in _TAX_ASSOCIATION_FIELDS
+        if name not in {_OTHER_WITHHOLDING_FIELD, _TAX_ASSOCIATION_COLLECTED_FIELD}
     }
     result = _calculate_base(**base_values)
 
@@ -68,18 +68,13 @@ def calculate_financial_income_article62_comparison_2026(
         )
 
     association_collected = 0
-    association_credit = 0
-    if tax_association_inputs_provided:
+    if tax_association_input_provided:
         association_collected = _nonnegative_won(
-            values["prepaid_tax_association_collected_income_tax_krw"],
-            "ARTICLE76_TAX_ASSOCIATION_AMOUNT_INVALID",
-        )
-        association_credit = _nonnegative_won(
-            values["tax_association_credit_krw"],
+            values[_TAX_ASSOCIATION_COLLECTED_FIELD],
             "ARTICLE76_TAX_ASSOCIATION_AMOUNT_INVALID",
         )
 
-    article76_other_total = other_withholding + association_collected + association_credit
+    article76_other_total = other_withholding + association_collected
     partial_before_other = int(
         result[
             "partial_national_income_tax_balance_after_explicit_financial_withholding_and_interim_prepayment_krw"
@@ -91,11 +86,10 @@ def calculate_financial_income_article62_comparison_2026(
         {
             "prepaid_other_comprehensive_income_withholding_tax_krw": other_withholding,
             "prepaid_tax_association_collected_income_tax_krw": association_collected,
-            "tax_association_credit_krw": association_credit,
-            "article76_other_withholding_and_tax_association_deduction_total_krw": (
+            "article76_other_withholding_and_tax_association_collected_total_krw": (
                 article76_other_total
             ),
-            "partial_national_income_tax_balance_after_explicit_article76_deductions_krw": (
+            "partial_national_income_tax_balance_after_explicit_article76_prepayments_krw": (
                 partial_after_other
             ),
         }
@@ -111,12 +105,15 @@ def calculate_financial_income_article62_comparison_2026(
                 other_withholding_input_provided
             ),
             "other_comprehensive_income_withholding_tax_not_inferred_from_income": True,
-            "tax_association_final_return_deductions_calculated": (
-                tax_association_inputs_provided
+            "tax_association_collected_income_tax_calculated": (
+                tax_association_input_provided
             ),
-            "tax_association_inputs_provided": tax_association_inputs_provided,
-            "tax_association_amounts_user_provided": tax_association_inputs_provided,
-            "tax_association_amounts_not_inferred_from_income": True,
+            "tax_association_collected_income_tax_user_provided": (
+                tax_association_input_provided
+            ),
+            "tax_association_collected_income_tax_not_inferred_from_income": True,
+            "tax_association_credit_calculated": False,
+            "tax_association_credit_requires_preceding_credit_order": True,
             "article76_land_sale_and_special_assessment_prepaid_taxes_calculated": False,
             "other_article76_prepaid_income_taxes_calculated": False,
             "national_income_tax_final_payment_or_refund_calculated": False,
@@ -134,8 +131,8 @@ def calculate_financial_income_article62_comparison_2026(
             other_withholding_input_provided,
         ),
         (
-            "tax association collected income tax and tax association credit",
-            tax_association_inputs_provided,
+            "tax association collected income tax",
+            tax_association_input_provided,
         ),
     )
     for item, calculated in scoped_items:
@@ -145,6 +142,7 @@ def calculate_financial_income_article62_comparison_2026(
             not_calculated.append(item)
 
     for item in (
+        "tax association credit",
         "land-sale scheduled-return prepaid income tax",
         "special-assessment prepaid income tax",
         "national income-tax additions or penalties",
@@ -153,15 +151,21 @@ def calculate_financial_income_article62_comparison_2026(
         if item not in not_calculated:
             not_calculated.append(item)
 
-    reflected_parts = [
-        "금융소득 원천징수 기납부세액",
-    ]
+    reflected_parts: list[str] = []
+    if result["data_quality"].get("withholding_tax_paid_credit_calculated"):
+        reflected_parts.append("금융소득 원천징수 기납부세액")
     if result["data_quality"].get("national_income_tax_interim_prepayment_calculated"):
         reflected_parts.append("중간예납세액")
     if other_withholding_input_provided:
         reflected_parts.append("금융소득 외 종합소득 원천징수세액")
-    if tax_association_inputs_provided:
-        reflected_parts.append("납세조합 징수세액과 납세조합공제")
+    if tax_association_input_provided:
+        reflected_parts.append("납세조합 징수세액")
+
+    reflected_note = (
+        ", ".join(reflected_parts) + "을 반영했습니다. "
+        if reflected_parts
+        else "명시 기납부세액 입력은 추가로 반영하지 않았습니다. "
+    )
 
     rule_context.update(
         {
@@ -171,6 +175,7 @@ def calculate_financial_income_article62_comparison_2026(
             "other_withholding_final_return_legal_basis": "소득세법 제76조 제3항 제4호",
             "tax_association_final_return_legal_basis": "소득세법 제76조 제3항 제5호",
             "tax_association_collection_legal_basis": "소득세법 제150조",
+            "tax_association_credit_order_legal_basis": "소득세법 제60조 및 제150조",
             "official_other_article76_final_return_law_source_url": (
                 OFFICIAL_FINAL_RETURN_PREPAID_TAX_LAW_SOURCE_URL
             ),
@@ -183,15 +188,19 @@ def calculate_financial_income_article62_comparison_2026(
                 "제150조 납세조합의 징수세액과 그 공제액을 확정신고납부 시 공제하도록 "
                 "합니다. 별지 제40호서식(1)은 사업ㆍ근로ㆍ연금ㆍ기타소득의 원천징수 또는 "
                 "납세조합징수세액을 기납부세액명세서에 구분해 적도록 합니다. 이 increment는 "
-                "실제 확인된 금액만 사용자 명시 입력으로 받고 gross 소득에서 자동 추정하지 "
-                "않습니다."
+                "실제 확인된 다른 종합소득 원천징수세액과 납세조합 징수세액만 명시 입력으로 "
+                "받으며 gross 소득에서 자동 추정하지 않습니다."
+            ),
+            "tax_association_credit_note": (
+                "납세조합공제는 신고서상 세액공제 항목이며 다른 선행 세액공제와 함께 "
+                "소득세법 제60조 적용순서를 반영해야 하므로 B-4.8의 기납부세액 단계에서 "
+                "차감하지 않습니다. 별도 선행 세액공제 increment에서 구현합니다."
             ),
             "partial_balance_note": (
                 "모델링된 배당세액공제와 당기 국세 외국납부세액공제 후 "
-                + ", ".join(reflected_parts)
-                + "을 반영한 부분 계산값입니다. 토지등 매매차익 예정신고세액, 수시부과세액, "
-                "가산세 및 다른 미구현 세액공제ㆍ감면이 빠져 있어 최종 납부 또는 환급세액이 "
-                "아닙니다."
+                + reflected_note
+                + "납세조합공제, 토지등 매매차익 예정신고세액, 수시부과세액, 가산세 및 "
+                "다른 미구현 세액공제ㆍ감면이 빠져 있어 최종 납부 또는 환급세액이 아닙니다."
             ),
             "not_calculated": not_calculated,
         }
