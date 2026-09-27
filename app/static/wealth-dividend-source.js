@@ -214,6 +214,9 @@
     const marketYield = complete
       ? `${percent(view.gross_yield_on_market_value_pct)} → ${percent(view.after_known_tax_yield_on_market_value_pct)}`
       : `${percent(view.gross_yield_on_market_value_pct)} → 전체 계산 보류`;
+    const costYield = complete
+      ? `${percent(view.gross_yield_on_cost_pct)} → ${percent(view.after_known_tax_yield_on_cost_pct)}`
+      : `${percent(view.gross_yield_on_cost_pct)} → 전체 계산 보류`;
     const attributionNote = view.forecast_attribution_complete
       ? ''
       : ` · 미귀속 예상 ${money(view.unattributed_annual_dividend_krw)}`;
@@ -249,7 +252,7 @@
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:9px;margin-top:12px;">
         <div style="padding:10px;border-radius:9px;background:rgba(30,41,59,.56);"><div style="font-size:11px;color:#94a3b8;">세전 예상 배당</div><strong style="display:block;margin-top:4px;font-size:16px;">${money(view.gross_annual_dividend_krw)}</strong></div>
         <div style="padding:10px;border-radius:9px;background:rgba(30,41,59,.56);"><div style="font-size:11px;color:#94a3b8;">${afterCashLabel}</div><strong style="display:block;margin-top:4px;font-size:16px;">${money(afterCash)}</strong></div>
-        <div style="padding:10px;border-radius:9px;background:rgba(30,41,59,.56);"><div style="font-size:11px;color:#94a3b8;">평가금액 기준 세전 → 알려진 세금 후</div><strong style="display:block;margin-top:4px;font-size:16px;">${marketYield}</strong></div>
+        <div style="padding:10px;border-radius:9px;background:rgba(30,41,59,.56);"><div style="font-size:11px;color:#94a3b8;">평가금액 기준 세전 → 알려진 세금 후</div><strong style="display:block;margin-top:4px;font-size:16px;">${marketYield}</strong><small style="display:block;margin-top:5px;color:#94a3b8;">평균매입가 기준 ${costYield}</small></div>
         <div style="padding:10px;border-radius:9px;background:rgba(30,41,59,.56);"><div style="font-size:11px;color:#94a3b8;">세후 계산 커버리지</div><strong style="display:block;margin-top:4px;font-size:16px;">${percent(coverage)}</strong></div>
       </div>
       <div style="margin-top:9px;font-size:11.5px;line-height:1.55;color:#94a3b8;">
