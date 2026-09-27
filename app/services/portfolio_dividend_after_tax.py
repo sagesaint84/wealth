@@ -242,10 +242,19 @@ def build_portfolio_after_tax_dividend_summary(
     attributed_gross = sum(
         row["gross_annual_dividend_krw"] for row in forecast_map.values()
     ) + invalid_forecast_amount
+    forecast_row_count = sum(
+        int(row.get("forecast_row_count") or 0)
+        for row in forecast_map.values()
+    ) + invalid_forecast_count
+    # Holding rows are rounded individually while the canonical total is rounded
+    # only after aggregation. Allow only the mathematically possible accumulated
+    # rounding drift; larger differences remain a real attribution gap.
+    rounding_tolerance = max(1.0, (forecast_row_count + 1) * 0.5)
     residual = max(canonical_gross - attributed_gross, 0.0)
     attribution_delta = attributed_gross - canonical_gross
     attribution_complete = (
-        abs(attribution_delta) <= 1.0 and invalid_forecast_count == 0
+        abs(attribution_delta) <= rounding_tolerance
+        and invalid_forecast_count == 0
     )
 
     all_keys = set(holding_map) | set(forecast_map)
@@ -381,10 +390,10 @@ def build_portfolio_after_tax_dividend_summary(
 
     complete = (
         attribution_complete
-        and residual <= 1.0
-        and attributed_gross <= canonical_gross + 1.0
+        and residual <= rounding_tolerance
+        and attributed_gross <= canonical_gross + rounding_tolerance
         and unsupported_positive_count == 0
-        and abs(calculable_gross - canonical_gross) <= 1.0
+        and abs(calculable_gross - canonical_gross) <= rounding_tolerance
     )
     if canonical_gross <= 0 and attribution_complete:
         complete = True
@@ -417,6 +426,7 @@ def build_portfolio_after_tax_dividend_summary(
         "unattributed_annual_dividend_krw": _won(residual),
         "forecast_attribution_complete": attribution_complete,
         "forecast_attribution_excess_krw": _won(max(attribution_delta, 0.0)),
+        "forecast_rounding_tolerance_krw": round(rounding_tolerance, 2),
         "known_tax_total_krw": (
             _won(calculable_known_tax) if complete else None
         ),
