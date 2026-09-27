@@ -12,7 +12,7 @@ import math
 import re
 from typing import Any
 
-from app.services.tax.local_income_tax_2026 import (
+from app.services.tax.tax_association_credit_2026 import (
     calculate_financial_income_article62_comparison_2026 as _calculate_base,
 )
 from app.services.tax.personal_comprehensive_tax_2026 import PersonalComprehensiveTaxError
@@ -127,10 +127,9 @@ def calculate_financial_income_article62_comparison_2026(
     Foreign-tax-credit inputs are all-or-none. The caller supplies Form 11
     comprehensive income, one official-form-ready basis amount and eligible
     current-year foreign income tax amount per country, and an explicit
-    confirmation that no tax reduction, non-carryforward credit, prior-year
-    carryforward credit, or other unmodeled Article 60 item must be applied
-    before this current-year foreign tax credit. If that confirmation cannot
-    be made, this narrow increment fails closed instead of overstating credit.
+    confirmation that no unmodeled Article 60 item must be applied before this
+    current-year foreign tax credit. Modeled preceding credits such as the
+    dividend credit and B-4.9 tax-association credit are applied first.
     """
 
     provided_fields = set(values)
@@ -164,8 +163,8 @@ def calculate_financial_income_article62_comparison_2026(
     article62_tax_before_credits = result[
         "article62_comparison_tax_before_credits_krw"
     ]
-    tax_after_dividend_credit = result[
-        "article62_tax_after_dividend_credit_before_other_credits_krw"
+    tax_after_article60_preceding_credits = result[
+        "article62_tax_after_dividend_and_tax_association_credit_before_foreign_tax_credit_krw"
     ]
 
     if foreign_inputs_provided:
@@ -218,7 +217,7 @@ def calculate_financial_income_article62_comparison_2026(
 
         foreign_tax_credit = min(
             within_country_limits_total,
-            tax_after_dividend_credit,
+            tax_after_article60_preceding_credits,
         )
         reduced_by_available_national_income_tax_cap = (
             within_country_limits_total - foreign_tax_credit
@@ -227,14 +226,14 @@ def calculate_financial_income_article62_comparison_2026(
             eligible_foreign_tax_total - foreign_tax_credit
         )
 
-    tax_after_dividend_and_foreign_credit = (
-        tax_after_dividend_credit - foreign_tax_credit
+    tax_after_preceding_and_foreign_credit = (
+        tax_after_article60_preceding_credits - foreign_tax_credit
     )
     prepaid_financial_withholding_total = result[
         "prepaid_financial_income_withholding_tax_total_krw"
     ]
     partial_balance_after_foreign_credit_and_withholding = (
-        tax_after_dividend_and_foreign_credit
+        tax_after_preceding_and_foreign_credit
         - prepaid_financial_withholding_total
     )
 
@@ -265,7 +264,10 @@ def calculate_financial_income_article62_comparison_2026(
                 uncredited_current_year_foreign_tax
             ),
             "article62_tax_after_dividend_and_foreign_tax_credit_before_other_credits_krw": (
-                tax_after_dividend_and_foreign_credit
+                tax_after_preceding_and_foreign_credit
+            ),
+            "article62_tax_after_dividend_tax_association_and_foreign_tax_credit_before_other_credits_krw": (
+                tax_after_preceding_and_foreign_credit
             ),
             "partial_national_income_tax_balance_after_explicit_financial_withholding_krw": (
                 partial_balance_after_foreign_credit_and_withholding
@@ -282,6 +284,9 @@ def calculate_financial_income_article62_comparison_2026(
             "foreign_tax_credit_limit_basis_user_provided": foreign_inputs_provided,
             "foreign_tax_credit_eligibility_user_asserted": foreign_inputs_provided,
             "foreign_tax_credit_article60_scope_confirmed": article60_scope_confirmed,
+            "foreign_tax_credit_modeled_tax_association_credit_preceded": bool(
+                result["data_quality"].get("tax_association_credit_calculated")
+            ),
             "foreign_tax_credit_country_code_iso_membership_verified_by_service": False,
             "foreign_tax_credit_current_year_only": foreign_inputs_provided,
             "foreign_tax_credit_prior_year_carryforward_calculated": False,
@@ -343,16 +348,17 @@ def calculate_financial_income_article62_comparison_2026(
                 "초과할 수 없습니다. 여러 국가 기준금액의 단순 합계를 종합소득금액과 "
                 "비교해 거부하지는 않습니다. 입력 외국소득세액의 시행령 제117조 및 "
                 "조세조약상 공제 적격성과 ISO 국가코드 실재 여부는 사용자 확인값으로 "
-                "취급합니다. 소득세법 제60조상 현재 모델의 배당세액공제 외에 먼저 적용할 "
-                "세액감면ㆍ비이월 세액공제ㆍ전기 이월 세액공제 등이 없다는 명시 확인이 "
-                "있을 때만 당기 외국납부세액공제를 계산합니다. 당기 미공제액은 이월배제액 "
-                "등을 계산하지 않았으므로 곧바로 10년 이월공제액으로 표시하지 않습니다."
+                "취급합니다. 소득세법 제60조상 현재 모델의 배당세액공제와 사용자가 명시한 "
+                "납세조합공제를 먼저 적용한 뒤, 그 밖에 먼저 적용할 세액감면ㆍ비이월 "
+                "세액공제ㆍ전기 이월 세액공제 등이 없다는 명시 확인이 있을 때만 당기 "
+                "외국납부세액공제를 계산합니다. 당기 미공제액은 이월배제액 등을 계산하지 "
+                "않았으므로 곧바로 10년 이월공제액으로 표시하지 않습니다."
             ),
             "partial_balance_note": (
-                "모델링된 배당세액공제, 명시 확인 범위의 당기 국세 외국납부세액공제 및 "
-                "금융소득 원천징수 기납부세액을 반영한 부분 계산값입니다. 다른 세액감면ㆍ"
-                "세액공제ㆍ기납부세액ㆍ중간예납ㆍ가산세 등이 빠져 있어 최종 납부 또는 "
-                "환급세액이 아닙니다."
+                "모델링된 배당세액공제, 명시 입력된 납세조합공제, 명시 확인 범위의 당기 "
+                "국세 외국납부세액공제 및 금융소득 원천징수 기납부세액을 반영한 부분 "
+                "계산값입니다. 다른 세액감면ㆍ세액공제ㆍ기납부세액ㆍ중간예납ㆍ가산세 등이 "
+                "빠져 있어 최종 납부 또는 환급세액이 아닙니다."
             ),
             "not_calculated": not_calculated,
         }

@@ -114,17 +114,22 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
             550_000,
         )
 
-    def test_tax_association_credit_is_fail_closed_until_preceding_credit_model(self):
-        with self.assertRaisesRegex(
-            PersonalComprehensiveTaxError,
-            "ARTICLE76_TAX_ASSOCIATION_CREDIT_REQUIRES_PRECEDING_CREDIT_MODEL",
-        ):
-            calculate_financial_income_article62_comparison_2026(
-                **{
-                    **payload(ordinary_interest_14_krw=30_000_000),
-                    "tax_association_credit_krw": 30_000,
-                }
-            )
+    def test_tax_association_credit_is_passed_to_preceding_credit_model(self):
+        result = calculate_financial_income_article62_comparison_2026(
+            **{
+                **payload(ordinary_interest_14_krw=30_000_000),
+                "tax_association_credit_krw": 30_000,
+            }
+        )
+        self.assertEqual(result["tax_association_credit_krw"], 30_000)
+        self.assertEqual(result["tax_association_credit_applied_krw"], 30_000)
+        self.assertEqual(
+            result[
+                "partial_national_income_tax_balance_after_explicit_article76_prepayments_krw"
+            ],
+            4_170_000,
+        )
+        self.assertNotIn("tax association credit", result["rule_context"]["not_calculated"])
 
     def test_invalid_other_withholding_is_rejected(self):
         for bad_value in (True, -1, float("nan"), float("inf"), "bad"):
@@ -231,7 +236,6 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
             quality["tax_association_collected_income_tax_not_inferred_from_income"]
         )
         self.assertFalse(quality["tax_association_credit_calculated"])
-        self.assertTrue(quality["tax_association_credit_requires_preceding_credit_order"])
         self.assertFalse(
             quality["article76_land_sale_and_special_assessment_prepaid_taxes_calculated"]
         )
@@ -247,7 +251,11 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
             "소득세법 제76조 제3항 제5호",
         )
         self.assertEqual(context["tax_association_collection_legal_basis"], "소득세법 제150조")
-        self.assertIn("B-4.8의 기납부세액 단계에서", context["tax_association_credit_note"])
+        self.assertEqual(
+            context["tax_association_credit_order_legal_basis"],
+            "소득세법 제60조 제1항",
+        )
+        self.assertIn("3%", context["tax_association_credit_note"])
         self.assertIn("자동 추정하지", context["other_article76_prepayment_note"])
         self.assertIn(
             "land-sale scheduled-return prepaid income tax",
@@ -296,7 +304,7 @@ class OtherArticle76PrepaymentsApiTests(unittest.TestCase):
             3_100_000,
         )
 
-    def test_api_rejects_tax_association_credit_until_credit_order_is_modeled(self):
+    def test_api_accepts_tax_association_credit_with_no_store(self):
         response = self.client.post(
             "/api/dividends/financial-income-article62-comparison",
             json={
@@ -304,12 +312,11 @@ class OtherArticle76PrepaymentsApiTests(unittest.TestCase):
                 "tax_association_credit_krw": 10_000,
             },
         )
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("cache-control"), "no-store")
-        self.assertEqual(
-            response.json()["detail"]["code"],
-            "ARTICLE76_TAX_ASSOCIATION_CREDIT_REQUIRES_PRECEDING_CREDIT_MODEL",
-        )
+        body = response.json()
+        self.assertEqual(body["tax_association_credit_krw"], 10_000)
+        self.assertEqual(body["tax_association_credit_applied_krw"], 10_000)
 
     def test_api_rejects_invalid_other_withholding_with_stable_code(self):
         response = self.client.post(
