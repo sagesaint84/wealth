@@ -251,7 +251,11 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
             "소득세법 제76조 제3항 제5호",
         )
         self.assertEqual(context["tax_association_collection_legal_basis"], "소득세법 제150조")
-        self.assertIn("B-4.9", context["tax_association_credit_note"])
+        self.assertEqual(
+            context["tax_association_credit_order_legal_basis"],
+            "소득세법 제60조 제1항",
+        )
+        self.assertIn("3%", context["tax_association_credit_note"])
         self.assertIn("자동 추정하지", context["other_article76_prepayment_note"])
         self.assertIn(
             "land-sale scheduled-return prepaid income tax",
