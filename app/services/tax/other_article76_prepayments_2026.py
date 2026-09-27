@@ -167,7 +167,6 @@ def calculate_financial_income_article62_comparison_2026(
             "other_withholding_final_return_legal_basis": "소득세법 제76조 제3항 제4호",
             "tax_association_final_return_legal_basis": "소득세법 제76조 제3항 제5호",
             "tax_association_collection_legal_basis": "소득세법 제150조",
-            "tax_association_credit_order_legal_basis": "소득세법 제60조 및 제150조",
             "official_other_article76_final_return_law_source_url": (
                 OFFICIAL_FINAL_RETURN_PREPAID_TAX_LAW_SOURCE_URL
             ),
@@ -185,11 +184,6 @@ def calculate_financial_income_article62_comparison_2026(
                 "납세조합징수세액을 기납부세액명세서에 구분해 적도록 합니다. B-4.8은 "
                 "실제 확인된 다른 종합소득 원천징수세액과 납세조합 징수세액만 기납부세액 "
                 "단계에서 반영하며 gross 소득에서 자동 추정하지 않습니다."
-            ),
-            "tax_association_credit_note": (
-                "납세조합공제는 B-4.9에서 소득세법 제60조 선행 세액공제 순서에 따라 "
-                "외국납부세액공제보다 먼저 반영합니다. B-4.8은 그 결과를 변경하지 않고 "
-                "후속 기납부세액만 차감합니다."
             ),
             "partial_balance_note": (
                 "현재까지 계산된 국세 세액공제 후 "
