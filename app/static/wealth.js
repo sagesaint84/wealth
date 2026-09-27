@@ -453,6 +453,10 @@ function computeFilteredDayChange(holdings, rawDayChange, owner = '모두', curr
     const change_krw = currentTotalValue - prevVal;
     const change_rate = prevVal > 0 ? (change_krw / prevVal) * 100 : 0;
     return {
+      day_profit_krw: null,
+      price_profit_status: 'unavailable',
+      record_change_rate: change_rate,
+      record_change_krw: change_krw,
       change_rate,
       change_krw,
       date: prevDate,
@@ -460,27 +464,15 @@ function computeFilteredDayChange(holdings, rawDayChange, owner = '모두', curr
     };
   }
 
-  // 2. 만약 해당 소유자의 이전 스냅샷이 없다면 보유종목 등락률 가중평균으로 fallback
-  if (!rawDayChange) return {};
-  let totalStockVal = 0, weightedChange = 0;
-  holdings.forEach(h => {
-    const val = Number(h.market_value_krw || 0);
-    const rate = Number(h.day_change_rate || 0);
-    totalStockVal += val;
-    weightedChange += val * rate;
-  });
-  if (totalStockVal === 0) {
-    return {
-      change_rate: 0,
-      change_krw: 0,
-      date: (rawDayChange || {}).date || "전일",
-    };
-  }
-  const change_rate = weightedChange / totalStockVal;
-  const change_krw  = totalStockVal * change_rate / (100 + change_rate) || 0;
+  // A display-only 1D rate without prior session provenance must never be
+  // promoted to today's canonical price P/L.
   return {
-    change_rate,
-    change_krw,
+    day_profit_krw: null,
+    price_profit_status: 'unavailable',
+    record_change_rate: null,
+    record_change_krw: null,
+    change_rate: null,
+    change_krw: null,
     date: (rawDayChange || {}).date || "전일",
   };
 }
@@ -507,7 +499,8 @@ function renderWithOwner(data, owner) {
     filteredData.classifications       = computeFilteredClassifications(filteredData.holdings, filteredData.accounts, src.fx_rates, effectiveOwner, src);
     filteredData.sector_classifications= computeFilteredSectors(filteredData.holdings, filteredData.accounts, src.fx_rates);
     filteredData.currency_summary      = computeFilteredCurrencySummary(filteredData.holdings, filteredData.accounts, src.fx_rates);
-    filteredData.day_change            = computeFilteredDayChange(filteredData.holdings, src.day_change, effectiveOwner, filteredData.summary?.total_value_krw);
+    filteredData.day_change            = src.daily_metrics_by_owner?.[effectiveOwner]
+      || computeFilteredDayChange(filteredData.holdings, src.day_change, effectiveOwner, filteredData.summary?.total_stock_value_krw);
   } else {
     filteredData.accounts              = src.accounts               || [];
     filteredData.holdings              = src.holdings               || [];
@@ -515,7 +508,7 @@ function renderWithOwner(data, owner) {
     filteredData.classifications       = computeFilteredClassifications(filteredData.holdings, filteredData.accounts, src.fx_rates, '모두', src);
     filteredData.sector_classifications= src.sector_classifications || [];
     filteredData.currency_summary      = src.currency_summary       || {};
-    filteredData.day_change            = computeFilteredDayChange(filteredData.holdings, src.day_change, '모두', filteredData.summary?.total_value_krw);
+    filteredData.day_change            = src.daily_metrics_by_owner?.['모두'] || src.day_change || {};
   }
 
   render(filteredData);
@@ -1460,20 +1453,33 @@ function renderSummary(data) {
     if ($("#subSafeInsuranceVal")) $("#subSafeInsuranceVal").textContent = `보험 ${money(insuranceTotal)}`;
   }
 
-  // 일간 수익 서브라인 (자산/주식 공통)
+  // Canonical session-gated price P/L and record-to-record valuation change
+  // are separate metrics. The latter may contain trades, quantity changes,
+  // and FX translation effects.
   const day = data.day_change || {};
   if ($("#dayProfitVal")) {
-    if (day.change_krw != null) {
-      const sign = day.change_krw >= 0 ? "+" : "";
-      const rateSign = (day.change_rate || 0) >= 0 ? "+" : "";
-      $("#dayProfitVal").textContent = `일간 수익 ${sign}${money(day.change_krw)} (${rateSign}${number(day.change_rate)}%)`;
-      $("#dayProfitVal").style.color = day.change_krw >= 0 ? "#f43f5e" : "#38bdf8";
+    if (day.day_profit_krw != null) {
+      const sign = day.day_profit_krw >= 0 ? "+" : "";
+      const partial = day.price_profit_status === 'partial' ? ' · 일부 종목 기준 없음' : '';
+      $("#dayProfitVal").textContent = `당일 가격변동 손익 ${sign}${money(day.day_profit_krw)}${partial}`;
+      $("#dayProfitVal").style.color = day.day_profit_krw >= 0 ? "#f43f5e" : "#38bdf8";
     } else {
-      $("#dayProfitVal").textContent = `일간 수익 —`;
+      $("#dayProfitVal").textContent = `당일 가격변동 손익 —`;
       $("#dayProfitVal").style.color = "#94a3b8";
     }
   }
-  if ($("#dayCaption")) $("#dayCaption").textContent = day.date ? `${day.date} 대비` : "전일 대비";
+  if ($("#recordChangeVal")) {
+    if (day.record_change_krw != null) {
+      const sign = day.record_change_krw >= 0 ? "+" : "";
+      const rateSign = (day.record_change_rate || 0) >= 0 ? "+" : "";
+      $("#recordChangeVal").textContent = `전 기록 대비 평가액 변화 ${sign}${money(day.record_change_krw)} (${rateSign}${number(day.record_change_rate)}%)`;
+    } else {
+      $("#recordChangeVal").textContent = `전 기록 대비 평가액 변화 —`;
+    }
+  }
+  if ($("#dayCaption")) $("#dayCaption").textContent = day.date
+    ? `${day.date} 기록 기준 · 가격손익은 시장 session 기준`
+    : "가격손익 기준 없음";
 
   const krwStock = krw.stock_value_krw || (Number(krw.market_value_krw || 0) - Number(krw.cash || 0));
   $("#krwValue") && ($("#krwValue").textContent = money(krw.market_value_krw || 0));
@@ -1500,8 +1506,10 @@ function renderSummary(data) {
     deposits: totalTenantDepositVal, insurance: insuranceTotal,
     realizedTrade: totalRealizedKrw, dividendInterest: totalActualDivKrw,
     realizedYear: combinedYearRealizedKrw, realizedMonth: combinedMonthRealizedKrw,
-    dayProfit: Number((data.day_change || {}).change_krw || 0),
-    dayRate: Number((data.day_change || {}).change_rate || 0),
+    dayProfit: Number((data.day_change || {}).day_profit_krw || 0),
+    dayRate: 0,
+    recordChange: (data.day_change || {}).record_change_krw,
+    recordChangeRate: (data.day_change || {}).record_change_rate,
     dayDate: (data.day_change || {}).date || null,
     classifications: data.classifications || [],
     updatedAt: data.updated_at || null,
