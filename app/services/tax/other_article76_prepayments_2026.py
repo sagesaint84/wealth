@@ -192,7 +192,7 @@ def calculate_financial_income_article62_comparison_2026(
                 "후속 기납부세액만 차감합니다."
             ),
             "partial_balance_note": (
-                "모델링된 배당세액공제, 납세조합공제 및 당기 국세 외국납부세액공제 후 "
+                "현재까지 계산된 국세 세액공제 후 "
                 + reflected_note
                 + "토지등 매매차익 예정신고세액, 수시부과세액, 가산세 및 다른 미구현 "
                 "세액공제ㆍ감면이 빠져 있어 최종 납부 또는 환급세액이 아닙니다."
