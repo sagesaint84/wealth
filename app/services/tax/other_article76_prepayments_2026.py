@@ -123,8 +123,6 @@ def calculate_financial_income_article62_comparison_2026(
 
     rule_context = result["rule_context"]
     not_calculated = list(rule_context.get("not_calculated", []))
-    legacy_item = "other Article 76 prepaid income taxes"
-    not_calculated = [item for item in not_calculated if item != legacy_item]
 
     scoped_items = (
         (
