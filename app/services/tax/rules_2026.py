@@ -103,7 +103,7 @@ OFFICIAL_FINANCIAL_INCOME_RETURN_FORM_SOURCE_URL = (
     "https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=153744873&gubun="
 )
 OFFICIAL_DIVIDEND_TAX_CREDIT_LAW_SOURCE_URL = (
-    "https://www.law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1032880527"
+    "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1032880527"
 )
 OFFICIAL_DIVIDEND_TAX_CREDIT_ENFORCEMENT_SOURCE_URL = (
     "https://www.law.go.kr/LSW/lsSideInfoP.do?docCls=jo&joBrNo=02&joNo=0116&lsiSeq=286211&urlMode=lsScJoRltInfoR"
@@ -150,7 +150,7 @@ OFFICIAL_HIGH_DIVIDEND_ENFORCEMENT_SOURCE_URL = (
 OFFICIAL_HIGH_DIVIDEND_SOURCE_URL = (
     "https://www.nts.go.kr/nts/na/ntt/selectNttInfo.do?nttSn=1349597"
 )
-RULE_VERIFIED_ON = "2026-09-27"
+RULE_VERIFIED_ON = "2026-09-26"
 DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 PREPAID_FINANCIAL_WITHHOLDING_VERIFIED_ON = "2026-09-27"
 FOREIGN_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
