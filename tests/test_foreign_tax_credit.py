@@ -229,7 +229,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
                         )
                     )
 
-    def test_foreign_credit_does_not_change_local_income_tax_result(self):
+    def test_foreign_credit_applies_corresponding_local_income_tax_credit(self):
         result = calculate_financial_income_article62_comparison_2026(
             **payload_with_foreign_credit()
         )
@@ -239,13 +239,20 @@ class ForeignTaxCreditTests(unittest.TestCase):
             ],
             420_000,
         )
+        self.assertEqual(result["local_foreign_tax_credit_krw"], 140_000)
+        self.assertEqual(
+            result[
+                "article93_local_income_tax_after_dividend_and_foreign_tax_credit_before_other_credits_krw"
+            ],
+            280_000,
+        )
         self.assertEqual(
             result[
                 "partial_local_income_tax_balance_after_explicit_financial_special_withholding_krw"
             ],
-            420_000,
+            280_000,
         )
-        self.assertFalse(
+        self.assertTrue(
             result["data_quality"]["local_income_tax_foreign_tax_credit_calculated"]
         )
 
@@ -263,6 +270,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
         }
         result = calculate_financial_income_article62_comparison_2026(**values)
         self.assertEqual(result["foreign_tax_credit_krw"], 1_400_000)
+        self.assertEqual(result["local_foreign_tax_credit_krw"], 140_000)
         self.assertEqual(
             result[
                 "partial_national_income_tax_balance_after_explicit_financial_withholding_krw"
@@ -273,7 +281,7 @@ class ForeignTaxCreditTests(unittest.TestCase):
             result[
                 "partial_local_income_tax_balance_after_explicit_financial_special_withholding_krw"
             ],
-            0,
+            -140_000,
         )
 
     def test_foreign_tax_credit_fields_are_all_or_none(self):
