@@ -25,6 +25,7 @@ B-4.7 국세 중간예납세액 반영은 PR #38 merge commit `91407565`로 완�
 - 검증된 code HEAD: `df32e29`
 - 전체 테스트: `Ran 2285 tests in 120.945s` / `OK`
 - `py_compile`, `git diff --check`, `git status --short`: clean
+- 검증 code HEAD 이후 변경: `docs/PROJECT_STATE.md`, `docs/ROADMAP.md` 문서-only
 
 ## 2. 다음 단계
 
