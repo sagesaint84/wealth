@@ -128,13 +128,16 @@ OFFICIAL_PREPAID_WITHHOLDING_LAW_SOURCE_URL = (
     "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1032881459"
 )
 OFFICIAL_INTERIM_PREPAYMENT_LAW_SOURCE_URL = (
-    "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1026641631"
+    "https://www.law.go.kr/lsLawLinkInfo.do?chrClsCd=010202&lsJoLnkSeq=900034264"
 )
 OFFICIAL_FINAL_RETURN_PREPAID_TAX_LAW_SOURCE_URL = (
-    "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1032881459"
+    "https://law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1032881375"
 )
 OFFICIAL_INCOME_TAX_REFUND_LAW_SOURCE_URL = (
-    "https://www.law.go.kr/LSW/lsLawLinkInfo.do?chrClsCd=010202&lsId=001565&lsJoLnkSeq=1000223888&print=print"
+    "https://law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1029626425"
+)
+OFFICIAL_INTERIM_PREPAYMENT_RETURN_FORM_SOURCE_URL = (
+    "https://www.law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=162643591&gubun="
 )
 OFFICIAL_FOREIGN_TAX_CREDIT_LAW_SOURCE_URL = (
     "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1033240233"
