@@ -19,6 +19,7 @@
 - 검증된 code HEAD: `df32e29`
 - 전체 테스트: `Ran 2285 tests in 120.945s` / `OK`
 - `py_compile`, `git diff --check`, `git status --short`: clean
+- 검증 code HEAD 이후 변경: `docs/PROJECT_STATE.md`, `docs/ROADMAP.md` 문서-only
 
 B-4.9 목표:
 
