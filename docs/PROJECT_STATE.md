@@ -4,26 +4,25 @@
 > 새 대화, 새 작업 세션, 새 개발자가 시작할 때 가장 먼저 이 문서를 읽습니다.
 > 세부 계획은 `docs/ROADMAP.md`, 비밀값·환경설정 원칙은 `docs/SECURITY_AND_CONFIG.md`를 참조합니다.
 
-마지막 갱신: 2026-09-27
+마지막 갱신: 2026-09-28
 
 ## 1. 현재 개발 상태
 
-현재 작업 단계는 **Phase 10.5C-5 — Portfolio after-known-tax dividend yield**입니다.
+다음 작업 단계는 **Phase 10.5C-7 — 가족별 배당 분산 보기 단순화**입니다.
 
-현재 작업:
+최근 완료/정리:
 
-- branch: `phase10-5c5-portfolio-after-tax-dividend-yield`
-- base: `main`
-- 작업 시작 기준 main: `5edb9388` (PR #45 merge)
-- 상태: 구현 및 검증 진행 중
+- 10.5C-5 Portfolio after-known-tax dividend yield — PR #46 merge (`b5e8cbaa`).
+- 세금 도구 전용 `🧾 세금` workspace 이동 — PR #47 merge (`8f490c0`).
+- 10.5C-6 2천만원 접근 What-if 개선 — PR #48에서 구현 및 full regression gate 완료.
+- C-7 branch는 아직 생성하지 않았으며 PR #48 merge/배포 확인 후 시작한다.
 
-C-5 목표:
+C-7 목표:
 
-1. 최종 enriched dividend forecast와 owner-filtered dashboard holdings를 결합해 포트폴리오 세전/알려진 세금 후 배당 현금흐름을 계산한다.
-2. 세율을 새로 하드코딩하지 않고 기존 `compare_investment_tax_2026()` screening backend를 재사용한다.
-3. 평가금액 기준 배당수익률과 평균매입가×수량·현재환율 환산 기준 yield-on-cost를 명확히 구분한다.
-4. 동일 code/currency의 다계좌 보유는 instrument 단위로 합산한다.
-5. forecast attribution 또는 tax coverage가 불완전하면 전체 포트폴리오 세후 배당수익률을 숫자로 승격하지 않는다.
+1. 본인/배우자/자녀별 예상 금융소득과 2천만원 여유를 자산배분 관점에서 더 단순하게 비교한다.
+2. 기존 가족별 금융소득 risk/allocation backend를 최대한 재사용하고 새로운 세법 판정을 만들지 않는다.
+3. 가족 합계가 법정 threshold인 것처럼 보이지 않도록 개인별 상태를 중심으로 표시한다.
+4. 증여/명의/실질귀속 판단은 추천하지 않고 기존 경고와 fail-closed 원칙을 유지한다.
 
 C-4.1 운영 확인:
 
@@ -71,7 +70,10 @@ C-4.1 운영 확인:
 - [x] 10.5C-3 일간 가격손익과 평가액 변화 분리 — PR #43 merge (`89ad76a`)
 - [x] 10.5C-4 official confirmed dividend event identity와 high-confidence actual/forecast dedup — PR #44 merge (`b235934d`)
 - [x] 10.5C-4.1 Dividend forecast point-in-time snapshots & evaluation foundation — PR #45 merge (`5edb9388`), 운영 배포 및 최초 snapshot 생성 확인
-- [ ] 10.5C-5 Portfolio after-known-tax dividend yield — 진행 중
+- [x] 10.5C-5 Portfolio after-known-tax dividend yield — PR #46 merge (`b5e8cbaa`)
+- [x] 세금 도구 전용 workspace 이동 — PR #47 merge (`8f490c0`)
+- [x] 10.5C-6 2천만원 접근 What-if 개선 — PR #48
+- [ ] 10.5C-7 가족별 배당 분산 보기 단순화 — 다음 increment
 
 세부 후속 순서는 `docs/ROADMAP.md`를 따른다.
 
@@ -84,6 +86,8 @@ C-4.1 운영 확인:
 - 세금 backend의 기존 정밀 계산은 버리지 않고 고급 근거/비교 기능으로 유지한다.
 - 기본 화면에서는 예상 금융소득, 2천만원 기준 여유, 추가 배당 영향, 원천징수 후 현금흐름을 우선한다.
 - `세후`라는 표현은 최종 신고세액이 아니라 현재 계산 가능한 원천징수·알려진 세금 기준일 때 그 범위를 함께 표시한다.
+- 가족 금융소득 risk/allocation과 금융소득 What-if 같은 세금 도구는 전용 `🧾 세금` workspace에 두고, 배당 forecast·요약·포트폴리오 알려진 세금 후 수익률은 배당 forecast 영역에 유지한다.
+- 2천만원 What-if UI는 서버가 계산한 threshold flags를 사용하며 정확히 2천만원에 도달한 상태를 안전 상태로 표시하지 않는다.
 
 ### 금융소득 projection
 
@@ -252,6 +256,16 @@ A-4.4 KIND ETF 분배금 보강:
 - forecast attribution이나 tax coverage가 불완전하면 계산 가능한 현금과 coverage만 보여주고 전체 포트폴리오 after-known-tax yield는 null로 유지한다.
 - UI 표현은 `최종 세후`가 아니라 `원천징수·알려진 세금 후` 범위를 명시한다.
 
+### C-6 2천만원 접근 What-if
+
+- 기존 +100만 / +500만 / +1,000만원 추가 배당 프리셋을 유지한다.
+- 2천만원 threshold 상태는 frontend에서 새 금액 기준을 계산하지 않고 backend의 `at_or_above`, `exceeded`, `remaining_krw`, `crossed_by_scenario`와 watch 상태를 재사용한다.
+- 적용 후 상태를 `safe / approach / reached / exceeded`로 구분한다.
+- 정확히 2천만원에 도달한 경우 `reached`로 표시하고 녹색 안전 상태로 취급하지 않는다.
+- 2천만원 초과 시 추가 배당 때문에 새로 넘었는지 기존 예상부터 이미 초과였는지를 구분해 문구를 표시한다.
+- scenario는 request 단위 stateless 계산이며 localStorage/sessionStorage에 저장하지 않는다.
+- backend API schema, 세법 계산, 세율 상수는 C-6에서 변경하지 않는다.
+
 ## 5. 사용자별 DART 인증 계약
 
 DART 인증정보는 A-4.1 전용 새 환경변수를 만들지 않는다.
@@ -327,7 +341,7 @@ docker compose \
 3. 관련 regression tests
 4. full unittest suite
 5. `git diff --check`
-6. `git status --short -- app tests` 또는 변경 범위에 맞는 status 확인
+6. 변경 범위 전체에 대해 `git status --short` 확인
 7. Draft PR
 8. 사용자 로컬 전체 테스트 확인
 9. Ready → merge

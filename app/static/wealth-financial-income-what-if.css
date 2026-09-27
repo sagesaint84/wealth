@@ -298,6 +298,16 @@
 .fi-result-card.safe > strong { color: #86efac; }
 .fi-result-card.warn { border-color: rgba(234, 179, 8, 0.34); }
 .fi-result-card.warn > strong { color: #fde047; }
+.fi-result-card.approach {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: rgba(245, 158, 11, 0.055);
+}
+.fi-result-card.approach > strong { color: #fbbf24; }
+.fi-result-card.reached {
+  border-color: rgba(251, 191, 36, 0.46);
+  background: rgba(251, 191, 36, 0.085);
+}
+.fi-result-card.reached > strong { color: #fde68a; }
 .fi-result-card.danger { border-color: rgba(239, 68, 68, 0.34); }
 .fi-result-card.danger > strong { color: #fca5a5; }
 .fi-result-card.unknown > strong { color: #cbd5e1; }
@@ -319,6 +329,18 @@
   border: 1px solid rgba(34, 197, 94, 0.24);
   background: rgba(34, 197, 94, 0.06);
   color: #bbf7d0;
+}
+
+.fi-decision-note.approach {
+  border: 1px solid rgba(245, 158, 11, 0.26);
+  background: rgba(245, 158, 11, 0.055);
+  color: #fcd34d;
+}
+
+.fi-decision-note.reached {
+  border: 1px solid rgba(251, 191, 36, 0.34);
+  background: rgba(251, 191, 36, 0.075);
+  color: #fde68a;
 }
 
 .fi-decision-note.danger {
