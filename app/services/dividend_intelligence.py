@@ -6,6 +6,7 @@ screening, and B-1 individual family financial-income thresholds.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 from copy import deepcopy
@@ -149,17 +150,14 @@ def _best_evidence(rows: list[dict[str, Any]]) -> dict[str, Any]:
     )
 
 
-def _group_rows(
-    rows: object, *, forecast: bool = False
-) -> dict[tuple[str, str], list[dict[str, Any]]]:
+def _group_rows(rows: object) -> dict[tuple[str, str], list[dict[str, Any]]]:
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     if not isinstance(rows, list):
         return grouped
     for row in rows:
         if not isinstance(row, dict):
             continue
-        currency = row.get("currency") or "KRW"
-        key = _instrument_key(row.get("code"), currency)
+        key = _instrument_key(row.get("code"), row.get("currency") or "KRW")
         if key is not None:
             grouped.setdefault(key, []).append(row)
     return grouped
@@ -248,7 +246,7 @@ def _instrument_views(
     instruments = after_tax.get("instruments") if isinstance(after_tax, dict) else None
     if not isinstance(instruments, list):
         return []
-    forecast_map = _group_rows(summary.get("holding_dividends"), forecast=True)
+    forecast_map = _group_rows(summary.get("holding_dividends"))
     holding_map = _group_rows(holdings)
     canonical_gross = _number(after_tax.get("gross_annual_dividend_krw"))
     calculable_cash = _number(after_tax.get("calculable_after_known_tax_cash_krw"))
@@ -654,14 +652,38 @@ def _dispatch_events(username: str, events: list[Any]) -> dict[str, Any]:
 def dispatch_scheduled_dividend_intelligence_alerts(
     username: str, snapshot: dict[str, Any]
 ) -> dict[str, Any]:
-    """Send scheduled official-evidence alerts only; family thresholds are separate."""
+    """Send official alerts and queue individual B-1 threshold alerts.
+
+    The synchronous snapshot write remains non-fatal.  When called by the async
+    daily-close path, the member-risk calculation is queued on that running
+    event loop.  No family-total threshold is ever calculated here.
+    """
     if not username or not isinstance(snapshot, dict):
         return {"status": "skipped", "reason": "invalid_input", "sent_count": 0}
     if str(snapshot.get("trigger") or "") != "scheduled":
         return {"status": "skipped", "reason": "not_scheduled", "sent_count": 0}
     if not _alert_opted_in(username):
         return {"status": "disabled", "reason": "not_opted_in", "sent_count": 0}
-    return _dispatch_events(username, _official_alert_events(username, snapshot))
+
+    result = _dispatch_events(username, _official_alert_events(username, snapshot))
+    as_of = str(snapshot.get("as_of_date") or "").strip()
+    if as_of:
+        try:
+            from app.services.dividend_intelligence_async import (
+                dispatch_scheduled_family_financial_income_alerts,
+            )
+
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                dispatch_scheduled_family_financial_income_alerts(
+                    username,
+                    as_of=as_of,
+                )
+            )
+        except (RuntimeError, ImportError):
+            # Synchronous/manual callers have no running event loop; daily close does.
+            pass
+    return result
 
 
 def dispatch_family_financial_income_alerts(
