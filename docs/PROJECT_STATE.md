@@ -8,21 +8,18 @@
 
 ## 1. 현재 개발 상태
 
-다음 작업 단계는 **Phase 10.5C-7 — 가족별 배당 분산 보기 단순화**입니다.
+현재 상태는 **Phase 10.5C-6 — 2천만원 접근 What-if 개선 운영 확인 완료**입니다.
+
+다음 개발 우선순위는 아직 확정하지 않았습니다. C-7은 삭제하지 않고 **추후 진행 후보**로 보류합니다.
 
 최근 완료/정리:
 
 - 10.5C-5 Portfolio after-known-tax dividend yield — PR #46 merge (`b5e8cbaa`).
 - 세금 도구 전용 `🧾 세금` workspace 이동 — PR #47 merge (`8f490c0`).
-- 10.5C-6 2천만원 접근 What-if 개선 — PR #48에서 구현 및 full regression gate 완료.
-- C-7 branch는 아직 생성하지 않았으며 PR #48 merge/배포 확인 후 시작한다.
+- 10.5C-6 2천만원 접근 What-if 개선 — PR #48 merge 및 운영 확인 완료 (`0d87fd9c`).
+- 10.5C-7 가족별 배당 분산 보기 단순화 — 기존 Family Risk / Allocation Simulation과 기능 중복이 커서 추후 UX 정리 후보로 보류.
 
-C-7 목표:
-
-1. 본인/배우자/자녀별 예상 금융소득과 2천만원 여유를 자산배분 관점에서 더 단순하게 비교한다.
-2. 기존 가족별 금융소득 risk/allocation backend를 최대한 재사용하고 새로운 세법 판정을 만들지 않는다.
-3. 가족 합계가 법정 threshold인 것처럼 보이지 않도록 개인별 상태를 중심으로 표시한다.
-4. 증여/명의/실질귀속 판단은 추천하지 않고 기존 경고와 fail-closed 원칙을 유지한다.
+다음 increment는 `docs/ROADMAP.md`의 후보를 비교한 뒤 별도로 확정한다. C-8 번호는 우선순위가 정해지기 전에는 고정하지 않는다.
 
 C-4.1 운영 확인:
 
@@ -72,8 +69,8 @@ C-4.1 운영 확인:
 - [x] 10.5C-4.1 Dividend forecast point-in-time snapshots & evaluation foundation — PR #45 merge (`5edb9388`), 운영 배포 및 최초 snapshot 생성 확인
 - [x] 10.5C-5 Portfolio after-known-tax dividend yield — PR #46 merge (`b5e8cbaa`)
 - [x] 세금 도구 전용 workspace 이동 — PR #47 merge (`8f490c0`)
-- [x] 10.5C-6 2천만원 접근 What-if 개선 — PR #48
-- [ ] 10.5C-7 가족별 배당 분산 보기 단순화 — 다음 increment
+- [x] 10.5C-6 2천만원 접근 What-if 개선 — PR #48, 운영 확인 완료
+- [ ] 10.5C-7 가족별 배당 분산 보기 단순화 — 추후 진행 후보로 보류
 
 세부 후속 순서는 `docs/ROADMAP.md`를 따른다.
 

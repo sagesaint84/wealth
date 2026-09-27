@@ -21,18 +21,41 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 - 10.5C-4.1 Dividend forecast point-in-time measurement foundation — PR #45 merge (`5edb9388`), 운영 배포 및 최초 snapshot 생성 확인
 - 10.5C-5 포트폴리오 알려진 세금 후 배당수익률 — PR #46 merge (`b5e8cbaa`)
 - 세금 도구 전용 `🧾 세금` workspace 이동 — PR #47 merge (`8f490c0`)
-- 10.5C-6 2천만원 접근 What-if 개선 — PR #48
+- 10.5C-6 2천만원 접근 What-if 개선 — PR #48, 운영 확인 완료 (`0d87fd9c`)
 
-현재 increment: **10.5C-7 가족별 배당 분산 보기 단순화**
+현재 increment: **미정 — 다음 우선순위 후보 비교 중**
 
-- 본인/배우자/자녀별 예상 금융소득과 2천만원 여유를 자산배분 관점에서 비교
-- 기존 가족별 금융소득 risk/allocation backend를 최대한 재사용
-- 증여/명의/실질귀속 판단을 추천하지 않고 기존 경고 원칙 유지
-- 가족 합계를 법정 threshold로 오인하지 않도록 개인별 screening을 중심으로 표시
+- C-7 가족별 배당 분산 보기 단순화는 기존 Family Financial Income Risk / Family Allocation Simulation과 기능 중복이 커서 **추후 진행 후보**로 보류한다.
+- 다음 작업 번호(C-8 등)는 실제 우선순위를 확정한 뒤 부여한다.
 
 ## 2. 다음 단계
 
-C-7 완료 전에는 C-8 번호를 고정하지 않는다. 이후 후보는 기존 UX/알림 backlog에서 우선순위를 다시 정한다.
+우선순위 후보는 다음과 같다. 아직 번호와 실행 순서는 고정하지 않는다.
+
+1. **배당 예상 신뢰도·근거 UX 강화**
+   - official / heuristic / residual을 화면에서 더 명확히 구분
+   - confidence/source badge 세분화
+   - OpenDART/KIND 등 공식 공시 원문 바로가기
+   - 예상금액의 계산 근거 펼쳐보기
+2. **종목/계좌별 알려진 세금 후 배당 기여도**
+   - C-5의 portfolio after-known-tax 결과를 instrument/account 단위로 확장
+   - 어떤 종목이 세전 배당과 알려진 세금 후 현금에 얼마나 기여하는지 표시
+   - 지원 불가/partial coverage는 전체 수익률과 동일하게 fail-closed로 유지
+3. **배당·금융소득 알림 자동화**
+   - 예상 금융소득 1,000만원 접근 및 2,000만원 접근/초과 알림
+   - 확정 배당 공시 발생 알림
+   - 중복 방지와 공시 존재/확정금액 구분을 전제로 Telegram 등과 연결
+4. **배당예측 정확도 측정 화면**
+   - C-4.1 snapshot이 충분히 누적된 뒤 forecast vs actual MAE/WAPE 및 지급월 정확도를 표시
+   - 과거 snapshot이 충분하지 않은 동안에는 조기 승격하지 않음
+5. **C-7 가족별 배당 분산 보기 단순화 — 추후 진행**
+   - 기존 Family Risk / Allocation Simulation의 기능은 유지
+   - 필요성이 다시 커질 때 두 패널을 단순 통합하고 배분 후 개인별 2천만원 여유를 더 직관적으로 표시
+
+작은 UX 후보는 독립 increment 또는 위 작업에 함께 묶을 수 있다.
+
+- USD 입력 천 단위 표시
+- 원화 환산값 보조표시
 
 종합소득세 신고서 완성을 위한 다음 항목들은 **현재 제품 우선순위에서 보류**한다.
 
@@ -185,6 +208,7 @@ C-7 완료 전에는 C-8 번호를 고정하지 않는다. 이후 후보는 기�
 - 배당 예상 confidence/source badge 세분화
 - 공시 원문 바로가기
 - 계산 근거 펼쳐보기
+- C-7 가족별 배당 분산 보기 단순화 (추후 진행)
 
 ## 8. 장기 구조 개선 후보
 
