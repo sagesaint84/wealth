@@ -105,6 +105,10 @@ HIGH_DIVIDEND_SPECIAL_LAST_QUALIFYING_BUSINESS_YEAR_END = "2028-12-31"
 #    - 국세 외국납부세액공제액의 10%를 종합소득 개인지방소득세에서 공제
 #    - 제97조 제2항의 지방 외국납부세액공제 이월기간은 5년
 #    - 소득세법 제57조 제1항 제2호 비용처리 방식이면 제97조 제1항 미적용
+# 7) 소득세법 제65조ㆍ제76조 제3항 제1호ㆍ제85조 제4항, 별지 제40호서식(1)
+#    - 중간예납세액은 확정신고납부 시 공제되는 기납부세액
+#    - 신고서에서도 중간예납세액을 기납부세액으로 별도 표시
+#    - 실제 반영액은 전년도 세액에서 제품이 자동 추정하지 않고 명시 입력
 OFFICIAL_RULE_SOURCE_URL = (
     "https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=151083979&gubun="
 )
@@ -122,6 +126,18 @@ OFFICIAL_DIVIDEND_TAX_CREDIT_ENFORCEMENT_SOURCE_URL = (
 )
 OFFICIAL_PREPAID_WITHHOLDING_LAW_SOURCE_URL = (
     "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1032881459"
+)
+OFFICIAL_INTERIM_PREPAYMENT_LAW_SOURCE_URL = (
+    "https://www.law.go.kr/lsLawLinkInfo.do?chrClsCd=010202&lsJoLnkSeq=900034264"
+)
+OFFICIAL_FINAL_RETURN_PREPAID_TAX_LAW_SOURCE_URL = (
+    "https://law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1032881375"
+)
+OFFICIAL_INCOME_TAX_REFUND_LAW_SOURCE_URL = (
+    "https://law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1029626425"
+)
+OFFICIAL_INTERIM_PREPAYMENT_RETURN_FORM_SOURCE_URL = (
+    "https://www.law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=162643591&gubun="
 )
 OFFICIAL_FOREIGN_TAX_CREDIT_LAW_SOURCE_URL = (
     "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1033240233"
@@ -174,6 +190,7 @@ OFFICIAL_HIGH_DIVIDEND_SOURCE_URL = (
 RULE_VERIFIED_ON = "2026-09-26"
 DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 PREPAID_FINANCIAL_WITHHOLDING_VERIFIED_ON = "2026-09-27"
+INTERIM_PREPAID_INCOME_TAX_VERIFIED_ON = "2026-09-27"
 FOREIGN_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 LOCAL_INCOME_TAX_COMPARISON_VERIFIED_ON = "2026-09-27"
 LOCAL_DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
