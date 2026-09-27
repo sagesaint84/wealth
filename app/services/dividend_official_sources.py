@@ -113,6 +113,8 @@ def _extract_ordinary_cash_dps(rows: object) -> float | None:
         if "주당현금배당금" not in label:
             continue
         stock_kind = _normalize_label(raw.get("stock_knd"))
+        # Prefer ordinary shares, but accept blank stock kind because some
+        # issuers omit the classification for a single listed share class.
         if stock_kind and "보통" not in stock_kind and "ordinary" not in stock_kind:
             continue
         value = _money(raw.get("thstrm"))
@@ -120,6 +122,9 @@ def _extract_ordinary_cash_dps(rows: object) -> float | None:
             candidates.append(value)
     if not candidates:
         return None
+    # Duplicate report rows occasionally exist; identical values collapse and
+    # the largest non-negative value is a conservative representation of the
+    # per-share cash dividend line rather than summing duplicate rows.
     return max(candidates)
 
 
@@ -144,6 +149,8 @@ def _latest_dividend_decision(rows: object) -> dict[str, Any] | None:
                 "receipt_no": receipt,
                 "receipt_date": receipt_date,
                 "viewer_url": DART_VIEWER_URL.format(rcept_no=receipt),
+                # A list API title only proves that a filing exists.  It does
+                # not structurally verify the per-share amount.
                 "confirmed_amount": False,
             }
         )
@@ -265,7 +272,11 @@ async def get_official_dividend_evidence(
     as_of: date | datetime | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> dict[str, Any]:
-    """Return official evidence keyed by domestic stock code."""
+    """Return official evidence keyed by domestic stock code.
+
+    The function intentionally degrades to metadata instead of raising when
+    OpenDART is not configured or unavailable.
+    """
     network_allowed = external_network_allowed()
     if api_key is not None:
         key = api_key.strip()
@@ -382,19 +393,13 @@ def _rebuild_summary_from_holdings(
     for holding in holdings:
         if not isinstance(holding, dict):
             continue
-        key = (
-            _stock_code(holding.get("code")),
-            str(holding.get("currency") or "KRW").upper(),
-        )
+        key = (_stock_code(holding.get("code")), str(holding.get("currency") or "KRW").upper())
         original_by_key[key] = holding
 
     total_annual = 0.0
     total_eval = 0.0
     paying_count = 0
-    monthly = {
-        m: {"month": m, "total_krw": 0.0, "items": []}
-        for m in range(1, 13)
-    }
+    monthly = {m: {"month": m, "total_krw": 0.0, "items": []} for m in range(1, 13)}
 
     for row in rows:
         if not isinstance(row, dict):
@@ -403,11 +408,7 @@ def _rebuild_summary_from_holdings(
         currency = str(row.get("currency") or "KRW").upper()
         holding = original_by_key.get((code, currency), {})
         qty = _money(row.get("quantity")) or _money(holding.get("quantity")) or 0.0
-        price = (
-            _money(holding.get("current_price"))
-            or _money(holding.get("purchase_price"))
-            or 0.0
-        )
+        price = _money(holding.get("current_price")) or _money(holding.get("purchase_price")) or 0.0
         multiplier = fx_rate if currency == "USD" else 1.0
         total_eval += qty * price * multiplier
 
@@ -418,16 +419,8 @@ def _rebuild_summary_from_holdings(
         row["annual_payout_krw"] = round(annual_krw)
         if price > 0:
             row["div_yield"] = round((annual_per_share / price) * 100.0, 2)
-        payout_months = (
-            row.get("payout_months")
-            if isinstance(row.get("payout_months"), list)
-            else []
-        )
-        valid_months = [
-            int(m)
-            for m in payout_months
-            if isinstance(m, (int, float)) and 1 <= int(m) <= 12
-        ]
+        payout_months = row.get("payout_months") if isinstance(row.get("payout_months"), list) else []
+        valid_months = [int(m) for m in payout_months if isinstance(m, (int, float)) and 1 <= int(m) <= 12]
         if annual_krw > 0:
             paying_count += 1
             total_annual += annual_krw
@@ -457,9 +450,7 @@ def _rebuild_summary_from_holdings(
     summary["total_annual_dividend_krw"] = round(total_annual)
     summary["monthly_avg_dividend_krw"] = round(total_annual / 12.0)
     summary["dividend_paying_count"] = paying_count
-    summary["portfolio_yield"] = (
-        round((total_annual / total_eval) * 100.0, 2) if total_eval > 0 else 0.0
-    )
+    summary["portfolio_yield"] = round((total_annual / total_eval) * 100.0, 2) if total_eval > 0 else 0.0
     summary["monthly_schedule"] = schedule
     rows.sort(key=lambda value: value.get("annual_payout_krw") or 0, reverse=True)
 
@@ -479,8 +470,7 @@ def _apply_confirmed_future_overrides(
     bucket_by_month = {
         int(bucket.get("month")): bucket
         for bucket in schedule
-        if isinstance(bucket, dict)
-        and isinstance(bucket.get("month"), (int, float))
+        if isinstance(bucket, dict) and isinstance(bucket.get("month"), (int, float))
     }
     changed = False
     total_delta = 0.0
@@ -492,10 +482,7 @@ def _apply_confirmed_future_overrides(
         if not isinstance(source, dict):
             continue
         structured = source.get("structured_decision_disclosure")
-        if (
-            not isinstance(structured, dict)
-            or structured.get("confirmed_amount") is not True
-        ):
+        if not isinstance(structured, dict) or structured.get("confirmed_amount") is not True:
             continue
         source["confirmed_numeric_override"] = False
         payment_text = str(structured.get("payment_date") or "").strip()
@@ -508,24 +495,18 @@ def _apply_confirmed_future_overrides(
             source["confirmed_numeric_override_reason"] = "payment_date_invalid"
             continue
         if payment_day < as_of or payment_day.year != as_of.year:
-            source["confirmed_numeric_override_reason"] = (
-                "payment_date_outside_current_future_window"
-            )
+            source["confirmed_numeric_override_reason"] = "payment_date_outside_current_future_window"
             continue
 
         dps = _money(structured.get("ordinary_cash_dps_krw"))
         qty = _money(row.get("quantity")) or 0.0
         if dps is None or dps <= 0 or qty <= 0:
-            source["confirmed_numeric_override_reason"] = (
-                "amount_or_quantity_unavailable"
-            )
+            source["confirmed_numeric_override_reason"] = "amount_or_quantity_unavailable"
             continue
         month = payment_day.month
         bucket = bucket_by_month.get(month)
         if not isinstance(bucket, dict):
-            source["confirmed_numeric_override_reason"] = (
-                "monthly_schedule_unavailable"
-            )
+            source["confirmed_numeric_override_reason"] = "monthly_schedule_unavailable"
             continue
         items = bucket.get("items")
         if not isinstance(items, list):
@@ -533,19 +514,12 @@ def _apply_confirmed_future_overrides(
             bucket["items"] = items
         code = _stock_code(row.get("code"))
         existing = next(
-            (
-                item
-                for item in items
-                if isinstance(item, dict)
-                and _stock_code(item.get("code")) == code
-            ),
+            (item for item in items if isinstance(item, dict) and _stock_code(item.get("code")) == code),
             None,
         )
         current_annual = _money(row.get("annual_payout_krw")) or 0.0
         if existing is None and current_annual > 0:
-            source["confirmed_numeric_override_reason"] = (
-                "payment_month_not_in_existing_schedule"
-            )
+            source["confirmed_numeric_override_reason"] = "payment_month_not_in_existing_schedule"
             continue
 
         new_payout = round(qty * dps)
@@ -586,18 +560,13 @@ def _apply_confirmed_future_overrides(
         existing["receipt_no"] = structured.get("receipt_no")
         existing["quantity_basis"] = "current_holding"
         existing["entitlement_confirmed"] = False
-        bucket["total_krw"] = round(
-            (_money(bucket.get("total_krw")) or 0.0) + delta
-        )
+        bucket["total_krw"] = round((_money(bucket.get("total_krw")) or 0.0) + delta)
         items.sort(key=lambda value: value.get("payout_krw") or 0, reverse=True)
 
         row["annual_payout_krw"] = round(current_annual + delta)
         current_orig = _money(row.get("annual_payout_orig")) or current_annual
         row["annual_payout_orig"] = round(current_orig + delta, 2)
-        row["annual_div_per_share"] = round(
-            row["annual_payout_orig"] / qty,
-            4,
-        )
+        row["annual_div_per_share"] = round(row["annual_payout_orig"] / qty, 4)
         holding = next(
             (
                 item
@@ -608,16 +577,9 @@ def _apply_confirmed_future_overrides(
             ),
             {},
         )
-        price = (
-            _money(holding.get("current_price"))
-            or _money(holding.get("purchase_price"))
-            or 0.0
-        )
+        price = _money(holding.get("current_price")) or _money(holding.get("purchase_price")) or 0.0
         if price > 0:
-            row["div_yield"] = round(
-                (row["annual_div_per_share"] / price) * 100.0,
-                2,
-            )
+            row["div_yield"] = round((row["annual_div_per_share"] / price) * 100.0, 2)
             existing["div_yield"] = row["div_yield"]
         source["numeric_source"] = "opendart_confirmed_disclosure"
         source["confirmed_numeric_override"] = True
@@ -635,8 +597,7 @@ def _apply_confirmed_future_overrides(
     summary["dividend_paying_count"] = sum(
         1
         for row in rows
-        if isinstance(row, dict)
-        and (_money(row.get("annual_payout_krw")) or 0.0) > 0
+        if isinstance(row, dict) and (_money(row.get("annual_payout_krw")) or 0.0) > 0
     )
 
     total_eval = 0.0
@@ -644,11 +605,7 @@ def _apply_confirmed_future_overrides(
         if not isinstance(holding, dict):
             continue
         qty = _money(holding.get("quantity")) or 0.0
-        price = (
-            _money(holding.get("current_price"))
-            or _money(holding.get("purchase_price"))
-            or 0.0
-        )
+        price = _money(holding.get("current_price")) or _money(holding.get("purchase_price")) or 0.0
         currency = str(holding.get("currency") or "KRW").upper()
         total_eval += qty * price * (fx_rate if currency == "USD" else 1.0)
     if total_eval > 0:
@@ -658,17 +615,16 @@ def _apply_confirmed_future_overrides(
 
 
 def _attach_portfolio_after_tax(
-    summary: dict[str, Any],
-    holdings: list[dict[str, Any]],
+    summary: dict[str, Any], holdings: list[dict[str, Any]]
 ) -> None:
-    """Attach the pure C-5 derived view without risking the base forecast."""
+    """Attach C-5 derived data without risking the base dividend forecast."""
     try:
         from app.services.portfolio_dividend_after_tax import (
             build_portfolio_after_tax_dividend_summary,
         )
 
-        summary["portfolio_after_tax"] = (
-            build_portfolio_after_tax_dividend_summary(holdings, summary)
+        summary["portfolio_after_tax"] = build_portfolio_after_tax_dividend_summary(
+            holdings, summary
         )
     except Exception:
         summary["portfolio_after_tax"] = {
@@ -721,24 +677,14 @@ async def enrich_dividend_summary_with_official_sources(
         currency = str(row.get("currency") or "KRW").upper()
         if not _is_domestic_stock_code(code, currency):
             row["forecast_source"] = {
-                "numeric_source": (
-                    "yahoo_history" if currency == "USD" else "legacy_fallback"
-                ),
+                "numeric_source": "yahoo_history" if currency == "USD" else "legacy_fallback",
                 "official_data_available": False,
                 "confirmed_amount": False,
             }
             continue
 
-        evidence = (
-            evidence_map.get(code)
-            if isinstance(evidence_map.get(code), dict)
-            else {}
-        )
-        historical = (
-            evidence.get("historical")
-            if isinstance(evidence.get("historical"), dict)
-            else {}
-        )
+        evidence = evidence_map.get(code) if isinstance(evidence_map.get(code), dict) else {}
+        historical = evidence.get("historical") if isinstance(evidence.get("historical"), dict) else {}
         structured = (
             evidence.get("structured_decision_disclosure")
             if isinstance(evidence.get("structured_decision_disclosure"), dict)
@@ -759,9 +705,7 @@ async def enrich_dividend_summary_with_official_sources(
             "official_business_year": historical.get("business_year"),
             "recent_decision_disclosure": evidence.get("recent_decision_disclosure"),
             "structured_decision_disclosure": structured,
-            "confirmed_amount": bool(
-                structured and structured.get("confirmed_amount") is True
-            ),
+            "confirmed_amount": bool(structured and structured.get("confirmed_amount") is True),
             "confirmed_numeric_override": False,
             "kind_reference_url": KIND_DIVIDEND_INFO_URL,
             "opendart_reference_url": OPENDART_GUIDE_URL,
@@ -770,16 +714,9 @@ async def enrich_dividend_summary_with_official_sources(
 
     if changed:
         _rebuild_summary_from_holdings(summary, holdings, fx_rate=fx_rate)
-    day = (
-        as_of.date()
-        if isinstance(as_of, datetime)
-        else (as_of or _now_kst().date())
-    )
+    day = as_of.date() if isinstance(as_of, datetime) else (as_of or _now_kst().date())
     _apply_confirmed_future_overrides(
-        summary,
-        holdings,
-        fx_rate=fx_rate,
-        as_of=day,
+        summary, holdings, fx_rate=fx_rate, as_of=day
     )
     try:
         from app.services.etf_kind_distributions import (
@@ -796,7 +733,6 @@ async def enrich_dividend_summary_with_official_sources(
     except Exception:
         policy = summary.setdefault("forecast_source_policy", {})
         policy["kind_etf_status"] = "kind_enrichment_failed"
-
     _attach_portfolio_after_tax(summary, holdings)
     return summary
 
