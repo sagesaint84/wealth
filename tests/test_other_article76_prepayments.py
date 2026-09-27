@@ -19,9 +19,10 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
         )
         self.assertEqual(result["prepaid_other_comprehensive_income_withholding_tax_krw"], 0)
         self.assertEqual(result["prepaid_tax_association_collected_income_tax_krw"], 0)
-        self.assertEqual(result["tax_association_credit_krw"], 0)
         self.assertEqual(
-            result["partial_national_income_tax_balance_after_explicit_article76_deductions_krw"],
+            result[
+                "partial_national_income_tax_balance_after_explicit_article76_prepayments_krw"
+            ],
             result[
                 "partial_national_income_tax_balance_after_explicit_financial_withholding_and_interim_prepayment_krw"
             ],
@@ -30,8 +31,9 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
             result["data_quality"]["other_comprehensive_income_withholding_tax_calculated"]
         )
         self.assertFalse(
-            result["data_quality"]["tax_association_final_return_deductions_calculated"]
+            result["data_quality"]["tax_association_collected_income_tax_calculated"]
         )
+        self.assertFalse(result["data_quality"]["tax_association_credit_calculated"])
 
     def test_other_comprehensive_income_withholding_reduces_partial_balance(self):
         result = calculate_financial_income_article62_comparison_2026(
@@ -47,37 +49,36 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
             4_200_000,
         )
         self.assertEqual(
-            result["partial_national_income_tax_balance_after_explicit_article76_deductions_krw"],
+            result[
+                "partial_national_income_tax_balance_after_explicit_article76_prepayments_krw"
+            ],
             3_200_000,
         )
         self.assertEqual(
-            result["article76_other_withholding_and_tax_association_deduction_total_krw"],
+            result["article76_other_withholding_and_tax_association_collected_total_krw"],
             1_000_000,
         )
-        self.assertTrue(
-            result["data_quality"]["other_comprehensive_income_withholding_tax_calculated"]
-        )
 
-    def test_tax_association_collected_tax_and_credit_are_both_deducted(self):
+    def test_tax_association_collected_tax_reduces_partial_balance(self):
         result = calculate_financial_income_article62_comparison_2026(
             **{
                 **payload(ordinary_interest_14_krw=30_000_000),
                 "prepaid_tax_association_collected_income_tax_krw": 700_000,
-                "tax_association_credit_krw": 30_000,
             }
         )
         self.assertEqual(result["prepaid_tax_association_collected_income_tax_krw"], 700_000)
-        self.assertEqual(result["tax_association_credit_krw"], 30_000)
         self.assertEqual(
-            result["article76_other_withholding_and_tax_association_deduction_total_krw"],
-            730_000,
+            result["article76_other_withholding_and_tax_association_collected_total_krw"],
+            700_000,
         )
         self.assertEqual(
-            result["partial_national_income_tax_balance_after_explicit_article76_deductions_krw"],
-            3_470_000,
+            result[
+                "partial_national_income_tax_balance_after_explicit_article76_prepayments_krw"
+            ],
+            3_500_000,
         )
         self.assertTrue(
-            result["data_quality"]["tax_association_final_return_deductions_calculated"]
+            result["data_quality"]["tax_association_collected_income_tax_calculated"]
         )
 
     def test_other_article76_inputs_coexist_with_financial_withholding_and_interim(self):
@@ -90,7 +91,6 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
                 "prepaid_interim_income_tax_krw": 500_000,
                 "prepaid_other_comprehensive_income_withholding_tax_krw": 250_000,
                 "prepaid_tax_association_collected_income_tax_krw": 100_000,
-                "tax_association_credit_krw": 20_000,
             }
         )
         self.assertEqual(
@@ -104,31 +104,27 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
             900_000,
         )
         self.assertEqual(
-            result["article76_other_withholding_and_tax_association_deduction_total_krw"],
-            370_000,
+            result["article76_other_withholding_and_tax_association_collected_total_krw"],
+            350_000,
         )
         self.assertEqual(
-            result["partial_national_income_tax_balance_after_explicit_article76_deductions_krw"],
-            530_000,
+            result[
+                "partial_national_income_tax_balance_after_explicit_article76_prepayments_krw"
+            ],
+            550_000,
         )
 
-    def test_tax_association_inputs_are_all_or_none(self):
-        cases = (
-            {"prepaid_tax_association_collected_income_tax_krw": 100_000},
-            {"tax_association_credit_krw": 10_000},
-        )
-        for extra in cases:
-            with self.subTest(extra=extra):
-                with self.assertRaisesRegex(
-                    PersonalComprehensiveTaxError,
-                    "ARTICLE76_TAX_ASSOCIATION_INPUTS_INCOMPLETE",
-                ):
-                    calculate_financial_income_article62_comparison_2026(
-                        **{
-                            **payload(ordinary_interest_14_krw=30_000_000),
-                            **extra,
-                        }
-                    )
+    def test_tax_association_credit_is_fail_closed_until_preceding_credit_model(self):
+        with self.assertRaisesRegex(
+            PersonalComprehensiveTaxError,
+            "ARTICLE76_TAX_ASSOCIATION_CREDIT_REQUIRES_PRECEDING_CREDIT_MODEL",
+        ):
+            calculate_financial_income_article62_comparison_2026(
+                **{
+                    **payload(ordinary_interest_14_krw=30_000_000),
+                    "tax_association_credit_krw": 30_000,
+                }
+            )
 
     def test_invalid_other_withholding_is_rejected(self):
         for bad_value in (True, -1, float("nan"), float("inf"), "bad"):
@@ -144,24 +140,19 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
                         }
                     )
 
-    def test_invalid_tax_association_amount_is_rejected(self):
-        for field in (
-            "prepaid_tax_association_collected_income_tax_krw",
-            "tax_association_credit_krw",
-        ):
-            for bad_value in (True, -1, float("nan"), float("inf"), "bad"):
-                values = {
-                    **payload(ordinary_interest_14_krw=30_000_000),
-                    "prepaid_tax_association_collected_income_tax_krw": 0,
-                    "tax_association_credit_krw": 0,
-                }
-                values[field] = bad_value
-                with self.subTest(field=field, bad_value=bad_value):
-                    with self.assertRaisesRegex(
-                        PersonalComprehensiveTaxError,
-                        "ARTICLE76_TAX_ASSOCIATION_AMOUNT_INVALID",
-                    ):
-                        calculate_financial_income_article62_comparison_2026(**values)
+    def test_invalid_tax_association_collected_amount_is_rejected(self):
+        for bad_value in (True, -1, float("nan"), float("inf"), "bad"):
+            with self.subTest(bad_value=bad_value):
+                with self.assertRaisesRegex(
+                    PersonalComprehensiveTaxError,
+                    "ARTICLE76_TAX_ASSOCIATION_AMOUNT_INVALID",
+                ):
+                    calculate_financial_income_article62_comparison_2026(
+                        **{
+                            **payload(ordinary_interest_14_krw=30_000_000),
+                            "prepaid_tax_association_collected_income_tax_krw": bad_value,
+                        }
+                    )
 
     def test_explicit_zero_inputs_are_calculated(self):
         result = calculate_financial_income_article62_comparison_2026(
@@ -169,25 +160,25 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
                 **payload(ordinary_interest_14_krw=30_000_000),
                 "prepaid_other_comprehensive_income_withholding_tax_krw": 0,
                 "prepaid_tax_association_collected_income_tax_krw": 0,
-                "tax_association_credit_krw": 0,
             }
         )
         self.assertTrue(
             result["data_quality"]["other_comprehensive_income_withholding_tax_calculated"]
         )
         self.assertTrue(
-            result["data_quality"]["tax_association_final_return_deductions_calculated"]
+            result["data_quality"]["tax_association_collected_income_tax_calculated"]
         )
         self.assertNotIn(
             "other comprehensive-income withholding tax",
             result["rule_context"]["not_calculated"],
         )
         self.assertNotIn(
-            "tax association collected income tax and tax association credit",
+            "tax association collected income tax",
             result["rule_context"]["not_calculated"],
         )
+        self.assertIn("tax association credit", result["rule_context"]["not_calculated"])
 
-    def test_overdeduction_can_make_partial_balance_negative_without_final_refund_claim(self):
+    def test_overprepayment_can_make_partial_balance_negative_without_final_refund_claim(self):
         result = calculate_financial_income_article62_comparison_2026(
             **{
                 **payload(ordinary_interest_14_krw=30_000_000),
@@ -195,7 +186,9 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
             }
         )
         self.assertEqual(
-            result["partial_national_income_tax_balance_after_explicit_article76_deductions_krw"],
+            result[
+                "partial_national_income_tax_balance_after_explicit_article76_prepayments_krw"
+            ],
             -800_000,
         )
         self.assertFalse(
@@ -211,7 +204,6 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
                 **payload(ordinary_interest_14_krw=30_000_000),
                 "prepaid_other_comprehensive_income_withholding_tax_krw": 1_000_000,
                 "prepaid_tax_association_collected_income_tax_krw": 100_000,
-                "tax_association_credit_krw": 10_000,
             }
         )
         self.assertEqual(
@@ -229,14 +221,17 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
                 **payload(ordinary_interest_14_krw=30_000_000),
                 "prepaid_other_comprehensive_income_withholding_tax_krw": 100_000,
                 "prepaid_tax_association_collected_income_tax_krw": 50_000,
-                "tax_association_credit_krw": 5_000,
             }
         )
         quality = result["data_quality"]
         self.assertTrue(
             quality["other_comprehensive_income_withholding_tax_not_inferred_from_income"]
         )
-        self.assertTrue(quality["tax_association_amounts_not_inferred_from_income"])
+        self.assertTrue(
+            quality["tax_association_collected_income_tax_not_inferred_from_income"]
+        )
+        self.assertFalse(quality["tax_association_credit_calculated"])
+        self.assertTrue(quality["tax_association_credit_requires_preceding_credit_order"])
         self.assertFalse(
             quality["article76_land_sale_and_special_assessment_prepaid_taxes_calculated"]
         )
@@ -252,6 +247,7 @@ class OtherArticle76PrepaymentsTests(unittest.TestCase):
             "소득세법 제76조 제3항 제5호",
         )
         self.assertEqual(context["tax_association_collection_legal_basis"], "소득세법 제150조")
+        self.assertIn("B-4.8의 기납부세액 단계에서", context["tax_association_credit_note"])
         self.assertIn("자동 추정하지", context["other_article76_prepayment_note"])
         self.assertIn(
             "land-sale scheduled-return prepaid income tax",
@@ -284,34 +280,35 @@ class OtherArticle76PrepaymentsApiTests(unittest.TestCase):
                 **payload(ordinary_interest_14_krw=30_000_000),
                 "prepaid_other_comprehensive_income_withholding_tax_krw": 1_000_000,
                 "prepaid_tax_association_collected_income_tax_krw": 100_000,
-                "tax_association_credit_krw": 10_000,
             },
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("cache-control"), "no-store")
         body = response.json()
         self.assertEqual(
-            body["article76_other_withholding_and_tax_association_deduction_total_krw"],
-            1_110_000,
+            body["article76_other_withholding_and_tax_association_collected_total_krw"],
+            1_100_000,
         )
         self.assertEqual(
-            body["partial_national_income_tax_balance_after_explicit_article76_deductions_krw"],
-            3_090_000,
+            body[
+                "partial_national_income_tax_balance_after_explicit_article76_prepayments_krw"
+            ],
+            3_100_000,
         )
 
-    def test_api_rejects_incomplete_tax_association_pair_with_stable_code(self):
+    def test_api_rejects_tax_association_credit_until_credit_order_is_modeled(self):
         response = self.client.post(
             "/api/dividends/financial-income-article62-comparison",
             json={
                 **payload(ordinary_interest_14_krw=30_000_000),
-                "prepaid_tax_association_collected_income_tax_krw": 100_000,
+                "tax_association_credit_krw": 10_000,
             },
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.headers.get("cache-control"), "no-store")
         self.assertEqual(
             response.json()["detail"]["code"],
-            "ARTICLE76_TAX_ASSOCIATION_INPUTS_INCOMPLETE",
+            "ARTICLE76_TAX_ASSOCIATION_CREDIT_REQUIRES_PRECEDING_CREDIT_MODEL",
         )
 
     def test_api_rejects_invalid_other_withholding_with_stable_code(self):
