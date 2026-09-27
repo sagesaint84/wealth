@@ -18,6 +18,7 @@
 - 작업 시작 기준 main: `e6232566` (PR #37 merge)
 - 검증된 code HEAD: `8deacd1`
 - 전체 테스트: `Ran 2260 tests in 125.174s` / `OK`
+- `py_compile`, `git diff --check`, `git status --short`: clean
 
 B-4.7 목표:
 
