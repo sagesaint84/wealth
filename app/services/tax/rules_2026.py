@@ -113,6 +113,10 @@ HIGH_DIVIDEND_SPECIAL_LAST_QUALIFYING_BUSINESS_YEAR_END = "2028-12-31"
 #    - 제127조 원천징수세액과 제150조 납세조합의 실제 징수세액은 확정신고납부 시 기납부세액으로 공제
 #    - 납세조합공제는 신고서상 세액공제이므로 제60조의 선행 세액공제 순서를 반영해야 함
 #    - B-4.8은 실제 원천징수ㆍ납세조합 징수세액만 명시 입력하고 납세조합공제는 별도 미계산
+# 9) 소득세법 제60조ㆍ제150조 제3항, 별지 제40호서식(4)
+#    - 2026년 적용 대상 납세조합의 공제율은 3%이며 2027년 12월 31일까지 적용
+#    - 신고서는 납세조합영수증상의 납세조합공제액을 세액공제 항목으로 별도 기재
+#    - B-4.9는 영수증/신고서의 실제 공제액을 명시 입력하고 법정 3%를 자동 계산하지 않음
 OFFICIAL_RULE_SOURCE_URL = (
     "https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=151083979&gubun="
 )
@@ -202,6 +206,7 @@ DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 PREPAID_FINANCIAL_WITHHOLDING_VERIFIED_ON = "2026-09-27"
 INTERIM_PREPAID_INCOME_TAX_VERIFIED_ON = "2026-09-27"
 OTHER_ARTICLE76_PREPAID_TAX_VERIFIED_ON = "2026-09-27"
+TAX_ASSOCIATION_CREDIT_VERIFIED_ON = "2026-09-27"
 FOREIGN_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 LOCAL_INCOME_TAX_COMPARISON_VERIFIED_ON = "2026-09-27"
 LOCAL_DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
