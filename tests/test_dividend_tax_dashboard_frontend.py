@@ -24,12 +24,11 @@ class DividendTaxDashboardFrontendTests(unittest.TestCase):
         self.assertIn("자산관리 의사결정용", self.js)
 
     def test_quick_dividend_presets_are_available(self):
-        self.assertIn("1_000_000", self.js)
-        self.assertIn("5_000_000", self.js)
-        self.assertIn("10_000_000", self.js)
+        self.assertIn("DIVIDEND_PRESETS = [1e6, 5e6, 10e6]", self.js)
         self.assertIn("data-dividend-preset", self.js)
         self.assertIn(".fi-dividend-presets", self.css)
         self.assertIn(".fi-dividend-preset", self.css)
+        self.assertNotIn("10_000_000", self.js)
 
     def test_existing_what_if_api_contract_is_preserved(self):
         self.assertIn("/api/dividends/financial-income-what-if", self.js)
