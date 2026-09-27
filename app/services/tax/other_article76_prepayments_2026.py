@@ -20,6 +20,7 @@ from app.services.tax.rules_2026 import (
     OFFICIAL_FINAL_RETURN_PREPAID_TAX_LAW_SOURCE_URL,
     OFFICIAL_INTERIM_PREPAYMENT_RETURN_FORM_SOURCE_URL,
     OFFICIAL_TAX_ASSOCIATION_LAW_SOURCE_URL,
+    OFFICIAL_TAX_CREDIT_ORDER_LAW_SOURCE_URL,
     OTHER_ARTICLE76_PREPAID_TAX_VERIFIED_ON,
 )
 
@@ -178,6 +179,9 @@ def calculate_financial_income_article62_comparison_2026(
             "tax_association_credit_order_legal_basis": "소득세법 제60조 및 제150조",
             "official_other_article76_final_return_law_source_url": (
                 OFFICIAL_FINAL_RETURN_PREPAID_TAX_LAW_SOURCE_URL
+            ),
+            "official_tax_credit_order_law_source_url": (
+                OFFICIAL_TAX_CREDIT_ORDER_LAW_SOURCE_URL
             ),
             "official_tax_association_law_source_url": OFFICIAL_TAX_ASSOCIATION_LAW_SOURCE_URL,
             "official_other_article76_return_form_source_url": (
