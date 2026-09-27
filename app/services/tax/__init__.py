@@ -27,7 +27,7 @@ from app.services.tax.personal_comprehensive_tax_2026 import (
     PersonalComprehensiveTaxError,
     calculate_personal_comprehensive_tax_basic_rate_2026,
 )
-from app.services.tax.interim_prepayment_2026 import (
+from app.services.tax.other_article76_prepayments_2026 import (
     calculate_financial_income_article62_comparison_2026,
 )
 from app.services.tax.investment_tax import (

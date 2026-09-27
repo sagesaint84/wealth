@@ -109,6 +109,10 @@ HIGH_DIVIDEND_SPECIAL_LAST_QUALIFYING_BUSINESS_YEAR_END = "2028-12-31"
 #    - 중간예납세액은 확정신고납부 시 공제되는 기납부세액
 #    - 신고서에서도 중간예납세액을 기납부세액으로 별도 표시
 #    - 실제 반영액은 전년도 세액에서 제품이 자동 추정하지 않고 명시 입력
+# 8) 소득세법 제60조ㆍ제76조 제3항 제4호ㆍ제5호ㆍ제150조, 별지 제40호서식(1)
+#    - 제127조 원천징수세액과 제150조 납세조합의 실제 징수세액은 확정신고납부 시 기납부세액으로 공제
+#    - 납세조합공제는 신고서상 세액공제이므로 제60조의 선행 세액공제 순서를 반영해야 함
+#    - B-4.8은 실제 원천징수ㆍ납세조합 징수세액만 명시 입력하고 납세조합공제는 별도 미계산
 OFFICIAL_RULE_SOURCE_URL = (
     "https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=151083979&gubun="
 )
@@ -139,6 +143,12 @@ OFFICIAL_INCOME_TAX_REFUND_LAW_SOURCE_URL = (
 OFFICIAL_INTERIM_PREPAYMENT_RETURN_FORM_SOURCE_URL = (
     "https://www.law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=162643591&gubun="
 )
+OFFICIAL_TAX_CREDIT_ORDER_LAW_SOURCE_URL = (
+    "https://www.law.go.kr/lsLinkProc.do?chrClsCd=010202&joNo=006000000&lsId=001565&mode=2"
+)
+OFFICIAL_TAX_ASSOCIATION_LAW_SOURCE_URL = (
+    "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1026641639"
+)
 OFFICIAL_FOREIGN_TAX_CREDIT_LAW_SOURCE_URL = (
     "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1033240233"
 )
@@ -167,7 +177,7 @@ OFFICIAL_LOCAL_PREPAID_SPECIAL_WITHHOLDING_LAW_SOURCE_URL = (
     "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1029489965"
 )
 OFFICIAL_LOCAL_SPECIAL_WITHHOLDING_DUTY_SOURCE_URL = (
-    "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1031061107"
+    "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1031061107"
 )
 OFFICIAL_LOCAL_FOREIGN_TAX_CREDIT_LAW_SOURCE_URL = (
     "https://law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1024234119"
@@ -191,6 +201,7 @@ RULE_VERIFIED_ON = "2026-09-26"
 DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 PREPAID_FINANCIAL_WITHHOLDING_VERIFIED_ON = "2026-09-27"
 INTERIM_PREPAID_INCOME_TAX_VERIFIED_ON = "2026-09-27"
+OTHER_ARTICLE76_PREPAID_TAX_VERIFIED_ON = "2026-09-27"
 FOREIGN_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 LOCAL_INCOME_TAX_COMPARISON_VERIFIED_ON = "2026-09-27"
 LOCAL_DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
