@@ -18,27 +18,24 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 - 10.5C-2 세후 배당 현금흐름 보기 — PR #42 merge (`fcf14ba`)
 - 10.5C-3 일간 가격손익과 평가액 변화 분리 — PR #43 merge (`89ad76a`)
 - 10.5C-4 Dividend event identity & high-confidence actual/forecast dedup — PR #44 merge (`b235934d`)
+- 10.5C-4.1 Dividend forecast point-in-time measurement foundation — PR #45 merge (`5edb9388`), 운영 배포 및 최초 snapshot 생성 확인
 
-현재 increment: **10.5C-4.1 Dividend forecast point-in-time measurement foundation**
+현재 increment: **10.5C-5 포트폴리오 세후 배당수익률**
 
-- daily close 당시 최종 enriched forecast를 사용자별 daily snapshot으로 보존
-- 현재 source나 holdings로 과거 forecast를 재생성하지 않는 look-ahead-free evaluation
-- snapshot 다음 달부터 완료된 월까지만 gross MAE/WAPE와 지급월 적중 측정 기반 제공
-- cash-only actual은 gross forecast 금액오차에 섞지 않고 지급월 분석에만 사용
-- 과거 snapshot이 없으면 historical point-in-time accuracy unavailable로 명시
+- 보유 종목별 예상 세전 배당과 기존 verified investment-tax backend의 알려진 세금 후 현금흐름 비교
+- 평가금액 기준과 평균매입가×수량·현재환율 환산 기준 yield-on-cost를 구분
+- 동일 code/currency의 다계좌 보유는 instrument 단위로 합산
+- 전체 forecast와 종목별 귀속 합계가 다르거나 지원 불가 종목이 있으면 coverage를 낮추고 전체 세후 수익률은 표시하지 않음
+- 국내 일반 배당, 국내상장 ETF 분배금, USD direct의 현재 지원 범위를 별도 표시
 
 ## 2. 다음 단계
 
-C-4.1 이후 우선순위 후보:
+C-5 이후 우선순위 후보:
 
-1. **C-5 포트폴리오 세후 배당수익률**
-   - 보유자산별 예상 세전 배당과 원천징수 후 현금흐름 비교
-   - 취득원가/평가금액 중 어떤 분모를 쓰는지 명확히 구분
-   - 국내/미국/ETF별 계산 가능 범위를 별도 표시
-2. **C-6 2천만원 접근 What-if 개선**
+1. **C-6 2천만원 접근 What-if 개선**
    - 추가 배당 100만/500만/1,000만원 시나리오 비교
    - 기준 초과 여부와 남은 여유를 더 직관적으로 표시
-3. **C-7 가족별 배당 분산 보기 단순화**
+2. **C-7 가족별 배당 분산 보기 단순화**
    - 본인/배우자/자녀별 예상 금융소득과 2천만원 여유를 자산배분 관점에서 비교
    - 증여/명의/실질귀속 판단은 추천하지 않고 경고만 유지
 
