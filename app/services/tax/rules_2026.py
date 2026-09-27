@@ -109,6 +109,10 @@ HIGH_DIVIDEND_SPECIAL_LAST_QUALIFYING_BUSINESS_YEAR_END = "2028-12-31"
 #    - 중간예납세액은 확정신고납부 시 공제되는 기납부세액
 #    - 신고서에서도 중간예납세액을 기납부세액으로 별도 표시
 #    - 실제 반영액은 전년도 세액에서 제품이 자동 추정하지 않고 명시 입력
+# 8) 소득세법 제76조 제3항 제4호ㆍ제5호, 제150조, 별지 제40호서식(1)
+#    - 제127조 원천징수세액과 제150조 납세조합의 징수세액 및 그 공제액을 확정신고납부 시 공제
+#    - 신고서는 사업ㆍ근로ㆍ연금ㆍ기타소득의 원천징수 또는 납세조합징수세액을 구분 집계
+#    - 실제 기납부ㆍ공제 금액은 gross 소득에서 자동 추정하지 않고 명시 입력
 OFFICIAL_RULE_SOURCE_URL = (
     "https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=151083979&gubun="
 )
@@ -138,6 +142,9 @@ OFFICIAL_INCOME_TAX_REFUND_LAW_SOURCE_URL = (
 )
 OFFICIAL_INTERIM_PREPAYMENT_RETURN_FORM_SOURCE_URL = (
     "https://www.law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=162643591&gubun="
+)
+OFFICIAL_TAX_ASSOCIATION_LAW_SOURCE_URL = (
+    "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1026641639"
 )
 OFFICIAL_FOREIGN_TAX_CREDIT_LAW_SOURCE_URL = (
     "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1033240233"
@@ -191,6 +198,7 @@ RULE_VERIFIED_ON = "2026-09-26"
 DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 PREPAID_FINANCIAL_WITHHOLDING_VERIFIED_ON = "2026-09-27"
 INTERIM_PREPAID_INCOME_TAX_VERIFIED_ON = "2026-09-27"
+OTHER_ARTICLE76_PREPAID_TAX_VERIFIED_ON = "2026-09-27"
 FOREIGN_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 LOCAL_INCOME_TAX_COMPARISON_VERIFIED_ON = "2026-09-27"
 LOCAL_DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
