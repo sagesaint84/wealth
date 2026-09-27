@@ -614,6 +614,28 @@ def _apply_confirmed_future_overrides(
     return True
 
 
+def _attach_portfolio_after_tax(
+    summary: dict[str, Any], holdings: list[dict[str, Any]]
+) -> None:
+    """Attach C-5 derived data without risking the base dividend forecast."""
+    try:
+        from app.services.portfolio_dividend_after_tax import (
+            build_portfolio_after_tax_dividend_summary,
+        )
+
+        summary["portfolio_after_tax"] = build_portfolio_after_tax_dividend_summary(
+            holdings, summary
+        )
+    except Exception:
+        summary["portfolio_after_tax"] = {
+            "calculation_status": "unavailable",
+            "reason": "portfolio_after_tax_calculation_failed",
+            "screening_only": True,
+            "legal_tax_determination": False,
+            "instruments": [],
+        }
+
+
 async def enrich_dividend_summary_with_official_sources(
     summary: dict[str, Any],
     holdings: list[dict[str, Any]],
@@ -644,6 +666,7 @@ async def enrich_dividend_summary_with_official_sources(
 
     rows = summary.get("holding_dividends")
     if not isinstance(rows, list):
+        _attach_portfolio_after_tax(summary, holdings)
         return summary
 
     changed = False
@@ -710,6 +733,7 @@ async def enrich_dividend_summary_with_official_sources(
     except Exception:
         policy = summary.setdefault("forecast_source_policy", {})
         policy["kind_etf_status"] = "kind_enrichment_failed"
+    _attach_portfolio_after_tax(summary, holdings)
     return summary
 
 

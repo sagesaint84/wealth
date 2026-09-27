@@ -8,22 +8,29 @@
 
 ## 1. 현재 개발 상태
 
-현재 작업 단계는 **Phase 10.5C-4.1 — Dividend forecast point-in-time snapshots & evaluation foundation**입니다.
+현재 작업 단계는 **Phase 10.5C-5 — Portfolio after-known-tax dividend yield**입니다.
 
 현재 작업:
 
-- branch: `phase10-5c4-1-dividend-forecast-snapshots`
+- branch: `phase10-5c5-portfolio-after-tax-dividend-yield`
 - base: `main`
-- 작업 시작 기준 main: `b235934d` (PR #44 merge)
+- 작업 시작 기준 main: `5edb9388` (PR #45 merge)
 - 상태: 구현 및 검증 진행 중
 
-C-4.1 목표:
+C-5 목표:
 
-1. daily close 시점의 최종 enriched 배당 forecast를 사용자별 point-in-time snapshot으로 보존한다.
-2. 동일 owner/date는 canonical daily snapshot 하나로 upsert한다.
-3. 저장 snapshot과 actual dividend records만 사용하는 network-free evaluator 기반을 제공한다.
-4. snapshot 다음 달부터 완료된 월까지만 평가해 current-month 및 look-ahead bias를 배제한다.
-5. gross 비교 근거가 없는 net cash actual은 지급월 분석에만 사용하고 MAE/WAPE에는 포함하지 않는다.
+1. 최종 enriched dividend forecast와 owner-filtered dashboard holdings를 결합해 포트폴리오 세전/알려진 세금 후 배당 현금흐름을 계산한다.
+2. 세율을 새로 하드코딩하지 않고 기존 `compare_investment_tax_2026()` screening backend를 재사용한다.
+3. 평가금액 기준 배당수익률과 평균매입가×수량·현재환율 환산 기준 yield-on-cost를 명확히 구분한다.
+4. 동일 code/currency의 다계좌 보유는 instrument 단위로 합산한다.
+5. forecast attribution 또는 tax coverage가 불완전하면 전체 포트폴리오 세후 배당수익률을 숫자로 승격하지 않는다.
+
+C-4.1 운영 확인:
+
+- PR #45 merge `5edb9388`.
+- GHCR 배포 완료.
+- `sagesaint` 사용자에서 최초 `dividend_forecast_snapshots.json` point-in-time snapshot 생성 확인.
+- snapshot schema_version 1, 12개 월 bucket, owner/date canonical upsert 기반이 운영에서 확인됨.
 
 방향 전환:
 
@@ -63,7 +70,8 @@ C-4.1 목표:
 - [x] 10.5C-2 세후 배당 현금흐름 보기 — PR #42 merge (`fcf14ba`)
 - [x] 10.5C-3 일간 가격손익과 평가액 변화 분리 — PR #43 merge (`89ad76a`)
 - [x] 10.5C-4 official confirmed dividend event identity와 high-confidence actual/forecast dedup — PR #44 merge (`b235934d`)
-- [ ] 10.5C-4.1 Dividend forecast point-in-time snapshots & evaluation foundation — 진행 중
+- [x] 10.5C-4.1 Dividend forecast point-in-time snapshots & evaluation foundation — PR #45 merge (`5edb9388`), 운영 배포 및 최초 snapshot 생성 확인
+- [ ] 10.5C-5 Portfolio after-known-tax dividend yield — 진행 중
 
 세부 후속 순서는 `docs/ROADMAP.md`를 따른다.
 
@@ -230,6 +238,19 @@ A-4.4 KIND ETF 분배금 보강:
 - snapshot 다음 달부터 `through_date` 직전 완료 월까지만 평가하고 진행 중인 월은 제외한다.
 - actual gross와 환산 근거가 있을 때만 gross MAE/WAPE를 계산하며 cash-only 기록은 지급월 분석에만 사용한다.
 - 기존 과거 snapshot이 없으므로 historical point-in-time accuracy는 아직 unavailable이며, 이번 increment는 향후 측정 기반만 마련한다.
+
+### C-5 포트폴리오 알려진 세금 후 배당수익률
+
+- `summary.total_annual_dividend_krw`를 포트폴리오 gross forecast의 canonical total로 유지한다.
+- 종목별 `holding_dividends`는 code/currency 기준 attribution 계층으로만 사용하며 residual을 특정 종목에 임의 귀속하지 않는다.
+- 동일 code/currency 다계좌 보유는 quantity, 평가금액, 평균매입가 기준 비용을 instrument 단위로 합산한다.
+- 알려진 세금은 새 세율을 만들지 않고 기존 2026 investment-tax screening backend 결과만 재사용한다.
+- KRW ETF는 C-5에서 distribution-only로 계산하며 매매차익과 ETF taxable gain은 0으로 고정한다.
+- USD 보유자산은 Wealth의 기존 US direct screening 계약을 사용하며 미국 외 USD 상장자산의 개별 조세조약 차이는 계산하지 않는다.
+- 평가금액 기준 denominator는 scoped stock holdings의 현재 평가금액 합계이며 현금·예수금은 제외한다.
+- 평균매입가 기준 denominator는 `평균매입가 × 수량`을 현재 FX로 원화 환산한 dashboard `cost_value_krw`를 사용한다.
+- forecast attribution이나 tax coverage가 불완전하면 계산 가능한 현금과 coverage만 보여주고 전체 포트폴리오 after-known-tax yield는 null로 유지한다.
+- UI 표현은 `최종 세후`가 아니라 `원천징수·알려진 세금 후` 범위를 명시한다.
 
 ## 5. 사용자별 DART 인증 계약
 
