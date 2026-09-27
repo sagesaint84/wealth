@@ -13,7 +13,7 @@ class SettingsError(RuntimeError): pass
 class SettingsValidationError(SettingsError): pass
 
 def default_settings() -> dict[str, Any]:
-    return {"version": 1, "telegram": {"enabled": False, "chat_id": None, "allowed_user_id": None, "allowed_chat_id": None}, "discord": {"enabled": True}, "kakao": {"enabled": True}, "automation": {"timezone": "Asia/Seoul", "ipo_refresh_morning": {"enabled": True, "time": "07:30"}, "ipo_reminders": {"enabled": True, "times": ["09:00", "12:00", "15:00"]}, "ipo_listing_reminders": {"enabled": True, "times": ["08:50", "14:50"]}, "ipo_refresh_evening": {"enabled": True, "time": "18:30"}, "daily_close": {"enabled": True, "time": "21:00"}}, "toss_wts": {"session_check_enabled": False}}
+    return {"version": 1, "telegram": {"enabled": False, "chat_id": None, "allowed_user_id": None, "allowed_chat_id": None}, "discord": {"enabled": True}, "kakao": {"enabled": True}, "automation": {"timezone": "Asia/Seoul", "ipo_refresh_morning": {"enabled": True, "time": "07:30"}, "ipo_reminders": {"enabled": True, "times": ["09:00", "12:00", "15:00"]}, "ipo_listing_reminders": {"enabled": True, "times": ["08:50", "14:50"]}, "ipo_refresh_evening": {"enabled": True, "time": "18:30"}, "daily_close": {"enabled": True, "time": "21:00"}, "dividend_intelligence_alerts": {"enabled": False}}, "toss_wts": {"session_check_enabled": False}}
 
 def time_to_slot_id(value: str) -> str:
     if not _TIME.fullmatch(value): raise SettingsValidationError("INVALID_TIME")
@@ -57,21 +57,17 @@ def _merge(base: dict, patch: dict) -> dict:
     return out
 
 def _validate(doc: Any) -> dict:
-    # ``toss_wts`` was added after version 1 had already been persisted.  An
-    # absent section is therefore a valid legacy document and is normalized to
-    # the safe disabled default instead of invalidating all existing users.
+    # Additive version-1 sections are normalized from safe defaults so legacy
+    # persisted settings remain valid as features are introduced.
     if not isinstance(doc,dict) or set(doc) - {"version","telegram","discord","kakao","automation","toss_wts"} or not {"version","telegram","automation"}.issubset(doc) or doc["version"]!=1: raise SettingsValidationError("INVALID_SETTINGS")
-    # Version-1 settings predate Toss, listing reminders, Discord and Kakao
-    # provider toggles. Normalize absent additive sections without a schema
-    # version bump. Discord/Kakao default enabled preserves the behavior that
-    # existed before explicit provider switches were introduced.
-    if "toss_wts" not in doc or "ipo_listing_reminders" not in (doc.get("automation") or {}) or "discord" not in doc or "kakao" not in doc: doc = _merge(default_settings(), doc)
+    automation = doc.get("automation") if isinstance(doc, dict) else None
+    if "toss_wts" not in doc or "ipo_listing_reminders" not in (automation or {}) or "discord" not in doc or "kakao" not in doc or "dividend_intelligence_alerts" not in (automation or {}): doc = _merge(default_settings(), doc)
     t,d,k,a=doc["telegram"],doc["discord"],doc["kakao"],doc["automation"]
     if not isinstance(t,dict) or set(t)!={"enabled","chat_id","allowed_user_id","allowed_chat_id"}: raise SettingsValidationError("INVALID_TELEGRAM_SETTINGS")
     if type(t["enabled"]) is not bool or any(v is not None and (type(v) is not int) for k,v in t.items() if k!="enabled"): raise SettingsValidationError("INVALID_TELEGRAM_ID")
     if not isinstance(d,dict) or set(d)!={"enabled"} or type(d["enabled"]) is not bool: raise SettingsValidationError("INVALID_DISCORD_SETTINGS")
     if not isinstance(k,dict) or set(k)!={"enabled"} or type(k["enabled"]) is not bool: raise SettingsValidationError("INVALID_KAKAO_SETTINGS")
-    if not isinstance(a,dict) or set(a)!={"timezone","ipo_refresh_morning","ipo_reminders","ipo_listing_reminders","ipo_refresh_evening","daily_close"} or a["timezone"]!="Asia/Seoul": raise SettingsValidationError("INVALID_AUTOMATION_SETTINGS")
+    if not isinstance(a,dict) or set(a)!={"timezone","ipo_refresh_morning","ipo_reminders","ipo_listing_reminders","ipo_refresh_evening","daily_close","dividend_intelligence_alerts"} or a["timezone"]!="Asia/Seoul": raise SettingsValidationError("INVALID_AUTOMATION_SETTINGS")
     for name in ("ipo_refresh_morning","ipo_refresh_evening","daily_close"):
         x=a[name]
         if not isinstance(x,dict) or set(x)!={"enabled","time"} or type(x["enabled"]) is not bool or not isinstance(x["time"],str) or not _TIME.fullmatch(x["time"]): raise SettingsValidationError("INVALID_TIME")
@@ -79,6 +75,8 @@ def _validate(doc: Any) -> dict:
         r=a[reminder_name]
         if not isinstance(r,dict) or set(r)!={"enabled","times"} or type(r["enabled"]) is not bool or not isinstance(r["times"],list) or not r["times"] or any(not isinstance(x,str) or not _TIME.fullmatch(x) for x in r["times"]) or len(set(r["times"]))!=len(r["times"]): raise SettingsValidationError("INVALID_REMINDER_TIMES")
         r["times"].sort()
+    intelligence = a["dividend_intelligence_alerts"]
+    if not isinstance(intelligence,dict) or set(intelligence)!={"enabled"} or type(intelligence["enabled"]) is not bool: raise SettingsValidationError("INVALID_DIVIDEND_INTELLIGENCE_ALERT_SETTINGS")
     toss = doc["toss_wts"]
     if not isinstance(toss, dict) or set(toss) != {"session_check_enabled"} or type(toss["session_check_enabled"]) is not bool: raise SettingsValidationError("INVALID_TOSS_WTS_SETTINGS")
     return doc
@@ -129,21 +127,10 @@ def get_effective_settings(username:str, *, path:Path|None=None, include_automat
     if include_automation_status:
         try:
             from app.services.automation.status import build_automation_status
-            status = build_automation_status(
-                username,
-                settings=result,
-            )
+            status = build_automation_status(username, settings=result)
             result["automation"]["_status"] = _normalize_automation_status_for_ui(status)
         except Exception:
-            # Operational visibility is read-only and must never make settings,
-            # scheduling, notification dispatch, or authentication fail.
-            result["automation"]["_status"] = {
-                "version": 1,
-                "unavailable": True,
-                "code": "AUTOMATION_STATUS_UNAVAILABLE",
-                "jobs": [],
-                "recent": [],
-            }
+            result["automation"]["_status"] = {"version": 1, "unavailable": True, "code": "AUTOMATION_STATUS_UNAVAILABLE", "jobs": [], "recent": []}
     return result
 
 def patch_settings(username:str, patch:dict, *, path:Path|None=None)->dict:
