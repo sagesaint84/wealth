@@ -58,6 +58,14 @@ DIVIDEND_GROSS_UP_RATE = 0.10
 # financial-income threshold.
 LOCAL_DIVIDEND_TAX_CREDIT_RATE_ON_GROSS_UP = 0.10
 
+# Local Tax Special Treatment Control Act Article 97(1): when national foreign
+# tax credit is taken under Income Tax Act Article 57(1)(1), the corresponding
+# comprehensive individual local-income-tax credit is 10% of the national
+# credit amount. Article 97(2) provides a separate five-year local carryforward
+# rule for qualifying excess amounts; B-4.6 does not calculate that carryforward.
+LOCAL_FOREIGN_TAX_CREDIT_RATE_ON_NATIONAL_CREDIT = 0.10
+LOCAL_FOREIGN_TAX_CREDIT_CARRYFORWARD_YEARS = 5
+
 # 2026 high-dividend-company special separate-taxation brackets.
 # These are national income-tax rates only. Local income tax is separate and is
 # deliberately not folded into this rule table.
@@ -93,6 +101,10 @@ HIGH_DIVIDEND_SPECIAL_LAST_QUALIFYING_BUSINESS_YEAR_END = "2028-12-31"
 #    - 국외원천소득과 종합소득금액 비율로 국세 외국납부세액공제 한도 계산
 #    - 국가별 한도, 대응비용, 조세조약상 공제대상세액, 10년 이월 구조를 구분
 #    - 세액감면/비이월 세액공제/이월 세액공제의 적용순서를 별도 확인
+# 6) 지방세특례제한법 제97조ㆍ제167조의2, 같은 법 시행령 제48조
+#    - 국세 외국납부세액공제액의 10%를 종합소득 개인지방소득세에서 공제
+#    - 제97조 제2항의 지방 외국납부세액공제 이월기간은 5년
+#    - 소득세법 제57조 제1항 제2호 비용처리 방식이면 제97조 제1항 미적용
 OFFICIAL_RULE_SOURCE_URL = (
     "https://law.go.kr/LSW/flDownload.do?bylClsCd=110202&flSeq=151083979&gubun="
 )
@@ -141,6 +153,15 @@ OFFICIAL_LOCAL_PREPAID_SPECIAL_WITHHOLDING_LAW_SOURCE_URL = (
 OFFICIAL_LOCAL_SPECIAL_WITHHOLDING_DUTY_SOURCE_URL = (
     "https://www.law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1031061107"
 )
+OFFICIAL_LOCAL_FOREIGN_TAX_CREDIT_LAW_SOURCE_URL = (
+    "https://law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1024234119"
+)
+OFFICIAL_LOCAL_FOREIGN_TAX_CREDIT_ENFORCEMENT_SOURCE_URL = (
+    "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lspttninfSeq=64096"
+)
+OFFICIAL_LOCAL_INCOME_TAX_GENERAL_CREDIT_LINK_SOURCE_URL = (
+    "https://law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1021964939"
+)
 OFFICIAL_HIGH_DIVIDEND_LAW_SOURCE_URL = (
     "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?lsJoLnkSeq=1033275259"
 )
@@ -157,3 +178,4 @@ FOREIGN_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 LOCAL_INCOME_TAX_COMPARISON_VERIFIED_ON = "2026-09-27"
 LOCAL_DIVIDEND_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
 LOCAL_PREPAID_SPECIAL_WITHHOLDING_VERIFIED_ON = "2026-09-27"
+LOCAL_FOREIGN_TAX_CREDIT_VERIFIED_ON = "2026-09-27"
