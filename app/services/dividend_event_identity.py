@@ -6,12 +6,17 @@ from datetime import date
 
 _OFFICIAL_SOURCES = {"opendart", "kind"}
 _CODE_PATTERN = re.compile(r"^[A-Z0-9._-]{1,24}$")
+_KRX_SHORT_CODE_PATTERN = re.compile(r"^[0-9][A-Z0-9]{5}$")
 _EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
 
 
 def normalize_dividend_code(value: object) -> str | None:
     code = str(value or "").strip().upper()
-    if len(code) == 7 and code.startswith("A") and code[1:].isdigit():
+    if (
+        len(code) == 7
+        and code.startswith("A")
+        and _KRX_SHORT_CODE_PATTERN.fullmatch(code[1:]) is not None
+    ):
         code = code[1:]
     if not code or _CODE_PATTERN.fullmatch(code) is None:
         return None

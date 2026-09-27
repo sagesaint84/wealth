@@ -5,7 +5,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.services.dividend_event_identity import build_dividend_event_identity
+from app.services.dividend_event_identity import (
+    build_dividend_event_identity,
+    normalize_dividend_code,
+)
 from app.services.dividend_records import (
     create_dividend_record,
     read_dividend_records,
@@ -57,6 +60,28 @@ def _official_item(**overrides: object) -> dict:
 
 
 class DividendEventIdentityTests(unittest.TestCase):
+    def test_broker_prefixed_alphanumeric_krx_short_code_is_normalized(self):
+        self.assertEqual(normalize_dividend_code("A0005G0"), "0005G0")
+        self.assertEqual(normalize_dividend_code("A005930"), "005930")
+        self.assertEqual(normalize_dividend_code("AAPL"), "AAPL")
+        self.assertEqual(normalize_dividend_code("AABCDEF"), "AABCDEF")
+
+    def test_alphanumeric_krx_identity_matches_without_broker_prefix(self):
+        prefixed = build_dividend_event_identity(
+            code="A0005G0",
+            record_date="2026-07-31",
+            source="kind",
+            source_event_id="20260729000913",
+        )
+        short = build_dividend_event_identity(
+            code="0005G0",
+            record_date="2026-07-31",
+            source="kind",
+            source_event_id="20260729000913",
+        )
+        self.assertEqual(prefixed, "dividend:v1:0005G0:record:2026-07-31")
+        self.assertEqual(prefixed, short)
+
     def test_record_date_identity_is_stable_across_correction_receipts(self):
         first = build_dividend_event_identity(
             code="005930",
@@ -99,6 +124,24 @@ class DividendEventIdentityTests(unittest.TestCase):
 
 
 class DividendProjectionDedupTests(unittest.TestCase):
+    def test_exact_payment_date_matches_broker_prefixed_alphanumeric_krx_code(self):
+        result = build_financial_income_projection(
+            _actual(
+                {"date": "2026-10-05", "code": "A0005G0", "amount_krw": 250_000}
+            ),
+            {
+                "monthly_schedule": _schedule(
+                    october_total=300_000,
+                    october_items=[_official_item(code="0005G0")],
+                )
+            },
+            as_of="2026-09-27",
+        )
+        self.assertEqual(result["forecast_basis"]["dividend_event_dedup_applied_count"], 1)
+        self.assertEqual(
+            result["components"]["future_months_estimated_dividend_gross_krw"], 0
+        )
+
     def test_exact_identity_dedups_across_actual_and_forecast_months(self):
         item = _official_item()
         result = build_financial_income_projection(
