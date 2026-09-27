@@ -23,39 +23,39 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 - 세금 도구 전용 `🧾 세금` workspace 이동 — PR #47 merge (`8f490c0`)
 - 10.5C-6 2천만원 접근 What-if 개선 — PR #48, 운영 확인 완료 (`0d87fd9c`)
 
-현재 increment: **미정 — 다음 우선순위 후보 비교 중**
+### Phase 10.5D — Dividend Intelligence
 
-- C-7 가족별 배당 분산 보기 단순화는 기존 Family Financial Income Risk / Family Allocation Simulation과 기능 중복이 커서 **추후 진행 후보**로 보류한다.
-- 다음 작업 번호(C-8 등)는 실제 우선순위를 확정한 뒤 부여한다.
+현재 increment: **배당 의사결정 데이터의 신뢰도·기여도·알림·정확도 통합** — PR #50 진행 중.
+
+사용자 요청에 따라 다음 네 작업을 별도 increment/PR로 반복하지 않고 **한 번의 통합 작업과 한 PR**로 진행한다.
+
+1. 배당 예상 신뢰도·근거 UX 강화
+2. 종목/계좌별 알려진 세금 후 배당 기여도
+3. 배당·금융소득 opt-in 알림
+4. 배당예측 point-in-time 정확도 화면
+
+핵심 원칙:
+
+- C-4의 official event identity/dedup 계약을 변경하지 않는다.
+- C-4.1 저장 snapshot과 actual record만 정확도 평가에 사용하고 과거 예측을 현재 source/holdings로 재생성하지 않는다.
+- C-5 `portfolio_after_tax`를 알려진 세금 후 현금의 canonical tax-attribution 계층으로 재사용한다.
+- 포트폴리오 gross total은 계속 `summary.total_annual_dividend_krw`가 authoritative하며 residual을 종목/계좌에 임의 귀속하지 않는다.
+- 계좌별 배당 기여는 현재 보유수량 비례 자산관리 추정이며 record-date entitlement 확정이 아니다.
+- 금융소득 알림은 B-1의 **개인별** threshold 결과만 재사용하고 가족 합계에는 법정 threshold를 적용하지 않는다.
+- 알림은 기본 OFF이며 사용자가 명시적으로 켠 경우에만 daily close와 연결한다.
+- 새 세율, 새로운 threshold 숫자, fuzzy dividend matching 규칙을 추가하지 않는다.
+
+C-7 가족별 배당 분산 보기 단순화는 기존 Family Financial Income Risk / Family Allocation Simulation과 기능 중복이 커서 **추후 진행 후보**로 계속 보류한다.
 
 ## 2. 다음 단계
 
-우선순위 후보는 다음과 같다. 아직 번호와 실행 순서는 고정하지 않는다.
+Phase 10.5D의 구현·회귀검증·운영 확인을 먼저 완료한다. 이후 다음 번호는 실제 필요성을 다시 비교한 뒤 부여한다.
 
-1. **배당 예상 신뢰도·근거 UX 강화**
-   - official / heuristic / residual을 화면에서 더 명확히 구분
-   - confidence/source badge 세분화
-   - OpenDART/KIND 등 공식 공시 원문 바로가기
-   - 예상금액의 계산 근거 펼쳐보기
-2. **종목/계좌별 알려진 세금 후 배당 기여도**
-   - C-5의 portfolio after-known-tax 결과를 instrument/account 단위로 확장
-   - 어떤 종목이 세전 배당과 알려진 세금 후 현금에 얼마나 기여하는지 표시
-   - 지원 불가/partial coverage는 전체 수익률과 동일하게 fail-closed로 유지
-3. **배당·금융소득 알림 자동화**
-   - 예상 금융소득 1,000만원 접근 및 2,000만원 접근/초과 알림
-   - 확정 배당 공시 발생 알림
-   - 중복 방지와 공시 존재/확정금액 구분을 전제로 Telegram 등과 연결
-4. **배당예측 정확도 측정 화면**
-   - C-4.1 snapshot이 충분히 누적된 뒤 forecast vs actual MAE/WAPE 및 지급월 정확도를 표시
-   - 과거 snapshot이 충분하지 않은 동안에는 조기 승격하지 않음
-5. **C-7 가족별 배당 분산 보기 단순화 — 추후 진행**
-   - 기존 Family Risk / Allocation Simulation의 기능은 유지
-   - 필요성이 다시 커질 때 두 패널을 단순 통합하고 배분 후 개인별 2천만원 여유를 더 직관적으로 표시
+추후 후보:
 
-작은 UX 후보는 독립 increment 또는 위 작업에 함께 묶을 수 있다.
-
-- USD 입력 천 단위 표시
-- 원화 환산값 보조표시
+- **C-7 가족별 배당 분산 보기 단순화** — 기존 두 family 패널을 단순 통합할 필요성이 다시 커질 때 진행
+- **고배당기업 공식 자격 상태 자동 확인** — 공식 source 계약을 별도로 설계한 뒤 진행
+- **USD 입력 천 단위 표시 / 원화 환산값 보조표시** — 작은 UX increment로 묶을 수 있음
 
 종합소득세 신고서 완성을 위한 다음 항목들은 **현재 제품 우선순위에서 보류**한다.
 
@@ -177,19 +177,25 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 
 ## 6. 알림/자동화
 
+Phase 10.5D 진행 중:
+
+- 예상 금융소득 1,000만원 watch 알림
+- 개인별 2,000만원 도달/초과 알림
+- 공식 배당/ETF 분배금 event identity 신규 확인 알림
+- 배당결정 공시 존재 알림
+- 사용자 명시 opt-in 및 deterministic event-key 중복 방지
+
 후보:
 
-- 예상 금융소득 1,000만원 접근 알림
-- 2,000만원 접근/초과 알림
-- 확정 배당 공시 발생 알림
-- 고배당기업 공시 상태 변경 알림
-- Telegram 알림
+- 고배당기업 공식 자격 상태 변경 알림
 
 원칙:
 
-- 사용자가 명시적으로 설정한 대상만 알림
+- 사용자가 명시적으로 켠 경우에만 알림
 - 중복 알림 방지
 - 공시 존재와 확정금액을 구분
+- 가족 합계에는 금융소득 법정 threshold를 적용하지 않음
+- 알림 실패는 daily-close snapshot 저장을 실패시키지 않음
 
 ## 7. UX 개선 backlog
 
@@ -200,14 +206,18 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 - 포트폴리오 알려진 세금 후 배당수익률 C-5
 - 2천만원 접근 What-if 상태 구분 C-6
 
+Phase 10.5D 진행 중:
+
+- 종목/계좌별 알려진 세금 후 배당 기여도
+- 배당 예상 confidence/source 근거 수준 구분
+- 공식 공시 원문 바로가기
+- 계산 근거 펼쳐보기
+- point-in-time forecast 정확도/데이터 누적 상태 표시
+
 후보:
 
-- 종목/계좌별 세후 배당 기여도
 - USD 입력 천 단위 표시
 - 원화 환산값 보조표시
-- 배당 예상 confidence/source badge 세분화
-- 공시 원문 바로가기
-- 계산 근거 펼쳐보기
 - C-7 가족별 배당 분산 보기 단순화 (추후 진행)
 
 ## 8. 장기 구조 개선 후보
