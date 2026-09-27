@@ -464,8 +464,8 @@
 
   function statusForScenario(scenarioState, watchState) {
     if (scenarioState.exceeded === true) return { className: 'danger', text: '2천만원 초과' };
-    if (scenarioState.at_or_above === true) return { className: 'warn', text: '2천만원 도달 · 초과 아님' };
-    if (watchState.at_or_above === true) return { className: 'warn', text: '주의 구간' };
+    if (scenarioState.at_or_above === true) return { className: 'reached', text: '2천만원 도달 · 초과 아님' };
+    if (watchState.at_or_above === true) return { className: 'approach', text: '2천만원 접근 구간' };
     if (scenarioState.exceeded === null) return { className: 'unknown', text: '예상치 확인 불가' };
     return { className: 'safe', text: '2천만원 기준 미만' };
   }
@@ -514,7 +514,11 @@
       : (baselineState.at_or_above ? '기준 도달' : money(baselineRemaining));
     const scenarioRemainingText = scenarioRemaining === null || scenarioRemaining === undefined
       ? '미래 배당 예측 데이터가 필요합니다.'
-      : (scenarioState.at_or_above ? '2천만원 기준에 도달했습니다.' : `2천만원까지 ${money(scenarioRemaining)} 남음`);
+      : (scenarioState.exceeded === true
+        ? '2천만원 기준을 초과했습니다.'
+        : (scenarioState.at_or_above === true
+          ? '2천만원 기준에 정확히 도달했습니다.'
+          : `2천만원까지 ${money(scenarioRemaining)} 남음`));
 
     let html = `
       <div class="fi-result-grid dashboard">
@@ -534,7 +538,7 @@
           <small>${otherAddition > 0 ? `기타 금융소득 가정 ${money(otherAddition)} 별도` : '배당만 빠르게 비교'}</small>
         </div>
         <div class="fi-result-card ${status.className}">
-          <span>배당 추가 후</span>
+          <span>적용 후 예상 금융소득</span>
           <strong>${money(projected)}</strong>
           <small>${status.text} · ${scenarioRemainingText}</small>
         </div>
@@ -542,17 +546,31 @@
     `;
 
     const crossed = threshold?.crossed_by_scenario === true;
-    if (crossed) {
+    if (scenarioState.exceeded === true) {
       html += `
         <div class="fi-decision-note danger">
-          <strong>추가 배당으로 2천만원 기준을 넘습니다.</strong>
+          <strong>${crossed ? '추가 배당으로 2천만원 기준을 넘습니다.' : '적용 후 예상 금융소득이 2천만원 기준을 초과합니다.'}</strong>
           <span>이 화면은 자산배분 판단용 screening입니다. 종합소득 최종 신고세액을 확정하는 계산서는 아닙니다.</span>
+        </div>
+      `;
+    } else if (additionalDividend > 0 && scenarioState.at_or_above === true) {
+      html += `
+        <div class="fi-decision-note reached">
+          <strong>추가 배당 후 2천만원 기준에 도달합니다.</strong>
+          <span>초과는 아니지만 추가 금융소득이 생기면 기준을 넘을 수 있습니다.</span>
+        </div>
+      `;
+    } else if (additionalDividend > 0 && watchState.at_or_above === true) {
+      html += `
+        <div class="fi-decision-note approach">
+          <strong>2천만원 기준에 가까워지고 있습니다.</strong>
+          <span>${scenarioRemainingText}</span>
         </div>
       `;
     } else if (additionalDividend > 0 && scenarioState.exceeded === false) {
       html += `
         <div class="fi-decision-note safe">
-          <strong>현재 가정에서는 2천만원 기준 이하입니다.</strong>
+          <strong>현재 가정에서는 2천만원 기준 미만입니다.</strong>
           <span>${scenarioRemainingText}</span>
         </div>
       `;
