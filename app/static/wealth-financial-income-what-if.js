@@ -2,7 +2,7 @@
   'use strict';
 
   const API_PATH = '/api/dividends/financial-income-what-if';
-  const DIVIDEND_PRESETS = [1_000_000, 5_000_000, 10_000_000];
+  const DIVIDEND_PRESETS = [1e6, 5e6, 10e6];
 
   function money(value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) return '확인 불가';
@@ -415,7 +415,7 @@
 
   function statusForScenario(scenarioState, watchState) {
     if (scenarioState.exceeded === true) return { className: 'danger', text: '2천만원 초과' };
-    if (scenarioState.at_or_above === true) return { className: 'warn', text: '2천만원 도달' };
+    if (scenarioState.at_or_above === true) return { className: 'warn', text: '2천만원 도달 · 초과 아님' };
     if (watchState.at_or_above === true) return { className: 'warn', text: '주의 구간' };
     if (scenarioState.exceeded === null) return { className: 'unknown', text: '예상치 확인 불가' };
     return { className: 'safe', text: '2천만원 기준 미만' };
@@ -433,6 +433,7 @@
     const status = statusForScenario(scenarioState, watchState);
     const baseline = whatIf.baseline_projected_gross_screening_income_krw;
     const projected = whatIf.scenario_projected_gross_screening_income_krw;
+    const comprehensiveProjected = whatIf.scenario_comprehensive_tax_screening_income_krw;
     const additionalDividend = Number(whatIf.additional_dividend_gross_krw || 0);
     const totalAddition = Number(whatIf.scenario_addition_gross_krw || 0);
     const otherAddition = Math.max(totalAddition - additionalDividend, 0);
@@ -492,11 +493,14 @@
     if (tradingImpact && (Number(tradingImpact?.foreign_shares?.realized_gain_krw || 0) > 0 || Number(tradingImpact?.kr_listed_overseas_etf?.taxable_gain_krw || 0) > 0)) {
       const foreign = tradingImpact.foreign_shares || {};
       const etf = tradingImpact.kr_listed_overseas_etf || {};
+      const foreignTaxText = foreign.capital_gain_tax_calculated === false
+        ? '금융소득 판정 미포함 · 양도세 미계산'
+        : '금융소득 판정 미포함';
       html += `
         <div class="fi-compare-block">
           <div class="fi-compare-title"><strong>다른 가정의 영향</strong><span>배당 판단과 분리해서 봅니다.</span></div>
           <div class="fi-result-grid comparison">
-            <div class="fi-result-card"><span>해외주식 실현차익</span><strong>${money(foreign.realized_gain_krw || 0)}</strong><small>금융소득 판정 미포함</small></div>
+            <div class="fi-result-card"><span>해외주식 실현차익</span><strong>${money(foreign.realized_gain_krw || 0)}</strong><small>${foreignTaxText}</small></div>
             <div class="fi-result-card"><span>해외 ETF 과세기준금액</span><strong>${money(etf.taxable_gain_krw || 0)}</strong><small>금융소득에 포함</small></div>
             <div class="fi-result-card"><span>ETF 예상 원천징수</span><strong>${money(etf.estimated_withholding_krw || 0)}</strong><small>screening · 최종세액 아님</small></div>
           </div>
@@ -512,7 +516,7 @@
           <div class="fi-compare-title"><strong>2026 고배당기업 분리과세 특례</strong><span>${applied ? '특례 적용 가정' : '특례 미적용'} · screening-only</span></div>
           <div class="fi-result-grid comparison">
             <div class="fi-result-card"><span>공식 공시 확인</span><strong>${highDividend.high_dividend_company_confirmed_by_user === true ? '확인함' : '미확인'}</strong><small>앱 자동 적격판정 아님</small></div>
-            <div class="fi-result-card"><span>2천만원 판정 제외액</span><strong>${money(highDividend.excluded_from_comprehensive_tax_threshold_krw || 0)}</strong><small>분리과세 신청 가정 반영</small></div>
+            <div class="fi-result-card"><span>2천만원 판정 제외액</span><strong>${money(highDividend.excluded_from_comprehensive_tax_threshold_krw || 0)}</strong><small>종합과세 판정대상 ${money(comprehensiveProjected)}</small></div>
             <div class="fi-result-card"><span>특례 국세 예상액</span><strong>${money(highDividend.national_income_tax_krw)}</strong><small>지방소득세·최종 신고세액 미포함</small></div>
           </div>
         </div>
