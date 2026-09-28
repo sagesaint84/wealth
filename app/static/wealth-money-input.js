@@ -280,7 +280,7 @@
     if (event.target?.tagName === 'INPUT') renderMoneyHints(event.target);
   });
   window.addEventListener('wealth:portfolio', event => {
-    setUsdKrwRate(event?.detail?.fxRates?.USDKRW);
+    setUsdKrwRate(event?.detail?.fxRates?.USD);
   });
 
   const start = () => {
