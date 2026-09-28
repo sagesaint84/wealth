@@ -32,6 +32,14 @@ class DividendIntelligence105EFrontendTests(unittest.TestCase):
         self.assertIn("평가금액 기준 세후 배당수익률", self.js)
         self.assertIn("세후 계산 커버리지", self.js)
 
+    def test_after_tax_panel_is_anchored_inside_dividend_panel(self) -> None:
+        self.assertIn("document.getElementById('dividendPanel')", self.js)
+        self.assertIn("dividendPanel?.querySelector('.dividend-summary-cards')", self.js)
+        self.assertNotIn(
+            "document.getElementById('dividendModeTabs')?.parentElement?.parentElement",
+            self.js,
+        )
+
     def test_high_dividend_official_states_and_source_links_are_visible(self) -> None:
         self.assertIn("고배당기업 공식 자격", self.js)
         for text in ("공식 해당", "공식 미해당", "확인 대기", "조회 불가", "대상 아님"):
