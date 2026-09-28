@@ -21,7 +21,8 @@ class MoneyInputUsdPreviewStaticTests(unittest.TestCase):
     def test_preview_uses_live_usdkrw_portfolio_rate(self) -> None:
         self.assertIn("window.addEventListener('wealth:portfolio'", self.js)
         self.assertNotIn("document.addEventListener('wealth:portfolio'", self.js)
-        self.assertIn("fxRates?.USDKRW", self.js)
+        self.assertIn("fxRates?.USD", self.js)
+        self.assertNotIn("fxRates?.USDKRW", self.js)
         self.assertIn("setUsdKrwRate", self.js)
         self.assertIn("원화 환산 대기", self.js)
         self.assertIn("약 ₩", self.js)
