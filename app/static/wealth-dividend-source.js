@@ -5,6 +5,7 @@
   if (!originalRender) return;
 
   const SOURCE_LABELS = {
+    kind_etf_confirmed_overlay: 'KIND ETF 확정 분배금 반영',
     opendart_confirmed_disclosure: 'OpenDART 확정공시',
     opendart_historical_fill: 'OpenDART 공식 이력',
     naver: '네이버 추정',
@@ -51,6 +52,23 @@
     return `<span style="display:inline-flex;gap:5px;align-items:center;padding:4px 8px;border:1px solid;border-radius:999px;font-size:11px;line-height:1;${tones[tone] || tones.neutral}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></span>`;
   }
 
+  function sourceConnection(policy) {
+    const status = policy?.status || 'legacy_only';
+    if (status === 'ok') {
+      return { html: chip('공식자료', '연결됨', 'official'), note: 'OpenDART/KIND 공식 근거를 함께 확인합니다.' };
+    }
+    if (status === 'missing_api_key') {
+      return { html: chip('OpenDART', '미연동', 'warning'), note: '현재 금액은 네이버/Yahoo 기반 추정입니다. OpenDART 키를 설정하면 공식 이력과 최근 공시 존재 여부를 함께 확인합니다.' };
+    }
+    if (status === 'network_disabled') {
+      return { html: chip('외부 네트워크', '비활성', 'warning'), note: '외부 네트워크가 비활성이라 공식자료를 조회하지 못했습니다. 기존 추정은 유지합니다.' };
+    }
+    if (status === 'opendart_unavailable' || status === 'official_enrichment_failed') {
+      return { html: chip('공식자료', '조회 실패', 'warning'), note: '공식자료 조회에 실패해 기존 추정을 유지했습니다.' };
+    }
+    return { html: chip('예측 source', '기존 추정', 'neutral'), note: '현재 확인 가능한 기존 추정 데이터를 표시합니다.' };
+  }
+
   function ensureBanner() {
     const section = document.getElementById('dividendSection')
       || document.querySelector('[data-dividend-section]')
@@ -92,6 +110,7 @@
     const estimatedCount = Number(trust.estimated_or_heuristic_count || 0);
     const dartUrl = safeLink(policy.opendart_guide_url);
     const kindUrl = safeLink(policy.kind_etf_reference_url || policy.kind_reference_url);
+    const connection = sourceConnection(policy);
 
     const sourceBreakdown = Object.entries(counts)
       .filter(([, count]) => Number(count) > 0)
@@ -110,6 +129,7 @@
       <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
         <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;">
           <strong style="font-size:12px;">배당 예상 근거</strong>
+          ${connection.html}
           ${chip('공식 근거', `${officialCount}종목`, 'official')}
           ${chip('확정금액 반영', `${confirmedOverrideCount}종목`, confirmedOverrideCount ? 'confirmed' : 'neutral')}
           ${chip('이력·시장 추정', `${estimatedCount}종목`, 'estimate')}
@@ -119,8 +139,9 @@
       <details style="margin-top:8px;">
         <summary style="cursor:pointer;color:#94a3b8;font-size:11px;">출처별 상세와 확정금액 반영 원칙</summary>
         <div style="margin-top:6px;color:#94a3b8;">
+          ${escapeHtml(connection.note)}<br>
           ${sourceBreakdown.length ? escapeHtml(sourceBreakdown.join(' · ')) : '현재 보유종목의 배당 자료가 없습니다.'}
-          <br>공식 공시 존재와 forecast 확정금액 반영은 별개입니다. 지급일과 금액을 구조적으로 검증하고 기존 예상월과 안전하게 일치할 때만 확정 공시값을 반영합니다.
+          <br>공식 공시 존재와 forecast 확정금액 반영은 별개입니다. 지급예정일과 금액을 구조적으로 검증하고 기존 예상월과 안전하게 일치할 때만 확정 공시값을 반영하며, 지급일은 임의 생성하지 않습니다.
         </div>
       </details>
     `;
@@ -177,11 +198,11 @@
       return `<div style="color:#94a3b8;">고배당기업 공식 자격 데이터를 아직 확인할 수 없습니다.</div>`;
     }
     const status = high.source_status || 'source_unavailable';
-    const ok = status === 'ok' || status === 'no_applicable_holdings';
     const qualified = Number(high.official_qualified_count || 0);
     const notQualified = Number(high.official_not_qualified_count || 0);
     const pending = Number(high.not_confirmed_count || 0);
     const unavailable = Number(high.source_unavailable_count || 0);
+    const ok = (status === 'ok' || status === 'no_applicable_holdings') && unavailable === 0;
     const share = high.qualified_projected_gross_share_pct == null ? '-' : percent(high.qualified_projected_gross_share_pct);
     const sourceUrl = safeLink(high.kind_reference_url);
     return `
