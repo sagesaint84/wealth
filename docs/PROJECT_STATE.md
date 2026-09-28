@@ -4,27 +4,27 @@
 > 새 대화, 새 작업 세션, 새 개발자가 시작할 때 가장 먼저 이 문서를 읽습니다.
 > 세부 계획은 `docs/ROADMAP.md`, 비밀값·환경설정 원칙은 `docs/SECURITY_AND_CONFIG.md`를 참조합니다.
 
-마지막 갱신: 2026-09-28
+마지막 갱신: 2026-09-29
 
 ## 1. 현재 개발 상태
 
-현재 작업 단계는 **Phase 10.5E — Dividend Intelligence 디자인 / 고배당기업 공식 자격**입니다.
+현재 작업 단계는 **Phase 10.5F — Dividend detail UX polish + USD amount helper**입니다.
 
 현재 작업:
 
-- branch: `phase10-5e-dividend-intelligence-design-high-dividend`
+- branch: `phase10-5f-dividend-ux-usd`
 - base: `main`
-- 작업 시작 기준 main: `e18408d6` (PR #50 merge)
-- PR: #51 Draft
-- 상태: 구현 및 로컬 전체 검증 완료, 문서 최종 정리 후 Ready/merge 대기
-- validated code head: `8b28e716a26f4f5604be50781259009f3c3a719d`
+- 작업 시작 기준 main: `64fa4d58`
+- PR: #52 Draft
+- 상태: 구현 및 문서 정리 진행, exact-head 로컬 검증 대기
 
-Phase 10.5E는 다음 두 축을 한 increment로 진행한다.
+Phase 10.5F는 10.5E 운영 browser smoke에서 확인한 작은 UX 마찰을 정리한다.
 
-1. Dividend Intelligence 화면의 정보 계층 단순화
-2. 회사의 최신 공식 `기업가치 제고 계획` 공시에 기재된 고배당기업 자격 상태 자동 확인
+1. Dividend Intelligence 상세 표의 내부 상태값을 사용자 한글 문구로 표시
+2. 고배당기업 `대상 아님` 자산의 불필요한 공식 근거 링크 제거
+3. USD 예수금 native number input에 천 단위 USD 보조표시와 현재 `fx_rates.USD` 기반 원화 환산 보조값 제공
 
-고배당기업 상태는 market/dividend heuristic으로 재계산하지 않는다. 공식 문서의 `해당 / 미해당`만 구조적으로 확인하고, 공시 부재는 `not_confirmed`, credential/network/upstream 실패는 `source_unavailable`로 fail-closed 처리한다. 공식 자격을 확인해도 10.5A-4 고배당 분리과세 규칙은 자동 적용하지 않는다.
+USD helper는 기존 `type=number`와 raw value/payload를 변경하지 않고, dashboard가 이미 받은 `data.fx_rates.USD`만 재사용한다. 현재 환율이 없으면 추정하지 않고 `원화 환산 대기`로 표시한다. 세법·세율·threshold·고배당기업 자격 판정·배당 identity/persistence 계약은 변경하지 않는다.
 
 C-7 가족별 배당 분산 보기 단순화는 삭제하지 않고, 기존 Family Risk / Allocation Simulation과 기능 중복이 커서 **추후 UX 정리 후보**로 계속 보류한다.
 
@@ -35,6 +35,7 @@ C-7 가족별 배당 분산 보기 단순화는 삭제하지 않고, 기존 Fami
 - 10.5C-6 2천만원 접근 What-if 개선 — PR #48 merge 및 운영 확인 완료 (`0d87fd9c`).
 - C-7 보류 및 roadmap 재정렬 — PR #49 merge (`ba1d3349`).
 - 10.5D Dividend Intelligence 통합 — PR #50 merge (`e18408d6`), 운영 배포 및 browser smoke 확인.
+- 10.5E Dividend Intelligence 디자인 / 고배당기업 공식 자격 — PR #51 merge (`3d23a504`), GHCR #120, 운영 배포 및 browser smoke 확인.
 
 C-4.1 운영 확인:
 
@@ -42,6 +43,7 @@ C-4.1 운영 확인:
 - GHCR 배포 완료.
 - `sagesaint` 사용자에서 최초 `dividend_forecast_snapshots.json` point-in-time snapshot 생성 확인.
 - snapshot schema_version 1, 12개 월 bucket, owner/date canonical upsert 기반이 운영에서 확인됨.
+- 10.5E browser smoke 시 snapshot 2개 누적 확인.
 
 방향 전환:
 
@@ -87,9 +89,10 @@ C-4.1 운영 확인:
 - [x] 10.5C-6 2천만원 접근 What-if 개선 — PR #48, 운영 확인 완료
 - [ ] 10.5C-7 가족별 배당 분산 보기 단순화 — 추후 진행 후보로 보류
 - [x] 10.5D Dividend Intelligence — PR #50 merge (`e18408d6`), 운영 배포 및 browser smoke 확인
-- [ ] 10.5E Dividend Intelligence 디자인 / 고배당기업 공식 자격 — PR #51, 구현·로컬 검증 완료
+- [x] 10.5E Dividend Intelligence 디자인 / 고배당기업 공식 자격 — PR #51 merge (`3d23a504`), GHCR #120, 운영 배포 및 browser smoke 확인
+- [ ] 10.5F Dividend detail UX polish + USD amount helper — PR #52 Draft
 
-세부 후속 순서는 `docs/ROADMAP.md`, `docs/PHASE_10_5D_DIVIDEND_INTELLIGENCE.md`, `docs/PHASE_10_5E_DIVIDEND_INTELLIGENCE_DESIGN_HIGH_DIVIDEND.md`를 따른다.
+세부 후속 순서는 `docs/ROADMAP.md`, `docs/PHASE_10_5D_DIVIDEND_INTELLIGENCE.md`, `docs/PHASE_10_5E_DIVIDEND_INTELLIGENCE_DESIGN_HIGH_DIVIDEND.md`, `docs/PHASE_10_5F_DIVIDEND_UX_USD.md`를 따른다.
 
 ## 3. 현재 금융소득/세금 제품 원칙
 
@@ -308,6 +311,17 @@ A-4.4 KIND ETF 분배금 보강:
 - 공식 자격 종목의 예상 gross 배당 합계와 비중은 자산관리 참고값이며 특례배당소득 확정액이 아니다.
 - 공식 자격을 확인해도 10.5A-4 고배당 분리과세 규칙을 자동 적용하지 않는다.
 - 새 세율, 새 client threshold, fuzzy matching, forecast event identity 변경을 추가하지 않는다.
+
+### F Dividend detail UX / USD amount helper 계약
+
+- Dividend Intelligence 상세의 backend `calculation_status`는 변경하지 않고 display label만 `계산 완료 / 계산 제외 / 확인 불가 / 부분 계산`으로 한글화한다.
+- 고배당기업 `not_applicable`은 상태 badge만 유지하고 고배당기업 공식 근거 링크를 표시하지 않는다.
+- USD helper는 `cash_usd` 또는 명시적 `data-auto-usd-preview` numeric input에만 적용한다.
+- USD input 자체의 native `type=number`, raw value, 저장/API payload를 변경하지 않는다.
+- 원화 환산은 dashboard `wealth:portfolio` event의 `fxRates.USD`를 재사용한다.
+- 환율 API를 추가 호출하거나 client-side 환율을 하드코딩하지 않는다.
+- 현재 `fx_rates.USD`가 없으면 `원화 환산 대기`로 표시하고 임의 환율을 적용하지 않는다.
+- 기존 KRW amount helper 계약과 세금/forecast/persistence 계약을 변경하지 않는다.
 
 ## 5. 사용자별 DART 인증 계약
 

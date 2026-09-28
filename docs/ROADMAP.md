@@ -3,7 +3,7 @@
 > 현재 작업 상태는 `docs/PROJECT_STATE.md`를 먼저 읽습니다.
 > 이 문서는 앞으로 진행할 기능의 우선순위와 완료 기준을 기록합니다.
 
-마지막 갱신: 2026-09-28
+마지막 갱신: 2026-09-29
 
 ## 1. 현재 우선순위
 
@@ -47,37 +47,47 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 
 ### Phase 10.5E — Dividend Intelligence 디자인 / 고배당기업 공식 자격
 
-현재 increment: **Dividend Intelligence 화면 단순화 + 고배당기업 공식 자격 상태 자동 확인** — PR #51.
+상태: **완료** — PR #51 merge (`3d23a504`), GHCR #120, 운영 배포 및 browser smoke 확인.
 
-목표:
+완료 내용:
 
-- 배당 source/evidence 정보를 compact chip + 상세 펼쳐보기 구조로 단순화한다.
-- 알려진 세금 후 예상 현금, 알려진 세금, 세후 수익률, 계산 coverage를 우선 KPI로 유지한다.
-- 국내 배당주의 고배당기업 여부는 회사의 최신 공식 `기업가치 제고 계획` 공시에 기재된 `해당 / 미해당` 값만 구조적으로 확인한다.
-- 공식 공시 부재는 `not_confirmed`, credential/network/upstream 실패는 `source_unavailable`로 fail-closed 처리한다.
-- 공식 자격을 확인해도 기존 10.5A-4 분리과세 규칙을 자동 적용하지 않는다.
-- 고배당 특례 세율·threshold·법적 자격 요건을 frontend에서 새로 계산하지 않는다.
+- 배당 source/evidence 정보를 compact chip + 상세 펼쳐보기 구조로 단순화
+- 알려진 세금 후 예상 현금, 알려진 세금, 세후 수익률, 계산 coverage를 우선 KPI로 재배치
+- 국내 배당주의 고배당기업 여부는 회사의 최신 공식 `기업가치 제고 계획` 공시에 기재된 `해당 / 미해당` 값만 구조적으로 확인
+- 공식 공시 부재는 `not_confirmed`, credential/network/upstream 실패는 `source_unavailable`로 fail-closed 처리
+- 공식 자격을 확인해도 기존 10.5A-4 분리과세 규칙은 자동 적용하지 않음
+- browser smoke에서 국내 대상 14종목은 `공식 해당 0 / 공식 미해당 0 / 확인 대기 14 / 조회 불가 0`, ETF·해외자산은 `대상 아님` 확인
 
 검증:
 
-- full unittest: `Ran 2394 tests` / `OK`
-- `python -m py_compile`: 통과
-- `node --check app/static/wealth-dividend-source.js`: 통과
-- `git diff --check`: clean
-- validated code head: `8b28e716a26f4f5604be50781259009f3c3a719d`
-- 이후 변경은 문서 정리만 수행한다.
+- exact validated head: `adaeb2317e7fe1e50433fcb2e582aed403a26037`
+- full unittest: `Ran 2395 tests in 130.581s` / `OK`
+- `python -m py_compile`, `node --check`, `git diff --check`, clean status 통과
+- merge SHA: `3d23a50425f3321942713192557bc546a8397b58`
+
+### Phase 10.5F — Dividend detail UX polish + USD amount helper
+
+현재 increment: **배당 상세 문구 정리 + USD 예수금 입력 천 단위/원화 환산 보조표시**.
+
+목표:
+
+- Dividend Intelligence 종목 상세의 내부 상태 `calculated`를 `계산 완료` 등 사용자 문구로 표시
+- 고배당기업 `대상 아님`인 ETF·해외자산에는 불필요한 고배당기업 공식 근거 링크를 숨김
+- 기존 `type=number` / raw value / payload 계약을 유지하면서 `cash_usd`에 `$12,345.67` 형태 보조표시 제공
+- 원화 환산은 이미 dashboard가 받은 `data.fx_rates.USD`를 재사용하고 환율 상수를 하드코딩하지 않음
+- 현재 환율이 없으면 추정하지 않고 `원화 환산 대기`로 fail-closed
+- 기존 KRW 금액 helper와 저장/API 계약은 변경하지 않음
 
 C-7 가족별 배당 분산 보기 단순화는 기존 Family Financial Income Risk / Family Allocation Simulation과 기능 중복이 커서 **추후 진행 후보**로 계속 보류한다.
 
 ## 2. 다음 단계
 
-Phase 10.5E PR #51을 exact-head merge하고 GHCR/운영/browser smoke를 완료한다. 이후 다음 번호는 실제 필요성을 다시 비교한 뒤 부여한다.
+Phase 10.5F를 targeted/related/full regression으로 검증한 뒤 PR exact-head merge, GHCR, 운영/browser smoke까지 완료한다. 이후 다음 번호는 실제 필요성을 다시 비교한 뒤 부여한다.
 
 추후 후보:
 
 - **C-7 가족별 배당 분산 보기 단순화** — 기존 두 family 패널을 단순 통합할 필요성이 다시 커질 때 진행
-- **고배당기업 공식 자격 상태 변경 알림** — 기존 opt-in alert/dedup 계약을 재사용할 수 있는지 검토
-- **USD 입력 천 단위 표시 / 원화 환산값 보조표시** — 작은 UX increment로 묶을 수 있음
+- **고배당기업 공식 자격 상태 변경 알림** — 실제 공식 상태 변화 데이터가 쌓인 뒤 기존 opt-in alert/dedup 계약 재사용 여부 검토
 
 종합소득세 신고서 완성을 위한 다음 항목들은 **현재 제품 우선순위에서 보류**한다.
 
@@ -232,17 +242,18 @@ Phase 10.5D 완료:
 - 공식 공시 원문 바로가기
 - 계산 근거 펼쳐보기
 - point-in-time forecast 정확도/데이터 누적 상태 표시
+- Dividend Intelligence KPI/근거 정보 계층 단순화 — 10.5E
+- 고배당기업 공식 자격 chip 및 portfolio 요약 — 10.5E
 
-Phase 10.5E:
+Phase 10.5F 진행:
 
-- Dividend Intelligence KPI/근거 정보 계층 단순화
-- 고배당기업 공식 자격 chip 및 portfolio 요약
-- 공식 source 장애/미연동 상태 유지
+- USD 예수금 입력 `$` 천 단위 보조표시
+- 현재 `fx_rates.USD` 기반 원화 환산 보조표시
+- 종목 상세 계산 상태 한글화
+- `대상 아님` 고배당 공식 링크 정리
 
 후보:
 
-- USD 입력 천 단위 표시
-- 원화 환산값 보조표시
 - C-7 가족별 배당 분산 보기 단순화 (추후 진행)
 
 ## 8. 장기 구조 개선 후보

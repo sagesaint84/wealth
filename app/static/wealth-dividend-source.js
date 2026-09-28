@@ -41,6 +41,15 @@
     return typeof value === 'string' && value.startsWith('https://') ? value : null;
   }
 
+  function calculationStatusLabel(value) {
+    return {
+      calculated: '계산 완료',
+      unsupported: '계산 제외',
+      unavailable: '확인 불가',
+      partial: '부분 계산',
+    }[value] || value || '-';
+  }
+
   function chip(label, value, tone = 'neutral') {
     const tones = {
       official: 'border:rgba(56,189,248,.32);background:rgba(14,116,144,.13);color:#bae6fd;',
@@ -192,7 +201,9 @@
       source_unavailable: ['조회 불가', '#cbd5e1', 'rgba(51,65,85,.30)', 'rgba(148,163,184,.24)'],
       not_applicable: ['대상 아님', '#94a3b8', 'rgba(30,41,59,.25)', 'rgba(100,116,139,.20)'],
     }[status] || ['확인 대기', '#fde68a', 'rgba(180,83,9,.09)', 'rgba(251,191,36,.28)'];
-    const url = safeLink(qualification?.source_url || qualification?.kind_reference_url);
+    const url = status === 'not_applicable'
+      ? null
+      : safeLink(qualification?.source_url || qualification?.kind_reference_url);
     return `<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;"><span style="display:inline-flex;padding:3px 7px;border:1px solid ${spec[3]};border-radius:999px;background:${spec[2]};color:${spec[1]};font-size:10.5px;font-weight:700;white-space:nowrap;">${spec[0]}</span>${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:#7dd3fc;font-size:10.5px;white-space:nowrap;">공식 근거 ↗</a>` : ''}</div>`;
   }
 
@@ -349,7 +360,7 @@
             <td style="padding:8px 7px;text-align:right;vertical-align:top;">${tax}</td>
             <td style="padding:8px 7px;text-align:right;vertical-align:top;">${after}<br><small style="color:#94a3b8;">기여 ${afterContribution}</small></td>
             <td style="padding:8px 7px;text-align:right;vertical-align:top;">${percent(row.gross_yield_market_pct)}${row.after_known_tax_yield_market_pct === null ? '' : ` → ${percent(row.after_known_tax_yield_market_pct)}`}</td>
-            <td style="padding:8px 7px;vertical-align:top;">${escapeHtml(row.calculation_status)}</td>
+            <td style="padding:8px 7px;vertical-align:top;">${escapeHtml(calculationStatusLabel(row.calculation_status))}</td>
           </tr>`;
       }).join('');
 
