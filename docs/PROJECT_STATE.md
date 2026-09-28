@@ -22,9 +22,9 @@ Phase 10.5F는 10.5E 운영 browser smoke에서 확인한 작은 UX 마찰을 �
 
 1. Dividend Intelligence 상세 표의 내부 상태값을 사용자 한글 문구로 표시
 2. 고배당기업 `대상 아님` 자산의 불필요한 공식 근거 링크 제거
-3. USD 예수금 native number input에 천 단위 USD 보조표시와 현재 `USDKRW` 기반 원화 환산 보조값 제공
+3. USD 예수금 native number input에 천 단위 USD 보조표시와 현재 `fx_rates.USD` 기반 원화 환산 보조값 제공
 
-USD helper는 기존 `type=number`와 raw value/payload를 변경하지 않고, dashboard가 이미 받은 `data.fx_rates.USDKRW`만 재사용한다. 현재 환율이 없으면 추정하지 않고 `원화 환산 대기`로 표시한다. 세법·세율·threshold·고배당기업 자격 판정·배당 identity/persistence 계약은 변경하지 않는다.
+USD helper는 기존 `type=number`와 raw value/payload를 변경하지 않고, dashboard가 이미 받은 `data.fx_rates.USD`만 재사용한다. 현재 환율이 없으면 추정하지 않고 `원화 환산 대기`로 표시한다. 세법·세율·threshold·고배당기업 자격 판정·배당 identity/persistence 계약은 변경하지 않는다.
 
 C-7 가족별 배당 분산 보기 단순화는 삭제하지 않고, 기존 Family Risk / Allocation Simulation과 기능 중복이 커서 **추후 UX 정리 후보**로 계속 보류한다.
 
@@ -318,9 +318,9 @@ A-4.4 KIND ETF 분배금 보강:
 - 고배당기업 `not_applicable`은 상태 badge만 유지하고 고배당기업 공식 근거 링크를 표시하지 않는다.
 - USD helper는 `cash_usd` 또는 명시적 `data-auto-usd-preview` numeric input에만 적용한다.
 - USD input 자체의 native `type=number`, raw value, 저장/API payload를 변경하지 않는다.
-- 원화 환산은 dashboard `wealth:portfolio` event의 `fxRates.USDKRW`를 재사용한다.
+- 원화 환산은 dashboard `wealth:portfolio` event의 `fxRates.USD`를 재사용한다.
 - 환율 API를 추가 호출하거나 client-side 환율을 하드코딩하지 않는다.
-- 현재 `USDKRW`가 없으면 `원화 환산 대기`로 표시하고 임의 환율을 적용하지 않는다.
+- 현재 `fx_rates.USD`가 없으면 `원화 환산 대기`로 표시하고 임의 환율을 적용하지 않는다.
 - 기존 KRW amount helper 계약과 세금/forecast/persistence 계약을 변경하지 않는다.
 
 ## 5. 사용자별 DART 인증 계약
