@@ -36,6 +36,7 @@ OPENDART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 OPENDART_DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 DART_VIEWER_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 _CACHE_TTL_SECONDS = 30 * 60
+_MAX_LIST_PAGES = 3
 _CACHE: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
 
 
@@ -125,7 +126,7 @@ def parse_high_dividend_valueup_document(
         flags=re.IGNORECASE,
     )
     if match is None:
-        # HTML/text extraction can collapse table delimiters.  Use a bounded
+        # HTML/text extraction can collapse table delimiters. Use a bounded
         # local window around the exact field label, never a document-wide hit.
         label = re.search(r"고배당기업\s*여부", compact, flags=re.IGNORECASE)
         if label is not None:
@@ -197,56 +198,70 @@ async def _fetch_company_status(
 
     begin = as_of - timedelta(days=450)
     try:
-        response = await client.get(
-            OPENDART_LIST_URL,
-            params={
-                "crtfc_key": api_key,
-                "corp_code": corp_code,
-                "bgn_de": begin.strftime("%Y%m%d"),
-                "end_de": as_of.strftime("%Y%m%d"),
-                "page_count": "100",
-                "sort": "date",
-                "sort_mth": "desc",
-            },
-            timeout=8.0,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        api_status = str(payload.get("status") or "")
-        if api_status not in {"", "000"}:
+        filing: dict[str, Any] | None = None
+        list_failure: str | None = None
+        for page_no in range(1, _MAX_LIST_PAGES + 1):
+            response = await client.get(
+                OPENDART_LIST_URL,
+                params={
+                    "crtfc_key": api_key,
+                    "corp_code": corp_code,
+                    "bgn_de": begin.strftime("%Y%m%d"),
+                    "end_de": as_of.strftime("%Y%m%d"),
+                    "page_no": str(page_no),
+                    "page_count": "100",
+                    "sort": "date",
+                    "sort_mth": "desc",
+                },
+                timeout=8.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            api_status = str(payload.get("status") or "")
+            if api_status == "013":
+                break
+            if api_status not in {"", "000"}:
+                list_failure = f"opendart_list_status_{api_status}"
+                break
+            filing = _latest_valueup_filing(payload.get("list"))
+            if filing is not None:
+                break
+            try:
+                total_page = int(payload.get("total_page") or page_no)
+            except (TypeError, ValueError):
+                total_page = page_no
+            if page_no >= total_page:
+                break
+
+        if list_failure is not None:
+            result = {"status": "source_unavailable", "reason": list_failure}
+        elif filing is None:
             result = {
-                "status": "source_unavailable",
-                "reason": f"opendart_list_status_{api_status}",
+                "status": "not_confirmed",
+                "reason": "valueup_filing_not_found",
             }
         else:
-            filing = _latest_valueup_filing(payload.get("list"))
-            if filing is None:
-                result = {
-                    "status": "not_confirmed",
-                    "reason": "valueup_filing_not_found",
-                }
-            else:
-                document = await client.get(
-                    OPENDART_DOCUMENT_URL,
-                    params={
-                        "crtfc_key": api_key,
-                        "rcept_no": filing["receipt_no"],
-                    },
-                    timeout=12.0,
-                )
-                document.raise_for_status()
-                parsed = parse_high_dividend_valueup_document(
-                    extract_document_text_from_zip(document.content),
-                    report_name=filing["report_name"],
-                    receipt_no=filing["receipt_no"],
-                    receipt_date=filing["receipt_date"],
-                    viewer_url=filing["viewer_url"],
-                )
-                result = {
-                    "status": parsed.get("qualification_status") or "not_confirmed",
-                    "reason": parsed.get("reason"),
-                    "evidence": parsed,
-                }
+            document = await client.get(
+                OPENDART_DOCUMENT_URL,
+                params={
+                    "crtfc_key": api_key,
+                    "rcept_no": filing["receipt_no"],
+                },
+                timeout=12.0,
+            )
+            document.raise_for_status()
+            parsed = parse_high_dividend_valueup_document(
+                extract_document_text_from_zip(document.content),
+                report_name=filing["report_name"],
+                receipt_no=filing["receipt_no"],
+                receipt_date=filing["receipt_date"],
+                viewer_url=filing["viewer_url"],
+            )
+            result = {
+                "status": parsed.get("qualification_status") or "not_confirmed",
+                "reason": parsed.get("reason"),
+                "evidence": parsed,
+            }
     except Exception:
         result = {
             "status": "source_unavailable",
@@ -349,13 +364,21 @@ async def enrich_dividend_intelligence_with_high_dividend_qualification(
         own_client = client is None
         http = client or httpx.AsyncClient()
         try:
+            mapping_loaded = True
             try:
                 mapping = await _load_corp_code_map(http, key)
             except Exception:
                 mapping = {}
+                mapping_loaded = False
                 source_status = "opendart_unavailable"
             tasks: list[tuple[str, Any]] = []
             for code in applicable:
+                if not mapping_loaded:
+                    results[code] = {
+                        "status": "source_unavailable",
+                        "reason": "opendart_corp_code_unavailable",
+                    }
+                    continue
                 corp_code = mapping.get(code)
                 if not corp_code:
                     results[code] = {
