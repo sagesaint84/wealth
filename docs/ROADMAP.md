@@ -74,7 +74,7 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 - Dividend Intelligence 종목 상세의 내부 상태 `calculated`를 `계산 완료` 등 사용자 문구로 표시
 - 고배당기업 `대상 아님`인 ETF·해외자산에는 불필요한 고배당기업 공식 근거 링크를 숨김
 - 기존 `type=number` / raw value / payload 계약을 유지하면서 `cash_usd`에 `$12,345.67` 형태 보조표시 제공
-- 원화 환산은 이미 dashboard가 받은 `data.fx_rates.USDKRW`를 재사용하고 환율 상수를 하드코딩하지 않음
+- 원화 환산은 이미 dashboard가 받은 `data.fx_rates.USD`를 재사용하고 환율 상수를 하드코딩하지 않음
 - 현재 환율이 없으면 추정하지 않고 `원화 환산 대기`로 fail-closed
 - 기존 KRW 금액 helper와 저장/API 계약은 변경하지 않음
 
@@ -248,7 +248,7 @@ Phase 10.5D 완료:
 Phase 10.5F 진행:
 
 - USD 예수금 입력 `$` 천 단위 보조표시
-- 현재 `USDKRW` 기반 원화 환산 보조표시
+- 현재 `fx_rates.USD` 기반 원화 환산 보조표시
 - 종목 상세 계산 상태 한글화
 - `대상 아님` 고배당 공식 링크 정리
 
