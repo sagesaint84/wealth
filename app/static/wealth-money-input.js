@@ -2,6 +2,7 @@
   'use strict';
 
   const ATTRIBUTE = 'data-korean-currency';
+  const USD_ATTRIBUTE = 'data-auto-usd-preview';
   const CONTEXTUAL_KRW_IDS = new Set([
     'divFormAmount',
     'pnlFormAmount',
@@ -16,6 +17,7 @@
   ]);
   const EXCLUDED_ID_OR_NAME = /(?:fx[_-]?rate|interest[_-]?rate|rate|percent|pct|ownership|quantity|year|month|duration|day|ratio)$/i;
   const KRW_LABEL = /(?:\bKRW\b|원화|₩|\(원\)|원\))/i;
+  let usdKrwRate = null;
 
   function parseAmount(value) {
     if (value === null || value === undefined || value === '') return null;
@@ -28,6 +30,12 @@
     if (parsed === null) return '';
     const rounded = Math.round(parsed);
     return `${rounded.toLocaleString('ko-KR')}원`;
+  }
+
+  function formatUsdDigits(value) {
+    const parsed = parseAmount(value);
+    if (parsed === null) return '';
+    return `$${parsed.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
   }
 
   function formatChunk(value) {
@@ -103,6 +111,14 @@
     return true;
   }
 
+  function isUsdMoneyInput(input) {
+    if (!input || input.tagName !== 'INPUT') return false;
+    if (input.type !== 'number' || input.readOnly || input.disabled) return false;
+    if (input.hasAttribute('data-money-preview-off')) return false;
+    if (input.hasAttribute(USD_ATTRIBUTE)) return true;
+    return String(input.name || '').toLowerCase() === 'cash_usd';
+  }
+
   function findHint(input) {
     const parent = input.parentElement;
     if (!parent) return null;
@@ -122,9 +138,33 @@
     return hint;
   }
 
+  function findUsdHint(input) {
+    const parent = input.parentElement;
+    if (!parent) return null;
+    const existing = [...parent.children].find(child => child.classList?.contains('usd-currency-hint'));
+    return existing || null;
+  }
+
+  function ensureUsdHint(input) {
+    let hint = findUsdHint(input);
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.className = 'usd-currency-hint';
+      input.parentElement?.appendChild(hint);
+    }
+    hint.dataset.usdMoneyPreview = 'true';
+    hint.style.cssText = 'font-size:11.5px;font-weight:700;color:#60a5fa;margin-top:4px;display:flex;align-items:center;gap:6px;line-height:1.35;flex-wrap:wrap;transition:all 0.15s ease;';
+    return hint;
+  }
+
   function hideHint(input) {
     const hint = findHint(input);
     if (hint?.dataset?.moneyPreview === 'true') hint.style.display = 'none';
+  }
+
+  function hideUsdHint(input) {
+    const hint = findUsdHint(input);
+    if (hint?.dataset?.usdMoneyPreview === 'true') hint.style.display = 'none';
   }
 
   function renderHint(input) {
@@ -157,21 +197,68 @@
     hint.setAttribute('aria-live', 'polite');
   }
 
+  function renderUsdHint(input) {
+    if (!isUsdMoneyInput(input)) {
+      hideUsdHint(input);
+      return;
+    }
+    const parsed = parseAmount(input.value);
+    const hint = ensureUsdHint(input);
+    if (parsed === null || parsed === 0) {
+      hint.style.display = 'none';
+      hint.replaceChildren();
+      return;
+    }
+
+    const numeric = document.createElement('span');
+    numeric.className = 'usd-money-preview-numeric';
+    numeric.textContent = formatUsdDigits(parsed);
+    const separator = document.createElement('span');
+    separator.className = 'usd-money-preview-separator';
+    separator.textContent = '·';
+    const krw = document.createElement('span');
+    krw.className = 'usd-money-preview-krw';
+    krw.textContent = Number.isFinite(usdKrwRate) && usdKrwRate > 0
+      ? `약 ₩${Math.round(parsed * usdKrwRate).toLocaleString('ko-KR')}`
+      : '원화 환산 대기';
+
+    hint.style.display = 'flex';
+    hint.style.color = parsed < 0 ? '#fb7185' : '#60a5fa';
+    hint.replaceChildren(numeric, separator, krw);
+    hint.setAttribute('aria-live', 'polite');
+  }
+
+  function renderMoneyHints(input) {
+    renderHint(input);
+    renderUsdHint(input);
+  }
+
   function scan(root = document) {
-    if (root?.tagName === 'INPUT') renderHint(root);
-    root?.querySelectorAll?.('input[type="number"]').forEach(renderHint);
+    if (root?.tagName === 'INPUT') renderMoneyHints(root);
+    root?.querySelectorAll?.('input[type="number"]').forEach(renderMoneyHints);
   }
 
   function refreshForm(form) {
-    form?.querySelectorAll?.('input[type="number"]').forEach(renderHint);
+    form?.querySelectorAll?.('input[type="number"]').forEach(renderMoneyHints);
+  }
+
+  function setUsdKrwRate(value) {
+    const parsed = Number(value);
+    usdKrwRate = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    if (typeof document !== 'undefined') scan(document);
+    return usdKrwRate;
   }
 
   const api = {
     parseAmount,
     formatKrwDigits,
+    formatUsdDigits,
     formatKoreanAmount,
     isKrwMoneyInput,
+    isUsdMoneyInput,
     renderHint,
+    renderUsdHint,
+    setUsdKrwRate,
     scan,
   };
 
@@ -181,7 +268,7 @@
 
   document.addEventListener('input', event => {
     const target = event.target;
-    if (target?.tagName === 'INPUT') renderHint(target);
+    if (target?.tagName === 'INPUT') renderMoneyHints(target);
   });
   document.addEventListener('change', event => {
     const target = event.target;
@@ -190,7 +277,10 @@
     }
   });
   document.addEventListener('focusin', event => {
-    if (event.target?.tagName === 'INPUT') renderHint(event.target);
+    if (event.target?.tagName === 'INPUT') renderMoneyHints(event.target);
+  });
+  document.addEventListener('wealth:portfolio', event => {
+    setUsdKrwRate(event?.detail?.fxRates?.USDKRW);
   });
 
   const start = () => {
