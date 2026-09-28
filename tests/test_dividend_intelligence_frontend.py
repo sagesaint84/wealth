@@ -37,7 +37,7 @@ class DividendIntelligenceFrontendStaticTests(unittest.TestCase):
         self.assertIn("calculable_after_known_tax_contribution_pct", self.js)
         self.assertIn("현재 보유수량", self.js)
         self.assertIn("entitlement", self.js)
-        self.assertIn("임의 배분", self.js)
+        self.assertIn("미귀속 residual", self.js)
 
     def test_accuracy_ui_is_point_in_time_and_accumulating_safe(self) -> None:
         self.assertIn("예측 정확도 · 과거 point-in-time", self.js)
