@@ -23,7 +23,7 @@ Phase 10.5E는 PR #51 merge `3d23a50425f3321942713192557bc546a8397b58`, GHCR Bui
 
 1. Dividend Intelligence 상세 표의 내부 상태값 `calculated`를 사용자 문구 `계산 완료`로 표시한다.
 2. 고배당기업 자격 `대상 아님`인 ETF·해외자산에는 고배당기업 `공식 근거` 링크를 표시하지 않는다.
-3. 기존 native number input 계약을 유지하면서 USD 예수금 입력에 `$12,345.67` 형태의 천 단위 보조표시와 현재 portfolio `USDKRW` 기준 원화 환산 보조값을 표시한다.
+3. 기존 native number input 계약을 유지하면서 USD 예수금 입력에 `$12,345.67` 형태의 천 단위 보조표시와 현재 portfolio `fx_rates.USD` 기준 원화 환산 보조값을 표시한다.
 
 ## USD 입력 계약
 
@@ -31,7 +31,7 @@ Phase 10.5E는 PR #51 merge `3d23a50425f3321942713192557bc546a8397b58`, GHCR Bui
 - 기존 저장/API payload의 숫자 의미를 변경하지 않는다.
 - `input.value`를 포맷된 문자열로 덮어쓰지 않는다.
 - `cash_usd` 입력과 명시적 `data-auto-usd-preview` opt-in 필드만 대상으로 한다.
-- 원화 환산은 dashboard가 이미 수신한 `data.fx_rates.USDKRW`를 `wealth:portfolio` event에서 재사용한다.
+- 원화 환산은 dashboard가 이미 수신한 `data.fx_rates.USD`를 `wealth:portfolio` event의 `fxRates.USD`에서 재사용한다.
 - 환율을 새로 조회하거나 client에 환율 상수를 하드코딩하지 않는다.
 - 현재 환율이 없으면 숫자를 추정하지 않고 `원화 환산 대기`로 표시한다.
 - 기존 KRW 금액 보조표시 계약과 동작은 유지한다.
@@ -58,7 +58,7 @@ Phase 10.5E는 PR #51 merge `3d23a50425f3321942713192557bc546a8397b58`, GHCR Bui
 ## 완료 조건
 
 - USD 예수금 입력의 포맷/원화 환산 helper 동작
-- live `USDKRW` 미존재 시 fail-closed 표시
+- live `fx_rates.USD` 미존재 시 fail-closed 표시
 - 기존 KRW money-input 회귀 없음
 - Dividend Intelligence 상세 상태 한글화
 - `대상 아님` 자산에서 불필요한 고배당 공식 링크 제거
