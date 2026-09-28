@@ -25,7 +25,7 @@ class PortfolioDividendAfterTaxFrontendTests(unittest.TestCase):
     def test_partial_coverage_does_not_render_full_portfolio_after_tax_yield(self):
         self.assertIn("calculation_status === 'complete'", self.js)
         self.assertIn("전체 계산 보류", self.js)
-        self.assertIn("계산 커버리지가 100%가 아니므로", self.js)
+        self.assertIn("커버리지가 100%가 아니므로", self.js)
         self.assertIn("unsupported_gross_dividend_krw", self.js)
 
     def test_cost_basis_copy_matches_backend_contract(self):
