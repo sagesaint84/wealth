@@ -70,7 +70,8 @@
   }
 
   function ensureBanner() {
-    const section = document.getElementById('dividendSection')
+    const section = document.getElementById('dividendPanel')
+      || document.getElementById('dividendSection')
       || document.querySelector('[data-dividend-section]')
       || document.getElementById('dividendModeTabs')?.closest('section')
       || document.getElementById('dividendModeTabs')?.parentElement;
@@ -153,9 +154,11 @@
   }
 
   function ensureAfterTaxPanel() {
+    const dividendPanel = document.getElementById('dividendPanel')
+      || document.getElementById('dividendModeTabs')?.closest('section');
     const cards = document.getElementById('dividendSummaryCards')
-      || document.querySelector('[data-dividend-summary-cards]')
-      || document.getElementById('dividendModeTabs')?.parentElement?.parentElement;
+      || dividendPanel?.querySelector('.dividend-summary-cards')
+      || document.querySelector('[data-dividend-summary-cards]');
     if (!cards) return null;
     let panel = document.getElementById('portfolioAfterTaxDividendPanel');
     if (panel) return panel;
