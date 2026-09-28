@@ -30,29 +30,43 @@ async def dispatch_scheduled_family_financial_income_alerts(
     *,
     as_of: str,
 ) -> dict[str, Any]:
-    """Build B-1 member risk and dispatch opt-in threshold alerts safely."""
-    if not username:
-        return {"status": "skipped", "reason": "username_unavailable", "sent_count": 0}
-    if not _enabled(username):
-        return {"status": "disabled", "reason": "not_opted_in", "sent_count": 0}
-    try:
-        from app.services.dividend_intelligence import dispatch_family_financial_income_alerts
-        from app.services.tax.family_financial_income import (
-            get_family_financial_income_risk_for_user,
-        )
+    """Build B-1 member risk and dispatch opt-in threshold alerts safely.
 
-        family_risk = await get_family_financial_income_risk_for_user(
-            username,
-            as_of=as_of,
-        )
-        return dispatch_family_financial_income_alerts(username, family_risk)
-    except Exception:
-        # Alerts must never make the daily-close financial snapshot fail.
-        return {
-            "status": "unavailable",
-            "reason": "family_financial_income_alert_unavailable",
-            "sent_count": 0,
-        }
+    Keep a strong reference to the currently running task as well as tasks
+    created through the explicit scheduler.  The daily-close snapshot hook may
+    create this coroutine directly with ``loop.create_task``; retaining the
+    running task here prevents it from being collected before the B-1 async
+    calculation and notification dispatch finish.
+    """
+    current_task = asyncio.current_task()
+    if current_task is not None:
+        _BACKGROUND_TASKS.add(current_task)
+    try:
+        if not username:
+            return {"status": "skipped", "reason": "username_unavailable", "sent_count": 0}
+        if not _enabled(username):
+            return {"status": "disabled", "reason": "not_opted_in", "sent_count": 0}
+        try:
+            from app.services.dividend_intelligence import dispatch_family_financial_income_alerts
+            from app.services.tax.family_financial_income import (
+                get_family_financial_income_risk_for_user,
+            )
+
+            family_risk = await get_family_financial_income_risk_for_user(
+                username,
+                as_of=as_of,
+            )
+            return dispatch_family_financial_income_alerts(username, family_risk)
+        except Exception:
+            # Alerts must never make the daily-close financial snapshot fail.
+            return {
+                "status": "unavailable",
+                "reason": "family_financial_income_alert_unavailable",
+                "sent_count": 0,
+            }
+    finally:
+        if current_task is not None:
+            _BACKGROUND_TASKS.discard(current_task)
 
 
 def schedule_scheduled_family_financial_income_alerts(
