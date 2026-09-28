@@ -1,6 +1,24 @@
 # Phase 10.5E — Dividend Intelligence design refresh + 고배당기업 공식 자격
 
-마지막 갱신: 2026-09-28
+마지막 갱신: 2026-09-29
+
+## 완료 상태
+
+- PR #51 validated head: `adaeb2317e7fe1e50433fcb2e582aed403a26037`
+- full unittest: `Ran 2395 tests in 130.581s` / `OK`
+- merge: `3d23a50425f3321942713192557bc546a8397b58`
+- GHCR Build and Publish Docker Image run #120 성공
+- 운영 컨테이너 기동 및 `/ -> /login` 307 확인
+- browser smoke 완료
+  - compact 배당 예상 근거 chip / 상세 펼쳐보기 정상
+  - Dividend Intelligence가 배당 요약 카드 바로 아래 정상 배치
+  - 알려진 세금 후 예상 현금 / 알려진 세금 / 세후 배당수익률 / coverage 정상
+  - 국내 고배당기업 공식 자격 대상 14종목: `공식 해당 0 / 공식 미해당 0 / 확인 대기 14 / 조회 불가 0`
+  - `확인 대기`는 source 장애가 아니라 공식 `해당/미해당` 값을 구조적으로 확인하지 못한 fail-closed 상태
+  - ETF·해외자산은 `대상 아님`
+  - point-in-time snapshot 2개 누적 확인
+  - 배당·금융소득 알림 기본 OFF 확인
+  - 종목·계좌별 상세 근거 표 정상
 
 ## 목표
 
