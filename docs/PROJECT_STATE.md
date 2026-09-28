@@ -8,22 +8,23 @@
 
 ## 1. 현재 개발 상태
 
-현재 작업 단계는 **Phase 10.5D — Dividend Intelligence 통합 increment**입니다.
+현재 작업 단계는 **Phase 10.5E — Dividend Intelligence 디자인 / 고배당기업 공식 자격**입니다.
 
 현재 작업:
 
-- branch: `phase10-5d-dividend-intelligence`
+- branch: `phase10-5e-dividend-intelligence-design-high-dividend`
 - base: `main`
-- 작업 시작 기준 main: `ba1d3349` (PR #49 merge)
-- PR: #50 Draft
-- 상태: 통합 구현 및 검증 진행 중
+- 작업 시작 기준 main: `e18408d6` (PR #50 merge)
+- PR: #51 Draft
+- 상태: 구현 및 로컬 전체 검증 완료, 문서 최종 정리 후 Ready/merge 대기
+- validated code head: `8b28e716a26f4f5604be50781259009f3c3a719d`
 
-Phase 10.5D는 사용자 요청에 따라 다음 네 항목을 별도 PR로 나누지 않고 한 번에 진행한다.
+Phase 10.5E는 다음 두 축을 한 increment로 진행한다.
 
-1. 배당 예상 신뢰도·근거 UX 강화
-2. 종목/계좌별 알려진 세금 후 배당 기여도
-3. 배당·금융소득 opt-in 알림
-4. 배당예측 point-in-time 정확도 화면
+1. Dividend Intelligence 화면의 정보 계층 단순화
+2. 회사의 최신 공식 `기업가치 제고 계획` 공시에 기재된 고배당기업 자격 상태 자동 확인
+
+고배당기업 상태는 market/dividend heuristic으로 재계산하지 않는다. 공식 문서의 `해당 / 미해당`만 구조적으로 확인하고, 공시 부재는 `not_confirmed`, credential/network/upstream 실패는 `source_unavailable`로 fail-closed 처리한다. 공식 자격을 확인해도 10.5A-4 고배당 분리과세 규칙은 자동 적용하지 않는다.
 
 C-7 가족별 배당 분산 보기 단순화는 삭제하지 않고, 기존 Family Risk / Allocation Simulation과 기능 중복이 커서 **추후 UX 정리 후보**로 계속 보류한다.
 
@@ -33,6 +34,7 @@ C-7 가족별 배당 분산 보기 단순화는 삭제하지 않고, 기존 Fami
 - 세금 도구 전용 `🧾 세금` workspace 이동 — PR #47 merge (`8f490c0`).
 - 10.5C-6 2천만원 접근 What-if 개선 — PR #48 merge 및 운영 확인 완료 (`0d87fd9c`).
 - C-7 보류 및 roadmap 재정렬 — PR #49 merge (`ba1d3349`).
+- 10.5D Dividend Intelligence 통합 — PR #50 merge (`e18408d6`), 운영 배포 및 browser smoke 확인.
 
 C-4.1 운영 확인:
 
@@ -84,9 +86,10 @@ C-4.1 운영 확인:
 - [x] 세금 도구 전용 workspace 이동 — PR #47 merge (`8f490c0`)
 - [x] 10.5C-6 2천만원 접근 What-if 개선 — PR #48, 운영 확인 완료
 - [ ] 10.5C-7 가족별 배당 분산 보기 단순화 — 추후 진행 후보로 보류
-- [ ] 10.5D Dividend Intelligence — PR #50 통합 구현/검증 진행 중
+- [x] 10.5D Dividend Intelligence — PR #50 merge (`e18408d6`), 운영 배포 및 browser smoke 확인
+- [ ] 10.5E Dividend Intelligence 디자인 / 고배당기업 공식 자격 — PR #51, 구현·로컬 검증 완료
 
-세부 후속 순서는 `docs/ROADMAP.md`와 `docs/PHASE_10_5D_DIVIDEND_INTELLIGENCE.md`를 따른다.
+세부 후속 순서는 `docs/ROADMAP.md`, `docs/PHASE_10_5D_DIVIDEND_INTELLIGENCE.md`, `docs/PHASE_10_5E_DIVIDEND_INTELLIGENCE_DESIGN_HIGH_DIVIDEND.md`를 따른다.
 
 ## 3. 현재 금융소득/세금 제품 원칙
 
@@ -99,6 +102,8 @@ C-4.1 운영 확인:
 - `세후`라는 표현은 최종 신고세액이 아니라 현재 계산 가능한 원천징수·알려진 세금 기준일 때 그 범위를 함께 표시한다.
 - 가족 금융소득 risk/allocation과 금융소득 What-if 같은 세금 도구는 전용 `🧾 세금` workspace에 두고, 배당 forecast·요약·포트폴리오 알려진 세금 후 수익률은 배당 forecast 영역에 유지한다.
 - 2천만원 What-if UI는 서버가 계산한 threshold flags를 사용하며 정확히 2천만원에 도달한 상태를 안전 상태로 표시하지 않는다.
+- 고배당기업 자격 표시는 issuer 공식 공시의 구조화된 상태만 사용하고, Wealth가 배당성향/증가율 등으로 자격을 독립 추론하지 않는다.
+- 공식 고배당기업 자격과 실제 고배당 분리과세 적용 여부는 별개이며, 공식 자격 확인만으로 세제특례를 자동 적용하지 않는다.
 
 ### 금융소득 projection
 
@@ -184,9 +189,10 @@ C-4.1 운영 확인:
 - A-4에 규칙 엔진이 존재한다.
 - A-4.2에서 금융소득 What-if와 연결됐다.
 - 자동 적격 판정을 배당수익률 등으로 임의 추정하지 않는다.
-- 고배당기업 여부는 공식 자료 확인이 전제된다.
-- 실제 적용은 신고 시 신청이 필요한 제도라는 전제를 유지한다.
-- 고배당기업 공식 자격의 자동 확인은 배당금 확정공시 구조화와 별개의 source 문제로 취급한다.
+- Phase 10.5E부터 국내 배당주의 고배당기업 자격은 회사의 최신 공식 `기업가치 제고 계획` 공시에 기재된 `해당 / 미해당`을 구조적으로 확인한다.
+- 공식 문서가 없거나 필드를 검증하지 못하면 `not_confirmed`, credential/network/upstream 실패는 `source_unavailable`로 유지한다.
+- 회사 공시상 자격 확인은 Wealth의 독립 법률판정이 아니며, 실제 적용은 신고 시 신청이 필요한 제도라는 전제를 유지한다.
+- 공식 자격을 확인해도 고배당 분리과세를 자동 적용하지 않는다.
 
 ## 4. 현재 배당예상 데이터 원칙
 
@@ -291,6 +297,18 @@ A-4.4 KIND ETF 분배금 보강:
 - alert 상태는 `dividend_intelligence_alert_state.json`에 deterministic event key를 보관하며 실제 provider 전송 성공 시에만 소비한다.
 - alert 실패는 scheduled daily-close 배당 snapshot 저장 실패로 전파하지 않는다.
 
+### E Dividend Intelligence 디자인 / 고배당기업 공식 자격 계약
+
+- source banner는 공식 근거, 확정금액 반영, 이력·시장 추정의 compact 상태와 상세 펼쳐보기로 구성하되 기존 공식 source 장애/미연동 상태를 숨기지 않는다.
+- 고배당기업 자격 자동 확인 대상은 KRW 국내 배당주이며 ETF·외국증권은 `not_applicable`로 유지한다.
+- issuer의 최신 `기업가치 제고 계획` 공시에서 `고배당기업 여부`가 구조적으로 `해당`이면 `official_qualified`, `미해당`이면 `official_not_qualified`로 표시한다.
+- 공시가 없거나 field/value를 구조 검증하지 못하면 `not_confirmed`; credential/network/OpenDART 오류는 `source_unavailable`이다.
+- 공식 자격 목록 부재를 미해당으로 추론하지 않는다.
+- 회사가 공시한 자격 상태는 company self-determination이며 Wealth의 독립 법률판정으로 승격하지 않는다.
+- 공식 자격 종목의 예상 gross 배당 합계와 비중은 자산관리 참고값이며 특례배당소득 확정액이 아니다.
+- 공식 자격을 확인해도 10.5A-4 고배당 분리과세 규칙을 자동 적용하지 않는다.
+- 새 세율, 새 client threshold, fuzzy matching, forecast event identity 변경을 추가하지 않는다.
+
 ## 5. 사용자별 DART 인증 계약
 
 DART 인증정보는 A-4.1 전용 새 환경변수를 만들지 않는다.
@@ -365,15 +383,18 @@ docker compose \
 2. targeted tests
 3. 관련 regression tests
 4. full unittest suite
-5. `git diff --check`
-6. 변경 범위 전체에 대해 `git status --short` 확인
-7. Draft PR
-8. 사용자 로컬 전체 테스트 확인
-9. Ready → merge
-10. GHCR build 확인
-11. 서버 배포
+5. Python `py_compile`
+6. JavaScript `node --check`
+7. `git diff --check`
+8. 변경 범위 전체에 대해 `git status --short` 확인
+9. PR final review / unresolved thread 확인
+10. Ready
+11. exact-head merge
+12. main SHA verify
+13. GHCR build 확인
+14. 서버 배포 및 browser smoke
 
-사용자가 해당 세션에서 검증 성공 후 Ready/merge 자동 진행을 명시적으로 위임한 경우에는 추가 확인 없이 9~10단계를 진행할 수 있다. 그렇지 않은 경우 merge는 사용자 명시적 승인 후 진행한다.
+사용자가 해당 세션에서 검증 성공 후 Ready/merge 자동 진행을 명시적으로 위임한 경우에는 추가 확인 없이 10~13단계를 진행할 수 있다. 그렇지 않은 경우 merge는 사용자 명시적 승인 후 진행한다.
 
 ## 8. 문서 유지 규칙
 

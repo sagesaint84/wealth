@@ -25,9 +25,9 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 
 ### Phase 10.5D — Dividend Intelligence
 
-현재 increment: **배당 의사결정 데이터의 신뢰도·기여도·알림·정확도 통합** — PR #50 진행 중.
+상태: **완료** — PR #50 merge (`e18408d6`), 운영 배포 및 browser smoke 확인.
 
-사용자 요청에 따라 다음 네 작업을 별도 increment/PR로 반복하지 않고 **한 번의 통합 작업과 한 PR**로 진행한다.
+통합 increment로 다음 네 항목을 한 번에 구현했다.
 
 1. 배당 예상 신뢰도·근거 UX 강화
 2. 종목/계좌별 알려진 세금 후 배당 기여도
@@ -45,16 +45,38 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 - 알림은 기본 OFF이며 사용자가 명시적으로 켠 경우에만 daily close와 연결한다.
 - 새 세율, 새로운 threshold 숫자, fuzzy dividend matching 규칙을 추가하지 않는다.
 
+### Phase 10.5E — Dividend Intelligence 디자인 / 고배당기업 공식 자격
+
+현재 increment: **Dividend Intelligence 화면 단순화 + 고배당기업 공식 자격 상태 자동 확인** — PR #51.
+
+목표:
+
+- 배당 source/evidence 정보를 compact chip + 상세 펼쳐보기 구조로 단순화한다.
+- 알려진 세금 후 예상 현금, 알려진 세금, 세후 수익률, 계산 coverage를 우선 KPI로 유지한다.
+- 국내 배당주의 고배당기업 여부는 회사의 최신 공식 `기업가치 제고 계획` 공시에 기재된 `해당 / 미해당` 값만 구조적으로 확인한다.
+- 공식 공시 부재는 `not_confirmed`, credential/network/upstream 실패는 `source_unavailable`로 fail-closed 처리한다.
+- 공식 자격을 확인해도 기존 10.5A-4 분리과세 규칙을 자동 적용하지 않는다.
+- 고배당 특례 세율·threshold·법적 자격 요건을 frontend에서 새로 계산하지 않는다.
+
+검증:
+
+- full unittest: `Ran 2394 tests` / `OK`
+- `python -m py_compile`: 통과
+- `node --check app/static/wealth-dividend-source.js`: 통과
+- `git diff --check`: clean
+- validated code head: `8b28e716a26f4f5604be50781259009f3c3a719d`
+- 이후 변경은 문서 정리만 수행한다.
+
 C-7 가족별 배당 분산 보기 단순화는 기존 Family Financial Income Risk / Family Allocation Simulation과 기능 중복이 커서 **추후 진행 후보**로 계속 보류한다.
 
 ## 2. 다음 단계
 
-Phase 10.5D의 구현·회귀검증·운영 확인을 먼저 완료한다. 이후 다음 번호는 실제 필요성을 다시 비교한 뒤 부여한다.
+Phase 10.5E PR #51을 exact-head merge하고 GHCR/운영/browser smoke를 완료한다. 이후 다음 번호는 실제 필요성을 다시 비교한 뒤 부여한다.
 
 추후 후보:
 
 - **C-7 가족별 배당 분산 보기 단순화** — 기존 두 family 패널을 단순 통합할 필요성이 다시 커질 때 진행
-- **고배당기업 공식 자격 상태 자동 확인** — 공식 source 계약을 별도로 설계한 뒤 진행
+- **고배당기업 공식 자격 상태 변경 알림** — 기존 opt-in alert/dedup 계약을 재사용할 수 있는지 검토
 - **USD 입력 천 단위 표시 / 원화 환산값 보조표시** — 작은 UX increment로 묶을 수 있음
 
 종합소득세 신고서 완성을 위한 다음 항목들은 **현재 제품 우선순위에서 보류**한다.
@@ -177,7 +199,7 @@ Phase 10.5D의 구현·회귀검증·운영 확인을 먼저 완료한다. 이�
 
 ## 6. 알림/자동화
 
-Phase 10.5D 진행 중:
+Phase 10.5D 완료:
 
 - 예상 금융소득 1,000만원 watch 알림
 - 개인별 2,000만원 도달/초과 알림
@@ -205,14 +227,17 @@ Phase 10.5D 진행 중:
 - 배당 세금 대시보드 C-1
 - 포트폴리오 알려진 세금 후 배당수익률 C-5
 - 2천만원 접근 What-if 상태 구분 C-6
-
-Phase 10.5D 진행 중:
-
 - 종목/계좌별 알려진 세금 후 배당 기여도
 - 배당 예상 confidence/source 근거 수준 구분
 - 공식 공시 원문 바로가기
 - 계산 근거 펼쳐보기
 - point-in-time forecast 정확도/데이터 누적 상태 표시
+
+Phase 10.5E:
+
+- Dividend Intelligence KPI/근거 정보 계층 단순화
+- 고배당기업 공식 자격 chip 및 portfolio 요약
+- 공식 source 장애/미연동 상태 유지
 
 후보:
 
