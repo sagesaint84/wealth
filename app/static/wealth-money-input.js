@@ -279,7 +279,7 @@
   document.addEventListener('focusin', event => {
     if (event.target?.tagName === 'INPUT') renderMoneyHints(event.target);
   });
-  document.addEventListener('wealth:portfolio', event => {
+  window.addEventListener('wealth:portfolio', event => {
     setUsdKrwRate(event?.detail?.fxRates?.USDKRW);
   });
 
