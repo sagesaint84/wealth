@@ -662,6 +662,53 @@ def _attach_dividend_intelligence(
         }
 
 
+async def _attach_high_dividend_qualification(
+    summary: dict[str, Any],
+    holdings: list[dict[str, Any]],
+    *,
+    username: str | None,
+    api_key: str | None,
+    as_of: date,
+    client: httpx.AsyncClient | None,
+) -> None:
+    """Attach Phase 10.5E official status without changing any tax calculation."""
+    try:
+        from app.services.high_dividend_qualification import (
+            KIND_HIGH_DIVIDEND_URL,
+            enrich_dividend_intelligence_with_high_dividend_qualification,
+        )
+
+        await enrich_dividend_intelligence_with_high_dividend_qualification(
+            summary,
+            holdings,
+            username=username,
+            api_key=api_key,
+            as_of=as_of,
+            client=client,
+        )
+    except Exception:
+        intelligence = summary.get("dividend_intelligence")
+        if not isinstance(intelligence, dict):
+            return
+        intelligence["high_dividend"] = {
+            "schema_version": 1,
+            "as_of_date": as_of.isoformat(),
+            "source_status": "source_unavailable",
+            "source": "official_valueup_disclosure",
+            "source_label": "공식 기업가치 제고 계획 공시",
+            "kind_reference_url": (
+                KIND_HIGH_DIVIDEND_URL
+                if "KIND_HIGH_DIVIDEND_URL" in locals()
+                else "https://kind.krx.co.kr/valueup/dividend.do?method=valueupHighDividendMain"
+            ),
+            "company_self_determination": True,
+            "wealth_inferred": False,
+            "absence_means_unqualified": False,
+            "tax_special_treatment_automatically_applied": False,
+            "screening_only": True,
+        }
+
+
 async def enrich_dividend_summary_with_official_sources(
     summary: dict[str, Any],
     holdings: list[dict[str, Any]],
@@ -696,6 +743,14 @@ async def enrich_dividend_summary_with_official_sources(
         _attach_portfolio_after_tax(summary, holdings)
         _attach_dividend_intelligence(
             summary, holdings, username=username, as_of=day
+        )
+        await _attach_high_dividend_qualification(
+            summary,
+            holdings,
+            username=username,
+            api_key=api_key,
+            as_of=day,
+            client=client,
         )
         return summary
 
@@ -762,6 +817,14 @@ async def enrich_dividend_summary_with_official_sources(
         policy["kind_etf_status"] = "kind_enrichment_failed"
     _attach_portfolio_after_tax(summary, holdings)
     _attach_dividend_intelligence(summary, holdings, username=username, as_of=day)
+    await _attach_high_dividend_qualification(
+        summary,
+        holdings,
+        username=username,
+        api_key=api_key,
+        as_of=day,
+        client=client,
+    )
     return summary
 
 
