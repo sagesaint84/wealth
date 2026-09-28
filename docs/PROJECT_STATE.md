@@ -8,18 +8,31 @@
 
 ## 1. 현재 개발 상태
 
-현재 상태는 **Phase 10.5C-6 — 2천만원 접근 What-if 개선 운영 확인 완료**입니다.
+현재 작업 단계는 **Phase 10.5D — Dividend Intelligence 통합 increment**입니다.
 
-다음 개발 우선순위는 아직 확정하지 않았습니다. C-7은 삭제하지 않고 **추후 진행 후보**로 보류합니다.
+현재 작업:
+
+- branch: `phase10-5d-dividend-intelligence`
+- base: `main`
+- 작업 시작 기준 main: `ba1d3349` (PR #49 merge)
+- PR: #50 Draft
+- 상태: 통합 구현 및 검증 진행 중
+
+Phase 10.5D는 사용자 요청에 따라 다음 네 항목을 별도 PR로 나누지 않고 한 번에 진행한다.
+
+1. 배당 예상 신뢰도·근거 UX 강화
+2. 종목/계좌별 알려진 세금 후 배당 기여도
+3. 배당·금융소득 opt-in 알림
+4. 배당예측 point-in-time 정확도 화면
+
+C-7 가족별 배당 분산 보기 단순화는 삭제하지 않고, 기존 Family Risk / Allocation Simulation과 기능 중복이 커서 **추후 UX 정리 후보**로 계속 보류한다.
 
 최근 완료/정리:
 
 - 10.5C-5 Portfolio after-known-tax dividend yield — PR #46 merge (`b5e8cbaa`).
 - 세금 도구 전용 `🧾 세금` workspace 이동 — PR #47 merge (`8f490c0`).
 - 10.5C-6 2천만원 접근 What-if 개선 — PR #48 merge 및 운영 확인 완료 (`0d87fd9c`).
-- 10.5C-7 가족별 배당 분산 보기 단순화 — 기존 Family Risk / Allocation Simulation과 기능 중복이 커서 추후 UX 정리 후보로 보류.
-
-다음 increment는 `docs/ROADMAP.md`의 후보를 비교한 뒤 별도로 확정한다. C-8 번호는 우선순위가 정해지기 전에는 고정하지 않는다.
+- C-7 보류 및 roadmap 재정렬 — PR #49 merge (`ba1d3349`).
 
 C-4.1 운영 확인:
 
@@ -71,8 +84,9 @@ C-4.1 운영 확인:
 - [x] 세금 도구 전용 workspace 이동 — PR #47 merge (`8f490c0`)
 - [x] 10.5C-6 2천만원 접근 What-if 개선 — PR #48, 운영 확인 완료
 - [ ] 10.5C-7 가족별 배당 분산 보기 단순화 — 추후 진행 후보로 보류
+- [ ] 10.5D Dividend Intelligence — PR #50 통합 구현/검증 진행 중
 
-세부 후속 순서는 `docs/ROADMAP.md`를 따른다.
+세부 후속 순서는 `docs/ROADMAP.md`와 `docs/PHASE_10_5D_DIVIDEND_INTELLIGENCE.md`를 따른다.
 
 ## 3. 현재 금융소득/세금 제품 원칙
 
@@ -262,6 +276,20 @@ A-4.4 KIND ETF 분배금 보강:
 - 2천만원 초과 시 추가 배당 때문에 새로 넘었는지 기존 예상부터 이미 초과였는지를 구분해 문구를 표시한다.
 - scenario는 request 단위 stateless 계산이며 localStorage/sessionStorage에 저장하지 않는다.
 - backend API schema, 세법 계산, 세율 상수는 C-6에서 변경하지 않는다.
+
+### D Dividend Intelligence 통합 계약
+
+- 배당 forecast 신뢰도는 기존 `forecast_source` metadata만 해석하며 새로운 숫자 forecast를 만들지 않는다.
+- official / official-confirmed / history / market / heuristic 상태와 가능한 경우 공식 원문 링크를 화면에서 구분한다.
+- C-5 instrument 결과에 세전 배당 기여도와 계산 가능한 알려진 세금 후 현금 기여도를 파생 표시한다.
+- 다계좌 동일 종목은 현재 보유수량 비례로만 계좌별 현금을 추정하고 `entitlement_confirmed=false`를 유지한다.
+- residual은 종목·계좌에 임의 배분하지 않는다.
+- 정확도는 C-4.1 snapshot evaluator를 재사용한다. 평가 horizon이 없으면 `측정 데이터 누적 중`, gross 비교가 불완전하면 MAE/WAPE를 숫자로 승격하지 않는다.
+- 알림은 `automation.dividend_intelligence_alerts.enabled`가 명시적으로 true일 때만 동작하며 기본값은 false다.
+- 공식 배당 event는 기존 event identity를 alert dedup key에 사용한다.
+- 금융소득 alert는 B-1 family risk의 **각 개인별** threshold 결과만 사용하며 family reference/`모두` 합계에는 법정 threshold를 적용하지 않는다.
+- alert 상태는 `dividend_intelligence_alert_state.json`에 deterministic event key를 보관하며 실제 provider 전송 성공 시에만 소비한다.
+- alert 실패는 scheduled daily-close 배당 snapshot 저장 실패로 전파하지 않는다.
 
 ## 5. 사용자별 DART 인증 계약
 

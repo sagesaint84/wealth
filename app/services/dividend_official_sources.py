@@ -113,8 +113,6 @@ def _extract_ordinary_cash_dps(rows: object) -> float | None:
         if "주당현금배당금" not in label:
             continue
         stock_kind = _normalize_label(raw.get("stock_knd"))
-        # Prefer ordinary shares, but accept blank stock kind because some
-        # issuers omit the classification for a single listed share class.
         if stock_kind and "보통" not in stock_kind and "ordinary" not in stock_kind:
             continue
         value = _money(raw.get("thstrm"))
@@ -122,9 +120,6 @@ def _extract_ordinary_cash_dps(rows: object) -> float | None:
             candidates.append(value)
     if not candidates:
         return None
-    # Duplicate report rows occasionally exist; identical values collapse and
-    # the largest non-negative value is a conservative representation of the
-    # per-share cash dividend line rather than summing duplicate rows.
     return max(candidates)
 
 
@@ -149,8 +144,6 @@ def _latest_dividend_decision(rows: object) -> dict[str, Any] | None:
                 "receipt_no": receipt,
                 "receipt_date": receipt_date,
                 "viewer_url": DART_VIEWER_URL.format(rcept_no=receipt),
-                # A list API title only proves that a filing exists.  It does
-                # not structurally verify the per-share amount.
                 "confirmed_amount": False,
             }
         )
@@ -334,18 +327,12 @@ async def get_official_dividend_evidence(
                 }
                 continue
             try:
-                periodic = await _fetch_periodic_dividend(
-                    http, key, corp_code, business_year
-                )
-                recent = await _fetch_recent_decision(
-                    http, key, corp_code, as_of=day
-                )
+                periodic = await _fetch_periodic_dividend(http, key, corp_code, business_year)
+                recent = await _fetch_recent_decision(http, key, corp_code, as_of=day)
                 structured = None
                 if recent:
                     try:
-                        structured = await _fetch_structured_decision(
-                            http, key, recent, as_of=day
-                        )
+                        structured = await _fetch_structured_decision(http, key, recent, as_of=day)
                     except Exception:
                         structured = {
                             **recent,
@@ -636,6 +623,45 @@ def _attach_portfolio_after_tax(
         }
 
 
+def _attach_dividend_intelligence(
+    summary: dict[str, Any],
+    holdings: list[dict[str, Any]],
+    *,
+    username: str | None,
+    as_of: date,
+) -> None:
+    """Attach Phase 10.5D derived data without changing forecast/tax contracts."""
+    try:
+        from app.services.dividend_intelligence import build_dividend_intelligence_summary
+
+        summary["dividend_intelligence"] = build_dividend_intelligence_summary(
+            summary,
+            holdings,
+            username=username,
+            as_of=as_of,
+            owner="모두",
+        )
+    except Exception:
+        summary["dividend_intelligence"] = {
+            "schema_version": 1,
+            "as_of_date": as_of.isoformat(),
+            "owner": "모두",
+            "unavailable": True,
+            "reason": "dividend_intelligence_calculation_failed",
+            "trust": {},
+            "instruments": [],
+            "accuracy": {
+                "status": "unavailable",
+                "reason": "dividend_intelligence_calculation_failed",
+            },
+            "contracts": {
+                "canonical_gross_total_unchanged": True,
+                "residual_assigned_to_instrument": False,
+                "screening_only": True,
+            },
+        }
+
+
 async def enrich_dividend_summary_with_official_sources(
     summary: dict[str, Any],
     holdings: list[dict[str, Any]],
@@ -663,10 +689,14 @@ async def enrich_dividend_summary_with_official_sources(
     evidence_map = evidence_result.get("evidence")
     if not isinstance(evidence_map, dict):
         evidence_map = {}
+    day = as_of.date() if isinstance(as_of, datetime) else (as_of or _now_kst().date())
 
     rows = summary.get("holding_dividends")
     if not isinstance(rows, list):
         _attach_portfolio_after_tax(summary, holdings)
+        _attach_dividend_intelligence(
+            summary, holdings, username=username, as_of=day
+        )
         return summary
 
     changed = False
@@ -714,10 +744,7 @@ async def enrich_dividend_summary_with_official_sources(
 
     if changed:
         _rebuild_summary_from_holdings(summary, holdings, fx_rate=fx_rate)
-    day = as_of.date() if isinstance(as_of, datetime) else (as_of or _now_kst().date())
-    _apply_confirmed_future_overrides(
-        summary, holdings, fx_rate=fx_rate, as_of=day
-    )
+    _apply_confirmed_future_overrides(summary, holdings, fx_rate=fx_rate, as_of=day)
     try:
         from app.services.etf_kind_distributions import (
             enrich_dividend_summary_with_kind_etf_distributions,
@@ -734,6 +761,7 @@ async def enrich_dividend_summary_with_official_sources(
         policy = summary.setdefault("forecast_source_policy", {})
         policy["kind_etf_status"] = "kind_enrichment_failed"
     _attach_portfolio_after_tax(summary, holdings)
+    _attach_dividend_intelligence(summary, holdings, username=username, as_of=day)
     return summary
 
 
