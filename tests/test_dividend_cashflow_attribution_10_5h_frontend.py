@@ -38,7 +38,8 @@ class DividendCashflowAttribution105HFrontendTests(unittest.TestCase):
     def test_partial_goal_state_is_lower_bound_not_false_failure(self) -> None:
         self.assertIn("minimumMetMonths", self.js)
         self.assertIn("pendingMonths", self.js)
-        self.assertIn("최소 충족 ✓", self.js)
+        self.assertIn("최소 ✓", self.js)
+        self.assertIn("안전하게 귀속된 금액만으로 월 목표 최소 충족", self.js)
         self.assertIn("판정 대기", self.js)
         self.assertIn("연간 총액 기준", self.js)
 
