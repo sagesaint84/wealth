@@ -77,24 +77,34 @@
     if (submit.textContent !== expected) submit.textContent = expected;
   }
 
+  function setNodeLabel(node, label, title) {
+    if (!node) return;
+    if (node.textContent !== label) node.textContent = label;
+    if (node.title !== title) node.title = title;
+  }
+
   function syncAccountActionLabels() {
-    const securitiesImport = document.getElementById('accountImportBtn');
-    if (securitiesImport) {
-      securitiesImport.textContent = '📂 증권계좌 가져오기';
-      securitiesImport.title = '증권계좌 가져오기';
-    }
+    setNodeLabel(
+      document.getElementById('accountImportBtn'),
+      '📂 증권계좌 가져오기',
+      '증권계좌 가져오기',
+    );
+    setNodeLabel(
+      document.getElementById('addBankIntegratedBtn'),
+      '➕ 은행계좌 추가',
+      '은행계좌 추가',
+    );
+    setNodeLabel(
+      document.getElementById('accountInfoBankImportBtn'),
+      '📂 은행계좌 가져오기',
+      'AccountInfo 은행계좌 가져오기',
+    );
+  }
 
-    const bankAdd = document.getElementById('addBankIntegratedBtn');
-    if (bankAdd) {
-      bankAdd.textContent = '➕ 은행계좌 추가';
-      bankAdd.title = '은행계좌 추가';
-    }
-
-    const bankImport = document.getElementById('accountInfoBankImportBtn');
-    if (bankImport) {
-      bankImport.textContent = '📂 은행계좌 가져오기';
-      bankImport.title = 'AccountInfo 은행계좌 가져오기';
-    }
+  function containsAccountAction(node) {
+    if (!node || node.nodeType !== 1) return false;
+    if (['accountImportBtn', 'addBankIntegratedBtn', 'accountInfoBankImportBtn'].includes(node.id)) return true;
+    return Boolean(node.querySelector?.('#accountImportBtn, #addBankIntegratedBtn, #accountInfoBankImportBtn'));
   }
 
   function install() {
@@ -108,7 +118,6 @@
         scheduleRefresh();
         scheduleActionSync();
       }
-      scheduleToolbarSync();
     }, true);
 
     document.addEventListener('change', (event) => {
@@ -120,16 +129,18 @@
 
     const observer = new MutationObserver((records) => {
       let shouldRefreshOwner = false;
+      let shouldSyncToolbar = false;
       for (const record of records) {
         for (const node of record.addedNodes || []) {
           if (node?.nodeType !== 1) continue;
           if (node.id === 'accountInfoImportOwner' || node.querySelector?.('#accountInfoImportOwner')) {
             shouldRefreshOwner = true;
           }
+          if (containsAccountAction(node)) shouldSyncToolbar = true;
         }
       }
       if (shouldRefreshOwner) scheduleRefresh();
-      scheduleToolbarSync();
+      if (shouldSyncToolbar) scheduleToolbarSync();
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
@@ -155,7 +166,9 @@
     renderOwnerOptions,
     previewIsReady,
     syncSubmitActionLabel,
+    setNodeLabel,
     syncAccountActionLabels,
+    containsAccountAction,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   if (typeof window !== 'undefined') window.WealthAccountInfoOwnerOptions = exported;
