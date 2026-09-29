@@ -22,11 +22,11 @@ class DividendCashflowGoalFrontendTests(unittest.TestCase):
         self.assertIn("calculation_status !== 'calculated'", self.js)
 
     def test_monthly_after_tax_allocation_preserves_existing_tax_results(self) -> None:
-        self.assertIn("annualCash * item.value / scheduleGross", self.js)
+        self.assertIn("allocatableCash * item.value / scheduleGross", self.js)
         self.assertIn("view?.calculation_status === 'complete'", self.js)
         self.assertIn("trust?.unattributed_residual_krw", self.js)
         self.assertIn("residual === 0", self.js)
-        self.assertIn("Math.abs(annualKnownCash - canonicalAfterCash) <= 1", self.js)
+        self.assertIn("annualCashReconciled", self.js)
         for forbidden in ("0.154", "0.15", "15.4%"):
             self.assertNotIn(forbidden, self.js)
 
@@ -40,11 +40,13 @@ class DividendCashflowGoalFrontendTests(unittest.TestCase):
         self.assertIn("value=\"${goal || ''}\"", self.js)
         self.assertNotIn("const goal = 1000000", self.js)
 
-    def test_incomplete_monthly_attribution_fails_closed_for_goal_decision(self) -> None:
-        self.assertIn("목표 비교 보류", self.js)
-        self.assertIn("월별 알려진 세금 후 귀속이 100%가 아니어서", self.js)
-        self.assertIn("residual은 특정 월·종목에 임의 배분하지 않습니다", self.js)
-        self.assertIn("flow.complete", self.js)
+    def test_incomplete_monthly_attribution_keeps_annual_goal_information(self) -> None:
+        self.assertIn("최소 ${minimumMetMonths}개월 충족", self.js)
+        self.assertIn("${pendingMonths}개월 판정 대기", self.js)
+        self.assertIn("연간 총액 기준 부족", self.js)
+        self.assertIn("연간 총액 기준 초과", self.js)
+        self.assertIn("월 미정 ${money(flow.unassignedCash)}", self.js)
+        self.assertIn("residual과 월 미정 금액은 특정 월·종목에 임의 배분하지 않습니다", self.js)
 
     def test_decision_view_contains_monthly_balance_and_contributors(self) -> None:
         for text in (
