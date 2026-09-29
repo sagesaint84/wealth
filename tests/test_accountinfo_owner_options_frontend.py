@@ -35,6 +35,14 @@ class AccountInfoOwnerOptionsFrontendTests(unittest.TestCase):
         self.assertIn("target?.id === 'accountInfoBankImportBtn'", self.owner_js)
         self.assertIn("event.target?.id === 'accountImportFile'", self.owner_js)
 
+    def test_account_action_labels_are_context_specific(self) -> None:
+        self.assertIn("📂 증권계좌 가져오기", self.owner_js)
+        self.assertIn("➕ 은행계좌 추가", self.owner_js)
+        self.assertIn("📂 은행계좌 가져오기", self.owner_js)
+        self.assertIn("document.getElementById('accountImportBtn')", self.owner_js)
+        self.assertIn("document.getElementById('addBankIntegratedBtn')", self.owner_js)
+        self.assertIn("document.getElementById('accountInfoBankImportBtn')", self.owner_js)
+
 
 if __name__ == "__main__":
     unittest.main()
