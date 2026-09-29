@@ -8,23 +8,25 @@
 
 ## 1. 현재 개발 상태
 
-현재 작업 단계는 **Phase 10.5F — Dividend detail UX polish + USD amount helper**입니다.
+현재 작업 단계는 **Phase 10.5G — 배당 현금흐름 목표/의사결정**입니다.
 
 현재 작업:
 
-- branch: `phase10-5f-dividend-ux-usd`
+- branch: `phase10-5g-dividend-cashflow-goals`
 - base: `main`
-- 작업 시작 기준 main: `64fa4d58`
-- PR: #52 Draft
-- 상태: 구현 및 문서 정리 진행, exact-head 로컬 검증 대기
+- 작업 시작 기준 main: `ed10883728a97fca71baa29ad8c28f41cb4b4298`
+- PR: #53 Draft
+- 상태: 구현 완료, exact-head 로컬 검증 완료, PR final review/merge 단계
 
-Phase 10.5F는 10.5E 운영 browser smoke에서 확인한 작은 UX 마찰을 정리한다.
+Phase 10.5G는 기존 forecast 및 알려진 세금 후 계산을 재사용해 선택 연도 12개월 배당 현금흐름과 사용자 월배당 목표 비교를 제공한다.
 
-1. Dividend Intelligence 상세 표의 내부 상태값을 사용자 한글 문구로 표시
-2. 고배당기업 `대상 아님` 자산의 불필요한 공식 근거 링크 제거
-3. USD 예수금 native number input에 천 단위 USD 보조표시와 현재 `fx_rates.USD` 기반 원화 환산 보조값 제공
+1. 기존 `monthly_schedule`을 월별 gross forecast의 authoritative schedule로 재사용
+2. 기존 종목별 `after_known_tax_cash_krw`를 각 종목의 월별 gross 비중으로 배분
+3. 월평균, 최대/최소 월, 최대월 편중, 상위 예상수령 기여 종목 표시
+4. owner별 사용자 월배당 목표를 browser localStorage에만 보관하고 충족 월/연간 부족·초과 표시
+5. 기존 세후 계산이 complete가 아니거나 residual/월별 attribution/reconciliation이 불완전하면 `목표 비교 보류`로 fail-closed
 
-USD helper는 기존 `type=number`와 raw value/payload를 변경하지 않고, dashboard가 이미 받은 `data.fx_rates.USD`만 재사용한다. 현재 환율이 없으면 추정하지 않고 `원화 환산 대기`로 표시한다. 세법·세율·threshold·고배당기업 자격 판정·배당 identity/persistence 계약은 변경하지 않는다.
+10.5F는 PR #52 merge `ed10883728a97fca71baa29ad8c28f41cb4b4298`, GHCR #135, 운영 배포 및 browser smoke까지 완료했다.
 
 C-7 가족별 배당 분산 보기 단순화는 삭제하지 않고, 기존 Family Risk / Allocation Simulation과 기능 중복이 커서 **추후 UX 정리 후보**로 계속 보류한다.
 
@@ -36,6 +38,7 @@ C-7 가족별 배당 분산 보기 단순화는 삭제하지 않고, 기존 Fami
 - C-7 보류 및 roadmap 재정렬 — PR #49 merge (`ba1d3349`).
 - 10.5D Dividend Intelligence 통합 — PR #50 merge (`e18408d6`), 운영 배포 및 browser smoke 확인.
 - 10.5E Dividend Intelligence 디자인 / 고배당기업 공식 자격 — PR #51 merge (`3d23a504`), GHCR #120, 운영 배포 및 browser smoke 확인.
+- 10.5F Dividend detail UX polish + USD amount helper — PR #52 merge (`ed108837`), GHCR #135, 운영 배포 및 browser smoke 확인.
 
 C-4.1 운영 확인:
 
@@ -90,9 +93,10 @@ C-4.1 운영 확인:
 - [ ] 10.5C-7 가족별 배당 분산 보기 단순화 — 추후 진행 후보로 보류
 - [x] 10.5D Dividend Intelligence — PR #50 merge (`e18408d6`), 운영 배포 및 browser smoke 확인
 - [x] 10.5E Dividend Intelligence 디자인 / 고배당기업 공식 자격 — PR #51 merge (`3d23a504`), GHCR #120, 운영 배포 및 browser smoke 확인
-- [ ] 10.5F Dividend detail UX polish + USD amount helper — PR #52 Draft
+- [x] 10.5F Dividend detail UX polish + USD amount helper — PR #52 merge (`ed108837`), GHCR #135, 운영 배포 및 browser smoke 확인
+- [ ] 10.5G 배당 현금흐름 목표/의사결정 — PR #53 Draft, exact-head 검증 완료
 
-세부 후속 순서는 `docs/ROADMAP.md`, `docs/PHASE_10_5D_DIVIDEND_INTELLIGENCE.md`, `docs/PHASE_10_5E_DIVIDEND_INTELLIGENCE_DESIGN_HIGH_DIVIDEND.md`, `docs/PHASE_10_5F_DIVIDEND_UX_USD.md`를 따른다.
+세부 후속 순서는 `docs/ROADMAP.md`, `docs/PHASE_10_5D_DIVIDEND_INTELLIGENCE.md`, `docs/PHASE_10_5E_DIVIDEND_INTELLIGENCE_DESIGN_HIGH_DIVIDEND.md`, `docs/PHASE_10_5F_DIVIDEND_UX_USD.md`, `docs/PHASE_10_5G_DIVIDEND_CASHFLOW_GOALS.md`를 따른다.
 
 ## 3. 현재 금융소득/세금 제품 원칙
 
@@ -322,6 +326,16 @@ A-4.4 KIND ETF 분배금 보강:
 - 환율 API를 추가 호출하거나 client-side 환율을 하드코딩하지 않는다.
 - 현재 `fx_rates.USD`가 없으면 `원화 환산 대기`로 표시하고 임의 환율을 적용하지 않는다.
 - 기존 KRW amount helper 계약과 세금/forecast/persistence 계약을 변경하지 않는다.
+
+### G 배당 현금흐름 목표/의사결정 계약
+
+- gross 월별 기준은 기존 `monthly_schedule`만 사용하며 새 지급월/record-date를 생성하지 않는다.
+- 알려진 세금 후 월별 현금은 기존 종목별 `after_known_tax_cash_krw`를 해당 종목의 월별 gross 비중으로만 배분한다.
+- 새 세율이나 client-side tax constant를 추가하지 않는다.
+- 기존 portfolio after-tax 계산이 complete이고 residual=0이며 월별 gross attribution과 연간 reconciliation이 모두 완전할 때만 월 목표 판단을 확정 표시한다.
+- 불완전하면 `목표 비교 보류`로 fail-closed하며 residual을 특정 월이나 종목에 임의 배분하지 않는다.
+- 월 목표는 사용자 자산관리 목표이며 법정 threshold가 아니다. 기본값을 하드코딩하지 않고 owner별 browser localStorage에만 보관한다.
+- 월별 배분은 현재 forecast 기반 자산관리 projection이며 실제 record-date entitlement 확정이 아니다.
 
 ## 5. 사용자별 DART 인증 계약
 
