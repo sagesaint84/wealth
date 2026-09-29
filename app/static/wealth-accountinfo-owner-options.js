@@ -107,6 +107,15 @@
     return Boolean(node.querySelector?.('#accountImportBtn, #addBankIntegratedBtn, #accountInfoBankImportBtn'));
   }
 
+  function loadAccountSectionSummaryScript() {
+    if (window.WealthAccountSectionSummary || document.getElementById('wealthAccountSectionSummaryScript')) return;
+    const script = document.createElement('script');
+    script.id = 'wealthAccountSectionSummaryScript';
+    script.src = '/static/wealth-account-section-summary.js?v=10.6b';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   function install() {
     const scheduleRefresh = () => queueMicrotask(() => { void refreshOwnerOptions(); });
     const scheduleActionSync = () => queueMicrotask(syncSubmitActionLabel);
@@ -158,6 +167,7 @@
     scheduleRefresh();
     scheduleActionSync();
     scheduleToolbarSync();
+    loadAccountSectionSummaryScript();
   }
 
   const exported = {
@@ -169,6 +179,7 @@
     setNodeLabel,
     syncAccountActionLabels,
     containsAccountAction,
+    loadAccountSectionSummaryScript,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   if (typeof window !== 'undefined') window.WealthAccountInfoOwnerOptions = exported;
