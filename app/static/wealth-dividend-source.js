@@ -51,6 +51,15 @@
     }[value] || value || '-';
   }
 
+  function monthlyAttributionReasonLabel(value) {
+    return {
+      monthly_schedule_missing: '지급월 없음',
+      partial_monthly_schedule: '일부 지급월만 연결',
+      monthly_schedule_exceeds_annual: '월별 합계 불일치',
+      rounding_remainder: '반올림 잔액',
+    }[value] || '월 미정';
+  }
+
   function chip(label, value, tone = 'neutral') {
     const tones = {
       official: 'border:rgba(56,189,248,.32);background:rgba(14,116,144,.13);color:#bae6fd;',
@@ -458,11 +467,11 @@
       const pending = goal > 0 && flow.status === 'partial' && !goalMet;
       const incomplete = row.coverage_pct < 99.99;
       const goalBadge = goalMet
-        ? `<span style="color:#6ee7b7;font-size:9.5px;">${flow.complete ? '목표 ✓' : '최소 충족 ✓'}</span>`
-        : (pending ? '<span style="color:#fbbf24;font-size:9.5px;">판정 대기</span>' : '');
+        ? `<span title="${flow.complete ? '월 목표 충족' : '안전하게 귀속된 금액만으로 월 목표 최소 충족'}" style="display:inline-flex;align-items:center;padding:2px 5px;border-radius:999px;background:rgba(5,150,105,.12);color:#6ee7b7;font-size:9px;font-weight:700;white-space:nowrap;">${flow.complete ? '목표 ✓' : '최소 ✓'}</span>`
+        : (pending ? '<span title="월 미정 금액이 있어 최종 판정 대기" style="display:inline-flex;align-items:center;padding:2px 5px;border-radius:999px;background:rgba(180,83,9,.10);color:#fbbf24;font-size:9px;font-weight:700;white-space:nowrap;">대기</span>' : '');
       return `
         <div style="padding:8px;border-radius:8px;background:rgba(15,23,42,.42);border:1px solid ${goalMet ? 'rgba(52,211,153,.24)' : (pending ? 'rgba(251,191,36,.20)' : 'rgba(148,163,184,.12)')};min-width:0;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:5px;"><strong style="font-size:11px;">${row.month}월</strong>${goalBadge}</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;min-width:0;"><strong style="font-size:11px;white-space:nowrap;">${row.month}월</strong>${goalBadge}</div>
           <div style="height:4px;border-radius:999px;background:rgba(51,65,85,.55);margin:6px 0 5px;overflow:hidden;"><div style="height:100%;width:${(ratio * 100).toFixed(1)}%;background:linear-gradient(90deg,#60a5fa,#8b5cf6);"></div></div>
           <strong style="display:block;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${money(row.after_known_tax_cash_krw)}</strong>
           <small style="display:block;margin-top:2px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">귀속 하한 · 세전 ${money(row.total_krw)}${incomplete ? ` · ${percent(row.coverage_pct)}` : ''}</small>
@@ -476,12 +485,28 @@
         }).join('')
       : '<div style="color:#64748b;">계산 가능한 종목별 예상 수령액이 없습니다.</div>';
 
+    const unresolvedReasonCounts = flow.unassignedInstruments.reduce((counts, row) => {
+      const label = monthlyAttributionReasonLabel(row?.reason);
+      counts[label] = (counts[label] || 0) + 1;
+      return counts;
+    }, {});
+    const unresolvedReasonSummary = Object.entries(unresolvedReasonCounts)
+      .map(([label, count]) => `${label} ${count}종목`)
+      .join(' · ');
     const unresolvedHtml = flow.unassignedInstruments.length
       ? flow.unassignedInstruments
         .slice()
         .sort((a, b) => Number(b.unassigned_after_known_tax_cash_krw || 0) - Number(a.unassigned_after_known_tax_cash_krw || 0))
         .slice(0, 5)
-        .map((row) => `<div style="display:flex;gap:8px;justify-content:space-between;border-top:1px solid rgba(148,163,184,.08);padding:3px 0;"><span>${escapeHtml(row.name || row.code)}</span><span style="white-space:nowrap;">월 미정 ${money(row.unassigned_after_known_tax_cash_krw)}</span></div>`)
+        .map((row) => {
+          const reasonLabel = monthlyAttributionReasonLabel(row.reason);
+          return `
+            <div style="display:grid;grid-template-columns:minmax(130px,1fr) minmax(190px,1.25fr) auto;gap:8px;align-items:center;border-top:1px solid rgba(148,163,184,.08);padding:6px 0;">
+              <span style="min-width:0;"><strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#cbd5e1;">${escapeHtml(row.name || row.code)}</strong><small style="color:#64748b;">${escapeHtml(row.code || '')} · ${escapeHtml(row.currency || '')}</small></span>
+              <span style="min-width:0;"><span style="display:inline-flex;padding:2px 6px;border-radius:999px;background:rgba(180,83,9,.10);color:#fde68a;font-size:9.5px;white-space:nowrap;">${escapeHtml(reasonLabel)}</span><small style="display:block;margin-top:2px;color:#64748b;">지급월 연결 ${percent(row.schedule_coverage_pct)} · 세전 ${money(row.scheduled_gross_krw)} / ${money(row.annual_gross_krw)}</small></span>
+              <strong style="white-space:nowrap;color:#f8fafc;">월 미정 ${money(row.unassigned_after_known_tax_cash_krw)}</strong>
+            </div>`;
+        })
         .join('')
       : '';
 
@@ -526,7 +551,7 @@
 
         <div style="display:grid;grid-template-columns:minmax(280px,1.2fr) minmax(260px,.8fr);gap:8px;margin-top:9px;">
           <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.27);"><strong style="font-size:11px;">상위 예상 수령 기여 종목</strong><div style="margin-top:5px;font-size:10.8px;">${contributorHtml}</div></div>
-          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.27);font-size:10.8px;line-height:1.55;color:#94a3b8;"><strong style="color:#cbd5e1;">계산 범위</strong><br>${rangeText}<br>월별 배분은 지급 권리 확정이 아니며 기존 forecast 지급월과 기존 검증 세금 결과만 재사용합니다. residual과 월 미정 금액은 특정 월·종목에 임의 배분하지 않습니다.${unresolvedHtml ? `<details style="margin-top:5px;"><summary style="cursor:pointer;color:#cbd5e1;">월 미정 종목 보기</summary><div style="margin-top:4px;">${unresolvedHtml}</div></details>` : ''}</div>
+          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.27);font-size:10.8px;line-height:1.55;color:#94a3b8;"><strong style="color:#cbd5e1;">계산 범위</strong><br>${rangeText}<br>월별 배분은 지급 권리 확정이 아니며 기존 forecast 지급월과 기존 검증 세금 결과만 재사용합니다. residual과 월 미정 금액은 특정 월·종목에 임의 배분하지 않습니다.${unresolvedHtml ? `<details style="margin-top:5px;"><summary style="cursor:pointer;color:#cbd5e1;">월 미정 원인 · ${flow.unassignedInstruments.length}종목 보기</summary><div style="margin-top:4px;"><div style="margin-bottom:4px;color:#64748b;">${escapeHtml(unresolvedReasonSummary)}</div>${unresolvedHtml}</div></details>` : ''}</div>
         </div>
       </div>`;
   }
