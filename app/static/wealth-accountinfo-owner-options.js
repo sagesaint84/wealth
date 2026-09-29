@@ -77,9 +77,30 @@
     if (submit.textContent !== expected) submit.textContent = expected;
   }
 
+  function syncAccountActionLabels() {
+    const securitiesImport = document.getElementById('accountImportBtn');
+    if (securitiesImport) {
+      securitiesImport.textContent = '📂 증권계좌 가져오기';
+      securitiesImport.title = '증권계좌 가져오기';
+    }
+
+    const bankAdd = document.getElementById('addBankIntegratedBtn');
+    if (bankAdd) {
+      bankAdd.textContent = '➕ 은행계좌 추가';
+      bankAdd.title = '은행계좌 추가';
+    }
+
+    const bankImport = document.getElementById('accountInfoBankImportBtn');
+    if (bankImport) {
+      bankImport.textContent = '📂 은행계좌 가져오기';
+      bankImport.title = 'AccountInfo 은행계좌 가져오기';
+    }
+  }
+
   function install() {
     const scheduleRefresh = () => queueMicrotask(() => { void refreshOwnerOptions(); });
     const scheduleActionSync = () => queueMicrotask(syncSubmitActionLabel);
+    const scheduleToolbarSync = () => queueMicrotask(syncAccountActionLabels);
 
     document.addEventListener('click', (event) => {
       const target = event.target;
@@ -87,6 +108,7 @@
         scheduleRefresh();
         scheduleActionSync();
       }
+      scheduleToolbarSync();
     }, true);
 
     document.addEventListener('change', (event) => {
@@ -97,15 +119,17 @@
     }, true);
 
     const observer = new MutationObserver((records) => {
+      let shouldRefreshOwner = false;
       for (const record of records) {
         for (const node of record.addedNodes || []) {
           if (node?.nodeType !== 1) continue;
           if (node.id === 'accountInfoImportOwner' || node.querySelector?.('#accountInfoImportOwner')) {
-            scheduleRefresh();
-            break;
+            shouldRefreshOwner = true;
           }
         }
       }
+      if (shouldRefreshOwner) scheduleRefresh();
+      scheduleToolbarSync();
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
@@ -122,9 +146,17 @@
 
     scheduleRefresh();
     scheduleActionSync();
+    scheduleToolbarSync();
   }
 
-  const exported = { text, domOwners, renderOwnerOptions, previewIsReady, syncSubmitActionLabel };
+  const exported = {
+    text,
+    domOwners,
+    renderOwnerOptions,
+    previewIsReady,
+    syncSubmitActionLabel,
+    syncAccountActionLabels,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   if (typeof window !== 'undefined') window.WealthAccountInfoOwnerOptions = exported;
   if (typeof document === 'undefined') return;
