@@ -65,18 +65,35 @@
     }
   }
 
+  function previewIsReady() {
+    const host = document.getElementById('accountInfoPdfPreview');
+    return Boolean(host && host.style.display !== 'none' && host.childElementCount > 0);
+  }
+
+  function syncSubmitActionLabel() {
+    const submit = document.querySelector('#accountImportForm button[type="submit"]');
+    if (!submit || submit.disabled) return;
+    const expected = previewIsReady() ? '선택 계좌 추가' : '가져오기';
+    if (submit.textContent !== expected) submit.textContent = expected;
+  }
+
   function install() {
     const scheduleRefresh = () => queueMicrotask(() => { void refreshOwnerOptions(); });
+    const scheduleActionSync = () => queueMicrotask(syncSubmitActionLabel);
 
     document.addEventListener('click', (event) => {
       const target = event.target;
       if (target?.id === 'accountInfoBankImportBtn' || target?.closest?.('#accountImportDialog')) {
         scheduleRefresh();
+        scheduleActionSync();
       }
     }, true);
 
     document.addEventListener('change', (event) => {
-      if (event.target?.id === 'accountImportFile') scheduleRefresh();
+      if (event.target?.id === 'accountImportFile') {
+        scheduleRefresh();
+        scheduleActionSync();
+      }
     }, true);
 
     const observer = new MutationObserver((records) => {
@@ -85,16 +102,29 @@
           if (node?.nodeType !== 1) continue;
           if (node.id === 'accountInfoImportOwner' || node.querySelector?.('#accountInfoImportOwner')) {
             scheduleRefresh();
-            return;
+            break;
           }
         }
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
+
+    const form = document.getElementById('accountImportForm');
+    if (form) {
+      const actionObserver = new MutationObserver(scheduleActionSync);
+      actionObserver.observe(form, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'disabled'],
+      });
+    }
+
     scheduleRefresh();
+    scheduleActionSync();
   }
 
-  const exported = { text, domOwners, renderOwnerOptions };
+  const exported = { text, domOwners, renderOwnerOptions, previewIsReady, syncSubmitActionLabel };
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   if (typeof window !== 'undefined') window.WealthAccountInfoOwnerOptions = exported;
   if (typeof document === 'undefined') return;
