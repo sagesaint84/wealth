@@ -37,8 +37,8 @@ class DividendCashflowGoalFrontendTests(unittest.TestCase):
         self.assertIn("localStorage.removeItem", self.js)
         self.assertIn("id=\"dividendMonthlyNetGoal\"", self.js)
         self.assertIn("data-korean-currency", self.js)
-        self.assertNotIn("1000000'", self.js)
-        self.assertNotIn('1000000"', self.js)
+        self.assertIn("value=\"${goal || ''}\"", self.js)
+        self.assertNotIn("const goal = 1000000", self.js)
 
     def test_incomplete_monthly_attribution_fails_closed_for_goal_decision(self) -> None:
         self.assertIn("목표 비교 보류", self.js)
