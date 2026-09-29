@@ -2,7 +2,19 @@
 
 마지막 갱신: 2026-09-29
 
-## 상태
+## 완료 상태
+
+- exact validated head: `e9fa72d19983b52f4cdf7fce71ab6473c79416c3`
+- full unittest: `Ran 2402 tests in 124.985s` / `OK`
+- PR #52 merge: `ed10883728a97fca71baa29ad8c28f41cb4b4298`
+- GHCR Build and Publish Docker Image run #135 (`36477295611`) 성공
+- 운영 배포 및 browser smoke 완료
+  - USD 예수금 raw numeric input 유지
+  - `$15,929.62 · 약 ₩22,052,807` 보조표시 확인
+  - Dividend Intelligence 상세 `calculated`가 `계산 완료`로 표시
+  - ETF·해외자산 `대상 아님`에서 불필요한 고배당기업 `공식 근거` 링크 제거 확인
+
+## 배경
 
 Phase 10.5E는 PR #51 merge `3d23a50425f3321942713192557bc546a8397b58`, GHCR Build and Publish Docker Image run #120 성공, 운영 기동 및 browser smoke까지 완료했다.
 
@@ -57,11 +69,11 @@ Phase 10.5E는 PR #51 merge `3d23a50425f3321942713192557bc546a8397b58`, GHCR Bui
 
 ## 완료 조건
 
-- USD 예수금 입력의 포맷/원화 환산 helper 동작
-- live `fx_rates.USD` 미존재 시 fail-closed 표시
-- 기존 KRW money-input 회귀 없음
-- Dividend Intelligence 상세 상태 한글화
-- `대상 아님` 자산에서 불필요한 고배당 공식 링크 제거
-- targeted + related regression + full unittest 통과
-- JS `node --check`, Python compile, `git diff --check`, clean status 통과
-- PR final review → exact-head merge → main SHA verify → GHCR → 운영/browser smoke
+- [x] USD 예수금 입력의 포맷/원화 환산 helper 동작
+- [x] live `fx_rates.USD` 미존재 시 fail-closed 표시 계약
+- [x] 기존 KRW money-input 회귀 없음
+- [x] Dividend Intelligence 상세 상태 한글화
+- [x] `대상 아님` 자산에서 불필요한 고배당 공식 링크 제거
+- [x] targeted + related regression + full unittest 통과
+- [x] JS `node --check`, Python compile, `git diff --check`, clean status 통과
+- [x] PR final review → exact-head merge → main SHA verify → GHCR → 운영/browser smoke

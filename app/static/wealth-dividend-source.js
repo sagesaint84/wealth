@@ -13,6 +13,7 @@
     kind_etf_distribution: 'KIND ETF 분배금',
     legacy_fallback: '기존 추정',
   };
+  const DIVIDEND_MONTHLY_GOAL_KEY = 'wealth_dividend_monthly_goal_krw_v1';
 
   function sourceLabel(value) {
     return SOURCE_LABELS[value] || value || '미확인';
@@ -236,6 +237,204 @@
     `;
   }
 
+  function scheduleMonths(data) {
+    const raw = data?.monthly_schedule;
+    const source = Array.isArray(raw)
+      ? raw
+      : Object.entries(raw && typeof raw === 'object' ? raw : {}).map(([key, value]) => {
+          const tail = String(key).split('-').pop();
+          return { ...(value || {}), month: Number(value?.month || tail) };
+        });
+    const byMonth = new Map();
+    source.forEach((row) => {
+      const month = Number(row?.month);
+      if (month >= 1 && month <= 12) byMonth.set(month, row || {});
+    });
+    return Array.from({ length: 12 }, (_, index) => {
+      const month = index + 1;
+      const row = byMonth.get(month) || {};
+      return {
+        month,
+        total_krw: Number(row.total_krw || 0),
+        items: Array.isArray(row.items) ? row.items : [],
+      };
+    });
+  }
+
+  function instrumentKey(code, currency) {
+    const codeText = String(code || '').trim().toUpperCase();
+    const currencyText = String(currency || 'KRW').trim().toUpperCase();
+    return codeText ? `${codeText}|${currencyText}` : null;
+  }
+
+  function monthlyGoalStorageKey(data) {
+    const owner = String(data?.dividend_intelligence?.owner || '모두').trim() || '모두';
+    return `${DIVIDEND_MONTHLY_GOAL_KEY}:${owner}`;
+  }
+
+  function readMonthlyGoal(data) {
+    try {
+      const value = Number(localStorage.getItem(monthlyGoalStorageKey(data)) || 0);
+      return Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  function saveMonthlyGoal(data, value) {
+    try {
+      const parsed = Number(value);
+      const key = monthlyGoalStorageKey(data);
+      if (Number.isFinite(parsed) && parsed > 0) localStorage.setItem(key, String(Math.round(parsed)));
+      else localStorage.removeItem(key);
+    } catch (_) {
+      // localStorage may be unavailable in hardened browser contexts.
+    }
+  }
+
+  function buildMonthlyAfterTaxCashflow(data, rows, view, trust) {
+    const months = scheduleMonths(data).map((row) => ({
+      ...row,
+      covered_gross_krw: 0,
+      after_known_tax_cash_krw: 0,
+      coverage_pct: row.total_krw > 0 ? 0 : 100,
+    }));
+    const instrumentMap = new Map();
+    (rows || []).forEach((row) => {
+      const key = instrumentKey(row?.code, row?.currency);
+      if (key && !instrumentMap.has(key)) instrumentMap.set(key, row);
+    });
+
+    const grossByInstrument = new Map();
+    months.forEach((monthRow, monthIndex) => {
+      monthRow.items.forEach((item) => {
+        const gross = Math.max(Number(item?.payout_krw || 0), 0);
+        if (!gross) return;
+        const key = instrumentKey(item?.code, item?.currency);
+        const instrument = key ? instrumentMap.get(key) : null;
+        if (!instrument || instrument.calculation_status !== 'calculated') return;
+        monthRow.covered_gross_krw += gross;
+        if (!grossByInstrument.has(key)) grossByInstrument.set(key, Array(12).fill(0));
+        grossByInstrument.get(key)[monthIndex] += gross;
+      });
+    });
+
+    let missingInstrumentCash = 0;
+    instrumentMap.forEach((instrument, key) => {
+      if (instrument.calculation_status !== 'calculated') return;
+      const monthlyGross = grossByInstrument.get(key) || Array(12).fill(0);
+      const scheduleGross = monthlyGross.reduce((sum, value) => sum + value, 0);
+      const annualCash = Math.max(Number(instrument.after_known_tax_cash_krw || 0), 0);
+      if (!(scheduleGross > 0) || !(annualCash >= 0)) {
+        missingInstrumentCash += annualCash;
+        return;
+      }
+      const positiveMonths = monthlyGross
+        .map((value, index) => ({ value, index }))
+        .filter((item) => item.value > 0);
+      let assigned = 0;
+      positiveMonths.forEach((item, index) => {
+        const isLast = index === positiveMonths.length - 1;
+        const allocated = isLast
+          ? Math.max(Math.round(annualCash) - assigned, 0)
+          : Math.max(Math.round(annualCash * item.value / scheduleGross), 0);
+        months[item.index].after_known_tax_cash_krw += allocated;
+        assigned += allocated;
+      });
+    });
+
+    months.forEach((row) => {
+      const gross = Math.max(Number(row.total_krw || 0), 0);
+      row.coverage_pct = gross > 0
+        ? Math.min((row.covered_gross_krw / gross) * 100, 100)
+        : 100;
+    });
+
+    const annualKnownCash = months.reduce((sum, row) => sum + row.after_known_tax_cash_krw, 0);
+    const canonicalAfterCash = view?.calculation_status === 'complete'
+      ? Number(view.after_known_tax_cash_krw || 0)
+      : Number(view?.calculable_after_known_tax_cash_krw || 0);
+    const residual = Number(trust?.unattributed_residual_krw || 0);
+    const complete = view?.calculation_status === 'complete'
+      && residual === 0
+      && missingInstrumentCash === 0
+      && months.every((row) => row.coverage_pct >= 99.99)
+      && Math.abs(annualKnownCash - canonicalAfterCash) <= 1;
+    return { months, annualKnownCash, canonicalAfterCash, complete, missingInstrumentCash };
+  }
+
+  function cashflowDecisionHtml(data, rows, view, trust) {
+    const flow = buildMonthlyAfterTaxCashflow(data, rows, view, trust);
+    const goal = readMonthlyGoal(data);
+    const annualCash = flow.complete ? flow.canonicalAfterCash : flow.annualKnownCash;
+    const monthlyAverage = annualCash / 12;
+    const ordered = [...flow.months].sort((a, b) => b.after_known_tax_cash_krw - a.after_known_tax_cash_krw);
+    const maxMonth = ordered[0] || { month: 1, after_known_tax_cash_krw: 0 };
+    const minMonth = ordered[ordered.length - 1] || { month: 1, after_known_tax_cash_krw: 0 };
+    const maxShare = annualCash > 0 ? (maxMonth.after_known_tax_cash_krw / annualCash) * 100 : 0;
+    const metMonths = goal > 0 && flow.complete
+      ? flow.months.filter((row) => row.after_known_tax_cash_krw >= goal).length
+      : null;
+    const annualTarget = goal * 12;
+    const annualGap = goal > 0 && flow.complete ? Math.max(annualTarget - annualCash, 0) : null;
+    const annualSurplus = goal > 0 && flow.complete ? Math.max(annualCash - annualTarget, 0) : null;
+    const contributors = (rows || [])
+      .filter((row) => row?.calculation_status === 'calculated' && Number(row?.after_known_tax_cash_krw || 0) > 0)
+      .sort((a, b) => Number(b.after_known_tax_cash_krw || 0) - Number(a.after_known_tax_cash_krw || 0))
+      .slice(0, 5);
+    const maxCash = Math.max(...flow.months.map((row) => row.after_known_tax_cash_krw), 1);
+
+    const monthCards = flow.months.map((row) => {
+      const ratio = Math.max(Math.min(row.after_known_tax_cash_krw / maxCash, 1), 0);
+      const goalMet = goal > 0 && flow.complete && row.after_known_tax_cash_krw >= goal;
+      const incomplete = row.coverage_pct < 99.99;
+      return `
+        <div style="padding:8px;border-radius:8px;background:rgba(15,23,42,.42);border:1px solid ${goalMet ? 'rgba(52,211,153,.24)' : 'rgba(148,163,184,.12)'};min-width:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:5px;"><strong style="font-size:11px;">${row.month}월</strong>${goalMet ? '<span style="color:#6ee7b7;font-size:9.5px;">목표 ✓</span>' : ''}</div>
+          <div style="height:4px;border-radius:999px;background:rgba(51,65,85,.55);margin:6px 0 5px;overflow:hidden;"><div style="height:100%;width:${(ratio * 100).toFixed(1)}%;background:linear-gradient(90deg,#60a5fa,#8b5cf6);"></div></div>
+          <strong style="display:block;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${money(row.after_known_tax_cash_krw)}</strong>
+          <small style="display:block;margin-top:2px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">세전 ${money(row.total_krw)}${incomplete ? ` · ${percent(row.coverage_pct)}` : ''}</small>
+        </div>`;
+    }).join('');
+
+    const contributorHtml = contributors.length
+      ? contributors.map((row, index) => {
+          const share = annualCash > 0 ? Number(row.after_known_tax_cash_krw || 0) / annualCash * 100 : 0;
+          return `<div style="display:grid;grid-template-columns:22px minmax(100px,1fr) auto;gap:7px;align-items:center;padding:4px 0;border-top:${index ? '1px solid rgba(148,163,184,.10)' : '0'};"><span style="color:#64748b;">${index + 1}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(row.name || row.code)}</span><span style="text-align:right;white-space:nowrap;">${money(row.after_known_tax_cash_krw)} <small style="color:#64748b;">${percent(share)}</small></span></div>`;
+        }).join('')
+      : '<div style="color:#64748b;">계산 가능한 종목별 예상 수령액이 없습니다.</div>';
+
+    let goalSummary = '<strong style="font-size:16px;">월 목표 미설정</strong><small style="display:block;margin-top:3px;color:#64748b;">알려진 세금 후 월배당 목표를 입력하면 충족 월과 연간 부족액을 계산합니다.</small>';
+    if (goal > 0 && !flow.complete) {
+      goalSummary = `<strong style="font-size:16px;color:#fbbf24;">목표 비교 보류</strong><small style="display:block;margin-top:3px;color:#94a3b8;">월별 알려진 세금 후 귀속이 100%가 아니어서 목표 충족 여부를 확정 표시하지 않습니다.</small>`;
+    } else if (goal > 0) {
+      const annualText = annualGap > 0 ? `연간 부족 ${money(annualGap)}` : `연간 초과 ${money(annualSurplus)}`;
+      goalSummary = `<strong style="font-size:16px;">${metMonths} / 12개월 충족</strong><small style="display:block;margin-top:3px;color:${annualGap > 0 ? '#fbbf24' : '#6ee7b7'};">${annualText}</small>`;
+    }
+
+    return `
+      <div id="dividendCashflowDecision" style="margin-top:3px;padding:12px;border:1px solid rgba(139,92,246,.18);border-radius:10px;background:linear-gradient(135deg,rgba(30,41,59,.30),rgba(76,29,149,.05));">
+        <div style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;">
+          <div><strong style="font-size:13px;">선택 연도 12개월 배당 현금흐름</strong><div style="margin-top:3px;color:#94a3b8;font-size:10.8px;">종목별 연간 알려진 세금 후 예상 현금을 해당 종목의 월별 세전 예상 비중으로 배분한 자산관리 추정입니다.</div></div>
+          <label style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-size:10.8px;color:#94a3b8;">알려진 세금 후 월 목표 <input id="dividendMonthlyNetGoal" name="dividend_monthly_goal_krw" type="number" min="0" step="10000" data-korean-currency value="${goal || ''}" placeholder="예: 1000000" style="width:132px;padding:6px 8px;border:1px solid rgba(148,163,184,.25);border-radius:7px;background:rgba(15,23,42,.72);color:#f8fafc;"></label>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:7px;margin-top:10px;">
+          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.36);"><div style="font-size:10.5px;color:#94a3b8;">월평균 예상 수령</div><strong style="display:block;margin-top:2px;font-size:15px;">${money(monthlyAverage)}</strong></div>
+          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.36);"><div style="font-size:10.5px;color:#94a3b8;">최대 / 최소 월</div><strong style="display:block;margin-top:2px;font-size:13px;">${maxMonth.month}월 ${money(maxMonth.after_known_tax_cash_krw)}</strong><small style="color:#64748b;">${minMonth.month}월 ${money(minMonth.after_known_tax_cash_krw)}</small></div>
+          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.36);"><div style="font-size:10.5px;color:#94a3b8;">최대월 편중</div><strong style="display:block;margin-top:2px;font-size:15px;">${percent(maxShare)}</strong><small style="color:#64748b;">연간 예상 수령 기준</small></div>
+          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.36);"><div style="font-size:10.5px;color:#94a3b8;">월 목표 상태</div>${goalSummary}</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(12,minmax(76px,1fr));gap:5px;margin-top:9px;overflow-x:auto;padding-bottom:2px;">${monthCards}</div>
+
+        <div style="display:grid;grid-template-columns:minmax(280px,1.2fr) minmax(260px,.8fr);gap:8px;margin-top:9px;">
+          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.27);"><strong style="font-size:11px;">상위 예상 수령 기여 종목</strong><div style="margin-top:5px;font-size:10.8px;">${contributorHtml}</div></div>
+          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.27);font-size:10.8px;line-height:1.55;color:#94a3b8;"><strong style="color:#cbd5e1;">계산 범위</strong><br>${flow.complete ? '월별 알려진 세금 후 귀속 100% · 연간 known-after-tax 합계와 일치' : '월별 귀속 일부 미완료 · 목표 판단은 보류'}<br>월별 배분은 지급 권리 확정이 아니며 기존 forecast 지급월과 기존 검증 세금 결과만 재사용합니다. residual은 특정 월·종목에 임의 배분하지 않습니다.</div>
+        </div>
+      </div>`;
+  }
+
   function accountDetailsHtml(row) {
     const accounts = Array.isArray(row?.accounts) ? row.accounts : [];
     if (!accounts.length) return '<span style="color:#64748b;">계좌 귀속 확인 불가</span>';
@@ -317,6 +516,17 @@
     });
   }
 
+  function bindCashflowGoal(panel, data) {
+    const input = panel.querySelector('#dividendMonthlyNetGoal');
+    if (!input || input.dataset.bound === '1') return;
+    input.dataset.bound = '1';
+    input.addEventListener('input', () => saveMonthlyGoal(data, input.value));
+    input.addEventListener('change', () => renderAfterTaxPanel(data));
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') input.blur();
+    });
+  }
+
   function renderAfterTaxPanel(data) {
     const panel = ensureAfterTaxPanel();
     if (!panel) return;
@@ -387,7 +597,9 @@
         ${chip('미귀속 residual', money(trust.unattributed_residual_krw || 0), Number(trust.unattributed_residual_krw || 0) ? 'warning' : 'neutral')}
       </div>
 
-      <div style="margin-top:3px;padding:11px;border:1px solid rgba(56,189,248,.16);border-radius:10px;background:rgba(14,116,144,.05);">${highDividendSummaryHtml(high)}</div>
+      ${cashflowDecisionHtml(data, intelligenceRows, view, trust)}
+
+      <div style="margin-top:9px;padding:11px;border:1px solid rgba(56,189,248,.16);border-radius:10px;background:rgba(14,116,144,.05);">${highDividendSummaryHtml(high)}</div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-top:9px;">
         <div style="padding:10px;border-radius:9px;background:rgba(30,41,59,.30);font-size:11.5px;line-height:1.5;">${accuracyHtml(intelligence?.accuracy)}</div>
@@ -419,6 +631,7 @@
       </details>
     `;
     loadAlertSetting(panel);
+    bindCashflowGoal(panel, data);
   }
 
   function syncAfterTaxVisibility() {

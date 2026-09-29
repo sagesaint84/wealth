@@ -67,27 +67,42 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 
 ### Phase 10.5F — Dividend detail UX polish + USD amount helper
 
-현재 increment: **배당 상세 문구 정리 + USD 예수금 입력 천 단위/원화 환산 보조표시**.
+상태: **완료** — PR #52 merge (`ed10883728a97fca71baa29ad8c28f41cb4b4298`), GHCR #135, 운영 배포 및 browser smoke 확인.
 
-목표:
+완료 내용:
 
 - Dividend Intelligence 종목 상세의 내부 상태 `calculated`를 `계산 완료` 등 사용자 문구로 표시
-- 고배당기업 `대상 아님`인 ETF·해외자산에는 불필요한 고배당기업 공식 근거 링크를 숨김
+- 고배당기업 `대상 아님`인 ETF·해외자산에서 불필요한 고배당기업 공식 근거 링크 제거
 - 기존 `type=number` / raw value / payload 계약을 유지하면서 `cash_usd`에 `$12,345.67` 형태 보조표시 제공
 - 원화 환산은 이미 dashboard가 받은 `data.fx_rates.USD`를 재사용하고 환율 상수를 하드코딩하지 않음
 - 현재 환율이 없으면 추정하지 않고 `원화 환산 대기`로 fail-closed
-- 기존 KRW 금액 helper와 저장/API 계약은 변경하지 않음
+- 기존 KRW 금액 helper와 저장/API 계약 유지
+
+### Phase 10.5G — 배당 현금흐름 목표/의사결정
+
+현재 increment: **선택 연도 12개월 알려진 세금 후 현금흐름 + 사용자 월배당 목표 비교**.
+
+목표:
+
+- 기존 `monthly_schedule`의 월별 gross forecast를 그대로 재사용
+- 기존 종목별 `after_known_tax_cash_krw`를 각 종목의 월별 gross 비중으로 배분해 월별 알려진 세금 후 예상 현금 계산
+- 월평균 예상 수령, 최대/최소 월, 최대월 편중, 상위 예상수령 기여 종목 표시
+- owner별 사용자 월배당 목표를 browser localStorage에만 보관하고 12개월 충족 수와 연간 부족/초과 표시
+- 기존 세후 계산 complete + residual 0 + 월별 attribution 100% + 연간 reconciliation 일치 조건에서만 목표 판단 확정
+- 불완전하면 `목표 비교 보류`로 fail-closed
+- 새 세율, 새 threshold, 새 지급월 추론, residual 임의 배분 없음
 
 C-7 가족별 배당 분산 보기 단순화는 기존 Family Financial Income Risk / Family Allocation Simulation과 기능 중복이 커서 **추후 진행 후보**로 계속 보류한다.
 
 ## 2. 다음 단계
 
-Phase 10.5F를 targeted/related/full regression으로 검증한 뒤 PR exact-head merge, GHCR, 운영/browser smoke까지 완료한다. 이후 다음 번호는 실제 필요성을 다시 비교한 뒤 부여한다.
+Phase 10.5G는 exact-head 로컬 검증을 완료했으며 PR #53 final review → Ready → exact-head merge → GHCR → 운영/browser smoke 순서로 마감한다.
 
 추후 후보:
 
-- **C-7 가족별 배당 분산 보기 단순화** — 기존 두 family 패널을 단순 통합할 필요성이 다시 커질 때 진행
+- **예측 정확도 고도화** — point-in-time snapshot과 actual 비교 데이터가 충분히 누적된 뒤 source별 accuracy/편향을 의사결정에 연결
 - **고배당기업 공식 자격 상태 변경 알림** — 실제 공식 상태 변화 데이터가 쌓인 뒤 기존 opt-in alert/dedup 계약 재사용 여부 검토
+- **C-7 가족별 배당 분산 보기 단순화** — 기존 두 family 패널을 단순 통합할 필요성이 다시 커질 때 진행
 
 종합소득세 신고서 완성을 위한 다음 항목들은 **현재 제품 우선순위에서 보류**한다.
 
@@ -244,17 +259,21 @@ Phase 10.5D 완료:
 - point-in-time forecast 정확도/데이터 누적 상태 표시
 - Dividend Intelligence KPI/근거 정보 계층 단순화 — 10.5E
 - 고배당기업 공식 자격 chip 및 portfolio 요약 — 10.5E
+- USD 예수금 입력 `$` 천 단위 + 현재 FX 기반 원화 보조표시 — 10.5F
+- 종목 상세 계산 상태 한글화 / `대상 아님` 공식링크 정리 — 10.5F
 
-Phase 10.5F 진행:
+Phase 10.5G 진행:
 
-- USD 예수금 입력 `$` 천 단위 보조표시
-- 현재 `fx_rates.USD` 기반 원화 환산 보조표시
-- 종목 상세 계산 상태 한글화
-- `대상 아님` 고배당 공식 링크 정리
+- 12개월 알려진 세금 후 배당 현금흐름
+- 월평균 / 최대·최소월 / 최대월 편중
+- 상위 예상 수령 기여 종목
+- owner별 월배당 목표와 충족 월/연간 부족·초과
+- attribution 불완전 시 목표 비교 fail-closed
 
 후보:
 
 - C-7 가족별 배당 분산 보기 단순화 (추후 진행)
+- snapshot 누적 후 예측 정확도 의사결정 UX 고도화
 
 ## 8. 장기 구조 개선 후보
 
