@@ -296,6 +296,7 @@
     const months = scheduleMonths(data).map((row) => ({
       ...row,
       covered_gross_krw: 0,
+      attributed_gross_krw: 0,
       after_known_tax_cash_krw: 0,
       coverage_pct: row.total_krw > 0 ? 0 : 100,
     }));
@@ -319,28 +320,62 @@
       });
     });
 
-    let missingInstrumentCash = 0;
+    const unassignedInstruments = [];
+    let instrumentAnnualCash = 0;
     instrumentMap.forEach((instrument, key) => {
       if (instrument.calculation_status !== 'calculated') return;
-      const monthlyGross = grossByInstrument.get(key) || Array(12).fill(0);
-      const scheduleGross = monthlyGross.reduce((sum, value) => sum + value, 0);
+      const annualGross = Math.max(Number(instrument.gross_annual_dividend_krw || 0), 0);
       const annualCash = Math.max(Number(instrument.after_known_tax_cash_krw || 0), 0);
-      if (!(scheduleGross > 0) || !(annualCash >= 0)) {
-        missingInstrumentCash += annualCash;
-        return;
-      }
+      if (!(annualGross > 0) || !(annualCash >= 0)) return;
+      instrumentAnnualCash += annualCash;
+
+      const monthlyGross = grossByInstrument.get(key) || Array(12).fill(0);
       const positiveMonths = monthlyGross
         .map((value, index) => ({ value, index }))
         .filter((item) => item.value > 0);
+      const scheduleGross = positiveMonths.reduce((sum, item) => sum + item.value, 0);
+      const roundingTolerance = Math.max(1, (positiveMonths.length + 1) * 0.5);
+      let allocatableCash = 0;
+      let reason = null;
+
+      if (!(scheduleGross > 0)) {
+        reason = 'monthly_schedule_missing';
+      } else if (scheduleGross > annualGross + roundingTolerance) {
+        reason = 'monthly_schedule_exceeds_annual';
+      } else {
+        const scheduleRatio = Math.min(scheduleGross / annualGross, 1);
+        allocatableCash = Math.max(Math.min(Math.round(annualCash * scheduleRatio), Math.round(annualCash)), 0);
+        if (scheduleGross < annualGross - roundingTolerance) reason = 'partial_monthly_schedule';
+      }
+
       let assigned = 0;
-      positiveMonths.forEach((item, index) => {
-        const isLast = index === positiveMonths.length - 1;
-        const allocated = isLast
-          ? Math.max(Math.round(annualCash) - assigned, 0)
-          : Math.max(Math.round(annualCash * item.value / scheduleGross), 0);
-        months[item.index].after_known_tax_cash_krw += allocated;
-        assigned += allocated;
-      });
+      if (allocatableCash > 0 && positiveMonths.length) {
+        positiveMonths.forEach((item, index) => {
+          const isLast = index === positiveMonths.length - 1;
+          const allocated = isLast
+            ? Math.max(allocatableCash - assigned, 0)
+            : Math.max(Math.round(allocatableCash * item.value / scheduleGross), 0);
+          months[item.index].after_known_tax_cash_krw += allocated;
+          months[item.index].attributed_gross_krw += item.value;
+          assigned += allocated;
+        });
+      }
+
+      const unassignedCash = Math.max(Math.round(annualCash) - assigned, 0);
+      if (unassignedCash > 0 || reason) {
+        unassignedInstruments.push({
+          code: instrument.code,
+          name: instrument.name || instrument.code,
+          currency: instrument.currency,
+          annual_gross_krw: annualGross,
+          scheduled_gross_krw: scheduleGross,
+          after_known_tax_cash_krw: annualCash,
+          attributed_after_known_tax_cash_krw: assigned,
+          unassigned_after_known_tax_cash_krw: unassignedCash,
+          schedule_coverage_pct: annualGross > 0 ? Math.min(scheduleGross / annualGross * 100, 100) : 0,
+          reason: reason || 'rounding_remainder',
+        });
+      }
     });
 
     months.forEach((row) => {
@@ -350,34 +385,67 @@
         : 100;
     });
 
-    const annualKnownCash = months.reduce((sum, row) => sum + row.after_known_tax_cash_krw, 0);
+    const attributedCash = months.reduce((sum, row) => sum + row.after_known_tax_cash_krw, 0);
     const canonicalAfterCash = view?.calculation_status === 'complete'
       ? Number(view.after_known_tax_cash_krw || 0)
       : Number(view?.calculable_after_known_tax_cash_krw || 0);
+    const canonicalGross = Math.max(Number(view?.gross_annual_dividend_krw || data?.total_annual_dividend_krw || 0), 0);
+    const scheduledGross = months.reduce((sum, row) => sum + Math.max(Number(row.total_krw || 0), 0), 0);
     const residual = Number(trust?.unattributed_residual_krw || 0);
-    const complete = view?.calculation_status === 'complete'
+    const cashTolerance = Math.max(1, (instrumentMap.size + 1) * 0.5);
+    const annualCashReconciled = view?.calculation_status === 'complete'
+      && Number.isFinite(canonicalAfterCash)
+      && Math.abs(instrumentAnnualCash - canonicalAfterCash) <= cashTolerance;
+    const annualAvailable = view?.calculation_status === 'complete'
       && residual === 0
-      && missingInstrumentCash === 0
-      && months.every((row) => row.coverage_pct >= 99.99)
-      && Math.abs(annualKnownCash - canonicalAfterCash) <= 1;
-    return { months, annualKnownCash, canonicalAfterCash, complete, missingInstrumentCash };
+      && annualCashReconciled;
+    const unassignedCash = annualAvailable
+      ? Math.max(Math.round(canonicalAfterCash) - attributedCash, 0)
+      : Math.max(Math.round(instrumentAnnualCash) - attributedCash, 0);
+    const attributionCoveragePct = canonicalAfterCash > 0
+      ? Math.min(attributedCash / canonicalAfterCash * 100, 100)
+      : (annualAvailable ? 100 : 0);
+    const grossScheduleCoveragePct = canonicalGross > 0
+      ? Math.min(scheduledGross / canonicalGross * 100, 100)
+      : 100;
+    const complete = annualAvailable
+      && unassignedCash <= cashTolerance
+      && !unassignedInstruments.some((row) => row.reason === 'monthly_schedule_exceeds_annual');
+    const status = complete ? 'complete' : (annualAvailable ? 'partial' : 'unavailable');
+
+    return {
+      months,
+      status,
+      complete,
+      annualAvailable,
+      canonicalAfterCash,
+      attributedCash,
+      unassignedCash,
+      attributionCoveragePct,
+      canonicalGross,
+      scheduledGross,
+      grossScheduleCoveragePct,
+      annualCashReconciled,
+      unassignedInstruments,
+    };
   }
 
   function cashflowDecisionHtml(data, rows, view, trust) {
     const flow = buildMonthlyAfterTaxCashflow(data, rows, view, trust);
     const goal = readMonthlyGoal(data);
-    const annualCash = flow.complete ? flow.canonicalAfterCash : flow.annualKnownCash;
+    const annualCash = flow.annualAvailable ? flow.canonicalAfterCash : flow.attributedCash;
     const monthlyAverage = annualCash / 12;
     const ordered = [...flow.months].sort((a, b) => b.after_known_tax_cash_krw - a.after_known_tax_cash_krw);
     const maxMonth = ordered[0] || { month: 1, after_known_tax_cash_krw: 0 };
     const minMonth = ordered[ordered.length - 1] || { month: 1, after_known_tax_cash_krw: 0 };
     const maxShare = annualCash > 0 ? (maxMonth.after_known_tax_cash_krw / annualCash) * 100 : 0;
-    const metMonths = goal > 0 && flow.complete
+    const minimumMetMonths = goal > 0 && flow.annualAvailable
       ? flow.months.filter((row) => row.after_known_tax_cash_krw >= goal).length
       : null;
+    const pendingMonths = goal > 0 && flow.status === 'partial' ? 12 - minimumMetMonths : 0;
     const annualTarget = goal * 12;
-    const annualGap = goal > 0 && flow.complete ? Math.max(annualTarget - annualCash, 0) : null;
-    const annualSurplus = goal > 0 && flow.complete ? Math.max(annualCash - annualTarget, 0) : null;
+    const annualGap = goal > 0 && flow.annualAvailable ? Math.max(annualTarget - annualCash, 0) : null;
+    const annualSurplus = goal > 0 && flow.annualAvailable ? Math.max(annualCash - annualTarget, 0) : null;
     const contributors = (rows || [])
       .filter((row) => row?.calculation_status === 'calculated' && Number(row?.after_known_tax_cash_krw || 0) > 0)
       .sort((a, b) => Number(b.after_known_tax_cash_krw || 0) - Number(a.after_known_tax_cash_krw || 0))
@@ -386,14 +454,18 @@
 
     const monthCards = flow.months.map((row) => {
       const ratio = Math.max(Math.min(row.after_known_tax_cash_krw / maxCash, 1), 0);
-      const goalMet = goal > 0 && flow.complete && row.after_known_tax_cash_krw >= goal;
+      const goalMet = goal > 0 && flow.annualAvailable && row.after_known_tax_cash_krw >= goal;
+      const pending = goal > 0 && flow.status === 'partial' && !goalMet;
       const incomplete = row.coverage_pct < 99.99;
+      const goalBadge = goalMet
+        ? `<span style="color:#6ee7b7;font-size:9.5px;">${flow.complete ? '목표 ✓' : '최소 충족 ✓'}</span>`
+        : (pending ? '<span style="color:#fbbf24;font-size:9.5px;">판정 대기</span>' : '');
       return `
-        <div style="padding:8px;border-radius:8px;background:rgba(15,23,42,.42);border:1px solid ${goalMet ? 'rgba(52,211,153,.24)' : 'rgba(148,163,184,.12)'};min-width:0;">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:5px;"><strong style="font-size:11px;">${row.month}월</strong>${goalMet ? '<span style="color:#6ee7b7;font-size:9.5px;">목표 ✓</span>' : ''}</div>
+        <div style="padding:8px;border-radius:8px;background:rgba(15,23,42,.42);border:1px solid ${goalMet ? 'rgba(52,211,153,.24)' : (pending ? 'rgba(251,191,36,.20)' : 'rgba(148,163,184,.12)')};min-width:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:5px;"><strong style="font-size:11px;">${row.month}월</strong>${goalBadge}</div>
           <div style="height:4px;border-radius:999px;background:rgba(51,65,85,.55);margin:6px 0 5px;overflow:hidden;"><div style="height:100%;width:${(ratio * 100).toFixed(1)}%;background:linear-gradient(90deg,#60a5fa,#8b5cf6);"></div></div>
           <strong style="display:block;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${money(row.after_known_tax_cash_krw)}</strong>
-          <small style="display:block;margin-top:2px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">세전 ${money(row.total_krw)}${incomplete ? ` · ${percent(row.coverage_pct)}` : ''}</small>
+          <small style="display:block;margin-top:2px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">귀속 하한 · 세전 ${money(row.total_krw)}${incomplete ? ` · ${percent(row.coverage_pct)}` : ''}</small>
         </div>`;
     }).join('');
 
@@ -404,25 +476,49 @@
         }).join('')
       : '<div style="color:#64748b;">계산 가능한 종목별 예상 수령액이 없습니다.</div>';
 
+    const unresolvedHtml = flow.unassignedInstruments.length
+      ? flow.unassignedInstruments
+        .slice()
+        .sort((a, b) => Number(b.unassigned_after_known_tax_cash_krw || 0) - Number(a.unassigned_after_known_tax_cash_krw || 0))
+        .slice(0, 5)
+        .map((row) => `<div style="display:flex;gap:8px;justify-content:space-between;border-top:1px solid rgba(148,163,184,.08);padding:3px 0;"><span>${escapeHtml(row.name || row.code)}</span><span style="white-space:nowrap;">월 미정 ${money(row.unassigned_after_known_tax_cash_krw)}</span></div>`)
+        .join('')
+      : '';
+
     let goalSummary = '<strong style="font-size:16px;">월 목표 미설정</strong><small style="display:block;margin-top:3px;color:#64748b;">알려진 세금 후 월배당 목표를 입력하면 충족 월과 연간 부족액을 계산합니다.</small>';
-    if (goal > 0 && !flow.complete) {
-      goalSummary = `<strong style="font-size:16px;color:#fbbf24;">목표 비교 보류</strong><small style="display:block;margin-top:3px;color:#94a3b8;">월별 알려진 세금 후 귀속이 100%가 아니어서 목표 충족 여부를 확정 표시하지 않습니다.</small>`;
+    if (goal > 0 && !flow.annualAvailable) {
+      goalSummary = `<strong style="font-size:16px;color:#fbbf24;">목표 비교 보류</strong><small style="display:block;margin-top:3px;color:#94a3b8;">연간 알려진 세금 후 합계 자체가 완전하지 않아 목표 비교를 보류합니다.</small>`;
     } else if (goal > 0) {
-      const annualText = annualGap > 0 ? `연간 부족 ${money(annualGap)}` : `연간 초과 ${money(annualSurplus)}`;
-      goalSummary = `<strong style="font-size:16px;">${metMonths} / 12개월 충족</strong><small style="display:block;margin-top:3px;color:${annualGap > 0 ? '#fbbf24' : '#6ee7b7'};">${annualText}</small>`;
+      const annualText = annualGap > 0 ? `연간 총액 기준 부족 ${money(annualGap)}` : `연간 총액 기준 초과 ${money(annualSurplus)}`;
+      if (flow.complete) {
+        goalSummary = `<strong style="font-size:16px;">${minimumMetMonths} / 12개월 충족</strong><small style="display:block;margin-top:3px;color:${annualGap > 0 ? '#fbbf24' : '#6ee7b7'};">${annualText}</small>`;
+      } else {
+        goalSummary = `<strong style="font-size:16px;color:#fbbf24;">최소 ${minimumMetMonths}개월 충족 · ${pendingMonths}개월 판정 대기</strong><small style="display:block;margin-top:3px;color:${annualGap > 0 ? '#fbbf24' : '#6ee7b7'};">${annualText} · 월 미정 ${money(flow.unassignedCash)}</small>`;
+      }
     }
+
+    const attributionTone = flow.complete ? '#6ee7b7' : (flow.annualAvailable ? '#fbbf24' : '#fb7185');
+    const attributionText = flow.complete
+      ? '월 귀속 100%'
+      : `월 귀속 ${percent(flow.attributionCoveragePct)} · 월 미정 ${money(flow.unassignedCash)}`;
+    const rangeText = flow.complete
+      ? '월별 알려진 세금 후 귀속 100% · 연간 known-after-tax 합계와 일치'
+      : (flow.annualAvailable
+        ? `연간 known-after-tax 합계는 완전 · ${attributionText}`
+        : '연간 알려진 세금 후 합계가 불완전 · 목표 판단 보류');
 
     return `
       <div id="dividendCashflowDecision" style="margin-top:3px;padding:12px;border:1px solid rgba(139,92,246,.18);border-radius:10px;background:linear-gradient(135deg,rgba(30,41,59,.30),rgba(76,29,149,.05));">
         <div style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;">
-          <div><strong style="font-size:13px;">선택 연도 12개월 배당 현금흐름</strong><div style="margin-top:3px;color:#94a3b8;font-size:10.8px;">종목별 연간 알려진 세금 후 예상 현금을 해당 종목의 월별 세전 예상 비중으로 배분한 자산관리 추정입니다.</div></div>
+          <div><strong style="font-size:13px;">선택 연도 12개월 배당 현금흐름</strong><div style="margin-top:3px;color:#94a3b8;font-size:10.8px;">종목별 연간 알려진 세금 후 예상 현금 중 기존 forecast 지급월에 안전하게 연결되는 금액만 월별로 귀속합니다. 월이 없는 금액은 임의 배분하지 않습니다.</div></div>
           <label style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-size:10.8px;color:#94a3b8;">알려진 세금 후 월 목표 <input id="dividendMonthlyNetGoal" name="dividend_monthly_goal_krw" type="number" min="0" step="10000" data-korean-currency value="${goal || ''}" placeholder="예: 1000000" style="width:132px;padding:6px 8px;border:1px solid rgba(148,163,184,.25);border-radius:7px;background:rgba(15,23,42,.72);color:#f8fafc;"></label>
         </div>
+        <div style="margin-top:7px;color:${attributionTone};font-size:10.8px;font-weight:700;">${attributionText}</div>
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:7px;margin-top:10px;">
-          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.36);"><div style="font-size:10.5px;color:#94a3b8;">월평균 예상 수령</div><strong style="display:block;margin-top:2px;font-size:15px;">${money(monthlyAverage)}</strong></div>
-          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.36);"><div style="font-size:10.5px;color:#94a3b8;">최대 / 최소 월</div><strong style="display:block;margin-top:2px;font-size:13px;">${maxMonth.month}월 ${money(maxMonth.after_known_tax_cash_krw)}</strong><small style="color:#64748b;">${minMonth.month}월 ${money(minMonth.after_known_tax_cash_krw)}</small></div>
-          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.36);"><div style="font-size:10.5px;color:#94a3b8;">최대월 편중</div><strong style="display:block;margin-top:2px;font-size:15px;">${percent(maxShare)}</strong><small style="color:#64748b;">연간 예상 수령 기준</small></div>
+          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.36);"><div style="font-size:10.5px;color:#94a3b8;">월평균 예상 수령</div><strong style="display:block;margin-top:2px;font-size:15px;">${money(monthlyAverage)}</strong><small style="color:#64748b;">연간 알려진 세금 후 총액 ÷ 12</small></div>
+          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.36);"><div style="font-size:10.5px;color:#94a3b8;">최대 / 최소 월</div><strong style="display:block;margin-top:2px;font-size:13px;">${maxMonth.month}월 ${money(maxMonth.after_known_tax_cash_krw)}</strong><small style="color:#64748b;">${minMonth.month}월 ${money(minMonth.after_known_tax_cash_krw)}${flow.complete ? '' : ' · 귀속분 기준'}</small></div>
+          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.36);"><div style="font-size:10.5px;color:#94a3b8;">최대월 편중</div><strong style="display:block;margin-top:2px;font-size:15px;">${percent(maxShare)}</strong><small style="color:#64748b;">${flow.complete ? '연간 예상 수령 기준' : '연간 총액 대비 귀속 하한'}</small></div>
           <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.36);"><div style="font-size:10.5px;color:#94a3b8;">월 목표 상태</div>${goalSummary}</div>
         </div>
 
@@ -430,7 +526,7 @@
 
         <div style="display:grid;grid-template-columns:minmax(280px,1.2fr) minmax(260px,.8fr);gap:8px;margin-top:9px;">
           <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.27);"><strong style="font-size:11px;">상위 예상 수령 기여 종목</strong><div style="margin-top:5px;font-size:10.8px;">${contributorHtml}</div></div>
-          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.27);font-size:10.8px;line-height:1.55;color:#94a3b8;"><strong style="color:#cbd5e1;">계산 범위</strong><br>${flow.complete ? '월별 알려진 세금 후 귀속 100% · 연간 known-after-tax 합계와 일치' : '월별 귀속 일부 미완료 · 목표 판단은 보류'}<br>월별 배분은 지급 권리 확정이 아니며 기존 forecast 지급월과 기존 검증 세금 결과만 재사용합니다. residual은 특정 월·종목에 임의 배분하지 않습니다.</div>
+          <div style="padding:9px;border-radius:8px;background:rgba(30,41,59,.27);font-size:10.8px;line-height:1.55;color:#94a3b8;"><strong style="color:#cbd5e1;">계산 범위</strong><br>${rangeText}<br>월별 배분은 지급 권리 확정이 아니며 기존 forecast 지급월과 기존 검증 세금 결과만 재사용합니다. residual과 월 미정 금액은 특정 월·종목에 임의 배분하지 않습니다.${unresolvedHtml ? `<details style="margin-top:5px;"><summary style="cursor:pointer;color:#cbd5e1;">월 미정 종목 보기</summary><div style="margin-top:4px;">${unresolvedHtml}</div></details>` : ''}</div>
         </div>
       </div>`;
   }
