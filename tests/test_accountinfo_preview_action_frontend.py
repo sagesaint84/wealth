@@ -26,6 +26,16 @@ class AccountInfoPreviewActionFrontendTests(unittest.TestCase):
         self.assertIn("attributeFilter: ['style', 'disabled']", self.owner_js)
         self.assertIn("childList: true", self.owner_js)
 
+    def test_toolbar_label_writes_are_idempotent(self) -> None:
+        self.assertIn("if (node.textContent !== label) node.textContent = label;", self.owner_js)
+        self.assertIn("if (node.title !== title) node.title = title;", self.owner_js)
+
+    def test_body_observer_only_resyncs_toolbar_when_action_nodes_are_added(self) -> None:
+        self.assertIn("let shouldSyncToolbar = false;", self.owner_js)
+        self.assertIn("if (containsAccountAction(node)) shouldSyncToolbar = true;", self.owner_js)
+        self.assertIn("if (shouldSyncToolbar) scheduleToolbarSync();", self.owner_js)
+        self.assertNotIn("if (shouldRefreshOwner) scheduleRefresh();\n      scheduleToolbarSync();", self.owner_js)
+
 
 if __name__ == "__main__":
     unittest.main()
