@@ -111,7 +111,7 @@
     if (window.WealthAccountSectionSummary || document.getElementById('wealthAccountSectionSummaryScript')) return;
     const script = document.createElement('script');
     script.id = 'wealthAccountSectionSummaryScript';
-    script.src = '/static/wealth-account-section-summary.js?v=10.6b2';
+    script.src = '/static/wealth-account-section-summary.js?v=10.6b3';
     script.async = false;
     document.head.appendChild(script);
   }

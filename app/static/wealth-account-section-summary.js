@@ -130,20 +130,55 @@
     renderInto(host, markup);
   }
 
-  function renderBankSummary(payload, owner) {
-    const host = ensureHost('catPanelBanking', BANK_HOST_ID, 'savingsSummaryCards');
-    if (!host) return;
+  function bankAgreementState(payload, owner) {
     const banks = filterOwner(payload?.bank_accounts, owner);
     const savings = filterOwner(payload?.savings_accounts, owner);
     const loans = filterOwner(payload?.loan_accounts, owner);
+    const linkedBankIds = new Set(loans.map((item) => text(item?.overdraft_bank_account_id)).filter(Boolean));
+    const creditLineBanks = banks.filter((item) => {
+      const hasAgreement = number(item?.balance) < 0 || number(item?.limit_amount) > 0;
+      return hasAgreement && !linkedBankIds.has(text(item?.id));
+    });
+    const agreements = [...loans, ...creditLineBanks];
+    return { banks, savings, loans, creditLineBanks, agreements };
+  }
 
-    // A loan/overdraft agreement is a liability contract, not an additional bank account.
-    // Count actual deposit accounts once and show agreements/current debt separately.
+  function syncBankCountBadges(actualAccountCount, agreementCount) {
+    const values = [
+      ['bankingTabCount', actualAccountCount],
+      ['allBankCount', actualAccountCount],
+      ['loansCount', agreementCount],
+    ];
+    values.forEach(([id, value]) => {
+      const node = document.getElementById(id);
+      const expected = String(value);
+      if (node && node.textContent !== expected) node.textContent = expected;
+    });
+  }
+
+  function renderBankSummary(payload, owner) {
+    const host = ensureHost('catPanelBanking', BANK_HOST_ID, 'savingsSummaryCards');
+    if (!host) return;
+    const { banks, savings, loans, agreements } = bankAgreementState(payload, owner);
+
+    // Deposit accounts are counted once. A loan/overdraft is a separate agreement,
+    // including legacy bank-account credit lines represented by limit_amount > 0.
     const bankAccounts = [...banks, ...savings];
     const institutions = new Set(bankAccounts.map((item) => text(item?.bank_name)).filter(Boolean)).size;
     const loanDebt = loans.reduce((sum, item) => sum + Math.max(0, number(item?.current_balance)), 0);
+    const representedOverdraftBanks = new Set(
+      loans
+        .filter((item) => (
+          text(item?.loan_type) === 'minus'
+          && number(item?.current_balance) > 0
+          && text(item?.overdraft_bank_account_id)
+        ))
+        .map((item) => `${text(item?.owner || '모두')}\u0000${text(item?.overdraft_bank_account_id)}`)
+    );
     const legacyMinusDebt = banks.reduce((sum, item) => {
       const balance = number(item?.balance);
+      const relationshipKey = `${text(item?.owner || '모두')}\u0000${text(item?.id)}`;
+      if (representedOverdraftBanks.has(relationshipKey)) return sum;
       return sum + (balance < 0 ? Math.abs(balance) : 0);
     }, 0);
     const currentDebt = loanDebt + legacyMinusDebt;
@@ -153,11 +188,12 @@
         ${card('총 은행계좌', `${bankAccounts.length.toLocaleString('ko-KR')}개`, `${institutions.toLocaleString('ko-KR')}개 금융기관`)}
         ${card('자유입출금', `${banks.length.toLocaleString('ko-KR')}개`, '일반 은행계좌')}
         ${card('예·적금', `${savings.length.toLocaleString('ko-KR')}개`, '예금 · 적금 · 청약')}
-        ${card('대출·한도약정', `${loans.length.toLocaleString('ko-KR')}개`, `현재 부채 ${moneyKrw(currentDebt)}`)}
+        ${card('대출·한도약정', `${agreements.length.toLocaleString('ko-KR')}개`, `현재 부채 ${moneyKrw(currentDebt)}`)}
       </div>
       ${ownerLine ? `<div class="account-section-owner-line"><strong>소유자별 계좌</strong>${ownerLine}</div>` : ''}
     `;
     renderInto(host, markup);
+    syncBankCountBadges(bankAccounts.length, agreements.length);
   }
 
   async function jsonFetch(url) {
@@ -204,6 +240,15 @@
     }
   }
 
+  function loadIpoSaleBridgeScript() {
+    if (window.WealthIpoSaleBridge || document.getElementById('wealthIpoSaleBridgeScript')) return;
+    const script = document.createElement('script');
+    script.id = 'wealthIpoSaleBridgeScript';
+    script.src = '/static/wealth-ipo-sale-bridge.js?v=10.6c';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   function install() {
     ensureStyle();
     ensureHost('catPanelSecurities', SECURITIES_HOST_ID, 'accountList');
@@ -213,6 +258,7 @@
       if (event.target?.closest?.('.family-tab[data-owner]')) scheduleRefresh(0);
     }, true);
     window.addEventListener('focus', () => scheduleRefresh(0));
+    loadIpoSaleBridgeScript();
     scheduleRefresh(0);
   }
 
@@ -222,9 +268,12 @@
     filterOwner,
     institutionCount,
     ownerBreakdown,
+    bankAgreementState,
+    syncBankCountBadges,
     renderSecuritiesSummary,
     renderBankSummary,
     refreshAccountSectionSummaries,
+    loadIpoSaleBridgeScript,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   if (typeof window !== 'undefined') window.WealthAccountSectionSummary = exported;
