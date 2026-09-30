@@ -156,6 +156,20 @@ globalThis.CustomEvent = function CustomEvent(type, opts) {{
   this.detail = opts ? opts.detail : null;
 }};
 
+// Keep month-sensitive tests deterministic across real calendar rollovers.
+const NativeDate = Date;
+class FixedDate extends NativeDate {{
+  constructor(...args) {{
+    if (args.length === 0) super('2026-09-30T12:00:00Z');
+    else super(...args);
+  }}
+
+  static now() {{
+    return new NativeDate('2026-09-30T12:00:00Z').getTime();
+  }}
+}}
+globalThis.Date = FixedDate;
+
 eval({json.dumps(source)});
 
 {script_body}
