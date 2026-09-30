@@ -8,7 +8,7 @@ import hashlib
 import json
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from app.main import COOKIE_NAME, _serializer, app
 from app.services.action_v2 import (
     ACTION_TYPE_OPEN_IPO_SALE_FLOW,
+    KST,
     _load_v2,
     create_web_action,
 )
@@ -38,7 +39,7 @@ class IpoSaleActionV2HttpTests(unittest.TestCase):
         self.user_dir = Path(self.temp.name) / "user"
         self.user_dir.mkdir(parents=True, exist_ok=True)
         self.action_file = Path(self.temp.name) / "action_v2_state.json"
-        self.today = date(2026, 9, 29)
+        self.today = datetime.now(KST).date()
         self.public_origin = "https://wealth.example.com"
         self.market = {
             "ipos": [
