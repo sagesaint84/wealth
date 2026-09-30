@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+CORE_JS = ROOT / "app" / "static" / "wealth-period-filter-core.js"
 FILTER_JS = ROOT / "app" / "static" / "wealth-income-period-broker-filter.js"
 LOADER_JS = ROOT / "app" / "static" / "wealth-family-financial-income-allocation.js"
 
@@ -12,12 +13,41 @@ LOADER_JS = ROOT / "app" / "static" / "wealth-family-financial-income-allocation
 class IncomePeriodBrokerFilterFrontendTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.core_js = CORE_JS.read_text(encoding="utf-8")
         cls.filter_js = FILTER_JS.read_text(encoding="utf-8")
         cls.loader_js = LOADER_JS.read_text(encoding="utf-8")
 
-    def test_loader_registers_versioned_income_filter_script_once(self) -> None:
+    def test_loader_registers_shared_core_before_income_filter(self) -> None:
+        self.assertIn("wealthPeriodFilterCoreScript", self.loader_js)
+        self.assertIn("/static/wealth-period-filter-core.js?v=10.6f1", self.loader_js)
         self.assertIn("wealthIncomePeriodBrokerFilterScript", self.loader_js)
-        self.assertIn("/static/wealth-income-period-broker-filter.js?v=10.6e1", self.loader_js)
+        self.assertIn("/static/wealth-income-period-broker-filter.js?v=10.6f1", self.loader_js)
+        self.assertLess(
+            self.loader_js.index("wealthPeriodFilterCoreScript"),
+            self.loader_js.index("wealthIncomePeriodBrokerFilterScript"),
+        )
+
+    def test_shared_period_core_exposes_common_year_month_scope(self) -> None:
+        for marker in (
+            "normalizeYear",
+            "normalizeMonth",
+            "matchesPeriod",
+            "filterRecords",
+            "availableYears",
+            "fixedYearRange",
+            "scopeLabel",
+            "groupByMonth",
+            "groupByYear",
+        ):
+            self.assertIn(marker, self.core_js)
+        self.assertIn("window.WealthPeriodFilter", self.core_js)
+
+    def test_income_filter_uses_shared_period_core(self) -> None:
+        self.assertIn("const period = window.WealthPeriodFilter", self.filter_js)
+        self.assertIn("period.availableYears", self.filter_js)
+        self.assertIn("period.filterRecords", self.filter_js)
+        self.assertIn("period.matchesPeriod", self.filter_js)
+        self.assertIn("period.scopeLabel", self.filter_js)
 
     def test_dividend_year_interaction_clears_existing_month_scope(self) -> None:
         self.assertIn("clearDividendMonthForYearSelection", self.filter_js)
@@ -30,8 +60,7 @@ class IncomePeriodBrokerFilterFrontendTests(unittest.TestCase):
         self.assertIn("rawData?.records", self.filter_js)
         self.assertIn("rawData?.interest_records", self.filter_js)
         self.assertIn("function dividendAvailableYears", self.filter_js)
-        self.assertIn("filter((year) => /^\\d{4}$/.test(year))", self.filter_js)
-        self.assertIn("years.sort((a, b) => b.localeCompare(a))", self.filter_js)
+        self.assertIn("period.availableYears(allDividendIncomeRecords(rawData)", self.filter_js)
         self.assertIn("&year=all", self.filter_js)
 
     def test_dividend_has_broker_filter_next_to_year_select(self) -> None:
@@ -40,6 +69,11 @@ class IncomePeriodBrokerFilterFrontendTests(unittest.TestCase):
         self.assertIn("전체 증권사", self.filter_js)
         self.assertIn("증권사 미지정", self.filter_js)
         self.assertIn("yearSelect.parentElement.appendChild(select)", self.filter_js)
+
+    def test_dividend_broker_counts_follow_selected_year_scope(self) -> None:
+        self.assertIn("function dividendBrokerChoices(rawData, year", self.filter_js)
+        self.assertIn("period.filterRecords(allDividendIncomeRecords(rawData), { year, month: null })", self.filter_js)
+        self.assertIn("dividendBrokerChoices(rawData, activeYear)", self.filter_js)
 
     def test_dividend_broker_filter_rebuilds_dividend_interest_and_time_buckets(self) -> None:
         self.assertIn("function buildDividendFilteredData", self.filter_js)
@@ -88,6 +122,7 @@ class IncomePeriodBrokerFilterFrontendTests(unittest.TestCase):
             self.assertIn(marker, self.filter_js)
         self.assertIn("buildBucket(records, 'month', idx + 1)", self.filter_js)
         self.assertIn("buildBucket(records, 'year', availableYear)", self.filter_js)
+        self.assertIn("period.filterRecords(records, scope)", self.filter_js)
 
     def test_broker_selection_is_reapplied_after_existing_render_flow(self) -> None:
         self.assertIn("window.renderRealizedPnl = function wealthRenderRealizedPnlWithBroker", self.filter_js)

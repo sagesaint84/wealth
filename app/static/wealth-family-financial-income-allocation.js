@@ -129,10 +129,40 @@
 
 (() => {
   'use strict';
-  if (document.getElementById('wealthIncomePeriodBrokerFilterScript')) return;
-  const script = document.createElement('script');
-  script.id = 'wealthIncomePeriodBrokerFilterScript';
-  script.src = '/static/wealth-income-period-broker-filter.js?v=10.6e1';
-  script.async = false;
-  document.head.appendChild(script);
+
+  function loadScriptOnce(id, src) {
+    return new Promise((resolve, reject) => {
+      const existing = document.getElementById(id);
+      if (existing) {
+        if (existing.dataset.loaded === 'true') resolve(existing);
+        else existing.addEventListener('load', () => resolve(existing), { once: true });
+        return;
+      }
+      const script = document.createElement('script');
+      script.id = id;
+      script.src = src;
+      script.async = false;
+      script.addEventListener('load', () => {
+        script.dataset.loaded = 'true';
+        resolve(script);
+      }, { once: true });
+      script.addEventListener('error', reject, { once: true });
+      document.head.appendChild(script);
+    });
+  }
+
+  async function loadWealthExtensions() {
+    try {
+      await loadScriptOnce('wealthPeriodFilterCoreScript', '/static/wealth-period-filter-core.js?v=10.6f1');
+      await loadScriptOnce('wealthIncomePeriodBrokerFilterScript', '/static/wealth-income-period-broker-filter.js?v=10.6f1');
+      await loadScriptOnce('wealthPnlYearIntentScript', '/static/wealth-pnl-year-intent.js?v=10.6f2');
+      await loadScriptOnce('wealthLedgerPeriodFilterScript', '/static/wealth-ledger-period-filter.js?v=10.6f1');
+      await loadScriptOnce('wealthKftcRetirementScript', '/static/wealth-kftc-retirement.js?v=10.6f1');
+      await loadScriptOnce('wealthCalendarIpoTonesScript', '/static/wealth-calendar-ipo-tones.js?v=10.6f1');
+    } catch (err) {
+      console.error('Wealth 확장 모듈 로드 실패:', err);
+    }
+  }
+
+  void loadWealthExtensions();
 })();
