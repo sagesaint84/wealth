@@ -24,8 +24,9 @@ class IpoManualSaleBridgeFrontendTests(unittest.TestCase):
     def test_bridge_does_not_invent_realized_pnl_or_tax_formula(self) -> None:
         self.assertIn("증권사에서 확인한 실제 매도 실현손익", self.source)
         self.assertIn("Wealth가 매도 손익이나 세금을 임의 계산하지 않습니다", self.source)
+        self.assertIn("const pnlKrw = Number(form.elements.pnl_krw.value)", self.source)
         self.assertNotIn("offer_price * quantity", self.source)
-        self.assertNotIn("pnlKrw =", self.source)
+        self.assertNotIn("sell_amount -", self.source)
 
     def test_bridge_uses_exact_connected_account_metadata(self) -> None:
         self.assertIn("/api/accounts?group=All&owner=모두", self.source)
