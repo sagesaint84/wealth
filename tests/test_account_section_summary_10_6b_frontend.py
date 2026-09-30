@@ -17,7 +17,7 @@ class AccountSectionSummary106BFrontendTests(unittest.TestCase):
 
     def test_loader_registers_versioned_summary_script_once(self) -> None:
         self.assertIn("wealthAccountSectionSummaryScript", self.loader_js)
-        self.assertIn("/static/wealth-account-section-summary.js?v=10.6b", self.loader_js)
+        self.assertIn("/static/wealth-account-section-summary.js?v=10.6b1", self.loader_js)
         self.assertIn("window.WealthAccountSectionSummary", self.loader_js)
 
     def test_securities_summary_has_requested_account_and_asset_metrics(self) -> None:
@@ -41,9 +41,11 @@ class AccountSectionSummary106BFrontendTests(unittest.TestCase):
         self.assertIn("owner === '모두' ? ownerBreakdown", self.summary_js)
         self.assertIn("소유자별 계좌", self.summary_js)
 
-    def test_summary_refresh_uses_existing_account_and_savings_apis(self) -> None:
+    def test_summary_refresh_uses_complete_dashboard_for_bank_composition(self) -> None:
         self.assertIn("/api/accounts?group=All&owner=모두", self.summary_js)
-        self.assertIn("/api/savings", self.summary_js)
+        self.assertIn("/api/dashboard", self.summary_js)
+        self.assertNotIn("jsonFetch('/api/savings')", self.summary_js)
+        self.assertIn("renderBankSummary(dashboardPayload || {}, owner)", self.summary_js)
         self.assertIn("credentials: 'same-origin'", self.summary_js)
 
     def test_summary_observers_are_scoped_to_existing_render_hosts(self) -> None:
