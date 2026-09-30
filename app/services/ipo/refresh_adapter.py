@@ -17,6 +17,7 @@ KST = timezone(timedelta(hours=9))
 _BASE_REFRESH_MARKET = _base.refresh_ipo_market
 _BASE_REFRESH_ENRICHED = _base.refresh_ipo_market_enriched
 _DISCOVERY_PRIORITY = "DART/KIND + NAVER/Npay > Metalogos160 > KIS fallback"
+_MAIN_DISCOVERY_KEYS = ("dart_schedule", "kind_discovery", "naver_progress_discovery", "npay")
 
 
 def _target_date(target_date_str: str | None) -> str:
@@ -217,6 +218,30 @@ def _run_supplement_and_targeted(*, username: str | None, target_date_str: str) 
     return supplement, targeted
 
 
+def _main_discovery_succeeded(supplement: dict[str, Any]) -> bool:
+    statuses = supplement.get("statuses") if isinstance(supplement.get("statuses"), dict) else {}
+    return any(str(statuses.get(key) or "").startswith("sync_ok") for key in _MAIN_DISCOVERY_KEYS)
+
+
+def _merge_refresh_result(
+    result: dict[str, Any] | None,
+    supplement: dict[str, Any],
+    targeted: dict[str, Any],
+) -> dict[str, Any]:
+    output = dict(result or {})
+    base_status = str(output.get("status") or "")
+    output.setdefault("sources", {}).update(supplement.get("statuses") or {})
+    output["targeted_dart"] = targeted
+    output["discovery_priority"] = _DISCOVERY_PRIORITY
+    output["total_ipos"] = supplement.get("total_ipos", output.get("total_ipos"))
+    if base_status and base_status != "ok" and _main_discovery_succeeded(supplement):
+        # KIS/base preservation must not make the API fail when the preferred
+        # discovery union successfully refreshed the shared market snapshot.
+        output["base_refresh_status"] = base_status
+        output["status"] = "ok"
+    return output
+
+
 def refresh_ipo_market(*, username: str | None = None, target_date_str: str | None = None) -> dict[str, Any]:
     """Interactive refresh: retained KIS cross-check, then main sources, then targeted DART."""
     resolved_target = _target_date(target_date_str)
@@ -225,13 +250,7 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
         username=username,
         target_date_str=resolved_target,
     )
-
-    output = dict(result or {})
-    output.setdefault("sources", {}).update(supplement.get("statuses") or {})
-    output["targeted_dart"] = targeted
-    output["discovery_priority"] = _DISCOVERY_PRIORITY
-    output["total_ipos"] = supplement.get("total_ipos", output.get("total_ipos"))
-    return output
+    return _merge_refresh_result(result, supplement, targeted)
 
 
 def refresh_ipo_market_enriched(
@@ -250,10 +269,4 @@ def refresh_ipo_market_enriched(
         username=username,
         target_date_str=resolved_target,
     )
-
-    output = dict(result or {})
-    output.setdefault("sources", {}).update(supplement.get("statuses") or {})
-    output["targeted_dart"] = targeted
-    output["discovery_priority"] = _DISCOVERY_PRIORITY
-    output["total_ipos"] = supplement.get("total_ipos", output.get("total_ipos"))
-    return output
+    return _merge_refresh_result(result, supplement, targeted)
