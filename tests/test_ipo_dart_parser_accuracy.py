@@ -93,20 +93,21 @@ class DartParserAccuracyTests(unittest.TestCase):
         self.assertEqual(value["issuer_multiple"], 22.72)
         self.assertEqual(value["valuation_ratio"], 0.8678)
 
-    def test_tradable_ratio_reads_explicit_prose_and_avoids_stale_amendment(self):
+    def test_tradable_ratio_prefers_corrected_disclosure(self):
         doc = """
+        <p>(주4) 정정 전</p>
         <table><tr><td>
           당사의 상장예정주식수 12,575,000주 중 34.57%에 해당하는
           4,346,680주는 상장 직후 유통가능 물량에 해당합니다.
-          3개월 후 누적 35.16%, 12개월 후 누적 36.55%입니다.
         </td></tr></table>
-        <p>(주4) 정정 전</p>
+        <p>(주4) 정정 후</p>
         <table><tr><td>
-          당사의 상장예정주식수 12,575,000주 중 34.13%에 해당하는
-          4,291,000주는 상장 직후 유통가능 물량에 해당합니다.
+          당사의 상장예정주식수 12,600,000주 중 34.50%에 해당하는
+          4,346,680주는 상장 직후 유통가능 물량에 해당합니다.
+          3개월 후 누적 35.09%, 12개월 후 누적 36.47%입니다.
         </td></tr></table>
         """
-        self.assertEqual(self.parser.extract_tradable_share_ratio(doc), 34.57)
+        self.assertEqual(self.parser.extract_tradable_share_ratio(doc), 34.5)
 
 
 if __name__ == "__main__":
