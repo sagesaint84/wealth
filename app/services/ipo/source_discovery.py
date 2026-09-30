@@ -5,6 +5,7 @@ import copy
 from typing import Any
 
 from app.services.ipo.dart_client import DartClient
+from app.services.ipo.dart_offering_schedule import build_dart_offering_schedule
 from app.services.ipo.identity import normalize_company_name
 from app.services.ipo.kind_client import KindClient
 from app.services.ipo.metalogos_client import MetalogosIpoClient
@@ -50,13 +51,12 @@ def _relevant_schedule(item: dict[str, Any], start: date, end: date) -> bool:
 
 
 def _fetch_dart_equity_feed(dart: DartClient, *, target_date_str: str) -> list[dict[str, Any]]:
-    """Read the official OpenDART C001 feed corresponding to DART issuance filings.
+    """Read the official OpenDART C001 feed behind DART's offering disclosures.
 
-    OpenDART limits searches without corp_code to three months, so discovery uses
-    a conservative 90-day window and includes amendments (`last_reprt_at=N`).
-    The feed is identity/provenance evidence only; it never creates an IPO from
-    a C001 filing by itself because listed-company follow-on offerings share the
-    same disclosure category.
+    The global feed is identity/provenance evidence, not a standalone IPO universe:
+    C001 also contains follow-on equity offerings by already-listed companies.
+    Schedules become canonical only when the filing can be reconciled to an IPO
+    already discovered by KIND, Npay/Naver, 160, or the retained market store.
     """
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
     begin = target - timedelta(days=89)
@@ -118,6 +118,7 @@ def _attach_dart_identity(item: dict[str, Any], dart_by_name: dict[str, dict[str
         item["stock_code"] = stock_code
     item.setdefault("sources", {})["dart_discovery"] = {
         "source": "OpenDART list.json C001",
+        "board_reference": "https://dart.fss.or.kr/dsac005/main.do",
         "rcept_no": filing.get("rcept_no"),
         "source_date": filing.get("rcept_dt"),
         "report_nm": filing.get("report_nm"),
@@ -145,6 +146,18 @@ def _unique_name_match(item: dict[str, Any], existing: list[dict[str, Any]]) -> 
     return target
 
 
+def _unique_stock_match(item: dict[str, Any], existing: list[dict[str, Any]]) -> dict[str, Any] | None:
+    stock_code = str(item.get("stock_code") or "").strip()
+    if not stock_code:
+        return None
+    candidates = [row for row in existing if str(row.get("stock_code") or "").strip() == stock_code]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _known_observation(item: dict[str, Any], existing: list[dict[str, Any]]) -> bool:
+    return _unique_stock_match(item, existing) is not None or _unique_name_match(item, existing) is not None
+
+
 def _source_priority_present(target: dict[str, Any], source_name: str) -> bool:
     sources = target.get("sources") if isinstance(target.get("sources"), dict) else {}
     if source_name in {"naver", "npay"}:
@@ -160,15 +173,9 @@ def _source_priority_present(target: dict[str, Any], source_name: str) -> bool:
 
 
 def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_name: str) -> tuple[dict[str, Any], bool]:
-    """Merge an observation while allowing a safe name+same-start reconciliation.
-
-    Existing identity.py correctly rejects generic name-only merges. Discovery has
-    a narrower exception: exactly one normalized-name match with a non-conflicting
-    subscription start may receive supplemental source data. This is required for
-    public schedule sources that do not expose stock/corp identifiers.
-    """
+    """Merge one source observation under the field-level source priority."""
     existing = store.get("ipos", [])
-    target = _unique_name_match(item, existing)
+    target = _unique_stock_match(item, existing) or _unique_name_match(item, existing)
     if target is None:
         saved, review = merge_ipo_record(store, item)
         return saved, review
@@ -220,6 +227,54 @@ def _kind_items(kind: KindClient, *, target_date_str: str, start: date, end: dat
     return relevant
 
 
+def _apply_dart_schedules(
+    market: dict[str, Any],
+    *,
+    dart: DartClient,
+    dart_by_name: dict[str, dict[str, Any]],
+    target_date_str: str,
+    start: date,
+    end: date,
+) -> tuple[int, int, int]:
+    """Overlay official dsac005-equivalent OpenDART schedule facts last."""
+    matched = 0
+    failed = 0
+    ignored = 0
+    target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+    bgn_de = (target - timedelta(days=365)).strftime("%Y%m%d")
+    end_de = target.strftime("%Y%m%d")
+
+    for ipo in list(market.get("ipos", [])):
+        if not isinstance(ipo, dict) or not _relevant_schedule(ipo, start, end):
+            continue
+        key = normalize_company_name(str(ipo.get("company_name") or ""))
+        filing = dart_by_name.get(key)
+        if not filing:
+            ignored += 1
+            continue
+        corp_code = str(filing.get("corp_code") or ipo.get("corp_code") or "").strip()
+        if not corp_code:
+            ignored += 1
+            continue
+        try:
+            raw_structured = dart.get_equity_registration_statements(
+                corp_code=corp_code,
+                bgn_de=bgn_de,
+                end_de=end_de,
+            )
+            item = build_dart_offering_schedule(raw_structured, filing=filing)
+            if not item or not _relevant_schedule(item, start, end):
+                ignored += 1
+                continue
+            # DART schedule is official and is applied after all supplemental
+            # sources, so corrected/confirmed filing values become canonical.
+            _apply_observation(market, item, source_name="dart")
+            matched += 1
+        except Exception:
+            failed += 1
+    return matched, failed, ignored
+
+
 def discover_and_merge_primary_sources(
     *,
     username: str | None,
@@ -232,10 +287,10 @@ def discover_and_merge_primary_sources(
 ) -> dict[str, Any]:
     """Reconcile the main IPO discovery union into market.json.
 
-    Priority for canonical schedule facts:
-      DART/KIND official evidence > Naver/Npay public IPO data > 160 supplement > KIS.
-    KIS remains in the base orchestrator as a fallback/cross-check, but cannot
-    suppress discovery from these sources.
+    Canonical schedule priority:
+      DART/OpenDART + KIND > NAVER/Npay > Metalogos 160 > retained KIS fallback.
+    KIS remains in the base orchestrator for cross-check/fallback but can no
+    longer suppress discovery from the main sources.
     """
     start, end = _month_window(target_date_str)
     market = copy.deepcopy(read_market_store())
@@ -255,7 +310,6 @@ def discover_and_merge_primary_sources(
         statuses["dart_feed"] = "source_unavailable (api_key_missing)"
     dart_by_name = _latest_dart_by_name(dart_rows)
 
-    # Official KIND schedule is applied first and therefore outranks the base KIS snapshot.
     kind = kind_client or KindClient()
     try:
         items = _kind_items(kind, target_date_str=target_date_str, start=start, end=end)
@@ -270,30 +324,7 @@ def discover_and_merge_primary_sources(
     except Exception as exc:
         statuses["kind_discovery"] = f"source_error ({type(exc).__name__})"
 
-    # Naver progress contributes authoritative public stock-code/listing observations
-    # independently of whether KIS happened to discover the same IPO.
-    naver = naver_client or NaverIpoClient()
-    try:
-        raw_items = naver.fetch_ipo_progress_items()
-        items = [copy.deepcopy(item) for item in raw_items if _relevant_schedule(item, start, end)]
-        reviews = 0
-        observed_at = datetime.now(KST).isoformat()
-        for item in items:
-            item.setdefault("sources", {})["naver_progress"] = {
-                "schedule_source": "stock.naver.com ipo progress",
-                "raw_ipo_code": item.get("raw_ipo_code"),
-                "expected_listing_date": item.get("expected_listing_date"),
-                "observed_at": observed_at,
-            }
-            _attach_dart_identity(item, dart_by_name)
-            _, review = _apply_observation(market, item, source_name="naver")
-            reviews += int(review)
-        statuses["naver_progress_discovery"] = f"sync_ok (relevant={len(items)}, review_required={reviews})"
-    except ExternalNetworkDisabled:
-        statuses["naver_progress_discovery"] = "source_unavailable (external_network_disabled)"
-    except Exception as exc:
-        statuses["naver_progress_discovery"] = f"source_error ({type(exc).__name__})"
-
+    # Npay provides broad upcoming discovery even when a KIS schedule is partial.
     npay = npay_client or NpayIpoClient()
     try:
         items = [item for item in npay.fetch_upcoming_ipos(target_date_str=target_date_str) if _relevant_schedule(item, start, end)]
@@ -307,6 +338,35 @@ def discover_and_merge_primary_sources(
         statuses["npay"] = "source_unavailable (external_network_disabled)"
     except Exception as exc:
         statuses["npay"] = f"source_error ({type(exc).__name__})"
+
+    # Naver progress can enrich newly discovered Npay/KIND records even before
+    # a listing date is announced. Rows with a date may independently discover.
+    naver = naver_client or NaverIpoClient()
+    try:
+        raw_items = naver.fetch_ipo_progress_items()
+        items = [
+            copy.deepcopy(item) for item in raw_items
+            if _relevant_schedule(item, start, end) or _known_observation(item, market.get("ipos", []))
+        ]
+        reviews = 0
+        observed_at = datetime.now(KST).isoformat()
+        for item in items:
+            item.setdefault("sources", {})["naver_progress"] = {
+                "schedule_source": "stock.naver.com ipo progress",
+                "raw_ipo_code": item.get("raw_ipo_code"),
+                "progress_container": item.get("progress_container"),
+                "expected_listing_date": item.get("expected_listing_date"),
+                "market_type": item.get("market"),
+                "observed_at": observed_at,
+            }
+            _attach_dart_identity(item, dart_by_name)
+            _, review = _apply_observation(market, item, source_name="naver")
+            reviews += int(review)
+        statuses["naver_progress_discovery"] = f"sync_ok (relevant={len(items)}, review_required={reviews})"
+    except ExternalNetworkDisabled:
+        statuses["naver_progress_discovery"] = "source_unavailable (external_network_disabled)"
+    except Exception as exc:
+        statuses["naver_progress_discovery"] = f"source_error ({type(exc).__name__})"
 
     metalogos = metalogos_client or MetalogosIpoClient()
     try:
@@ -322,7 +382,6 @@ def discover_and_merge_primary_sources(
     except Exception as exc:
         statuses["metalogos160"] = f"source_error ({type(exc).__name__})"
 
-    # Attach official DART filing identity/provenance to already-known schedules.
     attached = 0
     for ipo in market.get("ipos", []):
         before = bool((ipo.get("sources") or {}).get("dart_discovery"))
@@ -330,6 +389,21 @@ def discover_and_merge_primary_sources(
         after = bool((ipo.get("sources") or {}).get("dart_discovery"))
         attached += int(after and not before)
     statuses["dart_identity_attached"] = str(attached)
+
+    if dart.is_configured() and dart_by_name:
+        matched, failed, ignored = _apply_dart_schedules(
+            market,
+            dart=dart,
+            dart_by_name=dart_by_name,
+            target_date_str=target_date_str,
+            start=start,
+            end=end,
+        )
+        statuses["dart_schedule"] = f"sync_ok (matched={matched}, failed={failed}, ignored={ignored})"
+    elif not dart.is_configured():
+        statuses["dart_schedule"] = "source_unavailable (api_key_missing)"
+    else:
+        statuses["dart_schedule"] = "not_applied (feed_unavailable)"
 
     write_market_store(market)
     return {
