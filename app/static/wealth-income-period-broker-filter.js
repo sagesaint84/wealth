@@ -35,7 +35,9 @@
   }
 
   function finitePnlKrw(record) {
-    const value = Number(record?.pnl_krw);
+    const raw = record?.pnl_krw;
+    if (raw === null || raw === undefined || raw === '') return null;
+    const value = Number(raw);
     return Number.isFinite(value) ? value : null;
   }
 
