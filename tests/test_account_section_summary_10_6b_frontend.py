@@ -49,6 +49,13 @@ class AccountSectionSummary106BFrontendTests(unittest.TestCase):
         self.assertIn("balance < 0 ? Math.abs(balance) : 0", self.summary_js)
         self.assertIn("moneyKrw(currentDebt)", self.summary_js)
 
+    def test_bank_summary_dedupes_linked_overdraft_debt(self) -> None:
+        self.assertIn("const representedOverdraftBanks = new Set", self.summary_js)
+        self.assertIn("text(item?.loan_type) === 'minus'", self.summary_js)
+        self.assertIn("number(item?.current_balance) > 0", self.summary_js)
+        self.assertIn("const relationshipKey", self.summary_js)
+        self.assertIn("representedOverdraftBanks.has(relationshipKey)", self.summary_js)
+
     def test_bank_visible_counts_follow_actual_accounts_and_separate_agreements(self) -> None:
         self.assertIn("syncBankCountBadges(bankAccounts.length, agreements.length)", self.summary_js)
         self.assertIn("['bankingTabCount', actualAccountCount]", self.summary_js)
