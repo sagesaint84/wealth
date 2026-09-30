@@ -20,6 +20,9 @@ class NpayIpoClientError(RuntimeError):
 
 
 def _visible_text(html_text: str) -> str:
+    # The public IPO schedule is server-rendered today. Strip executable/style
+    # blocks rather than parsing application state from private implementation
+    # details; if the visible contract disappears, fail closed below.
     text = re.sub(r"<script\b[^>]*>[\s\S]*?</script>", " ", html_text, flags=re.IGNORECASE)
     text = re.sub(r"<style\b[^>]*>[\s\S]*?</style>", " ", text, flags=re.IGNORECASE)
     text = re.sub(r"<[^>]+>", " ", text)
@@ -35,10 +38,16 @@ def _infer_schedule_date(month: int, day: int, target: date) -> date:
             continue
     if not candidates:
         raise NpayIpoClientError(f"invalid Npay IPO date: {month:02d}.{day:02d}")
-    # The page is an upcoming schedule. Prefer the nearest not-too-old candidate,
-    # but keep year-boundary dates deterministic (Dec -> Jan).
     candidates.sort(key=lambda item: (abs((item - target).days), item < target, item))
     return candidates[0]
+
+
+def _clean_company_name(value: str) -> str:
+    text = re.sub(r"^(?:logo\s+)+", "", str(value or "").strip(), flags=re.IGNORECASE)
+    # Npay may append trading/profile badges to the displayed company name.
+    # These are presentation labels, not part of the issuer identity.
+    text = re.sub(r"\s+(?:매수가능|IPO\s*전문|IPO\s*일반|전문|일반)\s*$", "", text, flags=re.IGNORECASE)
+    return text.strip()
 
 
 def _listing_track(company_name: str) -> str:
@@ -89,7 +98,7 @@ def parse_npay_ipo_html(html_text: str, *, target_date_str: str) -> list[dict[st
         if "공모가" not in body:
             continue
         name_part, remainder = body.split("공모가", 1)
-        company_name = re.sub(r"^(?:logo\s+)+", "", name_part.strip(), flags=re.IGNORECASE).strip()
+        company_name = _clean_company_name(name_part)
         if not company_name:
             continue
 
