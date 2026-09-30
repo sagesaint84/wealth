@@ -8,6 +8,7 @@ from app.services.ipo.dart_client import DartClient
 from app.services.ipo.identity import normalize_company_name
 from app.services.ipo.kind_client import KindClient
 from app.services.ipo.metalogos_client import MetalogosIpoClient
+from app.services.ipo.naver_client import NaverIpoClient
 from app.services.ipo.npay_client import NpayIpoClient
 from app.services.ipo.store import merge_ipo_record, read_market_store, write_market_store
 from app.services.network_policy import ExternalNetworkDisabled
@@ -62,7 +63,7 @@ def _fetch_dart_equity_feed(dart: DartClient, *, target_date_str: str) -> list[d
     rows: list[dict[str, Any]] = []
     page_no = 1
     while page_no <= 20:
-        payload = dart._request_json(  # project-local client primitive; keeps credential masking/error typing
+        payload = dart._request_json(
             "list.json",
             {
                 "bgn_de": begin.strftime("%Y%m%d"),
@@ -146,10 +147,15 @@ def _unique_name_match(item: dict[str, Any], existing: list[dict[str, Any]]) -> 
 
 def _source_priority_present(target: dict[str, Any], source_name: str) -> bool:
     sources = target.get("sources") if isinstance(target.get("sources"), dict) else {}
-    if source_name == "npay":
+    if source_name in {"naver", "npay"}:
         return bool(sources.get("kind") or sources.get("dart_schedule"))
     if source_name == "metalogos160":
-        return bool(sources.get("kind") or sources.get("dart_schedule") or sources.get("npay"))
+        return bool(
+            sources.get("kind")
+            or sources.get("dart_schedule")
+            or sources.get("naver_progress")
+            or sources.get("npay")
+        )
     return False
 
 
@@ -219,6 +225,7 @@ def discover_and_merge_primary_sources(
     username: str | None,
     target_date_str: str,
     kind_client: KindClient | None = None,
+    naver_client: NaverIpoClient | None = None,
     npay_client: NpayIpoClient | None = None,
     metalogos_client: MetalogosIpoClient | None = None,
     dart_client: DartClient | None = None,
@@ -226,7 +233,7 @@ def discover_and_merge_primary_sources(
     """Reconcile the main IPO discovery union into market.json.
 
     Priority for canonical schedule facts:
-      DART/KIND official evidence > Npay public IPO schedule > 160 supplement > KIS.
+      DART/KIND official evidence > Naver/Npay public IPO data > 160 supplement > KIS.
     KIS remains in the base orchestrator as a fallback/cross-check, but cannot
     suppress discovery from these sources.
     """
@@ -262,6 +269,30 @@ def discover_and_merge_primary_sources(
         statuses["kind_discovery"] = "source_unavailable (external_network_disabled)"
     except Exception as exc:
         statuses["kind_discovery"] = f"source_error ({type(exc).__name__})"
+
+    # Naver progress contributes authoritative public stock-code/listing observations
+    # independently of whether KIS happened to discover the same IPO.
+    naver = naver_client or NaverIpoClient()
+    try:
+        raw_items = naver.fetch_ipo_progress_items()
+        items = [copy.deepcopy(item) for item in raw_items if _relevant_schedule(item, start, end)]
+        reviews = 0
+        observed_at = datetime.now(KST).isoformat()
+        for item in items:
+            item.setdefault("sources", {})["naver_progress"] = {
+                "schedule_source": "stock.naver.com ipo progress",
+                "raw_ipo_code": item.get("raw_ipo_code"),
+                "expected_listing_date": item.get("expected_listing_date"),
+                "observed_at": observed_at,
+            }
+            _attach_dart_identity(item, dart_by_name)
+            _, review = _apply_observation(market, item, source_name="naver")
+            reviews += int(review)
+        statuses["naver_progress_discovery"] = f"sync_ok (relevant={len(items)}, review_required={reviews})"
+    except ExternalNetworkDisabled:
+        statuses["naver_progress_discovery"] = "source_unavailable (external_network_disabled)"
+    except Exception as exc:
+        statuses["naver_progress_discovery"] = f"source_error ({type(exc).__name__})"
 
     npay = npay_client or NpayIpoClient()
     try:
