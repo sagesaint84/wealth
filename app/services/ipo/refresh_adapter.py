@@ -16,6 +16,7 @@ from app.services.ipo.store import merge_ipo_record, read_market_store, write_ma
 KST = timezone(timedelta(hours=9))
 _BASE_REFRESH_MARKET = _base.refresh_ipo_market
 _BASE_REFRESH_ENRICHED = _base.refresh_ipo_market_enriched
+_DISCOVERY_PRIORITY = "DART/KIND + NAVER/Npay > Metalogos160 > KIS fallback"
 
 
 def _target_date(target_date_str: str | None) -> str:
@@ -54,10 +55,10 @@ def _is_target_candidate(ipo: dict[str, Any], start: date, end: date) -> bool:
 
 
 def _targeted_dart_enrichment(*, username: str | None, target_date_str: str) -> dict[str, Any]:
-    """Refresh DART features only for current/next-month IPOs.
+    """Refresh DART score features only for current/next-month IPOs.
 
-    This keeps the interactive button responsive while retaining the exact
-    point-in-time filing rule used by the full scheduled enriched pipeline.
+    The schedule discovery path may use current official amendments, while this
+    score path keeps the stricter pre-subscription point-in-time rule.
     """
     dart = DartClient(username=username)
     if not dart.is_configured():
@@ -78,7 +79,6 @@ def _targeted_dart_enrichment(*, username: str | None, target_date_str: str) -> 
             corp_master = dart.get_corp_code_master()
             _base._resolve_missing_dart_corp_codes(unresolved, corp_master)
         except Exception:
-            # Discovery remains useful even if the corp master is temporarily unavailable.
             pass
 
     parser = DartSemanticParser()
@@ -183,9 +183,6 @@ def _targeted_dart_enrichment(*, username: str | None, target_date_str: str) -> 
             failed += 1
             continue
 
-    # Score computation is cheap and keeps cohort/coverage coherent after the
-    # targeted feature updates. External 160/Npay reference metrics never enter
-    # `features`, so they cannot alter the Wealth score.
     for ipo in ipos:
         if isinstance(ipo, dict):
             ipo["score"] = calculate_wealth_ipo_score(ipo, ipos)
@@ -201,30 +198,38 @@ def _targeted_dart_enrichment(*, username: str | None, target_date_str: str) -> 
     }
 
 
-def refresh_ipo_market(*, username: str | None = None, target_date_str: str | None = None) -> dict[str, Any]:
-    """Interactive refresh: base reconciliation + main discovery union + targeted DART."""
-    resolved_target = _target_date(target_date_str)
-    result = _BASE_REFRESH_MARKET(username=username, target_date_str=resolved_target)
+def _run_supplement_and_targeted(*, username: str | None, target_date_str: str) -> tuple[dict[str, Any], dict[str, Any]]:
     supplement: dict[str, Any] = {}
     targeted: dict[str, Any] = {}
     try:
         with _base._refresh_file_lock():
             supplement = discover_and_merge_primary_sources(
                 username=username,
-                target_date_str=resolved_target,
+                target_date_str=target_date_str,
             )
             targeted = _targeted_dart_enrichment(
                 username=username,
-                target_date_str=resolved_target,
+                target_date_str=target_date_str,
             )
     except _base.IpoRefreshAlreadyRunning:
         supplement = {"statuses": {"supplemental": "busy"}}
         targeted = {"status": "busy"}
+    return supplement, targeted
+
+
+def refresh_ipo_market(*, username: str | None = None, target_date_str: str | None = None) -> dict[str, Any]:
+    """Interactive refresh: retained KIS cross-check, then main sources, then targeted DART."""
+    resolved_target = _target_date(target_date_str)
+    result = _BASE_REFRESH_MARKET(username=username, target_date_str=resolved_target)
+    supplement, targeted = _run_supplement_and_targeted(
+        username=username,
+        target_date_str=resolved_target,
+    )
 
     output = dict(result or {})
     output.setdefault("sources", {}).update(supplement.get("statuses") or {})
     output["targeted_dart"] = targeted
-    output["discovery_priority"] = "DART/KIND + Npay > Metalogos160 > KIS fallback"
+    output["discovery_priority"] = _DISCOVERY_PRIORITY
     output["total_ipos"] = supplement.get("total_ipos", output.get("total_ipos"))
     return output
 
@@ -232,21 +237,23 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
 def refresh_ipo_market_enriched(
     *, username: str | None = None, target_date_str: str | None = None
 ) -> dict[str, Any]:
-    """Scheduled full enrichment after main-source discovery has populated the universe."""
-    resolved_target = _target_date(target_date_str)
-    supplement: dict[str, Any] = {}
-    try:
-        with _base._refresh_file_lock():
-            supplement = discover_and_merge_primary_sources(
-                username=username,
-                target_date_str=resolved_target,
-            )
-    except _base.IpoRefreshAlreadyRunning:
-        supplement = {"statuses": {"supplemental": "busy"}}
+    """Scheduled full refresh with main-source discovery as the final schedule authority.
 
+    The proven base pipeline runs first (including KIS and full DART scoring).
+    DART/KIND + NAVER/Npay + 160 are then reconciled over that snapshot so a
+    successful-but-partial KIS response cannot overwrite the preferred schedule
+    sources. Targeted DART runs once more for newly discovered current/future IPOs.
+    """
+    resolved_target = _target_date(target_date_str)
     result = _BASE_REFRESH_ENRICHED(username=username, target_date_str=resolved_target)
+    supplement, targeted = _run_supplement_and_targeted(
+        username=username,
+        target_date_str=resolved_target,
+    )
+
     output = dict(result or {})
     output.setdefault("sources", {}).update(supplement.get("statuses") or {})
-    output["discovery_priority"] = "DART/KIND + Npay > Metalogos160 > KIS fallback"
+    output["targeted_dart"] = targeted
+    output["discovery_priority"] = _DISCOVERY_PRIORITY
     output["total_ipos"] = supplement.get("total_ipos", output.get("total_ipos"))
     return output
