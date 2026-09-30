@@ -59,13 +59,11 @@ def parse_dart_date_range(value: object) -> tuple[str | None, str | None]:
     first_text = parts[0]
     start, start_parts = _first_full_date(first_text)
     if not start or not start_parts:
-        # Some structured responses use one full date even without range syntax.
         start, start_parts = _first_full_date(text)
     if not start or not start_parts:
         return None, None
 
     if len(parts) == 1:
-        # If two explicit full dates exist, use the second as the range end.
         explicit: list[str] = []
         for regex in (_COMPACT_DATE_RE, _FULL_DATE_RE):
             for match in regex.finditer(text):
@@ -102,8 +100,7 @@ def _rows_for_receipt(rows: object, rcept_no: str) -> list[dict[str, Any]]:
     values = [row for row in (rows or []) if isinstance(row, dict)]
     if not rcept_no:
         return values
-    matched = [row for row in values if str(row.get("rcept_no") or "").strip() == rcept_no]
-    return matched or values
+    return [row for row in values if str(row.get("rcept_no") or "").strip() == rcept_no]
 
 
 def _number(value: object) -> float | None:
@@ -125,7 +122,7 @@ def build_dart_offering_schedule(
 
     This is the API-backed equivalent of consuming DART's public offering board:
     ``list.json`` selects the C001 filing/amendment and ``estkRs`` supplies the
-    structured subscription/payment/underwriter fields from that filing.
+    structured subscription/payment/underwriter fields from that exact receipt.
     """
     structured = normalize_equity_registration_response(raw_structured)
     rcept_no = str(filing.get("rcept_no") or "").strip()
@@ -133,8 +130,6 @@ def build_dart_offering_schedule(
     if not general_rows:
         return None
 
-    # Prefer the last matching row because OpenDART may repeat general rows in
-    # grouped output; all are from the same selected receipt when matched.
     general = general_rows[-1]
     subscription_start, subscription_end = parse_dart_date_range(general.get("sbd"))
     payment_date = parse_dart_single_date(general.get("pymd"))
