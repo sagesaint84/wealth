@@ -10,6 +10,7 @@ from app.services.ipo.identity import normalize_company_name
 from app.services.ipo.kind_client import KindClient
 from app.services.ipo.metalogos_client import MetalogosIpoClient
 from app.services.ipo.naver_client import NaverIpoClient
+from app.services.ipo.naver_discovery import NaverIpoDiscoveryClient
 from app.services.ipo.npay_client import NpayIpoClient
 from app.services.ipo.store import merge_ipo_record, read_market_store, write_market_store
 from app.services.network_policy import ExternalNetworkDisabled
@@ -266,8 +267,6 @@ def _apply_dart_schedules(
             if not item or not _relevant_schedule(item, start, end):
                 ignored += 1
                 continue
-            # DART schedule is official and is applied after all supplemental
-            # sources, so corrected/confirmed filing values become canonical.
             _apply_observation(market, item, source_name="dart")
             matched += 1
         except Exception:
@@ -280,7 +279,7 @@ def discover_and_merge_primary_sources(
     username: str | None,
     target_date_str: str,
     kind_client: KindClient | None = None,
-    naver_client: NaverIpoClient | None = None,
+    naver_client: Any | None = None,
     npay_client: NpayIpoClient | None = None,
     metalogos_client: MetalogosIpoClient | None = None,
     dart_client: DartClient | None = None,
@@ -324,7 +323,6 @@ def discover_and_merge_primary_sources(
     except Exception as exc:
         statuses["kind_discovery"] = f"source_error ({type(exc).__name__})"
 
-    # Npay provides broad upcoming discovery even when a KIS schedule is partial.
     npay = npay_client or NpayIpoClient()
     try:
         items = [item for item in npay.fetch_upcoming_ipos(target_date_str=target_date_str) if _relevant_schedule(item, start, end)]
@@ -339,11 +337,15 @@ def discover_and_merge_primary_sources(
     except Exception as exc:
         statuses["npay"] = f"source_error ({type(exc).__name__})"
 
-    # Naver progress can enrich newly discovered Npay/KIND records even before
-    # a listing date is announced. Rows with a date may independently discover.
-    naver = naver_client or NaverIpoClient()
+    # The dedicated discovery parser retains Naver identities even before an
+    # expected listing date exists. Test doubles/legacy callers may expose the
+    # older expected-listing method, which remains a supported fallback here.
+    naver = naver_client or NaverIpoDiscoveryClient()
     try:
-        raw_items = naver.fetch_ipo_progress_items()
+        if hasattr(naver, "fetch_ipo_discovery_items"):
+            raw_items = naver.fetch_ipo_discovery_items()
+        else:
+            raw_items = naver.fetch_ipo_progress_items()
         items = [
             copy.deepcopy(item) for item in raw_items
             if _relevant_schedule(item, start, end) or _known_observation(item, market.get("ipos", []))
