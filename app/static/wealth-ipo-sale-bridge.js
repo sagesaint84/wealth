@@ -180,6 +180,8 @@
       const form = dialog.querySelector('#ipoManualSaleForm');
       form.reset();
       form.elements.date.value = today;
+      form.elements.date.min = listingDate || '';
+      form.elements.date.max = today;
       form.elements.quantity.value = String(remaining);
       form.elements.quantity.max = String(remaining);
       setDialogStatus(`${context.companyName || context.stockCode} · ${context.owner} · 잔여 ${remaining}주`);
@@ -235,8 +237,18 @@
     const date = text(form.elements.date.value);
     const quantity = number(form.elements.quantity.value);
     const pnlKrw = Number(form.elements.pnl_krw.value);
+    const listingDate = text(context.market?.actual_listing_date || context.market?.expected_listing_date);
+    const today = kstToday();
     if (!date || !Number.isInteger(quantity) || quantity <= 0 || quantity > context.remainingQuantity) {
       setDialogStatus(`매도수량은 1~${context.remainingQuantity}주 사이의 정수여야 합니다.`, true);
+      return;
+    }
+    if (listingDate && date < listingDate) {
+      setDialogStatus(`매도일은 상장일(${listingDate}) 이후여야 합니다.`, true);
+      return;
+    }
+    if (date > today) {
+      setDialogStatus('미래 날짜의 실제 매도 기록은 추가할 수 없습니다.', true);
       return;
     }
     if (!Number.isFinite(pnlKrw)) {
