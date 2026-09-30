@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from app.services.ipo.dart_parser import (
     DartSemanticParser as _BaseDartSemanticParser,
+    clean_text,
     extract_tables,
     parse_number,
     parse_table_to_matrix,
 )
+
+
+_TABLE_RE = re.compile(r"<table\b[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
+_NUMBER_TOKEN = r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)"
 
 
 def _normalize_label(value: str) -> str:
@@ -24,6 +29,40 @@ def _largest_non_percent_number(cells: list[str]) -> float | None:
         if num is not None and num >= 0:
             numbers.append(num)
     return max(numbers) if numbers else None
+
+
+def _number_before_unit(value: str, unit_pattern: str) -> float | None:
+    match = re.search(_NUMBER_TOKEN + rf"\s*{unit_pattern}", value or "", re.IGNORECASE)
+    if not match:
+        return None
+    return parse_number(match.group(1))
+
+
+def _ranked_tables(text: str) -> Iterator[tuple[str, int, int]]:
+    """Yield tables with an amendment rank.
+
+    DART correction filings often place the current disclosure before a later
+    ``정정 전`` block.  A raw "first/last number wins" rule therefore promotes
+    stale values.  Prefer ``정정 후`` (2), then neutral/current text (1), and
+    reject ``정정 전`` (0) when a better candidate exists.
+    """
+
+    amendment_rank = 1
+    cursor = 0
+    for index, match in enumerate(_TABLE_RE.finditer(text)):
+        between = clean_text(text[cursor : match.start()])
+        before_pos = between.rfind("정정 전")
+        after_pos = between.rfind("정정 후")
+        if before_pos >= 0 or after_pos >= 0:
+            amendment_rank = 2 if after_pos > before_pos else 0
+        yield match.group(0), amendment_rank, index
+        cursor = match.end()
+
+
+def _best_value(candidates: list[tuple[int, int, float]]) -> float | None:
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
 
 
 class AccurateDartSemanticParser(_BaseDartSemanticParser):
@@ -164,13 +203,29 @@ class AccurateDartSemanticParser(_BaseDartSemanticParser):
         return None
 
     def extract_high_bid_ratio(self, text: str) -> float | None:
-        """Extract at-or-above-band-high shares / specified-price shares."""
-        for table in extract_tables(text):
-            if ("신청가격" not in table and "가격대별" not in table) or (
-                "밴드" not in table and "이상" not in table and "상단" not in table
-            ):
-                continue
+        """Extract at-or-above-band-high shares / specified-price shares.
+
+        Real DART filings often put the ``수요예측 신청가격 분포`` heading in
+        a paragraph *before* the table, so table qualification is based on the
+        semantic row labels rather than requiring that heading inside <table>.
+        """
+
+        candidates: list[tuple[int, int, float]] = []
+        for table, rank, index in _ranked_tables(text):
             matrix = parse_table_to_matrix(table)
+            if not matrix:
+                continue
+
+            labels = [_normalize_label(row[0]) for row in matrix if row]
+            has_unspecified = any(
+                any(term in label for term in ("가격미제시", "가격불문", "미제시"))
+                for label in labels
+            )
+            has_band_high = any("상단" in label for label in labels)
+            has_total = any(label in {"합계", "총계"} for label in labels)
+            if not (has_unspecified and has_band_high and has_total):
+                continue
+
             high_bid_shares = 0.0
             unspecified_shares = 0.0
             total_shares = 0.0
@@ -178,69 +233,148 @@ class AccurateDartSemanticParser(_BaseDartSemanticParser):
             for row in matrix:
                 if not row:
                     continue
-                normalized = _normalize_label(" ".join(row))
+                label = _normalize_label(row[0])
                 quantity = _largest_non_percent_number(row[1:])
                 if quantity is None:
                     continue
 
-                if any(term in normalized for term in ("가격미제시", "가격불문", "미제시")):
+                if any(term in label for term in ("가격미제시", "가격불문", "미제시")):
                     unspecified_shares += quantity
-                elif (
-                    "상단초과" in normalized
-                    or "상단이상" in normalized
-                    or "밴드상단" in normalized
-                    or "(상단)" in normalized
-                ):
+                elif "상단" in label and "하단" not in label:
                     high_bid_shares += quantity
-                elif _normalize_label(row[0]) in {"합계", "총계"}:
+                elif label in {"합계", "총계"}:
                     total_shares = max(total_shares, quantity)
 
             specified_shares = max(0.0, total_shares - unspecified_shares)
-            if total_shares > 0 and (specified_shares / total_shares) < 0.50:
-                return None
-            if specified_shares > 0 and high_bid_shares > 0:
-                ratio = (high_bid_shares / specified_shares) * 100.0
-                return round(min(100.0, max(0.0, ratio)), 2)
-        return None
+            if total_shares <= 0 or specified_shares <= 0 or high_bid_shares <= 0:
+                continue
+            if (specified_shares / total_shares) < 0.50:
+                continue
+
+            ratio = (high_bid_shares / specified_shares) * 100.0
+            candidates.append(
+                (rank, index, round(min(100.0, max(0.0, ratio)), 2))
+            )
+
+        return _best_value(candidates)
 
     def extract_tradable_share_ratio(self, text: str) -> float | None:
-        """Extract the latest explicit immediately-tradable share ratio."""
-        candidates: list[float] = []
-        for table in extract_tables(text):
-            if ("유통가능" in table or "상장 직후" in table or "유통 가능" in table) and (
-                "비율" in table or "%" in table or "주식수" in table
-            ):
-                matrix = parse_table_to_matrix(table)
-                for row in matrix:
-                    row_text = " ".join(row)
-                    if any(
-                        term in row_text
-                        for term in ("유통가능", "상장직후 유통가능", "유통 가능")
-                    ):
-                        for cell in reversed(row):
-                            value = parse_number(cell)
-                            if value is not None and 0.0 < value <= 100.0:
-                                candidates.append(round(value, 2))
-                                break
-        if candidates:
-            return candidates[-1]
+        """Extract the current immediately-tradable ratio from explicit prose."""
 
-        regex_candidates = [
-            parse_number(match.group(1))
-            for match in re.finditer(
-                r"유통\s*가능[^\n\r%]{0,100}?(\d+(?:\.\d+)?)\s*%",
-                text,
-            )
-        ]
-        regex_candidates = [
-            value
-            for value in regex_candidates
-            if value is not None and 0.0 < value <= 100.0
-        ]
-        return round(regex_candidates[-1], 2) if regex_candidates else None
+        candidates: list[tuple[int, int, float]] = []
+        patterns = (
+            re.compile(
+                r"상장(?:예정)?주식수[^%]{0,180}?중\s*"
+                r"(\d+(?:\.\d+)?)\s*%[^.]{0,220}?"
+                r"상장\s*직후\s*유통\s*가능"
+            ),
+            re.compile(
+                r"상장\s*직후\s*유통\s*가능[^%]{0,180}?"
+                r"(\d+(?:\.\d+)?)\s*%"
+            ),
+            re.compile(
+                r"(\d+(?:\.\d+)?)\s*%[^.]{0,140}?"
+                r"상장\s*직후\s*유통\s*가능"
+            ),
+        )
+
+        for table, rank, index in _ranked_tables(text):
+            table_text = clean_text(table)
+            if "유통" not in table_text or "상장" not in table_text:
+                continue
+            for pattern in patterns:
+                match = pattern.search(table_text)
+                if not match:
+                    continue
+                value = parse_number(match.group(1))
+                if value is not None and 0.0 < value <= 100.0:
+                    candidates.append((rank, index, round(value, 2)))
+                    break
+
+        if candidates:
+            return _best_value(candidates)
+
+        clean_doc = clean_text(text)
+        for pattern in patterns:
+            values = [
+                parse_number(match.group(1))
+                for match in pattern.finditer(clean_doc)
+            ]
+            values = [
+                value for value in values if value is not None and 0.0 < value <= 100.0
+            ]
+            if values:
+                return round(values[0], 2)
+        return None
+
+    @staticmethod
+    def _table_valuation_fields(matrix: list[list[str]]) -> dict[str, Any]:
+        fields: dict[str, Any] = {
+            "method": None,
+            "peer_multiple": None,
+            "issuer_multiple": None,
+            "evaluation_price": None,
+            "offer_price": None,
+        }
+
+        for row in matrix:
+            if not row:
+                continue
+            row_text = " ".join(row)
+            normalized = _normalize_label(row_text)
+
+            if "평가모형" in normalized:
+                if "PER" in row_text:
+                    fields["method"] = "PER"
+                elif "EV/EBITDA" in row_text or "EV_EBITDA" in row_text:
+                    fields["method"] = "EV_EBITDA"
+                elif "PSR" in row_text:
+                    fields["method"] = "PSR"
+
+            if (
+                ("비교대상회사" in normalized and "PER" in row_text)
+                or "비교기업평균PER" in normalized
+                or "유사회사평균PER" in normalized
+                or "적용PER" in normalized
+            ):
+                for cell in row[1:]:
+                    value = _number_before_unit(cell, r"배")
+                    if value is not None and value > 0:
+                        fields["peer_multiple"] = round(value, 2)
+                        break
+
+            if any(
+                label in normalized
+                for label in ("당사PER", "공모가기준PER", "평가PER")
+            ):
+                for cell in row[1:]:
+                    value = _number_before_unit(cell, r"배")
+                    if value is not None and value > 0:
+                        fields["issuer_multiple"] = round(value, 2)
+                        break
+
+            if "주당평가가액" in normalized:
+                for cell in row[1:]:
+                    value = _number_before_unit(cell, r"원")
+                    if value is not None and value > 0:
+                        fields["evaluation_price"] = value
+                        break
+
+            if any(
+                label in normalized
+                for label in ("주당확정공모가액", "확정주당공모가액", "공모가산정결과")
+            ):
+                for cell in row[1:]:
+                    value = _number_before_unit(cell, r"원")
+                    if value is not None and value > 0:
+                        fields["offer_price"] = value
+                        break
+
+        return fields
 
     def extract_relative_valuation(self, text: str) -> dict[str, Any]:
-        """Extract issuer/peer valuation ratio from direct multiples or price discount."""
+        """Extract valuation from semantic table rows, avoiding raw HTML digits."""
+
         result: dict[str, Any] = {
             "valuation_method": None,
             "issuer_multiple": None,
@@ -249,71 +383,56 @@ class AccurateDartSemanticParser(_BaseDartSemanticParser):
             "peer_count": None,
         }
 
-        if "PER" in text or "주가수익비율" in text:
-            result["valuation_method"] = "PER"
-        elif "EV/EBITDA" in text or "EV_EBITDA" in text:
-            result["valuation_method"] = "EV_EBITDA"
-        elif "PSR" in text or "주가매출비율" in text:
-            result["valuation_method"] = "PSR"
-        else:
-            return result
+        summaries: list[tuple[int, int, dict[str, Any]]] = []
+        explicit_offer_prices: list[tuple[int, int, float]] = []
 
-        peer_patterns = (
-            r"유사(?:회사|회)?의?\s*평균\s*PER",
-            r"비교기업\s*평균\s*PER",
-            r"비교대상회사\s*PER",
-            r"적용\s*PER",
-            r"적용\s*EV/EBITDA",
-        )
-        for pattern in peer_patterns:
-            match = re.search(
-                pattern + r"[^\d\n\r]{0,30}(\d+(?:\.\d+)?)\s*배?",
-                text,
-            )
-            if match:
-                value = parse_number(match.group(1))
-                if value is not None and value > 0:
-                    result["peer_median_multiple"] = round(value, 2)
-                    break
+        for table, rank, index in _ranked_tables(text):
+            matrix = parse_table_to_matrix(table)
+            if not matrix:
+                continue
+            fields = self._table_valuation_fields(matrix)
+            table_text = _normalize_label(" ".join(" ".join(row) for row in matrix))
 
-        issuer_patterns = (
-            r"당사(?:의)?\s*공모가\s*기준\s*PER",
-            r"공모가\s*기준\s*PER",
-            r"당사\s*PER",
-            r"평가\s*PER",
-        )
-        for pattern in issuer_patterns:
-            match = re.search(
-                pattern + r"[^\d\n\r]{0,30}(\d+(?:\.\d+)?)\s*배?",
-                text,
-            )
-            if match:
-                value = parse_number(match.group(1))
-                if value is not None and value > 0:
-                    result["issuer_multiple"] = round(value, 2)
-                    break
+            if (
+                fields["evaluation_price"] is not None
+                and (
+                    fields["peer_multiple"] is not None
+                    or "평가모형" in table_text
+                    or "상대가치" in table_text
+                )
+            ):
+                summaries.append((rank, index, fields))
 
-        if result["issuer_multiple"] and result["peer_median_multiple"]:
-            result["valuation_ratio"] = round(
-                result["issuer_multiple"] / result["peer_median_multiple"],
-                4,
-            )
-            return result
+            if fields["offer_price"] is not None and any(
+                label in table_text
+                for label in ("주당확정공모가액", "확정주당공모가액")
+            ):
+                explicit_offer_prices.append((rank, index, fields["offer_price"]))
 
-        eval_match = re.search(
-            r"주당\s*평가가액[^\d\n\r]{0,30}"
-            r"(\d{1,3}(?:,\d{3})+|\d+)\s*원",
-            text,
-        )
-        final_match = re.search(
-            r"(?:주당\s*확정공모가액|확정\s*주당\s*공모가액)"
-            r"[^\d\n\r]{0,30}(\d{1,3}(?:,\d{3})+|\d+)\s*원",
-            text,
-        )
-        eval_price = parse_number(eval_match.group(1)) if eval_match else None
-        final_price = parse_number(final_match.group(1)) if final_match else None
-        if eval_price and eval_price > 0 and final_price and final_price > 0:
-            ratio = final_price / eval_price
+        if not summaries:
+            return super().extract_relative_valuation(text)
+
+        _, _, fields = max(summaries, key=lambda item: (item[0], item[1]))
+        method = fields.get("method")
+        if method is None:
+            method = "PER" if fields.get("peer_multiple") is not None else None
+
+        result["valuation_method"] = method
+        result["peer_median_multiple"] = fields.get("peer_multiple")
+        result["issuer_multiple"] = fields.get("issuer_multiple")
+
+        offer_price = _best_value(explicit_offer_prices)
+        if offer_price is None:
+            offer_price = fields.get("offer_price")
+        evaluation_price = fields.get("evaluation_price")
+
+        if (
+            offer_price is not None
+            and evaluation_price is not None
+            and offer_price > 0
+            and evaluation_price > 0
+        ):
+            ratio = offer_price / evaluation_price
             if 0 < ratio < 10:
                 result["valuation_ratio"] = round(ratio, 4)
                 if result["peer_median_multiple"]:
@@ -321,4 +440,11 @@ class AccurateDartSemanticParser(_BaseDartSemanticParser):
                         result["peer_median_multiple"] * ratio,
                         2,
                     )
+                return result
+
+        if result["issuer_multiple"] and result["peer_median_multiple"]:
+            result["valuation_ratio"] = round(
+                result["issuer_multiple"] / result["peer_median_multiple"],
+                4,
+            )
         return result
