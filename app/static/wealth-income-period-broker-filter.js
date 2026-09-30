@@ -224,6 +224,7 @@
       const rawData = await api(`/api/actual-dividends?owner=${encodeURIComponent(activeOwner)}&year=all`);
       if (requestSequence !== dividendRequestSequence) return;
       latestRawDividendData = rawData;
+      ensureDividendBrokerFilter(rawData);
       const view = buildDividendFilteredData(rawData, activeYear, selectedDividendBroker);
       if (typeof actualDividendData !== 'undefined') actualDividendData = view;
       if (typeof currentDividendMode !== 'undefined' && currentDividendMode === 'actual' && typeof renderActualDividends === 'function') {
@@ -231,7 +232,6 @@
       }
       if (typeof updateDividendYearOptions === 'function') updateDividendYearOptions(view?.available_years || []);
       if (typeof selectedDividendMonth !== 'undefined' && selectedDividendMonth === null) syncDividendAnnualLabel();
-      ensureDividendBrokerFilter(rawData);
       return view;
     } catch (err) {
       console.error('실제 배당·이자 정보를 불러오지 못했습니다.', err);
