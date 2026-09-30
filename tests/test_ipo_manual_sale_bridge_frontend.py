@@ -39,6 +39,10 @@ class IpoManualSaleBridgeFrontendTests(unittest.TestCase):
         self.assertIn("remaining_quantity", self.source)
         self.assertIn("today < listingDate", self.source)
         self.assertIn("quantity > context.remainingQuantity", self.source)
+        self.assertIn("form.elements.date.min = listingDate || ''", self.source)
+        self.assertIn("form.elements.date.max = today", self.source)
+        self.assertIn("listingDate && date < listingDate", self.source)
+        self.assertIn("date > today", self.source)
 
     def test_saved_record_is_refetched_through_canonical_sale_candidate_endpoint(self) -> None:
         self.assertIn("allocation/sale-candidates", self.source)
