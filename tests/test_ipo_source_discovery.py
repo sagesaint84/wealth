@@ -15,6 +15,51 @@ class _DartOff:
         return False
 
 
+class _DartOn:
+    def is_configured(self):
+        return True
+
+    def _request_json(self, endpoint, params):
+        self.endpoint = endpoint
+        self.params = params
+        return {
+            "total_page": 1,
+            "list": [{
+                "corp_code": "01000001",
+                "corp_name": "진코스텍",
+                "stock_code": "123456",
+                "rcept_no": "20260930000123",
+                "rcept_dt": "20260930",
+                "report_nm": "[발행조건확정]증권신고서(지분증권)",
+            }],
+        }
+
+    def get_equity_registration_statements(self, **_kwargs):
+        return {
+            "group": [
+                {
+                    "title": "일반사항",
+                    "list": [{
+                        "rcept_no": "20260930000123",
+                        "corp_code": "01000001",
+                        "corp_name": "진코스텍",
+                        "corp_cls": "K",
+                        "sbd": "2026.10.03 ~ 10.07",
+                        "pymd": "2026.10.08",
+                    }],
+                },
+                {
+                    "title": "인수인에 관한 사항",
+                    "list": [{"rcept_no": "20260930000123", "actnmn": "공식증권"}],
+                },
+                {
+                    "title": "증권의 종류",
+                    "list": [{"rcept_no": "20260930000123", "slprc": "24,000"}],
+                },
+            ]
+        }
+
+
 class _Kind:
     def fetch_pubofr_schedule_items(self, **_kwargs):
         return [{
@@ -104,6 +149,29 @@ class IpoSourceDiscoveryTests(unittest.TestCase):
         self.assertIn("metalogos160", ipo["sources"])
         self.assertEqual(result["total_ipos"], 1)
         self.assertIn("sync_ok", result["statuses"]["kind_discovery"])
+
+    def test_official_dart_schedule_overlays_supplemental_values_last(self):
+        result = discover_and_merge_primary_sources(
+            username="user",
+            target_date_str="2026-10-01",
+            kind_client=_Kind(),
+            naver_client=_Naver(),
+            npay_client=_Npay(),
+            metalogos_client=_Metalogos(),
+            dart_client=_DartOn(),
+        )
+        ipo = read_market_store()["ipos"][0]
+        self.assertEqual(ipo["corp_code"], "01000001")
+        self.assertEqual(ipo["subscription_start"], "2026-10-03")
+        self.assertEqual(ipo["subscription_end"], "2026-10-07")
+        self.assertEqual(ipo["payment_date"], "2026-10-08")
+        self.assertEqual(ipo["final_offer_price"], 24000.0)
+        self.assertEqual(ipo["lead_managers"], ["공식증권"])
+        self.assertEqual(
+            ipo["sources"]["dart_schedule"]["board_reference"],
+            "https://dart.fss.or.kr/dsac005/main.do",
+        )
+        self.assertIn("matched=1", result["statuses"]["dart_schedule"])
 
 
 if __name__ == "__main__":
