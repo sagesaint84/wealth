@@ -4,12 +4,14 @@ from datetime import datetime
 import json
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from app.services.network_policy import require_external_network
 from app.services.ipo.naver_client import (
     NAVER_IPO_PROGRESS_PATH,
+    NAVER_OFFICIAL_HOSTS,
     NAVER_STOCK_BASE_URL,
     NaverIpoClientError,
     normalize_naver_ipo_code,
@@ -98,7 +100,12 @@ def parse_naver_ipo_discovery_json(raw_json_str: str | dict[str, Any]) -> list[d
 
 class NaverIpoDiscoveryClient:
     def __init__(self, base_url: str = NAVER_STOCK_BASE_URL, timeout_seconds: float = 15.0) -> None:
-        self.base_url = base_url.rstrip("/")
+        parsed = urlparse(base_url)
+        if parsed.scheme.lower() != "https":
+            raise NaverIpoClientError("NAVER discovery client requires https")
+        if (parsed.hostname or "").lower() not in NAVER_OFFICIAL_HOSTS:
+            raise NaverIpoClientError("NAVER discovery host is not official")
+        self.base_url = f"https://{parsed.netloc}".rstrip("/")
         self.timeout_seconds = timeout_seconds
 
     def fetch_ipo_discovery_items(self, *, page_size: int = 100) -> list[dict[str, Any]]:
