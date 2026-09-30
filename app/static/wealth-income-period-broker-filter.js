@@ -7,6 +7,15 @@
 
   const text = (value) => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim();
 
+  function syncDividendAnnualLabel() {
+    const label = document.getElementById('dividendCurrentMonthText');
+    const picker = document.getElementById('dividendMonthPicker');
+    if (label && typeof selectedDividendYear !== 'undefined') {
+      label.textContent = selectedDividendYear === 'all' ? '전체 기간' : `${selectedDividendYear}년 전체`;
+    }
+    if (picker) picker.value = '';
+  }
+
   function clearDividendMonthForYearSelection() {
     if (typeof selectedDividendMonth === 'undefined' || selectedDividendMonth === null) return;
     selectedDividendMonth = null;
@@ -16,11 +25,13 @@
       if (typeof actualDividendData !== 'undefined' && actualDividendData && typeof renderActualDividends === 'function') {
         renderActualDividends(actualDividendData);
       }
+      syncDividendAnnualLabel();
       return;
     }
     if (typeof dividendData !== 'undefined' && dividendData && typeof renderDividends === 'function') {
       renderDividends(dividendData);
     }
+    syncDividendAnnualLabel();
   }
 
   function finitePnlKrw(record) {
@@ -165,6 +176,15 @@
     };
   }
 
+  function escapeOption(value) {
+    return text(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
   function ensureBrokerFilter(rawData = latestRawPnlData) {
     const yearSelect = document.getElementById('pnlYearSelect');
     if (!yearSelect?.parentElement) return null;
@@ -198,15 +218,6 @@
     if (select.innerHTML !== html) select.innerHTML = html;
     select.value = selectedBroker;
     return select;
-  }
-
-  function escapeOption(value) {
-    return text(value)
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
   }
 
   const originalRenderRealizedPnl = typeof renderRealizedPnl === 'function' ? renderRealizedPnl : null;
@@ -269,5 +280,6 @@
     buildBrokerFilteredData,
     brokerChoices,
     clearDividendMonthForYearSelection,
+    syncDividendAnnualLabel,
   };
 })();
