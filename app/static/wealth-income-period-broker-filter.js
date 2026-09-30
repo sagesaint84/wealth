@@ -1,6 +1,12 @@
 (() => {
   'use strict';
 
+  const period = window.WealthPeriodFilter;
+  if (!period) {
+    console.error('WealthPeriodFilter core is required before income period filters.');
+    return;
+  }
+
   let selectedBroker = 'all';
   let latestRawPnlData = null;
   let applyingBrokerView = false;
@@ -9,13 +15,13 @@
   let latestRawDividendData = null;
   let dividendRequestSequence = 0;
 
-  const text = (value) => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim();
+  const text = period.text;
 
   function syncDividendAnnualLabel() {
     const label = document.getElementById('dividendCurrentMonthText');
     const picker = document.getElementById('dividendMonthPicker');
     if (label && typeof selectedDividendYear !== 'undefined') {
-      label.textContent = selectedDividendYear === 'all' ? '전체 기간' : `${selectedDividendYear}년 전체`;
+      label.textContent = period.scopeLabel(selectedDividendYear, null);
     }
     if (picker) picker.value = '';
   }
@@ -82,17 +88,13 @@
   }
 
   function dividendAvailableYears(rawData) {
-    const years = [...new Set(allDividendIncomeRecords(rawData)
-      .map((record) => text(record?.date).slice(0, 4))
-      .filter((year) => /^\d{4}$/.test(year)))];
-    if (!years.length && typeof selectedDividendYear !== 'undefined' && /^\d{4}$/.test(String(selectedDividendYear))) {
-      years.push(String(selectedDividendYear));
-    }
-    return years.sort((a, b) => b.localeCompare(a));
+    const fallbackYear = typeof selectedDividendYear !== 'undefined' ? selectedDividendYear : null;
+    return period.availableYears(allDividendIncomeRecords(rawData), { fallbackYear });
   }
 
-  function dividendBrokerChoices(rawData) {
-    return brokerChoicesFromRecords(allDividendIncomeRecords(rawData));
+  function dividendBrokerChoices(rawData, year = (typeof selectedDividendYear !== 'undefined' ? selectedDividendYear : 'all')) {
+    const scoped = period.filterRecords(allDividendIncomeRecords(rawData), { year, month: null });
+    return brokerChoicesFromRecords(scoped);
   }
 
   function dividendAmountKrw(record) {
@@ -101,15 +103,12 @@
   }
 
   function dividendRecordMatches(record, year, broker) {
-    const date = text(record?.date);
-    const yearMatches = !year || year === 'all' || date.slice(0, 4) === String(year);
-    const brokerMatchesScope = broker === 'all' || brokerMatches(record, broker);
-    return yearMatches && brokerMatchesScope;
+    return period.matchesPeriod(record, { year, month: null })
+      && (broker === 'all' || brokerMatches(record, broker));
   }
 
   function buildDividendMonthBucket(records, month) {
-    const items = (Array.isArray(records) ? records : [])
-      .filter((record) => Number(text(record?.date).slice(5, 7)) === Number(month))
+    const items = period.filterRecords(records, { year: 'all', month })
       .sort((a, b) => text(b?.date).localeCompare(text(a?.date)));
     return {
       month,
@@ -119,8 +118,7 @@
   }
 
   function buildDividendYearBucket(records, year) {
-    const items = (Array.isArray(records) ? records : [])
-      .filter((record) => text(record?.date).slice(0, 4) === String(year))
+    const items = period.filterRecords(records, { year, month: null })
       .sort((a, b) => text(b?.date).localeCompare(text(a?.date)));
     return {
       year: String(year),
@@ -131,7 +129,7 @@
 
   function buildDividendFilteredData(rawData, year, broker = selectedDividendBroker) {
     if (!rawData) return rawData;
-    const selectedYear = year || 'all';
+    const selectedYear = period.normalizeYear(year, 'all');
     const availableYears = dividendAvailableYears(rawData);
     const allDividends = Array.isArray(rawData.records) ? rawData.records : [];
     const allInterest = Array.isArray(rawData.interest_records) ? rawData.interest_records : [];
@@ -187,7 +185,8 @@
       });
     }
 
-    const { rows, unassigned } = dividendBrokerChoices(rawData);
+    const activeYear = typeof selectedDividendYear !== 'undefined' ? selectedDividendYear : 'all';
+    const { rows, unassigned } = dividendBrokerChoices(rawData, activeYear);
     const values = new Set(['all', ...rows.map(([broker]) => broker)]);
     if (unassigned) values.add('__unassigned__');
     if (!values.has(selectedDividendBroker)) selectedDividendBroker = 'all';
@@ -214,6 +213,7 @@
     }
     if (typeof updateDividendYearOptions === 'function') updateDividendYearOptions(view?.available_years || []);
     if (typeof selectedDividendMonth !== 'undefined' && selectedDividendMonth === null) syncDividendAnnualLabel();
+    ensureDividendBrokerFilter(latestRawDividendData);
   }
 
   async function loadActualDividendScope(owner, year) {
@@ -224,7 +224,6 @@
       const rawData = await api(`/api/actual-dividends?owner=${encodeURIComponent(activeOwner)}&year=all`);
       if (requestSequence !== dividendRequestSequence) return;
       latestRawDividendData = rawData;
-      ensureDividendBrokerFilter(rawData);
       const view = buildDividendFilteredData(rawData, activeYear, selectedDividendBroker);
       if (typeof actualDividendData !== 'undefined') actualDividendData = view;
       if (typeof currentDividendMode !== 'undefined' && currentDividendMode === 'actual' && typeof renderActualDividends === 'function') {
@@ -232,6 +231,7 @@
       }
       if (typeof updateDividendYearOptions === 'function') updateDividendYearOptions(view?.available_years || []);
       if (typeof selectedDividendMonth !== 'undefined' && selectedDividendMonth === null) syncDividendAnnualLabel();
+      ensureDividendBrokerFilter(rawData);
       return view;
     } catch (err) {
       console.error('실제 배당·이자 정보를 불러오지 못했습니다.', err);
@@ -239,9 +239,7 @@
     }
   }
 
-  if (typeof loadActualDividends === 'function') {
-    window.loadActualDividends = loadActualDividendScope;
-  }
+  if (typeof loadActualDividends === 'function') window.loadActualDividends = loadActualDividendScope;
 
   function finitePnlKrw(record) {
     const raw = record?.pnl_krw;
@@ -251,9 +249,7 @@
   }
 
   function summarizeRows(records) {
-    if (typeof summarizeRealizedPnlRows === 'function') {
-      return summarizeRealizedPnlRows(records);
-    }
+    if (typeof summarizeRealizedPnlRows === 'function') return summarizeRealizedPnlRows(records);
     let totalPnlKrw = 0;
     let convertedRecordCount = 0;
     let unconvertedRecordCount = 0;
@@ -284,12 +280,10 @@
   }
 
   function buildBucket(records, key, value) {
-    const items = records
-      .filter((record) => {
-        const date = text(record?.date);
-        if (key === 'month') return Number(date.slice(5, 7)) === Number(value);
-        return date.slice(0, 4) === String(value);
-      })
+    const scope = key === 'month'
+      ? { year: 'all', month: value }
+      : { year: String(value), month: null };
+    const items = period.filterRecords(records, scope)
       .sort((a, b) => text(b?.date).localeCompare(text(a?.date)));
 
     let total = 0;
@@ -442,9 +436,7 @@
       const data = latestRawPnlData || (typeof pnlData !== 'undefined' ? pnlData : null);
       ensureBrokerFilter(data);
     }
-    if (!document.getElementById('dividendBrokerFilter')) {
-      ensureDividendBrokerFilter(latestRawDividendData);
-    }
+    if (!document.getElementById('dividendBrokerFilter')) ensureDividendBrokerFilter(latestRawDividendData);
   });
 
   function install() {
