@@ -51,7 +51,7 @@ def _parse_full_date(year: str, month: str, day: str) -> str | None:
 def _parse_subscription_range(text: str) -> tuple[str | None, str | None]:
     match = re.search(
         r"청약일\s*:?\s*(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})"
-        r"(?:\s*\([^)]*\))?\s*~+\s*"
+        r"(?:\s*\([^)]*\))?(?:\s*~\s*)+"
         r"(?:(\d{4})[.\-/])?(\d{1,2})[.\-/](\d{1,2})",
         text,
     )
@@ -87,11 +87,10 @@ def parse_metalogos_stock_html(html_text: str, *, source_url: str) -> dict[str, 
 
     name_match = re.search(r"([^|]{1,80}?)\s+공모주\s+핵심\s+요약", text)
     if not name_match:
-        # Detail pages repeat a company heading before the market/code block.
         name_match = re.search(r"([가-힣A-Za-z0-9㈜()·&.\- ]{1,60})\s+(?:코스닥|코스피|코넥스)\s+[A-Z0-9]{6}", text)
     if not name_match:
         raise MetalogosIpoClientError("160 IPO company name is missing")
-    company_name = name_match.group(1).strip().split()[-1] if "공모주 핵심 요약" in name_match.group(0) and len(name_match.group(1).split()) > 8 else name_match.group(1).strip()
+    company_name = name_match.group(1).strip()
 
     market_match = re.search(r"(코스닥|코스피|코넥스)\s+([A-Z0-9]{6})", text, flags=re.IGNORECASE)
     market_map = {"코스닥": "KOSDAQ", "코스피": "KOSPI", "코넥스": "KONEX"}
