@@ -166,8 +166,19 @@
     const bankAccounts = [...banks, ...savings];
     const institutions = new Set(bankAccounts.map((item) => text(item?.bank_name)).filter(Boolean)).size;
     const loanDebt = loans.reduce((sum, item) => sum + Math.max(0, number(item?.current_balance)), 0);
+    const representedOverdraftBanks = new Set(
+      loans
+        .filter((item) => (
+          text(item?.loan_type) === 'minus'
+          && number(item?.current_balance) > 0
+          && text(item?.overdraft_bank_account_id)
+        ))
+        .map((item) => `${text(item?.owner || '모두')}\u0000${text(item?.overdraft_bank_account_id)}`)
+    );
     const legacyMinusDebt = banks.reduce((sum, item) => {
       const balance = number(item?.balance);
+      const relationshipKey = `${text(item?.owner || '모두')}\u0000${text(item?.id)}`;
+      if (representedOverdraftBanks.has(relationshipKey)) return sum;
       return sum + (balance < 0 ? Math.abs(balance) : 0);
     }, 0);
     const currentDebt = loanDebt + legacyMinusDebt;
