@@ -161,13 +161,13 @@
     const token = ++refreshToken;
     const owner = currentOwner();
     try {
-      const [accountPayload, savingsPayload] = await Promise.all([
+      const [accountPayload, dashboardPayload] = await Promise.all([
         jsonFetch('/api/accounts?group=All&owner=모두'),
-        jsonFetch('/api/savings'),
+        jsonFetch('/api/dashboard'),
       ]);
       if (token !== refreshToken) return;
       renderSecuritiesSummary(accountPayload?.accounts || [], owner);
-      renderBankSummary(savingsPayload || {}, owner);
+      renderBankSummary(dashboardPayload || {}, owner);
     } catch (error) {
       if (token !== refreshToken) return;
       const message = `<div class="account-section-summary-error">계좌 요약을 불러오지 못했습니다. 기존 계좌 목록은 그대로 사용할 수 있습니다.</div>`;
