@@ -16,7 +16,7 @@ def current_market_date() -> date:
     try:
         market_timezone = ZoneInfo("Asia/Seoul")
     except ZoneInfoNotFoundError:
-        # Some Windows test runtimes omit the IANA database.  Korea has no DST,
+        # Some Windows test runtimes omit the IANA database. Korea has no DST,
         # so this preserves the market-date contract without using OS local time.
         market_timezone = timezone(timedelta(hours=9), name="Asia/Seoul")
     return datetime.now(market_timezone).date()
@@ -118,6 +118,53 @@ def derive_filter_group(market_state: str, user_state: str) -> str:
     return "UNKNOWN"
 
 
+def derive_presentation_months(ipo: dict[str, Any]) -> tuple[list[str], dict[str, str]]:
+    """Return every month in which the IPO has a visible schedule event.
+
+    A company may legitimately appear in more than one month: e.g. September
+    subscription and October listing. Each month is also given its earliest
+    event date for deterministic month-local sorting.
+    """
+    month_dates: dict[str, list[date]] = {}
+
+    def add_day(value: object) -> None:
+        parsed = _date(value)
+        if parsed is None:
+            return
+        month_dates.setdefault(parsed.strftime("%Y-%m"), []).append(parsed)
+
+    def add_range(start_value: object, end_value: object) -> None:
+        start = _date(start_value)
+        end = _date(end_value)
+        if start is None and end is None:
+            return
+        if start is None:
+            add_day(end_value); return
+        if end is None or end < start:
+            add_day(start_value); return
+        cursor = start.replace(day=1)
+        end_month = end.replace(day=1)
+        while cursor <= end_month:
+            # Use the real boundary event inside each month for stable sorting.
+            local_day = start if cursor.year == start.year and cursor.month == start.month else cursor
+            month_dates.setdefault(cursor.strftime("%Y-%m"), []).append(local_day)
+            if cursor.month == 12:
+                cursor = cursor.replace(year=cursor.year + 1, month=1)
+            else:
+                cursor = cursor.replace(month=cursor.month + 1)
+
+    add_range(ipo.get("demand_forecast_start"), ipo.get("demand_forecast_end"))
+    add_range(ipo.get("subscription_start"), ipo.get("subscription_end"))
+    add_day(ipo.get("payment_date"))
+    add_day(ipo.get("refund_date"))
+    # Actual listing supersedes expected listing once confirmed.
+    add_day(ipo.get("actual_listing_date") or ipo.get("expected_listing_date"))
+
+    keys = sorted(month_dates)
+    sort_dates = {key: min(values).isoformat() for key, values in month_dates.items() if values}
+    return keys, sort_dates
+
+
 def _read_portfolio_for_presentation(username: str | None) -> dict[str, Any]:
     """Read applicant state without creating a user portfolio on GET."""
     with portfolio._LOCK:
@@ -143,9 +190,12 @@ def present_market_store(username: str | None, market: dict[str, Any], today: da
         application = applications.get(str(item.get("ipo_id") or "")) if isinstance(applications, dict) else None
         market_state = derive_market_state(item, today)
         user_state, applicant_counts = derive_user_state(application, records)
+        month_keys, month_sort_dates = derive_presentation_months(item)
         item["market_state"] = market_state
         item["user_state"] = user_state
         item["filter_group"] = derive_filter_group(market_state, user_state)
         item["applicant_counts"] = applicant_counts
+        item["presentation_month_keys"] = month_keys
+        item["presentation_month_sort_dates"] = month_sort_dates
         item["presentation_sort_date"] = str(item.get("subscription_start") or item.get("expected_listing_date") or item.get("actual_listing_date") or "")
     return output
