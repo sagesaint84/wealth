@@ -126,3 +126,13 @@
     mount();
   }
 })();
+
+(() => {
+  'use strict';
+  if (document.getElementById('wealthIncomePeriodBrokerFilterScript')) return;
+  const script = document.createElement('script');
+  script.id = 'wealthIncomePeriodBrokerFilterScript';
+  script.src = '/static/wealth-income-period-broker-filter.js?v=10.6d1';
+  script.async = false;
+  document.head.appendChild(script);
+})();
