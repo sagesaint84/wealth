@@ -69,7 +69,7 @@ class IpoFutureCompactViewFrontendTests(unittest.TestCase):
 
     def test_loader_registers_compact_view_once(self) -> None:
         self.assertIn("wealthIpoCompactViewScript", self.loader_js)
-        self.assertIn("/static/wealth-ipo-compact-view.js?v=10.6g1", self.loader_js)
+        self.assertIn("/static/wealth-ipo-compact-view.js?v=10.6g2", self.loader_js)
 
 
 if __name__ == "__main__":
