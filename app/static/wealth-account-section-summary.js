@@ -136,15 +136,24 @@
     const banks = filterOwner(payload?.bank_accounts, owner);
     const savings = filterOwner(payload?.savings_accounts, owner);
     const loans = filterOwner(payload?.loan_accounts, owner);
-    const allItems = [...banks, ...savings, ...loans];
-    const institutions = new Set(allItems.map((item) => text(item?.bank_name)).filter(Boolean)).size;
-    const ownerLine = owner === '모두' ? ownerBreakdown(allItems) : '';
+
+    // A loan/overdraft agreement is a liability contract, not an additional bank account.
+    // Count actual deposit accounts once and show agreements/current debt separately.
+    const bankAccounts = [...banks, ...savings];
+    const institutions = new Set(bankAccounts.map((item) => text(item?.bank_name)).filter(Boolean)).size;
+    const loanDebt = loans.reduce((sum, item) => sum + Math.max(0, number(item?.current_balance)), 0);
+    const legacyMinusDebt = banks.reduce((sum, item) => {
+      const balance = number(item?.balance);
+      return sum + (balance < 0 ? Math.abs(balance) : 0);
+    }, 0);
+    const currentDebt = loanDebt + legacyMinusDebt;
+    const ownerLine = owner === '모두' ? ownerBreakdown(bankAccounts) : '';
     const markup = `
       <div class="account-section-summary-grid">
-        ${card('총 은행계좌', `${allItems.length.toLocaleString('ko-KR')}개`, `${institutions.toLocaleString('ko-KR')}개 금융기관`)}
+        ${card('총 은행계좌', `${bankAccounts.length.toLocaleString('ko-KR')}개`, `${institutions.toLocaleString('ko-KR')}개 금융기관`)}
         ${card('자유입출금', `${banks.length.toLocaleString('ko-KR')}개`, '일반 은행계좌')}
         ${card('예·적금', `${savings.length.toLocaleString('ko-KR')}개`, '예금 · 적금 · 청약')}
-        ${card('대출', `${loans.length.toLocaleString('ko-KR')}개`, '일반대출 · 마이너스통장')}
+        ${card('대출·한도약정', `${loans.length.toLocaleString('ko-KR')}개`, `현재 부채 ${moneyKrw(currentDebt)}`)}
       </div>
       ${ownerLine ? `<div class="account-section-owner-line"><strong>소유자별 계좌</strong>${ownerLine}</div>` : ''}
     `;
