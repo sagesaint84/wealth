@@ -6,6 +6,14 @@
     'openapiKftcSection',
   ];
 
+  function installHideRule() {
+    if (document.getElementById('wealthKftcRetirementStyle')) return;
+    const style = document.createElement('style');
+    style.id = 'wealthKftcRetirementStyle';
+    style.textContent = '#kftcOpenBankingCard,#openapiKftcSection{display:none!important}';
+    document.head.appendChild(style);
+  }
+
   function removeRetiredUi() {
     RETIRED_IDS.forEach((id) => document.getElementById(id)?.remove());
   }
@@ -27,15 +35,18 @@
   window.refreshUserKftcOpenApiStatus = retiredAsync;
   window.handleSaveUserKftcConfig = retiredAsync;
 
+  installHideRule();
+  removeRetiredUi();
+
   const observer = new MutationObserver(removeRetiredUi);
 
-  function install() {
+  function installObserver() {
     removeRetiredUi();
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (document.body) observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, { once: true });
-  else install();
+  if (document.body) installObserver();
+  else document.addEventListener('DOMContentLoaded', installObserver, { once: true });
 
   window.WealthKftcRetirement = {
     removeRetiredUi,
