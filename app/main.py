@@ -74,6 +74,7 @@ from app.services.pnl_records import (
     clear_pnl_records, recalculate_pnl_historical_fx, PnlRecordsStorageError,
     PnlRecordLinkedToIpoError, PnlRecordsLinkedToIpoError,
 )
+from app.services.pnl_broker_clear import clear_pnl_records_for_broker
 from app.services.historical_fx import get_historical_fx_rate, sync_historical_fx
 from app.services.stock_master import sync_stock_master_online
 from app.services.toss_wts_adapter import TossWtsAdapter, TossWtsAdapterError
@@ -2778,14 +2779,53 @@ async def remove_realized_pnl(record_id: str, request: Request) -> dict:
 
 
 @app.post("/api/realized-pnl/clear")
-async def clear_realized_pnl_endpoint(request: Request) -> dict:
-    """Clear all realized PnL records."""
+async def clear_realized_pnl_endpoint(
+    request: Request,
+    broker: str | None = None,
+) -> dict:
+    """Clear all realized PnL records, or only one broker scope when requested."""
     username = get_current_username(request)
+
+    broker_scope = None if broker is None else str(broker).strip()
+    if broker is not None and not broker_scope:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "BROKER_SCOPE_INVALID",
+                "message": "Broker scope is required",
+            },
+        )
+
     try:
-        clear_pnl_records(username=username)
+        if broker_scope is None:
+            clear_pnl_records(username=username)
+            return {
+                "message": "모든 매도 실현손익 기록이 삭제되었습니다."
+            }
+
+        deleted = clear_pnl_records_for_broker(
+            broker_scope,
+            username=username,
+        )
     except PnlRecordsLinkedToIpoError as exc:
-        raise HTTPException(status_code=409, detail={"code": "PNL_RECORDS_LINKED_TO_IPO", "message": "Unlink IPO sales before clearing realized P&L"}) from exc
-    return {"message": "모든 매도 실현손익 기록이 삭제되었습니다."}
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PNL_RECORDS_LINKED_TO_IPO",
+                "message": "Unlink IPO sales before clearing realized P&L",
+            },
+        ) from exc
+
+    broker_label = (
+        "증권사 미지정"
+        if broker_scope == "__unassigned__"
+        else broker_scope
+    )
+    return {
+        "message": f"{broker_label} 실현손익 {deleted}건이 삭제되었습니다.",
+        "deleted": deleted,
+        "broker": broker_scope,
+    }
 
 
 @app.post("/api/holdings/clear")
