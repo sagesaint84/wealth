@@ -102,11 +102,12 @@
   function getBounds(config, target) {
     const count = Math.max(1, Number(config.count(target)) || 1);
     const defaultVisible = Math.max(config.minVisible, config.defaultVisible);
+    const maxScale = Math.max(1, count / Math.max(1, config.minVisible));
     return {
       count,
       minScale: 1,
-      maxScale: Math.max(1, count / Math.max(1, config.minVisible)),
-      defaultScale: clamp(count / defaultVisible, 1, Math.max(1, count / Math.max(1, config.minVisible))),
+      maxScale,
+      defaultScale: clamp(count / defaultVisible, 1, maxScale),
     };
   }
 
@@ -242,9 +243,17 @@
 
   function installResizeHandling(state) {
     let previousClientWidth = state.viewport.clientWidth;
-    const observer = new ResizeObserver(() => {
+    const onResize = () => {
       const nextClientWidth = state.viewport.clientWidth;
       if (!nextClientWidth || nextClientWidth === previousClientWidth) return;
+
+      if (!previousClientWidth) {
+        previousClientWidth = nextClientWidth;
+        applyWidth(state);
+        scrollToLatest(state);
+        return;
+      }
+
       const oldScrollable = Math.max(1, state.viewport.scrollWidth - previousClientWidth);
       const ratio = clamp(state.viewport.scrollLeft / oldScrollable, 0, 1);
       previousClientWidth = nextClientWidth;
@@ -253,9 +262,16 @@
         const nextScrollable = Math.max(0, state.viewport.scrollWidth - nextClientWidth);
         state.viewport.scrollLeft = nextScrollable * ratio;
       });
-    });
-    observer.observe(state.viewport);
-    state.resizeObserver = observer;
+    };
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(onResize);
+      observer.observe(state.viewport);
+      state.resizeObserver = observer;
+      return;
+    }
+
+    window.addEventListener('resize', onResize, { passive: true });
   }
 
   function enhance(config, target) {
