@@ -10,7 +10,10 @@ HTML = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
 def test_quick_access_removed_and_routes_preserved():
     assert 'wealth-shortcuts' not in LAYOUT
     assert 'wealth-home-secondary' not in LAYOUT
-    assert 'href="#invest"' in LAYOUT and 'href="#assets"' in LAYOUT and 'href="#income"' in LAYOUT
+    assert 'href="#${key}" data-wealth-view="${key}"' in LAYOUT
+    assert "invest: [" in LAYOUT
+    assert "assets: [" in LAYOUT
+    assert "income: [" in LAYOUT
 
 
 def test_home_summary_is_non_visual_legacy_and_portfolio_prominent():
@@ -49,4 +52,5 @@ def test_asset_record_net_worth_invariant():
 def test_history_add_action_delegates_to_existing_form():
     planning = (ROOT / "app/static/wealth-planning.js").read_text(encoding="utf-8")
     assert "data-history-action=\"wealthAddHistory\"" in planning
-    assert "wealthAddHistory')?.addEventListener('click', () => openHistory())" in planning
+    assert "historyPanel.addEventListener('click', async e => {" in planning
+    assert "actionButton.dataset.historyAction === 'wealthAddHistory') openHistory();" in planning

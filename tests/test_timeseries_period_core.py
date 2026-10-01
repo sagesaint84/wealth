@@ -42,7 +42,7 @@ class TimeseriesPeriodCoreTests(unittest.TestCase):
 
     def test_flow_series_sum_each_field_inside_bucket(self):
         self.assertIn("function aggregateFlow", self.js)
-        self.assertIn("values[field] = bucket.items.reduce", self.js)
+        self.assertIn("values[field] = items.reduce", self.js)
 
     def test_year_markers_are_emitted_at_year_boundaries(self):
         self.assertIn("yearMarker:", self.js)
