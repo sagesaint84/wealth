@@ -673,8 +673,12 @@
     const host = document.getElementById('dividendBarChartWrap');
     const header = host?.closest('.dividend-chart-section')?.querySelector('.dividend-chart-header');
     if (!host || !header || typeof api !== 'function') return;
-    ensureInjectedControls('dividend', header);
-    if (dividendMode() !== 'actual') return;
+    const controls = ensureInjectedControls('dividend', header);
+    if (dividendMode() !== 'actual') {
+      if (controls) controls.hidden = true;
+      return;
+    }
+    if (controls) controls.hidden = false;
     try {
       const source = await dividendSource();
       const rows = [
@@ -919,27 +923,19 @@
     }
   }
 
+  function hostNeedsUnified(hostId) {
+    const host = document.getElementById(hostId);
+    if (!host) return false;
+    return !host.firstElementChild?.classList?.contains('wealth-unified-chart-shell');
+  }
+
   function installObserver() {
-    const observer = new MutationObserver(mutations => {
-      let stock = false;
-      let networth = false;
-      let pnl = false;
-      let dividend = false;
-      let ledger = false;
-      mutations.forEach(mutation => {
-        const target = mutation.target?.nodeType === 1 ? mutation.target : mutation.target?.parentElement;
-        if (!target) return;
-        if (target.closest?.('#recordsPanel') && !target.closest?.('.wealth-unified-chart-shell')) stock = true;
-        if (target.closest?.('.wealth-history') && !target.closest?.('.wealth-unified-chart-shell')) networth = true;
-        if (target.closest?.('#realizedPnlPanel') && !target.closest?.('.wealth-unified-chart-shell')) pnl = true;
-        if (target.closest?.('#dividendPanel') && !target.closest?.('.wealth-unified-chart-shell')) dividend = true;
-        if (target.closest?.('#ledgerSectionPanel') && !target.closest?.('.wealth-unified-chart-shell')) ledger = true;
-      });
-      if (stock) queue('stock');
-      if (networth && !netWorthCapturePending) queue('networth');
-      if (pnl) queue('pnl');
-      if (dividend) queue('dividend');
-      if (ledger) queue('ledger');
+    const observer = new MutationObserver(() => {
+      if (hostNeedsUnified('assetChart')) queue('stock');
+      if (!netWorthCapturePending && hostNeedsUnified('wealthHistoryPlot')) queue('networth');
+      if (hostNeedsUnified('pnlBarChartWrap')) queue('pnl');
+      if (dividendMode() === 'actual' && hostNeedsUnified('dividendBarChartWrap')) queue('dividend');
+      if (hostNeedsUnified('ledgerTrendContainer')) queue('ledger');
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
