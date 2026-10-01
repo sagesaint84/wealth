@@ -101,7 +101,7 @@ if (typeof document !== 'undefined') {
         return;
       }
       const script = document.createElement('script');
-      script.src = '/static/wealth-timeseries-label-layout.js?v=10.6k3';
+      script.src = '/static/wealth-timeseries-label-layout.js?v=10.6k4';
       script.async = false;
       script.dataset.wealthTimeseriesLabelLayout = '1';
       script.addEventListener('load', loadUnified, { once: true });
@@ -112,7 +112,7 @@ if (typeof document !== 'undefined') {
     let visibleRange = document.querySelector('script[data-wealth-timeseries-visible-range]');
     if (!visibleRange) {
       visibleRange = document.createElement('script');
-      visibleRange.src = '/static/wealth-timeseries-visible-range.js?v=10.6k2';
+      visibleRange.src = '/static/wealth-timeseries-visible-range.js?v=10.6k4';
       visibleRange.async = false;
       visibleRange.dataset.wealthTimeseriesVisibleRange = '1';
       visibleRange.addEventListener('load', loadLabelLayout, { once: true });
