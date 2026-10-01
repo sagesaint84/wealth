@@ -80,40 +80,19 @@
         font-weight: 700;
       }
       .wealth-unified-chart-shell.wealth-visible-state {
-        grid-template-columns: 92px minmax(0, 1fr) 92px !important;
+        grid-template-columns: 82px minmax(0, 1fr) 82px !important;
       }
       .wealth-unified-chart-shell.wealth-visible-state > .wealth-unified-axis {
-        width: 92px !important;
-        min-width: 92px !important;
-      }
-      .wealth-unified-chart-shell.wealth-visible-state .wealth-unified-axis-caption {
-        white-space: nowrap !important;
-        max-width: none !important;
-        line-height: 1 !important;
-        font-size: 8.5px !important;
-        padding: 2px 3px;
-        border-radius: 4px;
-        background: rgba(11, 19, 40, .94);
-        z-index: 4;
-      }
-      .wealth-unified-chart-shell.wealth-visible-state .wealth-unified-axis-right .wealth-unified-axis-caption {
-        left: 6px !important;
-        right: auto !important;
-        transform: translateY(-110%);
-      }
-      .wealth-unified-chart-shell.wealth-visible-state > .wealth-unified-axis:not(.wealth-unified-axis-right) .wealth-unified-axis-caption {
-        right: 6px !important;
+        width: 82px !important;
+        min-width: 82px !important;
       }
       @media (max-width: 720px) {
         .wealth-unified-chart-shell.wealth-visible-state {
-          grid-template-columns: 72px minmax(0, 1fr) 72px !important;
+          grid-template-columns: 68px minmax(0, 1fr) 68px !important;
         }
         .wealth-unified-chart-shell.wealth-visible-state > .wealth-unified-axis {
-          width: 72px !important;
-          min-width: 72px !important;
-        }
-        .wealth-unified-chart-shell.wealth-visible-state .wealth-unified-axis-caption {
-          font-size: 7.5px !important;
+          width: 68px !important;
+          min-width: 68px !important;
         }
         .wealth-timeseries-html-xlabel { font-size: 9px; }
       }
@@ -178,6 +157,16 @@
     return overlay;
   }
 
+  function appendYearMarker(overlay, width, buckets, index) {
+    const bucket = buckets[index];
+    if (!bucket?.year) return;
+    const year = document.createElement('span');
+    year.className = 'wealth-timeseries-html-year';
+    year.style.left = `${bucketCenterPx(width, index, buckets.length)}px`;
+    year.textContent = `${bucket.year}년`;
+    overlay.appendChild(year);
+  }
+
   function renderLabels(shell, aggregated) {
     const buckets = aggregated?.buckets || [];
     if (!buckets.length) return;
@@ -189,6 +178,7 @@
     const update = () => {
       const { selected, bounds, width } = selectedIndices(viewport, content, buckets, aggregated.mode);
       overlay.replaceChildren();
+
       selected.forEach(index => {
         const bucket = buckets[index];
         if (!bucket) return;
@@ -198,17 +188,15 @@
         label.style.left = `${center}px`;
         label.textContent = bucket.label || '';
         overlay.appendChild(label);
-
-        const showYear = aggregated.mode !== '1Y'
-          && (index === bounds.start || bucket.yearMarker);
-        if (showYear && bucket.year) {
-          const year = document.createElement('span');
-          year.className = 'wealth-timeseries-html-year';
-          year.style.left = `${center}px`;
-          year.textContent = `${bucket.year}년`;
-          overlay.appendChild(year);
-        }
       });
+
+      if (aggregated.mode !== '1Y' && bounds.end >= bounds.start) {
+        const yearIndices = new Set([bounds.start]);
+        for (let index = bounds.start + 1; index <= bounds.end; index += 1) {
+          if (buckets[index]?.yearMarker) yearIndices.add(index);
+        }
+        yearIndices.forEach(index => appendYearMarker(overlay, width, buckets, index));
+      }
     };
 
     let frame = 0;
