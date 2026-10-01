@@ -84,8 +84,8 @@ class UnifiedTimeseriesTests(unittest.TestCase):
 
     def test_loader_orders_period_core_visible_range_label_layout_and_unified_adapter(self):
         self.assertIn("/static/wealth-timeseries-period-core.js?v=10.6k1", self.loader)
-        self.assertIn("/static/wealth-timeseries-visible-range.js?v=10.6k2", self.loader)
-        self.assertIn("/static/wealth-timeseries-label-layout.js?v=10.6k3", self.loader)
+        self.assertIn("/static/wealth-timeseries-visible-range.js?v=10.6k4", self.loader)
+        self.assertIn("/static/wealth-timeseries-label-layout.js?v=10.6k4", self.loader)
         self.assertIn("/static/wealth-timeseries-unified.js?v=10.6k2", self.loader)
         self.assertIn("visibleRange.addEventListener('load', loadLabelLayout", self.loader)
         self.assertIn("script.addEventListener('load', loadUnified", self.loader)
