@@ -2,10 +2,102 @@ from __future__ import annotations
 
 import unittest
 
-from app.services.ipo.metalogos_client import parse_metalogos_stock_html
+from app.services.ipo.metalogos_client import (
+    parse_metalogos_search_stock_urls,
+    parse_metalogos_sitemap_stock_urls,
+    parse_metalogos_stock_html,
+)
 
 
 class MetalogosIpoClientTests(unittest.TestCase):
+
+    def test_parses_public_sitemap_stock_urls_newest_first(self):
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url>
+            <loc>https://metalogos.ai/160ipo/stock/B202605064</loc>
+            <lastmod>2026-09-30</lastmod>
+          </url>
+          <url>
+            <loc>https://metalogos.ai/160ipo/stock/B202604001</loc>
+            <lastmod>2026-09-20</lastmod>
+          </url>
+          <url>
+            <loc>https://metalogos.ai/other/page</loc>
+            <lastmod>2026-10-01</lastmod>
+          </url>
+        </urlset>
+        """
+        urls = parse_metalogos_sitemap_stock_urls(xml)
+        self.assertEqual(
+            urls,
+            [
+                "https://metalogos.ai/160ipo/stock/B202605064",
+                "https://metalogos.ai/160ipo/stock/B202604001",
+            ],
+        )
+
+    def test_public_search_extracts_detail_link(self):
+        html = (
+            '<a href="/160ipo/stock/B202605064">'
+            'issuer</a>'
+        )
+        self.assertEqual(
+            parse_metalogos_search_stock_urls(html),
+            [
+                "https://metalogos.ai/"
+                "160ipo/stock/B202605064"
+            ],
+        )
+
+    def test_h1_company_name_wins_over_seo_description(self):
+        html = """
+        <html><body>
+          <div>
+            description text before heading
+          </div>
+          <h1>
+            \uba5c\ucf58 \uacf5\ubaa8\uc8fc
+            \ud575\uc2ec \uc694\uc57d
+          </h1>
+          <div>
+            \uacf5\ubaa8\uac00: 12,300\uc6d0
+          </div>
+          <div>
+            \uccad\uc57d\uc77c:
+            2026.10.01 ~ 2026.10.02
+          </div>
+          <div>
+            \uc0c1\uc7a5\uc77c:
+            2026.10.15
+          </div>
+          <div>
+            \ucf54\uc2a4\ub2e5 179880
+          </div>
+        </body></html>
+        """
+
+        row = parse_metalogos_stock_html(
+            html,
+            source_url=(
+                "https://metalogos.ai/"
+                "160ipo/stock/B202605064"
+            ),
+        )
+
+        self.assertEqual(
+            row["company_name"],
+            "\uba5c\ucf58",
+        )
+        self.assertEqual(
+            row["stock_code"],
+            "179880",
+        )
+        self.assertEqual(
+            row["final_offer_price"],
+            12300.0,
+        )
+
     def test_parses_schedule_market_and_reference_score_without_wealth_features(self):
         html = """
         <html><body>

@@ -5,6 +5,7 @@ import unittest
 from app.services.ipo.dart_offering_schedule import (
     build_dart_offering_schedule,
     parse_dart_date_range,
+    select_dart_schedule_filing,
 )
 
 
@@ -23,6 +24,50 @@ class IpoDartOfferingScheduleTests(unittest.TestCase):
 
     def test_invalid_calendar_date_is_rejected(self):
         self.assertEqual(parse_dart_date_range("2026.02.30 ~ 03.01"), (None, None))
+
+
+    def test_selects_latest_estkrs_linked_receipt_not_latest_c001_document(self):
+        filings = [
+            {
+                "rcept_no": "20260925000100",
+                "rcept_dt": "20260925",
+                "report_nm": "C001 registration statement",
+            },
+            {
+                "rcept_no": "20260929000194",
+                "rcept_dt": "20260929",
+                "report_nm": "prospectus",
+            },
+            {
+                "rcept_no": "20260930000999",
+                "rcept_dt": "20260930",
+                "report_nm": (
+                    "\uc99d\uad8c\ubc1c\ud589"
+                    "\uc2e4\uc801\ubcf4\uace0\uc11c"
+                ),
+            },
+        ]
+        structured = {
+            "group": [{
+                "title": "general",
+                "list": [{
+                    "rcept_no": "20260925000100",
+                    "sbd": "2026.10.01 ~ 10.02",
+                    "pymd": "2026.10.06",
+                }],
+            }]
+        }
+
+        selected = select_dart_schedule_filing(
+            filings,
+            structured,
+        )
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        self.assertEqual(
+            selected["rcept_no"],
+            "20260925000100",
+        )
 
     def test_build_schedule_from_selected_estkrs_receipt(self):
         filing = {

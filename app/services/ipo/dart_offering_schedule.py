@@ -113,6 +113,57 @@ def _number(value: object) -> float | None:
         return None
 
 
+
+def select_dart_schedule_filing(
+    filings: list[dict[str, Any]],
+    raw_structured: dict[str, Any] | list[Any],
+) -> dict[str, Any] | None:
+    """Select the newest C001 receipt that is actually represented by estkRs."""
+    structured = normalize_equity_registration_response(raw_structured)
+
+    receipt_nos = {
+        str(row.get("rcept_no") or "").strip()
+        for row in structured.get("general", [])
+        if isinstance(row, dict)
+        and str(row.get("rcept_no") or "").strip()
+        and (row.get("sbd") or row.get("pymd"))
+    }
+    if not receipt_nos:
+        return None
+
+    # Unicode-safe source spelling:
+    # "securities issuance results report"
+    issuance_result_report = (
+        "\uc99d\uad8c\ubc1c\ud589"
+        "\uc2e4\uc801\ubcf4\uace0\uc11c"
+    )
+
+    candidates: list[dict[str, Any]] = []
+    for filing in filings or []:
+        if not isinstance(filing, dict):
+            continue
+
+        rcept_no = str(filing.get("rcept_no") or "").strip()
+        if rcept_no not in receipt_nos:
+            continue
+
+        report_nm = str(filing.get("report_nm") or "")
+        if issuance_result_report in report_nm:
+            continue
+
+        candidates.append(filing)
+
+    if not candidates:
+        return None
+
+    candidates.sort(
+        key=lambda row: (
+            str(row.get("rcept_dt") or ""),
+            str(row.get("rcept_no") or ""),
+        )
+    )
+    return candidates[-1]
+
 def build_dart_offering_schedule(
     raw_structured: dict[str, Any] | list[Any],
     *,
@@ -154,8 +205,27 @@ def build_dart_offering_schedule(
             lead_managers.append(name)
 
     security_rows = _rows_for_receipt(structured.get("security_classes"), rcept_no)
-    prices = [value for row in security_rows if (value := _number(row.get("slprc"))) is not None and value > 0]
-    final_offer_price = prices[0] if prices and all(value == prices[0] for value in prices) else None
+    prices = [
+        value
+        for row in security_rows
+        if (value := _number(row.get("slprc"))) is not None and value > 0
+    ]
+    structured_offer_price = (
+        prices[0]
+        if prices and all(value == prices[0] for value in prices)
+        else None
+    )
+
+    report_nm = str(filing.get("report_nm") or "")
+    final_conditions_marker = (
+        "\ubc1c\ud589\uc870\uac74\ud655\uc815"
+    )
+    final_offer_price = (
+        structured_offer_price
+        if structured_offer_price is not None
+        and final_conditions_marker in report_nm
+        else None
+    )
 
     source = {
         "schedule_source": "OpenDART C001 + estkRs",
@@ -164,6 +234,8 @@ def build_dart_offering_schedule(
         "source_date": filing.get("rcept_dt"),
         "report_nm": filing.get("report_nm"),
         "corp_cls": corp_cls or None,
+        "structured_offer_price_reference": structured_offer_price,
+        "offer_price_confirmed": final_offer_price is not None,
         "subscription_text": general.get("sbd"),
         "payment_text": general.get("pymd"),
         "subscription_notice_text": general.get("sband"),

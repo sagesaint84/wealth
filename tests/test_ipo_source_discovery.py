@@ -26,35 +26,60 @@ class _DartOn:
             "total_page": 1,
             "list": [{
                 "corp_code": "01000001",
-                "corp_name": "진코스텍",
+                "corp_name": "\uc9c4\ucf54\uc2a4\ud14d",
                 "stock_code": "123456",
                 "rcept_no": "20260930000123",
                 "rcept_dt": "20260930",
-                "report_nm": "[발행조건확정]증권신고서(지분증권)",
+                "report_nm": "[\ubc1c\ud589\uc870\uac74\ud655\uc815]\uc99d\uad8c\uc2e0\uace0\uc11c(\uc9c0\ubd84\uc99d\uad8c)",
             }],
+        }
+
+    def get_corp_code_master(self):
+        return [{
+            "corp_code": "01000001",
+            "corp_name": "\uc9c4\ucf54\uc2a4\ud14d",
+            "stock_code": "123456",
+        }]
+
+    def get_filing_list(self, **_kwargs):
+        return {
+            "list": [{
+                "corp_code": "01000001",
+                "corp_name": "\uc9c4\ucf54\uc2a4\ud14d",
+                "stock_code": "123456",
+                "rcept_no": "20260930000123",
+                "rcept_dt": "20260930",
+                "report_nm": "[\ubc1c\ud589\uc870\uac74\ud655\uc815]\uc99d\uad8c\uc2e0\uace0\uc11c(\uc9c0\ubd84\uc99d\uad8c)",
+            }]
         }
 
     def get_equity_registration_statements(self, **_kwargs):
         return {
             "group": [
                 {
-                    "title": "일반사항",
+                    "title": "general",
                     "list": [{
                         "rcept_no": "20260930000123",
                         "corp_code": "01000001",
-                        "corp_name": "진코스텍",
+                        "corp_name": "\uc9c4\ucf54\uc2a4\ud14d",
                         "corp_cls": "K",
                         "sbd": "2026.10.03 ~ 10.07",
                         "pymd": "2026.10.08",
                     }],
                 },
                 {
-                    "title": "인수인에 관한 사항",
-                    "list": [{"rcept_no": "20260930000123", "actnmn": "공식증권"}],
+                    "title": "underwriters",
+                    "list": [{
+                        "rcept_no": "20260930000123",
+                        "actnmn": "\uacf5\uc2dd\uc99d\uad8c",
+                    }],
                 },
                 {
-                    "title": "증권의 종류",
-                    "list": [{"rcept_no": "20260930000123", "slprc": "24,000"}],
+                    "title": "security classes",
+                    "list": [{
+                        "rcept_no": "20260930000123",
+                        "slprc": "24,000",
+                    }],
                 },
             ]
         }
@@ -96,6 +121,17 @@ class _Npay:
 
 
 class _Metalogos:
+    def fetch_company_items(
+        self,
+        *,
+        company_names,
+        target_date_str,
+    ):
+        self.company_names = list(company_names)
+        return self.fetch_calendar_items(
+            target_date_str=target_date_str
+        )
+
     def fetch_calendar_items(self, *, target_date_str):
         self.target_date_str = target_date_str
         return [{

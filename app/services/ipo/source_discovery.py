@@ -5,7 +5,7 @@ import copy
 from typing import Any
 
 from app.services.ipo.dart_client import DartClient
-from app.services.ipo.dart_offering_schedule import build_dart_offering_schedule
+from app.services.ipo.dart_offering_schedule import build_dart_offering_schedule, select_dart_schedule_filing
 from app.services.ipo.identity import normalize_company_name
 from app.services.ipo.kind_client import KindClient
 from app.services.ipo.metalogos_client import MetalogosIpoClient
@@ -232,47 +232,123 @@ def _apply_dart_schedules(
     market: dict[str, Any],
     *,
     dart: DartClient,
-    dart_by_name: dict[str, dict[str, Any]],
     target_date_str: str,
     start: date,
     end: date,
 ) -> tuple[int, int, int]:
-    """Overlay official dsac005-equivalent OpenDART schedule facts last."""
+    """Overlay official company-scoped OpenDART schedule facts last.
+
+    Resolve issuer identity from corpCode.xml, then query each relevant issuer's
+    C001 filings and select the newest filing receipt actually represented in
+    estkRs. This avoids both global-feed truncation and prospectus/result-report
+    receipt mismatches.
+    """
     matched = 0
     failed = 0
     ignored = 0
+
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
     bgn_de = (target - timedelta(days=365)).strftime("%Y%m%d")
     end_de = target.strftime("%Y%m%d")
 
+    try:
+        corp_master = dart.get_corp_code_master()
+    except Exception:
+        return 0, 1, 0
+
+    corp_by_name: dict[str, dict[str, Any]] = {}
+    for row in corp_master:
+        if not isinstance(row, dict):
+            continue
+        key = normalize_company_name(str(row.get("corp_name") or ""))
+        if key and key not in corp_by_name:
+            corp_by_name[key] = row
+
     for ipo in list(market.get("ipos", [])):
         if not isinstance(ipo, dict) or not _relevant_schedule(ipo, start, end):
             continue
+
         key = normalize_company_name(str(ipo.get("company_name") or ""))
-        filing = dart_by_name.get(key)
-        if not filing:
-            ignored += 1
-            continue
-        corp_code = str(filing.get("corp_code") or ipo.get("corp_code") or "").strip()
+        master_row = corp_by_name.get(key) or {}
+
+        corp_code = str(
+            ipo.get("corp_code")
+            or master_row.get("corp_code")
+            or ""
+        ).strip()
+
         if not corp_code:
             ignored += 1
             continue
+
+        stock_code = str(master_row.get("stock_code") or "").strip()
+        if not ipo.get("corp_code"):
+            ipo["corp_code"] = corp_code
+        if stock_code and not ipo.get("stock_code"):
+            ipo["stock_code"] = stock_code
+
+        ipo.setdefault("sources", {})["dart_identity"] = {
+            "source": "OpenDART corpCode.xml",
+            "corp_code": corp_code,
+            "stock_code": stock_code or None,
+            "observed_at": datetime.now(KST).isoformat(),
+        }
+
         try:
+            filings_resp = dart.get_filing_list(
+                corp_code=corp_code,
+                bgn_de=bgn_de,
+                end_de=end_de,
+                pblntf_detail_ty="C001",
+                last_reprt_at="N",
+                page_count=100,
+            )
+            filings = (
+                filings_resp.get("list", [])
+                if isinstance(filings_resp, dict)
+                else []
+            )
+
             raw_structured = dart.get_equity_registration_statements(
                 corp_code=corp_code,
                 bgn_de=bgn_de,
                 end_de=end_de,
             )
-            item = build_dart_offering_schedule(raw_structured, filing=filing)
+
+            filing = select_dart_schedule_filing(
+                filings,
+                raw_structured,
+            )
+            if not filing:
+                ignored += 1
+                continue
+
+            # corpCode.xml can know an issuer before list.json exposes stock code.
+            filing = copy.deepcopy(filing)
+            filing.setdefault("corp_code", corp_code)
+            filing.setdefault("corp_name", ipo.get("company_name"))
+            if ipo.get("stock_code"):
+                filing.setdefault("stock_code", ipo.get("stock_code"))
+
+            item = build_dart_offering_schedule(
+                raw_structured,
+                filing=filing,
+            )
             if not item or not _relevant_schedule(item, start, end):
                 ignored += 1
                 continue
-            _apply_observation(market, item, source_name="dart")
+
+            _apply_observation(
+                market,
+                item,
+                source_name="dart",
+            )
             matched += 1
+
         except Exception:
             failed += 1
-    return matched, failed, ignored
 
+    return matched, failed, ignored
 
 def discover_and_merge_primary_sources(
     *,
@@ -297,17 +373,14 @@ def discover_and_merge_primary_sources(
 
     dart = dart_client or DartClient(username=username)
     dart_rows: list[dict[str, Any]] = []
+    dart_by_name: dict[str, dict[str, Any]] = {}
     if dart.is_configured():
-        try:
-            dart_rows = _fetch_dart_equity_feed(dart, target_date_str=target_date_str)
-            statuses["dart_feed"] = f"sync_ok (c001={len(dart_rows)})"
-        except ExternalNetworkDisabled:
-            statuses["dart_feed"] = "source_unavailable (external_network_disabled)"
-        except Exception as exc:
-            statuses["dart_feed"] = f"source_error ({type(exc).__name__})"
+        # Schedule reconciliation is intentionally company-scoped. The prior
+        # global C001 feed could truncate at the artificial 20-page/2,000-row
+        # cap and is not needed once Npay/NAVER/KIND discover issuer identity.
+        statuses["dart_feed"] = "not_requested (company_scoped)"
     else:
         statuses["dart_feed"] = "source_unavailable (api_key_missing)"
-    dart_by_name = _latest_dart_by_name(dart_rows)
 
     kind = kind_client or KindClient()
     try:
@@ -372,40 +445,88 @@ def discover_and_merge_primary_sources(
 
     metalogos = metalogos_client or MetalogosIpoClient()
     try:
-        items = metalogos.fetch_calendar_items(target_date_str=target_date_str)
         reviews = 0
+
+        candidates = [
+            ipo
+            for ipo in market.get("ipos", [])
+            if isinstance(ipo, dict)
+            and _relevant_schedule(ipo, start, end)
+            and str(ipo.get("company_name") or "").strip()
+        ]
+
+        names: list[str] = []
+        seen_names: set[str] = set()
+
+        for ipo in candidates:
+            company_name = str(
+                ipo.get("company_name") or ""
+            ).strip()
+            key = normalize_company_name(company_name)
+
+            if not key or key in seen_names:
+                continue
+
+            seen_names.add(key)
+            names.append(company_name)
+
+        if hasattr(metalogos, "fetch_company_items"):
+            items = metalogos.fetch_company_items(
+                company_names=names,
+                target_date_str=target_date_str,
+            )
+        elif hasattr(metalogos, "fetch_company_item"):
+            items = []
+            for company_name in names:
+                item = metalogos.fetch_company_item(
+                    company_name=company_name,
+                    target_date_str=target_date_str,
+                )
+                if item:
+                    items.append(item)
+        else:
+            # Compatibility for legacy test doubles only.
+            items = metalogos.fetch_calendar_items(
+                target_date_str=target_date_str
+            )
+
         for item in items:
-            _attach_dart_identity(item, dart_by_name)
-            _, review = _apply_observation(market, item, source_name="metalogos160")
+            _, review = _apply_observation(
+                market,
+                item,
+                source_name="metalogos160",
+            )
             reviews += int(review)
-        statuses["metalogos160"] = f"sync_ok (relevant={len(items)}, review_required={reviews})"
+
+        statuses["metalogos160"] = (
+            f"sync_ok (matched={len(items)}, "
+            f"review_required={reviews})"
+        )
+
     except ExternalNetworkDisabled:
-        statuses["metalogos160"] = "source_unavailable (external_network_disabled)"
+        statuses["metalogos160"] = (
+            "source_unavailable (external_network_disabled)"
+        )
     except Exception as exc:
-        statuses["metalogos160"] = f"source_error ({type(exc).__name__})"
+        statuses["metalogos160"] = (
+            f"source_error ({type(exc).__name__})"
+        )
 
-    attached = 0
-    for ipo in market.get("ipos", []):
-        before = bool((ipo.get("sources") or {}).get("dart_discovery"))
-        _attach_dart_identity(ipo, dart_by_name)
-        after = bool((ipo.get("sources") or {}).get("dart_discovery"))
-        attached += int(after and not before)
-    statuses["dart_identity_attached"] = str(attached)
+    statuses["dart_identity_attached"] = "company_scoped"
 
-    if dart.is_configured() and dart_by_name:
+    if dart.is_configured():
         matched, failed, ignored = _apply_dart_schedules(
             market,
             dart=dart,
-            dart_by_name=dart_by_name,
             target_date_str=target_date_str,
             start=start,
             end=end,
         )
-        statuses["dart_schedule"] = f"sync_ok (matched={matched}, failed={failed}, ignored={ignored})"
-    elif not dart.is_configured():
-        statuses["dart_schedule"] = "source_unavailable (api_key_missing)"
+        statuses["dart_schedule"] = (
+            f"sync_ok (matched={matched}, failed={failed}, ignored={ignored})"
+        )
     else:
-        statuses["dart_schedule"] = "not_applied (feed_unavailable)"
+        statuses["dart_schedule"] = "source_unavailable (api_key_missing)"
 
     write_market_store(market)
     return {
