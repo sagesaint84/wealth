@@ -11,12 +11,8 @@
   const VIEWBOX_WIDTH = 1000;
   const PLOT_LEFT = 20;
   const PLOT_RIGHT = 980;
-  const MODE_LABEL = { '1D': '일간', '1W': '주간', '1M': '월간', '1Y': '연간', ALL: '전체' };
 
   const finite = value => Number.isFinite(Number(value)) ? Number(value) : 0;
-  const html = value => String(value ?? '').replace(/[&<>"']/g, char => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[char]));
 
   function trim(value) {
     const digits = Math.abs(value) >= 100 ? 0 : (Math.abs(value) >= 10 ? 1 : 2);
@@ -62,11 +58,11 @@
     });
   }
 
-  function axisHtml(range, { top, height, count = 5, caption = '', captionTop = 4 } = {}) {
+  function axisHtml(range, { top, height, count = 5 } = {}) {
     const labels = ticks(range, count)
       .map(value => `<span class="wealth-unified-axis-label">${compactWon(value)}</span>`)
       .join('');
-    return `<div class="wealth-unified-axis-section" style="top:${top}px;height:${height}px">${labels}</div>${caption ? `<span class="wealth-unified-axis-caption" style="top:${captionTop}px">${html(caption)}</span>` : ''}`;
+    return `<div class="wealth-unified-axis-section" style="top:${top}px;height:${height}px">${labels}</div>`;
   }
 
   function injectStyles() {
@@ -76,6 +72,15 @@
     style.textContent = `
       .wealth-unified-chart-shell.wealth-visible-state {
         grid-template-columns: 74px minmax(0, 1fr) 74px;
+      }
+      .wealth-unified-chart-shell.wealth-visible-state .wealth-unified-axis-label {
+        transform: none;
+      }
+      .wealth-unified-chart-shell.wealth-visible-state .wealth-unified-axis-label:first-child {
+        transform: translateY(-50%);
+      }
+      .wealth-unified-chart-shell.wealth-visible-state .wealth-unified-axis-label:last-child {
+        transform: translateY(50%);
       }
       .wealth-unified-axis-right .wealth-unified-axis-section {
         align-items: flex-start;
@@ -91,11 +96,6 @@
       .wealth-unified-axis-right .wealth-unified-axis-label::after {
         left: -8px;
         right: auto;
-      }
-      .wealth-unified-axis-right .wealth-unified-axis-caption {
-        left: 8px;
-        right: auto;
-        text-align: left;
       }
       @media (max-width: 720px) {
         .wealth-unified-chart-shell.wealth-visible-state {
@@ -235,21 +235,15 @@
         bar.setAttribute('height', String(h));
       });
 
-      const leftCaption = kind === 'stock' ? '총자산' : '순자산';
-      const rightCaption = kind === 'stock' ? '기간 손익' : '기간 변화';
       leftAxis.innerHTML = axisHtml(lineRange, {
         top: lineTop,
         height: lineBottom - lineTop,
         count: 4,
-        caption: leftCaption,
-        captionTop: 2,
       });
       rightAxis.innerHTML = axisHtml(changeRange, {
         top: barTop,
         height: barBottom - barTop,
         count: 3,
-        caption: `${MODE_LABEL[aggregated.mode] || ''} ${rightCaption}`.trim(),
-        captionTop: barTop - 14,
       });
       thinXAxisLabels(shell, viewport, buckets.length, aggregated.mode, bounds);
     };
@@ -349,8 +343,8 @@
     observer.observe(document.body, { childList: true, subtree: true });
     scan();
   };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
-  else start();
+  if (document.body) start();
+  else document.addEventListener('DOMContentLoaded', start, { once: true });
 
-  window.WealthTimeseriesVisibleRange = { registry, scan };
+  window.WealthTimeseriesVisibleRange = { scan };
 })();
