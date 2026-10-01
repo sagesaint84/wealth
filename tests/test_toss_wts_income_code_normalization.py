@@ -37,10 +37,11 @@ def ledger_row(*, market="kr", currency="KRW", stock_code="A091170"):
     }
 
 
-def test_kr_provider_a_prefix_is_canonicalized_only_for_exact_six_digit_code():
+def test_kr_provider_a_prefix_is_canonicalized_for_six_character_short_code():
     assert canonicalize_toss_wts_stock_code("kr", "A091170") == "091170"
+    assert canonicalize_toss_wts_stock_code("kr", "A0193T0") == "0193T0"
     assert canonicalize_toss_wts_stock_code("kr", "091170") == "091170"
-    assert canonicalize_toss_wts_stock_code("kr", "AABC123") == "AABC123"
+    assert canonicalize_toss_wts_stock_code("kr", "A12345") == "A12345"
     assert canonicalize_toss_wts_stock_code("us", "A091170") == "A091170"
 
 
