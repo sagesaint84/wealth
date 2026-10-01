@@ -79,15 +79,42 @@
       if (!date) return key;
       return `${date.getUTCMonth() + 1}/${date.getUTCDate()}주`;
     }
-    if (mode === MODES.MONTH) {
-      return `${Number(key.slice(5, 7))}월`;
-    }
+    if (mode === MODES.MONTH) return `${Number(key.slice(5, 7))}월`;
     return key;
   }
 
   function bucketYear(key, mode) {
     if (!key) return '';
     return mode === MODES.YEAR ? key : key.slice(0, 4);
+  }
+
+  function nextBucketKey(key, mode) {
+    if (mode === MODES.YEAR) return String(Number(key) + 1);
+    if (mode === MODES.MONTH) {
+      const [yearText, monthText] = String(key).split('-');
+      let year = Number(yearText);
+      let month = Number(monthText) + 1;
+      if (month > 12) { month = 1; year += 1; }
+      return `${year}-${pad2(month)}`;
+    }
+    const date = parseDate(key);
+    if (!date) return '';
+    date.setUTCDate(date.getUTCDate() + (mode === MODES.WEEK ? 7 : 1));
+    return bucketKey(date, mode);
+  }
+
+  function continuousBucketKeys(firstKey, lastKey, mode, limit = 10000) {
+    if (!firstKey || !lastKey) return [];
+    const keys = [];
+    let key = firstKey;
+    for (let index = 0; index < limit; index += 1) {
+      keys.push(key);
+      if (key === lastKey) return keys;
+      const next = nextBucketKey(key, mode);
+      if (!next || next === key) break;
+      key = next;
+    }
+    return keys;
   }
 
   function groupRecords(records, mode, dateField = 'date') {
@@ -143,13 +170,28 @@
     fields = [],
   } = {}) {
     const grouped = groupRecords(records, mode, dateField);
-    const buckets = grouped.buckets.map(bucket => {
+    if (!grouped.buckets.length) return { mode: grouped.mode, buckets: [] };
+
+    const byKey = new Map(grouped.buckets.map(bucket => [bucket.key, bucket.items]));
+    const keys = continuousBucketKeys(
+      grouped.buckets[0].key,
+      grouped.buckets.at(-1).key,
+      grouped.mode,
+    );
+    const buckets = keys.map((key, index) => {
+      const items = byKey.get(key) || [];
       const values = {};
       fields.forEach(field => {
-        values[field] = bucket.items.reduce((sum, item) => sum + finite(item?.[field]), 0);
+        values[field] = items.reduce((sum, item) => sum + finite(item?.[field]), 0);
       });
+      const year = bucketYear(key, grouped.mode);
+      const previousYear = index > 0 ? bucketYear(keys[index - 1], grouped.mode) : '';
       return {
-        ...bucket,
+        key,
+        label: bucketLabel(key, grouped.mode),
+        year,
+        yearMarker: index === 0 || year !== previousYear,
+        items,
         values,
       };
     });
@@ -164,6 +206,8 @@
     bucketKey,
     bucketLabel,
     bucketYear,
+    nextBucketKey,
+    continuousBucketKeys,
     modeForAll,
     effectiveMode,
     groupRecords,
