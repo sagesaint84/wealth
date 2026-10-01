@@ -6,12 +6,12 @@ from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import math
-import re
 from typing import Any, Mapping
+
+from app.services.toss_wts_stock_code import canonicalize_toss_wts_stock_code
 
 _FINGERPRINT_PREFIX = "toss-wts-income:v1:"
 _SUPPORTED_INCOME_TYPES = frozenset({"dividend", "distribution", "account_interest"})
-_KR_PROVIDER_STOCK_CODE_RE = re.compile(r"^A(\d{6})$")
 
 
 def _finite_number(value: Any, field: str) -> int | float:
@@ -30,24 +30,6 @@ def _canonical_number(value: Any, field: str) -> str:
         return "0"
     text = format(decimal.normalize(), "f")
     return text.rstrip("0").rstrip(".") if "." in text else text
-
-
-def canonicalize_toss_wts_stock_code(market: Any, stock_code: Any) -> str:
-    """Return the app's canonical code while preserving provider identity elsewhere.
-
-    Toss WTS can expose Korean listed securities with the provider prefix ``A``
-    (for example ``A091170``).  The wealth app stores KRX/KOSDAQ codes as the
-    six-digit canonical value (``091170``).  Only the exact Korean ``A`` + six
-    digit shape is normalized so US identifiers and unrelated codes are never
-    rewritten accidentally.
-    """
-    normalized_market = str(market or "").strip().lower()
-    code = str(stock_code or "").strip()
-    if normalized_market == "kr":
-        matched = _KR_PROVIDER_STOCK_CODE_RE.fullmatch(code)
-        if matched:
-            return matched.group(1)
-    return code
 
 
 def classify_toss_wts_income_row(row: Mapping[str, Any]) -> str | None:

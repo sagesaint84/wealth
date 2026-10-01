@@ -14,6 +14,8 @@ import re
 from typing import Any, Mapping
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
+from app.services.toss_wts_stock_code import canonicalize_toss_wts_stock_code
+
 _DATE_REGEX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _ALLOWED_RATE_BASES = frozenset({"KRW", "USD"})
 ROW_SELECTION_SALT = "toss-wts-row-selection-v1"
@@ -56,9 +58,20 @@ def canonical_row_hash(row: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def sign_realized_feed_row(row: Mapping[str, Any], user_id: str, generation_id: str | None = None) -> str:
-    """Sign a canonical feed row token binding content, identity, and generation."""
+def sign_realized_feed_row(
+    row: Mapping[str, Any],
+    user_id: str,
+    generation_id: str | None = None,
+    *,
+    provider_product_code: str | None = None,
+) -> str:
+    """Sign a display row while retaining the provider's raw product identity."""
     serializer = _get_serializer()
+    provider_code = (
+        str(provider_product_code).strip()
+        if provider_product_code is not None
+        else str(row.get("product_code") or "").strip()
+    )
     payload = {
         "v": 1,
         "source": "toss_wts",
@@ -69,9 +82,42 @@ def sign_realized_feed_row(row: Mapping[str, Any], user_id: str, generation_id: 
         "row_hash": canonical_row_hash(row),
         "date": str(row.get("date")),
         "product_code": str(row.get("product_code")),
+        "provider_product_code": provider_code,
         "market_type": str(row.get("market_type")),
     }
     return serializer.dumps(payload, salt=ROW_SELECTION_SALT)
+
+
+def _verified_realized_feed_row_token_data(
+    row: Mapping[str, Any],
+    token: str,
+    user_id: str,
+    current_generation_id: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    if not isinstance(token, str) or not token.strip():
+        return None, "TOKEN_MISSING"
+    serializer = _get_serializer()
+    try:
+        data = serializer.loads(token, salt=ROW_SELECTION_SALT, max_age=ROW_SELECTION_MAX_AGE_SECONDS)
+    except SignatureExpired:
+        return None, "TOKEN_EXPIRED"
+    except BadSignature:
+        return None, "TOKEN_INVALID"
+    except Exception:
+        return None, "TOKEN_INVALID"
+
+    if not isinstance(data, dict):
+        return None, "TOKEN_INVALID"
+    if data.get("v") != 1 or data.get("source") != "toss_wts" or data.get("scope_verified") is not False:
+        return None, "TOKEN_INVALID"
+    if data.get("user_id") != str(user_id):
+        return None, "USER_MISMATCH"
+    if current_generation_id is not None and data.get("generation_id") is not None:
+        if data.get("generation_id") != str(current_generation_id):
+            return None, "RUNTIME_GENERATION_CHANGED"
+    if data.get("row_hash") != canonical_row_hash(row):
+        return None, "ROW_TAMPERED"
+    return data, None
 
 
 def verify_realized_feed_row_token(
@@ -81,30 +127,34 @@ def verify_realized_feed_row_token(
     current_generation_id: str | None = None,
 ) -> tuple[bool, str | None]:
     """Verify that the row has not been tampered with and was fetched by the current session."""
-    if not isinstance(token, str) or not token.strip():
-        return False, "TOKEN_MISSING"
-    serializer = _get_serializer()
-    try:
-        data = serializer.loads(token, salt=ROW_SELECTION_SALT, max_age=ROW_SELECTION_MAX_AGE_SECONDS)
-    except SignatureExpired:
-        return False, "TOKEN_EXPIRED"
-    except BadSignature:
-        return False, "TOKEN_INVALID"
-    except Exception:
-        return False, "TOKEN_INVALID"
+    data, error = _verified_realized_feed_row_token_data(
+        row, token, user_id, current_generation_id
+    )
+    return data is not None, error
 
-    if not isinstance(data, dict):
-        return False, "TOKEN_INVALID"
-    if data.get("v") != 1 or data.get("source") != "toss_wts" or data.get("scope_verified") is not False:
-        return False, "TOKEN_INVALID"
-    if data.get("user_id") != str(user_id):
-        return False, "USER_MISMATCH"
-    if current_generation_id is not None and data.get("generation_id") is not None:
-        if data.get("generation_id") != str(current_generation_id):
-            return False, "RUNTIME_GENERATION_CHANGED"
-    if data.get("row_hash") != canonical_row_hash(row):
-        return False, "ROW_TAMPERED"
-    return True, None
+
+def get_verified_realized_feed_provider_product_code(
+    row: Mapping[str, Any],
+    token: str,
+    user_id: str,
+    current_generation_id: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Return signed provider product code after validating the submitted display row.
+
+    Tokens created before provider_product_code was added remain valid by falling
+    back to the legacy signed product_code field.
+    """
+    data, error = _verified_realized_feed_row_token_data(
+        row, token, user_id, current_generation_id
+    )
+    if data is None:
+        return None, error
+    raw = data.get("provider_product_code")
+    if raw is None:
+        raw = data.get("product_code")
+    if not isinstance(raw, str) or not raw.strip():
+        return None, "TOKEN_INVALID"
+    return raw.strip(), None
 
 
 def validate_realized_feed_request(
@@ -143,15 +193,18 @@ def validate_realized_feed_request(
 
 
 def project_realized_feed_row(row: Mapping[str, Any]) -> dict[str, Any]:
-    """Project one normalized WTS profit daily row into the feed contract.
+    """Project one WTS profit row into the transient display/feed contract.
 
-    Preserves provider row structure without assigning account, owner, or id.
+    The provider product identity remains in the signed selection token.  Only
+    the public Korean display code is canonicalized here, so the read-only table
+    does not expose Toss' leading ``A`` provider prefix.
     """
+    market_type = row["market_type"]
     return {
         "date": row["date"],
-        "market_type": row["market_type"],
+        "market_type": market_type,
         "symbol": row["symbol"],
-        "product_code": row["product_code"],
+        "product_code": canonicalize_toss_wts_stock_code(market_type, row["product_code"]),
         "name": row["name"],
         "quantity": row["quantity"],
         "profit_loss": dict(row["profit_loss"]),
@@ -194,8 +247,13 @@ def build_realized_feed_response(
     }
     if user_id:
         response["selection_tokens"] = [
-            sign_realized_feed_row(r, user_id=user_id, generation_id=generation_id)
-            for r in rows
+            sign_realized_feed_row(
+                display_row,
+                user_id=user_id,
+                generation_id=generation_id,
+                provider_product_code=str(provider_row.get("product_code") or ""),
+            )
+            for display_row, provider_row in zip(rows, stocks)
         ]
     return response
 
