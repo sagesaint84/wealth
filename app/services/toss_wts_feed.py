@@ -195,16 +195,25 @@ def validate_realized_feed_request(
 def project_realized_feed_row(row: Mapping[str, Any]) -> dict[str, Any]:
     """Project one WTS profit row into the transient display/feed contract.
 
-    The provider product identity remains in the signed selection token.  Only
-    the public Korean display code is canonicalized here, so the read-only table
-    does not expose Toss' leading ``A`` provider prefix.
+    The provider product identity remains in the signed selection token. Korean
+    display fields use Wealth's canonical short code so the current UI, which
+    prefers ``symbol`` over ``product_code``, never exposes Toss' leading ``A``
+    provider prefix. Overseas symbols remain untouched.
     """
     market_type = row["market_type"]
+    canonical_product_code = canonicalize_toss_wts_stock_code(
+        market_type, row["product_code"]
+    )
+    display_symbol = (
+        canonical_product_code
+        if str(market_type or "").strip().lower() == "kr"
+        else row["symbol"]
+    )
     return {
         "date": row["date"],
         "market_type": market_type,
-        "symbol": row["symbol"],
-        "product_code": canonicalize_toss_wts_stock_code(market_type, row["product_code"]),
+        "symbol": display_symbol,
+        "product_code": canonical_product_code,
         "name": row["name"],
         "quantity": row["quantity"],
         "profit_loss": dict(row["profit_loss"]),
