@@ -19,10 +19,16 @@ class TimeseriesLabelLayoutTests(unittest.TestCase):
         self.assertIn('Math.ceil(minimumSpacing(mode) / Math.max(slot, 1))', self.js)
         self.assertIn('gap >= minimumSpacing(mode) * 0.72', self.js)
 
-    def test_state_axis_captions_do_not_wrap_and_have_wider_columns(self):
-        self.assertIn('grid-template-columns: 92px minmax(0, 1fr) 92px', self.js)
-        self.assertIn('white-space: nowrap !important', self.js)
-        self.assertIn('wealth-unified-axis-right .wealth-unified-axis-caption', self.js)
+    def test_state_axis_columns_stay_wide_enough_without_caption_space(self):
+        self.assertIn('grid-template-columns: 82px minmax(0, 1fr) 82px', self.js)
+        self.assertIn('width: 82px !important', self.js)
+        self.assertNotIn('wealth-unified-axis-caption', self.js)
+
+    def test_year_boundaries_render_independently_from_thinned_date_labels(self):
+        self.assertIn('const yearIndices = new Set([bounds.start])', self.js)
+        self.assertIn('if (buckets[index]?.yearMarker) yearIndices.add(index)', self.js)
+        self.assertIn('appendYearMarker(overlay, width, buckets, index)', self.js)
+        self.assertIn('year.textContent = `${bucket.year}년`', self.js)
 
     def test_labels_refresh_on_scroll_zoom_and_resize(self):
         self.assertIn("viewport.addEventListener('scroll', queue", self.js)
