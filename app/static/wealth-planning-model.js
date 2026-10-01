@@ -77,7 +77,7 @@ if (typeof document !== 'undefined') {
   }
   if (!document.querySelector('script[data-wealth-ledger-timeseries-history]')) {
     const script = document.createElement('script');
-    script.src = '/static/wealth-ledger-timeseries-history.js?v=10.6j3';
+    script.src = '/static/wealth-ledger-timeseries-history.js?v=10.6j4';
     script.async = false;
     script.dataset.wealthLedgerTimeseriesHistory = '1';
     document.head.append(script);
