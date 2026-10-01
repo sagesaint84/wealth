@@ -414,6 +414,72 @@
     renderBrokerView(rawData.__broker_filtered_view ? latestRawPnlData : rawData);
   }
 
+  function pnlClearErrorMessage(result) {
+    const detail = result?.detail;
+    const code = detail && typeof detail === 'object' ? text(detail.code) : '';
+    if (code === 'PNL_RECORDS_LINKED_TO_IPO') {
+      return '공모주 매도에 연결된 실현손익이 있어 일괄삭제하지 않았습니다. 공모주 매도 연결을 먼저 해제해 주세요.';
+    }
+    if (typeof detail === 'string' && detail.trim()) return detail.trim();
+    if (detail && typeof detail === 'object' && typeof detail.message === 'string' && detail.message.trim()) {
+      return detail.message.trim();
+    }
+    if (typeof result?.message === 'string' && result.message.trim()) return result.message.trim();
+    return '실현손익 일괄삭제 요청을 처리하지 못했습니다.';
+  }
+
+  function clearAllPnlConfirmationMessage() {
+    if (selectedBroker === 'all') {
+      return '정말로 모든 매도 실현손익 기록을 일괄 삭제하시겠습니까?\n삭제된 내역은 복구할 수 없습니다.';
+    }
+    const broker = selectedBroker === '__unassigned__' ? '증권사 미지정' : selectedBroker;
+    return `현재 ${broker} 필터가 선택되어 있지만 일괄삭제는 필터와 관계없이 모든 증권사의 실현손익을 삭제합니다.\n정말 계속하시겠습니까? 삭제된 내역은 복구할 수 없습니다.`;
+  }
+
+  async function refreshAfterPnlClear() {
+    const owner = typeof currentOwner !== 'undefined' ? currentOwner : '모두';
+    const year = typeof selectedPnlYear !== 'undefined' ? selectedPnlYear : 'all';
+    const tradeType = typeof currentPnlTradeType !== 'undefined' ? currentPnlTradeType : 'all';
+    if (typeof loadRealizedPnl === 'function') await loadRealizedPnl(owner, year, tradeType);
+    if (typeof updateOverviewCardsAllTime === 'function') await updateOverviewCardsAllTime(owner);
+    if (typeof dashboard !== 'undefined' && dashboard && typeof refresh === 'function') await refresh();
+  }
+
+  async function handleClearAllPnl(event) {
+    const button = event.target?.closest?.('#clearAllPnlBtn');
+    if (!button) return;
+
+    // Intercept before wealth.js's generic handler. FastAPI returns structured
+    // detail objects for referential-integrity blocks; passing that object to
+    // Error() rendered the unhelpful string "[object Object]".
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    if (!window.confirm(clearAllPnlConfirmationMessage())) return;
+
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/realized-pnl/clear', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (response.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(pnlClearErrorMessage(result));
+      if (typeof toast === 'function') toast(result.message || '모든 매도 실현손익 기록이 삭제되었습니다.');
+      await refreshAfterPnlClear();
+    } catch (error) {
+      if (typeof toast === 'function') {
+        toast(error?.message || '실현손익 일괄삭제 중 오류가 발생했습니다.', true);
+      }
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   if (originalRenderRealizedPnl) {
     window.renderRealizedPnl = function wealthRenderRealizedPnlWithBroker(data) {
       if (!applyingBrokerView && data && !data.__broker_filtered_view) latestRawPnlData = data;
@@ -421,6 +487,8 @@
       renderBrokerView(rawData);
     };
   }
+
+  document.addEventListener('click', handleClearAllPnl, true);
 
   document.addEventListener('pointerdown', (event) => {
     if (event.target?.id === 'dividendYearSelect') clearDividendMonthForYearSelection();
@@ -465,5 +533,7 @@
     dividendBrokerChoices,
     clearDividendMonthForYearSelection,
     syncDividendAnnualLabel,
+    pnlClearErrorMessage,
+    clearAllPnlConfirmationMessage,
   };
 })();
