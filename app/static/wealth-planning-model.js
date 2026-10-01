@@ -95,20 +95,34 @@ if (typeof document !== 'undefined') {
       document.head.append(script);
     };
 
+    const loadLabelLayout = () => {
+      if (document.querySelector('script[data-wealth-timeseries-label-layout]')) {
+        if (window.WealthTimeseriesLabelLayout) loadUnified();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = '/static/wealth-timeseries-label-layout.js?v=10.6k3';
+      script.async = false;
+      script.dataset.wealthTimeseriesLabelLayout = '1';
+      script.addEventListener('load', loadUnified, { once: true });
+      script.addEventListener('error', loadUnified, { once: true });
+      document.head.append(script);
+    };
+
     let visibleRange = document.querySelector('script[data-wealth-timeseries-visible-range]');
     if (!visibleRange) {
       visibleRange = document.createElement('script');
       visibleRange.src = '/static/wealth-timeseries-visible-range.js?v=10.6k2';
       visibleRange.async = false;
       visibleRange.dataset.wealthTimeseriesVisibleRange = '1';
-      visibleRange.addEventListener('load', loadUnified, { once: true });
-      visibleRange.addEventListener('error', loadUnified, { once: true });
+      visibleRange.addEventListener('load', loadLabelLayout, { once: true });
+      visibleRange.addEventListener('error', loadLabelLayout, { once: true });
       document.head.append(visibleRange);
     } else if (window.WealthTimeseriesVisibleRange) {
-      loadUnified();
+      loadLabelLayout();
     } else {
-      visibleRange.addEventListener('load', loadUnified, { once: true });
-      visibleRange.addEventListener('error', loadUnified, { once: true });
+      visibleRange.addEventListener('load', loadLabelLayout, { once: true });
+      visibleRange.addEventListener('error', loadLabelLayout, { once: true });
     }
   };
 
