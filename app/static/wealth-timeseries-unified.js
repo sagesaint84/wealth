@@ -83,9 +83,7 @@
         background: #0f1830;
         flex-wrap: wrap;
       }
-      .wealth-unified-periods .heatmap-tab {
-        min-width: 42px;
-      }
+      .wealth-unified-periods .heatmap-tab { min-width: 42px; }
       .wealth-unified-chart-shell {
         display: grid;
         grid-template-columns: 74px minmax(0, 1fr);
@@ -186,15 +184,13 @@
         height: 292px;
         overflow: visible;
       }
+      .wealth-unified-flow-bar.is-clickable { cursor: pointer; }
+      .wealth-unified-flow-bar.is-clickable:hover { opacity: .78; }
       .wealth-unified-empty {
         padding: 42px 12px;
         text-align: center;
         color: #8291b4;
         font-size: 12px;
-      }
-      .wealth-unified-title-note {
-        color: #8291b4;
-        font-size: 11px;
       }
       #assetChart, #pnlBarChartWrap, #dividendBarChartWrap, #ledgerTrendContainer, #wealthHistoryPlot {
         min-width: 0;
@@ -209,6 +205,11 @@
     document.head.append(style);
   }
 
+  function trim(value) {
+    const digits = Math.abs(value) >= 100 ? 0 : (Math.abs(value) >= 10 ? 1 : 2);
+    return Number(value.toFixed(digits)).toLocaleString('ko-KR');
+  }
+
   function compactWon(value) {
     const amount = Number(value) || 0;
     const abs = Math.abs(amount);
@@ -216,11 +217,6 @@
     if (abs >= 1e8) return `₩${trim(amount / 1e8)}억`;
     if (abs >= 1e4) return `₩${trim(amount / 1e4)}만`;
     return `₩${Math.round(amount).toLocaleString('ko-KR')}`;
-  }
-
-  function trim(value) {
-    const digits = Math.abs(value) >= 100 ? 0 : (Math.abs(value) >= 10 ? 1 : 2);
-    return Number(value.toFixed(digits)).toLocaleString('ko-KR');
   }
 
   function niceRange(minValue, maxValue, includeZero = false) {
@@ -240,12 +236,10 @@
   }
 
   function ticks(range, count = 5) {
-    const rows = [];
-    for (let i = 0; i < count; i += 1) {
-      const ratio = count === 1 ? 0 : i / (count - 1);
-      rows.push(range.max - ((range.max - range.min) * ratio));
-    }
-    return rows;
+    return Array.from({ length: count }, (_, index) => {
+      const ratio = count === 1 ? 0 : index / (count - 1);
+      return range.max - ((range.max - range.min) * ratio);
+    });
   }
 
   function axisHtml(sections) {
@@ -285,14 +279,6 @@
     });
   }
 
-  function bucketSlot(mode) {
-    if (mode === MODES.DAY) return 42;
-    if (mode === MODES.WEEK) return 52;
-    if (mode === MODES.MONTH) return 58;
-    if (mode === MODES.YEAR) return 70;
-    return 54;
-  }
-
   function initialScale(bucketCount, resolvedMode) {
     const visible = DEFAULT_VISIBLE[resolvedMode] || 16;
     return Math.max(1, bucketCount / Math.max(1, visible));
@@ -305,7 +291,7 @@
 
   function installPanZoom(viewport, content, state, onNeedOlder = null) {
     const apply = () => {
-      const width = Math.max(viewport.clientWidth, viewport.clientWidth * state.scale, state.bucketCount * bucketSlot(state.mode));
+      const width = Math.max(1, viewport.clientWidth) * state.scale;
       content.style.width = `${Math.max(1, width)}px`;
     };
 
@@ -314,13 +300,20 @@
       const clamped = Math.max(1, Math.min(state.maxScale, next));
       if (Math.abs(clamped - previous) < EPSILON) return false;
       const rect = viewport.getBoundingClientRect();
-      const anchor = clientX == null ? viewport.clientWidth / 2 : Math.max(0, Math.min(viewport.clientWidth, clientX - rect.left));
+      const anchor = clientX == null
+        ? viewport.clientWidth / 2
+        : Math.max(0, Math.min(viewport.clientWidth, clientX - rect.left));
       const oldWidth = Math.max(viewport.scrollWidth, viewport.clientWidth * previous);
-      const ratio = oldWidth > 0 ? Math.max(0, Math.min(1, (viewport.scrollLeft + anchor) / oldWidth)) : 1;
+      const ratio = oldWidth > 0
+        ? Math.max(0, Math.min(1, (viewport.scrollLeft + anchor) / oldWidth))
+        : 1;
       state.scale = clamped;
       apply();
-      const newWidth = Math.max(viewport.scrollWidth, viewport.clientWidth * state.scale);
-      viewport.scrollLeft = Math.max(0, Math.min(newWidth - viewport.clientWidth, ratio * newWidth - anchor));
+      const newWidth = Math.max(viewport.clientWidth, viewport.clientWidth * state.scale);
+      viewport.scrollLeft = Math.max(
+        0,
+        Math.min(newWidth - viewport.clientWidth, ratio * newWidth - anchor),
+      );
       return true;
     };
 
@@ -391,7 +384,8 @@
     }, { passive: true });
   }
 
-  function yearText(bucket, index, buckets) {
+  function yearText(bucket, index, mode) {
+    if (mode === MODES.YEAR) return '';
     if (!bucket.yearMarker && index !== 0) return '';
     return `${bucket.year}년`;
   }
@@ -432,7 +426,10 @@
       const fill = value >= 0 ? '#f05268' : '#438ee6';
       return `<rect x="${x(index) - barWidth / 2}" y="${y}" width="${barWidth}" height="${h}" rx="1.5" fill="${fill}" opacity=".94"><title>${html(bucket.label)} · 변화 ${compactWon(value)}</title></rect>`;
     }).join('');
-    const labels = buckets.map((bucket, index) => `<text x="${x(index)}" y="262" fill="#9aacd2" font-size="10" text-anchor="middle">${html(bucket.label)}</text>${yearText(bucket, index, buckets) ? `<text x="${x(index)}" y="280" fill="#6f82ad" font-size="9" font-weight="700" text-anchor="middle">${yearText(bucket, index, buckets)}</text>` : ''}`).join('');
+    const labels = buckets.map((bucket, index) => {
+      const marker = yearText(bucket, index, aggregated.mode);
+      return `<text x="${x(index)}" y="262" fill="#9aacd2" font-size="10" text-anchor="middle">${html(bucket.label)}</text>${marker ? `<text x="${x(index)}" y="280" fill="#6f82ad" font-size="9" font-weight="700" text-anchor="middle">${html(marker)}</text>` : ''}`;
+    }).join('');
     const dots = buckets.map((bucket, index) => `<circle cx="${x(index)}" cy="${lineY(bucket.close)}" r="2.8" fill="#9b8afb"><title>${html(bucket.label)} · ${compactWon(bucket.close)}</title></circle>`).join('');
 
     host.innerHTML = `<div class="wealth-unified-chart-shell" data-unified-kind="${html(options.kind || '')}"><div class="wealth-unified-axis">${axisHtml([
@@ -442,12 +439,11 @@
 
     const viewport = host.querySelector('.wealth-unified-viewport');
     const content = host.querySelector('.wealth-unified-content');
-    const resolved = aggregated.mode;
     installPanZoom(viewport, content, {
-      mode: resolved,
+      mode: aggregated.mode,
       bucketCount: buckets.length,
-      scale: initialScale(buckets.length, resolved),
-      maxScale: maxScale(buckets.length, resolved),
+      scale: initialScale(buckets.length, aggregated.mode),
+      maxScale: maxScale(buckets.length, aggregated.mode),
     }, options.onNeedOlder || null);
   }
 
@@ -483,25 +479,36 @@
         const rectH = Math.max(value === 0 ? 1 : 2, Math.abs(zeroY - py));
         const startX = cx - (barWidth * series.length) / 2;
         const fill = value < 0 ? (item.negativeColor || '#438ee6') : (item.color || '#43d982');
-        return `<rect x="${startX + seriesIndex * barWidth}" y="${rectY}" width="${Math.max(1, barWidth - 1)}" height="${rectH}" rx="1.5" fill="${fill}" opacity=".95"><title>${html(bucket.label)} · ${html(item.label)} ${compactWon(value)}</title></rect>`;
+        const clickable = typeof options.onBucketClick === 'function';
+        return `<rect class="wealth-unified-flow-bar${clickable ? ' is-clickable' : ''}" data-bucket-index="${index}" x="${startX + seriesIndex * barWidth}" y="${rectY}" width="${Math.max(1, barWidth - 1)}" height="${rectH}" rx="1.5" fill="${fill}" opacity=".95"><title>${html(bucket.label)} · ${html(item.label)} ${compactWon(value)}</title></rect>`;
       }).join('');
     }).join('');
 
     const labels = buckets.map((bucket, index) => {
       const cx = left + slot * (index + 0.5);
-      return `<text x="${cx}" y="262" fill="#9aacd2" font-size="10" text-anchor="middle">${html(bucket.label)}</text>${yearText(bucket, index, buckets) ? `<text x="${cx}" y="280" fill="#6f82ad" font-size="9" font-weight="700" text-anchor="middle">${yearText(bucket, index, buckets)}</text>` : ''}`;
+      const marker = yearText(bucket, index, aggregated.mode);
+      return `<text x="${cx}" y="262" fill="#9aacd2" font-size="10" text-anchor="middle">${html(bucket.label)}</text>${marker ? `<text x="${cx}" y="280" fill="#6f82ad" font-size="9" font-weight="700" text-anchor="middle">${html(marker)}</text>` : ''}`;
     }).join('');
 
     host.innerHTML = `<div class="wealth-unified-chart-shell" data-unified-kind="${html(options.kind || '')}"><div class="wealth-unified-axis">${axisHtml([{ range, top, height: bottom - top, count: 5 }])}</div><div class="wealth-unified-viewport"><div class="wealth-unified-content"><svg class="wealth-unified-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${html(options.ariaLabel || '금액 막대 차트')}"><line x1="${left}" y1="${zeroY}" x2="${right}" y2="${zeroY}" stroke="#334673" opacity=".9"/>${bars}${labels}</svg></div></div></div>`;
 
+    if (typeof options.onBucketClick === 'function') {
+      host.querySelectorAll('.wealth-unified-flow-bar[data-bucket-index]').forEach(node => {
+        node.addEventListener('click', event => {
+          const index = Number(event.currentTarget.dataset.bucketIndex);
+          const bucket = buckets[index];
+          if (bucket) options.onBucketClick(bucket, aggregated.mode);
+        });
+      });
+    }
+
     const viewport = host.querySelector('.wealth-unified-viewport');
     const content = host.querySelector('.wealth-unified-content');
-    const resolved = aggregated.mode;
     installPanZoom(viewport, content, {
-      mode: resolved,
+      mode: aggregated.mode,
       bucketCount: buckets.length,
-      scale: initialScale(buckets.length, resolved),
-      maxScale: maxScale(buckets.length, resolved),
+      scale: initialScale(buckets.length, aggregated.mode),
+      maxScale: maxScale(buckets.length, aggregated.mode),
     }, options.onNeedOlder || null);
   }
 
@@ -526,7 +533,7 @@
     renderStateChart(host, aggregated, {
       kind: 'stock',
       ariaLabel: '주식기록 자산 및 기간별 가격변동 손익',
-      changeLabel: `${MODE_LABEL[modes.stock]} 가격변동`,
+      changeLabel: `${MODE_LABEL[aggregated.mode]} 가격변동`,
     });
   }
 
@@ -580,7 +587,7 @@
     renderStateChart(host, aggregated, {
       kind: 'networth',
       ariaLabel: '순자산 및 기간별 변화량',
-      changeLabel: `${MODE_LABEL[modes.networth]} 순자산 변화`,
+      changeLabel: `${MODE_LABEL[aggregated.mode]} 순자산 변화`,
     });
   }
 
@@ -589,8 +596,7 @@
   }
 
   function activeBroker(selectId) {
-    const value = document.getElementById(selectId)?.value || 'all';
-    return value;
+    return document.getElementById(selectId)?.value || 'all';
   }
 
   async function pnlSource() {
@@ -620,9 +626,18 @@
       const aggregated = aggregateFlow(rows, modes.pnl, { fields: ['pnl_value'] });
       renderFlowChart(host, aggregated, [
         { key: 'pnl_value', label: '실현손익', color: '#f05268', negativeColor: '#438ee6' },
-      ], { kind: 'pnl', ariaLabel: '기간별 실현손익' });
+      ], {
+        kind: 'pnl',
+        ariaLabel: '기간별 실현손익',
+        onBucketClick: (bucket, resolvedMode) => {
+          if (resolvedMode !== MODES.MONTH || typeof renderPnlMonthlyDetail !== 'function') return;
+          const month = Number(bucket.key.slice(5, 7));
+          try { selectedPnlMonth = month; } catch (_) {}
+          renderPnlMonthlyDetail(month);
+        },
+      });
       const title = document.getElementById('pnlChartTitle');
-      if (title) title.textContent = `📊 ${MODE_LABEL[modes.pnl]} 실현손익 추이`;
+      if (title) title.textContent = `📊 ${MODE_LABEL[aggregated.mode]} 실현손익 추이`;
     } catch (error) {
       console.error('실현손익 공통 차트 오류:', error);
     }
@@ -658,8 +673,8 @@
     const host = document.getElementById('dividendBarChartWrap');
     const header = host?.closest('.dividend-chart-section')?.querySelector('.dividend-chart-header');
     if (!host || !header || typeof api !== 'function') return;
-    if (dividendMode() !== 'actual') return;
     ensureInjectedControls('dividend', header);
+    if (dividendMode() !== 'actual') return;
     try {
       const source = await dividendSource();
       const rows = [
@@ -670,9 +685,18 @@
       renderFlowChart(host, aggregated, [
         { key: 'dividend_value', label: '배당', color: '#fb7185' },
         { key: 'interest_value', label: '이자', color: '#f6b84a' },
-      ], { kind: 'dividend', ariaLabel: '기간별 실제 배당 및 이자' });
+      ], {
+        kind: 'dividend',
+        ariaLabel: '기간별 실제 배당 및 이자',
+        onBucketClick: (bucket, resolvedMode) => {
+          if (resolvedMode !== MODES.MONTH || typeof renderActualDividendDetail !== 'function') return;
+          const month = Number(bucket.key.slice(5, 7));
+          try { selectedDividendMonth = month; } catch (_) {}
+          renderActualDividendDetail(month);
+        },
+      });
       const title = document.getElementById('dividendChartTitle');
-      if (title) title.textContent = `📊 ${MODE_LABEL[modes.dividend]} 실제 배당·이자 추이`;
+      if (title) title.textContent = `📊 ${MODE_LABEL[aggregated.mode]} 실제 배당·이자 추이`;
     } catch (error) {
       console.error('배당·이자 공통 차트 오류:', error);
     }
@@ -683,9 +707,9 @@
   }
 
   function shiftMonthKey(key, delta) {
-    const [yearText, monthText] = String(key).split('-');
-    let year = Number(yearText);
-    let month = Number(monthText) + delta;
+    const [yearTextValue, monthTextValue] = String(key).split('-');
+    let year = Number(yearTextValue);
+    let month = Number(monthTextValue) + delta;
     while (month < 1) { month += 12; year -= 1; }
     while (month > 12) { month -= 12; year += 1; }
     return monthKey(year, month);
@@ -776,7 +800,9 @@
       const previousEnd = shiftMonthKey(earliest, -1);
       if (usingTransactions) {
         const older = Array.from({ length: 6 }, (_, index) => shiftMonthKey(previousEnd, -(5 - index)));
-        for (const key of older) if (!cache.ledgerTransactions.has(key)) await fetchLedgerMonth(key, true);
+        for (const key of older) {
+          if (!cache.ledgerTransactions.has(key)) await fetchLedgerMonth(key, true);
+        }
       } else {
         await fetchLedgerMonth(previousEnd, false);
       }
@@ -821,7 +847,7 @@
         onNeedOlder: extendLedgerHistory,
       });
       const title = panel.querySelector('h3');
-      if (title) title.textContent = `${MODE_LABEL[modes.ledger]} 현금흐름 추이`;
+      if (title) title.textContent = `${MODE_LABEL[aggregated.mode]} 현금흐름 추이`;
     } catch (error) {
       console.error('가계부 공통 차트 오류:', error);
     }
