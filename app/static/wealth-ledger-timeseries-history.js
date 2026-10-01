@@ -142,7 +142,7 @@
       + `&month=${encodeURIComponent(previousEnd.month)}`
       + `&owner=${encodeURIComponent(owner)}`,
     );
-    if (sequence !== requestSequence || !response) return null;
+    if (sequence !== requestSequence || activeData() !== data || !response) return null;
     return Array.isArray(response.monthly_trend) ? response.monthly_trend : [];
   }
 
@@ -159,7 +159,7 @@
 
     try {
       const older = await fetchOlderChunk(data, sequence);
-      if (!older || sequence !== requestSequence) return;
+      if (!older || sequence !== requestSequence || activeData() !== data) return;
       const merged = mergeTrend(older, oldTrend);
       if (merged.length <= previousCount) return;
 
