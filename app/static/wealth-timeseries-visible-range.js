@@ -187,6 +187,8 @@
     const leftAxis = shell.querySelector('.wealth-unified-axis');
     if (!viewport || !content || !svg || !leftAxis) return;
 
+    const previousViewportWidth = Math.max(viewport.clientWidth, 1);
+    const existingScale = Math.max(1, content.getBoundingClientRect().width / previousViewportWidth);
     shell.classList.add('wealth-visible-state');
     let rightAxis = shell.querySelector('.wealth-unified-axis-right');
     if (!rightAxis) {
@@ -194,6 +196,9 @@
       rightAxis.className = 'wealth-unified-axis wealth-unified-axis-right';
       shell.appendChild(rightAxis);
     }
+    requestAnimationFrame(() => {
+      content.style.width = `${Math.max(1, viewport.clientWidth) * existingScale}px`;
+    });
 
     const lineTop = 18;
     const lineBottom = 160;
