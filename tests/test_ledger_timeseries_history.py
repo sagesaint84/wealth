@@ -43,9 +43,16 @@ class LedgerTimeseriesHistoryTests(unittest.TestCase):
         self.assertIn("${first.year}년 ${first.month}월", self.js)
         self.assertIn("${last.year}년 ${last.month}월", self.js)
 
+    def test_january_labels_show_year_markers(self):
+        self.assertIn("function annotateYearLabels(trend)", self.js)
+        self.assertIn("month === 1", self.js)
+        self.assertIn("yearLabel.className = 'ledger-trend-year'", self.js)
+        self.assertIn("yearLabel.textContent = text", self.js)
+        self.assertIn("MutationObserver", self.js)
+
     def test_loader_adds_history_extension_after_shared_panzoom(self):
         panzoom = self.loader.index("/static/wealth-timeseries-panzoom.js?v=10.6j2")
-        history = self.loader.index("/static/wealth-ledger-timeseries-history.js?v=10.6j3")
+        history = self.loader.index("/static/wealth-ledger-timeseries-history.js?v=10.6j4")
         self.assertLess(panzoom, history)
         self.assertIn("data-wealth-ledger-timeseries-history", self.loader)
 
