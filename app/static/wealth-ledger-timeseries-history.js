@@ -4,6 +4,7 @@
 
   const LEDGER_VIEWPORT = '.wealth-timeseries-viewport[data-panzoom-kind="ledger"]';
   const LEDGER_CHART = '.ledger-trend-chart';
+  const YEAR_STYLE_ID = 'wealthLedgerTimeseriesYearStyles';
   const ZOOM_STEP = 1.16;
   const EPSILON = 0.015;
 
@@ -62,6 +63,61 @@
   function isAnnualView(data) {
     if (data?.__ledger_annual_view) return true;
     return Boolean(window.WealthLedgerPeriodFilter?.isAnnualView?.());
+  }
+
+  function ensureYearLabelStyles() {
+    if (document.getElementById(YEAR_STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = YEAR_STYLE_ID;
+    style.textContent = `
+      #ledgerTrendContainer .ledger-trend-year {
+        display: block;
+        margin-top: 3px;
+        color: #6f82ad;
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 1;
+        white-space: nowrap;
+      }
+      @media (max-width: 720px) {
+        #ledgerTrendContainer .ledger-trend-year {
+          font-size: 8px;
+        }
+      }
+    `;
+    document.head.append(style);
+  }
+
+  function annotateYearLabels(trend) {
+    if (!Array.isArray(trend) || !trend.length) return;
+    const cols = [...document.querySelectorAll('#ledgerTrendContainer .ledger-trend-col')];
+    cols.forEach((col, index) => {
+      const row = trend[index];
+      const label = col.querySelector('.ledger-trend-label');
+      if (!label) return;
+
+      const existing = label.querySelector('.ledger-trend-year');
+      const year = Number(row?.year);
+      const month = Number(row?.month);
+      const shouldShow = Number.isInteger(year) && month === 1;
+
+      if (!shouldShow) {
+        if (existing) existing.remove();
+        return;
+      }
+
+      const text = `${year}년`;
+      if (existing) {
+        if (existing.textContent !== text) existing.textContent = text;
+        return;
+      }
+
+      const yearLabel = document.createElement('span');
+      yearLabel.className = 'ledger-trend-year';
+      yearLabel.textContent = text;
+      yearLabel.setAttribute('aria-label', `${year}년 시작`);
+      label.append(yearLabel);
+    });
   }
 
   function updateTrendHeader(trend) {
@@ -165,6 +221,7 @@
 
       rawLedgerData = { ...data, monthly_trend: merged };
       renderLedgerTrend(merged);
+      annotateYearLabels(merged);
       updateTrendHeader(merged);
       restoreAnnualMonthLinks(merged, rawLedgerData);
       restoreVisibleCount(previousCount, merged.length);
@@ -190,8 +247,32 @@
     void expandHistory(viewport);
   }, { capture: true, passive: false });
 
+  function installYearLabels() {
+    ensureYearLabelStyles();
+    const container = document.getElementById('ledgerTrendContainer');
+    if (!container) return;
+
+    const apply = () => {
+      const data = activeData();
+      if (data) annotateYearLabels(data.monthly_trend);
+    };
+    apply();
+
+    if (typeof MutationObserver === 'function') {
+      const observer = new MutationObserver(apply);
+      observer.observe(container, { childList: true, subtree: true });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installYearLabels, { once: true });
+  } else {
+    installYearLabels();
+  }
+
   window.WealthLedgerTimeseriesHistory = {
     mergeTrend,
+    annotateYearLabels,
     updateTrendHeader,
     expandHistory,
   };
