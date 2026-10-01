@@ -16,6 +16,10 @@ class IncomePeriodBrokerFilterFrontendTests(unittest.TestCase):
         cls.core_js = CORE_JS.read_text(encoding="utf-8")
         cls.filter_js = FILTER_JS.read_text(encoding="utf-8")
         cls.loader_js = LOADER_JS.read_text(encoding="utf-8")
+        # Bulk-clear behavior is deliberately installed later in the same script.
+        # Keep the historical read-only contract scoped to the period/broker filter
+        # implementation itself instead of forbidding unrelated mutations globally.
+        cls.filter_read_only_js = cls.filter_js.split("function pnlClearErrorMessage", 1)[0]
 
     def test_loader_registers_shared_core_before_income_filter(self) -> None:
         self.assertIn("wealthPeriodFilterCoreScript", self.loader_js)
@@ -94,8 +98,8 @@ class IncomePeriodBrokerFilterFrontendTests(unittest.TestCase):
     def test_dividend_filter_keeps_backend_read_only_and_owner_scoped(self) -> None:
         self.assertIn("/api/actual-dividends?owner=${encodeURIComponent(activeOwner)}&year=all", self.filter_js)
         self.assertIn("dividendRequestSequence", self.filter_js)
-        self.assertNotIn("method: 'POST'", self.filter_js)
-        self.assertNotIn("method: 'DELETE'", self.filter_js)
+        self.assertNotIn("method: 'POST'", self.filter_read_only_js)
+        self.assertNotIn("method: 'DELETE'", self.filter_read_only_js)
 
     def test_realized_pnl_has_broker_filter_next_to_year_select(self) -> None:
         self.assertIn("pnlBrokerFilter", self.filter_js)
@@ -106,8 +110,8 @@ class IncomePeriodBrokerFilterFrontendTests(unittest.TestCase):
     def test_broker_filter_uses_existing_record_broker_without_backend_mutation(self) -> None:
         self.assertIn("return text(record?.broker)", self.filter_js)
         self.assertIn("sourceRecords.filter((record) => brokerMatches(record, selectedBroker))", self.filter_js)
-        self.assertNotIn("/api/realized-pnl?", self.filter_js)
-        self.assertNotIn("method: 'POST'", self.filter_js)
+        self.assertNotIn("/api/realized-pnl?", self.filter_read_only_js)
+        self.assertNotIn("method: 'POST'", self.filter_read_only_js)
 
     def test_broker_filter_rebuilds_summary_and_time_buckets(self) -> None:
         for marker in (
