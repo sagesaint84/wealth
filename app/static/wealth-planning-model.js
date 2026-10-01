@@ -65,3 +65,78 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = model;
   else root.WealthPlanningModel = model;
 })(typeof window !== 'undefined' ? window : this);
+
+// Browser-only loaders. Keep the pure model above dependency-free for Node tests.
+if (typeof document !== 'undefined') {
+  if (!document.querySelector('script[data-wealth-timeseries-panzoom]')) {
+    const script = document.createElement('script');
+    script.src = '/static/wealth-timeseries-panzoom.js?v=10.6j2';
+    script.async = false;
+    script.dataset.wealthTimeseriesPanzoom = '1';
+    document.head.append(script);
+  }
+  if (!document.querySelector('script[data-wealth-ledger-timeseries-history]')) {
+    const script = document.createElement('script');
+    script.src = '/static/wealth-ledger-timeseries-history.js?v=10.6j4';
+    script.async = false;
+    script.dataset.wealthLedgerTimeseriesHistory = '1';
+    document.head.append(script);
+  }
+
+  const loadUnifiedTimeseries = () => {
+    if (!window.WealthTimeseriesPeriodCore) return;
+
+    const loadUnified = () => {
+      if (document.querySelector('script[data-wealth-timeseries-unified]')) return;
+      const script = document.createElement('script');
+      script.src = '/static/wealth-timeseries-unified.js?v=10.6k2';
+      script.async = false;
+      script.dataset.wealthTimeseriesUnified = '1';
+      document.head.append(script);
+    };
+
+    const loadLabelLayout = () => {
+      if (document.querySelector('script[data-wealth-timeseries-label-layout]')) {
+        if (window.WealthTimeseriesLabelLayout) loadUnified();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = '/static/wealth-timeseries-label-layout.js?v=10.6k4';
+      script.async = false;
+      script.dataset.wealthTimeseriesLabelLayout = '1';
+      script.addEventListener('load', loadUnified, { once: true });
+      script.addEventListener('error', loadUnified, { once: true });
+      document.head.append(script);
+    };
+
+    let visibleRange = document.querySelector('script[data-wealth-timeseries-visible-range]');
+    if (!visibleRange) {
+      visibleRange = document.createElement('script');
+      visibleRange.src = '/static/wealth-timeseries-visible-range.js?v=10.6k4';
+      visibleRange.async = false;
+      visibleRange.dataset.wealthTimeseriesVisibleRange = '1';
+      visibleRange.addEventListener('load', loadLabelLayout, { once: true });
+      visibleRange.addEventListener('error', loadLabelLayout, { once: true });
+      document.head.append(visibleRange);
+    } else if (window.WealthTimeseriesVisibleRange) {
+      loadLabelLayout();
+    } else {
+      visibleRange.addEventListener('load', loadLabelLayout, { once: true });
+      visibleRange.addEventListener('error', loadLabelLayout, { once: true });
+    }
+  };
+
+  let periodCore = document.querySelector('script[data-wealth-timeseries-period-core]');
+  if (!periodCore) {
+    periodCore = document.createElement('script');
+    periodCore.src = '/static/wealth-timeseries-period-core.js?v=10.6k1';
+    periodCore.async = false;
+    periodCore.dataset.wealthTimeseriesPeriodCore = '1';
+    periodCore.addEventListener('load', loadUnifiedTimeseries, { once: true });
+    document.head.append(periodCore);
+  } else if (window.WealthTimeseriesPeriodCore) {
+    loadUnifiedTimeseries();
+  } else {
+    periodCore.addEventListener('load', loadUnifiedTimeseries, { once: true });
+  }
+}
