@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services import portfolio
+from app.services.ipo import refresh_adapter
 from app.services.ipo.orchestrator import (
     _clear_spac_offer_bands,
     _kind_search_names_for_kis,
@@ -106,11 +107,29 @@ class IpoOrchestratorTests(unittest.TestCase):
         notifier.check_and_notify_events.assert_not_called()
 
     def test_enriched_refresh_wrapper_disables_user_side_effects(self):
-        with patch("app.services.ipo.orchestrator.run_ipo_daily_pipeline", return_value={"status": "ok"}) as pipeline:
-            self.assertEqual(refresh_ipo_market_enriched(username="owner", target_date_str="2026-09-18"), {"status": "ok"})
+        with patch(
+            "app.services.ipo.orchestrator.run_ipo_daily_pipeline",
+            return_value={"status": "ok"},
+        ) as pipeline, patch.object(
+            refresh_adapter,
+            "_run_supplement_and_targeted",
+            return_value=(
+                {"statuses": {}, "total_ipos": 2},
+                {"status": "ok"},
+            ),
+        ):
+            result = refresh_ipo_market_enriched(
+                username="owner",
+                target_date_str="2026-09-18",
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["targeted_dart"], {"status": "ok"})
         pipeline.assert_called_once_with(
-            username="owner", target_date_str="2026-09-18",
-            market_only=False, user_side_effects=False,
+            username="owner",
+            target_date_str="2026-09-18",
+            market_only=False,
+            user_side_effects=False,
         )
 
     def test_spac_identity_supports_canonical_and_legacy_records(self):

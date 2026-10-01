@@ -124,9 +124,9 @@ def parse_naver_ipo_progress_json(raw_json_str: str | dict[str, Any]) -> list[di
     """Parse unfiltered NAVER IPO progress payloads for valid expected dates.
 
     The progress endpoint returns several status-specific ``*List`` containers
-    when ``IpoProgressType`` is omitted.  A blank ``lcalDate`` is normal for
+    when ``IpoProgressType`` is omitted. A blank ``lcalDate`` is normal for
     IPO stages without an announced listing date, so those rows are retained
-    by NAVER but excluded from expected-listing enrichment.  Nonblank invalid
+    by NAVER but excluded from expected-listing enrichment. Nonblank invalid
     values and invalid IPO codes are rejected at item scope: they can never
     become inferred dates, but one malformed secondary row must not discard
     otherwise valid progress rows.
@@ -261,7 +261,6 @@ class NaverIpoClient:
                 if len(page_rows) < page_size:
                     break
             else:
-                # Loop completed without break: max_pages exhausted and last page was still full
                 raise NaverIpoClientError(
                     f"max_pages ({max_pages}) exhausted with full pages: listings exceed limit, partial data prohibited"
                 )
