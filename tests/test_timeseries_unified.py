@@ -69,6 +69,15 @@ class UnifiedTimeseriesTests(unittest.TestCase):
         self.assertIn("renderPnlMonthlyDetail(month)", self.js)
         self.assertIn("renderActualDividendDetail(month)", self.js)
 
+    def test_estimated_dividend_keeps_legacy_chart_without_misleading_period_controls(self):
+        self.assertIn("if (dividendMode() !== 'actual')", self.js)
+        self.assertIn("controls.hidden = true", self.js)
+
+    def test_mutation_observer_does_not_rerender_its_own_owned_chart(self):
+        self.assertIn("function hostNeedsUnified(hostId)", self.js)
+        self.assertIn("wealth-unified-chart-shell", self.js)
+        self.assertIn("if (hostNeedsUnified('assetChart'))", self.js)
+
     def test_ledger_can_continue_loading_older_history_at_zoom_boundary(self):
         self.assertIn("onNeedOlder: extendLedgerHistory", self.js)
         self.assertIn("shiftMonthKey(earliest, -1)", self.js)
