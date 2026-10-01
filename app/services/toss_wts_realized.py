@@ -13,6 +13,8 @@ import math
 import re
 from typing import Any, Iterable, Mapping
 
+from app.services.toss_wts_stock_code import canonicalize_toss_wts_stock_code
+
 
 TOSS_WTS_BROKER = "토스증권"
 _SUPPORTED_MARKETS = frozenset({"kr", "us"})
@@ -206,11 +208,14 @@ def map_toss_wts_profit_row(
     owner: str,
     profit_rate_basis: str,
     fetched_at: str,
+    provider_product_code: str | None = None,
 ) -> dict[str, Any]:
     """Return an unstored import candidate from one canonical WTS daily-profit row.
 
     ``is_ipo`` is a Wealth compatibility default, not an assertion that Toss
     classified the transaction as non-IPO.  WTS does not provide that signal.
+    The top-level code is canonicalized for Wealth while source metadata keeps
+    the raw provider product code used by the v1 fingerprint.
     """
     if not isinstance(row, Mapping):
         raise ValueError("row must be a mapping")
@@ -224,7 +229,13 @@ def map_toss_wts_profit_row(
         raise ValueError("unsupported profit_rate_basis")
 
     date = _require_text(row.get("date"), "date")
-    code = _require_text(row.get("product_code"), "product_code")
+    display_product_code = _require_text(row.get("product_code"), "product_code")
+    raw_product_code = (
+        _require_text(provider_product_code, "provider_product_code")
+        if provider_product_code is not None
+        else display_product_code
+    )
+    code = canonicalize_toss_wts_stock_code(market_type, raw_product_code)
     name = _require_text(row.get("name"), "name")
     symbol = _require_text(row.get("symbol"), "symbol", allow_empty=True)
     quantity = _finite_number(row.get("quantity"), "quantity")
@@ -273,7 +284,7 @@ def map_toss_wts_profit_row(
         "source_meta": {
             "market_type": market_type,
             "symbol": symbol,
-            "product_code": code,
+            "product_code": raw_product_code,
             "quantity": quantity,
             "profit_rate": profit_rate,
             "profit_rate_basis": basis,
@@ -299,7 +310,7 @@ def preview_toss_wts_realized_selection(
     Zero financial writes. Enforces row token integrity and binds rows
     to the current active WTS runtime generation.
     """
-    from app.services.toss_wts_feed import verify_realized_feed_row_token
+    from app.services.toss_wts_feed import get_verified_realized_feed_provider_product_code
 
     destination_account_name = str(
         destination_account.get("account_name") or destination_account.get("name") or ""
@@ -347,10 +358,10 @@ def preview_toss_wts_realized_selection(
         if not isinstance(token, str):
             token = ""
 
-        valid, err_code = verify_realized_feed_row_token(
+        provider_product_code, err_code = get_verified_realized_feed_provider_product_code(
             row, token, user_id=user_id, current_generation_id=current_generation_id
         )
-        if not valid:
+        if provider_product_code is None:
             counts["invalid"] += 1
             classified_items.append({
                 "index": idx,
@@ -368,6 +379,7 @@ def preview_toss_wts_realized_selection(
                 owner=destination_owner,
                 profit_rate_basis=profit_rate_basis,
                 fetched_at=str(row.get("fetched_at") or "unspecified"),
+                provider_product_code=provider_product_code,
             )
             candidate["broker"] = destination_broker or TOSS_WTS_BROKER
             fingerprint = build_toss_wts_realized_fingerprint(candidate)
