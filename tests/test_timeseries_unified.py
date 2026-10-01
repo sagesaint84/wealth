@@ -82,9 +82,11 @@ class UnifiedTimeseriesTests(unittest.TestCase):
         self.assertIn("onNeedOlder: extendLedgerHistory", self.js)
         self.assertIn("shiftMonthKey(earliest, -1)", self.js)
 
-    def test_loader_orders_period_core_before_unified_adapter(self):
+    def test_loader_orders_period_core_visible_range_and_unified_adapter(self):
         self.assertIn("/static/wealth-timeseries-period-core.js?v=10.6k1", self.loader)
-        self.assertIn("/static/wealth-timeseries-unified.js?v=10.6k1", self.loader)
+        self.assertIn("/static/wealth-timeseries-visible-range.js?v=10.6k2", self.loader)
+        self.assertIn("/static/wealth-timeseries-unified.js?v=10.6k2", self.loader)
+        self.assertIn("visibleRange.addEventListener('load', loadUnified", self.loader)
         self.assertIn("periodCore.addEventListener('load', loadUnifiedTimeseries", self.loader)
 
 
