@@ -1,10 +1,10 @@
 """One-time, conservative migration for legacy Toss WTS Korean income codes.
 
-The Toss provider may return Korean security codes with an ``A`` prefix, while
-wealth stores Korean listed securities as six digits. This migration only
-rewrites records that are already identified as Toss WTS Korean dividend or
-distribution income. Provider identity and the existing source fingerprint are
-preserved.
+The Toss provider may return Korean security short codes with an ``A`` prefix,
+while wealth stores the six-character short code without that provider prefix.
+This migration only rewrites records already identified as Toss WTS Korean
+dividend or distribution income. Provider identity and the existing source
+fingerprint are preserved.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import Any
 
 from app.services.user_manager import DATA_DIR, USERS_DIR
 
-_LEGACY_KR_CODE_RE = re.compile(r"^A(\d{6})$")
+_LEGACY_KR_CODE_RE = re.compile(r"^A([0-9A-Z]{6})$")
 _SUPPORTED_TYPES = frozenset({"dividend", "distribution"})
 
 
