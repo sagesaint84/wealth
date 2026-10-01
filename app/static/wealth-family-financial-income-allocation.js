@@ -154,7 +154,7 @@
   async function loadWealthExtensions() {
     try {
       await loadScriptOnce('wealthPeriodFilterCoreScript', '/static/wealth-period-filter-core.js?v=10.6f1');
-      await loadScriptOnce('wealthIncomePeriodBrokerFilterScript', '/static/wealth-income-period-broker-filter.js?v=10.6f1');
+      await loadScriptOnce('wealthIncomePeriodBrokerFilterScript', '/static/wealth-income-period-broker-filter.js?v=10.6p1');
       await loadScriptOnce('wealthPnlYearIntentScript', '/static/wealth-pnl-year-intent.js?v=10.6f2');
       await loadScriptOnce('wealthLedgerPeriodFilterScript', '/static/wealth-ledger-period-filter.js?v=10.6f1');
       await loadScriptOnce('wealthKftcRetirementScript', '/static/wealth-kftc-retirement.js?v=10.6f1');
