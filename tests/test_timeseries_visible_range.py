@@ -14,10 +14,18 @@ class TimeseriesVisibleRangeTests(unittest.TestCase):
         self.assertIn("paddedRange(visible.map(bucket => bucket.close), false)", self.js)
         self.assertIn("visibleValues.push(finite(bucket.values?.[key]))", self.js)
 
-    def test_state_charts_split_asset_and_change_axes(self):
+    def test_state_charts_split_asset_and_change_axes_without_titles(self):
         self.assertIn("wealth-unified-axis-right", self.js)
-        self.assertIn("kind === 'stock' ? '총자산' : '순자산'", self.js)
-        self.assertIn("kind === 'stock' ? '기간 손익' : '기간 변화'", self.js)
+        self.assertIn("leftAxis.innerHTML = axisHtml(lineRange", self.js)
+        self.assertIn("rightAxis.innerHTML = axisHtml(changeRange", self.js)
+        self.assertNotIn("const leftCaption", self.js)
+        self.assertNotIn("const rightCaption", self.js)
+
+    def test_state_axis_middle_ticks_stay_centered(self):
+        self.assertIn(".wealth-unified-chart-shell.wealth-visible-state .wealth-unified-axis-label {", self.js)
+        self.assertIn("transform: none;", self.js)
+        self.assertIn(".wealth-unified-axis-label:first-child", self.js)
+        self.assertIn(".wealth-unified-axis-label:last-child", self.js)
 
     def test_daily_labels_are_thinned_by_visible_pixel_spacing(self):
         self.assertIn("function thinXAxisLabels", self.js)
