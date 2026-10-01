@@ -69,7 +69,7 @@
 // Browser-only loader. Keep the pure model above dependency-free for Node tests.
 if (typeof document !== 'undefined' && !document.querySelector('script[data-wealth-timeseries-panzoom]')) {
   const script = document.createElement('script');
-  script.src = '/static/wealth-timeseries-panzoom.js?v=10.6j1';
+  script.src = '/static/wealth-timeseries-panzoom.js?v=10.6j2';
   script.async = false;
   script.dataset.wealthTimeseriesPanzoom = '1';
   document.head.append(script);
