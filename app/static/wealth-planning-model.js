@@ -82,4 +82,28 @@ if (typeof document !== 'undefined') {
     script.dataset.wealthLedgerTimeseriesHistory = '1';
     document.head.append(script);
   }
+
+  const loadUnifiedTimeseries = () => {
+    if (!window.WealthTimeseriesPeriodCore) return;
+    if (document.querySelector('script[data-wealth-timeseries-unified]')) return;
+    const script = document.createElement('script');
+    script.src = '/static/wealth-timeseries-unified.js?v=10.6k1';
+    script.async = false;
+    script.dataset.wealthTimeseriesUnified = '1';
+    document.head.append(script);
+  };
+
+  let periodCore = document.querySelector('script[data-wealth-timeseries-period-core]');
+  if (!periodCore) {
+    periodCore = document.createElement('script');
+    periodCore.src = '/static/wealth-timeseries-period-core.js?v=10.6k1';
+    periodCore.async = false;
+    periodCore.dataset.wealthTimeseriesPeriodCore = '1';
+    periodCore.addEventListener('load', loadUnifiedTimeseries, { once: true });
+    document.head.append(periodCore);
+  } else if (window.WealthTimeseriesPeriodCore) {
+    loadUnifiedTimeseries();
+  } else {
+    periodCore.addEventListener('load', loadUnifiedTimeseries, { once: true });
+  }
 }
