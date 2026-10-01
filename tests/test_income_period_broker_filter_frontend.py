@@ -25,7 +25,7 @@ class IncomePeriodBrokerFilterFrontendTests(unittest.TestCase):
         self.assertIn("wealthPeriodFilterCoreScript", self.loader_js)
         self.assertIn("/static/wealth-period-filter-core.js?v=10.6f1", self.loader_js)
         self.assertIn("wealthIncomePeriodBrokerFilterScript", self.loader_js)
-        self.assertIn("/static/wealth-income-period-broker-filter.js?v=10.6f1", self.loader_js)
+        self.assertIn("/static/wealth-income-period-broker-filter.js?v=10.6p1", self.loader_js)
         self.assertLess(
             self.loader_js.index("wealthPeriodFilterCoreScript"),
             self.loader_js.index("wealthIncomePeriodBrokerFilterScript"),

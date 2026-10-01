@@ -26,11 +26,15 @@ def test_bulk_clear_maps_linked_ipo_error_to_actionable_korean_message():
     assert "공모주 매도 연결을 먼저 해제해 주세요." in source
 
 
-def test_bulk_clear_warns_that_broker_filter_does_not_scope_global_clear():
+def test_selected_broker_bulk_clear_is_scoped_to_that_broker():
     source = _source()
 
-    assert "현재 ${broker} 필터가 선택되어 있지만 일괄삭제는 필터와 관계없이 모든 증권사의 실현손익을 삭제합니다." in source
-    assert "fetch('/api/realized-pnl/clear'" in source
+    assert "function clearPnlRequestUrl()" in source
+    assert "if (selectedBroker === 'all') return '/api/realized-pnl/clear';" in source
+    assert "`/api/realized-pnl/clear?broker=${encodeURIComponent(selectedBroker)}`" in source
+    assert "fetch(clearPnlRequestUrl()" in source
+    assert "${broker} 실현손익만 일괄 삭제하시겠습니까?" in source
+    assert "다른 증권사의 실현손익은 유지됩니다." in source
 
 
 def test_bulk_clear_keeps_referential_integrity_failure_as_failure():

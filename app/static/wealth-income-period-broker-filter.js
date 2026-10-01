@@ -428,12 +428,17 @@
     return '실현손익 일괄삭제 요청을 처리하지 못했습니다.';
   }
 
+  function clearPnlRequestUrl() {
+    if (selectedBroker === 'all') return '/api/realized-pnl/clear';
+    return `/api/realized-pnl/clear?broker=${encodeURIComponent(selectedBroker)}`;
+  }
+
   function clearAllPnlConfirmationMessage() {
     if (selectedBroker === 'all') {
       return '정말로 모든 매도 실현손익 기록을 일괄 삭제하시겠습니까?\n삭제된 내역은 복구할 수 없습니다.';
     }
     const broker = selectedBroker === '__unassigned__' ? '증권사 미지정' : selectedBroker;
-    return `현재 ${broker} 필터가 선택되어 있지만 일괄삭제는 필터와 관계없이 모든 증권사의 실현손익을 삭제합니다.\n정말 계속하시겠습니까? 삭제된 내역은 복구할 수 없습니다.`;
+    return `${broker} 실현손익만 일괄 삭제하시겠습니까?\n다른 증권사의 실현손익은 유지됩니다. 삭제된 내역은 복구할 수 없습니다.`;
   }
 
   async function refreshAfterPnlClear() {
@@ -459,7 +464,7 @@
 
     button.disabled = true;
     try {
-      const response = await fetch('/api/realized-pnl/clear', {
+      const response = await fetch(clearPnlRequestUrl(), {
         method: 'POST',
         credentials: 'include',
       });
@@ -469,7 +474,7 @@
       }
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(pnlClearErrorMessage(result));
-      if (typeof toast === 'function') toast(result.message || '모든 매도 실현손익 기록이 삭제되었습니다.');
+      if (typeof toast === 'function') toast(result.message || '실현손익 기록이 삭제되었습니다.');
       await refreshAfterPnlClear();
     } catch (error) {
       if (typeof toast === 'function') {
@@ -534,6 +539,7 @@
     clearDividendMonthForYearSelection,
     syncDividendAnnualLabel,
     pnlClearErrorMessage,
+    clearPnlRequestUrl,
     clearAllPnlConfirmationMessage,
   };
 })();
