@@ -37,6 +37,31 @@ class TimeseriesPanzoomTests(unittest.TestCase):
         self.assertIn("startScrollLeft - delta", self.js)
         self.assertIn("cursor: grab", self.js)
 
+    def test_ledger_viewport_is_width_constrained(self):
+        self.assertIn("grid-template-columns: 68px minmax(0, 1fr)", self.js)
+        self.assertIn("#ledgerTrendContainer", self.js)
+        self.assertIn("min-width: 0 !important", self.js)
+        self.assertIn("max-width: 100% !important", self.js)
+        self.assertIn("overflow: hidden", self.js)
+        self.assertIn("constrainRoot: true", self.js)
+
+    def test_all_three_charts_get_fixed_amount_axes(self):
+        for marker in (
+            "axisRange: ledgerAxisRange",
+            "axisRange: stockAxisRange",
+            "axisRange: netWorthAxisRange",
+            "wealth-timeseries-axis",
+            "formatWonAxis",
+            "₩${trimDecimal(abs / 100_000_000)}억",
+        ):
+            self.assertIn(marker, self.js)
+
+    def test_amount_axis_uses_existing_chart_values(self):
+        self.assertIn(".ledger-bar-inc[title], .ledger-bar-exp[title]", self.js)
+        self.assertIn(".record-chart-meta div:nth-child(3) strong", self.js)
+        self.assertIn(".wealth-history-point circle title", self.js)
+        self.assertIn("Math.max(100000, ...values)", self.js)
+
     def test_mobile_pinch_and_native_single_finger_pan_are_supported(self):
         self.assertIn("touch-action: pan-x pan-y", self.js)
         self.assertIn("event.touches.length !== 2", self.js)
@@ -52,9 +77,13 @@ class TimeseriesPanzoomTests(unittest.TestCase):
         self.assertIn("new MutationObserver(queueScan)", self.js)
         self.assertIn("wealthPanzoomEnhanced", self.js)
 
+    def test_resize_observer_has_window_fallback(self):
+        self.assertIn("typeof ResizeObserver === 'function'", self.js)
+        self.assertIn("window.addEventListener('resize', handleResize", self.js)
+
     def test_loader_is_browser_only_and_versioned(self):
         self.assertIn("typeof document !== 'undefined'", self.loader)
-        self.assertIn("/static/wealth-timeseries-panzoom.js?v=10.6j1", self.loader)
+        self.assertIn("/static/wealth-timeseries-panzoom.js?v=10.6j2", self.loader)
         self.assertIn("data-wealth-timeseries-panzoom", self.loader)
 
 
