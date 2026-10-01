@@ -33,8 +33,26 @@ class IpoMarketRefreshTests(unittest.TestCase):
             p.mkdir(parents=True, exist_ok=True)
             return p
         self.user_dir_patch = patch("app.services.user_manager.get_user_data_dir", side_effect=_get_user_dir)
-        self.market_patch.start(); self.portfolio_patch.start(); self.ipo_dir_patch.start(); self.user_dir_patch.start()
-        self.addCleanup(self.market_patch.stop); self.addCleanup(self.portfolio_patch.stop); self.addCleanup(self.ipo_dir_patch.stop); self.addCleanup(self.user_dir_patch.stop)
+
+        def _get_user_openapi_file(u):
+            return root / "users" / str(u).strip() / "openapi_config.json"
+
+        self.openapi_file_patch = patch(
+            "app.services.user_openapi._get_user_openapi_file",
+            side_effect=_get_user_openapi_file,
+        )
+
+        self.market_patch.start()
+        self.portfolio_patch.start()
+        self.ipo_dir_patch.start()
+        self.user_dir_patch.start()
+        self.openapi_file_patch.start()
+
+        self.addCleanup(self.market_patch.stop)
+        self.addCleanup(self.portfolio_patch.stop)
+        self.addCleanup(self.ipo_dir_patch.stop)
+        self.addCleanup(self.user_dir_patch.stop)
+        self.addCleanup(self.openapi_file_patch.stop)
 
     def test_market_only_pipeline_never_notifies_or_mutates_applications(self):
         notifier = MagicMock()
