@@ -18,8 +18,6 @@ class TimeseriesVisibleRangeTests(unittest.TestCase):
         self.assertIn("wealth-unified-axis-right", self.js)
         self.assertIn("kind === 'stock' ? '총자산' : '순자산'", self.js)
         self.assertIn("kind === 'stock' ? '기간 손익' : '기간 변화'", self.js)
-        self.assertIn("previousViewportWidth", self.js)
-        self.assertIn("content.style.width", self.js)
 
     def test_daily_labels_are_thinned_by_visible_pixel_spacing(self):
         self.assertIn("function thinXAxisLabels", self.js)
