@@ -1629,3 +1629,19 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
     min-width: 760px;
   }
 }
+
+/* Broker realized import preview readability */
+.broker-import-item-name {
+  font-size: 15px !important;
+  line-height: 1.35;
+  font-weight: 700;
+}
+.broker-import-pnl {
+  font-variant-numeric: tabular-nums;
+}
+.broker-import-pnl.pnl-positive {
+  color: var(--red, #ff718c) !important;
+}
+.broker-import-pnl.pnl-negative {
+  color: var(--blue, #54a8ff) !important;
+}

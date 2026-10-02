@@ -13896,17 +13896,26 @@ function updateWtsSelectionUI() {
 function populateWtsAccounts() {
   const select = document.getElementById('wtsDestinationAccount');
   if (!select) return;
-  const accounts = (dashboard && dashboard.accounts) || [];
+
+  const accounts = ((dashboard && dashboard.accounts) || []).filter(account => {
+    const broker = String(account.broker || '').trim().toLowerCase();
+    return broker.includes('토스') || broker.includes('toss');
+  });
+
   const currentVal = select.value;
-  select.innerHTML = '<option value="">귀속할 Wealth 계좌를 선택하세요</option>' +
+
+  select.innerHTML = '<option value="">토스증권 계좌를 선택하세요</option>' +
     accounts.map(acc => {
-      const broker = acc.broker || '기타';
+      const broker = acc.broker || '토스증권';
       const name = maskAccountDisplayLabel(acc.account_name || acc.name || '계좌');
       const owner = acc.owner ? ` (${acc.owner})` : '';
       return `<option value="${html(acc.id)}">${html(broker)} - ${html(name)}${html(owner)}</option>`;
     }).join('');
+
   if (currentVal && accounts.some(a => String(a.id) === currentVal)) {
     select.value = currentVal;
+  } else if (accounts.length === 1) {
+    select.value = String(accounts[0].id || '');
   }
 }
 
@@ -14807,6 +14816,25 @@ function setModalRecalculating(overlayId, isRecalculating) {
   }
 }
 
+function brokerImportPnlPresentation(candidate, value) {
+  const numeric = Number(value ?? 0);
+  const amount = Number.isFinite(numeric) ? numeric : 0;
+  const market = String(candidate?.market_type || candidate?.market || '').trim().toUpperCase();
+  const currency = String(
+    candidate?.currency || (market === 'US' || market === 'OVERSEAS' ? 'USD' : 'KRW')
+  ).trim().toUpperCase();
+
+  const sign = amount > 0 ? '+' : (amount < 0 ? '-' : '');
+  const absolute = Math.abs(amount);
+  const text = currency === 'USD'
+    ? `${sign}$${number(absolute, 2)}`
+    : `${sign}₩${money(absolute)}`;
+  const toneClass = amount > 0
+    ? 'pnl-positive'
+    : (amount < 0 ? 'pnl-negative' : '');
+  return { text, toneClass };
+}
+
 function renderBrokerImportPreviewDetails(data, overlayId) {
   const overlay = document.getElementById(overlayId);
   const modalBody = overlay?.querySelector('.toss-wts-modal-body');
@@ -14846,11 +14874,13 @@ function renderBrokerImportPreviewDetails(data, overlayId) {
     const candidate = item.candidate || {};
     const itemName = candidate.name || candidate.prdt_name || candidate.code || `선택 항목 ${item.index + 1}`;
     const itemDate = candidate.date || '';
+    const providerPnl = brokerImportPnlPresentation(candidate, choice.provider_realized_pnl ?? candidate.pnl ?? 0);
+    const finalPnl = brokerImportPnlPresentation(candidate, choice.final_wealth_pnl ?? choice.provider_realized_pnl ?? candidate.pnl ?? 0);
 
     return `<div class="broker-import-modal-row" data-feed-index="${feedIndex}" data-item-index="${item.index}" style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:8px;">` +
       `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">` +
         `<div>` +
-          `<strong>${html(itemName)}</strong>` +
+          `<strong class="broker-import-item-name">${html(itemName)}</strong>` +
           `${itemDate ? `<span class="muted" style="font-size:12px;margin-left:6px;">(${html(itemDate)})</span>` : ''}` +
         `</div>` +
         `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">` +
@@ -14868,10 +14898,10 @@ function renderBrokerImportPreviewDetails(data, overlayId) {
       `<div class="modal-broker-effect" style="margin-top:6px;font-size:12px;color:var(--text-muted);">` +
         (isIpo ? (
           `유형: <strong>공모주</strong> · 공모청약비 ${html(Number(choice.ipo_subscription_fee_krw ?? currentFee ?? 0).toLocaleString('ko-KR'))}원 · ` +
-          `제공사 손익 ${html(Number(choice.provider_realized_pnl || 0).toLocaleString('ko-KR'))} · 최종 Wealth 손익 <strong style="color:var(--text-color);">${html(Number(choice.final_wealth_pnl || 0).toLocaleString('ko-KR'))}</strong>` +
+          `제공사 손익 <strong class="broker-import-pnl ${providerPnl.toneClass}">${html(providerPnl.text)}</strong> · 최종 Wealth 손익 <strong class="broker-import-pnl ${finalPnl.toneClass}">${html(finalPnl.text)}</strong>` +
           `${choice.memo ? `<br><span class="muted">메모: ${html(choice.memo)}</span>` : ''}`
         ) : (
-          `유형: <strong>일반주식</strong> · 최종 Wealth 손익 <strong style="color:var(--text-color);">${html(Number(choice.final_wealth_pnl || choice.provider_realized_pnl || 0).toLocaleString('ko-KR'))}</strong>` +
+          `유형: <strong>일반주식</strong> · 최종 Wealth 손익 <strong class="broker-import-pnl ${finalPnl.toneClass}">${html(finalPnl.text)}</strong>` +
           `${choice.memo ? `<br><span class="muted">메모: ${html(choice.memo)}</span>` : ''}`
         )) +
       `</div>` +
