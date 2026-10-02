@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STORE = ROOT / "app" / "services" / "ipo" / "store.py"
 REMINDERS = ROOT / "app" / "services" / "ipo" / "reminders.py"
 ORCHESTRATOR = ROOT / "app" / "services" / "ipo" / "orchestrator.py"
+REMINDER_TEST = ROOT / "tests" / "test_ipo_subscription_reminders.py"
 
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
@@ -70,11 +71,13 @@ def patch_store() -> None:
 
 def patch_reminders() -> None:
     text = REMINDERS.read_text(encoding="utf-8")
-    old = '''        if end < start or not (start <= current <= end):
+    text = replace_once(
+        text,
+        '''        if end < start or not (start <= current <= end):
             continue
         ipo_id = str(ipo.get("ipo_id") or "").strip()
-'''
-    new = '''        if end < start:
+''',
+        '''        if end < start:
             continue
         is_first_day = current == start
         is_last_day = current == end
@@ -87,8 +90,9 @@ def patch_reminders() -> None:
         else:
             phase_label = "청약 마지막날"
         ipo_id = str(ipo.get("ipo_id") or "").strip()
-'''
-    text = replace_once(text, old, new, "reminder boundary eligibility")
+''',
+        "reminder boundary eligibility",
+    )
     text = replace_once(
         text,
         '            f"📌 <b>공모주 청약 확인 — {reminder_slot[:2]}:{reminder_slot[2:]}</b>\\n"\n',
@@ -128,27 +132,63 @@ def patch_orchestrator() -> None:
     )
     text = replace_once(
         text,
+        '''    market_only: bool = False,
+    user_side_effects: bool = True,
+) -> dict[str, Any]:
+''',
+        '''    market_only: bool = False,
+    user_side_effects: bool = True,
+    interactive_fast: bool = False,
+) -> dict[str, Any]:
+''',
+        "public pipeline interactive_fast parameter",
+    )
+    text = replace_once(
+        text,
+        '''            market_only=market_only, user_side_effects=user_side_effects,
+        )
+''',
+        '''            market_only=market_only, user_side_effects=user_side_effects,
+            interactive_fast=interactive_fast,
+        )
+''',
+        "pipeline pass interactive_fast",
+    )
+    text = replace_once(
+        text,
+        '''    market_only: bool = False, user_side_effects: bool = True,
+) -> dict[str, Any]:
+''',
+        '''    market_only: bool = False, user_side_effects: bool = True,
+    interactive_fast: bool = False,
+) -> dict[str, Any]:
+''',
+        "private pipeline interactive_fast parameter",
+    )
+    text = replace_once(
+        text,
         '''    # Check KRX & NAVER
     sources_status["krx"] = "pending"
     sources_status["naver"] = "pending"
 ''',
         '''    # KRX/NAVER completed-listing confirmation is historical reconciliation.
-    # Keep interactive market-only refresh focused on current schedules; the
-    # enriched daily pipeline still performs the full confirmation scan.
-    sources_status["krx"] = "not_requested (market_only)" if market_only else "pending"
-    sources_status["naver"] = "not_requested (market_only)" if market_only else "pending"
+    # The interactive button can skip it while scheduled/enriched refresh paths
+    # retain the existing full confirmation behavior.
+    skip_historical_confirmation = bool(market_only and interactive_fast)
+    sources_status["krx"] = "not_requested (interactive_fast)" if skip_historical_confirmation else "pending"
+    sources_status["naver"] = "not_requested (interactive_fast)" if skip_historical_confirmation else "pending"
 ''',
-        "market-only secondary source status",
+        "interactive secondary source status",
     )
 
     start = text.index("    # 5. KRX master data fetch")
     end = text.index("    # 6. Reconcile", start)
-    new_section = '''    # 5. KRX master data fetch.  Manual market-only refresh intentionally skips
-    # historical listing confirmation; otherwise a button click waits for both
-    # the KRX master and NAVER's paginated completed-listing history.
+    new_section = '''    # 5. KRX master data fetch.  The explicit interactive fast path skips
+    # historical confirmation so a manual schedule refresh does not wait for
+    # the KRX master plus NAVER's paginated completed-listing history.
     krx_master: list[dict[str, Any]] = []
     krx_fetch_ok = False
-    if not market_only:
+    if not skip_historical_confirmation:
         try:
             if not hasattr(krx, "fetch_listed_master"):
                 raise NotImplementedError("KRX listed master client capability unavailable")
@@ -163,12 +203,11 @@ def patch_orchestrator() -> None:
             logger.warning("KRX sync error: %s", e)
             sources_status["krx"] = f"source_error ({e})"
 
-    # 5.1 NAVER completed listings fetch.  This endpoint is paginated over the
-    # full completed history (hundreds of records), so it belongs to the daily
-    # enriched reconciliation path rather than the interactive schedule refresh.
+    # 5.1 NAVER completed listings fetch.  Full historical reconciliation stays
+    # in all non-interactive refresh paths, including the enriched daily job.
     naver_completed: list[dict[str, Any]] = []
     naver_fetch_ok = False
-    if not market_only:
+    if not skip_historical_confirmation:
         try:
             if not hasattr(naver, "fetch_completed_listings"):
                 raise NotImplementedError("NAVER IPO completed-listing client capability unavailable")
@@ -185,13 +224,47 @@ def patch_orchestrator() -> None:
 
 '''
     text = text[:start] + new_section + text[end:]
+    text = replace_once(
+        text,
+        '''        market_only=True,
+    )
+
+
+def refresh_ipo_market_enriched''',
+        '''        market_only=True,
+        interactive_fast=True,
+    )
+
+
+def refresh_ipo_market_enriched''',
+        "interactive refresh wrapper fast flag",
+    )
     ORCHESTRATOR.write_text(text, encoding="utf-8")
+
+
+def patch_existing_reminder_test() -> None:
+    text = REMINDER_TEST.read_text(encoding="utf-8")
+    text = replace_once(
+        text,
+        '''        self.assertIn("배우자, 자녀", message)
+        self.assertIn("증권사별 실제 청약 접수 마감 시간을 확인", message)
+        self.assertNotIn("16:00", message)
+''',
+        '''        self.assertIn("배우자, 자녀", message)
+        self.assertIn("공모주 청약 첫째날 — 15:00", message)
+        self.assertNotIn("증권사별 실제 청약 접수 마감 시간을 확인", message)
+        self.assertNotIn("16:00", message)
+''',
+        "existing first-day reminder expectation",
+    )
+    REMINDER_TEST.write_text(text, encoding="utf-8")
 
 
 def main() -> None:
     patch_store()
     patch_reminders()
     patch_orchestrator()
+    patch_existing_reminder_test()
     print("PR82_IPO_BOUNDARY_AND_FAST_REFRESH_PATCHED")
 
 
