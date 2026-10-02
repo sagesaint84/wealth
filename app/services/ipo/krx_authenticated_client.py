@@ -1,14 +1,11 @@
 """Authenticated KRX client for explicit historical IPO reconciliation.
 
-KRX Data Marketplace requires a logged-in session for data requests in the
-current production service.  This module keeps that authentication requirement
-isolated to the explicit historical-sync path; routine IPO refreshes never use
-it.
+KRX Data Marketplace credentials are resolved from the current Wealth user's
+isolated data directory. Routine IPO refreshes never use this client.
 """
 from __future__ import annotations
 
 from datetime import datetime
-import os
 import threading
 import time
 from typing import Any
@@ -16,6 +13,7 @@ from typing import Any
 import httpx
 
 from app.services.network_policy import require_external_network
+from app.services.user_krx_credentials import load_user_krx_credentials
 from app.services.ipo.krx_client import (
     KRX_JSON_PATH,
     KrxClient,
@@ -41,15 +39,19 @@ class KrxAuthenticationError(KrxClientError):
 class AuthenticatedKrxHistoricalClient(KrxClient):
     """KRX historical client that maintains one authenticated HTTP session."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, *, username: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.username = str(username or "").strip()
+        if not self.username:
+            raise KrxAuthenticationError("KRX 사용자 컨텍스트를 확인할 수 없습니다.")
         self._session: httpx.Client | None = None
         self._session_expires_at = 0.0
         self._session_lock = threading.RLock()
 
     @staticmethod
-    def credentials_configured() -> bool:
-        return bool(os.getenv("KRX_ID", "").strip() and os.getenv("KRX_PW", "").strip())
+    def credentials_configured(username: str) -> bool:
+        credentials = load_user_krx_credentials(username)
+        return bool(credentials["login_id"] and credentials["password"])
 
     def close(self) -> None:
         with self._session_lock:
@@ -58,15 +60,19 @@ class AuthenticatedKrxHistoricalClient(KrxClient):
             self._session = None
             self._session_expires_at = 0.0
 
-    def _login(self) -> httpx.Client:
-        login_id = os.getenv("KRX_ID", "").strip()
-        login_pw = os.getenv("KRX_PW", "").strip()
+    def _credentials(self) -> tuple[str, str]:
+        credentials = load_user_krx_credentials(self.username)
+        login_id = credentials["login_id"].strip()
+        login_pw = credentials["password"]
         if not login_id or not login_pw:
             raise KrxAuthenticationError(
                 "KRX 전체 과거자료 조회에는 KRX Data Marketplace 로그인 정보가 필요합니다. "
-                "서버에 KRX_ID와 KRX_PW를 설정한 뒤 다시 시도해 주세요."
+                "OpenAPI 설정에서 KRX 아이디와 비밀번호를 저장한 뒤 다시 시도해 주세요."
             )
+        return login_id, login_pw
 
+    def _login(self) -> httpx.Client:
+        login_id, login_pw = self._credentials()
         client = httpx.Client(
             timeout=self.timeout,
             follow_redirects=False,
@@ -127,16 +133,20 @@ class AuthenticatedKrxHistoricalClient(KrxClient):
             if code == "CD010":
                 raise KrxAuthenticationError(
                     "KRX 비밀번호 변경이 필요합니다. KRX Data Marketplace에서 비밀번호를 변경한 뒤 "
-                    "서버의 KRX_PW를 갱신해 주세요."
+                    "Wealth OpenAPI 설정의 KRX 비밀번호를 갱신해 주세요."
                 )
             if code != "CD001":
                 raise KrxAuthenticationError(
-                    "KRX 로그인에 실패했습니다. KRX_ID/KRX_PW 또는 KRX 계정 상태를 확인해 주세요."
+                    "KRX 로그인에 실패했습니다. 저장된 아이디/비밀번호 또는 KRX 계정 상태를 확인해 주세요."
                 )
             return client
         except Exception:
             client.close()
             raise
+
+    def verify_credentials(self) -> None:
+        """Verify the current user's stored login without fetching historical rows."""
+        self._authenticated_session()
 
     def _authenticated_session(self) -> httpx.Client:
         with self._session_lock:
