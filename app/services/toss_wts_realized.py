@@ -51,6 +51,32 @@ def _money_pair(value: Any, field: str) -> dict[str, int | float | None]:
     }
 
 
+def _derive_us_fx_values(
+    profit_loss: Mapping[str, int | float | None],
+    sell_amount: Mapping[str, int | float | None],
+) -> tuple[float | None, float | None]:
+    """Derive display FX from provider amounts without replacing provider KRW P/L.
+
+    Toss supplies both KRW and USD sell amounts for overseas rows. Their ratio is
+    the transaction-side applied FX rate.  Wealth keeps Toss' KRW profit as the
+    authoritative total and stores the residual against USD P/L at that rate as
+    FX P/L, so ``pnl * fx_rate + fx_pnl_krw == pnl_krw`` (to KRW rounding).
+    """
+    sell_krw = sell_amount.get("krw")
+    sell_usd = sell_amount.get("usd")
+    profit_krw = profit_loss.get("krw")
+    profit_usd = profit_loss.get("usd")
+    if sell_krw is None or sell_usd is None or profit_krw is None or profit_usd is None:
+        return None, None
+    if float(sell_krw) <= 0 or float(sell_usd) <= 0:
+        return None, None
+    fx_rate = float(sell_krw) / float(sell_usd)
+    fx_pnl_krw = float(profit_krw) - float(profit_usd) * fx_rate
+    if not math.isfinite(fx_rate) or fx_rate <= 0 or not math.isfinite(fx_pnl_krw):
+        return None, None
+    return round(fx_rate, 6), round(fx_pnl_krw, 0)
+
+
 def _canonical_number(value: Any, field: str, *, allow_none: bool = False) -> str | None:
     number = _finite_number(value, field, allow_none=allow_none)
     if number is None:
@@ -255,6 +281,8 @@ def map_toss_wts_profit_row(
         currency = "KRW"
         pnl = profit_loss["krw"]
         pnl_krw = profit_loss["krw"]
+        fx_rate = None
+        fx_pnl_krw = None
     else:
         if profit_loss["usd"] is None:
             raise ValueError("profit_loss.usd is required for us market")
@@ -263,6 +291,7 @@ def map_toss_wts_profit_row(
         currency = "USD"
         pnl = profit_loss["usd"]
         pnl_krw = profit_loss["krw"]
+        fx_rate, fx_pnl_krw = _derive_us_fx_values(profit_loss, sell_amount)
 
     return {
         "date": date,
@@ -271,8 +300,8 @@ def map_toss_wts_profit_row(
         "asset_type": "stock",
         "currency": currency,
         "pnl": pnl,
-        "fx_rate": None,
-        "fx_pnl_krw": None,
+        "fx_rate": fx_rate,
+        "fx_pnl_krw": fx_pnl_krw,
         "pnl_krw": pnl_krw,
         "is_ipo": False,
         "owner": mapped_owner,

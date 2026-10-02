@@ -45,15 +45,36 @@ class TossWtsRealizedMapperTests(unittest.TestCase):
         self.assertEqual(candidate["asset_type"], "stock")
         self.assertFalse(candidate["is_ipo"])
 
-    def test_us_mapping_preserves_wts_krw_without_fx_ratio(self):
+    def test_us_mapping_derives_fx_from_provider_sell_amounts_and_preserves_krw_total(self):
         row = self.row()
-        row["profit_loss"] = {"krw": 991, "usd": 0.37}
+        row["profit_loss"] = {"krw": 12000, "usd": 10.0}
+        row["sell_amount"] = {"krw": 150000, "usd": 100.0}
         candidate = self.map(row)
         self.assertEqual(candidate["currency"], "USD")
-        self.assertEqual(candidate["pnl"], 0.37)
-        self.assertEqual(candidate["pnl_krw"], 991)
-        self.assertIsNone(candidate["fx_rate"])
-        self.assertIsNone(candidate["fx_pnl_krw"])
+        self.assertEqual(candidate["pnl"], 10.0)
+        self.assertEqual(candidate["pnl_krw"], 12000)
+        self.assertEqual(candidate["fx_rate"], 1500.0)
+        self.assertEqual(candidate["fx_pnl_krw"], -3000.0)
+        self.assertEqual(
+            round(candidate["pnl"] * candidate["fx_rate"] + candidate["fx_pnl_krw"]),
+            candidate["pnl_krw"],
+        )
+
+    def test_us_mapping_keeps_fx_unavailable_when_provider_sell_pair_is_incomplete_or_invalid(self):
+        for sell_amount in (
+            {"krw": 150000, "usd": None},
+            {"krw": None, "usd": 100.0},
+            {"krw": 150000, "usd": 0.0},
+            {"krw": -150000, "usd": 100.0},
+        ):
+            with self.subTest(sell_amount=sell_amount):
+                row = self.row()
+                row["profit_loss"] = {"krw": 12000, "usd": 10.0}
+                row["sell_amount"] = sell_amount
+                candidate = self.map(row)
+                self.assertEqual(candidate["pnl_krw"], 12000)
+                self.assertIsNone(candidate["fx_rate"])
+                self.assertIsNone(candidate["fx_pnl_krw"])
 
     def test_exact_candidate_shape_and_metadata_allowlist(self):
         row = self.row()

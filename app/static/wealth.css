@@ -30,3 +30,6 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(68%) sepi
 .account-group-title small { color: #aeb8d8; font-size: 14px; margin-left: 6px; font-weight: 600; }
 .account-subrow { display: grid; grid-template-columns: 1fr 170px 28px; align-items: center; padding: 8px 12px 8px 28px; color: #aeb8d8; font-size: 14px; }
 .account-subrow strong { color: #dce2fb; text-align: right; font-size: 14px; }
+
+/* Toss WTS does not expose a verifiable provider-side account scope. Hide the stale KIS-only source-account control. */
+.toss-wts-control-item:has(#kisSourceAccount){display:none!important}
