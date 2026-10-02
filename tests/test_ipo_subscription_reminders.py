@@ -51,7 +51,8 @@ class SubscriptionReminderTests(unittest.TestCase):
         self.assertEqual(self.run_reminder("1500", date(2026, 9, 20))["notifications_sent_count"], 1)
         message = self.notifier.send_message.call_args[0][0]
         self.assertIn("배우자, 자녀", message)
-        self.assertIn("증권사별 실제 청약 접수 마감 시간을 확인", message)
+        self.assertIn("공모주 청약 첫째날 — 15:00", message)
+        self.assertNotIn("증권사별 실제 청약 접수 마감 시간을 확인", message)
         self.assertNotIn("16:00", message)
 
     def test_invalid_slot_fails_closed(self):

@@ -62,8 +62,18 @@ def _run_reminders_locked(
             end = datetime.strptime(str(ipo.get("subscription_end") or "")[:10], "%Y-%m-%d").date()
         except ValueError:
             continue
-        if end < start or not (start <= current <= end):
+        if end < start:
             continue
+        is_first_day = current == start
+        is_last_day = current == end
+        if not (is_first_day or is_last_day):
+            continue
+        if is_first_day and is_last_day:
+            phase_label = "청약일"
+        elif is_first_day:
+            phase_label = "청약 첫째날"
+        else:
+            phase_label = "청약 마지막날"
         ipo_id = str(ipo.get("ipo_id") or "").strip()
         if not ipo_id:
             continue
@@ -80,14 +90,14 @@ def _run_reminders_locked(
             continue
         managers = ", ".join(ipo.get("lead_managers") or []) or "미정"
         message = (
-            f"📌 <b>공모주 청약 확인 — {reminder_slot[:2]}:{reminder_slot[2:]}</b>\n"
+            f"📌 <b>공모주 {phase_label} — {reminder_slot[:2]}:{reminder_slot[2:]}</b>\n"
             f"{ipo.get('company_name') or '공모주'}\n"
             f"• 청약: {start.isoformat()} ~ {end.isoformat()}\n"
             f"• 주관사: {managers}\n"
             f"⚠️ <b>아직 신청하지 않음:</b> {', '.join(missing)}\n"
         )
         should_warn = is_last_slot if is_last_slot is not None else (reminder_slot == "1500")
-        if should_warn:
+        if is_last_day and should_warn:
             message += "청약 마감 시간이 가까워지고 있습니다. 증권사별 실제 청약 접수 마감 시간을 확인하세요.\n"
         markup = None
         callback_buttons = []

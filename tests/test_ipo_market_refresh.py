@@ -233,7 +233,11 @@ class IpoMarketRefreshTests(unittest.TestCase):
                     kis_client=kis, target_date_str="2026-09-18", market_only=True, **kwargs,
                 )
                 self.assertEqual(result["status"], "ok")
-                self.assertIn("source_error", result["sources"][client_name.removesuffix("_client")])
+                self.assertEqual(
+                    result["sources"][client_name.removesuffix("_client")],
+                    "not_requested (historical_sync_only)",
+                )
+                getattr(client, method_name).assert_not_called()
                 self.assertTrue(any(ipo.get("company_name") == "신규일정" for ipo in read_market_store()["ipos"]))
 
     def test_naver_progress_enriches_only_blank_kis_listing_dates(self):

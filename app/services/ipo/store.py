@@ -1,6 +1,6 @@
 import json
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -264,11 +264,9 @@ def get_ipo_calendar_events(
             "is_applied_by_owner": is_applied_by_owner,
         }
 
-        # Project every day of the canonical subscription period. Payment,
-        # refund, and demand-forecast dates remain persisted but are not part
-        # of the integrated calendar projection.
-        # the company even when its start date is outside the visible month.
-        # Invalid or inverted canonical dates are ignored rather than guessed.
+        # Project only the canonical subscription boundaries. A provider range
+        # may span weekends/holidays, but the integrated calendar must not imply
+        # that every intervening calendar date is an actionable subscription day.
         sub_start = str(ipo.get("subscription_start") or "")[:10]
         sub_end = str(ipo.get("subscription_end") or "")[:10]
         try:
@@ -277,23 +275,30 @@ def get_ipo_calendar_events(
         except (TypeError, ValueError):
             start_day = end_day = None
         if start_day is not None and end_day is not None and start_day <= end_day:
-            visible_start = max(start_day, datetime.strptime(from_date, "%Y-%m-%d").date())
-            visible_end = min(end_day, datetime.strptime(to_date, "%Y-%m-%d").date())
-            current_day = visible_start
-            while current_day <= visible_end:
-                date_str = current_day.isoformat()
+            if start_day == end_day:
+                boundary_days = [(start_day, "single", "청약일")]
+            else:
+                boundary_days = [
+                    (start_day, "first", "청약 첫째날"),
+                    (end_day, "last", "청약 마지막날"),
+                ]
+            for event_day, phase, label in boundary_days:
+                date_str = event_day.isoformat()
+                if not (from_date <= date_str <= to_date):
+                    continue
+                event_meta = dict(meta_base)
+                event_meta["subscription_phase"] = phase
                 events.append({
                     "id": f"ipo_subscription:{ipo_id}:{date_str}",
                     "date": date_str,
                     "type": "ipo_subscription",
                     "subtype": "공모주",
                     "owner": "모두",
-                    "title": f"🎯 {company} 청약",
+                    "title": f"🎯 {company} {label}",
                     "amount_krw": None,
                     "source_id": ipo_id,
-                    "meta": dict(meta_base),
+                    "meta": event_meta,
                 })
-                current_day += timedelta(days=1)
 
         # 2. Listing event (Actual listing date takes precedence over expected listing date)
         actual_listing = ipo.get("actual_listing_date")

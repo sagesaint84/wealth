@@ -1510,11 +1510,13 @@
     <dialog id="ipoHistoricalImportDialog" class="dialog">
       <form id="ipoHistoricalImportForm" method="dialog">
         <div class="dialog-head"><h2>과거 공모주 가져오기</h2><button value="cancel" class="close" aria-label="닫기">×</button></div>
-        <p class="muted">KRX Data Marketplace [20001] 신규상장종목 현황 또는 KIND 신규상장기업현황에서 다운로드한 공식 Excel/CSV를 업로드하세요. KIND는 선택조건에서 <strong>공모가</strong>를 포함해 주세요. 상장일과 확정 공모가를 기준으로 미리 확인한 뒤 반영합니다.</p>
-        <label>공식 파일 <input id="ipoHistoricalImportFile" type="file" accept=".xlsx,.xlsm,.xls,.csv" required /></label>
+        <p class="muted">온라인 전체 조회는 KRX Data Marketplace [20001] 신규상장종목 현황의 2020년~현재 자료를 연도별로 조회합니다. 조회 자체는 데이터를 변경하지 않으며, 미리보기 확인 후 반영할 때만 KRX 공식값으로 과거 공모주의 상장시장·실제 상장일·확정 공모가·주관사를 정정/보완합니다.</p>
+        <div class="dialog-actions"><button type="button" id="ipoHistoricalOnlinePreviewBtn" class="button secondary">🌐 KRX 전체 과거자료 조회</button></div>
+        <p class="muted">또는 KRX Data Marketplace [20001] / KIND에서 직접 다운로드한 공식 Excel/CSV 파일을 불러올 수 있습니다. KIND는 선택조건에서 <strong>공모가</strong>를 포함해 주세요.</p>
+        <label>공식 파일 <input id="ipoHistoricalImportFile" type="file" accept=".xlsx,.xlsm,.xls,.csv" /></label>
         <div id="ipoHistoricalImportPreview" class="muted" aria-live="polite" aria-atomic="false"></div>
-        <p class="muted">미리보기에서 확인된 신규 및 안전하게 보완 가능한 과거 공모주만 반영합니다. 현재 공모주 데이터의 기존 값은 덮어쓰지 않습니다.</p>
-        <div class="dialog-actions"><button value="cancel" class="button secondary">취소</button><button type="button" id="ipoHistoricalPreviewBtn" class="button secondary">미리보기</button><button type="button" id="ipoHistoricalCommitBtn" class="button primary" disabled>확인 후 반영</button></div>
+        <p class="muted">온라인 KRX 조회는 미리보기에 표시된 공식값 변경만 반영합니다. 파일 가져오기는 기존처럼 신규 및 안전하게 보완 가능한 값만 반영하며 기존 비어 있지 않은 값은 덮어쓰지 않습니다.</p>
+        <div class="dialog-actions"><button value="cancel" class="button secondary">취소</button><button type="button" id="ipoHistoricalPreviewBtn" class="button secondary">파일 미리보기</button><button type="button" id="ipoHistoricalCommitBtn" class="button primary" disabled>확인 후 반영</button></div>
       </form>
     </dialog>
 

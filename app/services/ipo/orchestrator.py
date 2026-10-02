@@ -345,8 +345,10 @@ def _enrich_kis_expected_listing_dates_from_naver(
 def _run_kis_schedule_fetch(kis: KISOpenAPI, from_date: str, to_date: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Run KIS async schedule calls from the synchronous daily pipeline."""
     async def _fetch() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        subscriptions = await kis.fetch_ipo_subscription_schedule(from_date, to_date)
-        listings = await kis.fetch_listing_schedule(from_date, to_date)
+        subscriptions, listings = await asyncio.gather(
+            kis.fetch_ipo_subscription_schedule(from_date, to_date),
+            kis.fetch_listing_schedule(from_date, to_date),
+        )
         return subscriptions, listings
 
     try:
@@ -464,6 +466,7 @@ def _run_ipo_daily_pipeline(
         target_date_str = datetime.now(KST).strftime("%Y-%m-%d")
 
     sources_status: dict[str, str] = {}
+    market_only_touched_ids: set[str] = set()
     # Refresh always reconciles one immutable in-memory snapshot and writes once.
     market = copy.deepcopy(read_market_store())
 
@@ -490,9 +493,11 @@ def _run_ipo_daily_pipeline(
     sources_status["kis"] = "source_unavailable (credentials_missing)" if not kis.configured else "pending"
     sources_status["kind"] = "not_requested (market_only)" if market_only else "fallback_not_used"
 
-    # Check KRX & NAVER
-    sources_status["krx"] = "pending"
-    sources_status["naver"] = "pending"
+    # Full historical KRX/NAVER scans are intentionally excluded from
+    # every routine refresh. They are available only through the explicit
+    # Historical Data > KRX full-history reconciliation action.
+    sources_status["krx"] = "not_requested (historical_sync_only)"
+    sources_status["naver"] = "not_requested (historical_sync_only)"
 
     # 2. discovery/schedule source: KIS primary, KIND fallback
     kis_sync_ok = False
@@ -548,8 +553,12 @@ def _run_ipo_daily_pipeline(
                     sources = item.setdefault("sources", {})
                     kis_source = sources.setdefault("kis", {})
                     kis_source["listing_events"] = events
-                _, review_required = merge_ipo_record(market, item)
+                merged_ipo, review_required = merge_ipo_record(market, item)
                 review_required_count += int(review_required)
+                if market_only and not review_required:
+                    touched_id = str(merged_ipo.get("ipo_id") or "").strip()
+                    if touched_id:
+                        market_only_touched_ids.add(touched_id)
 
             sources_status["kis"] = (
                 f"sync_ok (subscriptions={len(subscription_items)}, "
@@ -735,39 +744,14 @@ def _run_ipo_daily_pipeline(
             logger.warning("DART enrichment failed")
             sources_status["dart"] = f"source_error ({_dart_error_code(exc)})"
 
-    # 5. KRX master data fetch
+    # 5. Historical listing confirmation is explicit-only.
+    # Do not fetch the all-listed KRX master or NAVER's paginated completed IPO
+    # history during normal/manual/daily refreshes. The historical-import dialog
+    # owns full-history reconciliation and actually applies reviewed KRX changes.
     krx_master: list[dict[str, Any]] = []
     krx_fetch_ok = False
-    try:
-        if not hasattr(krx, "fetch_listed_master"):
-            raise NotImplementedError("KRX listed master client capability unavailable")
-        krx_master = krx.fetch_listed_master()
-        krx_fetch_ok = True
-        sources_status["krx"] = f"sync_ok (master={len(krx_master)})"
-    except ExternalNetworkDisabled:
-        sources_status["krx"] = "source_unavailable (external_network_disabled)"
-    except NotImplementedError:
-        sources_status["krx"] = "implementation_blocker"
-    except Exception as e:
-        logger.warning("KRX sync error: %s", e)
-        sources_status["krx"] = f"source_error ({e})"
-
-    # 5.1 NAVER completed listings fetch
     naver_completed: list[dict[str, Any]] = []
     naver_fetch_ok = False
-    try:
-        if not hasattr(naver, "fetch_completed_listings"):
-            raise NotImplementedError("NAVER IPO completed-listing client capability unavailable")
-        naver_completed = naver.fetch_completed_listings()
-        naver_fetch_ok = True
-        sources_status["naver"] = f"sync_ok (completed={len(naver_completed)})"
-    except ExternalNetworkDisabled:
-        sources_status["naver"] = "source_unavailable (external_network_disabled)"
-    except NotImplementedError:
-        sources_status["naver"] = "implementation_blocker"
-    except Exception as e:
-        logger.warning("NAVER sync error: %s", e)
-        sources_status["naver"] = f"source_error ({e})"
 
     # 6. Reconcile: load existing market store (NEVER overwrite with empty if sources fail)
     ipos = market.get("ipos", [])
@@ -866,8 +850,14 @@ def _run_ipo_daily_pipeline(
             f"sync_ok (completed={len(naver_completed)}, confirmed={len(planned)}, ambiguous={ambiguous_count})"
         )
 
-    # 7. Canonical feature calculation & 8. Score calculation
-    for ipo in ipos:
+    # 7. Canonical feature calculation & 8. Score calculation.
+    # An interactive market-only refresh must not churn every historical score;
+    # recalculate only rows actually touched by the current schedule fetch.
+    score_targets = ipos if not market_only else [
+        ipo for ipo in ipos
+        if str(ipo.get("ipo_id") or "").strip() in market_only_touched_ids
+    ]
+    for ipo in score_targets:
         score_res = calculate_wealth_ipo_score(ipo, ipos)
         ipo["score"] = score_res
 

@@ -39,7 +39,8 @@ from app.services.ipo.reminders import run_ipo_subscription_reminders
 
 def _make_market_data(ipo_id="test-ipo-1", start=None, end=None, name="알파로보틱스"):
     cur = datetime.now(KST).date()
-    start_str = start or (cur - timedelta(days=1)).isoformat()
+    # Reminder integration tests run on the first canonical subscription day.
+    start_str = start or cur.isoformat()
     end_str = end or (cur + timedelta(days=2)).isoformat()
     return {
         "ipos": [

@@ -78,10 +78,10 @@ class IpoOrchestratorTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["dry_run"])
-        # KIND, KRX, and NAVER are implemented but blocked by the test network policy.
+        # KIND is still a live schedule fallback. Full KRX/NAVER history is explicit-only.
         self.assertIn("external_network_disabled", result["sources"]["kind"])
-        self.assertIn("external_network_disabled", result["sources"]["krx"])
-        self.assertIn("external_network_disabled", result["sources"]["naver"])
+        self.assertEqual(result["sources"]["krx"], "not_requested (historical_sync_only)")
+        self.assertEqual(result["sources"]["naver"], "not_requested (historical_sync_only)")
         # Existing market store is preserved and not overwritten to empty
         self.assertEqual(result["total_ipos"], 2)
 
@@ -680,19 +680,17 @@ class IpoOrchestratorTests(unittest.TestCase):
             dry_run=True,
         )
 
-        self.assertIn("confirmed=1", result["sources"]["naver"])
+        self.assertEqual(result["sources"]["krx"], "not_requested (historical_sync_only)")
+        self.assertEqual(result["sources"]["naver"], "not_requested (historical_sync_only)")
+        mock_krx.fetch_listed_master.assert_not_called()
+        mock_naver.fetch_completed_listings.assert_not_called()
         saved = read_market_store()
         nh = next(it for it in saved["ipos"] if it.get("stock_code") == "0197V0")
-        self.assertEqual(nh["actual_listing_date"], "2026-09-10")
+        self.assertIsNone(nh.get("actual_listing_date"))
         self.assertEqual(nh["expected_listing_date"], "2026-09-10")
         self.assertEqual(nh["sources"]["kis"]["schedule_source"], "ksdinfo_pub_offer")
-        self.assertNotIn("stock_info", nh["sources"]["kis"])
-        self.assertEqual(nh["sources"]["naver"]["listing_confirmation_source"], "ipo_progress_LISTING")
-        self.assertEqual(nh["sources"]["naver"]["ipo_code"], "A0197V0")
-        self.assertEqual(nh["sources"]["naver"]["ipo_status"], "상장")
-        self.assertEqual(nh["sources"]["naver"]["actual_listing_date"], "2026-09-10")
-        self.assertEqual(nh["sources"]["krx"]["listing_confirmation_source"], "finder_stkisu")
-        self.assertEqual(nh["sources"]["krx"]["short_code"], "0197V0")
+        self.assertNotIn("naver", nh["sources"])
+        self.assertNotIn("krx", nh["sources"])
 
     def test_stage5_1_naver_completed_missing_and_krx_exact_no_actual(self):
         # 2. NAVER completed missing + KRX exact -> actual None
@@ -991,7 +989,9 @@ class IpoOrchestratorTests(unittest.TestCase):
 
         saved = read_market_store()
         cand = next(it for it in saved["ipos"] if it.get("stock_code") == "666660")
-        self.assertEqual(cand["actual_listing_date"], "2026-09-05")
+        self.assertEqual(cand["actual_listing_date"], "2026-09-01")
+        mock_krx.fetch_listed_master.assert_not_called()
+        mock_naver.fetch_completed_listings.assert_not_called()
 
     def test_stage5_1_sources_kind_preserved(self):
         # 13. sources.kind preserved
@@ -1035,8 +1035,10 @@ class IpoOrchestratorTests(unittest.TestCase):
 
         saved = read_market_store()
         cand = next(it for it in saved["ipos"] if it.get("stock_code") == "888880")
-        self.assertEqual(cand["actual_listing_date"], "2026-09-10")
+        self.assertIsNone(cand.get("actual_listing_date"))
         self.assertEqual(cand["sources"]["kind"]["schedule_source"], "pubofrprogcom")
+        mock_krx.fetch_listed_master.assert_not_called()
+        mock_naver.fetch_completed_listings.assert_not_called()
 
     def test_stage5_1_naver_fetch_failure_preserves_existing_market_data(self):
         # 16. NAVER fetch failure -> existing market data preserved
@@ -1054,7 +1056,8 @@ class IpoOrchestratorTests(unittest.TestCase):
             dry_run=True,
         )
 
-        self.assertIn("source_error", result["sources"]["naver"])
+        self.assertEqual(result["sources"]["naver"], "not_requested (historical_sync_only)")
+        mock_naver.fetch_completed_listings.assert_not_called()
         saved = read_market_store()
         self.assertEqual(len(saved["ipos"]), 2)
 
@@ -1072,7 +1075,8 @@ class IpoOrchestratorTests(unittest.TestCase):
             dry_run=True,
         )
 
-        self.assertIn("source_error", result["sources"]["krx"])
+        self.assertEqual(result["sources"]["krx"], "not_requested (historical_sync_only)")
+        mock_krx.fetch_listed_master.assert_not_called()
         saved = read_market_store()
         self.assertEqual(len(saved["ipos"]), 2)
 
@@ -1108,7 +1112,9 @@ class IpoOrchestratorTests(unittest.TestCase):
             dry_run=True,
         )
 
-        self.assertIn("source_error", result["sources"]["naver"])
+        self.assertEqual(result["sources"]["naver"], "not_requested (historical_sync_only)")
+        mock_krx.fetch_listed_master.assert_not_called()
+        mock_naver.fetch_completed_listings.assert_not_called()
         saved = read_market_store()
         c1 = next(it for it in saved["ipos"] if it.get("stock_code") == "111110")
         c2 = next(it for it in saved["ipos"] if it.get("stock_code") == "222220")
@@ -1165,7 +1171,7 @@ class IpoOrchestratorTests(unittest.TestCase):
             dry_run=True,
         )
 
-        self.assertEqual(result["sources"]["krx"], "implementation_blocker")
+        self.assertEqual(result["sources"]["krx"], "not_requested (historical_sync_only)")
         saved = read_market_store()
         nh = next(it for it in saved["ipos"] if it.get("stock_code") == "0197V0")
         self.assertIsNone(nh.get("actual_listing_date"))
@@ -1195,7 +1201,7 @@ class IpoOrchestratorTests(unittest.TestCase):
             dry_run=True,
         )
 
-        self.assertEqual(result["sources"]["naver"], "implementation_blocker")
+        self.assertEqual(result["sources"]["naver"], "not_requested (historical_sync_only)")
         saved = read_market_store()
         nh = next(it for it in saved["ipos"] if it.get("stock_code") == "0197V0")
         self.assertIsNone(nh.get("actual_listing_date"))
