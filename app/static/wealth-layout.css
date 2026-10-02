@@ -1676,3 +1676,30 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 .broker-import-pnl.pnl-negative {
   color: var(--blue, #54a8ff) !important;
 }
+
+/* Securities account surfaces: shared workspace theme */
+.wealth-layout #catPanelSecurities .broker-group {
+  background: var(--surface-2);
+  border-color: var(--border-subtle);
+}
+.wealth-layout #catPanelSecurities .broker-head {
+  border-bottom-color: var(--border-subtle);
+}
+.wealth-layout #catPanelSecurities .broker-head span {
+  background: var(--surface-1);
+  border-color: var(--border-subtle);
+}
+.wealth-layout #catPanelSecurities .broker-accounts {
+  border-left-color: var(--border-subtle);
+}
+.wealth-layout #catPanelSecurities .account-row {
+  background: var(--surface-1);
+  border-color: var(--border-subtle);
+}
+@media (hover: hover) {
+  .wealth-layout #catPanelSecurities .account-row:hover {
+    background: var(--surface-hover);
+    border-color: color-mix(in srgb, var(--workspace-accent) 38%, var(--border-subtle));
+  }
+}
+

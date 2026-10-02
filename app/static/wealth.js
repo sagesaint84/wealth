@@ -14116,10 +14116,10 @@ function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
     const pnl = isUsd ? Number(r.profit_loss?.usd ?? 0) : Number(r.profit_loss?.krw ?? 0);
     const pnlColor = pnl > 0 ? 'gain' : (pnl < 0 ? 'loss' : '');
     const pnlSign = pnl > 0 ? '+' : '';
-    const pnlFormatted = isUsd ? `${pnlSign}$${number(pnl, 2)}` : `${pnlSign}₩${money(pnl)}`;
+    const pnlFormatted = isUsd ? `${pnlSign}$${number(pnl, 2)}` : `${pnlSign}${money(pnl)}`;
 
-    const buyAmt = isUsd ? `$${number(r.buy_amount?.usd ?? 0, 2)}` : `₩${money(r.buy_amount?.krw ?? 0)}`;
-    const sellAmt = isUsd ? `$${number(r.sell_amount?.usd ?? 0, 2)}` : `₩${money(r.sell_amount?.krw ?? 0)}`;
+    const buyAmt = isUsd ? `$${number(r.buy_amount?.usd ?? 0, 2)}` : `${money(r.buy_amount?.krw ?? 0)}`;
+    const sellAmt = isUsd ? `$${number(r.sell_amount?.usd ?? 0, 2)}` : `${money(r.sell_amount?.krw ?? 0)}`;
 
     const rate = r.profit_rate != null ? Number(r.profit_rate) : null;
     const rateSign = rate > 0 ? '+' : '';
@@ -14838,7 +14838,7 @@ function brokerImportPnlPresentation(candidate, value) {
 function brokerImportNameSizeClass(name) {
   const compactLength = Array.from(String(name || '').replace(/\s+/g, '')).length;
   if (compactLength >= 24) return 'is-very-long';
-  if (compactLength >= 18) return 'is-long';
+  if (compactLength >= 17) return 'is-long';
   return '';
 }
 
