@@ -36,7 +36,8 @@ def test_broker_import_preview_formats_currency_and_profit_loss_direction() -> N
     assert "candidate?.currency" in helper
     assert "currency === 'USD'" in helper
     assert "`$" in helper or "$${" in helper
-    assert "₩" in helper
+    assert "money(absolute)" in helper
+    assert "₩${money(absolute)}" not in helper
     assert "pnl-positive" in helper
     assert "pnl-negative" in helper
 
@@ -45,7 +46,8 @@ def test_broker_import_preview_formats_currency_and_profit_loss_direction() -> N
         "function renderBrokerImportPreviewDetails(data, overlayId) {",
         "\n// ── 한국투자증권",
     )
-    assert 'class="broker-import-item-name"' in preview
+    assert "const itemNameSizeClass = brokerImportNameSizeClass(itemName);" in preview
+    assert 'class="broker-import-item-name ${itemNameSizeClass}"' in preview
     assert "brokerImportPnlPresentation(candidate, choice.provider_realized_pnl" in preview
     assert "brokerImportPnlPresentation(candidate, choice.final_wealth_pnl" in preview
     assert 'class="broker-import-pnl ${providerPnl.toneClass}"' in preview
