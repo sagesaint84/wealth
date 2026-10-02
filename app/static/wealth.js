@@ -14828,11 +14828,18 @@ function brokerImportPnlPresentation(candidate, value) {
   const absolute = Math.abs(amount);
   const text = currency === 'USD'
     ? `${sign}$${number(absolute, 2)}`
-    : `${sign}₩${money(absolute)}`;
+    : `${sign}${money(absolute)}`;
   const toneClass = amount > 0
     ? 'pnl-positive'
     : (amount < 0 ? 'pnl-negative' : '');
   return { text, toneClass };
+}
+
+function brokerImportNameSizeClass(name) {
+  const compactLength = Array.from(String(name || '').replace(/\s+/g, '')).length;
+  if (compactLength >= 24) return 'is-very-long';
+  if (compactLength >= 18) return 'is-long';
+  return '';
 }
 
 function renderBrokerImportPreviewDetails(data, overlayId) {
@@ -14873,17 +14880,18 @@ function renderBrokerImportPreviewDetails(data, overlayId) {
       : (choice.ipo_subscription_fee_krw ?? 2000);
     const candidate = item.candidate || {};
     const itemName = candidate.name || candidate.prdt_name || candidate.code || `선택 항목 ${item.index + 1}`;
+    const itemNameSizeClass = brokerImportNameSizeClass(itemName);
     const itemDate = candidate.date || '';
     const providerPnl = brokerImportPnlPresentation(candidate, choice.provider_realized_pnl ?? candidate.pnl ?? 0);
     const finalPnl = brokerImportPnlPresentation(candidate, choice.final_wealth_pnl ?? choice.provider_realized_pnl ?? candidate.pnl ?? 0);
 
     return `<div class="broker-import-modal-row" data-feed-index="${feedIndex}" data-item-index="${item.index}" style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:8px;">` +
-      `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">` +
-        `<div>` +
-          `<strong class="broker-import-item-name">${html(itemName)}</strong>` +
+      `<div class="broker-import-item-header">` +
+        `<div class="broker-import-item-title">` +
+          `<strong class="broker-import-item-name ${itemNameSizeClass}">${html(itemName)}</strong>` +
           `${itemDate ? `<span class="muted" style="font-size:12px;margin-left:6px;">(${html(itemDate)})</span>` : ''}` +
         `</div>` +
-        `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">` +
+        `<div class="broker-import-item-controls">` +
           `<label style="font-size:12px;">유형: ` +
             `<select class="modal-broker-stock-type toss-wts-select" data-feed-index="${feedIndex}" data-item-index="${item.index}" style="padding:2px 6px;font-size:12px;">` +
               `<option value="general" ${isIpo ? '' : 'selected'}>일반주식</option>` +
