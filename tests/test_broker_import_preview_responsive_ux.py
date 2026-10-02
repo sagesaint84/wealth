@@ -36,7 +36,7 @@ def test_long_broker_import_names_receive_compact_size_classes() -> None:
     )
     assert "compactLength >= 24" in helper
     assert "is-very-long" in helper
-    assert "compactLength >= 18" in helper
+    assert "compactLength >= 17" in helper
     assert "is-long" in helper
 
     preview = _function_block(
