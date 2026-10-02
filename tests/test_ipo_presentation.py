@@ -61,7 +61,7 @@ class IpoPresentationTests(unittest.TestCase):
         self.assertNotIn("write_market_store", source)
         self.assertNotIn("/api/ipo/applications/", source.split("const subscriptionStatus", 1)[0])
 
-    def test_subscription_period_projects_each_visible_day_and_owner_independent(self):
+    def test_subscription_period_projects_only_first_and_last_day_and_owner_independent(self):
         market = {
             "schema_version": 1,
             "ipos": [{
@@ -75,7 +75,9 @@ class IpoPresentationTests(unittest.TestCase):
         with patch("app.services.ipo.store.read_market_store", return_value=market), \
              patch("app.services.ipo.applications.get_user_applications", return_value={"applications": {}}):
             events = get_ipo_calendar_events("user", "2026-09-18", "2026-09-20", "아빠")
-        self.assertEqual(sorted(event["date"] for event in events if event["type"].startswith("ipo_subscription")), ["2026-09-18", "2026-09-19", "2026-09-20"])
+        subscription_events = [event for event in events if event["type"].startswith("ipo_subscription")]
+        self.assertEqual([event["date"] for event in subscription_events], ["2026-09-18", "2026-09-20"])
+        self.assertEqual([event["title"] for event in subscription_events], ["🎯 기간테스트 청약 첫째날", "🎯 기간테스트 청약 마지막날"])
         self.assertTrue(all(event["owner"] == "모두" for event in events))
         self.assertTrue(all(event["meta"]["company_name"] == "기간테스트" for event in events))
 
