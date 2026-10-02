@@ -4,9 +4,6 @@ services:
     container_name: wealth
     ports:
       - "127.0.0.1:4829:4829"
-    environment:
-      KRX_ID: ${KRX_ID:-}
-      KRX_PW: ${KRX_PW:-}
     volumes:
       - ./data:/app/data
       - ./toss-wts/bin/tossctl:/opt/toss-wts/tossctl:ro
