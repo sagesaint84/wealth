@@ -1702,3 +1702,8 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
     border-color: color-mix(in srgb, var(--workspace-accent) 38%, var(--border-subtle));
   }
 }
+
+/* Workspace background consistency across long tabs */
+body.wealth-layout {
+  background-attachment: fixed;
+}
