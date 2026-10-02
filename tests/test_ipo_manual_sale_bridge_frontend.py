@@ -19,7 +19,9 @@ class IpoManualSaleBridgeFrontendTests(unittest.TestCase):
         self.assertIn("is_ipo: true", self.source)
         self.assertIn("account_id: text(account.id)", self.source)
         self.assertIn("quantity,", self.source)
-        self.assertIn("pnl_krw: pnlKrw", self.source)
+        self.assertIn("provider_realized_pnl: pnlKrw", self.source)
+        self.assertIn("ipo_subscription_fee_krw: ipoSubscriptionFeeKrw", self.source)
+        self.assertIn("pnl_krw: finalWealthPnlKrw", self.source)
 
     def test_bridge_does_not_invent_realized_pnl_or_tax_formula(self) -> None:
         self.assertIn("증권사에서 확인한 실제 매도 실현손익", self.source)
@@ -59,6 +61,19 @@ class IpoManualSaleBridgeFrontendTests(unittest.TestCase):
         for marker in ("sell_amount", "fee", "tax"):
             self.assertIn(marker, self.source)
         self.assertIn("if (raw !== '') payload[field] = Number(raw)", self.source)
+
+    def test_bridge_exposes_and_deducts_ipo_subscription_fee_once(self) -> None:
+        self.assertIn("공모청약비", self.source)
+        self.assertIn('name="ipo_subscription_fee_krw"', self.source)
+        self.assertIn('value="2000"', self.source)
+        self.assertIn("const ipoSubscriptionFeeKrw = Number(form.elements.ipo_subscription_fee_krw.value)", self.source)
+        self.assertIn("Number.isInteger(ipoSubscriptionFeeKrw)", self.source)
+        self.assertIn("const finalWealthPnlKrw = pnlKrw - ipoSubscriptionFeeKrw", self.source)
+        self.assertIn("provider_realized_pnl: pnlKrw", self.source)
+        self.assertIn("ipo_subscription_fee_krw: ipoSubscriptionFeeKrw", self.source)
+        self.assertIn("pnl: finalWealthPnlKrw", self.source)
+        self.assertIn("pnl_krw: finalWealthPnlKrw", self.source)
+        self.assertIn("공모수수료", self.source)
 
     def test_bridge_injects_explicit_manual_sale_action(self) -> None:
         self.assertIn("ipo-manual-sale-create", self.source)

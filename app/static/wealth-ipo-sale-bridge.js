@@ -84,6 +84,9 @@
           <label class="ipo-manual-sale-wide">실현손익 (KRW · 증권사 확인 금액)
             <input name="pnl_krw" type="number" step="1" required placeholder="예: 125000" />
           </label>
+          <label>공모청약비
+            <input name="ipo_subscription_fee_krw" type="number" min="0" step="1" value="2000" required />
+          </label>
           <label>매도금액 (선택)
             <input name="sell_amount" type="number" min="0" step="1" placeholder="0" />
           </label>
@@ -237,6 +240,7 @@
     const date = text(form.elements.date.value);
     const quantity = number(form.elements.quantity.value);
     const pnlKrw = Number(form.elements.pnl_krw.value);
+    const ipoSubscriptionFeeKrw = Number(form.elements.ipo_subscription_fee_krw.value);
     const listingDate = text(context.market?.actual_listing_date || context.market?.expected_listing_date);
     const today = kstToday();
     if (!date || !Number.isInteger(quantity) || quantity <= 0 || quantity > context.remainingQuantity) {
@@ -256,6 +260,15 @@
       return;
     }
 
+    if (!Number.isInteger(ipoSubscriptionFeeKrw) || ipoSubscriptionFeeKrw < 0) {
+      setDialogStatus('공모청약비는 0원 이상의 정수로 입력해 주세요.', true);
+      return;
+    }
+    const finalWealthPnlKrw = pnlKrw - ipoSubscriptionFeeKrw;
+    const subscriptionFeeMemo = ipoSubscriptionFeeKrw === 2000
+      ? '공모수수료 2천원 차감'
+      : `공모수수료 ${ipoSubscriptionFeeKrw.toLocaleString('ko-KR')}원 차감`;
+
     saving = true;
     if (saveButton) {
       saveButton.disabled = true;
@@ -274,11 +287,13 @@
         name: context.companyName || context.stockCode,
         asset_type: 'ipo',
         currency: 'KRW',
-        pnl: pnlKrw,
-        pnl_krw: pnlKrw,
+        pnl: finalWealthPnlKrw,
+        pnl_krw: finalWealthPnlKrw,
+        provider_realized_pnl: pnlKrw,
+        ipo_subscription_fee_krw: ipoSubscriptionFeeKrw,
         is_ipo: true,
         quantity,
-        memo: '공모주 배정 매도 실현손익',
+        memo: `공모주 배정 매도 실현손익 · ${subscriptionFeeMemo}`,
       };
       ['sell_amount', 'fee', 'tax'].forEach((field) => {
         const raw = text(form.elements[field]?.value);
