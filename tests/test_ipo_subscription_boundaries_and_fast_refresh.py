@@ -122,7 +122,7 @@ def test_kis_subscription_and_listing_schedule_requests_start_concurrently() -> 
     assert _run_kis_schedule_fetch(kis, "2026-10-01", "2026-10-31") == ([], [])
 
 
-def test_interactive_fast_refresh_skips_historical_listing_confirmation_sources() -> None:
+def test_routine_refresh_never_scans_full_historical_confirmation_sources() -> None:
     kis = MagicMock()
     kis.configured = True
 
@@ -149,11 +149,10 @@ def test_interactive_fast_refresh_skips_historical_listing_confirmation_sources(
             dart_client=dart,
             target_date_str="2026-10-02",
             market_only=True,
-            interactive_fast=True,
         )
 
     assert result["status"] == "ok"
-    assert result["sources"]["krx"] == "not_requested (interactive_fast)"
-    assert result["sources"]["naver"] == "not_requested (interactive_fast)"
+    assert result["sources"]["krx"] == "not_requested (historical_sync_only)"
+    assert result["sources"]["naver"] == "not_requested (historical_sync_only)"
     krx.fetch_listed_master.assert_not_called()
     naver.fetch_completed_listings.assert_not_called()
