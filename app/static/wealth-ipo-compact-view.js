@@ -69,6 +69,20 @@
         line-height: 1.35;
         font-weight: 500;
       }
+      #ipoListWrapper .ipo-metalogos-reference {
+        display: block;
+        margin-top: 6px;
+        max-width: 430px;
+        color: #a5b4fc;
+        font-size: 10.5px;
+        line-height: 1.4;
+        font-weight: 500;
+      }
+      #ipoListWrapper .ipo-metalogos-reference a {
+        color: #c4b5fd;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
       @media (max-width: 760px) {
         #ipoListWrapper .ipo-card.ipo-compact-card:not(.ipo-card-expanded) .ipo-card-header {
           grid-template-columns: minmax(0, 1fr) auto !important;
@@ -150,6 +164,71 @@
     scoreBox.title = diagnostic;
   }
 
+  function trustedMetalogosUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    try {
+      const url = new URL(raw);
+      const host = url.hostname.toLowerCase();
+      if (url.protocol !== 'https:') return '';
+      if (host !== 'metalogos.ai' && host !== 'www.metalogos.ai') return '';
+      if (!url.pathname.startsWith('/160ipo/stock/')) return '';
+      return url.href;
+    } catch (_err) {
+      return '';
+    }
+  }
+
+  function compactReferenceNumber(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '';
+    return Number.isInteger(number) ? number.toLocaleString('ko-KR') : String(number);
+  }
+
+  function decorateMetalogosReference(card, meta) {
+    const scoreBox = card.querySelector('.ipo-score-box');
+    if (!scoreBox || !metadataLoaded) return;
+    const reference = meta?.sources?.metalogos160;
+    let note = scoreBox.querySelector('.ipo-metalogos-reference');
+    if (!reference || typeof reference !== 'object') {
+      note?.remove();
+      return;
+    }
+
+    if (!note) {
+      note = document.createElement('span');
+      note.className = 'ipo-metalogos-reference';
+      scoreBox.appendChild(note);
+    }
+    note.replaceChildren();
+    note.title = 'Metalogos 160 공개자료의 참고값입니다. Wealth IPO Score 산정에는 사용하지 않습니다.';
+
+    const parts = ['160 보조자료', 'Wealth Score 미반영'];
+    const attractiveness = compactReferenceNumber(reference.attractiveness_score);
+    const demandCount = compactReferenceNumber(reference.demand_participant_count_reference);
+    const lockupCount = compactReferenceNumber(reference.lockup_participant_count_reference);
+    const tradable = compactReferenceNumber(reference.tradable_share_ratio_reference);
+    if (attractiveness) parts.push(`매력지수 ${attractiveness}`);
+    if (demandCount) parts.push(`수요예측기관 ${demandCount}`);
+    if (lockupCount) parts.push(`확약기관 ${lockupCount}`);
+    if (tradable) parts.push(`유통가능 ${tradable}%`);
+
+    const text = document.createElement('span');
+    text.textContent = parts.join(' · ');
+    note.appendChild(text);
+
+    const sourceUrl = trustedMetalogosUrl(reference.url);
+    if (sourceUrl) {
+      const separator = document.createTextNode(' · ');
+      const link = document.createElement('a');
+      link.href = sourceUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = '160 원문';
+      note.append(separator, link);
+    }
+  }
+
   function decorateCard(card) {
     if (!(card instanceof HTMLElement)) return;
     card.classList.add('ipo-compact-card');
@@ -160,6 +239,7 @@
     const meta = ipoId ? ipoMetadataById.get(ipoId) : null;
     decorateMarketBadge(card, meta);
     decorateScoreDiagnostic(card, meta);
+    decorateMetalogosReference(card, meta);
 
     const header = card.querySelector('.ipo-card-header');
     if (!header) return;
