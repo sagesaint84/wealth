@@ -177,6 +177,70 @@ def _stock_code_owner(
     return None
 
 
+def _normalize_confirmed_market(value: object) -> str | None:
+    raw = str(value or "").strip().upper()
+    if raw in {"KOSDAQ", "KSQ"}:
+        return "KOSDAQ"
+    if raw in {"KOSPI", "STK"}:
+        return "KOSPI"
+    if raw in {"KONEX", "KNX"}:
+        return "KONEX"
+    return None
+
+
+def _promote_verified_market(ipo: dict[str, Any]) -> bool:
+    """Promote stored Naver/KRX market consensus into an empty canonical field.
+
+    This is deliberately local-only: it never performs network I/O and never
+    overwrites a non-empty canonical market.
+    """
+    if str(ipo.get("market") or "").strip():
+        return False
+
+    sources = ipo.get("sources")
+    if not isinstance(sources, dict):
+        return False
+
+    naver = sources.get("naver")
+    krx = sources.get("krx")
+    if not isinstance(naver, dict) or not isinstance(krx, dict):
+        return False
+
+    naver_market = _normalize_confirmed_market(naver.get("market_type"))
+    krx_market = _normalize_confirmed_market(krx.get("market_code"))
+    if not naver_market or naver_market != krx_market:
+        return False
+
+    promoted_at = datetime.now(KST).isoformat()
+    ipo["market"] = naver_market
+    sources["market_confirmation"] = {
+        "source": "stored_naver_krx_consensus",
+        "naver_market_type": naver.get("market_type"),
+        "krx_market_code": krx.get("market_code"),
+        "naver_observed_at": naver.get("observed_at"),
+        "krx_observed_at": krx.get("observed_at"),
+        "promoted_at": promoted_at,
+    }
+    ipo["updated_at"] = promoted_at
+    return True
+
+
+def _promote_verified_markets(
+    market: dict[str, Any],
+    *,
+    start: date,
+    end: date,
+) -> int:
+    promoted = 0
+    for ipo in market.get("ipos", []):
+        if not isinstance(ipo, dict):
+            continue
+        if not _relevant_schedule(ipo, start, end):
+            continue
+        promoted += int(_promote_verified_market(ipo))
+    return promoted
+
+
 def _source_priority_present(target: dict[str, Any], source_name: str) -> bool:
     sources = target.get("sources") if isinstance(target.get("sources"), dict) else {}
     if source_name in {"naver", "npay"}:
@@ -536,6 +600,15 @@ def discover_and_merge_primary_sources(
         )
     else:
         statuses["dart_schedule"] = "source_unavailable (api_key_missing)"
+
+    promoted_markets = _promote_verified_markets(
+        market,
+        start=start,
+        end=end,
+    )
+    statuses["market_confirmation"] = (
+        f"sync_ok (promoted={promoted_markets})"
+    )
 
     write_market_store(market)
     return {
