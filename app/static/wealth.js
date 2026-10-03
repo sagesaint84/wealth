@@ -16766,8 +16766,8 @@ async function loadKrxMarketplaceConfig() {
     const res = await fetch('/api/user/krx-marketplace-config', { cache: 'no-store' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'KRX 설정 조회 실패');
-    badge.textContent = data.configured ? '설정됨' : '미설정';
-    badge.classList.toggle('active', Boolean(data.configured));
+    badge.textContent = data.configured ? '\uC5F0\uACB0\uB428' : '\uBBF8\uC124\uC815';
+    badge.className = `openapi-badge ${data.configured ? 'connected' : 'disconnected'}`;
     login.value = '';
     login.placeholder = data.login_id || 'KRX 아이디';
     password.value = '';
@@ -16800,13 +16800,47 @@ async function saveKrxMarketplaceConfig() {
 
 async function testKrxMarketplaceConfig() {
   const msg = document.getElementById('openapiKrxMessage');
-  if (msg) msg.textContent = 'KRX 로그인 확인 중…';
+  const badge = document.getElementById('openapiKrxBadge');
+
+  if (msg) msg.textContent = 'KRX login check...';
+
   try {
-    const res = await fetch('/api/user/krx-marketplace-config/test', { method: 'POST' });
+    const res = await fetch('/api/user/krx-marketplace-config/test', {
+      method: 'POST',
+    });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'KRX 연결 확인 실패');
-    if (msg) msg.textContent = data.message || (data.valid ? '연결 정상' : '연결 실패');
-  } catch (err) { if (msg) msg.textContent = err?.message || 'KRX 연결 확인에 실패했습니다.'; }
+
+    if (!res.ok) {
+      throw new Error(data.detail || 'KRX connection check failed');
+    }
+
+    if (badge) {
+      badge.textContent = data.valid
+        ? '\uC5F0\uACB0\uB428'
+        : '\uC5F0\uACB0 \uC2E4\uD328';
+      badge.className = `openapi-badge ${
+        data.valid ? 'connected' : 'disconnected'
+      }`;
+    }
+
+    if (msg) {
+      msg.textContent =
+        data.message ||
+        (data.valid
+          ? '\uC5F0\uACB0 \uC815\uC0C1'
+          : '\uC5F0\uACB0 \uC2E4\uD328');
+    }
+  } catch (err) {
+    if (badge) {
+      badge.textContent = '\uC5F0\uACB0 \uC2E4\uD328';
+      badge.className = 'openapi-badge disconnected';
+    }
+
+    if (msg) {
+      msg.textContent =
+        err?.message || 'KRX connection check failed';
+    }
+  }
 }
 
 async function deleteKrxMarketplaceConfig() {

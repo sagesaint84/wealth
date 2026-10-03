@@ -160,6 +160,23 @@ def _known_observation(item: dict[str, Any], existing: list[dict[str, Any]]) -> 
     return _unique_stock_match(item, existing) is not None or _unique_name_match(item, existing) is not None
 
 
+def _stock_code_owner(
+    existing: list[dict[str, Any]],
+    stock_code: str,
+    *,
+    exclude: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    code = str(stock_code or "").strip()
+    if not code:
+        return None
+    for row in existing:
+        if row is exclude:
+            continue
+        if str(row.get("stock_code") or "").strip() == code:
+            return row
+    return None
+
+
 def _source_priority_present(target: dict[str, Any], source_name: str) -> bool:
     sources = target.get("sources") if isinstance(target.get("sources"), dict) else {}
     if source_name in {"naver", "npay"}:
@@ -198,6 +215,18 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
             continue
         if key in {"stock_code", "corp_code"} and target.get(key) not in (None, ""):
             continue
+        if key == "stock_code":
+            reported_code = str(value or "").strip()
+            owner = _stock_code_owner(existing, reported_code, exclude=target)
+            if owner is not None:
+                target.setdefault("sources", {}).setdefault(
+                    "identity_conflicts", {}
+                )["stock_code"] = {
+                    "reported_stock_code": reported_code,
+                    "existing_ipo_id": owner.get("ipo_id"),
+                    "source": source_name,
+                }
+                continue
         target[key] = copy.deepcopy(value)
 
     incoming_sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
@@ -277,12 +306,27 @@ def _apply_dart_schedules(
         stock_code = str(master_row.get("stock_code") or "").strip()
         if not ipo.get("corp_code"):
             ipo["corp_code"] = corp_code
+
+        stock_code_conflict = None
         if stock_code and not ipo.get("stock_code"):
-            ipo["stock_code"] = stock_code
+            stock_code_conflict = _stock_code_owner(
+                market.get("ipos", []),
+                stock_code,
+                exclude=ipo,
+            )
+            if stock_code_conflict is None:
+                ipo["stock_code"] = stock_code
+
         ipo.setdefault("sources", {})["dart_identity"] = {
             "source": "OpenDART corpCode.xml" if master_row else "stored corp_code",
             "corp_code": corp_code,
-            "stock_code": stock_code or ipo.get("stock_code") or None,
+            "stock_code": ipo.get("stock_code") or None,
+            "reported_stock_code": stock_code or None,
+            "stock_code_conflict_ipo_id": (
+                stock_code_conflict.get("ipo_id")
+                if isinstance(stock_code_conflict, dict)
+                else None
+            ),
             "observed_at": datetime.now(KST).isoformat(),
         }
 

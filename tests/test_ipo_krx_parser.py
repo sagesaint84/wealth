@@ -155,7 +155,8 @@ class KrxParserTests(unittest.TestCase):
             with patch("httpx.Client.post", return_value=mock_resp) as post:
                 rows = client.fetch_new_listings("2021-01-01", "2021-12-31")
         _, kwargs = post.call_args
-        self.assertEqual(kwargs["data"]["bld"], "dbms/MDC/STAT/standard/MDCSTAT20001")
+        self.assertEqual(kwargs["data"]["bld"], "dbms/MDC/STAT/issue/MDCSTAT20001")
+        self.assertIn("menuId=MDC02021301", kwargs["headers"]["Referer"])
         self.assertEqual((kwargs["data"]["strtDd"], kwargs["data"]["endDd"]), ("20210101", "20211231"))
         self.assertEqual(rows[0]["actual_listing_date"], "2026-09-30")
 
