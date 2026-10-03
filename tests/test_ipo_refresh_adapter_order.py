@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 import unittest
 from unittest.mock import patch
 
@@ -43,11 +44,17 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
             return_value={"status": "preserved", "sources": {"kis": "source_error"}, "total_ipos": 10},
         ), patch.object(
             refresh_adapter,
-            "_run_supplement_and_targeted",
-            return_value=(
-                {"statuses": {"npay": "sync_ok (relevant=18, review_required=0)"}, "total_ipos": 18},
-                {"status": "ok", "enriched": 3},
-            ),
+            "discover_and_merge_primary_sources",
+            return_value={
+                "statuses": {"npay": "sync_ok (relevant=18, review_required=0)"},
+                "total_ipos": 18,
+                "window_start": "2026-09-01",
+                "window_end": "2026-11-30",
+            },
+        ), patch.object(
+            refresh_adapter._base,
+            "_refresh_file_lock",
+            return_value=nullcontext(),
         ):
             result = refresh_adapter.refresh_ipo_market(
                 username="user",
@@ -57,7 +64,12 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["base_refresh_status"], "preserved")
         self.assertEqual(result["total_ipos"], 18)
-        self.assertEqual(result["targeted_dart"]["enriched"], 3)
+        self.assertEqual(
+            result["targeted_dart"]["status"],
+            "not_requested (interactive_bounded_schedule_only)",
+        )
+        self.assertEqual(result["interactive_window_start"], "2026-09-01")
+        self.assertEqual(result["interactive_window_end"], "2026-11-30")
 
     def test_supplemental_160_alone_does_not_hide_main_source_failure(self):
         result = refresh_adapter._merge_refresh_result(
