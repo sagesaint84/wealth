@@ -19,6 +19,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.services.ipo.identity import generate_ipo_id, is_spac_ipo, normalize_company_name
 from app.services.ipo.krx_client import KrxClient
+from app.services.ipo.krx_authenticated_client import (
+    AuthenticatedKrxHistoricalClient,
+    KrxAuthenticationError,
+)
 from app.services.ipo.score import calculate_wealth_ipo_score
 from app.services.ipo.store import _STORE_LOCK, _read_market_store_unlocked, _write_market_store_unlocked
 
@@ -193,6 +197,8 @@ def _fetch_full_history(
         end = min(date(year, 12, 31), today)
         try:
             fetched = client.fetch_new_listings(start.isoformat(), end.isoformat())
+        except KrxAuthenticationError as exc:
+            raise HistoricalOnlineSyncError("KRX_AUTH_FAILED", str(exc)) from exc
         except Exception as exc:
             raise HistoricalOnlineSyncError(
                 "KRX_HISTORY_FETCH_FAILED",
@@ -222,10 +228,25 @@ def create_online_historical_preview(
     try:
         current = today or _current_kst_date()
         end_year = to_year if to_year is not None else current.year
-        client = krx_client or KrxClient()
-        raw_rows, by_year = _fetch_full_history(
-            client, from_year=from_year, to_year=end_year, today=current,
-        )
+        owned_client: AuthenticatedKrxHistoricalClient | None = None
+        if krx_client is None:
+            if not AuthenticatedKrxHistoricalClient.credentials_configured(username):
+                raise HistoricalOnlineSyncError(
+                    "KRX_AUTH_REQUIRED",
+                    "KRX 전체 과거자료 조회에는 KRX Data Marketplace 로그인 정보가 필요합니다. "
+                    "OpenAPI 설정에서 KRX 아이디와 비밀번호를 저장한 뒤 다시 시도해 주세요.",
+                )
+            owned_client = AuthenticatedKrxHistoricalClient(username=username)
+            client: KrxClient = owned_client
+        else:
+            client = krx_client
+        try:
+            raw_rows, by_year = _fetch_full_history(
+                client, from_year=from_year, to_year=end_year, today=current,
+            )
+        finally:
+            if owned_client is not None:
+                owned_client.close()
 
         with _STORE_LOCK:
             market = deepcopy(_read_market_store_unlocked())
