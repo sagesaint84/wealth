@@ -52,20 +52,67 @@ def test_interactive_window_rolls_with_target_month(target, expected):
     assert refresh_adapter._month_window(target) == expected
 
 
-def test_interactive_refresh_runs_bounded_discovery_without_deep_dart():
+def test_interactive_refresh_runs_bounded_discovery_with_capped_score_recovery():
     base = {'status':'ok','sources':{},'total_ipos':1}
     supplement = {'statuses':{'metalogos160':'sync_ok (matched=1)','dart_schedule':'sync_ok (matched=1, failed=0, ignored=0)'}, 'window_start':'2026-09-01','window_end':'2026-11-30','total_ipos':2}
+    reference = {'status':'ok','candidates':1,'matched':1,'unmatched':0}
+    targeted = {'status':'ok','mode':'score_recovery','candidates':1,'enriched':1}
     with patch.object(refresh_adapter, '_BASE_REFRESH_MARKET', return_value=base) as base_refresh, \
          patch.object(refresh_adapter, 'discover_and_merge_primary_sources', return_value=supplement) as discover, \
-         patch.object(refresh_adapter, '_targeted_dart_enrichment') as deep, \
+         patch.object(refresh_adapter, 'refresh_missing_metalogos_references', return_value=reference) as metalogos_ref, \
+         patch.object(refresh_adapter, '_targeted_dart_enrichment', return_value=targeted) as deep, \
          patch.object(refresh_adapter._base, '_refresh_file_lock', return_value=nullcontext()):
         result = refresh_adapter.refresh_ipo_market(username='alice', target_date_str='2026-10-02')
     base_refresh.assert_called_once_with(username='alice', target_date_str='2026-10-02')
     discover.assert_called_once_with(username='alice', target_date_str='2026-10-02')
-    deep.assert_not_called()
+    metalogos_ref.assert_called_once_with(target_date_str='2026-10-02')
+    deep.assert_called_once_with(
+        username='alice',
+        target_date_str='2026-10-02',
+        score_recovery_only=True,
+        max_candidates=4,
+    )
+    assert result['targeted_dart'] == targeted
+    assert result['sources']['metalogos160_reference_fallback'] == 'ok (matched=1, unmatched=0)'
     assert result['interactive_window_start'] == '2026-09-01'
     assert result['interactive_window_end'] == '2026-11-30'
     assert orchestrator.refresh_ipo_market is refresh_adapter.refresh_ipo_market
+
+
+def test_interactive_score_recovery_selects_only_due_near_term_calculating_ipos():
+    rows = [
+        {
+            'company_name':'진코스텍',
+            'subscription_start':'2026-10-02',
+            'score':{'is_calculating':True,'score':None,'core_missing':['lockup_commitment_ratio']},
+        },
+        {
+            'company_name':'멜콘',
+            'subscription_start':'2026-10-01',
+            'score':{'is_calculating':False,'score':68.1,'core_missing':[]},
+        },
+        {
+            'company_name':'미래청약',
+            'subscription_start':'2026-10-07',
+            'score':{'is_calculating':True,'score':None,'core_missing':['lockup_commitment_ratio']},
+        },
+        {
+            'company_name':'오래된청약',
+            'subscription_start':'2026-09-10',
+            'score':{'is_calculating':True,'score':None,'core_missing':['lockup_commitment_ratio']},
+        },
+        {
+            'company_name':'테스트스팩',
+            'listing_track':'spac',
+            'subscription_start':'2026-10-02',
+            'score':{'is_calculating':True,'score':None},
+        },
+    ]
+    selected = refresh_adapter._interactive_score_recovery_candidates(
+        rows,
+        target_date_str='2026-10-03',
+    )
+    assert [row['company_name'] for row in selected] == ['진코스텍']
 
 
 def test_metalogos_receives_only_three_month_candidate_names():

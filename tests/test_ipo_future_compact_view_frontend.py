@@ -62,6 +62,18 @@ class IpoFutureCompactViewFrontendTests(unittest.TestCase):
         self.assertIn("정식 점수 기준 75% 미만", self.compact_js)
         self.assertIn("ipo-score-diagnostic", self.compact_js)
 
+    def test_metalogos_reference_is_visible_but_explicitly_not_a_wealth_score_input(self) -> None:
+        self.assertIn("meta?.sources?.metalogos160", self.compact_js)
+        self.assertIn("160 보조자료", self.compact_js)
+        self.assertIn("Wealth Score 미반영", self.compact_js)
+        self.assertIn("attractiveness_score", self.compact_js)
+        self.assertIn("demand_participant_count_reference", self.compact_js)
+        self.assertIn("lockup_participant_count_reference", self.compact_js)
+        self.assertIn("tradable_share_ratio_reference", self.compact_js)
+        self.assertIn("host !== 'metalogos.ai' && host !== 'www.metalogos.ai'", self.compact_js)
+        self.assertIn("link.target = '_blank'", self.compact_js)
+        self.assertIn("link.rel = 'noopener noreferrer'", self.compact_js)
+
     def test_refresh_invalidates_market_and_score_metadata_cache(self) -> None:
         self.assertIn("function invalidateIpoMetadata()", self.compact_js)
         self.assertIn("'ipoRefreshBtn'", self.compact_js)
@@ -69,7 +81,7 @@ class IpoFutureCompactViewFrontendTests(unittest.TestCase):
 
     def test_loader_registers_compact_view_once(self) -> None:
         self.assertIn("wealthIpoCompactViewScript", self.loader_js)
-        self.assertIn("/static/wealth-ipo-compact-view.js?v=10.6g2", self.loader_js)
+        self.assertIn("/static/wealth-ipo-compact-view.js?v=10.7c1", self.loader_js)
 
 
 if __name__ == "__main__":

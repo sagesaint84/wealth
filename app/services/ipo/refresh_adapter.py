@@ -7,6 +7,7 @@ from app.services.ipo import orchestrator as _base
 from app.services.ipo.dart_client import DartClient, extract_document_text_from_zip, select_point_in_time_filing
 from app.services.ipo.dart_parser import DartSemanticParser
 from app.services.ipo.identity import is_spac_ipo
+from app.services.ipo.metalogos_reference_refresh import refresh_missing_metalogos_references
 from app.services.ipo.normalize import normalize_equity_registration_response
 from app.services.ipo.score import calculate_wealth_ipo_score
 from app.services.ipo.source_discovery import discover_and_merge_primary_sources
@@ -18,6 +19,8 @@ _BASE_REFRESH_MARKET = _base.refresh_ipo_market
 _BASE_REFRESH_ENRICHED = _base.refresh_ipo_market_enriched
 _DISCOVERY_PRIORITY = "DART/KIND + NAVER/Npay > Metalogos160 > KIS fallback"
 _MAIN_DISCOVERY_KEYS = ("dart_schedule", "kind_discovery", "naver_progress_discovery", "npay")
+_INTERACTIVE_SCORE_RECOVERY_LIMIT = 4
+_INTERACTIVE_SCORE_RECOVERY_MAX_AGE_DAYS = 14
 
 
 def _target_date(target_date_str: str | None) -> str:
@@ -56,11 +59,63 @@ def _is_target_candidate(ipo: dict[str, Any], start: date, end: date) -> bool:
     )
 
 
-def _targeted_dart_enrichment(*, username: str | None, target_date_str: str) -> dict[str, Any]:
-    """Refresh DART score features only for current/next-month IPOs.
+def _score_needs_recovery(ipo: dict[str, Any]) -> bool:
+    if is_spac_ipo(ipo):
+        return False
+    score = ipo.get("score")
+    if not isinstance(score, dict):
+        return True
+    if str(score.get("status") or "") == "NOT_APPLICABLE":
+        return False
+    return score.get("is_calculating") is True or score.get("score") is None
+
+
+def _interactive_score_recovery_candidates(
+    ipos: list[dict[str, Any]],
+    *,
+    target_date_str: str,
+) -> list[dict[str, Any]]:
+    """Return only near-term IPOs whose point-in-time score can now be completed.
+
+    Interactive refresh must stay bounded. Deep DART parsing is therefore
+    limited to unscored, non-SPAC IPOs whose subscription cutoff has arrived,
+    and stale subscriptions older than two weeks are left to scheduled/full
+    refresh.
+    """
+    target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+    oldest = target - timedelta(days=_INTERACTIVE_SCORE_RECOVERY_MAX_AGE_DAYS)
+    eligible: list[tuple[date, dict[str, Any]]] = []
+
+    for ipo in ipos:
+        if not _score_needs_recovery(ipo):
+            continue
+        raw_start = str(ipo.get("subscription_start") or "")[:10]
+        try:
+            subscription_start = date.fromisoformat(raw_start)
+        except ValueError:
+            continue
+        score_cutoff = subscription_start - timedelta(days=1)
+        if score_cutoff > target or subscription_start < oldest:
+            continue
+        eligible.append((subscription_start, ipo))
+
+    eligible.sort(key=lambda pair: (abs((pair[0] - target).days), pair[0]))
+    return [ipo for _subscription_start, ipo in eligible]
+
+
+def _targeted_dart_enrichment(
+    *,
+    username: str | None,
+    target_date_str: str,
+    score_recovery_only: bool = False,
+    max_candidates: int | None = None,
+) -> dict[str, Any]:
+    """Refresh DART score features for a bounded set of nearby IPOs.
 
     The schedule discovery path may use current official amendments, while this
-    score path keeps the stricter pre-subscription point-in-time rule.
+    score path keeps the stricter pre-subscription point-in-time rule. Normal
+    interactive refresh uses the recovery-only mode with a hard candidate cap;
+    scheduled/full refresh keeps the broader three-month mode.
     """
     dart = DartClient(username=username)
     if not dart.is_configured():
@@ -70,6 +125,13 @@ def _targeted_dart_enrichment(*, username: str | None, target_date_str: str) -> 
     ipos = market.get("ipos", []) if isinstance(market.get("ipos"), list) else []
     start, end = _month_window(target_date_str)
     candidates = [ipo for ipo in ipos if isinstance(ipo, dict) and _is_target_candidate(ipo, start, end)]
+    if score_recovery_only:
+        candidates = _interactive_score_recovery_candidates(
+            candidates,
+            target_date_str=target_date_str,
+        )
+    if max_candidates is not None:
+        candidates = candidates[:max(0, int(max_candidates))]
 
     unresolved = [
         ipo for ipo in candidates
@@ -191,6 +253,7 @@ def _targeted_dart_enrichment(*, username: str | None, target_date_str: str) -> 
     write_market_store(market)
     return {
         "status": "ok" if failed == 0 else "partial",
+        "mode": "score_recovery" if score_recovery_only else "bounded_full",
         "candidates": len(candidates),
         "enriched": enriched,
         "failed": failed,
@@ -198,6 +261,18 @@ def _targeted_dart_enrichment(*, username: str | None, target_date_str: str) -> 
         "window_start": start.isoformat(),
         "window_end": end.isoformat(),
     }
+
+
+def _record_metalogos_reference_status(
+    supplement: dict[str, Any],
+    reference: dict[str, Any],
+) -> None:
+    statuses = supplement.setdefault("statuses", {})
+    statuses["metalogos160_reference_fallback"] = (
+        f"{reference.get('status', 'unknown')} "
+        f"(matched={reference.get('matched', 0)}, "
+        f"unmatched={reference.get('unmatched', 0)})"
+    )
 
 
 def _run_supplement_and_targeted(*, username: str | None, target_date_str: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -209,6 +284,10 @@ def _run_supplement_and_targeted(*, username: str | None, target_date_str: str) 
                 username=username,
                 target_date_str=target_date_str,
             )
+            reference = refresh_missing_metalogos_references(
+                target_date_str=target_date_str,
+            )
+            _record_metalogos_reference_status(supplement, reference)
             targeted = _targeted_dart_enrichment(
                 username=username,
                 target_date_str=target_date_str,
@@ -244,25 +323,36 @@ def _merge_refresh_result(
 
 
 def refresh_ipo_market(*, username: str | None = None, target_date_str: str | None = None) -> dict[str, Any]:
-    """Interactive refresh: base KIS/NAVER plus bounded 3-month source reconciliation.
+    """Interactive refresh with bounded source sync and capped score recovery.
 
-    Deep DART document parsing is deliberately excluded from the button path;
-    the scheduled/full refresh retains that work.
+    Schedule/reference discovery remains limited to the moving three-month
+    window. Deep DART parsing is allowed only for a small set of near-term IPOs
+    whose score cutoff has already arrived and whose Wealth score is still
+    calculating.
     """
     resolved_target = _target_date(target_date_str)
     result = _BASE_REFRESH_MARKET(username=username, target_date_str=resolved_target)
     supplement: dict[str, Any] = {}
+    targeted: dict[str, Any] = {}
     try:
         with _base._refresh_file_lock():
             supplement = discover_and_merge_primary_sources(
-                username=username, target_date_str=resolved_target,
+                username=username,
+                target_date_str=resolved_target,
+            )
+            reference = refresh_missing_metalogos_references(
+                target_date_str=resolved_target,
+            )
+            _record_metalogos_reference_status(supplement, reference)
+            targeted = _targeted_dart_enrichment(
+                username=username,
+                target_date_str=resolved_target,
+                score_recovery_only=True,
+                max_candidates=_INTERACTIVE_SCORE_RECOVERY_LIMIT,
             )
     except _base.IpoRefreshAlreadyRunning:
         supplement = {"statuses": {"supplemental": "busy"}}
-    targeted = {
-        "status": "not_requested (interactive_bounded_schedule_only)",
-        "reason": "deep DART document parsing is scheduled/full only",
-    }
+        targeted = {"status": "busy"}
     output = _merge_refresh_result(result, supplement, targeted)
     if supplement.get("window_start"):
         output["interactive_window_start"] = supplement["window_start"]
