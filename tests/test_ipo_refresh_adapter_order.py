@@ -38,6 +38,14 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
         )
 
     def test_interactive_refresh_can_recover_from_preserved_kis_when_main_sources_sync(self):
+        targeted_result = {
+            "status": "ok",
+            "mode": "score_recovery",
+            "candidates": 1,
+            "enriched": 1,
+            "failed": 0,
+            "skipped": 0,
+        }
         with patch.object(
             refresh_adapter,
             "_BASE_REFRESH_MARKET",
@@ -52,6 +60,10 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
                 "window_end": "2026-11-30",
             },
         ), patch.object(
+            refresh_adapter,
+            "_targeted_dart_enrichment",
+            return_value=targeted_result,
+        ) as targeted, patch.object(
             refresh_adapter._base,
             "_refresh_file_lock",
             return_value=nullcontext(),
@@ -64,9 +76,12 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["base_refresh_status"], "preserved")
         self.assertEqual(result["total_ipos"], 18)
-        self.assertEqual(
-            result["targeted_dart"]["status"],
-            "not_requested (interactive_bounded_schedule_only)",
+        self.assertEqual(result["targeted_dart"], targeted_result)
+        targeted.assert_called_once_with(
+            username="user",
+            target_date_str="2026-10-01",
+            score_recovery_only=True,
+            max_candidates=refresh_adapter._INTERACTIVE_SCORE_RECOVERY_LIMIT,
         )
         self.assertEqual(result["interactive_window_start"], "2026-09-01")
         self.assertEqual(result["interactive_window_end"], "2026-11-30")
