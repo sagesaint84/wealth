@@ -21,6 +21,8 @@ class KrxClientError(RuntimeError):
 
 KRX_BASE_URL = "https://data.krx.co.kr"
 KRX_JSON_PATH = "/comm/bldAttendant/getJsonData.cmd"
+KRX_NEW_LISTINGS_BLD = "dbms/MDC/STAT/issue/MDCSTAT20001"
+KRX_NEW_LISTINGS_MENU_ID = "MDC02021301"
 KRX_OFFICIAL_HOST = "data.krx.co.kr"
 
 KRX_SCREEN_NEW_LISTINGS = "MDCSTAT20001"
@@ -55,8 +57,15 @@ def parse_krx_new_listings_json(raw_json_str: str) -> list[dict[str, Any]]:
         stock_code = str(_pick_first(item, "ISU_SRT_CD", "ISU_CD", "stock_code") or "").strip()
         comp_name = str(_pick_first(item, "ISU_ABBRV", "ISU_NM", "company_name") or "").strip()
         listing_date = str(_pick_first(item, "LIST_DD", "listing_date") or "").replace("/", "-").strip()
-        offer_price_val = _pick_first(item, "IPO_PRC", "offer_price")
-        lead_manager_value = _pick_first(item, "LEAD_MGR", "LEAD_MANAGER", "MNGM", "lead_manager")
+        offer_price_val = _pick_first(item, "IPO_PRC", "PUBOFR_PRC", "offer_price")
+        lead_manager_value = _pick_first(
+            item,
+            "LEAD_MGR",
+            "LEAD_MANAGER",
+            "LEADCOM_MBR_NM",
+            "MNGM",
+            "lead_manager",
+        )
 
         offer_price = None
         if offer_price_val is not None and offer_price_val != "":
@@ -261,16 +270,24 @@ class KrxClient:
         url = f"{self.base_url}{KRX_JSON_PATH}"
         headers = {
             "User-Agent": "Wealth/1.0 historical IPO backfill",
-            "Referer": f"{self.base_url}/",
+            "Referer": (
+                f"{self.base_url}/contents/MDC/MDI/mdiLoader/"
+                f"index.cmd?menuId={KRX_NEW_LISTINGS_MENU_ID}"
+            ),
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
         }
         payload = {
-            "bld": "dbms/MDC/STAT/standard/MDCSTAT20001",
+            "bld": KRX_NEW_LISTINGS_BLD,
             "locale": "ko_KR",
             "strtDd": start,
             "endDd": end,
             "mktId": "ALL",
+            "isurCd": "ALL",
+            "isurCd2": "ALL",
+            "listClssCd": "ALL",
+            "secugrpTp": "ALL",
+            "cntrIsoCd": "ALL",
         }
         try:
             with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:

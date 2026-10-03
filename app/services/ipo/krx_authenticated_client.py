@@ -16,6 +16,8 @@ from app.services.network_policy import require_external_network
 from app.services.user_krx_credentials import load_user_krx_credentials
 from app.services.ipo.krx_client import (
     KRX_JSON_PATH,
+    KRX_NEW_LISTINGS_BLD,
+    KRX_NEW_LISTINGS_MENU_ID,
     KrxClient,
     KrxClientError,
     parse_krx_new_listings_json,
@@ -179,18 +181,24 @@ class AuthenticatedKrxHistoricalClient(KrxClient):
 
         url = f"{self.base_url}{KRX_JSON_PATH}"
         headers = {
-            "Referer": f"{self.base_url}/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201",
+            "Referer": (
+                f"{self.base_url}/contents/MDC/MDI/mdiLoader/"
+                f"index.cmd?menuId={KRX_NEW_LISTINGS_MENU_ID}"
+            ),
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
         }
         payload = {
-            "bld": "dbms/MDC/STAT/standard/MDCSTAT20001",
+            "bld": KRX_NEW_LISTINGS_BLD,
             "locale": "ko_KR",
             "strtDd": start,
             "endDd": end,
             "mktId": "ALL",
-            "share": "1",
-            "csvxls_isNo": "false",
+            "isurCd": "ALL",
+            "isurCd2": "ALL",
+            "listClssCd": "ALL",
+            "secugrpTp": "ALL",
+            "cntrIsoCd": "ALL",
         }
 
         for attempt in range(2):
@@ -206,7 +214,16 @@ class AuthenticatedKrxHistoricalClient(KrxClient):
                 self._invalidate_session()
                 continue
             if response.is_redirect:
-                raise KrxAuthenticationError("KRX 과거자료 조회 세션이 로그인 화면으로 이동되었습니다.")
+                location = str(response.headers.get("location") or "")
+                lowered = location.lower()
+                if "login" in lowered or "mdccoms001" in lowered:
+                    raise KrxAuthenticationError(
+                        "KRX historical query session was redirected to the login page."
+                    )
+                raise KrxClientError(
+                    "KRX historical query was redirected to another KRX service page"
+                    + (f" ({location})" if location else ".")
+                )
             if response.is_error:
                 raise KrxClientError(
                     f"KRX new-listings request failed with HTTP {response.status_code}"
