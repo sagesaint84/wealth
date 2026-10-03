@@ -21,14 +21,15 @@ KST = timezone(timedelta(hours=9))
 
 def _month_window(target_date_str: str) -> tuple[date, date]:
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
-    start = target.replace(day=1)
-    if start.month == 12:
-        month_after_next = start.replace(year=start.year + 1, month=2, day=1)
-    elif start.month == 11:
-        month_after_next = start.replace(year=start.year + 1, month=1, day=1)
-    else:
-        month_after_next = start.replace(month=start.month + 2, day=1)
-    return start, month_after_next - timedelta(days=1)
+    current = target.replace(day=1)
+
+    def shift(first: date, months: int) -> date:
+        serial = first.year * 12 + (first.month - 1) + months
+        return date(serial // 12, serial % 12 + 1, 1)
+
+    start = shift(current, -1)
+    after = shift(current, 2)
+    return start, after - timedelta(days=1)
 
 
 def _date_in_window(value: object, start: date, end: date) -> bool:
@@ -208,7 +209,7 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
 def _kind_items(kind: KindClient, *, target_date_str: str, start: date, end: date) -> list[dict[str, Any]]:
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
     rows = kind.fetch_pubofr_schedule_items(
-        from_date=(target - timedelta(days=365)).isoformat(),
+        from_date=(start - timedelta(days=90)).isoformat(),
         to_date=target.isoformat(),
     )
     relevant: list[dict[str, Any]] = []
@@ -236,47 +237,39 @@ def _apply_dart_schedules(
     start: date,
     end: date,
 ) -> tuple[int, int, int]:
-    """Overlay official company-scoped OpenDART schedule facts last.
-
-    Resolve issuer identity from corpCode.xml, then query each relevant issuer's
-    C001 filings and select the newest filing receipt actually represented in
-    estkRs. This avoids both global-feed truncation and prospectus/result-report
-    receipt mismatches.
-    """
+    """Overlay OpenDART schedule facts for only the bounded three-month candidates."""
     matched = 0
     failed = 0
     ignored = 0
+    candidates = [
+        ipo for ipo in market.get("ipos", [])
+        if isinstance(ipo, dict) and _relevant_schedule(ipo, start, end)
+    ]
+    if not candidates:
+        return 0, 0, 0
 
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
-    bgn_de = (target - timedelta(days=365)).strftime("%Y%m%d")
+    bgn_de = (start - timedelta(days=120)).strftime("%Y%m%d")
     end_de = target.strftime("%Y%m%d")
 
-    try:
-        corp_master = dart.get_corp_code_master()
-    except Exception:
-        return 0, 1, 0
-
     corp_by_name: dict[str, dict[str, Any]] = {}
-    for row in corp_master:
-        if not isinstance(row, dict):
-            continue
-        key = normalize_company_name(str(row.get("corp_name") or ""))
-        if key and key not in corp_by_name:
-            corp_by_name[key] = row
+    unresolved = [ipo for ipo in candidates if not str(ipo.get("corp_code") or "").strip()]
+    if unresolved:
+        try:
+            corp_master = dart.get_corp_code_master()
+            for row in corp_master:
+                if not isinstance(row, dict):
+                    continue
+                key = normalize_company_name(str(row.get("corp_name") or ""))
+                if key and key not in corp_by_name:
+                    corp_by_name[key] = row
+        except Exception:
+            failed += 1
 
-    for ipo in list(market.get("ipos", [])):
-        if not isinstance(ipo, dict) or not _relevant_schedule(ipo, start, end):
-            continue
-
+    for ipo in candidates:
         key = normalize_company_name(str(ipo.get("company_name") or ""))
         master_row = corp_by_name.get(key) or {}
-
-        corp_code = str(
-            ipo.get("corp_code")
-            or master_row.get("corp_code")
-            or ""
-        ).strip()
-
+        corp_code = str(ipo.get("corp_code") or master_row.get("corp_code") or "").strip()
         if not corp_code:
             ignored += 1
             continue
@@ -286,65 +279,37 @@ def _apply_dart_schedules(
             ipo["corp_code"] = corp_code
         if stock_code and not ipo.get("stock_code"):
             ipo["stock_code"] = stock_code
-
         ipo.setdefault("sources", {})["dart_identity"] = {
-            "source": "OpenDART corpCode.xml",
+            "source": "OpenDART corpCode.xml" if master_row else "stored corp_code",
             "corp_code": corp_code,
-            "stock_code": stock_code or None,
+            "stock_code": stock_code or ipo.get("stock_code") or None,
             "observed_at": datetime.now(KST).isoformat(),
         }
 
         try:
             filings_resp = dart.get_filing_list(
-                corp_code=corp_code,
-                bgn_de=bgn_de,
-                end_de=end_de,
-                pblntf_detail_ty="C001",
-                last_reprt_at="N",
-                page_count=100,
+                corp_code=corp_code, bgn_de=bgn_de, end_de=end_de,
+                pblntf_detail_ty="C001", last_reprt_at="N", page_count=100,
             )
-            filings = (
-                filings_resp.get("list", [])
-                if isinstance(filings_resp, dict)
-                else []
-            )
-
+            filings = filings_resp.get("list", []) if isinstance(filings_resp, dict) else []
             raw_structured = dart.get_equity_registration_statements(
-                corp_code=corp_code,
-                bgn_de=bgn_de,
-                end_de=end_de,
+                corp_code=corp_code, bgn_de=bgn_de, end_de=end_de,
             )
-
-            filing = select_dart_schedule_filing(
-                filings,
-                raw_structured,
-            )
+            filing = select_dart_schedule_filing(filings, raw_structured)
             if not filing:
                 ignored += 1
                 continue
-
-            # corpCode.xml can know an issuer before list.json exposes stock code.
             filing = copy.deepcopy(filing)
             filing.setdefault("corp_code", corp_code)
             filing.setdefault("corp_name", ipo.get("company_name"))
             if ipo.get("stock_code"):
                 filing.setdefault("stock_code", ipo.get("stock_code"))
-
-            item = build_dart_offering_schedule(
-                raw_structured,
-                filing=filing,
-            )
+            item = build_dart_offering_schedule(raw_structured, filing=filing)
             if not item or not _relevant_schedule(item, start, end):
                 ignored += 1
                 continue
-
-            _apply_observation(
-                market,
-                item,
-                source_name="dart",
-            )
+            _apply_observation(market, item, source_name="dart")
             matched += 1
-
         except Exception:
             failed += 1
 

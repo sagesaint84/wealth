@@ -26,13 +26,14 @@ def _target_date(target_date_str: str | None) -> str:
 
 def _month_window(target_date_str: str) -> tuple[date, date]:
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
-    start = target.replace(day=1)
-    if start.month == 12:
-        after = start.replace(year=start.year + 1, month=2, day=1)
-    elif start.month == 11:
-        after = start.replace(year=start.year + 1, month=1, day=1)
-    else:
-        after = start.replace(month=start.month + 2, day=1)
+    current = target.replace(day=1)
+
+    def shift(first: date, months: int) -> date:
+        serial = first.year * 12 + (first.month - 1) + months
+        return date(serial // 12, serial % 12 + 1, 1)
+
+    start = shift(current, -1)
+    after = shift(current, 2)
     return start, after - timedelta(days=1)
 
 
@@ -243,14 +244,31 @@ def _merge_refresh_result(
 
 
 def refresh_ipo_market(*, username: str | None = None, target_date_str: str | None = None) -> dict[str, Any]:
-    """Interactive refresh: retained KIS cross-check, then main sources, then targeted DART."""
+    """Interactive refresh: base KIS/NAVER plus bounded 3-month source reconciliation.
+
+    Deep DART document parsing is deliberately excluded from the button path;
+    the scheduled/full refresh retains that work.
+    """
     resolved_target = _target_date(target_date_str)
     result = _BASE_REFRESH_MARKET(username=username, target_date_str=resolved_target)
-    supplement, targeted = _run_supplement_and_targeted(
-        username=username,
-        target_date_str=resolved_target,
-    )
-    return _merge_refresh_result(result, supplement, targeted)
+    supplement: dict[str, Any] = {}
+    try:
+        with _base._refresh_file_lock():
+            supplement = discover_and_merge_primary_sources(
+                username=username, target_date_str=resolved_target,
+            )
+    except _base.IpoRefreshAlreadyRunning:
+        supplement = {"statuses": {"supplemental": "busy"}}
+    targeted = {
+        "status": "not_requested (interactive_bounded_schedule_only)",
+        "reason": "deep DART document parsing is scheduled/full only",
+    }
+    output = _merge_refresh_result(result, supplement, targeted)
+    if supplement.get("window_start"):
+        output["interactive_window_start"] = supplement["window_start"]
+    if supplement.get("window_end"):
+        output["interactive_window_end"] = supplement["window_end"]
+    return output
 
 
 def refresh_ipo_market_enriched(

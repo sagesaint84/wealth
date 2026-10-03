@@ -8,9 +8,8 @@ from app.services.ipo.dart_parser_accuracy import AccurateDartSemanticParser
 
 _dart_parser.DartSemanticParser = AccurateDartSemanticParser
 
-# Keep the public orchestrator API stable while upgrading source discovery.
-# The adapter captures the original functions before these assignments, so the
-# scheduled/full and interactive/light paths can reuse the proven base pipeline.
+# Keep the public orchestrator API stable while the adapter separates bounded
+# interactive refresh work from the deeper scheduled/full refresh path.
 from app.services.ipo import orchestrator as _orchestrator
 from app.services.ipo.refresh_adapter import (
     refresh_ipo_market as _refresh_ipo_market,

@@ -3456,6 +3456,23 @@
           </div>
         </div>
 
+      <section id="openapiKrxSection" class="openapi-broker-section" style="margin-top:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+          <div><strong>🏛️ KRX Data Marketplace</strong><div class="muted" style="font-size:11px;margin-top:3px;">과거 공모주 전체 조회 전용 로그인 · 사용자별 secrets에 저장</div></div>
+          <span id="openapiKrxBadge" class="badge">미설정</span>
+        </div>
+        <div class="form-grid" style="margin-top:10px;">
+          <label>아이디 <input id="openapiKrxLoginId" type="text" autocomplete="off" placeholder="KRX 아이디" /></label>
+          <label>비밀번호 <input id="openapiKrxPassword" type="password" autocomplete="new-password" placeholder="저장된 비밀번호는 표시하지 않음" /></label>
+        </div>
+        <div id="openapiKrxMessage" class="muted" style="font-size:11px;margin-top:8px;"></div>
+        <div class="dialog-actions" style="margin-top:10px;justify-content:flex-start;">
+          <button type="button" class="button primary compact" onclick="saveKrxMarketplaceConfig()">저장</button>
+          <button type="button" class="button secondary compact" onclick="testKrxMarketplaceConfig()">연결 확인</button>
+          <button type="button" id="openapiKrxDeleteBtn" class="button secondary compact" onclick="deleteKrxMarketplaceConfig()" style="display:none;">삭제</button>
+        </div>
+      </section>
+
         <section id="openapiDartSection" class="openapi-broker-card" aria-labelledby="openapiDartTitle">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <span id="openapiDartTitle" style="font-weight:700;color:#fbbf24;font-size:13.5px;display:flex;align-items:center;gap:6px;">📊 시장 데이터 API · OpenDART</span>

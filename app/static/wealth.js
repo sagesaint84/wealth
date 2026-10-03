@@ -16752,3 +16752,83 @@ window.addEventListener('wealth:view', ({ detail }) => {
 window.addEventListener('wealth:role', ({ detail }) => {
   if (!detail.isAdminUser && currentIncomeTab === 'ledger') loadLedger();
 });
+
+
+// WEALTH_KRX_MARKETPLACE_CONFIG_V1
+async function loadKrxMarketplaceConfig() {
+  const badge = document.getElementById('openapiKrxBadge');
+  const login = document.getElementById('openapiKrxLoginId');
+  const password = document.getElementById('openapiKrxPassword');
+  const del = document.getElementById('openapiKrxDeleteBtn');
+  const msg = document.getElementById('openapiKrxMessage');
+  if (!badge || !login || !password) return;
+  try {
+    const res = await fetch('/api/user/krx-marketplace-config', { cache: 'no-store' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'KRX 설정 조회 실패');
+    badge.textContent = data.configured ? '설정됨' : '미설정';
+    badge.classList.toggle('active', Boolean(data.configured));
+    login.value = '';
+    login.placeholder = data.login_id || 'KRX 아이디';
+    password.value = '';
+    password.placeholder = data.password_configured ? '******** (변경 시에만 입력)' : 'KRX 비밀번호';
+    if (del) del.style.display = data.configured || data.login_id_configured ? '' : 'none';
+    if (msg) msg.textContent = '자격증명은 이 사용자 전용 data/users/<username>/secrets에 저장됩니다.';
+  } catch (err) {
+    if (msg) msg.textContent = err?.message || 'KRX 설정을 불러오지 못했습니다.';
+  }
+}
+
+async function saveKrxMarketplaceConfig() {
+  const login = document.getElementById('openapiKrxLoginId');
+  const password = document.getElementById('openapiKrxPassword');
+  const msg = document.getElementById('openapiKrxMessage');
+  const payload = {};
+  if (login?.value.trim()) payload.login_id = login.value.trim();
+  if (password?.value) payload.password = password.value;
+  if (!Object.keys(payload).length) { if (msg) msg.textContent = '변경할 아이디 또는 비밀번호를 입력해 주세요.'; return; }
+  try {
+    const res = await fetch('/api/user/krx-marketplace-config', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'KRX 설정 저장 실패');
+    if (msg) msg.textContent = data.message || '저장되었습니다.';
+    await loadKrxMarketplaceConfig();
+  } catch (err) { if (msg) msg.textContent = err?.message || 'KRX 설정 저장에 실패했습니다.'; }
+}
+
+async function testKrxMarketplaceConfig() {
+  const msg = document.getElementById('openapiKrxMessage');
+  if (msg) msg.textContent = 'KRX 로그인 확인 중…';
+  try {
+    const res = await fetch('/api/user/krx-marketplace-config/test', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'KRX 연결 확인 실패');
+    if (msg) msg.textContent = data.message || (data.valid ? '연결 정상' : '연결 실패');
+  } catch (err) { if (msg) msg.textContent = err?.message || 'KRX 연결 확인에 실패했습니다.'; }
+}
+
+async function deleteKrxMarketplaceConfig() {
+  if (!window.confirm('저장된 KRX Data Marketplace 아이디와 비밀번호를 삭제할까요?')) return;
+  const msg = document.getElementById('openapiKrxMessage');
+  try {
+    const res = await fetch('/api/user/krx-marketplace-config', { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'KRX 설정 삭제 실패');
+    if (msg) msg.textContent = data.message || '삭제되었습니다.';
+    await loadKrxMarketplaceConfig();
+  } catch (err) { if (msg) msg.textContent = err?.message || 'KRX 설정 삭제에 실패했습니다.'; }
+}
+
+window.saveKrxMarketplaceConfig = saveKrxMarketplaceConfig;
+window.testKrxMarketplaceConfig = testKrxMarketplaceConfig;
+window.deleteKrxMarketplaceConfig = deleteKrxMarketplaceConfig;
+const _openUserOpenApiModalBeforeKrx = window.openUserOpenApiModal;
+if (typeof _openUserOpenApiModalBeforeKrx === 'function') {
+  window.openUserOpenApiModal = async function(...args) {
+    const result = await _openUserOpenApiModalBeforeKrx(...args);
+    await loadKrxMarketplaceConfig();
+    return result;
+  };
+}
