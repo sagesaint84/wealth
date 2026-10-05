@@ -131,7 +131,7 @@ def upsert_ipo_record(incoming: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     Guarantees:
     - Entire read-merge-write sequence is guarded by _STORE_LOCK.
     - Existing features with status == 'ok' and a valid value (including 0.0) are preserved
-      if incoming feature status is 'parse_error', 'source_error', or 'schema_mismatch'.
+      if incoming feature status is 'missing', 'parse_error', 'source_error', or 'schema_mismatch'.
     - 0.0 is an authoritative valid number and never treated as None/missing.
 
     Returns:
@@ -176,7 +176,7 @@ def merge_ipo_record(store: dict[str, Any], incoming: dict[str, Any]) -> tuple[d
                     old_feat = existing_feats.get(feat_name)
                     if (isinstance(old_feat, dict) and old_feat.get("status") == "ok"
                             and old_feat.get("value") is not None
-                            and new_status in ("parse_error", "source_error", "schema_mismatch")):
+                            and new_status in ("missing", "parse_error", "source_error", "schema_mismatch")):
                         if "source_status" in new_feat:
                             old_feat["source_status"] = new_feat["source_status"]
                     else:
