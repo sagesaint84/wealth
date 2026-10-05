@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 import unittest
 
 
@@ -76,7 +77,37 @@ class UnifiedTimeseriesTests(unittest.TestCase):
     def test_mutation_observer_does_not_rerender_its_own_owned_chart(self):
         self.assertIn("function hostNeedsUnified(hostId)", self.js)
         self.assertIn("wealth-unified-chart-shell", self.js)
-        self.assertIn("if (hostNeedsUnified('assetChart'))", self.js)
+        self.assertIn("!document.getElementById('recordsPanel')?.classList.contains('is-tax-view') && hostNeedsUnified('assetChart')", self.js)
+
+    def test_tax_holdings_are_not_replaced_by_stock_record_chart(self):
+        render_stock = "function renderStock() {" + self.js.split("function renderStock() {", 1)[1].split("\n  function captureNetWorthFromLegacy", 1)[0]
+        script = r"""
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+let taxView = true;
+let charts = 0;
+const host = {innerHTML: '<table class="tax-holdings-table"></table>'};
+const context = {
+  document: {getElementById(id) {
+    if (id === 'recordsPanel') return {classList: {contains() { return taxView; }}};
+    return id === 'assetChart' ? host : {};
+  }},
+  adoptExistingControls() {}, stockSource() { return []; },
+  aggregateState() { return {mode: 'ALL'}; },
+  renderStateChart() { charts++; },
+  modes: {stock: 'ALL'}, MODE_LABEL: {ALL: '전체'},
+};
+vm.createContext(context);
+vm.runInContext(process.argv[1], context);
+context.renderStock();
+assert.equal(charts, 0);
+assert.match(host.innerHTML, /tax-holdings-table/);
+taxView = false;
+context.renderStock();
+assert.equal(charts, 1);
+"""
+        result = subprocess.run(["node", "-e", script, render_stock], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_ledger_can_continue_loading_older_history_at_zoom_boundary(self):
         self.assertIn("onNeedOlder: extendLedgerHistory", self.js)
@@ -86,7 +117,7 @@ class UnifiedTimeseriesTests(unittest.TestCase):
         self.assertIn("/static/wealth-timeseries-period-core.js?v=10.6k1", self.loader)
         self.assertIn("/static/wealth-timeseries-visible-range.js?v=10.6k4", self.loader)
         self.assertIn("/static/wealth-timeseries-label-layout.js?v=10.6k4", self.loader)
-        self.assertIn("/static/wealth-timeseries-unified.js?v=10.6k2", self.loader)
+        self.assertIn("/static/wealth-timeseries-unified.js?v=10.7g1", self.loader)
         self.assertIn("visibleRange.addEventListener('load', loadLabelLayout", self.loader)
         self.assertIn("script.addEventListener('load', loadUnified", self.loader)
         self.assertIn("periodCore.addEventListener('load', loadUnifiedTimeseries", self.loader)

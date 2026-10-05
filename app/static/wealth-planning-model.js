@@ -89,7 +89,7 @@ if (typeof document !== 'undefined') {
     const loadUnified = () => {
       if (document.querySelector('script[data-wealth-timeseries-unified]')) return;
       const script = document.createElement('script');
-      script.src = '/static/wealth-timeseries-unified.js?v=10.6k2';
+      script.src = '/static/wealth-timeseries-unified.js?v=10.7g1';
       script.async = false;
       script.dataset.wealthTimeseriesUnified = '1';
       document.head.append(script);

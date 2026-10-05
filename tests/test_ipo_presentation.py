@@ -149,8 +149,8 @@ class IpoPresentationTests(unittest.TestCase):
             "--calendar-loss-fg": "#448AFF",
             "--calendar-income-fg": "#FFAB40",
             "--calendar-expense-fg": "#4DF0FF",
-            "--calendar-subscription-fg": "#69F0AE",
-            "--calendar-listing-fg": "#B388FF",
+            "--calendar-subscription-fg": "#A5B4FC",
+            "--calendar-listing-fg": "#D8B4FE",
             "--calendar-dividend-fg": "#FFE082",
         }
         for variable, value in expected.items():

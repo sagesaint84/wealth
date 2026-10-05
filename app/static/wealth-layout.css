@@ -967,7 +967,7 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
   text-overflow: ellipsis;
   line-height: 1.2;
 }
-.calendar-legend, .cal-badge { --calendar-profit-bg: rgba(239, 68, 68, 0.15); --calendar-profit-fg: #f87171; --calendar-loss-bg: rgba(68, 138, 255, 0.15); --calendar-loss-fg: #448AFF; --calendar-dividend-bg: rgba(255, 224, 130, 0.15); --calendar-dividend-fg: #FFE082; --calendar-income-bg: rgba(255, 171, 64, 0.15); --calendar-income-fg: #FFAB40; --calendar-expense-bg: rgba(77, 240, 255, 0.14); --calendar-expense-fg: #4DF0FF; --calendar-subscription-bg: rgba(105, 240, 174, 0.14); --calendar-subscription-fg: #69F0AE; --calendar-listing-bg: rgba(179, 136, 255, 0.16); --calendar-listing-fg: #B388FF; }
+.calendar-legend, .cal-badge { --calendar-profit-bg: rgba(239, 68, 68, 0.15); --calendar-profit-fg: #f87171; --calendar-loss-bg: rgba(68, 138, 255, 0.15); --calendar-loss-fg: #448AFF; --calendar-dividend-bg: rgba(255, 224, 130, 0.15); --calendar-dividend-fg: #FFE082; --calendar-income-bg: rgba(255, 171, 64, 0.15); --calendar-income-fg: #FFAB40; --calendar-expense-bg: rgba(77, 240, 255, 0.14); --calendar-expense-fg: #4DF0FF; --calendar-subscription-bg: rgba(79, 70, 229, 0.20); --calendar-subscription-fg: #A5B4FC; --calendar-listing-bg: rgba(168, 85, 247, 0.20); --calendar-listing-fg: #D8B4FE; }
 .cal-badge.tone-profit { background: var(--calendar-profit-bg); color: var(--calendar-profit-fg); }
 .cal-badge.tone-loss { background: var(--calendar-loss-bg); color: var(--calendar-loss-fg); }
 .cal-badge.tone-dividend { background: var(--calendar-dividend-bg); color: var(--calendar-dividend-fg); }
