@@ -4,21 +4,13 @@
 > 새 대화, 새 작업 세션, 새 개발자가 시작할 때 가장 먼저 이 문서를 읽습니다.
 > 세부 계획은 `docs/ROADMAP.md`, 비밀값·환경설정 원칙은 `docs/SECURITY_AND_CONFIG.md`를 참조합니다.
 
-마지막 갱신: 2026-09-29
+마지막 갱신: 2026-10-06 (main `faefa4d` 기준)
 
 ## 1. 현재 개발 상태
 
-현재 작업 단계는 **Phase 10.5G — 배당 현금흐름 목표/의사결정**입니다.
+현재 **진행 중인 기능 phase는 없다**. PR #90까지 main에 반영됐으며, 다음 기능은 미정이다. 현재는 maintenance와 제품 우선순위 결정 단계다. 후보와 보류 항목은 `docs/ROADMAP.md`에 둔다.
 
-현재 작업:
-
-- branch: `phase10-5g-dividend-cashflow-goals`
-- base: `main`
-- 작업 시작 기준 main: `ed10883728a97fca71baa29ad8c28f41cb4b4298`
-- PR: #53 Draft
-- 상태: 구현 완료, exact-head 로컬 검증 완료, PR final review/merge 단계
-
-Phase 10.5G는 기존 forecast 및 알려진 세금 후 계산을 재사용해 선택 연도 12개월 배당 현금흐름과 사용자 월배당 목표 비교를 제공한다.
+Phase 10.5G는 기존 forecast 및 알려진 세금 후 계산을 재사용해 선택 연도 12개월 배당 현금흐름과 사용자 월배당 목표 비교를 제공하도록 완료됐다.
 
 1. 기존 `monthly_schedule`을 월별 gross forecast의 authoritative schedule로 재사용
 2. 기존 종목별 `after_known_tax_cash_krw`를 각 종목의 월별 gross 비중으로 배분
@@ -39,12 +31,20 @@ C-7 가족별 배당 분산 보기 단순화는 삭제하지 않고, 기존 Fami
 - 10.5D Dividend Intelligence 통합 — PR #50 merge (`e18408d6`), 운영 배포 및 browser smoke 확인.
 - 10.5E Dividend Intelligence 디자인 / 고배당기업 공식 자격 — PR #51 merge (`3d23a504`), GHCR #120, 운영 배포 및 browser smoke 확인.
 - 10.5F Dividend detail UX polish + USD amount helper — PR #52 merge (`ed108837`), GHCR #135, 운영 배포 및 browser smoke 확인.
+- 10.5G 배당 현금흐름 목표/의사결정 — PR #53 merge (`076e81a`).
+- 10.5H 월별 알려진 세금 후 attribution — PR #54 merge (`3f3f141`).
+- 10.5I 월별 attribution 진단 및 목표 UX — PR #55 merge (`19a294d`).
+- 10.6A AccountInfo PDF 계좌 가져오기 — PR #56 merge (`8bb3dcb`), 후속 UX/observer 보강 PR #57~#59 반영.
+- 10.6B 증권·은행 계좌 섹션 요약 — PR #60 merge (`e0573d1`), 후속 보강 PR #61 반영.
+- 이후 기간·증권사 필터와 금융 시계열 화면 통합, IPO source/history/DART/score, Toss WTS 실현손익 가져오기 안정화가 main에 반영됨.
+- 초기 자산 표시 경로 성능 개선 — PR #89 merge (`9ecc356`).
+- 절세계좌 보유종목 상세 복구 및 IPO 캘린더 청약 색상 첫 페인트 수정 — PR #90 merge (`faefa4d`).
 
 C-4.1 운영 확인:
 
 - PR #45 merge `5edb9388`.
 - GHCR 배포 완료.
-- `sagesaint` 사용자에서 최초 `dividend_forecast_snapshots.json` point-in-time snapshot 생성 확인.
+- 운영 사용자에서 최초 `dividend_forecast_snapshots.json` point-in-time snapshot 생성 확인.
 - snapshot schema_version 1, 12개 월 bucket, owner/date canonical upsert 기반이 운영에서 확인됨.
 - 10.5E browser smoke 시 snapshot 2개 누적 확인.
 
@@ -55,7 +55,7 @@ C-4.1 운영 확인:
 - 앞으로 기본 UX는 `예상 금융소득 / 2천만원까지 여유 / 추가 배당 What-if / 원천징수 후 현금흐름 / 배당수익률`을 중심으로 한다.
 - 세무 상세 기능은 계산 근거 또는 고급 비교 영역으로 남긴다.
 
-## 2. Phase 10.5 완료/진행 현황
+## 2. 주요 완료 현황 (10.5~10.6)
 
 - [x] 10.5A-1 금융소득 projection 기반
 - [x] 10.5A-2 stateless 금융소득 simulation API
@@ -94,9 +94,13 @@ C-4.1 운영 확인:
 - [x] 10.5D Dividend Intelligence — PR #50 merge (`e18408d6`), 운영 배포 및 browser smoke 확인
 - [x] 10.5E Dividend Intelligence 디자인 / 고배당기업 공식 자격 — PR #51 merge (`3d23a504`), GHCR #120, 운영 배포 및 browser smoke 확인
 - [x] 10.5F Dividend detail UX polish + USD amount helper — PR #52 merge (`ed108837`), GHCR #135, 운영 배포 및 browser smoke 확인
-- [ ] 10.5G 배당 현금흐름 목표/의사결정 — PR #53 Draft, exact-head 검증 완료
+- [x] 10.5G 배당 현금흐름 목표/의사결정 — PR #53 merge (`076e81a`)
+- [x] 10.5H 월별 알려진 세금 후 attribution — PR #54 merge (`3f3f141`)
+- [x] 10.5I 월별 attribution 진단 및 목표 UX — PR #55 merge (`19a294d`)
+- [x] 10.6A AccountInfo PDF 계좌 가져오기 — PR #56 merge (`8bb3dcb`)
+- [x] 10.6B 증권·은행 계좌 섹션 요약 — PR #60 merge (`e0573d1`)
 
-세부 후속 순서는 `docs/ROADMAP.md`, `docs/PHASE_10_5D_DIVIDEND_INTELLIGENCE.md`, `docs/PHASE_10_5E_DIVIDEND_INTELLIGENCE_DESIGN_HIGH_DIVIDEND.md`, `docs/PHASE_10_5F_DIVIDEND_UX_USD.md`, `docs/PHASE_10_5G_DIVIDEND_CASHFLOW_GOALS.md`를 따른다.
+향후 후보와 보류 항목은 `docs/ROADMAP.md`를 따른다. 완료된 phase의 계산·저장 계약은 각 `docs/PHASE_*.md`에 보존한다.
 
 ## 3. 현재 금융소득/세금 제품 원칙
 
@@ -393,7 +397,7 @@ docker compose \
 docker compose \
   -f docker-compose.ghcr.yml \
   -f docker-compose.override.yml \
-  up -d --force-recreate dashboard
+  up -d dashboard
 
 docker compose \
   -f docker-compose.ghcr.yml \
@@ -410,7 +414,7 @@ docker compose \
 1. 새 branch
 2. targeted tests
 3. 관련 regression tests
-4. full unittest suite
+4. full pytest suite (`PYTHONPATH=tests`)
 5. Python `py_compile`
 6. JavaScript `node --check`
 7. `git diff --check`
