@@ -70,6 +70,60 @@ class DartRealLayoutRegressionTests(unittest.TestCase):
             5.29,
         )
 
+    def test_listing_statement_extracts_post_offer_shares(self):
+        doc = """
+        <p>
+          당사의 상장예정주식수 3,786,533주 중
+          58.44%에 해당하는 2,212,851주는
+          상장 직후 유통가능 물량에 해당합니다.
+        </p>
+        """
+
+        self.assertEqual(
+            self.parser.extract_post_offer_shares(doc),
+            3786533,
+        )
+
+    def test_listing_statement_rejects_inconsistent_share_ratio(self):
+        doc = """
+        <p>
+          당사의 상장예정주식수 3,786,533주 중
+          58.44%에 해당하는 1,000,000주는
+          상장 직후 유통가능 물량에 해당합니다.
+        </p>
+        """
+
+        self.assertIsNone(
+            self.parser.extract_post_offer_shares(doc)
+        )
+
+    def test_listing_statement_rejects_ratio_outside_rounding_tolerance(self):
+        doc = """
+        상장예정주식수 1,000,000주 중
+        50.04%에 해당하는 500,000주는
+        상장 직후 유통가능 물량에 해당합니다.
+        """
+
+        self.assertIsNone(self.parser.extract_post_offer_shares(doc))
+
+    def test_listing_statement_rejects_conflicting_valid_totals(self):
+        doc = """
+        <p>
+          상장예정주식수 1,000,000주 중
+          50.00%에 해당하는 500,000주는
+          상장 직후 유통가능 물량에 해당합니다.
+        </p>
+        <p>
+          상장예정주식수 2,000,000주 중
+          50.00%에 해당하는 1,000,000주는
+          상장 직후 유통가능 물량에 해당합니다.
+        </p>
+        """
+
+        self.assertIsNone(
+            self.parser.extract_post_offer_shares(doc)
+        )
+
     def test_missing_refresh_does_not_erase_valid_feature(self):
         store = {
             "schema_version": 1,

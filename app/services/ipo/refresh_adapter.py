@@ -192,6 +192,7 @@ def _targeted_dart_enrichment(
                 structured_data = {}
 
             parsed_features: dict[str, Any] = {}
+            post_offer_shares: int | None = None
             offer_band: tuple[float, float] | None = None
             offer_band_from_structured = False
             is_spac = is_spac_ipo(cand)
@@ -207,10 +208,12 @@ def _targeted_dart_enrichment(
                     rcept_no=rcept_no,
                     source_date=source_date,
                 )
+                if not is_spac:
+                    post_offer_shares = parser.extract_post_offer_shares(doc_text)
                 if not is_spac and offer_band is None:
                     offer_band = parser.extract_offer_band(doc_text)
 
-            if not parsed_features and not structured_data and offer_band is None:
+            if not parsed_features and not structured_data and offer_band is None and post_offer_shares is None:
                 skipped += 1
                 continue
 
@@ -230,6 +233,14 @@ def _targeted_dart_enrichment(
                 "features": parsed_features,
                 "sources": {"dart": dart_meta},
             }
+            if not is_spac and post_offer_shares is not None:
+                update_payload["post_offer_shares"] = post_offer_shares
+                update_payload["sources"]["post_offer_shares"] = {
+                    "source": "dart_document",
+                    "source_date": source_date,
+                    "rcept_no": rcept_no,
+                    "confidence": "high",
+                }
             if not is_spac and offer_band is not None:
                 low, high = offer_band
                 update_payload["offer_band_low"] = low
