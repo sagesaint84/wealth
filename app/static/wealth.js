@@ -4753,6 +4753,7 @@ function renderHeatmaps(data) {
   const holdings = data?.holdings || [];
   const container = $("#assetHeatmapContainer");
   if (!container) return;
+  if (container.closest('[data-wealth-page="invest"]')?.hidden) return;
 
   if (!holdings.length) {
     container.innerHTML = '<div class="empty">보유종목이 없습니다. 증권사 동기화 후 히트맵이 표시됩니다.</div>';
@@ -6307,10 +6308,6 @@ async function loadDashboard(recordSnapshots = false) {
   const data = await api(`/api/dashboard${suffix}`);
   rawDashboard = data;
   dashboard = data;
-  try {
-    const allRes = await api('/api/asset-records');
-    allAssetRecords = allRes.records || [];
-  } catch (e) {}
   renderWithOwner(data, currentOwner);
 }
 
@@ -10982,7 +10979,7 @@ async function applyUserRoleView(me) {
 async function loadAssetDataForUser() {
   const o = currentOwner || '모두';
   let priceRefreshSucceeded = false;
-  try { await loadFamilyMembers(); } catch (e) {}
+  const familyMembersReady = loadFamilyMembers().catch(() => {});
 
   // 접속 시 먼저 최신 시세/환율을 반영한다. 성공한 경우에만 당일 자동 스냅샷을 기록한다.
   try {
@@ -10991,6 +10988,7 @@ async function loadAssetDataForUser() {
   } catch (e) {
     toast(e.message || "접속 시 시세 갱신에 실패해 자동 기록을 건너뜁니다.", true);
   }
+  await familyMembersReady;
 
   try {
     await loadDashboard(priceRefreshSucceeded);
@@ -11012,7 +11010,6 @@ async function loadAssetDataForUser() {
   }
 
   try { await loadMarkets(); } catch (e) {}
-  try { await loadAssetRecords(o); } catch (e) {}
   try { await loadDividends(o); } catch (e) {}
   try { await loadActualDividends(o, selectedDividendYear); } catch (e) {}
   try { await loadRealizedPnl(o, selectedPnlYear, currentPnlTradeType); } catch (e) {}
