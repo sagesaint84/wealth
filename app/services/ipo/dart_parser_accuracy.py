@@ -71,40 +71,101 @@ class AccurateDartSemanticParser(_BaseDartSemanticParser):
     VERSION = _BaseDartSemanticParser.VERSION
 
     def extract_competition_ratio(self, text: str) -> float | None:
-        """Extract the total institutional demand competition ratio."""
+        """Extract the authoritative total institutional demand competition ratio."""
+
+        def plausible(value: float | None) -> bool:
+            return value is not None and 0.0 < value <= 10000.0
+
+        def numeric_tokens(value: object) -> list[float]:
+            raw = clean_text(str(value or ""))
+            pattern = (
+                r"(?<![\d,])"
+                r"(?:\d{1,3}(?:,\d{3})+|\d+)"
+                r"(?:\.\d+)?"
+                r"(?![\d,])"
+            )
+            values: list[float] = []
+            for token in re.findall(pattern, raw):
+                try:
+                    values.append(float(token.replace(",", "")))
+                except ValueError:
+                    continue
+            return values
+
+        # Explicit prose: "기관투자자 경쟁률 1,097.62 : 1"
         match = re.search(
-            r"(?:기관투자자|수요예측)[^\n\r]{0,80}?경쟁률[^\d\n\r]{0,30}"
-            r"(\d+(?:,\d+)*(?:\.\d+)?)\s*:\s*1",
+            r"(?:기관투자자|수요예측)[^\n\r]{0,80}?경쟁률[^\d\n\r]{0,40}"
+            r"((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*:\s*1",
             text,
         )
         if match:
             value = parse_number(match.group(1))
-            if value is not None and value > 0:
-                return round(value, 2)
+            if plausible(value):
+                return round(float(value), 2)
 
+        # Wide DART result tables contain one ratio per investor group and
+        # the authoritative overall ratio in the final total column.
         for table in extract_tables(text):
             if "경쟁률" not in table:
                 continue
+
             matrix = parse_table_to_matrix(table)
-            table_text = " ".join(" ".join(row) for row in matrix)
+            if not matrix:
+                continue
+
+            normalized_rows = [
+                [_normalize_label(cell) for cell in row]
+                for row in matrix
+            ]
+
+            has_quantity_context = any(
+                any(
+                    "신청수량" in cell
+                    or cell in {"수량", "참여수량"}
+                    for cell in row
+                )
+                for row in normalized_rows
+            )
+
+            has_total_context = any(
+                any(
+                    cell in {"합계", "총계", "계"}
+                    or cell.endswith("합계")
+                    or cell.endswith("총계")
+                    for cell in row
+                )
+                for row in normalized_rows
+            )
+
             has_demand_context = (
                 "수요예측" in table
-                or (
-                    "합계" in table_text
-                    and "기관투자자" in table_text
-                    and "수량" in table_text
-                )
+                or "기관투자자" in table
+                or (has_quantity_context and has_total_context)
             )
+
             if not has_demand_context:
                 continue
 
             for row in matrix:
-                if not any("경쟁률" in cell for cell in row):
+                label_idx = next(
+                    (
+                        idx
+                        for idx, cell in enumerate(row)
+                        if _normalize_label(cell).startswith("경쟁률")
+                    ),
+                    None,
+                )
+                if label_idx is None:
                     continue
-                values = [parse_number(cell) for cell in row[1:]]
-                values = [value for value in values if value is not None and value > 0]
-                if values:
-                    return round(values[-1], 2)
+
+                values: list[float] = []
+                for cell in row[label_idx + 1:]:
+                    values.extend(numeric_tokens(cell))
+
+                valid = [value for value in values if plausible(value)]
+                if valid:
+                    return round(valid[-1], 2)
+
         return None
 
     @staticmethod
@@ -150,7 +211,8 @@ class AccurateDartSemanticParser(_BaseDartSemanticParser):
         return from_column
 
     def extract_lockup_commitment_ratio(self, text: str) -> float | None:
-        """Extract committed shares / total demand, rejecting partial tables."""
+        """Extract committed requested shares / total requested shares."""
+
         commitment_terms = ("6개월", "3개월", "1개월", "15일")
 
         for table in extract_tables(text):
@@ -159,47 +221,93 @@ class AccurateDartSemanticParser(_BaseDartSemanticParser):
                 for term in ("의무보유확약", "확약신청", "의무보유", "미확약")
             ):
                 continue
+
             matrix = parse_table_to_matrix(table)
             if not matrix:
                 continue
+
             quantity_for = self._lockup_quantity_extractor(matrix)
             if quantity_for is None:
                 continue
 
-            committed_shares = 0.0
-            total_shares = None
-            has_commitment_rows = False
+            committed_quantities: list[float] = []
+            uncommitted_quantities: list[float] = []
+            total_quantities: list[float] = []
 
             for row in matrix:
                 if not row:
                     continue
+
                 label = _normalize_label(row[0])
                 quantity = quantity_for(row)
+
+                if quantity is None or quantity < 0:
+                    continue
+
                 if any(term in label for term in commitment_terms):
-                    if quantity is not None and quantity >= 0:
-                        committed_shares += quantity
-                        has_commitment_rows = True
-                elif label in {"합계", "총계"}:
-                    if quantity is not None and quantity > 0:
-                        total_shares = quantity
+                    committed_quantities.append(quantity)
 
+                elif "미확약" in label:
+                    uncommitted_quantities.append(quantity)
+
+                elif (
+                    label in {"계", "합계", "총계"}
+                    or label.endswith("합계")
+                    or label.endswith("총계")
+                ):
+                    total_quantities.append(quantity)
+
+            # Preferred for real wide DART tables:
+            # committed = total demand - uncommitted demand.
+            #
+            # This is robust even when commitment-period rows are split over
+            # several investor categories.
             if (
-                has_commitment_rows
-                and total_shares is not None
-                and total_shares > 0
-                and 0 <= committed_shares <= total_shares
+                committed_quantities
+                and uncommitted_quantities
+                and total_quantities
             ):
-                return round((committed_shares / total_shares) * 100.0, 2)
+                total_shares = max(total_quantities)
+                uncommitted_shares = max(uncommitted_quantities)
 
+                if (
+                    total_shares > 0
+                    and 0 <= uncommitted_shares <= total_shares
+                ):
+                    committed_shares = total_shares - uncommitted_shares
+                    ratio = committed_shares / total_shares * 100.0
+                    return round(
+                        min(100.0, max(0.0, ratio)),
+                        2,
+                    )
+
+            # Legacy/simple table fallback.
+            if committed_quantities and total_quantities:
+                total_shares = max(total_quantities)
+                committed_shares = sum(committed_quantities)
+
+                if (
+                    total_shares > 0
+                    and 0 <= committed_shares <= total_shares
+                ):
+                    ratio = committed_shares / total_shares * 100.0
+                    return round(
+                        min(100.0, max(0.0, ratio)),
+                        2,
+                    )
+
+        # Only accept an explicitly labelled result percentage.
         match = re.search(
-            r"의무보유\s*확약(?:\s*신청)?\s*(?:비율|비중)"
-            r"[^\d\n\r]{0,30}(\d+(?:\.\d+)?)\s*%",
+            r"(?:의무보유\s*확약(?:\s*신청)?\s*(?:비율|비중|률)|확약\s*비율)"
+            r"[^\d\n\r]{0,30}"
+            r"(\d+(?:\.\d+)?)\s*%",
             text,
         )
         if match:
             value = parse_number(match.group(1))
             if value is not None and 0.0 <= value <= 100.0:
                 return round(value, 2)
+
         return None
 
     def extract_high_bid_ratio(self, text: str) -> float | None:
