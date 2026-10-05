@@ -366,6 +366,50 @@ class AccurateDartSemanticParser(_BaseDartSemanticParser):
 
         return _best_value(candidates)
 
+    def extract_post_offer_shares(self, text: str) -> int | None:
+        """Extract post-offer shares from a reconciled listing statement.
+
+        Accept only an explicit listing-total statement where total shares,
+        immediately-tradable shares, and the reported percentage reconcile.
+        Multiple distinct valid totals fail closed.
+        """
+        clean_doc = clean_text(text)
+
+        pattern = re.compile(
+            r"상장예정주식수\s*"
+            r"(\d{1,3}(?:,\d{3})+|\d+)\s*주\s*중\s*"
+            r"(\d+(?:\.\d+)?)\s*%\s*에\s*해당하는\s*"
+            r"(\d{1,3}(?:,\d{3})+|\d+)\s*주(?:는|가)?\s*"
+            r"상장\s*직후\s*유통\s*가능"
+        )
+
+        valid_totals: set[int] = set()
+
+        for match in pattern.finditer(clean_doc):
+            total = int(match.group(1).replace(",", ""))
+            reported_ratio = float(match.group(2))
+            tradable = int(match.group(3).replace(",", ""))
+
+            if total <= 0:
+                continue
+            if tradable < 0 or tradable > total:
+                continue
+            if not 0.0 <= reported_ratio <= 100.0:
+                continue
+
+            calculated_ratio = tradable / total * 100.0
+
+            # DART percentage is normally rounded to two decimals.
+            if abs(calculated_ratio - reported_ratio) > 0.005 + 1e-9:
+                continue
+
+            valid_totals.add(total)
+
+        if len(valid_totals) == 1:
+            return next(iter(valid_totals))
+
+        return None
+
     def extract_tradable_share_ratio(self, text: str) -> float | None:
         """Extract the current immediately-tradable ratio from explicit prose."""
 

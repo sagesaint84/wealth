@@ -115,6 +115,101 @@ def test_interactive_score_recovery_selects_only_due_near_term_calculating_ipos(
     assert [row['company_name'] for row in selected] == ['진코스텍']
 
 
+@pytest.mark.parametrize('shares_only', [False, True])
+def test_targeted_dart_enrichment_persists_post_offer_shares(shares_only):
+    market = {
+        'schema_version': 1,
+        'ipos': [
+            {
+                'ipo_id': 'ipo-jincostech',
+                'company_name': '진코스텍',
+                'corp_code': '01158632',
+                'stock_code': '250030',
+                'subscription_start': '2026-10-02',
+                'final_offer_price': 23500.0,
+                'features': {},
+                'sources': {},
+                'score': {
+                    'score': None,
+                    'is_calculating': True,
+                    'core_missing': [],
+                },
+            }
+        ],
+    }
+
+    filing = {
+        'rcept_no': '20261001000594',
+        'rcept_dt': '20261001',
+        'report_nm': '[기재정정]투자설명서',
+    }
+
+    doc = """
+    <p>
+      당사의 상장예정주식수 3,786,533주 중
+      58.44%에 해당하는 2,212,851주는
+      상장 직후 유통가능 물량에 해당합니다.
+    </p>
+    """
+
+    dart = MagicMock()
+    dart.is_configured.return_value = True
+    dart.get_filing_list.return_value = {'list': [filing]}
+    dart.get_equity_registration_statements.return_value = {}
+    dart.download_document_zip.return_value = b'fake-zip'
+
+    parser = MagicMock()
+    parser.parse_document.return_value = {}
+    parser.extract_post_offer_shares.return_value = 3786533
+    parser.extract_offer_band_from_structured.return_value = None
+    parser.extract_offer_band.return_value = None
+    parser_patch = (
+        patch.object(refresh_adapter, 'DartSemanticParser', return_value=parser)
+        if shares_only else nullcontext()
+    )
+
+    with parser_patch, \
+         patch.object(refresh_adapter, 'DartClient', return_value=dart), \
+         patch.object(refresh_adapter, 'read_market_store', return_value=market), \
+         patch.object(refresh_adapter, 'write_market_store') as write_market, \
+         patch.object(
+             refresh_adapter,
+             'extract_document_text_from_zip',
+             return_value=doc,
+         ), \
+         patch.object(
+             refresh_adapter,
+             'select_point_in_time_filing',
+             return_value=filing,
+         ):
+        result = refresh_adapter._targeted_dart_enrichment(
+            username='alice',
+            target_date_str='2026-10-05',
+            score_recovery_only=True,
+            max_candidates=1,
+        )
+
+    ipo = market['ipos'][0]
+
+    assert result['status'] == 'ok'
+    assert result['candidates'] == 1
+    assert result['enriched'] == 1
+    assert result['skipped'] == 0
+
+    if shares_only:
+        parser.parse_document.assert_called_once()
+
+    assert ipo['post_offer_shares'] == 3786533
+
+    source = ipo['sources']['post_offer_shares']
+    assert source['source'] == 'dart_document'
+    assert source['source_date'] == '20261001'
+    assert source['rcept_no'] == '20261001000594'
+    assert source['confidence'] == 'high'
+
+    write_market.assert_called_once_with(market)
+
+
 def test_metalogos_receives_only_three_month_candidate_names():
     market = {'ipos':[
         {'company_name':'9월회사','subscription_start':'2026-09-10'},
