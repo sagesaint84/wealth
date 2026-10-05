@@ -20,15 +20,16 @@ class ReleaseVersionTests(unittest.TestCase):
         self.assertIn('id="appVersionDisplay"', html)
         self.assertIn("v1.3.0", html)
 
-        css_matches = re.findall(r'href="/static/[^"]+\.css\?v=([^"]+)"', html)
+        css_matches = re.findall(r'href="/static/([^"]+\.css)\?v=([^"]+)"', html)
         self.assertTrue(css_matches)
-        for version in css_matches:
-            self.assertEqual(version, "1.3.0")
+        for asset, version in css_matches:
+            self.assertEqual(version, "10.7g1" if asset == "wealth-layout.css" else "1.3.0")
 
-        js_matches = re.findall(r'src="/static/[^"]+\.js\?v=([^"]+)"', html)
+        js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
-        for version in js_matches:
-            self.assertEqual(version, "1.3.0")
+        hotfix_assets = {"wealth-family-financial-income-allocation.js", "wealth-planning-model.js"}
+        for asset, version in js_matches:
+            self.assertEqual(version, "10.7g1" if asset in hotfix_assets else "1.3.0")
 
     def test_service_worker_cache_name(self):
         sw = (STATIC_DIR / "sw.js").read_text(encoding="utf-8")

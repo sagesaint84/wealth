@@ -34,7 +34,7 @@ def test_broker_import_modal_body_scrolls_without_hiding_header_footer() -> None
     assert "flex: 0 0 auto;" in css
 
 
-def test_layout_stylesheet_keeps_current_release_cache_version() -> None:
+def test_layout_stylesheet_uses_current_hotfix_cache_version() -> None:
     html = _index_html()
 
-    assert '/static/wealth-layout.css?v=1.3.0' in html
+    assert '/static/wealth-layout.css?v=10.7g1' in html

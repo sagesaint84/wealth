@@ -521,6 +521,7 @@
   }
 
   function renderStock() {
+    if (document.getElementById('recordsPanel')?.classList.contains('is-tax-view')) return;
     const host = document.getElementById('assetChart');
     const controls = document.getElementById('recordPeriodTabs');
     if (!host || !controls) return;
@@ -931,7 +932,7 @@
 
   function installObserver() {
     const observer = new MutationObserver(() => {
-      if (hostNeedsUnified('assetChart')) queue('stock');
+      if (!document.getElementById('recordsPanel')?.classList.contains('is-tax-view') && hostNeedsUnified('assetChart')) queue('stock');
       if (!netWorthCapturePending && hostNeedsUnified('wealthHistoryPlot')) queue('networth');
       if (hostNeedsUnified('pnlBarChartWrap')) queue('pnl');
       if (dividendMode() === 'actual' && hostNeedsUnified('dividendBarChartWrap')) queue('dividend');
