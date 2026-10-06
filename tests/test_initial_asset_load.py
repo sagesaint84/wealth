@@ -16,9 +16,11 @@ const requests = [];
 let releaseRecords;
 const recordsPending = new Promise(resolve => { releaseRecords = resolve; });
 let rendered = false;
+let estimatedLoads = 0;
 let familyReleased;
 const familyPending = new Promise(resolve => { familyReleased = resolve; });
 const context = {
+  currentDividendMode: 'actual',
   currentOwner: '모두', selectedDividendYear: 'all', selectedPnlYear: 'all',
   currentPnlTradeType: 'all', rawDashboard: null, dashboard: null,
   allAssetRecords: [], window: {dispatchEvent() {}}, CustomEvent: class {},
@@ -31,9 +33,10 @@ const context = {
   },
   renderWithOwner() { rendered = true; void context.loadAssetRecords('모두'); },
   loadFamilyMembers() { return familyPending; },
-  loadMarkets: async () => {}, loadDividends: async () => {},
+  loadMarkets: async () => {}, loadDividends: async () => { estimatedLoads++; },
   loadActualDividends: async () => {}, loadRealizedPnl: async () => {},
   updateOverviewCardsAllTime: async () => {},
+  finishStartupIncomeReads() {},
 };
 vm.createContext(context);
 vm.runInContext(source, context);
@@ -47,6 +50,8 @@ vm.runInContext(source, context);
   assert.equal(requests.filter(path => path === '/api/asset-records').length, 1);
   releaseRecords({records: []});
   await loading;
+  assert.equal(estimatedLoads, 0);
+  assert(requests.indexOf('/api/refresh-prices') < requests.indexOf('/api/planning/snapshot-all'));
   assert.equal(requests.filter(path => path === '/api/asset-records').length, 1);
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """

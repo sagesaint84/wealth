@@ -3,6 +3,7 @@
 
   let canonicalIpos = [];
   let latestUpdatedAt = null;
+  let synced = false;
 
   const monthKey = (year, month) => `${year}-${String(month).padStart(2, '0')}`;
 
@@ -37,12 +38,8 @@
     const state = window.WealthIpoState;
     if (!state) return;
     try {
-      const response = await fetch('/api/ipo/market', {
-        credentials: 'same-origin',
-        cache: 'no-store',
-      });
-      if (!response.ok) return;
-      const payload = await response.json();
+      const payload = await window.fetchJson('/api/ipo/market', synced ? { cache: 'no-store' } : {});
+      synced = true;
       const items = Array.isArray(payload?.ipos) ? payload.ipos : [];
       const changed = payload?.updated_at !== latestUpdatedAt;
       canonicalIpos = items;

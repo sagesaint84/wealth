@@ -107,7 +107,8 @@ function selectOwner(owner) {
     loadAssetRecords(currentOwner);
     loadLedger();
   }
-  loadDividends(currentOwner);
+  dividendData = null;
+  if (currentDividendMode === 'estimated') loadDividends(currentOwner);
   loadActualDividends(currentOwner, selectedDividendYear);
   loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
   updateOverviewCardsAllTime(currentOwner);
@@ -115,9 +116,15 @@ function selectOwner(owner) {
 
 // ── 핵심 요약 패널의 실현손익 및 실제 배당금 전체 기간(All-Time) 갱신 ─────────
 async function updateOverviewCardsAllTime(owner = currentOwner) {
+  const [pnlResult, dividendResult] = await Promise.allSettled([
+    api(`/api/realized-pnl?owner=${encodeURIComponent(owner)}&year=all&trade_type=all`),
+    api(`/api/actual-dividends?owner=${encodeURIComponent(owner)}&year=all`),
+  ]);
+  if (owner !== currentOwner) return;
   let totalPnl = 0;
   try {
-    const pnlRes = await api(`/api/realized-pnl?owner=${encodeURIComponent(owner)}&year=all&trade_type=all`);
+    if (pnlResult.status === 'rejected') throw pnlResult.reason;
+    const pnlRes = pnlResult.value;
     if (pnlRes) {
       const pnlView = buildRealizedPnlDisplaySummary(pnlRes, [], true);
       totalPnl = pnlView.totalPnlKrw;
@@ -142,7 +149,8 @@ async function updateOverviewCardsAllTime(owner = currentOwner) {
   }
 
   try {
-    const divRes = await api(`/api/actual-dividends?owner=${encodeURIComponent(owner)}&year=all`);
+    if (dividendResult.status === 'rejected') throw dividendResult.reason;
+    const divRes = dividendResult.value;
     if (divRes) {
       const totalActual = Number(divRes.total_actual_dividend_krw || 0);
       const actualEl = $("#summaryActualDividend");
@@ -735,7 +743,47 @@ function sparkline(points, change) {
   `;
 }
 
+const startupReadPending = new Map();
+const allTimeReadCache = new Map();
+let startupReadEpoch = 0;
+let startupIncomeReuse = true;
+
+function finishStartupIncomeReads() {
+  startupIncomeReuse = false;
+  for (const key of allTimeReadCache.keys()) {
+    if (!key.startsWith('/api/ipo/market')) allTimeReadCache.delete(key);
+  }
+}
+
 async function api(url, options = {}) {
+  const parsed = new URL(url, location.origin);
+  parsed.searchParams.sort();
+  const key = parsed.pathname + parsed.search;
+  const isRead = !options.method || options.method.toUpperCase() === 'GET';
+  const shared = isRead && ['/api/realized-pnl', '/api/actual-dividends', '/api/family-members', '/api/ipo/market', '/api/accounts'].includes(parsed.pathname);
+  const reusable = shared && ((startupIncomeReuse && parsed.searchParams.get('year') === 'all') || parsed.pathname === '/api/ipo/market');
+  // Price/snapshot writes do not change realized income or IPO market records.
+  if (!isRead && !['/api/refresh-prices', '/api/planning/snapshot-all'].includes(parsed.pathname)) {
+    startupReadEpoch++;
+    allTimeReadCache.clear();
+    startupReadPending.clear();
+  }
+  if (reusable && options.cache !== 'no-store' && allTimeReadCache.has(key)) return allTimeReadCache.get(key);
+  if (shared && startupReadPending.has(key)) return startupReadPending.get(key);
+  const epoch = startupReadEpoch;
+  const pending = apiRequest(url, options);
+  if (!shared) return pending;
+  startupReadPending.set(key, pending);
+  try {
+    const result = await pending;
+    if (reusable && epoch === startupReadEpoch && (startupIncomeReuse || parsed.pathname === '/api/ipo/market')) allTimeReadCache.set(key, result);
+    return result;
+  } finally {
+    if (startupReadPending.get(key) === pending) startupReadPending.delete(key);
+  }
+}
+
+async function apiRequest(url, options = {}) {
   options.credentials = options.credentials || 'include';
   const response = await fetch(url, options);
   if (response.status === 401) {
@@ -9351,6 +9399,7 @@ function normalizeMonthlyDividendSchedule(monthlySchedule) {
 async function loadDividends(owner = currentOwner) {
   try {
     const res = await api(`/api/dividends?owner=${encodeURIComponent(owner)}`);
+    if (owner !== currentOwner) return;
     dividendData = res;
     if (currentDividendMode === 'estimated') {
       renderDividends(res);
@@ -9363,6 +9412,7 @@ async function loadDividends(owner = currentOwner) {
 async function loadActualDividends(owner = currentOwner, year = selectedDividendYear) {
   try {
     const res = await api(`/api/actual-dividends?owner=${encodeURIComponent(owner)}&year=${encodeURIComponent(year || '')}`);
+    if (owner !== currentOwner || year !== selectedDividendYear) return;
     actualDividendData = res;
     if (currentDividendMode === 'actual') {
       renderActualDividends(res);
@@ -9687,22 +9737,7 @@ function renderActualDividends(data) {
 
   const chartWrap = $("#dividendBarChartWrap");
   if (chartWrap && !window.WealthUnifiedTimeseries?.renderDividend) {
-    chartWrap.innerHTML = `
-      <svg class="record-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:240px;overflow:visible;">
-        <defs>
-          <linearGradient id="actualDivBarGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#fb7185" />
-            <stop offset="100%" stop-color="#e11d48" />
-          </linearGradient>
-          <linearGradient id="actualDivBarGradActive" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#f43f5e" />
-            <stop offset="100%" stop-color="#fda4af" />
-          </linearGradient>
-        </defs>
-        <line x1="${pad}" y1="${hBarArea}" x2="${w - pad}" y2="${hBarArea}" stroke="#283758" stroke-width="1.2" />
-        ${bars}
-      </svg>
-    `;
+    chartWrap.textContent = '배당 차트를 불러오는 중…';
   }
 
   renderActualDividendDetail(selectedDividendMonth);
@@ -11056,11 +11091,14 @@ async function loadAssetDataForUser() {
     }
   }
 
-  try { await loadMarkets(); } catch (e) {}
-  try { await loadDividends(o); } catch (e) {}
-  try { await loadActualDividends(o, selectedDividendYear); } catch (e) {}
-  try { await loadRealizedPnl(o, selectedPnlYear, currentPnlTradeType); } catch (e) {}
-  try { await updateOverviewCardsAllTime(o); } catch (e) {}
+  await Promise.allSettled([
+    loadMarkets(),
+    ...(currentDividendMode === 'estimated' ? [loadDividends(o)] : []),
+    loadActualDividends(o, selectedDividendYear),
+    loadRealizedPnl(o, selectedPnlYear, currentPnlTradeType),
+    updateOverviewCardsAllTime(o),
+  ]);
+  finishStartupIncomeReads();
 }
 
 async function handleForcePasswordSubmit(e) {

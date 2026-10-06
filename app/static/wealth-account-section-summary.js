@@ -196,23 +196,16 @@
     syncBankCountBadges(bankAccounts.length, agreements.length);
   }
 
-  async function jsonFetch(url) {
-    const response = await fetch(url, { credentials: 'same-origin' });
-    if (!response.ok) throw new Error(`요청 실패 (${response.status})`);
-    return response.json();
-  }
-
   async function refreshAccountSectionSummaries() {
+    // The unfiltered dashboard already supplies the banking contract. Wait for its
+    // normal startup load rather than racing a second dashboard request.
+    const loadedDashboard = typeof rawDashboard !== 'undefined' ? rawDashboard : null;
+    if (!loadedDashboard) return;
     const token = ++refreshToken;
     const owner = currentOwner();
     try {
-      const [accountPayload, dashboardPayload] = await Promise.all([
-        jsonFetch('/api/accounts?group=All&owner=모두'),
-        jsonFetch('/api/dashboard'),
-      ]);
-      if (token !== refreshToken) return;
-      renderSecuritiesSummary(accountPayload?.accounts || [], owner);
-      renderBankSummary(dashboardPayload || {}, owner);
+      renderSecuritiesSummary(loadedDashboard.accounts || [], owner);
+      renderBankSummary(loadedDashboard, owner);
     } catch (error) {
       if (token !== refreshToken) return;
       const message = `<div class="account-section-summary-error">계좌 요약을 불러오지 못했습니다. 기존 계좌 목록은 그대로 사용할 수 있습니다.</div>`;
@@ -257,6 +250,7 @@
     document.addEventListener('click', (event) => {
       if (event.target?.closest?.('.family-tab[data-owner]')) scheduleRefresh(0);
     }, true);
+    window.addEventListener('wealth:portfolio', () => scheduleRefresh(0));
     window.addEventListener('focus', () => scheduleRefresh(0));
     loadIpoSaleBridgeScript();
     scheduleRefresh(0);

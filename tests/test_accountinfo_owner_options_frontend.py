@@ -20,9 +20,9 @@ class AccountInfoOwnerOptionsFrontendTests(unittest.TestCase):
         self.assertIn("data-accountinfo-owner-options", self.money_js)
 
     def test_family_members_api_is_authoritative_source(self) -> None:
-        self.assertIn("fetch('/api/family-members'", self.owner_js)
+        self.assertIn("window.fetchJson('/api/family-members')", self.owner_js)
         self.assertIn("payload?.members", self.owner_js)
-        self.assertIn("credentials: 'same-origin'", self.owner_js)
+        self.assertNotIn("await fetch(", self.owner_js)
 
     def test_render_preserves_existing_selection_and_excludes_all_when_members_exist(self) -> None:
         self.assertIn("value !== '모두'", self.owner_js)

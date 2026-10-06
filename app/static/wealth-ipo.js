@@ -303,6 +303,8 @@
     }
   }
 
+  let marketLoaded = false;
+
   async function loadIpoSchedule() {
     const wrapper = document.getElementById('ipoListWrapper');
     if (!wrapper) return;
@@ -320,12 +322,8 @@
       }
 
       // 2. Fetch canonical market IPO records
-      const marketRes = await fetch('/api/ipo/market');
-      if (!marketRes.ok) {
-        wrapper.innerHTML = '<p class="empty-text" style="padding:24px;text-align:center;">공모주 일정을 불러올 수 없습니다.</p>';
-        return;
-      }
-      const marketData = await marketRes.json();
+      const marketData = await window.fetchJson('/api/ipo/market', marketLoaded ? { cache: 'no-store' } : {});
+      marketLoaded = true;
       marketIpos = Array.isArray(marketData.ipos) ? marketData.ipos : [];
       renderIpoList();
     } catch (err) {
@@ -347,9 +345,7 @@
     }
     if (historicalButton) historicalButton.disabled = true;
     try {
-      const res = await fetch('/api/ipo/market/refresh', { method: 'POST' });
-      if (!res.ok) throw new Error(`Server returned HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await window.fetchJson('/api/ipo/market/refresh', { method: 'POST' });
       marketIpos = Array.isArray(data.market?.ipos) ? data.market.ipos : marketIpos;
       renderIpoList();
     } catch (err) {

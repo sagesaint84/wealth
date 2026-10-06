@@ -285,12 +285,7 @@
     if (metadataPromise) return metadataPromise;
     metadataPromise = (async () => {
       try {
-        const response = await fetch('/api/ipo/market', {
-          credentials: 'same-origin',
-          cache: 'no-store',
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const payload = await response.json();
+        const payload = await window.fetchJson('/api/ipo/market');
         ipoMetadataById.clear();
         (Array.isArray(payload?.ipos) ? payload.ipos : []).forEach(item => {
           const ipoId = String(item?.ipo_id || '');
