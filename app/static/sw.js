@@ -37,47 +37,52 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// 3. 네트워크 요청 처리: Network-first 전략 (API 및 주요 스크립트는 항상 네트워크 직접 요청)
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
+function isWealthCacheEligible(request) {
+  const url = new URL(request.url);
+  return request.method === "GET" &&
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    url.origin === self.location.origin &&
+    !url.pathname.startsWith("/api/") &&
+    !url.pathname.endsWith(".js") &&
+    !url.pathname.endsWith(".css");
+}
 
-  // API 요청 및 JS/CSS 변경사항은 항상 네트워크에서 최신 버전 직접 로드
-  if (url.pathname.startsWith("/api/") || url.pathname.endsWith(".js") || url.pathname.endsWith(".css") || event.request.method !== "GET") {
+async function offlineResponse(request) {
+  const cachedResponse = await caches.match(request);
+  if (cachedResponse) return cachedResponse;
+  if (request.mode === "navigate") {
+    const fallback = await caches.match("/");
+    if (fallback) return fallback;
+    const fallbackDash = await caches.match("/dashboard");
+    if (fallbackDash) return fallbackDash;
+  }
+  return new Response("오프라인 상태입니다. 네트워크 연결을 확인하세요.", {
+    status: 503,
+    statusText: "Service Unavailable",
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
+// 3. 네트워크 요청 처리: 캐시 대상만 Network-first 전략 적용
+self.addEventListener("fetch", (event) => {
+  if (!isWealthCacheEligible(event.request)) {
     event.respondWith(fetch(event.request));
     return;
   }
 
-  event.respondWith(
-    fetch(event.request)
-      .then((networkResponse) => {
-        // 정상 응답인 경우 정적 파일 캐시 최신화
-        if (networkResponse && networkResponse.status === 200) {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-        }
-        return networkResponse;
-      })
-      .catch(async () => {
-        // 네트워크 단절/오프라인 시 캐시 리소스 반환
-        const cachedResponse = await caches.match(event.request);
-        if (cachedResponse) {
-          return cachedResponse;
-        }
-        // 페이지 이동(navigation) 요청이면 메인 페이지 반환
-        if (event.request.mode === "navigate") {
-          const fallback = await caches.match("/");
-          if (fallback) return fallback;
-          const fallbackDash = await caches.match("/dashboard");
-          if (fallbackDash) return fallbackDash;
-        }
-        return new Response("오프라인 상태입니다. 네트워크 연결을 확인하세요.", {
-          status: 503,
-          statusText: "Service Unavailable",
-          headers: { "Content-Type": "text/plain; charset=utf-8" },
-        });
-      })
-  );
-});
+  const network = fetch(event.request);
+  // Register synchronously. Returning put's promise keeps the entire write in
+  // the event lifetime; a write rejection remains visible to waitUntil without
+  // rejecting the independent successful network response.
+  event.waitUntil(network.then((response) => {
+    if (response && response.status === 200) {
+      const clone = response.clone();
+      return caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+    }
+  }, () => undefined)); // Network failure needs no cache update.
 
+  event.respondWith(network.then(
+    (response) => response,
+    () => offlineResponse(event.request)
+  ));
+});
