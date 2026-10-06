@@ -2704,8 +2704,13 @@ function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   });
+  if (currentIncomeTab === 'pnl' || currentIncomeTab === 'dividend') {
+    window.WealthUnifiedTimeseries?.refreshVisiblePanZoom?.(
+      currentIncomeTab === 'pnl' ? 'pnlBarChartWrap' : 'dividendBarChartWrap'
+    );
+  }
   if (updateHash) {
-    const hash = currentIncomeTab === 'calendar' ? '#income' : (currentIncomeTab === 'pnl' ? '#income' : `#${currentIncomeTab}`);
+    const hash = currentIncomeTab === 'calendar' ? '#income' : `#${currentIncomeTab}`;
     history.replaceState(null, '', hash);
   }
   if (loadContent) {
@@ -2716,11 +2721,40 @@ function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
 }
 window.setIncomeTab = setIncomeTab;
 
+let pendingIncomeTabSelection = 0;
 document.getElementById('incomeTabs')?.addEventListener('click', event => {
   const tab = event.target.closest('.income-tab');
-  if (tab) setIncomeTab(tab.dataset.income);
+  if (!tab) return;
+  const selection = ++pendingIncomeTabSelection;
+  if (tab.dataset.income === 'dividend' && currentDividendMode === 'actual'
+      && !document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell')) {
+    void (async () => {
+      if (!window.WealthUnifiedTimeseries?.renderDividend) {
+        await new Promise(resolve => window.addEventListener('wealth:unified-ready', resolve, { once: true }));
+      }
+      const rendered = await window.WealthUnifiedTimeseries.renderDividend();
+      if (rendered === false) {
+        if (selection === pendingIncomeTabSelection) setIncomeTab('dividend');
+        return;
+      }
+      const host = document.getElementById('dividendBarChartWrap');
+      if (host && !host.querySelector('.wealth-unified-chart-shell, .wealth-unified-empty')) {
+        await new Promise(resolve => {
+          const observer = new MutationObserver(() => {
+            if (!host.querySelector('.wealth-unified-chart-shell, .wealth-unified-empty')) return;
+            observer.disconnect();
+            resolve();
+          });
+          observer.observe(host, { childList: true });
+        });
+      }
+      if (selection === pendingIncomeTabSelection) setIncomeTab('dividend');
+    })();
+    return;
+  }
+  setIncomeTab(tab.dataset.income);
 });
-setIncomeTab(document.querySelector('.wealth-workspace')?.dataset.incomeTab || (location.hash === '#ledger' ? 'ledger' : 'calendar'), { updateHash: false, loadContent: false });
+setIncomeTab(document.querySelector('.wealth-workspace')?.dataset.incomeTab || ({ pnl: 'pnl', dividend: 'dividend', ledger: 'ledger', ipo: 'ipo' }[location.hash.slice(1)] || 'calendar'), { updateHash: false, loadContent: false });
 
 const INSURANCE_TYPE_LABELS = {
   protection: "보장성보험",
@@ -7341,8 +7375,12 @@ document.addEventListener('click', async (e) => {
       if (addBtn) addBtn.style.display = 'inline-block';
       if (importBtn) importBtn.style.display = 'inline-block';
       if (clearBtn) clearBtn.style.display = 'inline-block';
-      if (actualDividendData) renderActualDividends(actualDividendData);
-      else loadActualDividends(currentOwner);
+      if (actualDividendData) {
+        renderActualDividends(actualDividendData);
+        void window.WealthUnifiedTimeseries?.renderDividend?.();
+      } else {
+        loadActualDividends(currentOwner);
+      }
     }
     return;
   }
@@ -9648,7 +9686,7 @@ function renderActualDividends(data) {
   }
 
   const chartWrap = $("#dividendBarChartWrap");
-  if (chartWrap) {
+  if (chartWrap && !window.WealthUnifiedTimeseries?.renderDividend) {
     chartWrap.innerHTML = `
       <svg class="record-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:240px;overflow:visible;">
         <defs>

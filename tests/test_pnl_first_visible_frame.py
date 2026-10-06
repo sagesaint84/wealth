@@ -2,12 +2,13 @@
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
 import time
 import urllib.request
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -46,6 +47,22 @@ class IncomePreview(StaticPreview):
         super().do_GET()
 
 
+@contextmanager
+def chrome_profile(prefix):
+    path = Path(tempfile.mkdtemp(prefix=prefix))
+    try:
+        yield str(path)
+    finally:
+        for attempt in range(20):
+            try:
+                shutil.rmtree(path)
+                break
+            except PermissionError:
+                if attempt == 19:
+                    raise
+                time.sleep(0.2)
+
+
 @pytest.mark.parametrize("width,height", VIEWPORTS)
 def test_pnl_first_visible_frame_matches_settled_chart(width, height):
     websocket = pytest.importorskip("websocket")
@@ -58,7 +75,7 @@ def test_pnl_first_visible_frame_matches_settled_chart(width, height):
     connection = None
     try:
         with ExitStack() as cleanup:
-            profile = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="wealth-pnl-frame-"))
+            profile = cleanup.enter_context(chrome_profile("wealth-pnl-frame-"))
             flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             process = subprocess.Popen(
                 [chrome, "--headless=new", "--no-first-run", "--no-default-browser-check",

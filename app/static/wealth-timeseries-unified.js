@@ -51,7 +51,9 @@
   };
 
   const renderQueued = new Set();
+  const pendingVisiblePanZoom = new WeakMap();
   let pnlRenderGeneration = 0;
+  let dividendRenderGeneration = 0;
   let internalNetWorthClick = false;
   let netWorthCapturePending = false;
   let ledgerLoadingOlder = false;
@@ -325,15 +327,24 @@
       return true;
     };
     if (viewport.clientWidth) {
-      apply();
-      requestAnimationFrame(initializeVisibleWidth);
+      initializeVisibleWidth();
     } else {
       const observer = new ResizeObserver(() => {
         if (!viewport.isConnected) {
           observer.disconnect();
+          pendingVisiblePanZoom.delete(viewport);
           return;
         }
-        if (initializeVisibleWidth()) observer.disconnect();
+        if (initializeVisibleWidth()) {
+          observer.disconnect();
+          pendingVisiblePanZoom.delete(viewport);
+        }
+      });
+      pendingVisiblePanZoom.set(viewport, () => {
+        if (initializeVisibleWidth()) {
+          observer.disconnect();
+          pendingVisiblePanZoom.delete(viewport);
+        }
       });
       observer.observe(viewport);
     }
@@ -698,8 +709,10 @@
       return;
     }
     if (controls) controls.hidden = false;
+    const generation = ++dividendRenderGeneration;
     try {
       const source = await dividendSource();
+      if (generation !== dividendRenderGeneration || dividendMode() !== 'actual') return;
       const rows = [
         ...source.dividend.map(record => ({ ...record, dividend_value: finite(record?.amount_krw), interest_value: 0 })),
         ...source.interest.map(record => ({ ...record, dividend_value: 0, interest_value: finite(record?.amount_krw) })),
@@ -720,8 +733,10 @@
       });
       const title = document.getElementById('dividendChartTitle');
       if (title) title.textContent = `📊 ${MODE_LABEL[aggregated.mode]} 실제 배당·이자 추이`;
+      return true;
     } catch (error) {
       console.error('배당·이자 공통 차트 오류:', error);
+      return false;
     }
   }
 
@@ -948,6 +963,11 @@
     return !host.firstElementChild?.classList?.contains('wealth-unified-chart-shell');
   }
 
+  function refreshVisiblePanZoom(hostId) {
+    const viewport = document.getElementById(hostId)?.querySelector('.wealth-unified-viewport');
+    if (viewport) pendingVisiblePanZoom.get(viewport)?.();
+  }
+
   function installObserver() {
     const observer = new MutationObserver(() => {
       if (!document.getElementById('recordsPanel')?.classList.contains('is-tax-view') && hostNeedsUnified('assetChart')) queue('stock');
@@ -977,7 +997,9 @@
     renderNetWorth,
     renderPnl,
     renderDividend,
+    refreshVisiblePanZoom,
     renderLedger,
     extendLedgerHistory,
   };
+  window.dispatchEvent(new Event('wealth:unified-ready'));
 })();
