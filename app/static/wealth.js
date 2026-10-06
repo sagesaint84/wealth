@@ -101,13 +101,16 @@ function selectOwner(owner) {
   document.querySelectorAll('.family-tabs .family-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.owner === currentOwner);
   });
-  if (rawDashboard) renderWithOwner(rawDashboard, currentOwner);
-  loadAssetRecords(currentOwner);
+  if (rawDashboard) {
+    renderWithOwner(rawDashboard, currentOwner);
+  } else {
+    loadAssetRecords(currentOwner);
+    loadLedger();
+  }
   loadDividends(currentOwner);
   loadActualDividends(currentOwner, selectedDividendYear);
   loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
   updateOverviewCardsAllTime(currentOwner);
-  loadLedger();
 }
 
 // ── 핵심 요약 패널의 실현손익 및 실제 배당금 전체 기간(All-Time) 갱신 ─────────
@@ -6312,11 +6315,13 @@ async function loadDashboard(recordSnapshots = false) {
 }
 
 async function loadAssetRecords(owner) {
+  const o = owner || currentOwner || '모두';
   try {
     const allRes = await api('/api/asset-records');
+    if (o !== currentOwner) return;
     allAssetRecords = allRes.records || [];
   } catch (e) {}
-  const o = owner || currentOwner || '모두';
+  if (o !== currentOwner) return;
   let filtered = [];
   if (o === '모두') {
     const allOwnerRecs = allAssetRecords.filter(r => (r.owner || '모두') === '모두');
@@ -12215,6 +12220,7 @@ async function loadLedger() {
   try {
     const owner = currentOwner || "모두";
     const res = await api(`/api/ledger?year=${currentLedgerYear}&month=${currentLedgerMonth}&owner=${encodeURIComponent(owner)}`);
+    if (owner !== currentOwner) return;
     rawLedgerData = res;
     renderLedger(res);
   } catch (err) {
