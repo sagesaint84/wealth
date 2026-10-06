@@ -43,7 +43,9 @@
   window.syncPnlMonthNavUI = syncPnlPeriodNavUI;
 
   function clearPnlMonthForYearSelection() {
-    if (typeof selectedPnlMonth === 'undefined' || selectedPnlMonth === null) return;
+    const activeBucket = Boolean(window.WealthUnifiedTimeseries?.getDetail('pnl'));
+    window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
+    if (typeof selectedPnlMonth === 'undefined' || (selectedPnlMonth === null && !activeBucket)) return;
     selectedPnlMonth = null;
     syncPnlPeriodNavUI();
 

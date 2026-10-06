@@ -7300,7 +7300,7 @@ document.addEventListener('click', async (e) => {
       currentPnlSortField = sortField;
       currentPnlSortOrder = (sortField === 'name' || sortField === 'owner') ? 'asc' : 'desc';
     }
-    renderPnlMonthlyDetail(selectedPnlMonth);
+    renderPnlMonthlyDetail(selectedPnlMonth, window.WealthUnifiedTimeseries?.getDetail('pnl') || null);
     return;
   }
 
@@ -7314,7 +7314,7 @@ document.addEventListener('click', async (e) => {
       currentDivSortField = sortField;
       currentDivSortOrder = (sortField === 'name' || sortField === 'owner') ? 'asc' : 'desc';
     }
-    renderActualDividendDetail(selectedDividendMonth);
+    renderActualDividendDetail(selectedDividendMonth, window.WealthUnifiedTimeseries?.getDetail('dividend') || null);
     return;
   }
 
@@ -7485,7 +7485,7 @@ document.addEventListener('click', async (e) => {
   const editActualDivBtn = e.target.closest('.edit-actual-div-btn');
   if (editActualDivBtn) {
     const rId = editActualDivBtn.dataset.id;
-    const rec = (actualDividendData?.records || []).find(r => r.id === rId);
+    const rec = (window.WealthUnifiedTimeseries?.getDetail('dividend')?.items || actualDividendData?.records || []).find(r => r.id === rId && r.income_kind !== 'interest');
     if (rec) openDividendRecordDialog(rec);
     return;
   }
@@ -7494,7 +7494,7 @@ document.addEventListener('click', async (e) => {
   const delActualDivBtn = e.target.closest('.delete-actual-div-btn');
   if (delActualDivBtn) {
     const rId = delActualDivBtn.dataset.id;
-    const rec = (actualDividendData?.records || []).find(r => r.id === rId);
+    const rec = (window.WealthUnifiedTimeseries?.getDetail('dividend')?.items || actualDividendData?.records || []).find(r => r.id === rId && r.income_kind !== 'interest');
     const label = rec ? `${rec.date} ${rec.name} (${money(rec.amount_krw)})` : '배당 기록';
     if (!confirm(`'${label}' 배당 내역을 삭제할까요?`)) return;
     const savedScrollY = window.scrollY || window.pageYOffset || 0;
@@ -7520,6 +7520,7 @@ document.addEventListener('click', async (e) => {
   // 배당 막대 차트 월/연도 선택
   const divBar = e.target.closest('.dividend-bar-group');
   if (divBar) {
+    window.WealthUnifiedTimeseries?.clearDetail('dividend', {render:false});
     if (divBar.dataset.year) {
       const yr = divBar.dataset.year;
       selectedDividendYear = yr;
@@ -7544,6 +7545,10 @@ document.addEventListener('click', async (e) => {
 
   // 배당 전체 보기 버튼
   if (e.target.closest('#clearDivMonthBtn')) {
+    if (window.WealthUnifiedTimeseries?.getDetail('dividend')) {
+      window.WealthUnifiedTimeseries.clearDetail('dividend');
+      return;
+    }
     selectedDividendMonth = null;
     if (currentDividendMode === 'estimated') {
       if (dividendData) renderDividends(dividendData);
@@ -7595,7 +7600,7 @@ document.addEventListener('click', async (e) => {
   const editPnlBtn = e.target.closest('.edit-pnl-btn');
   if (editPnlBtn) {
     const rId = editPnlBtn.dataset.id;
-    const rec = (pnlData?.records || []).find(r => r.id === rId);
+    const rec = (window.WealthUnifiedTimeseries?.getDetail('pnl')?.items || pnlData?.records || []).find(r => r.id === rId);
     if (rec) openPnlRecordDialog(rec);
     return;
   }
@@ -7604,7 +7609,7 @@ document.addEventListener('click', async (e) => {
   const delPnlBtn = e.target.closest('.delete-pnl-btn');
   if (delPnlBtn) {
     const rId = delPnlBtn.dataset.id;
-    const rec = (pnlData?.records || []).find(r => r.id === rId);
+    const rec = (window.WealthUnifiedTimeseries?.getDetail('pnl')?.items || pnlData?.records || []).find(r => r.id === rId);
     const label = rec ? `${rec.date} ${rec.name} (${money(rec.pnl_krw)})` : '손익 기록';
     if (!confirm(`'${label}' 매도 실현손익 내역을 삭제할까요?`)) return;
     const savedScrollY = window.scrollY || window.pageYOffset || 0;
@@ -7632,6 +7637,7 @@ document.addEventListener('click', async (e) => {
   // 실현손익 막대 차트 월/연도 선택
   const pnlBar = e.target.closest('.pnl-bar-group');
   if (pnlBar) {
+    window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
     if (pnlBar.dataset.year) {
       const yr = pnlBar.dataset.year;
       selectedPnlYear = yr;
@@ -7652,6 +7658,10 @@ document.addEventListener('click', async (e) => {
 
   // 실현손익 전체 보기 버튼
   if (e.target.closest('#clearPnlMonthBtn')) {
+    if (window.WealthUnifiedTimeseries?.getDetail('pnl')) {
+      window.WealthUnifiedTimeseries.clearDetail('pnl');
+      return;
+    }
     selectedPnlMonth = null;
     if (pnlData) renderRealizedPnl(pnlData);
     return;
@@ -9376,6 +9386,7 @@ function syncDividendMonthNavUI() {
 }
 
 window.setSelectedDividendPeriod = (year, month) => {
+  window.WealthUnifiedTimeseries?.clearDetail('dividend', {render:false});
   selectedDividendYear = String(year);
   selectedDividendMonth = month !== null && month !== undefined ? Number(month) : null;
   syncDividendMonthNavUI();
@@ -9743,18 +9754,24 @@ function renderActualDividends(data) {
     chartWrap.textContent = '배당 차트를 불러오는 중…';
   }
 
-  renderActualDividendDetail(selectedDividendMonth);
+  renderActualDividendDetail(selectedDividendMonth, window.WealthUnifiedTimeseries?.getDetail('dividend') || null);
 }
 
-function renderActualDividendDetail(month = null) {
+function renderActualDividendDetail(month = null, bucketDetail = null) {
+  if (bucketDetail) month = bucketDetail.key;
   const container = $("#dividendMonthlyDetail");
-  if (!container || !actualDividendData) return;
+  if (!container || (!actualDividendData && !bucketDetail)) return;
 
-  const records = actualDividendData.records || [];
+  const records = bucketDetail?.items || [
+    ...(actualDividendData?.records || []).map(record => ({...record, income_kind: 'dividend'})),
+    ...(actualDividendData?.interest_records || []).map(record => ({...record, income_kind: 'interest'})),
+  ];
   let title = "전체 실제 배당금 입금 내역";
   let items = [];
 
-  if (month && month >= 1 && month <= 12) {
+  if (bucketDetail) {
+    items = [...records];
+  } else if (month && month >= 1 && month <= 12) {
     const monthStr = String(month).padStart(2, '0');
     items = records.filter(r => {
       if (!r.date) return false;
@@ -9776,11 +9793,18 @@ function renderActualDividendDetail(month = null) {
     title = `📅 전체 실제 배당금 입금 내역 (${items.length}건 · 합계 <span style="color:#f43f5e;">${money(sumKrw)}</span>)`;
   }
 
+  const dividendCount = items.filter(item => item.income_kind !== 'interest').length;
+  const interestCount = items.length - dividendCount;
+  const sumKrw = items.reduce((sum, item) => sum + Number(item.amount_krw || 0), 0);
+  const period = bucketDetail?.key ? window.WealthUnifiedTimeseries.bucketHeading(bucketDetail.key)
+    : month ? `${selectedDividendYear && selectedDividendYear !== 'all' ? `${selectedDividendYear}년 ` : ''}${month}월` : '전체';
+  title = `📅 ${period} 실제 배당·이자 내역 (배당 ${dividendCount}건 · 이자 ${interestCount}건 · 합계 ${money(sumKrw)})`;
+
   if (!items.length) {
     container.innerHTML = `
       <div class="div-detail-header">
         ${title}
-        ${month ? '<button type="button" class="button text compact" id="clearDivMonthBtn" style="font-size:11px;margin-left:auto;">✕ 전체 보기</button>' : ''}
+        ${month ? `<button type="button" class="button text compact" id="clearDivMonthBtn" style="font-size:11px;margin-left:auto;">✕ ${bucketDetail ? '선택 해제' : '전체 보기'}</button>` : ''}
       </div>
       <div class="empty" style="padding:16px;">
         등록된 실제 배당금 내역이 없습니다. 상단의 <strong>[➕ 배당 추가]</strong> 또는 <strong>[📂 가져오기]</strong> 버튼으로 입금 내역을 기록해보세요.
@@ -9829,15 +9853,16 @@ function renderActualDividendDetail(month = null) {
           <strong class="td-stock-name">${html(item.name || item.code)}</strong>
           <div class="td-stock-code">${html(item.code || '')}</div>
         </td>
+        <td class="center"><span class="td-owner-badge">${item.income_kind === 'interest' ? '이자' : '배당'}</span></td>
         <td class="center"><span class="td-currency">${html(item.currency || 'KRW')}</span></td>
         <td class="num td-orig-amt">${origAmt}${fxInfo}</td>
         <td class="num td-krw-amt pnl-gain-val" style="font-size:13.5px;font-weight:700;">${money(item.amount_krw)}</td>
         <td class="td-memo">${html(item.memo || '-')}</td>
         <td class="center" style="white-space:nowrap;">
-          <div class="account-row-actions" style="justify-content:center;">
+          ${item.income_kind === 'interest' ? '<span title="이자 내역은 읽기 전용입니다">읽기 전용</span>' : `<div class="account-row-actions" style="justify-content:center;">
             <button class="account-action-button edit-actual-div-btn" data-id="${item.id}" title="배당 수정" type="button">✎</button>
             <button class="account-action-button mini-delete-button delete-actual-div-btn" data-id="${item.id}" title="배당 삭제" type="button">🗑️</button>
-          </div>
+          </div>`}
         </td>
       </tr>
     `;
@@ -9846,7 +9871,7 @@ function renderActualDividendDetail(month = null) {
   container.innerHTML = `
     <div class="div-detail-header">
       ${title}
-      ${month ? '<button type="button" class="button text compact" id="clearDivMonthBtn" style="font-size:11px;margin-left:auto;">✕ 전체 보기</button>' : ''}
+      ${month ? `<button type="button" class="button text compact" id="clearDivMonthBtn" style="font-size:11px;margin-left:auto;">✕ ${bucketDetail ? '선택 해제' : '전체 보기'}</button>` : ''}
     </div>
     <div class="detail-table-wrap">
       <table class="detail-table">
@@ -9855,6 +9880,7 @@ function renderActualDividendDetail(month = null) {
             <th class="center sortable-th ${currentDivSortField === 'date' ? (currentDivSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-div-sort="date" style="width:95px;">입금일 <span class="sort-icon"></span></th>
             <th class="center sortable-th ${currentDivSortField === 'owner' ? (currentDivSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-div-sort="owner" style="width:75px;">소유자 <span class="sort-icon"></span></th>
             <th class="sortable-th ${currentDivSortField === 'name' ? (currentDivSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-div-sort="name">종목명 (코드) <span class="sort-icon"></span></th>
+            <th class="center" style="width:55px;">유형</th>
             <th class="center" style="width:60px;">통화</th>
             <th class="sortable-th ${currentDivSortField === 'amount' ? (currentDivSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-div-sort="amount" style="text-align:right;width:115px;">입금액 <span class="sort-icon"></span></th>
             <th class="sortable-th ${currentDivSortField === 'amount_krw' ? (currentDivSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-div-sort="amount_krw" style="text-align:right;width:125px;">원화 환산금액 <span class="sort-icon"></span></th>
@@ -10007,6 +10033,7 @@ function syncPnlMonthNavUI() {
 }
 
 window.setSelectedPnlPeriod = (year, month) => {
+  window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
   selectedPnlYear = String(year);
   selectedPnlMonth = month !== null && month !== undefined ? Number(month) : null;
   syncPnlMonthNavUI();
@@ -10259,7 +10286,7 @@ function renderRealizedPnl(data) {
     `;
   }
 
-  renderPnlMonthlyDetail(selectedPnlMonth);
+  renderPnlMonthlyDetail(selectedPnlMonth, window.WealthUnifiedTimeseries?.getDetail('pnl') || null);
 }
 
 function formatOptionalTossWtsFxDisplay(record, value, formatter) {
@@ -10271,11 +10298,12 @@ function formatOptionalRealizedPnlValue(value, formatter) {
   return parsed === null ? '—' : formatter(parsed);
 }
 
-function renderPnlMonthlyDetail(month = null) {
+function renderPnlMonthlyDetail(month = null, bucketDetail = null) {
+  if (bucketDetail) month = bucketDetail.key;
   const container = $("#pnlMonthlyDetail");
-  if (!container || !pnlData) return;
+  if (!container || (!pnlData && !bucketDetail)) return;
 
-  const allRecords = pnlData.records || [];
+  const allRecords = bucketDetail?.items || pnlData.records || [];
   const records = allRecords.filter(r => {
     const at = String(r.asset_type || '').toLowerCase();
     const c = String(r.code || '').toUpperCase();
@@ -10286,7 +10314,12 @@ function renderPnlMonthlyDetail(month = null) {
   let title = "전체 매도 실현손익 내역";
   let items = [];
 
-  if (month && month >= 1 && month <= 12) {
+  if (bucketDetail) {
+    items = [...records];
+    const itemSummary = buildRealizedPnlDisplaySummary({}, items, false);
+    const period = bucketDetail.key ? window.WealthUnifiedTimeseries.bucketHeading(bucketDetail.key) : '전체';
+    title = `📅 ${period} 매도 실현손익 내역 (${items.length}건 · 합계 ${itemSummary.totalPnlKrw > 0 ? '+' : ''}${money(itemSummary.totalPnlKrw)}${itemSummary.completenessNote ? ` · ${itemSummary.completenessNote}` : ''})`;
+  } else if (month && month >= 1 && month <= 12) {
     const monthStr = String(month).padStart(2, '0');
     items = records.filter(r => {
       const clean = String(r.date || '').replaceAll('-', '');
@@ -10310,7 +10343,7 @@ function renderPnlMonthlyDetail(month = null) {
     container.innerHTML = `
       <div class="div-detail-header">
         ${title}
-        ${month ? '<button type="button" class="button text compact" id="clearPnlMonthBtn" style="font-size:11px;margin-left:auto;">✕ 전체 보기</button>' : ''}
+        ${month ? `<button type="button" class="button text compact" id="clearPnlMonthBtn" style="font-size:11px;margin-left:auto;">✕ ${bucketDetail ? '선택 해제' : '전체 보기'}</button>` : ''}
       </div>
       <div class="empty" style="padding:16px;">
         등록된 매도 실현손익 내역이 없습니다. 상단의 <strong>[➕ 손익 추가]</strong> 또는 <strong>[📂 가져오기]</strong> 버튼으로 매도 기록을 등록해보세요.
@@ -10405,7 +10438,7 @@ function renderPnlMonthlyDetail(month = null) {
   container.innerHTML = `
     <div class="div-detail-header">
       ${title}
-      ${month ? '<button type="button" class="button text compact" id="clearPnlMonthBtn" style="font-size:11px;margin-left:auto;">✕ 전체 보기</button>' : ''}
+      ${month ? `<button type="button" class="button text compact" id="clearPnlMonthBtn" style="font-size:11px;margin-left:auto;">✕ ${bucketDetail ? '선택 해제' : '전체 보기'}</button>` : ''}
     </div>
     <div class="detail-table-wrap">
       <table class="detail-table">
@@ -10821,6 +10854,7 @@ if (pnlImportForm) {
 
 // 배당 연도 셀렉트 변경 이벤트
 document.getElementById("dividendYearSelect")?.addEventListener("change", (e) => {
+  window.WealthUnifiedTimeseries?.clearDetail('dividend', {render:false});
   selectedDividendYear = e.target.value;
   selectedDividendMonth = null;
   loadActualDividends(currentOwner, selectedDividendYear);
@@ -10828,6 +10862,7 @@ document.getElementById("dividendYearSelect")?.addEventListener("change", (e) =>
 
 // 실현손익 연도 셀렉트 변경 이벤트
 document.getElementById("pnlYearSelect")?.addEventListener("change", (e) => {
+  window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
   selectedPnlYear = e.target.value;
   selectedPnlMonth = null;
   loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
@@ -16656,6 +16691,7 @@ function initPnlMonthNavListeners() {
 
   if (prevBtn) {
     prevBtn.addEventListener("click", async () => {
+      window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
       const curYear = (selectedPnlYear === 'all' || !selectedPnlYear) ? getKstYearMonth().year : selectedPnlYear;
       const curMonth = selectedPnlMonth || getKstYearMonth().month;
       const shifted = shiftYearMonth(curYear, curMonth, -1);
@@ -16673,6 +16709,7 @@ function initPnlMonthNavListeners() {
 
   if (nextBtn) {
     nextBtn.addEventListener("click", async () => {
+      window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
       const curYear = (selectedPnlYear === 'all' || !selectedPnlYear) ? getKstYearMonth().year : selectedPnlYear;
       const curMonth = selectedPnlMonth || getKstYearMonth().month;
       const shifted = shiftYearMonth(curYear, curMonth, 1);
@@ -16690,6 +16727,7 @@ function initPnlMonthNavListeners() {
 
   if (todayBtn) {
     todayBtn.addEventListener("click", async () => {
+      window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
       const cur = getKstYearMonth();
       const yearChanged = String(cur.year) !== String(selectedPnlYear);
       selectedPnlYear = String(cur.year);
@@ -16720,6 +16758,7 @@ function initPnlMonthNavListeners() {
     monthPicker.addEventListener("change", async (e) => {
       const parsed = parseYearMonth(e.target.value);
       if (parsed) {
+        window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
         const yearChanged = String(parsed.year) !== String(selectedPnlYear);
         selectedPnlYear = String(parsed.year);
         selectedPnlMonth = parsed.month;
@@ -16742,6 +16781,7 @@ function initDividendMonthNavListeners() {
   const monthPicker = document.getElementById("dividendMonthPicker");
 
   const onMonthSelected = async (year, month) => {
+    window.WealthUnifiedTimeseries?.clearDetail('dividend', {render:false});
     const yearChanged = String(year) !== String(selectedDividendYear);
     selectedDividendYear = String(year);
     selectedDividendMonth = month;
