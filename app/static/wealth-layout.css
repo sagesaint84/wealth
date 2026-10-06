@@ -623,6 +623,10 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
   border-radius: 8px;
   margin-bottom: 10px;
 }
+.pnl-panel .broker-feed-switcher {
+  flex-wrap: wrap;
+  min-width: 0;
+}
 .toss-wts-table {
   width: 100%;
   border-collapse: collapse;
