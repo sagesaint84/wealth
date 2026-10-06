@@ -5174,12 +5174,15 @@ function renderAssetRecords(records) {
   const rawList = [...records].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
   const previousByRecord = buildPreviousRecordMap(rawList);
   const filtered = filterRecordsByPeriod(rawList, currentRecordPeriod);
-  const wrap = $("#assetChart");
+  const unifiedStock = window.WealthUnifiedTimeseries?.renderStock;
+  const useUnifiedStock = typeof unifiedStock === 'function' && $("#assetChart") && $("#recordPeriodTabs");
+  const wrap = useUnifiedStock ? null : $("#assetChart");
 
   if (!filtered.length) {
     if (wrap) wrap.innerHTML = '<div class="empty">선택한 기간의 주식기록이 없습니다.</div>';
     $("#assetRecordList") && ($("#assetRecordList").innerHTML = "");
     $("#recordCount") && ($("#recordCount").textContent = "0개 기록");
+    if (useUnifiedStock) unifiedStock();
     return;
   }
 
@@ -5388,6 +5391,7 @@ function renderAssetRecords(records) {
     `;
     }).join("");
   }
+  if (useUnifiedStock) unifiedStock();
 }
 
 // ── 8-1. 절세계좌 보유종목 및 계좌별 자산 렌더링 ──────────────────────────────
