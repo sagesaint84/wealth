@@ -97,8 +97,11 @@ def calculate_wealth_ipo_score(
 
     # Compute derived features (pricing_discipline, tradable_market_cap_krw)
     derived = compute_derived_features(ipo_copy)
+    # Canonical Metalogos price dates must constrain even cached derived values.
+    metalogos_price = (ipo_copy.get("sources", {}).get("final_offer_price", {}).get("source")
+                       == "metalogos_160_public_page")
     for k, v in derived.items():
-        if k not in features or features[k].get("status") != "ok":
+        if k not in features or features[k].get("status") != "ok" or metalogos_price:
             features[k] = v
 
     # Determine score_as_of (day before subscription_start at 23:59:59 KST)

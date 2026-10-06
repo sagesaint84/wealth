@@ -10,7 +10,7 @@ from app.services.ipo.dart_client import DartClient
 from app.services.ipo.dart_offering_schedule import build_dart_offering_schedule, select_dart_schedule_filing
 from app.services.ipo.identity import normalize_company_name
 from app.services.ipo.kind_client import KindClient
-from app.services.ipo.metalogos_client import MetalogosIpoClient
+from app.services.ipo.metalogos_client import MetalogosIpoClient, metalogos_identity_matches
 from app.services.ipo.naver_client import NaverIpoClient
 from app.services.ipo.naver_discovery import NaverIpoDiscoveryClient
 from app.services.ipo.npay_client import NpayIpoClient
@@ -264,7 +264,7 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
         # A reference issuer match must never be redirected to a different
         # company merely because the provider reports a conflicting stock code.
         target = _unique_name_match(item, existing)
-        if target is None:
+        if target is None or not metalogos_identity_matches(target, item):
             return item, True
     else:
         target = _unique_stock_match(item, existing) or _unique_name_match(item, existing)
@@ -279,9 +279,19 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
         "expected_listing_date", "actual_listing_date", "final_offer_price",
         "offer_band_low", "offer_band_high", "lead_managers", "market",
     }
+    accepted_fields: set[str] = set()
     for key, value in item.items():
         if key in {"ipo_id", "sources"}:
             continue
+        if source_name == "metalogos160":
+            if key in {"features", "score"}:
+                continue
+            if key == "final_offer_price":
+                from app.services.ipo.score import normalize_observation_date
+                provenance = item.get("sources", {}).get("final_offer_price", {})
+                if (provenance.get("source") != "metalogos_160_public_page"
+                        or normalize_observation_date(provenance.get("source_date")) is None):
+                    continue
         if value is None:
             continue
         if protect and key in protected_fields and target.get(key) not in (None, "", []):
@@ -301,9 +311,22 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
                 }
                 continue
         target[key] = copy.deepcopy(value)
+        accepted_fields.add(key)
 
     incoming_sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
-    target.setdefault("sources", {}).update(copy.deepcopy(incoming_sources))
+    incoming_sources = copy.deepcopy(incoming_sources)
+    if source_name == "metalogos160":
+        if "final_offer_price" not in accepted_fields:
+            incoming_sources.pop("final_offer_price", None)
+        else:
+            previous = target.get("sources", {}).get("final_offer_price", {})
+            incoming = incoming_sources.get("final_offer_price", {})
+            # Preserve the first observation of the same field value/page.
+            if (previous.get("source") == "metalogos_160_public_page"
+                    and previous.get("value") == incoming.get("value")
+                    and previous.get("url") == incoming.get("url")):
+                incoming_sources["final_offer_price"] = previous
+    target.setdefault("sources", {}).update(incoming_sources)
     target["updated_at"] = datetime.now(KST).isoformat()
     return target, False
 
@@ -570,7 +593,7 @@ def discover_and_merge_primary_sources(
 
         # Defend the merge boundary too: a provider must never attach another issuer.
         metalogos_rows = [item for item in items if isinstance(item, dict)
-                          and normalize_company_name(str(item.get("company_name") or "")) in seen_names]
+                          and any(metalogos_identity_matches(candidate, item) for candidate in candidates)]
         for item in metalogos_rows:
             _, review = _apply_observation(
                 market,
@@ -622,6 +645,10 @@ def discover_and_merge_primary_sources(
         f"sync_ok (promoted={promoted_markets})"
     )
 
+    from app.services.ipo.score import calculate_wealth_ipo_score
+    for ipo in market.get("ipos", []):
+        if isinstance(ipo, dict):
+            ipo["score"] = calculate_wealth_ipo_score(ipo, market["ipos"])
     write_market_store(market)
     return {
         "statuses": statuses,

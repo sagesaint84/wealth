@@ -224,7 +224,7 @@
     }
     if (parts.length) {
       const text = document.createElement('span');
-      text.textContent = (sourceUrl ? ' · ' : '') + parts.join(' · ');
+      text.textContent = (sourceUrl ? ' ' : '') + parts.join(' ');
       note.appendChild(text);
     }
   }

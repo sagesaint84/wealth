@@ -37,15 +37,9 @@ def test_shared_irrelevant_search_card_is_read_once_and_never_attached_to_other_
 
     def handler(request):
         calls[str(request.url)] += 1
-        if request.url.path.endswith('/calendar'):
-            text = '<div>client-rendered calendar</div>'
-        elif request.url.path.endswith('/stock'):
-            text = shell
-        elif request.url.path.endswith('.xml'):
-            text = f'<urlset><url><loc>{shared}</loc></url></urlset>'
-        else:
-            text = stock_html('진코스텍')
-        return httpx.Response(200, text=text)
+        if request.url.path == '/schedule/external':
+            return httpx.Response(200, json={'data': {'ipoStocks': [{'name': '진코스텍', 'code': 'B202607142'}]}})
+        return httpx.Response(200, text=stock_html('진코스텍'))
 
     with patch.object(mc, 'require_external_network'), public_client(handler):
         rows = mc.MetalogosIpoClient().fetch_company_items(
@@ -54,7 +48,7 @@ def test_shared_irrelevant_search_card_is_read_once_and_never_attached_to_other_
         )
     assert [row['company_name'] for row in rows] == ['진코스텍']
     assert calls[shared] == 1
-    assert sum(calls.values()) == 4
+    assert sum(calls.values()) == 2
     assert all('?query=' not in url for url in calls)
     assert 'features' not in rows[0]
 
@@ -69,9 +63,9 @@ def test_detail_concurrency_is_bounded_and_results_preserve_discovery_order():
         nonlocal active, peak
         with lock:
             calls[request.url.path] += 1
-        if request.url.path.endswith('/calendar'):
-            return httpx.Response(200, text=''.join(
-                f'<a href="/160ipo/stock/B2026100{i}1">회사{i}</a>' for i in range(1, 9)))
+        if request.url.path == '/schedule/external':
+            return httpx.Response(200, json={'data': {'ipoStocks': [
+                {'name': f'회사{i}', 'code': f'B2026100{i}1'} for i in range(1, 9)]}})
         with lock:
             active += 1
             peak = max(peak, active)
@@ -118,8 +112,8 @@ def test_untrusted_redirect_is_not_fetched():
     calls = []
     def handler(request):
         calls.append(str(request.url))
-        if request.url.path.endswith('/calendar'):
-            return httpx.Response(200, text='<a href="/160ipo/stock/ALICE">엘리스그룹</a>')
+        if request.url.path == '/schedule/external':
+            return httpx.Response(200, json={'data': {'ipoStocks': [{'name': '엘리스그룹', 'code': 'ALICE'}]}})
         return httpx.Response(302, headers={'location': 'https://evil.example/160ipo/stock/ALICE'})
     with patch.object(mc, 'require_external_network'), public_client(handler):
         assert mc.MetalogosIpoClient().fetch_company_items(
@@ -179,15 +173,9 @@ def test_interactive_refresh_has_one_external_discovery_even_when_alice_stays_un
     shared = 'https://metalogos.ai/160ipo/stock/B202607142'
     def handler(request):
         calls[str(request.url)] += 1
-        if request.url.path.endswith('/calendar'):
-            text = 'client-rendered'
-        elif request.url.path.endswith('/stock'):
-            text = f'<a href="{shared}">진코스텍</a>'
-        elif request.url.path.endswith('.xml'):
-            text = f'<urlset><url><loc>{shared}</loc></url></urlset>'
-        else:
-            text = stock_html('진코스텍')
-        return httpx.Response(200, text=text)
+        if request.url.path == '/schedule/external':
+            return httpx.Response(200, json={'data': {'ipoStocks': [{'name': '진코스텍', 'code': 'B202607142'}]}})
+        return httpx.Response(200, text=stock_html('진코스텍'))
     kind, npay, naver, dart = (Mock() for _ in range(4))
     kind.fetch_pubofr_schedule_items.return_value = []
     npay.fetch_upcoming_ipos.return_value = []
@@ -209,7 +197,7 @@ def test_interactive_refresh_has_one_external_discovery_even_when_alice_stays_un
          patch('app.services.ipo.metalogos_reference_refresh.read_market_store', side_effect=lambda: copy.deepcopy(state)), \
          patch('app.services.ipo.metalogos_reference_refresh.write_market_store', side_effect=write):
         result = refresh_adapter.refresh_ipo_market(target_date_str='2026-10-06')
-    assert sum(calls.values()) == 4
+    assert sum(calls.values()) == 2
     assert calls[shared] == 1
     assert 'unmatched=1' in result['sources']['metalogos160_reference_fallback']
     assert state['ipos'][0]['sources']['metalogos160']['attractiveness_score'] == 61

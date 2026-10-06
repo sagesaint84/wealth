@@ -26,14 +26,15 @@ const location = {href: 'https://wealth.example/'};
 ''' + functions + '''
 const box = new Element('div');
 const card = {querySelector: () => box};
-const reference = {url:'https://metalogos.ai/160ipo/stock/B202607142', attractiveness_score:61,
-  demand_participant_count_reference:2006, lockup_participant_count_reference:90, tradable_share_ratio_reference:58.44};
+const reference = {url:'https://metalogos.ai/160ipo/stock/B202605261', attractiveness_score:79,
+  demand_participant_count_reference:2367, lockup_participant_count_reference:355, tradable_share_ratio_reference:20.81};
 decorateMetalogosReference(card, {sources:{metalogos160:reference}});
 let note = box.children[0];
 assert.equal(note.children[0].tagName, 'a');
 assert.equal(note.children[0].textContent, '160 원문');
 assert.equal(note.children[0].rel, 'noopener noreferrer');
-assert.equal(note.children[1].textContent, ' · 매력지수 61 · 수요예측기관 2,006 · 확약기관 90 · 유통가능 58.44%');
+assert.equal(note.children[1].textContent, ' 매력지수 79 수요예측기관 2,367 확약기관 355 유통가능 20.81%');
+assert.equal(note.children.map(child => child.textContent).join(''), '160 원문 매력지수 79 수요예측기관 2,367 확약기관 355 유통가능 20.81%');
 assert.ok(note.title.includes('Wealth IPO Score 산정에는 사용하지 않습니다.'));
 for (const url of ['http://metalogos.ai/160ipo/stock/A', 'https://evil.example/160ipo/stock/A',
                   'https://metalogos.ai/not-stock/A']) {

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.services.ipo.identity import normalize_company_name
-from app.services.ipo.metalogos_client import MetalogosIpoClient
+from app.services.ipo.metalogos_client import MetalogosIpoClient, metalogos_identity_matches
 from app.services.ipo.source_discovery import _month_window, _relevant_schedule
 from app.services.ipo.store import read_market_store, write_market_store
 from app.services.network_policy import ExternalNetworkDisabled
@@ -25,7 +25,7 @@ def refresh_missing_metalogos_references(
     """Fill missing 160 source references without promoting them to Wealth features.
 
     Reuse even an empty discovery result within the same refresh. Standalone
-    callers can use the client's official calendar/sitemap discovery path once.
+    callers can resolve their candidates from the public schedule index once.
     This fallback copies only exact issuer matches
     into ``sources.metalogos160``. Canonical schedule fields and Wealth score
     features are deliberately untouched.
@@ -56,10 +56,18 @@ def refresh_missing_metalogos_references(
 
     metalogos = client or MetalogosIpoClient()
     try:
-        rows = prefetched_rows if prefetched_rows is not None else metalogos.fetch_calendar_items(
-            target_date_str=target_date_str,
-            max_items=max(1, int(max_items)),
-        )
+        if prefetched_rows is not None:
+            rows = prefetched_rows
+        elif hasattr(metalogos, "fetch_company_items"):
+            rows = metalogos.fetch_company_items(
+                company_names=[str(ipo.get("company_name") or "") for ipo in candidates.values()],
+                target_date_str=target_date_str,
+            )
+        else:
+            # Compatibility for standalone callers with older client adapters.
+            rows = metalogos.fetch_calendar_items(
+                target_date_str=target_date_str, max_items=max(1, int(max_items)),
+            )
     except ExternalNetworkDisabled:
         return {
             "status": "source_unavailable (external_network_disabled)",
@@ -80,7 +88,7 @@ def refresh_missing_metalogos_references(
             continue
         key = normalize_company_name(str(row.get("company_name") or ""))
         target = candidates.get(key)
-        if target is None:
+        if target is None or not metalogos_identity_matches(target, row):
             continue
         row_sources = row.get("sources") if isinstance(row.get("sources"), dict) else {}
         reference = row_sources.get("metalogos160")

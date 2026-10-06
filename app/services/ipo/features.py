@@ -84,6 +84,16 @@ def calculate_relative_valuation_score(valuation_ratio: float | None) -> float |
         return 0.0
 
 
+def _latest_source_date(values: list[Any]) -> str | None:
+    # Normalize DART YYYYMMDD and ISO dates before choosing the later input.
+    # Import locally: score consumes these derived features after initialization.
+    from app.services.ipo.score import normalize_observation_date
+    dates = [normalize_observation_date(value) for value in values if value]
+    if any(value is None for value in dates):
+        return "invalid"
+    return max(dates).isoformat() if dates else None
+
+
 def compute_derived_features(ipo_dict: dict[str, Any]) -> dict[str, Any]:
     """Calculate derived features like tradable_market_cap_krw and pricing_discipline."""
     derived: dict[str, Any] = {}
@@ -97,8 +107,7 @@ def compute_derived_features(ipo_dict: dict[str, Any]) -> dict[str, Any]:
     sources_dict = ipo_dict.get("sources", {}) or {}
     f_price_src = sources_dict.get("final_offer_price", {}).get("source_date") or ipo_dict.get("final_offer_price_source_date")
     b_high_src = sources_dict.get("offer_band_high", {}).get("source_date") or ipo_dict.get("offer_band_high_source_date")
-    p_disc_src_dates = [str(d)[:10] for d in [f_price_src, b_high_src] if d]
-    p_disc_source_date = max(p_disc_src_dates) if p_disc_src_dates else None
+    p_disc_source_date = _latest_source_date([f_price_src, b_high_src])
 
     if p_disc_score is not None:
         derived["pricing_discipline"] = {
@@ -125,8 +134,7 @@ def compute_derived_features(ipo_dict: dict[str, Any]) -> dict[str, Any]:
     post_offer_shares = ipo_dict.get("post_offer_shares")
     post_shares_src = sources_dict.get("post_offer_shares", {}).get("source_date") or ipo_dict.get("post_offer_shares_source_date")
 
-    cap_src_dates = [str(d)[:10] for d in [tradable_ratio_src, f_price_src, post_shares_src] if d]
-    cap_source_date = max(cap_src_dates) if cap_src_dates else None
+    cap_source_date = _latest_source_date([tradable_ratio_src, f_price_src, post_shares_src])
 
     if tradable_ratio_val is not None and post_offer_shares and offer_price:
         tradable_shares = (tradable_ratio_val / 100.0) * float(post_offer_shares)
