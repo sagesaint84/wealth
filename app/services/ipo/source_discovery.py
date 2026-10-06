@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 import copy
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+from time import perf_counter
 
 from app.services.ipo.dart_client import DartClient
 from app.services.ipo.dart_offering_schedule import build_dart_offering_schedule, select_dart_schedule_filing
 from app.services.ipo.identity import normalize_company_name
 from app.services.ipo.kind_client import KindClient
-from app.services.ipo.metalogos_client import MetalogosIpoClient
+from app.services.ipo.metalogos_client import MetalogosIpoClient, metalogos_identity_matches
 from app.services.ipo.naver_client import NaverIpoClient
 from app.services.ipo.naver_discovery import NaverIpoDiscoveryClient
 from app.services.ipo.npay_client import NpayIpoClient
@@ -258,7 +260,14 @@ def _source_priority_present(target: dict[str, Any], source_name: str) -> bool:
 def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_name: str) -> tuple[dict[str, Any], bool]:
     """Merge one source observation under the field-level source priority."""
     existing = store.get("ipos", [])
-    target = _unique_stock_match(item, existing) or _unique_name_match(item, existing)
+    if source_name == "metalogos160":
+        # A reference issuer match must never be redirected to a different
+        # company merely because the provider reports a conflicting stock code.
+        target = _unique_name_match(item, existing)
+        if target is None or not metalogos_identity_matches(target, item):
+            return item, True
+    else:
+        target = _unique_stock_match(item, existing) or _unique_name_match(item, existing)
     if target is None:
         saved, review = merge_ipo_record(store, item)
         return saved, review
@@ -270,9 +279,19 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
         "expected_listing_date", "actual_listing_date", "final_offer_price",
         "offer_band_low", "offer_band_high", "lead_managers", "market",
     }
+    accepted_fields: set[str] = set()
     for key, value in item.items():
         if key in {"ipo_id", "sources"}:
             continue
+        if source_name == "metalogos160":
+            if key in {"features", "score"}:
+                continue
+            if key == "final_offer_price":
+                from app.services.ipo.score import normalize_observation_date
+                provenance = item.get("sources", {}).get("final_offer_price", {})
+                if (provenance.get("source") != "metalogos_160_public_page"
+                        or normalize_observation_date(provenance.get("source_date")) is None):
+                    continue
         if value is None:
             continue
         if protect and key in protected_fields and target.get(key) not in (None, "", []):
@@ -292,9 +311,22 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
                 }
                 continue
         target[key] = copy.deepcopy(value)
+        accepted_fields.add(key)
 
     incoming_sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
-    target.setdefault("sources", {}).update(copy.deepcopy(incoming_sources))
+    incoming_sources = copy.deepcopy(incoming_sources)
+    if source_name == "metalogos160":
+        if "final_offer_price" not in accepted_fields:
+            incoming_sources.pop("final_offer_price", None)
+        else:
+            previous = target.get("sources", {}).get("final_offer_price", {})
+            incoming = incoming_sources.get("final_offer_price", {})
+            # Preserve the first observation of the same field value/page.
+            if (previous.get("source") == "metalogos_160_public_page"
+                    and previous.get("value") == incoming.get("value")
+                    and previous.get("url") == incoming.get("url")):
+                incoming_sources["final_offer_price"] = previous
+    target.setdefault("sources", {}).update(incoming_sources)
     target["updated_at"] = datetime.now(KST).isoformat()
     return target, False
 
@@ -443,6 +475,8 @@ def discover_and_merge_primary_sources(
     start, end = _month_window(target_date_str)
     market = copy.deepcopy(read_market_store())
     statuses: dict[str, str] = {}
+    timings: dict[str, float] = {}
+    metalogos_rows: list[dict[str, Any]] = []
 
     dart = dart_client or DartClient(username=username)
     dart_rows: list[dict[str, Any]] = []
@@ -456,66 +490,60 @@ def discover_and_merge_primary_sources(
         statuses["dart_feed"] = "source_unavailable (api_key_missing)"
 
     kind = kind_client or KindClient()
-    try:
-        items = _kind_items(kind, target_date_str=target_date_str, start=start, end=end)
-        reviews = 0
-        for item in items:
-            _attach_dart_identity(item, dart_by_name)
-            _, review = _apply_observation(market, item, source_name="kind")
-            reviews += int(review)
-        statuses["kind_discovery"] = f"sync_ok (relevant={len(items)}, review_required={reviews})"
-    except ExternalNetworkDisabled:
-        statuses["kind_discovery"] = "source_unavailable (external_network_disabled)"
-    except Exception as exc:
-        statuses["kind_discovery"] = f"source_error ({type(exc).__name__})"
-
     npay = npay_client or NpayIpoClient()
-    try:
-        items = [item for item in npay.fetch_upcoming_ipos(target_date_str=target_date_str) if _relevant_schedule(item, start, end)]
-        reviews = 0
-        for item in items:
-            _attach_dart_identity(item, dart_by_name)
-            _, review = _apply_observation(market, item, source_name="npay")
-            reviews += int(review)
-        statuses["npay"] = f"sync_ok (relevant={len(items)}, review_required={reviews})"
-    except ExternalNetworkDisabled:
-        statuses["npay"] = "source_unavailable (external_network_disabled)"
-    except Exception as exc:
-        statuses["npay"] = f"source_error ({type(exc).__name__})"
-
-    # The dedicated discovery parser retains Naver identities even before an
-    # expected listing date exists. Test doubles/legacy callers may expose the
-    # older expected-listing method, which remains a supported fallback here.
     naver = naver_client or NaverIpoDiscoveryClient()
-    try:
-        if hasattr(naver, "fetch_ipo_discovery_items"):
-            raw_items = naver.fetch_ipo_discovery_items()
-        else:
-            raw_items = naver.fetch_ipo_progress_items()
-        items = [
-            copy.deepcopy(item) for item in raw_items
-            if _relevant_schedule(item, start, end) or _known_observation(item, market.get("ipos", []))
-        ]
-        reviews = 0
-        observed_at = datetime.now(KST).isoformat()
-        for item in items:
-            item.setdefault("sources", {})["naver_progress"] = {
-                "schedule_source": "stock.naver.com ipo progress",
-                "raw_ipo_code": item.get("raw_ipo_code"),
-                "progress_container": item.get("progress_container"),
-                "expected_listing_date": item.get("expected_listing_date"),
-                "market_type": item.get("market"),
-                "observed_at": observed_at,
-            }
-            _attach_dart_identity(item, dart_by_name)
-            _, review = _apply_observation(market, item, source_name="naver")
-            reviews += int(review)
-        statuses["naver_progress_discovery"] = f"sync_ok (relevant={len(items)}, review_required={reviews})"
-    except ExternalNetworkDisabled:
-        statuses["naver_progress_discovery"] = "source_unavailable (external_network_disabled)"
-    except Exception as exc:
-        statuses["naver_progress_discovery"] = f"source_error ({type(exc).__name__})"
 
+    def timed_read(name, read):
+        began = perf_counter()
+        try:
+            return read()
+        finally:
+            timings[f"{name}_discovery_ms"] = round((perf_counter() - began) * 1000, 3)
+
+    def naver_read():
+        if hasattr(naver, "fetch_ipo_discovery_items"):
+            return naver.fetch_ipo_discovery_items()
+        return naver.fetch_ipo_progress_items()
+
+    # Only independent external reads overlap. Reconciliation and store writes
+    # remain on this thread in canonical source order, under the caller's lock.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        reads = {
+            "kind": pool.submit(timed_read, "kind", lambda: _kind_items(
+                kind, target_date_str=target_date_str, start=start, end=end)),
+            "npay": pool.submit(timed_read, "npay", lambda: npay.fetch_upcoming_ipos(
+                target_date_str=target_date_str)),
+            "naver": pool.submit(timed_read, "naver", naver_read),
+        }
+        for source, status_key in (("kind", "kind_discovery"), ("npay", "npay"),
+                                   ("naver", "naver_progress_discovery")):
+            try:
+                raw_items = reads[source].result()
+                items = [copy.deepcopy(item) for item in raw_items
+                         if _relevant_schedule(item, start, end)
+                         or (source == "naver" and _known_observation(item, market.get("ipos", [])))]
+                reviews = 0
+                observed_at = datetime.now(KST).isoformat()
+                for item in items:
+                    if source == "naver":
+                        item.setdefault("sources", {})["naver_progress"] = {
+                            "schedule_source": "stock.naver.com ipo progress",
+                            "raw_ipo_code": item.get("raw_ipo_code"),
+                            "progress_container": item.get("progress_container"),
+                            "expected_listing_date": item.get("expected_listing_date"),
+                            "market_type": item.get("market"),
+                            "observed_at": observed_at,
+                        }
+                    _attach_dart_identity(item, dart_by_name)
+                    _, review = _apply_observation(market, item, source_name=source)
+                    reviews += int(review)
+                statuses[status_key] = f"sync_ok (relevant={len(items)}, review_required={reviews})"
+            except ExternalNetworkDisabled:
+                statuses[status_key] = "source_unavailable (external_network_disabled)"
+            except Exception as exc:
+                statuses[status_key] = f"source_error ({type(exc).__name__})"
+
+    stage_started = perf_counter()
     metalogos = metalogos_client or MetalogosIpoClient()
     try:
         reviews = 0
@@ -563,7 +591,10 @@ def discover_and_merge_primary_sources(
                 target_date_str=target_date_str
             )
 
-        for item in items:
+        # Defend the merge boundary too: a provider must never attach another issuer.
+        metalogos_rows = [item for item in items if isinstance(item, dict)
+                          and any(metalogos_identity_matches(candidate, item) for candidate in candidates)]
+        for item in metalogos_rows:
             _, review = _apply_observation(
                 market,
                 item,
@@ -572,7 +603,7 @@ def discover_and_merge_primary_sources(
             reviews += int(review)
 
         statuses["metalogos160"] = (
-            f"sync_ok (matched={len(items)}, "
+            f"sync_ok (matched={len(metalogos_rows)}, "
             f"review_required={reviews})"
         )
 
@@ -585,8 +616,11 @@ def discover_and_merge_primary_sources(
             f"source_error ({type(exc).__name__})"
         )
 
+    timings["metalogos_discovery_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+
     statuses["dart_identity_attached"] = "company_scoped"
 
+    stage_started = perf_counter()
     if dart.is_configured():
         matched, failed, ignored = _apply_dart_schedules(
             market,
@@ -600,6 +634,7 @@ def discover_and_merge_primary_sources(
         )
     else:
         statuses["dart_schedule"] = "source_unavailable (api_key_missing)"
+    timings["dart_schedule_ms"] = round((perf_counter() - stage_started) * 1000, 3)
 
     promoted_markets = _promote_verified_markets(
         market,
@@ -610,9 +645,15 @@ def discover_and_merge_primary_sources(
         f"sync_ok (promoted={promoted_markets})"
     )
 
+    from app.services.ipo.score import calculate_wealth_ipo_score
+    for ipo in market.get("ipos", []):
+        if isinstance(ipo, dict):
+            ipo["score"] = calculate_wealth_ipo_score(ipo, market["ipos"])
     write_market_store(market)
     return {
         "statuses": statuses,
+        "timings": timings,
+        "metalogos_rows": metalogos_rows,
         "window_start": start.isoformat(),
         "window_end": end.isoformat(),
         "total_ipos": len(market.get("ipos", [])),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from time import perf_counter
 
 from app.services.ipo import orchestrator as _base
 from app.services.ipo.dart_client import DartClient, extract_document_text_from_zip, select_point_in_time_filing
@@ -297,6 +298,7 @@ def _run_supplement_and_targeted(*, username: str | None, target_date_str: str) 
             )
             reference = refresh_missing_metalogos_references(
                 target_date_str=target_date_str,
+                prefetched_rows=supplement.get("metalogos_rows", []),
             )
             _record_metalogos_reference_status(supplement, reference)
             targeted = _targeted_dart_enrichment(
@@ -342,7 +344,10 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
     calculating.
     """
     resolved_target = _target_date(target_date_str)
+    total_started = perf_counter()
     result = _BASE_REFRESH_MARKET(username=username, target_date_str=resolved_target)
+    timings = {"base_refresh_ms": round((perf_counter() - total_started) * 1000, 3),
+               "metalogos_reference_ms": 0.0, "targeted_dart_ms": 0.0}
     supplement: dict[str, Any] = {}
     targeted: dict[str, Any] = {}
     try:
@@ -351,9 +356,14 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
                 username=username,
                 target_date_str=resolved_target,
             )
+            timings.update(supplement.get("timings", {}))
+            stage_started = perf_counter()
             reference = refresh_missing_metalogos_references(
                 target_date_str=resolved_target,
+                prefetched_rows=supplement.get("metalogos_rows", []),
             )
+            timings["metalogos_reference_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+            stage_started = perf_counter()
             _record_metalogos_reference_status(supplement, reference)
             targeted = _targeted_dart_enrichment(
                 username=username,
@@ -361,10 +371,14 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
                 score_recovery_only=True,
                 max_candidates=_INTERACTIVE_SCORE_RECOVERY_LIMIT,
             )
+            timings["targeted_dart_ms"] = round((perf_counter() - stage_started) * 1000, 3)
     except _base.IpoRefreshAlreadyRunning:
         supplement = {"statuses": {"supplemental": "busy"}}
         targeted = {"status": "busy"}
     output = _merge_refresh_result(result, supplement, targeted)
+    timings.setdefault("metalogos_discovery_ms", 0.0)
+    timings["total_ms"] = round((perf_counter() - total_started) * 1000, 3)
+    output["timings"] = timings
     if supplement.get("window_start"):
         output["interactive_window_start"] = supplement["window_start"]
     if supplement.get("window_end"):

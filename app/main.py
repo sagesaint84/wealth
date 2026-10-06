@@ -129,7 +129,9 @@ from app.services.broker_realized_import import (
     has_wealth_import_preferences,
 )
 import logging
+from app.logging_security import install_credential_log_redaction
 
+install_credential_log_redaction()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
