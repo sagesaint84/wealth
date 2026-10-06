@@ -1,6 +1,7 @@
 """Exact filtered bucket detail behavior in the real application DOM."""
 from pathlib import Path
 import subprocess
+import base64
 
 import pytest
 
@@ -185,16 +186,175 @@ SCENARIOS = {
     'period_all_and_mode': r"""
       select('pnl','2025-10');
       for(const kind of ['pnl','dividend'])for(const mode of [modes.WEEK,modes.YEAR]){
-        await render(kind,mode);check(!host(kind).querySelector('.is-clickable,[role="button"],.is-selected'),'unsupported no controls');
+        await render(kind,mode);check(host(kind).querySelector('[role="button"]'),'week/year controls');check(u.getDetail(kind)===null,'mode change clears');
       }
       currentOwner='all-fixture';__pnl=[record('OLD','2023-10-05',1,{owner:currentOwner}),record('NEW','2026-10-05',2,{owner:currentOwner})];
       await render('pnl',modes.ALL);check(u.getDetailMode('pnl')===modes.MONTH,'ALL resolves month');
       select('pnl','2023-10');eq(names('pnl'),['OLD'],'ALL month exact');
       currentOwner='week-fixture';__pnl=[record('OLD','2025-10-05',1,{owner:currentOwner}),record('NEW','2026-10-05',2,{owner:currentOwner})];
       await render('pnl',modes.ALL);check(u.getDetailMode('pnl')===modes.WEEK,'ALL resolves week');
-      check(!host('pnl').querySelector('[role="button"],.is-clickable'),'ALL week not clickable');
+      select('pnl','2025-09-29');eq(names('pnl'),['OLD'],'ALL week exact');
+      for(const [owner,dates,mode,key] of [['all-day',['2026-10-07','2026-10-08'],modes.DAY,'2026-10-07'],['all-year',['2010-10-07','2026-10-08'],modes.YEAR,'2010']]){
+        currentOwner=owner;__pnl=dates.map((date,i)=>record('ALL'+i,date,i+1,{owner}));await render('pnl',modes.ALL);
+        check(u.getDetailMode('pnl')===mode,'ALL effective mode');select('pnl',key);eq(names('pnl'),['ALL0'],'ALL exact detail');
+      }
       document.querySelectorAll('#dividendModeTabs [data-div-mode]').forEach(n=>n.classList.toggle('active',n.dataset.divMode==='estimated'));
       await u.renderDividend();check(u.getDetail('dividend')===null,'estimated selection invalidated');
+    """,
+
+    'week_year_exact_isolation_sort_clear': r"""
+      const before=[selectedPnlYear,selectedPnlMonth,selectedDividendYear,selectedDividendMonth];
+      const ui=['pnlMonthPicker','dividendMonthPicker','pnlYearSelect','dividendYearSelect'].map(id=>document.getElementById(id).value);
+      const calls=__incomeCalls.length;
+      for(const [mode,key,heading,pnlNames,divNames] of [
+        [modes.WEEK,'2026-10-05','2026년 10월 5일 주간',['P2026','P7a','P7b','P8'],['D2026','D7a','D7b','D8','I7','I8']],
+        [modes.YEAR,'2025','2025년',['P2025'],['D2025']]]){
+        for(const [kind,expected] of [['pnl',pnlNames],['dividend',divNames]]){
+          await render(kind,mode);check(u.getDetail(kind)===null,'no selection null');select(kind,key);
+          eq(names(kind),expected,'exact week/year');check(detail(kind).textContent.includes(heading)&&!detail(kind).textContent.includes('NaN'),'mode heading');
+          check(target(kind,key).getAttribute('aria-label').includes(heading),'accessible heading');
+          const sort=detail(kind).querySelector(kind==='pnl'?'[data-pnl-sort="name"]':'[data-div-sort="name"]');
+          check(sort,'sort control');sort.click();eq(names(kind),expected,'sort retains exact rows');check(u.getDetail(kind).key===key,'sort retains key');
+          await (kind==='pnl'?u.renderPnl():u.renderDividend());check(u.getDetail(kind).key===key,'rerender retains key');
+          u.clearDetail(kind);check(u.getDetail(kind)===null&&!host(kind).querySelector('.is-selected'),'clear markers');
+          eq(names(kind),kind==='pnl'?['P2026','P7a','P7b','P8']:['D2026','D7a','D7b','D8','I7','I8'],'legacy restored');
+        }
+      }
+      eq([selectedPnlYear,selectedPnlMonth,selectedDividendYear,selectedDividendMonth],before,'legacy vars untouched');
+      eq(['pnlMonthPicker','dividendMonthPicker','pnlYearSelect','dividendYearSelect'].map(id=>document.getElementById(id).value),ui,'legacy UI untouched');
+      check(__incomeCalls.length===calls,'no detail refetch');
+    """,
+    'weekly_boundary_and_interest_safety': r"""
+      currentOwner='boundary';
+      __pnl=[record('SUN','2026-10-04',10,{owner:currentOwner}),record('MON','2026-10-05',20,{owner:currentOwner}),record('NEXT','2026-10-12',30,{owner:currentOwner})];
+      __div=__pnl.map(r=>({...r,id:'D'+r.id,name:'D'+r.name}));
+      __interest=[record('ISUN','2026-10-04',5,{owner:currentOwner,income_type:'account_interest'}),record('IMON','2026-10-05',6,{owner:currentOwner,income_type:'account_interest'})];
+      for(const kind of ['pnl','dividend']){
+        await render(kind,modes.WEEK);select(kind,'2026-09-28');eq(names(kind),kind==='pnl'?['SUN']:['DSUN','ISUN'],'Sunday belongs previous Monday');
+        check(detail(kind).textContent.includes('2026년 9월 28일 주간'),'cross-month week heading');
+        select(kind,'2026-10-05');eq(names(kind),kind==='pnl'?['MON']:['DMON','IMON'],'adjacent week excluded');
+      }
+      const interest=[...detail('dividend').querySelectorAll('tbody tr')].find(r=>r.textContent.includes('IMON'));
+      check(interest.textContent.includes('이자')&&!interest.querySelector('button'),'weekly interest readonly');
+      await render('dividend',modes.YEAR);select('dividend','2026');eq(names('dividend'),['DMON','DNEXT','DSUN','IMON','ISUN'],'year includes interest');
+      check(__interest.every(r=>r.income_type==='account_interest'),'original income type');
+    """,
+    'day_selection_non_painted_geometry': r"""
+      const frames=async()=>{for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);};
+      for(const kind of ['pnl','dividend']){
+        setIncomeTab(kind,{updateHash:false,loadContent:false});await render(kind,modes.DAY);const n=target(kind,'2026-10-07');n.scrollIntoView({block:'center',inline:'center',behavior:'instant'});await frames();
+        const svg=n.ownerSVGElement;
+        const geometry=()=>[...svg.querySelectorAll('.wealth-unified-flow-bar')].map(b=>['x','y','width','height'].map(a=>b.getAttribute(a)));
+        const before=geometry(),layout=()=>[host(kind).querySelector('.wealth-unified-content').getBoundingClientRect().width,host(kind).querySelector('.wealth-unified-viewport').getBoundingClientRect().width,host(kind).querySelector('.wealth-unified-axis').textContent,...[...svg.querySelectorAll('text')].map(t=>[t.textContent,t.style.visibility])];
+        const beforeLayout=layout();
+        const invisible=()=>{const s=getComputedStyle(n);check(s.fill==='none'&&s.stroke==='none'&&s.outlineStyle==='none'&&s.pointerEvents==='all','hit target never painted, still hittable');};
+        invisible();select(kind,'2026-10-07');n.focus();n.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await frames();
+        invisible();check(u.getDetail(kind).key==='2026-10-07','detail opens');eq(geometry(),before,'selection does not change bar geometry');eq(layout(),beforeLayout,'selection does not change axes/width/labels');
+        check(svg.getAttribute('preserveAspectRatio')==='none','existing SVG scale retained');
+        const bars=[...svg.querySelectorAll('.wealth-unified-flow-bar.is-selected')];check(bars.length>0,'separate bar selection');
+        check(bars.every(b=>getComputedStyle(b).vectorEffect==='non-scaling-stroke'),'selection stroke does not stretch');
+        check(n.getAttribute('aria-pressed')==='true','selection announced');
+      }
+    """,
+
+    'week_year_keyboard_pan_pinch_filters': r"""
+      for(const kind of ['pnl','dividend'])for(const [mode,key] of [[modes.WEEK,'2026-10-05'],[modes.YEAR,'2026']]){
+        await render(kind,mode);const n=target(kind,key);n.focus();
+        for(const key of ['Enter',' '])n.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));
+        check(u.getDetail(kind).key===key,'keyboard week/year');
+        const other=[...host(kind).querySelectorAll('.wealth-unified-bucket-target')].find(t=>t.dataset.bucketKey!==key);check(other,'adjacent gesture target');
+        const text=detail(kind).textContent,vp=host(kind).querySelector('.wealth-unified-viewport');
+        vp.dispatchEvent(new Event('scroll'));check(detail(kind).textContent===text,'pan keeps detail');
+        n.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:4,pointerType:'touch',clientX:100,clientY:100}));
+        n.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerId:4,pointerType:'touch',clientX:150,clientY:100}));
+        other.dispatchEvent(new MouseEvent('click',{bubbles:true,detail:1}));check(detail(kind).textContent===text,'drag does not select adjacent bucket');
+        n.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:5,pointerType:'touch',clientX:100,clientY:100}));
+        vp.dispatchEvent(new TouchEvent('touchstart',{bubbles:true,touches:[new Touch({identifier:1,target:n,clientX:100,clientY:100}),new Touch({identifier:2,target:n,clientX:150,clientY:100})]}));
+        other.dispatchEvent(new MouseEvent('click',{bubbles:true,detail:1}));check(detail(kind).textContent===text,'pinch does not select adjacent bucket');
+        currentOwner='different-owner';check(u.getDetail(kind)===null,'owner invalidates immediately');currentOwner='감사';
+        const broker=document.getElementById(kind==='pnl'?'pnlBrokerFilter':'dividendBrokerFilter');broker.value='다른증권';
+        check(u.getDetail(kind)===null,'broker invalidates immediately');broker.value='all';
+        if(kind==='pnl'){
+          document.querySelectorAll('#pnlTradeTypeTabs [data-trade-type]').forEach(n=>n.classList.toggle('active',n.dataset.tradeType==='ipo'));
+          check(u.getDetail(kind)===null,'trade type invalidates');
+          document.querySelectorAll('#pnlTradeTypeTabs [data-trade-type]').forEach(n=>n.classList.toggle('active',n.dataset.tradeType==='all'));
+        }
+        u.clearDetail(kind);
+      }
+    """,
+
+    'stacked_modes_detail_and_nonstacked_peers': r"""
+      setIncomeTab('dividend',{updateHash:false,loadContent:false});
+      const frames=async()=>{for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);};
+      for(const mode of [modes.DAY,modes.WEEK,modes.MONTH,modes.YEAR,modes.ALL]){
+        await render('dividend',mode);await frames();
+        check(u.getDetail('dividend')===null,'no selection remains null');
+        const resolved=u.getDetailMode('dividend'),key=WealthTimeseriesPeriodCore.bucketKey('2026-10-07',resolved);
+        const shell=host('dividend').querySelector('.wealth-unified-chart-shell');check(shell.dataset.flowStacked==='true','dividend explicitly stacked');
+        const bars=[...shell.querySelectorAll(`.wealth-unified-flow-bar[data-bucket-key="${key}"]`)];
+        check(bars.length===2,'separate income series');
+        eq(bars.map(b=>b.getAttribute('x')),[bars[0].getAttribute('x'),bars[0].getAttribute('x')],'one bucket X');
+        eq(bars.map(b=>b.getAttribute('width')),[bars[0].getAttribute('width'),bars[0].getAttribute('width')],'same width');
+        const [div,int]=bars.map(b=>({y:+b.getAttribute('y'),h:+b.getAttribute('height')}));
+        check(Math.abs(int.y+int.h-div.y)<1e-8,'interest above dividend without gap');
+        check(bars[0].getAttribute('fill')==='#fb7185'&&bars[1].getAttribute('fill')==='#f6b84a','original colors');
+        check(Math.abs(div.h/int.h-Number(bars[0].dataset.stackEnd)/(Number(bars[1].dataset.stackEnd)-Number(bars[1].dataset.stackStart)))<1e-8,'height represents sum, common scale');
+        const legend=host('dividend').querySelector('.wealth-unified-flow-legend');check(legend.textContent.includes('배당')&&legend.textContent.includes('이자'),'compact legend');
+        const geometry=bars.map(b=>['x','y','width','height'].map(a=>b.getAttribute(a))),calls=__incomeCalls.length;
+        let selected;
+        for(const b of [...bars,target('dividend',key)]){
+          b.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+          const active=u.getDetail('dividend');check(active.key===key,'either segment/slot selects same bucket');
+          const rows=active.items.map(r=>r.name).sort();eq(names('dividend'),rows,'exact aggregate detail');
+          if(selected)eq(rows,selected,'same combined detail');selected=rows;
+        }
+        check(__incomeCalls.length===calls,'selection no refetch');eq(bars.map(b=>['x','y','width','height'].map(a=>b.getAttribute(a))),geometry,'selection does not change geometry');
+        const paint=getComputedStyle(target('dividend',key));check(paint.fill==='none'&&paint.stroke==='none'&&paint.outlineStyle==='none','no slot paint');
+        const interest=[...detail('dividend').querySelectorAll('tbody tr')].filter(r=>r.textContent.includes('읽기 전용'));check(interest.length>0&&interest.every(r=>!r.querySelector('button')),'interest readonly');
+        u.clearDetail('dividend');
+      }
+      await render('pnl',modes.MONTH);check(host('pnl').querySelector('.wealth-unified-chart-shell').dataset.flowStacked==='false','PnL not stacked');
+      check(!host('pnl').querySelector('[data-stack-start],.wealth-unified-flow-legend'),'PnL unchanged');
+      rawLedgerData={monthly_trend:[{year:2026,month:10,income:100,expense:60}]};u.modes.ledger=modes.MONTH;await u.renderLedger();await frames();
+      const ledger=document.querySelector('#ledgerTrendContainer .wealth-unified-chart-shell');check(ledger.dataset.flowStacked==='false','ledger not stacked');
+      const ledgerBars=[...ledger.querySelectorAll('.wealth-unified-flow-bar[data-bucket-key="2026-10"]')];check(ledgerBars.length===2&&ledgerBars[0].getAttribute('x')!==ledgerBars[1].getAttribute('x'),'ledger remains side by side');
+    """,
+    'stacked_zero_single_and_negative': r"""
+      currentOwner='stack-special';setIncomeTab('dividend',{updateHash:false,loadContent:false});
+      __div=[record('DIV','2026-10-01',100,{owner:currentOwner}),record('NEG-D','2026-10-04',-30,{owner:currentOwner}),record('MIX-D','2026-10-05',30,{owner:currentOwner})];
+      __interest=[record('INT','2026-10-02',70,{owner:currentOwner,income_type:'account_interest'}),record('NEG-I','2026-10-04',-20,{owner:currentOwner,income_type:'account_interest'}),record('MIX-I','2026-10-05',-20,{owner:currentOwner,income_type:'account_interest'})];
+      await render('dividend',modes.DAY);for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);
+      const bars=key=>[...host('dividend').querySelectorAll(`.wealth-unified-flow-bar[data-bucket-key="${key}"]`)];
+      const heights=key=>bars(key).map(b=>+b.getAttribute('height'));
+      check(heights('2026-10-01')[0]>0&&heights('2026-10-01')[1]===0,'dividend only');
+      check(heights('2026-10-02')[0]===0&&heights('2026-10-02')[1]>0,'interest only');
+      eq(heights('2026-10-03'),[1,0],'zero single minimal mark');select('dividend','2026-10-03');eq(names('dividend'),[],'zero no fake rows');
+      check(detail('dividend').textContent.includes('합계 ₩0'),'zero no fake money');
+      const neg=bars('2026-10-04'),mixed=bars('2026-10-05');
+      eq(neg.map(b=>[b.dataset.stackStart,b.dataset.stackEnd]),[['0','-30'],['-30','-50']],'negative extent accumulates');
+      check(Math.abs(+neg[0].getAttribute('y')+(+neg[0].getAttribute('height'))-(+neg[1].getAttribute('y')))<1e-8,'negative stack contiguous');
+      eq(mixed.map(b=>[b.dataset.stackStart,b.dataset.stackEnd]),[['0','30'],['0','-20']],'positive and negative independent');
+      check([...neg,...mixed].every(b=>+b.getAttribute('y')>=18&&+b.getAttribute('y')+(+b.getAttribute('height'))<=244),'both extents fit');
+    """,
+    'stacked_initial_and_visible_total_scale': r"""
+      currentOwner='stack-scale';setIncomeTab('dividend',{updateHash:false,loadContent:false});
+      const dates=Array.from({length:60},(_,i)=>`2026-${i<31?'08':'09'}-${String(i<31?i+1:i-30).padStart(2,'0')}`);
+      __div=dates.map((date,i)=>record('D'+i,date,i===0?300000:300,{owner:currentOwner}));
+      __interest=dates.map((date,i)=>record('I'+i,date,i===0?200000:200,{owner:currentOwner,income_type:'account_interest'}));
+      await render('dividend',modes.DAY);
+      const shell=host('dividend').querySelector('.wealth-unified-chart-shell'),vp=shell.querySelector('.wealth-unified-viewport');
+      const first=[...shell.querySelectorAll('.wealth-unified-flow-bar[data-bucket-key="2026-08-01"]')];
+      const fit=()=>{const [d,i]=first;check(+i.getAttribute('y')>=18&&+d.getAttribute('y')+(+d.getAttribute('height'))<=244,'500000 fully in plot');check(Math.abs(+d.getAttribute('height')/(+i.getAttribute('height'))-1.5)<1e-8,'true 300000/200000 stack, not clipped max');check(Math.abs(+i.getAttribute('y')+(+i.getAttribute('height'))-(+d.getAttribute('y')))<1e-8,'total top exact');};
+      fit(); // Initial range, before queued visible-range updates.
+      const frames=async()=>{for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);};
+      vp.scrollLeft=0;vp.dispatchEvent(new Event('scroll'));await frames();fit();
+      const largeAxis=shell.querySelector('.wealth-unified-axis').textContent;
+      vp.scrollLeft=vp.scrollWidth;vp.dispatchEvent(new Event('scroll'));await frames();
+      check(shell.querySelector('.wealth-unified-axis').textContent!==largeAxis,'visible stack totals rescale '+JSON.stringify({largeAxis,smallAxis:shell.querySelector('.wealth-unified-axis').textContent,scroll:vp.scrollLeft,client:vp.clientWidth,width:vp.scrollWidth,connected:shell.isConnected}));
+      const last=[...shell.querySelectorAll('.wealth-unified-flow-bar[data-bucket-key="2026-09-29"]')];
+      check(+last[1].getAttribute('y')>=18&&+last[0].getAttribute('y')+(+last[0].getAttribute('height'))<=244,'small stack fits');
+      check(+last[0].getAttribute('height')>50,'small visible stacks use viewport scale');
+      check([...shell.querySelectorAll('svg text')].some(n=>n.style.visibility==='hidden'),'daily thinning preserved');
     """,
     'keyboard_pan': r"""
       await render('pnl',modes.DAY);const n=target('pnl','2026-10-07');n.focus();check(document.activeElement===n,'focusable');
@@ -238,40 +398,74 @@ def test_income_bucket_runtime(chrome_preview, scenario):
     assert evaluate('document.documentElement.scrollWidth<=innerWidth')
 
 
-def test_native_mobile_bucket_tap_and_pan(chrome_preview):
+@pytest.mark.parametrize('kind', ['pnl', 'dividend'])
+@pytest.mark.parametrize('mode,key', [('DAY','2026-10-07'),('WEEK','2026-10-05'),('YEAR','2026')])
+def test_native_mobile_bucket_tap_and_pan(chrome_preview, mode, key, kind):
     call, evaluate, port = chrome_preview
     call('Emulation.setDeviceMetricsOverride', {'width': 390, 'height': 844, 'deviceScaleFactor': 1, 'mobile': True})
     call('Emulation.setTouchEmulationEnabled', {'enabled': True, 'maxTouchPoints': 1})
     call('Page.navigate', {'url': f'http://127.0.0.1:{port}/#pnl'})
     wait_for(evaluate, "document.readyState==='complete' && !!window.WealthUnifiedTimeseries && !!window.WealthTimeseriesVisibleRange")
-    evaluate('(async()=>{' + SETUP + "await render('pnl',modes.DAY);return true;})()")
+    evaluate('(async()=>{' + SETUP + f"setIncomeTab('{kind}',{{updateHash:false,loadContent:false}});await render('{kind}',modes.{mode});return true;}})()")
+    chart_id = 'pnlBarChartWrap' if kind == 'pnl' else 'dividendBarChartWrap'
+    detail_id = 'pnlMonthlyDetail' if kind == 'pnl' else 'dividendMonthlyDetail'
     def position(key):
-        return evaluate("(()=>{const n=document.querySelector('#pnlBarChartWrap .wealth-unified-bucket-target[data-bucket-key=\"" + key + "\"]');n.scrollIntoView({block:'center',inline:'center',behavior:'instant'});const r=n.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()")
+        return evaluate("(()=>{const n=document.querySelector('#" + chart_id + " .wealth-unified-bucket-target[data-bucket-key=\"" + key + "\"]');n.scrollIntoView({block:'center',inline:'center',behavior:'instant'});const r=n.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()")
     def touch(kind, point=None):
         call('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': [] if point is None else [point]})
-    point = position('2026-10-07')
+    point = position(key)
     call('Input.dispatchMouseEvent', {'type': 'mousePressed', **point, 'button': 'left', 'clickCount': 1})
     call('Input.dispatchMouseEvent', {'type': 'mouseReleased', **point, 'button': 'left', 'clickCount': 1})
-    wait_for(evaluate, "WealthUnifiedTimeseries.getDetail('pnl').key==='2026-10-07'")
-    evaluate("WealthUnifiedTimeseries.clearDetail('pnl')")
+    wait_for(evaluate, f"WealthUnifiedTimeseries.getDetail('{kind}')?.key==='{key}'")
+    evaluate(f"WealthUnifiedTimeseries.clearDetail('{kind}')")
     touch('touchStart', point); touch('touchEnd')
-    wait_for(evaluate, "WealthUnifiedTimeseries.getDetail('pnl').key==='2026-10-07'")
-    assert evaluate("[...document.querySelectorAll('#pnlMonthlyDetail .td-stock-name')].map(n=>n.textContent).sort()") == ['P7a', 'P7b']
+    wait_for(evaluate, f"WealthUnifiedTimeseries.getDetail('{kind}')?.key==='{key}'")
+    expected = (['P7a', 'P7b'] if mode == 'DAY' else ['P2026', 'P7a', 'P7b', 'P8'] if mode == 'WEEK' else ['P11', 'P2026', 'P7a', 'P7b', 'P8', 'P9', 'P9Broker'])
+    if kind == 'dividend':
+        expected = [name.replace('P', 'D', 1) for name in expected] + (['I7'] if mode == 'DAY' else ['I7', 'I8'])
+    assert evaluate(f"[...document.querySelectorAll('#{detail_id} .td-stock-name')].map(n=>n.textContent).sort()") == sorted(expected)
+    if mode != 'DAY':
+        return
     point = position('2026-10-01')
-    before = evaluate("document.querySelector('#pnlBarChartWrap .wealth-unified-viewport').scrollLeft")
+    before = evaluate(f"document.querySelector('#{chart_id} .wealth-unified-viewport').scrollLeft")
     touch('touchStart', point)
     touch('touchMove', dict(x=point['x'] + 30, y=point['y']))
     touch('touchMove', dict(x=point['x'] + 60, y=point['y']))
     touch('touchEnd')
-    assert evaluate("WealthUnifiedTimeseries.getDetail('pnl').key") == '2026-10-07'
-    assert evaluate("document.querySelector('#pnlBarChartWrap .wealth-unified-viewport').scrollLeft") < before
+    assert evaluate(f"WealthUnifiedTimeseries.getDetail('{kind}').key") == '2026-10-07'
+    assert evaluate(f"document.querySelector('#{chart_id} .wealth-unified-viewport').scrollLeft") < before
+
+
+
+@pytest.mark.parametrize('kind', ['pnl', 'dividend'])
+def test_native_keyboard_selection_paint(chrome_preview, kind, tmp_path):
+    call, evaluate, port = chrome_preview
+    call('Emulation.setDeviceMetricsOverride', {'width': 390, 'height': 844, 'deviceScaleFactor': 1, 'mobile': True})
+    call('Page.navigate', {'url': f'http://127.0.0.1:{port}/#pnl'})
+    wait_for(evaluate, "document.readyState==='complete' && !!window.WealthUnifiedTimeseries && !!window.WealthTimeseriesVisibleRange")
+    evaluate('(async()=>{' + SETUP + f"setIncomeTab('{kind}',{{updateHash:false,loadContent:false}});await render('{kind}',modes.DAY);return true;}})()")
+    selector = ('#pnlBarChartWrap' if kind == 'pnl' else '#dividendBarChartWrap') + ' .wealth-unified-bucket-target[data-bucket-key="2026-10-07"]'
+    evaluate(f"window.__paintTarget=document.querySelector('{selector}');__paintTarget.scrollIntoView({{block:'center',inline:'center',behavior:'instant'}})")
+    evaluate("(async()=>{for(let i=0;i<4;i++)await new Promise(requestAnimationFrame)})()")
+    geometry = "[...__paintTarget.ownerSVGElement.querySelectorAll('.wealth-unified-flow-bar')].map(b=>['x','y','width','height'].map(a=>b.getAttribute(a)))"
+    before = evaluate(geometry)
+    call('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Tab', 'code': 'Tab', 'windowsVirtualKeyCode': 9})
+    call('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Tab', 'code': 'Tab', 'windowsVirtualKeyCode': 9})
+    evaluate('__paintTarget.focus()')
+    assert evaluate("__paintTarget.matches(':focus-visible')"), 'Exercise actual Chrome keyboard focus paint'
+    call('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+    call('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
+    assert evaluate(f"WealthUnifiedTimeseries.getDetail('{kind}').key") == '2026-10-07'
+    assert evaluate("(()=>{const s=getComputedStyle(__paintTarget);return [s.fill,s.stroke,s.outlineStyle,s.pointerEvents]})()") == ['none','none','none','all']
+    assert evaluate(geometry) == before
+    (tmp_path / f'{kind}-day-keyboard-selection.png').write_bytes(base64.b64decode(call('Page.captureScreenshot', {'format': 'png'})['data']))
 
 
 def test_bucket_membership_and_ledger_writer():
     root = Path(__file__).resolve().parents[1]
     module = (root / 'app/static/wealth-timeseries-unified.js').read_text(encoding='utf-8')
     helper = module.split('  function bucketContains(', 1)[1].split('  function bucketHeading', 1)[0]
-    script = "const assert=require('node:assert/strict');const core=require('./app/static/wealth-timeseries-period-core.js');const {MODES}=core;const supportsDetail=mode=>mode===MODES.DAY||mode===MODES.MONTH;function bucketContains(" + helper + r"""
+    script = "const assert=require('node:assert/strict');const core=require('./app/static/wealth-timeseries-period-core.js');const {MODES}=core;const supportsDetail=mode=>[MODES.DAY,MODES.WEEK,MODES.MONTH,MODES.YEAR].includes(mode);function bucketContains(" + helper + r"""
 assert(bucketContains('2025-10-05','2025-10',MODES.MONTH));
 assert(!bucketContains('2026-10-05','2025-10',MODES.MONTH));
 assert(bucketContains('2026-10-07T00:00:00+09:00','2026-10-07',MODES.DAY));
@@ -279,6 +473,10 @@ assert(!bucketContains('2026-10-08','2026-10-07',MODES.DAY));
 assert(!bucketContains('2026-02-30','2026-02',MODES.MONTH));
 assert(!bucketContains('bad','2026-10',MODES.MONTH));
 assert(!bucketContains('2026-10-07','2026-10-07',MODES.WEEK));
+assert(bucketContains('2026-10-04','2026-09-28',MODES.WEEK));
+assert(!bucketContains('2026-10-05','2026-09-28',MODES.WEEK));
+assert(bucketContains('2026-12-31','2026',MODES.YEAR));
+assert(!bucketContains('2025-12-31','2026',MODES.YEAR));
 """
     subprocess.run(['node', '-e', script], cwd=root, check=True)
     for path in (root / 'app/static').glob('*.js'):
