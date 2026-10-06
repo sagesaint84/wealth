@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   let confirmed = {version: 1}, unlocked = false, category = 'securities';
-  let ready = false, saving = false, drag = null, frame = 0;
+  let ready = false, saving = false;
   const panel = () => document.getElementById('accountsPanel');
   const lock = () => document.getElementById('accountOrderLock');
   const roots = [['banksListWrap', 'bank_accounts'], ['savingsGrid', 'savings_accounts'], ['loansGrid', 'loan_accounts']];
@@ -22,13 +22,27 @@
     ).map(entry => entry.node);
   }
   function handle(host, label, level) {
-    let button = children(host, '.account-order-handle')[0];
-    if (!button) {
-      button = document.createElement('button');
-      button.type = 'button'; button.className = 'account-order-handle'; button.textContent = '⋮⋮';
-      button.dataset.orderLevel = level; host.prepend(button);
+    let group = children(host, '.account-order-controls')[0];
+    if (!group) {
+      group = document.createElement('span'); group.className = 'account-order-controls';
+      group.dataset.orderLevel = level;
+      for (const [direction, text] of [[-1, '↑'], [1, '↓']]) {
+        const button = document.createElement('button'); button.type = 'button';
+        button.dataset.orderDirection = direction; button.textContent = text; group.append(button);
+      }
+      host.prepend(group);
     }
-    button.title = `${label} 순서 이동 (드래그 또는 위/아래 방향키)`; button.setAttribute('aria-label', `${label} 순서 이동`);
+    [...group.children].forEach(button => {
+      const text = `${label} ${Number(button.dataset.orderDirection) < 0 ? '위로' : '아래로'} 이동`;
+      button.title = text; button.setAttribute('aria-label', text);
+    });
+  }
+  function context(group) {
+    const level = group.dataset.orderLevel;
+    const selector = level === 'institutions' ? '.broker-group,.bank-institution-group' : '[data-order-id]';
+    const item = group.closest(selector), parent = item.parentElement;
+    const siblings = children(parent, selector).filter(node => node.dataset.orderDerived !== 'true' && (level === 'institutions' || node.dataset.orderId));
+    return {item, parent, siblings, level};
   }
   function controls() {
     const supported = ['securities', 'banking'].includes(category);
@@ -36,18 +50,24 @@
     if (button) {
       button.hidden = !supported; button.disabled = !ready || saving;
       button.textContent = unlocked ? '🔓 순서 편집' : '🔒 순서 잠금';
-      button.title = unlocked ? '순서 편집을 잠급니다' : '핸들로 계좌/기관 순서를 편집합니다';
+      button.title = unlocked ? '순서 편집을 잠급니다' : '위/아래 버튼으로 계좌/기관 순서를 편집합니다';
       button.setAttribute('aria-label', button.title);
       button.setAttribute('aria-pressed', String(unlocked));
     }
     panel()?.classList.toggle('account-order-editing', supported && unlocked);
     panel()?.classList.toggle('account-order-saving', saving);
-    panel()?.querySelectorAll('.account-order-handle').forEach(button => {
-      const scope = button.closest('[data-order-scope]')?.dataset.orderScope;
-      button.hidden = !supported || !unlocked || scope !== category;
-      button.disabled = saving; button.tabIndex = button.hidden ? -1 : 0;
+    panel()?.querySelectorAll('.account-order-controls').forEach(group => {
+      const {item, siblings} = context(group);
+      group.hidden = !supported || !unlocked || item.dataset.orderScope !== category;
+      const index = siblings.indexOf(item);
+      [...group.children].forEach(button => {
+        const neighbor = siblings[index + Number(button.dataset.orderDirection)];
+        button.disabled = saving || !neighbor;
+        button.tabIndex = group.hidden ? -1 : 0;
+      });
     });
   }
+
   function securities() {
     const root = document.getElementById('accountList');
     if (!root) return;
@@ -73,7 +93,7 @@
         row.dataset.orderKind = 'accounts';
         if (row.dataset.orderId) handle(row.querySelector('.account-row-title-line'), row.dataset.orderLabel, 'accounts');
       });
-      const count = head.querySelector('span');
+      const count = children(head, 'span').find(node => !node.classList.contains('account-order-controls'));
       if (count) count.textContent = `${rows.length}개 계좌`;
     });
   }
@@ -107,7 +127,7 @@
           list = document.createElement('div'); list.className = 'bank-group-items savings-card-grid'; group.append(list);
         }
         const rows = groups.get(identity);
-        // Derived overdrafts have no loan preference or child drag handle. They
+        // Derived overdrafts have no loan preference or child order controls. They
         // follow bank_accounts order, after actual loans in the bank's section.
         const actual = rows.filter(row => row.dataset.orderDerived !== 'true');
         const derived = rows.filter(row => row.dataset.orderDerived === 'true');
@@ -126,77 +146,11 @@
     });
   }
   function rendered(scope) {
-    if (drag) cancel();
     if (!scope || scope === 'securities') securities();
     if (!scope || scope === 'banking') banking();
     controls();
   }
-  function cancel() {
-    if (!drag) return;
-    const state = drag; drag = null;
-    clearTimeout(state.timer); cancelAnimationFrame(frame); frame = 0;
-    state.before.forEach(node => state.parent.append(node));
-    state.item.classList.remove('account-order-dragged'); state.handle.classList.remove('account-order-pressed');
-    state.target?.classList.remove('account-order-target');
-    if (state.handle.hasPointerCapture?.(state.pointer)) state.handle.releasePointerCapture(state.pointer);
-    panel()?.classList.remove('account-order-drag-active');
-  }
-  function activate(state) {
-    if (drag !== state || !unlocked || saving || !state.item.isConnected) return cancel();
-    state.active = true; state.item.classList.add('account-order-dragged');
-    state.handle.classList.add('account-order-pressed'); panel()?.classList.add('account-order-drag-active');
-    state.handle.setPointerCapture?.(state.pointer);
-    const tick = () => {
-      if (drag !== state) return;
-      const box = state.scroller === document.scrollingElement
-        ? {top: 0, bottom: window.innerHeight} : state.scroller.getBoundingClientRect();
-      if (state.y < box.top + 36) state.scroller.scrollTop -= 10;
-      else if (state.y > box.bottom - 36) state.scroller.scrollTop += 10;
-      moveTarget(state); frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-  }
-  function moveTarget(state) {
-    // Never move outside the original parent/institution/source kind.
-    const box = state.parent.getBoundingClientRect();
-    if (state.x < box.left || state.x > box.right || state.y < box.top - 30 || state.y > box.bottom + 30) return;
-    const others = children(state.parent, state.selector).filter(node => node !== state.item && node.dataset.orderDerived !== 'true');
-    const target = others.find(node => state.y < node.getBoundingClientRect().top + node.getBoundingClientRect().height / 2);
-    state.target?.classList.remove('account-order-target'); state.target = target || others.at(-1);
-    state.target?.classList.add('account-order-target');
-    if (target) state.parent.insertBefore(state.item, target);
-    else if (others.length) state.parent.insertBefore(state.item, others.at(-1).nextSibling);
-  }
-  function down(event) {
-    const button = event.target.closest('.account-order-handle');
-    if (!button || button.hidden || !unlocked || !ready || saving || drag || event.button > 0 || event.isPrimary === false) return;
-    const level = button.dataset.orderLevel;
-    const item = button.closest(level === 'institutions' ? '.broker-group,.bank-institution-group' : '[data-order-id]');
-    if (!item || item.dataset.orderScope !== category || item.dataset.orderDerived === 'true') return;
-    const parent = item.parentElement;
-    let scroller = parent;
-    while (scroller !== panel() && scroller.parentElement &&
-      !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
-    if (scroller.scrollHeight <= scroller.clientHeight || !/auto|scroll/.test(getComputedStyle(scroller).overflowY)) scroller = document.scrollingElement;
-    const state = {item, parent, handle: button, before: [...parent.children], level,
-      selector: level === 'institutions' ? '.broker-group,.bank-institution-group' : '[data-order-id]',
-      pointer: event.pointerId, touch: event.pointerType !== 'mouse', active: false,
-      startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, scroller};
-    drag = state;
-    if (state.touch) state.timer = setTimeout(() => activate(state), 450);
-  }
-  function move(event) {
-    const state = drag;
-    if (!state || event.pointerId !== state.pointer) return;
-    state.x = event.clientX; state.y = event.clientY;
-    const distance = Math.hypot(state.x - state.startX, state.y - state.startY);
-    if (!state.active) {
-      if (state.touch && distance > 8) return cancel();
-      if (!state.touch && distance >= 5) activate(state);
-    }
-    if (state.active) {event.preventDefault(); moveTarget(state);}
-  }
-  async function save(operation) {
+  async function save(operation, focus) {
     saving = true; controls();
     try {
       const response = await fetch('/api/account-display-order', {method: 'PATCH',
@@ -207,56 +161,43 @@
       if (typeof toast === 'function') toast('순서 저장에 실패했습니다. 저장된 순서로 복원합니다.', true);
     } finally {
       saving = false; rendered();
+      if (focus && unlocked) {
+        const groups = [...panel().querySelectorAll('.account-order-controls')];
+        const target = groups.find(group => {
+          const {item, level} = context(group);
+          return item.dataset.orderScope === focus.scope && level === focus.level &&
+            item.dataset.orderKey === focus.key && item.dataset.orderKind === focus.kind &&
+            item.dataset.orderId === focus.id;
+        });
+        const button = target?.querySelector(`[data-order-direction="${focus.direction}"]`);
+        if (button && !button.disabled && !target.hidden) button.focus({preventScroll: true});
+      }
     }
   }
-  function operationFor(state) {
-    const operation = {scope: state.item.dataset.orderScope, level: state.level};
-    if (state.level === 'institutions') {
-      operation.order = children(state.parent, state.selector).map(node => node.dataset.orderKey);
-    } else {
-      operation.kind = state.item.dataset.orderKind; operation.institution = state.item.dataset.orderKey;
-      operation.order = children(state.parent, state.selector).filter(node => node.dataset.orderDerived !== 'true' && node.dataset.orderId).map(node => node.dataset.orderId);
-    }
-    return operation;
-  }
-  function up(event) {
-    const state = drag;
-    if (!state || event.pointerId !== state.pointer) return;
-    const after = [...state.parent.children];
-    const changed = state.active && after.some((node, i) => node !== state.before[i]);
-    const operation = operationFor(state);
-    cancel(); // restore confirmed layout while the only permitted save is in flight
-    if (changed) void save(operation);
-  }
-  function setCategory(value) {cancel(); category = value; controls();}
-  document.addEventListener('pointerdown', down);
-  document.addEventListener('pointermove', move, {passive: false});
-  document.addEventListener('pointerup', up);
-  document.addEventListener('pointercancel', cancel);
-  document.addEventListener('lostpointercapture', event => {if (drag?.pointer === event.pointerId) cancel();});
-  window.addEventListener('blur', cancel);
-  document.addEventListener('touchmove', event => {if (drag?.active) event.preventDefault();}, {passive: false});
-  document.addEventListener('contextmenu', event => {if (drag?.active) event.preventDefault();});
-  document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') return cancel();
-    const button = event.target.closest('.account-order-handle');
-    if (!button || button.hidden || !unlocked || !ready || saving || drag || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
-    event.preventDefault();
-    const level = button.dataset.orderLevel;
-    const selector = level === 'institutions' ? '.broker-group,.bank-institution-group' : '[data-order-id]';
-    const item = button.closest(selector), parent = item.parentElement;
-    const before = [...parent.children];
-    const siblings = children(parent, selector).filter(node => node.dataset.orderDerived !== 'true' && (level === 'institutions' || node.dataset.orderId));
-    const neighbor = siblings[siblings.indexOf(item) + (event.key === 'ArrowUp' ? -1 : 1)];
-    if (!neighbor) return;
-    parent.insertBefore(item, event.key === 'ArrowUp' ? neighbor : neighbor.nextSibling);
-    const operation = operationFor({item, parent, selector, level});
-    before.forEach(node => parent.append(node));
-    void save(operation);
-  });
+  function setCategory(value) {category = value; controls();}
   document.addEventListener('click', event => {
-    if (event.target.closest('#accountOrderLock') && ready && !saving) {cancel(); unlocked = !unlocked; controls();}
-    else if (event.target.closest('.account-order-handle')) event.preventDefault();
+    if (event.target.closest('#accountOrderLock') && ready && !saving) {
+      unlocked = !unlocked; controls(); return;
+    }
+    const button = event.target.closest('.account-order-controls button');
+    if (!button || button.disabled || !unlocked || !ready || saving) return;
+    const group = button.parentElement;
+    if (group.hidden) return;
+    const {item, siblings, level} = context(group);
+    if (item.dataset.orderScope !== category || item.dataset.orderDerived === 'true') return;
+    const direction = Number(button.dataset.orderDirection), index = siblings.indexOf(item);
+    const neighbor = siblings[index + direction];
+    if (!neighbor) return;
+    // Build only the visible subset; the server preserves hidden owner positions.
+    [siblings[index], siblings[index + direction]] = [neighbor, item];
+    const operation = {scope: item.dataset.orderScope, level};
+    if (level === 'institutions') operation.order = siblings.map(node => node.dataset.orderKey);
+    else {
+      operation.kind = item.dataset.orderKind; operation.institution = item.dataset.orderKey;
+      operation.order = siblings.map(node => node.dataset.orderId);
+    }
+    void save(operation, {scope: item.dataset.orderScope, level, key: item.dataset.orderKey,
+      kind: item.dataset.orderKind, id: item.dataset.orderId, direction});
   });
   window.WealthAccountReorder = {rendered, setCategory};
   controls();
