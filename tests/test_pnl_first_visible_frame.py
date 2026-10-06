@@ -206,7 +206,10 @@ def test_pnl_first_visible_frame_matches_settled_chart(width, height):
                   unified.modes.pnl=window.WealthTimeseriesPeriodCore.MODES.MONTH;
                   await unified.renderPnl();
                   const bars=host.querySelectorAll('.wealth-unified-flow-bar[data-bucket-index]');
+                  const legacyPeriodBefore={year:selectedPnlYear,month:selectedPnlMonth};
                   bars[bars.length-1]?.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+                  const clickedBucket=unified.getDetail('pnl')?.key;
+                  const legacyPeriodAfter={year:selectedPnlYear,month:selectedPnlMonth};
                   document.querySelector('#incomeTabs .income-tab[data-income="calendar"]').click();
                   const dividendHost=document.getElementById('dividendBarChartWrap');
                   const dividendViewport=dividendHost.querySelector('.wealth-unified-viewport');
@@ -229,7 +232,7 @@ def test_pnl_first_visible_frame_matches_settled_chart(width, height):
                   const fast=unified.renderPnl();
                   await Promise.all([slow,fast]);
                   const raceLabel=host.querySelector('svg text[y="280"]')?.textContent || '';
-                  return {hidden,clickAt,frames,settled,modes,clickedMonth:selectedPnlMonth,
+                  return {hidden,clickAt,frames,settled,modes,legacyPeriodBefore,legacyPeriodAfter,clickedBucket,
                     dividendHidden,dividendFrames,raceLabel,initialTrace,trace:window.__pnlTrace};
                 })()""")
                 results.append({"width": width, **row})
@@ -250,7 +253,8 @@ def test_pnl_first_visible_frame_matches_settled_chart(width, height):
                     assert before["mode"] == after["mode"]
                     assert (before["contentWidth"], before["scrollLeft"], before["first"], before["last"]) == (
                         after["contentWidth"], after["scrollLeft"], after["first"], after["last"]), (row["width"], key, pair)
-                assert row["clickedMonth"] == 12, row
+                assert row["legacyPeriodAfter"] == row["legacyPeriodBefore"], row
+                assert row["clickedBucket"] == "2026-12", row
                 assert not any(write["kind"] == "legacy" and write["at"] >= row["clickAt"]
                                for write in row["initialTrace"]["writes"]), row
                 dividend = row["dividendFrames"]

@@ -149,9 +149,7 @@
     if (expenseLabel) expenseLabel.textContent = '💳 연간 총 지출';
 
     const trendPanel = document.getElementById('ledgerTrendContainer')?.closest('.ledger-sub-panel');
-    const trendKicker = trendPanel?.querySelector('.eyebrow');
     const trendTitle = trendPanel?.querySelector('h3');
-    if (trendKicker) trendKicker.textContent = '12-MONTH CASHFLOW TREND';
     if (trendTitle) trendTitle.textContent = `${data.year}년 1월 ~ 12월 현금흐름 추이`;
 
     const cols = [...document.querySelectorAll('#ledgerTrendContainer .ledger-trend-col')];
@@ -170,9 +168,7 @@
     if (expenseLabel) expenseLabel.textContent = '💳 이번 달 총 지출';
 
     const trendPanel = document.getElementById('ledgerTrendContainer')?.closest('.ledger-sub-panel');
-    const trendKicker = trendPanel?.querySelector('.eyebrow');
     const trendTitle = trendPanel?.querySelector('h3');
-    if (trendKicker) trendKicker.textContent = '6-MONTH CASHFLOW TREND';
     if (trendTitle) trendTitle.textContent = '최근 6개월 현금흐름 추이';
 
     document.querySelectorAll('#ledgerTrendContainer .ledger-trend-col').forEach((col) => {

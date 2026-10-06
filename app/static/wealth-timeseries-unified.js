@@ -71,11 +71,79 @@
     }
   }
 
+  const details = {pnl: null, dividend: null};
+  const supportsDetail = mode => mode === MODES.DAY || mode === MODES.MONTH;
+  function bucketContains(date, key, mode) {
+    const text = String(date || '').trim();
+    if (!core.parseDate(text) || !supportsDetail(mode)) return false;
+    return text.slice(0, mode === MODES.DAY ? 10 : 7) === key;
+  }
+  function bucketHeading(key) {
+    const [year, month, day] = String(key).split('-').map(Number);
+    return `${year}년 ${month}월${day ? ` ${day}일` : ''}`;
+  }
+  function detailContext(kind) {
+    return kind === 'pnl' ? `${currentOwnerValue()}|${activeBroker('pnlBrokerFilter')}|${activePnlTradeType()}`
+      : `${currentOwnerValue()}|${activeBroker('dividendBrokerFilter')}|${dividendMode()}`;
+  }
+  function getDetailMode(kind) {
+    const state = details[kind];
+    return state?.context === detailContext(kind) ? state.aggregated.mode : null;
+  }
+  function getDetail(kind) {
+    const state = details[kind];
+    if (!state || state.context !== detailContext(kind) || !state.key || !supportsDetail(state.aggregated.mode)) return null;
+    const bucket = state.aggregated.buckets.find(item => item.key === state.key);
+    if (!bucket) return null;
+    return {key: bucket.key, mode: state.aggregated.mode,
+      items: bucket.items.filter(item => bucketContains(item.date, bucket.key, state.aggregated.mode))};
+  }
+  function renderLegacyDetail(kind) {
+    if (kind === 'pnl' && typeof renderPnlMonthlyDetail === 'function') renderPnlMonthlyDetail(selectedPnlMonth);
+    if (kind === 'dividend' && typeof renderActualDividendDetail === 'function') renderActualDividendDetail(selectedDividendMonth);
+  }
+  function showDetail(kind) {
+    const value = getDetail(kind);
+    if (!value) return;
+    if (kind === 'pnl' && typeof renderPnlMonthlyDetail === 'function') renderPnlMonthlyDetail(null, value);
+    if (kind === 'dividend' && typeof renderActualDividendDetail === 'function') renderActualDividendDetail(null, value);
+  }
+  function updateDetail(kind, aggregated) {
+    const previous = details[kind], context = detailContext(kind);
+    const key = previous?.context === context && previous.aggregated.mode === aggregated.mode &&
+      supportsDetail(aggregated.mode) && aggregated.buckets.some(bucket => bucket.key === previous.key) ? previous.key : null;
+    details[kind] = {context, aggregated, key};
+    if (key) showDetail(kind);
+    else if (previous?.key) renderLegacyDetail(kind);
+  }
+  function markSelection(kind) {
+    document.querySelectorAll(`[data-unified-kind="${kind}"] [data-bucket-key]`).forEach(node => {
+      const selected = node.dataset.bucketKey === details[kind]?.key;
+      node.classList.toggle('is-selected', selected);
+      if (node.classList.contains('wealth-unified-bucket-target')) node.setAttribute('aria-pressed', String(selected));
+    });
+  }
+  function selectBucket(kind, bucket, mode) {
+    const state = details[kind];
+    if (!state || state.context !== detailContext(kind) || !supportsDetail(mode)) return;
+    state.key = bucket.key; showDetail(kind); markSelection(kind);
+  }
+  function clearDetail(kind, {render = true} = {}) {
+    if (details[kind]) details[kind].key = null;
+    markSelection(kind);
+    if (render) renderLegacyDetail(kind);
+  }
+
   function injectStyles() {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
+      .wealth-unified-bucket-target { fill:transparent; cursor:pointer; }
+      .wealth-unified-bucket-target.is-selected { stroke:currentColor; stroke-width:2; stroke-dasharray:5 3; }
+      .wealth-unified-bucket-target:focus-visible { outline:2px solid currentColor; outline-offset:-2px; }
+      .wealth-unified-flow-bar.is-selected { stroke:currentColor; stroke-width:2; }
+
       .wealth-unified-periods {
         display: inline-flex;
         align-items: center;
@@ -497,6 +565,7 @@
     const groupWidth = Math.min(34, slot * 0.72);
     const barWidth = Math.max(2, groupWidth / Math.max(1, series.length));
 
+    const clickable = supportsDetail(aggregated.mode) && typeof options.onBucketClick === 'function';
     const bars = buckets.map((bucket, index) => {
       const cx = left + slot * (index + 0.5);
       return series.map((item, seriesIndex) => {
@@ -506,8 +575,7 @@
         const rectH = Math.max(value === 0 ? 1 : 2, Math.abs(zeroY - py));
         const startX = cx - (barWidth * series.length) / 2;
         const fill = value < 0 ? (item.negativeColor || '#438ee6') : (item.color || '#43d982');
-        const clickable = typeof options.onBucketClick === 'function';
-        return `<rect class="wealth-unified-flow-bar${clickable ? ' is-clickable' : ''}" data-bucket-index="${index}" x="${startX + seriesIndex * barWidth}" y="${rectY}" width="${Math.max(1, barWidth - 1)}" height="${rectH}" rx="1.5" fill="${fill}" opacity=".95"><title>${html(bucket.label)} · ${html(item.label)} ${compactWon(value)}</title></rect>`;
+        return `<rect class="wealth-unified-flow-bar${clickable ? ' is-clickable' : ''}" data-bucket-key="${html(bucket.key)}" data-bucket-index="${index}" x="${startX + seriesIndex * barWidth}" y="${rectY}" width="${Math.max(1, barWidth - 1)}" height="${rectH}" rx="1.5" fill="${fill}" opacity=".95"><title>${html(bucket.label)} · ${html(item.label)} ${compactWon(value)}</title></rect>`;
       }).join('');
     }).join('');
 
@@ -517,19 +585,40 @@
       return `<text x="${cx}" y="262" fill="#9aacd2" font-size="10" text-anchor="middle">${html(bucket.label)}</text>${marker ? `<text x="${cx}" y="280" fill="#6f82ad" font-size="9" font-weight="700" text-anchor="middle">${html(marker)}</text>` : ''}`;
     }).join('');
 
-    host.innerHTML = `<div class="wealth-unified-chart-shell" data-unified-kind="${html(options.kind || '')}"><div class="wealth-unified-axis">${axisHtml([{ range, top, height: bottom - top, count: 5 }])}</div><div class="wealth-unified-viewport"><div class="wealth-unified-content"><svg class="wealth-unified-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${html(options.ariaLabel || '금액 막대 차트')}"><line x1="${left}" y1="${zeroY}" x2="${right}" y2="${zeroY}" stroke="#334673" opacity=".9"/>${bars}${labels}</svg></div></div></div>`;
-
-    if (typeof options.onBucketClick === 'function') {
-      host.querySelectorAll('.wealth-unified-flow-bar[data-bucket-index]').forEach(node => {
-        node.addEventListener('click', event => {
-          const index = Number(event.currentTarget.dataset.bucketIndex);
-          const bucket = buckets[index];
-          if (bucket) options.onBucketClick(bucket, aggregated.mode);
-        });
-      });
-    }
+    host.innerHTML = `<div class="wealth-unified-chart-shell" data-unified-kind="${html(options.kind || '')}"><div class="wealth-unified-axis">${axisHtml([{ range, top, height: bottom - top, count: 5 }])}</div><div class="wealth-unified-viewport"><div class="wealth-unified-content"><svg class="wealth-unified-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="${clickable ? 'group' : 'img'}" aria-label="${html(options.ariaLabel || '금액 막대 차트')}"><line x1="${left}" y1="${zeroY}" x2="${right}" y2="${zeroY}" stroke="#334673" opacity=".9"/>${bars}${labels}</svg></div></div></div>`;
 
     const viewport = host.querySelector('.wealth-unified-viewport');
+    if (clickable) {
+      const svg = host.querySelector('svg');
+      const targets = buckets.map((bucket, index) => {
+        const summary = series.map(item => `${item.label} ${compactWon(finite(bucket.values?.[item.key]))}`).join(' · ');
+        return `<rect class="wealth-unified-bucket-target" data-bucket-index="${index}" data-bucket-key="${html(bucket.key)}" x="${left + slot * index}" y="${top}" width="${slot}" height="${bottom - top}" role="button" tabindex="0" aria-pressed="false" aria-label="${html(bucketHeading(bucket.key))} ${html(options.kind === 'pnl' ? '실현손익' : '배당·이자')} 내역 보기 · ${html(summary)}"/>`;
+      }).join('');
+      svg.insertAdjacentHTML('beforeend', targets);
+      let gesture = null;
+      viewport.addEventListener('pointerdown', event => {
+        gesture = {x:event.clientX, y:event.clientY, scroll:viewport.scrollLeft,
+          index:event.target.closest('[data-bucket-index]')?.dataset.bucketIndex, cancelled:false};
+      }, true);
+      viewport.addEventListener('pointermove', event => {
+        if (gesture && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 8) gesture.cancelled = true;
+      }, true);
+      viewport.addEventListener('pointercancel', () => {if (gesture) gesture.cancelled = true;}, true);
+      viewport.addEventListener('touchstart', event => {if (gesture && event.touches.length > 1) gesture.cancelled = true;}, {passive:true});
+      viewport.addEventListener('click', event => {
+        if (event.detail && gesture && (gesture.cancelled || Math.abs(viewport.scrollLeft - gesture.scroll) > 3)) return;
+        const index = event.target.closest('[data-bucket-index]')?.dataset.bucketIndex ?? (event.detail ? gesture?.index : null);
+        if (index != null && buckets[Number(index)]) options.onBucketClick(buckets[Number(index)], aggregated.mode);
+      });
+      host.querySelectorAll('.wealth-unified-bucket-target').forEach(node => {
+        node.addEventListener('keydown', event => {
+          if (!['Enter', ' '].includes(event.key)) return;
+          event.preventDefault(); options.onBucketClick(buckets[Number(node.dataset.bucketIndex)], aggregated.mode);
+        });
+      });
+      markSelection(options.kind);
+    }
+
     const content = host.querySelector('.wealth-unified-content');
     installPanZoom(viewport, content, {
       mode: aggregated.mode,
@@ -665,17 +754,13 @@
       if (generation !== pnlRenderGeneration || owner !== currentOwnerValue()) return;
       const rows = source.map(record => ({ ...record, pnl_value: finite(record?.pnl_krw) }));
       const aggregated = aggregateFlow(rows, modes.pnl, { fields: ['pnl_value'] });
+      updateDetail('pnl', aggregated);
       renderFlowChart(host, aggregated, [
         { key: 'pnl_value', label: '실현손익', color: '#f05268', negativeColor: '#438ee6' },
       ], {
         kind: 'pnl',
         ariaLabel: '기간별 실현손익',
-        onBucketClick: (bucket, resolvedMode) => {
-          if (resolvedMode !== MODES.MONTH || typeof renderPnlMonthlyDetail !== 'function') return;
-          const month = Number(bucket.key.slice(5, 7));
-          try { selectedPnlMonth = month; } catch (_) {}
-          renderPnlMonthlyDetail(month);
-        },
+        onBucketClick: (bucket, resolvedMode) => selectBucket('pnl', bucket, resolvedMode),
       });
       const title = document.getElementById('pnlChartTitle');
       if (title) title.textContent = `📊 ${MODE_LABEL[aggregated.mode]} 실현손익 추이`;
@@ -723,6 +808,7 @@
     const controls = ensureInjectedControls('dividend', header);
     if (dividendMode() !== 'actual') {
       if (controls) controls.hidden = true;
+      details.dividend = null;
       return;
     }
     if (controls) controls.hidden = false;
@@ -732,22 +818,18 @@
       const source = await dividendSource();
       if (generation !== dividendRenderGeneration || owner !== currentOwnerValue() || dividendMode() !== 'actual') return;
       const rows = [
-        ...source.dividend.map(record => ({ ...record, dividend_value: finite(record?.amount_krw), interest_value: 0 })),
-        ...source.interest.map(record => ({ ...record, dividend_value: 0, interest_value: finite(record?.amount_krw) })),
+        ...source.dividend.map(record => ({ ...record, income_kind: 'dividend', dividend_value: finite(record?.amount_krw), interest_value: 0 })),
+        ...source.interest.map(record => ({ ...record, income_kind: 'interest', dividend_value: 0, interest_value: finite(record?.amount_krw) })),
       ];
       const aggregated = aggregateFlow(rows, modes.dividend, { fields: ['dividend_value', 'interest_value'] });
+      updateDetail('dividend', aggregated);
       renderFlowChart(host, aggregated, [
         { key: 'dividend_value', label: '배당', color: '#fb7185' },
         { key: 'interest_value', label: '이자', color: '#f6b84a' },
       ], {
         kind: 'dividend',
         ariaLabel: '기간별 실제 배당 및 이자',
-        onBucketClick: (bucket, resolvedMode) => {
-          if (resolvedMode !== MODES.MONTH || typeof renderActualDividendDetail !== 'function') return;
-          const month = Number(bucket.key.slice(5, 7));
-          try { selectedDividendMonth = month; } catch (_) {}
-          renderActualDividendDetail(month);
-        },
+        onBucketClick: (bucket, resolvedMode) => selectBucket('dividend', bucket, resolvedMode),
       });
       const title = document.getElementById('dividendChartTitle');
       if (title) title.textContent = `📊 ${MODE_LABEL[aggregated.mode]} 실제 배당·이자 추이`;
@@ -941,6 +1023,7 @@
       event.stopImmediatePropagation();
     }
     modes[kind] = mode;
+    if (kind === 'pnl' || kind === 'dividend') clearDetail(kind);
     controls.querySelectorAll('[data-period], [data-unified-period]').forEach(item => {
       const value = item.dataset.unifiedPeriod || item.dataset.period;
       item.classList.toggle('active', value === mode);
@@ -955,19 +1038,22 @@
   function handleExternalChange(event) {
     const target = event.target;
     if (!target) return;
-    if (target.id === 'pnlBrokerFilter') queue('pnl');
-    if (target.id === 'dividendBrokerFilter') queue('dividend');
+    if (target.id === 'pnlBrokerFilter') {clearDetail('pnl', {render:false}); queue('pnl');}
+    if (target.id === 'dividendBrokerFilter') {clearDetail('dividend', {render:false}); queue('dividend');}
   }
 
   function handleExternalClick(event) {
     if (event.target?.closest?.('#pnlTradeTypeTabs [data-trade-type]')) {
+      clearDetail('pnl', {render:false});
       cache.pnl.key = '';
       setTimeout(() => queue('pnl'), 0);
     }
     if (event.target?.closest?.('#dividendModeTabs [data-div-mode]')) {
+      clearDetail('dividend', {render:false});
       setTimeout(() => queue('dividend'), 0);
     }
     if (event.target?.closest?.('.family-tab')) {
+      clearDetail('pnl', {render:false}); clearDetail('dividend', {render:false});
       cache.pnl.key = '';
       cache.dividend.key = '';
       cache.ledgerOwner = '';
@@ -1013,6 +1099,7 @@
 
   window.WealthUnifiedTimeseries = {
     modes,
+    getDetail, getDetailMode, clearDetail, bucketContains, bucketHeading,
     renderStock,
     renderNetWorth,
     renderPnl,

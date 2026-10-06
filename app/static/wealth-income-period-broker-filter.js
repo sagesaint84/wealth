@@ -27,7 +27,9 @@
   }
 
   function clearDividendMonthForYearSelection() {
-    if (typeof selectedDividendMonth === 'undefined' || selectedDividendMonth === null) return;
+    const activeBucket = Boolean(window.WealthUnifiedTimeseries?.getDetail('dividend'));
+    window.WealthUnifiedTimeseries?.clearDetail('dividend', {render:false});
+    if (typeof selectedDividendMonth === 'undefined' || (selectedDividendMonth === null && !activeBucket)) return;
     selectedDividendMonth = null;
     if (typeof syncDividendMonthNavUI === 'function') syncDividendMonthNavUI();
 

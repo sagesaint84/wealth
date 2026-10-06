@@ -39,7 +39,7 @@ class LedgerTimeseriesHistoryTests(unittest.TestCase):
         self.assertIn("col.dataset.ledgerMonth = String(row.month)", self.js)
 
     def test_header_reports_actual_loaded_history_range(self):
-        self.assertIn("${trend.length}-MONTH CASHFLOW TREND", self.js)
+        self.assertNotIn("MONTH CASHFLOW TREND", self.js)
         self.assertIn("${first.year}년 ${first.month}월", self.js)
         self.assertIn("${last.year}년 ${last.month}월", self.js)
 

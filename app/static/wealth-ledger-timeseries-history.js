@@ -125,9 +125,7 @@
     const first = trend[0];
     const last = trend.at(-1);
     const panel = document.getElementById('ledgerTrendContainer')?.closest('.ledger-sub-panel');
-    const kicker = panel?.querySelector('.eyebrow');
     const title = panel?.querySelector('h3');
-    if (kicker) kicker.textContent = `${trend.length}-MONTH CASHFLOW TREND`;
     if (title) {
       const firstText = `${first.year}년 ${first.month}월`;
       const lastText = `${last.year}년 ${last.month}월`;

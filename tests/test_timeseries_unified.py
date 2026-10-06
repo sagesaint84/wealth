@@ -67,8 +67,8 @@ class UnifiedTimeseriesTests(unittest.TestCase):
         self.assertIn("y=\"280\"", self.js)
 
     def test_monthly_pnl_and_dividend_drilldowns_remain_available(self):
-        self.assertIn("renderPnlMonthlyDetail(month)", self.js)
-        self.assertIn("renderActualDividendDetail(month)", self.js)
+        self.assertIn("renderPnlMonthlyDetail(null, value)", self.js)
+        self.assertIn("renderActualDividendDetail(null, value)", self.js)
 
     def test_estimated_dividend_keeps_legacy_chart_without_misleading_period_controls(self):
         self.assertIn("if (dividendMode() !== 'actual')", self.js)
