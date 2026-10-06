@@ -377,6 +377,7 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
         targeted = {"status": "busy"}
     output = _merge_refresh_result(result, supplement, targeted)
     timings.setdefault("metalogos_discovery_ms", 0.0)
+    timings.setdefault("primary_provider_parallel_wall_ms", 0.0)
     timings["total_ms"] = round((perf_counter() - total_started) * 1000, 3)
     output["timings"] = timings
     if supplement.get("window_start"):

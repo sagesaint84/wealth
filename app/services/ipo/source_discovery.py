@@ -354,31 +354,28 @@ def _kind_items(kind: KindClient, *, target_date_str: str, start: date, end: dat
     return relevant
 
 
-def _apply_dart_schedules(
-    market: dict[str, Any],
-    *,
-    dart: DartClient,
-    target_date_str: str,
-    start: date,
-    end: date,
-) -> tuple[int, int, int]:
-    """Overlay OpenDART schedule facts for only the bounded three-month candidates."""
-    matched = 0
+DART_CANDIDATE_WORKERS = 3
+
+
+def _fetch_dart_schedules(
+    market: dict[str, Any], *, dart: DartClient, target_date_str: str,
+    start: date, end: date,
+) -> dict[str, Any]:
+    """Read candidate schedules from a private snapshot; never mutate the market."""
     failed = 0
-    ignored = 0
     candidates = [
-        ipo for ipo in market.get("ipos", [])
+        (index, ipo) for index, ipo in enumerate(market.get("ipos", []))
         if isinstance(ipo, dict) and _relevant_schedule(ipo, start, end)
     ]
     if not candidates:
-        return 0, 0, 0
+        return {"candidates": [], "failed": 0}
 
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
     bgn_de = (start - timedelta(days=120)).strftime("%Y%m%d")
     end_de = target.strftime("%Y%m%d")
 
     corp_by_name: dict[str, dict[str, Any]] = {}
-    unresolved = [ipo for ipo in candidates if not str(ipo.get("corp_code") or "").strip()]
+    unresolved = [ipo for _, ipo in candidates if not str(ipo.get("corp_code") or "").strip()]
     if unresolved:
         try:
             corp_master = dart.get_corp_code_master()
@@ -391,14 +388,63 @@ def _apply_dart_schedules(
         except Exception:
             failed += 1
 
-    for ipo in candidates:
+
+    prepared = []
+    for index, ipo in candidates:
         key = normalize_company_name(str(ipo.get("company_name") or ""))
         master_row = corp_by_name.get(key) or {}
         corp_code = str(ipo.get("corp_code") or master_row.get("corp_code") or "").strip()
+        prepared.append({"index": index, "master_row": copy.deepcopy(master_row), "corp_code": corp_code})
+
+    def read_candidate(identity):
+        result = copy.deepcopy(identity)
+        corp_code = result["corp_code"]
+        if not corp_code:
+            result["status"] = "ignored"
+            return result
+        try:
+            filings_resp = dart.get_filing_list(
+                corp_code=corp_code, bgn_de=bgn_de, end_de=end_de,
+                pblntf_detail_ty="C001", last_reprt_at="N", page_count=100,
+            )
+            filings = filings_resp.get("list", []) if isinstance(filings_resp, dict) else []
+            raw_structured = dart.get_equity_registration_statements(
+                corp_code=corp_code, bgn_de=bgn_de, end_de=end_de,
+            )
+            result.update(status="ok", filing=copy.deepcopy(
+                select_dart_schedule_filing(filings, raw_structured)),
+                raw_structured=copy.deepcopy(raw_structured))
+        except Exception:
+            result["status"] = "failed"
+        return result
+
+    results = []
+    # Bound outstanding futures as well as active reads. Within each company,
+    # filing and structured requests remain sequential.
+    with ThreadPoolExecutor(max_workers=DART_CANDIDATE_WORKERS) as pool:
+        for offset in range(0, len(prepared), DART_CANDIDATE_WORKERS):
+            futures = [pool.submit(read_candidate, candidate)
+                       for candidate in prepared[offset:offset + DART_CANDIDATE_WORKERS]]
+            results.extend(future.result() for future in futures)
+    return {"candidates": results, "failed": failed}
+
+
+def _apply_dart_schedules(
+    market: dict[str, Any], *, dart: DartClient, target_date_str: str,
+    start: date, end: date, prefetched: dict[str, Any] | None = None,
+) -> tuple[int, int, int]:
+    """Apply read results on the caller thread in original candidate order."""
+    reads = prefetched if prefetched is not None else _fetch_dart_schedules(
+        copy.deepcopy(market), dart=dart, target_date_str=target_date_str, start=start, end=end)
+    matched = ignored = 0
+    failed = reads["failed"]
+    for result in reads["candidates"]:
+        ipo = market["ipos"][result["index"]]
+        master_row = result["master_row"]
+        corp_code = result["corp_code"]
         if not corp_code:
             ignored += 1
             continue
-
         stock_code = str(master_row.get("stock_code") or "").strip()
         if not ipo.get("corp_code"):
             ipo["corp_code"] = corp_code
@@ -426,16 +472,12 @@ def _apply_dart_schedules(
             "observed_at": datetime.now(KST).isoformat(),
         }
 
+        if result["status"] == "failed":
+            failed += 1
+            continue
         try:
-            filings_resp = dart.get_filing_list(
-                corp_code=corp_code, bgn_de=bgn_de, end_de=end_de,
-                pblntf_detail_ty="C001", last_reprt_at="N", page_count=100,
-            )
-            filings = filings_resp.get("list", []) if isinstance(filings_resp, dict) else []
-            raw_structured = dart.get_equity_registration_statements(
-                corp_code=corp_code, bgn_de=bgn_de, end_de=end_de,
-            )
-            filing = select_dart_schedule_filing(filings, raw_structured)
+            filing = result["filing"]
+            raw_structured = result["raw_structured"]
             if not filing:
                 ignored += 1
                 continue
@@ -454,6 +496,41 @@ def _apply_dart_schedules(
             failed += 1
 
     return matched, failed, ignored
+
+
+def _fetch_metalogos_candidates(metalogos, candidates, *, target_date_str):
+    names = []
+    seen_names = set()
+    for ipo in candidates:
+        name = str(ipo.get("company_name") or "").strip()
+        key = normalize_company_name(name)
+        if key and key not in seen_names:
+            seen_names.add(key)
+            names.append(name)
+    if hasattr(metalogos, "fetch_company_items"):
+        items = metalogos.fetch_company_items(company_names=names, target_date_str=target_date_str)
+    elif hasattr(metalogos, "fetch_company_item"):
+        # Compatibility for legacy clients; production uses one shared index.
+        items = [item for name in names if (item := metalogos.fetch_company_item(
+            company_name=name, target_date_str=target_date_str))]
+    else:
+        items = metalogos.fetch_calendar_items(target_date_str=target_date_str)
+    return [copy.deepcopy(item) for item in items if isinstance(item, dict)
+            and any(metalogos_identity_matches(candidate, item) for candidate in candidates)]
+
+
+def _provider_read(read):
+    """Return isolated provider outcome and its own elapsed read duration."""
+    began = perf_counter()
+    try:
+        return {"data": read(), "error": None,
+                "elapsed_ms": round((perf_counter() - began) * 1000, 3)}
+    except Exception as exc:
+        return {"data": None, "error": (
+            "source_unavailable (external_network_disabled)" if isinstance(exc, ExternalNetworkDisabled)
+            else f"source_error ({type(exc).__name__})"),
+            "elapsed_ms": round((perf_counter() - began) * 1000, 3)}
+
 
 def discover_and_merge_primary_sources(
     *,
@@ -543,98 +620,53 @@ def discover_and_merge_primary_sources(
             except Exception as exc:
                 statuses[status_key] = f"source_error ({type(exc).__name__})"
 
-    stage_started = perf_counter()
     metalogos = metalogos_client or MetalogosIpoClient()
-    try:
-        reviews = 0
+    # Both providers see independent snapshots after initial reconciliation.
+    # No worker receives the shared mutable market or persists any result.
+    snapshot = copy.deepcopy(market)
+    candidates = [ipo for ipo in copy.deepcopy(snapshot["ipos"])
+                  if isinstance(ipo, dict) and _relevant_schedule(ipo, start, end)
+                  and str(ipo.get("company_name") or "").strip()]
+    dart_configured = dart.is_configured()
+    parallel_started = perf_counter()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        metalogos_future = pool.submit(_provider_read, lambda: _fetch_metalogos_candidates(
+            metalogos, candidates, target_date_str=target_date_str))
+        dart_future = pool.submit(_provider_read, lambda: _fetch_dart_schedules(
+            snapshot, dart=dart, target_date_str=target_date_str, start=start, end=end)
+            if dart_configured else None)
+        metalogos_result = metalogos_future.result()
+        dart_result = dart_future.result()
+    timings["primary_provider_parallel_wall_ms"] = round((perf_counter() - parallel_started) * 1000, 3)
+    timings["metalogos_discovery_ms"] = metalogos_result["elapsed_ms"]
+    timings["dart_schedule_ms"] = dart_result["elapsed_ms"]
 
-        candidates = [
-            ipo
-            for ipo in market.get("ipos", [])
-            if isinstance(ipo, dict)
-            and _relevant_schedule(ipo, start, end)
-            and str(ipo.get("company_name") or "").strip()
-        ]
-
-        names: list[str] = []
-        seen_names: set[str] = set()
-
-        for ipo in candidates:
-            company_name = str(
-                ipo.get("company_name") or ""
-            ).strip()
-            key = normalize_company_name(company_name)
-
-            if not key or key in seen_names:
-                continue
-
-            seen_names.add(key)
-            names.append(company_name)
-
-        if hasattr(metalogos, "fetch_company_items"):
-            items = metalogos.fetch_company_items(
-                company_names=names,
-                target_date_str=target_date_str,
-            )
-        elif hasattr(metalogos, "fetch_company_item"):
-            items = []
-            for company_name in names:
-                item = metalogos.fetch_company_item(
-                    company_name=company_name,
-                    target_date_str=target_date_str,
-                )
-                if item:
-                    items.append(item)
-        else:
-            # Compatibility for legacy test doubles only.
-            items = metalogos.fetch_calendar_items(
-                target_date_str=target_date_str
-            )
-
-        # Defend the merge boundary too: a provider must never attach another issuer.
-        metalogos_rows = [item for item in items if isinstance(item, dict)
-                          and any(metalogos_identity_matches(candidate, item) for candidate in candidates)]
-        for item in metalogos_rows:
-            _, review = _apply_observation(
-                market,
-                item,
-                source_name="metalogos160",
-            )
-            reviews += int(review)
-
-        statuses["metalogos160"] = (
-            f"sync_ok (matched={len(metalogos_rows)}, "
-            f"review_required={reviews})"
-        )
-
-    except ExternalNetworkDisabled:
-        statuses["metalogos160"] = (
-            "source_unavailable (external_network_disabled)"
-        )
-    except Exception as exc:
-        statuses["metalogos160"] = (
-            f"source_error ({type(exc).__name__})"
-        )
-
-    timings["metalogos_discovery_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+    # Completion order is irrelevant: preserve the existing Metalogos then DART
+    # reconciliation order and canonical field/provenance authority.
+    if metalogos_result["error"]:
+        statuses["metalogos160"] = metalogos_result["error"]
+    else:
+        metalogos_rows = metalogos_result["data"]
+        try:
+            reviews = 0
+            for item in metalogos_rows:
+                _, review = _apply_observation(market, item, source_name="metalogos160")
+                reviews += int(review)
+            statuses["metalogos160"] = (f"sync_ok (matched={len(metalogos_rows)}, "
+                                        f"review_required={reviews})")
+        except Exception as exc:
+            statuses["metalogos160"] = f"source_error ({type(exc).__name__})"
 
     statuses["dart_identity_attached"] = "company_scoped"
-
-    stage_started = perf_counter()
-    if dart.is_configured():
-        matched, failed, ignored = _apply_dart_schedules(
-            market,
-            dart=dart,
-            target_date_str=target_date_str,
-            start=start,
-            end=end,
-        )
-        statuses["dart_schedule"] = (
-            f"sync_ok (matched={matched}, failed={failed}, ignored={ignored})"
-        )
-    else:
+    if not dart_configured:
         statuses["dart_schedule"] = "source_unavailable (api_key_missing)"
-    timings["dart_schedule_ms"] = round((perf_counter() - stage_started) * 1000, 3)
+    elif dart_result["error"]:
+        statuses["dart_schedule"] = dart_result["error"]
+    else:
+        matched, failed, ignored = _apply_dart_schedules(
+            market, dart=dart, target_date_str=target_date_str, start=start, end=end,
+            prefetched=dart_result["data"])
+        statuses["dart_schedule"] = f"sync_ok (matched={matched}, failed={failed}, ignored={ignored})"
 
     promoted_markets = _promote_verified_markets(
         market,
