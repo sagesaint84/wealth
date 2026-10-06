@@ -16,6 +16,7 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
     <link rel="stylesheet" href="/static/wealth.css?v=1.3.0" />
+    <link rel="stylesheet" href="/static/wealth-account-reorder.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-overrides.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-layout.css?v=10.7g1" />
     <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css?v=1.3.0" />
@@ -437,6 +438,7 @@
 
             <!-- 툴바 액션 버튼 (현재 카테고리 탭에 따라 스위칭) -->
             <div class="toolbar" style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+              <button id="accountOrderLock" class="button secondary compact" type="button" title="계좌/기관 순서 잠금" aria-label="계좌/기관 순서 잠금" aria-pressed="false" disabled>🔒 순서 잠금</button>
               <div id="securitiesActions" style="display:flex;gap:6px;align-items:center;">
                 <button id="addAccountBtn" class="button secondary compact" type="button" title="증권 계좌 추가">➕ 증권계좌 추가</button>
                 <button id="accountImportBtn" class="button secondary compact" type="button" title="증권계좌 파일 가져오기">📂 계좌 가져오기</button>
@@ -3752,6 +3754,7 @@
     </dialog>
 
     <script src="/static/wealth-layout.js?v=1.3.0"></script>
+    <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
     <script src="/static/wealth.js?v=1.3.0"></script>
     <script src="/static/wealth-dividend-source.js?v=1.3.0"></script>
     <script src="/static/wealth-money-input.js?v=1.3.0"></script>
