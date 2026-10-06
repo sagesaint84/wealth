@@ -3,7 +3,7 @@
 > 현재 개발 상태는 `docs/PROJECT_STATE.md`, 기능 순서는 `docs/ROADMAP.md`를 참조합니다.
 > 이 문서는 **비밀값을 어디에 저장하고, 코드가 어떻게 해석해야 하는지**에 대한 프로젝트 계약입니다.
 
-마지막 갱신: 2026-09-26
+마지막 갱신: 2026-10-06
 
 ## 1. 가장 중요한 원칙
 
@@ -101,6 +101,16 @@ data/users/<username>/openapi_config.json
 
 이 예시는 schema 설명용이다. 실제 credential을 문서/issue/PR/chat에 복사하지 않는다.
 
+### KRX Data Marketplace 인증정보
+
+KRX Marketplace 로그인은 OpenAPI JSON이나 환경변수가 아닌 사용자별 private 파일에 별도로 저장한다.
+
+```text
+data/users/<username>/secrets/krx_marketplace.json
+```
+
+`app.services.user_krx_credentials`의 private/atomic write 경로를 사용하며, 인증된 사용자 이름으로만 조회한다. 설정 UI는 `/api/user/krx-marketplace-config`의 상태·저장·삭제·연결 확인 경로를 사용한다. 응답에는 전체 로그인 ID나 비밀번호를 반환하지 않고 configured 여부와 마스킹된 ID만 표시한다. 저장된 KRX 인증정보는 사용자별 조회에 사용하며 KRX 환경변수 fallback 계약은 없다.
+
 ## 4. DART credential 계약
 
 ### 저장
@@ -160,11 +170,15 @@ API 오류 메시지에도 credential이 포함되지 않도록 masking한다.
 - 운영환경 식별값
 - 기존 호환용 전역 provider fallback
 
+`DASHBOARD_SECRET_KEY`는 명시적 운영 override다. 미설정이면 애플리케이션이 영구 마운트의 `data/system/secrets/application.json`에 세션 서명 키를 안전하게 생성·재사용한다. 저장된 키가 손상되거나 생성에 실패하면 임의 기본 키로 진행하지 않는다. 컨테이너 재생성 시 로그인 세션을 유지하려면 `./data:/app/data` 마운트를 보존한다.
+
 ### 사용자별 credential
 
 가능하면 `data/users/<username>/openapi_config.json`의 기존 사용자별 저장 계층을 사용한다.
 
 새 기능을 만들 때 단순 편의를 위해 사용자 secret을 `.env` 전역값으로 승격하지 않는다.
+
+Toss WTS의 시스템 전역 비밀이 아닌 설정은 `data/system/settings.json`의 `toss_wts`가 우선한다. `.env.example`의 `WEALTH_TOSS_WTS_*` 및 `WEALTH_TOSSCTL_*` 값은 저장 설정이 없는 항목의 호환 fallback이다. 읽기 전용 피드의 허용 사용자는 저장된 ID/사용자 목록으로 제한하며, 사용자별 세션 파일과 실제 인증값은 이 설정 문서나 Git에 넣지 않는다. 사용자별 자동 세션 점검 선택은 사용자 설정 `data/users/<username>/settings.json`의 `toss_wts.session_check_enabled`로 관리한다.
 
 ## 7. `.env.example` 규칙
 
@@ -249,7 +263,7 @@ EXPLICIT_KEY
 
 ## 12. 운영 배포에서 secret 보존
 
-표준 GHCR 배포는 컨테이너를 `--force-recreate`할 수 있다.
+표준 GHCR 배포에서도 이미지 갱신 시 컨테이너가 재생성될 수 있다.
 따라서 secret과 사용자 데이터는 이미지 내부 writable layer에만 저장하면 안 된다.
 
 현재 `./data:/app/data` 영구 마운트가 사용자 데이터와 사용자별 OpenAPI 설정을 보존한다.
