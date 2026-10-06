@@ -93,13 +93,21 @@ def test_income_chart_labels_do_not_overlap_detail_headers():
 
             call("Page.enable")
             call("Runtime.enable")
-            call("Page.navigate", {"url": f"http://127.0.0.1:{server.server_port}/#pnl"})
-            for _ in range(100):
-                ready = call("Runtime.evaluate", {"expression": "document.readyState === 'complete' && !!window.WealthUnifiedTimeseries && typeof renderPnlMonthlyDetail === 'function'", "returnByValue": True})
-                if ready.get("result", {}).get("value"):
+            loaded = False
+            for attempt in range(2):
+                if attempt:
+                    call("Page.reload", {"ignoreCache": True})
+                else:
+                    call("Page.navigate", {"url": f"http://127.0.0.1:{server.server_port}/#pnl"})
+                for _ in range(100):
+                    ready = call("Runtime.evaluate", {"expression": "document.readyState === 'complete' && !!window.WealthUnifiedTimeseries && typeof renderPnlMonthlyDetail === 'function'", "returnByValue": True})
+                    loaded = bool(ready.get("result", {}).get("value"))
+                    if loaded:
+                        break
+                    time.sleep(0.1)
+                if loaded:
                     break
-                time.sleep(0.1)
-            assert ready.get("result", {}).get("value"), "Synthetic unified charts did not load"
+            assert loaded, "Synthetic unified charts did not load"
             measurements = []
             for width, height in VIEWPORTS:
                 call("Emulation.setDeviceMetricsOverride", {"width": width, "height": height,

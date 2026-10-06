@@ -51,6 +51,7 @@
   };
 
   const renderQueued = new Set();
+  let pnlRenderGeneration = 0;
   let internalNetWorthClick = false;
   let netWorthCapturePending = false;
   let ledgerLoadingOlder = false;
@@ -317,10 +318,25 @@
       return true;
     };
 
-    apply();
-    requestAnimationFrame(() => {
+    const initializeVisibleWidth = () => {
+      if (!viewport.clientWidth) return false;
+      apply();
       viewport.scrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
-    });
+      return true;
+    };
+    if (viewport.clientWidth) {
+      apply();
+      requestAnimationFrame(initializeVisibleWidth);
+    } else {
+      const observer = new ResizeObserver(() => {
+        if (!viewport.isConnected) {
+          observer.disconnect();
+          return;
+        }
+        if (initializeVisibleWidth()) observer.disconnect();
+      });
+      observer.observe(viewport);
+    }
 
     viewport.addEventListener('wheel', event => {
       if (Math.abs(event.deltaY) < Math.abs(event.deltaX)) return;
@@ -621,8 +637,10 @@
     const header = host?.closest('.dividend-chart-section')?.querySelector('.dividend-chart-header');
     if (!host || !header || typeof api !== 'function') return;
     ensureInjectedControls('pnl', header);
+    const generation = ++pnlRenderGeneration;
     try {
       const source = await pnlSource();
+      if (generation !== pnlRenderGeneration) return;
       const rows = source.map(record => ({ ...record, pnl_value: finite(record?.pnl_krw) }));
       const aggregated = aggregateFlow(rows, modes.pnl, { fields: ['pnl_value'] });
       renderFlowChart(host, aggregated, [

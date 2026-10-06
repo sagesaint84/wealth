@@ -10154,7 +10154,7 @@ function renderRealizedPnl(data) {
   }
 
   const chartWrap = $("#pnlBarChartWrap");
-  if (chartWrap) {
+  if (chartWrap && !window.WealthUnifiedTimeseries?.renderPnl) {
     chartWrap.innerHTML = `
       <svg class="record-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:240px;overflow:visible;">
         <defs>
