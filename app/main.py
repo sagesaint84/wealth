@@ -5588,47 +5588,41 @@ async def export_data(request: Request):
 async def import_backup(request: Request, file: UploadFile = File(...)) -> dict:
     """백업 JSON 파일에서 데이터 복원 (포트폴리오, 자산기록, 배당, 손익, 가계부, OpenAPI)"""
     import json
-    from app.services.portfolio import write_portfolio
-    from app.services.asset_records import write_asset_records
-    from app.services.dividend_records import write_dividend_records
-    from app.services.pnl_records import write_pnl_records
-    from app.services.ledger import write_ledger, DEFAULT_CATEGORIES
+    from app.services.backup_restore import MAX_BACKUP_UPLOAD_BYTES, restore_general_data
     from app.services.user_openapi import save_user_openapi_config
 
     username = get_current_username(request)
     try:
-        raw = await file.read()
+        raw = await file.read(MAX_BACKUP_UPLOAD_BYTES + 1)
+        if len(raw) > MAX_BACKUP_UPLOAD_BYTES:
+            raise HTTPException(413, "백업 파일 크기 제한을 초과했습니다.")
         bundle = json.loads(raw.decode("utf-8"))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(400, f"JSON 파싱 실패: {exc}") from exc
 
+    if not isinstance(bundle, dict):
+        raise HTTPException(400, "유효한 백업 파일이 아닙니다.")
     if "portfolio" not in bundle and "asset_records" not in bundle and "ledger" not in bundle:
         raise HTTPException(400, "유효한 백업 파일이 아닙니다.")
 
-    msgs = []
-    if "portfolio" in bundle and bundle["portfolio"]:
-        write_portfolio(bundle["portfolio"], username=username, replace_planning=True)
-        msgs.append("포트폴리오")
-    if "asset_records" in bundle and bundle["asset_records"]:
-        write_asset_records(bundle["asset_records"], username=username)
-        msgs.append("자산기록")
-    if "dividend_records" in bundle and bundle["dividend_records"]:
-        write_dividend_records(bundle["dividend_records"], username=username)
-        msgs.append("배당내역")
-    if "realized_pnl_records" in bundle and bundle["realized_pnl_records"]:
-        write_pnl_records(bundle["realized_pnl_records"], username=username)
-        msgs.append("매도실현손익")
-    if "ledger" in bundle and isinstance(bundle["ledger"], dict):
-        ledger_data = bundle["ledger"]
-        ledger_data.setdefault("version", "1.0")
-        ledger_data.setdefault("categories", DEFAULT_CATEGORIES)
-        ledger_data.setdefault("transactions", [])
-        ledger_data.setdefault("recurring", [])
-        ledger_data.setdefault("cards", [])
-        ledger_data.setdefault("budgets", {})
-        write_ledger(ledger_data, username=username)
-        msgs.append("가계부")
-    if "openapi_config" in bundle and isinstance(bundle["openapi_config"], dict):
+    expected_sections = {
+        "portfolio": dict,
+        "asset_records": dict,
+        "dividend_records": list,
+        "realized_pnl_records": list,
+        "ledger": dict,
+    }
+    for section, expected_type in expected_sections.items():
+        value = bundle.get(section)
+        if value and (not isinstance(value, expected_type) or (expected_type is list and not all(isinstance(item, dict) for item in value))):
+            raise HTTPException(400, "유효한 백업 파일이 아닙니다.")
+
+    msgs = restore_general_data(username, bundle)
+    # Current general_data_only exports never carry credentials. Preserve the
+    # legacy config restore path only for older backups without that policy.
+    if bundle.get("backup_policy") != "general_data_only" and "openapi_config" in bundle and isinstance(bundle["openapi_config"], dict):
         try:
             save_user_openapi_config(username=username, update_data=bundle["openapi_config"])
             msgs.append("OpenAPI설정")
