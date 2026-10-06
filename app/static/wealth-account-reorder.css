@@ -1,20 +1,15 @@
-.account-order-handle { display:inline-flex; align-items:center; justify-content:center; flex:0 0 30px; min-width:30px; min-height:30px; padding:2px 6px; border:1px solid currentColor; border-radius:6px; color:inherit; background:transparent; cursor:grab; touch-action:pan-y; vertical-align:middle; }
-.account-order-handle[hidden], #accountOrderLock[hidden] { display:none !important; }
-.account-order-editing [data-order-id], .account-order-editing .broker-group, .account-order-editing .bank-institution-group { outline:1px dashed color-mix(in srgb, currentColor 35%, transparent); outline-offset:-1px; }
-.account-order-editing [data-order-derived="true"] { outline:none; }
-.account-order-dragged { opacity:.65; background:color-mix(in srgb, currentColor 10%, transparent); }
-.account-order-target { box-shadow:0 -3px 0 currentColor; }
-.account-order-pressed { cursor:grabbing; background:color-mix(in srgb, currentColor 15%, transparent); }
-.account-order-drag-active { user-select:none; }
+.account-order-controls { display:inline-flex; flex-wrap:wrap; gap:3px; max-width:100%; vertical-align:middle; flex-shrink:0; }
+.account-order-controls button { min-width:28px; min-height:28px; padding:2px 5px; border:1px solid currentColor; border-radius:6px; color:inherit; background:transparent; cursor:pointer; }
+.account-order-controls button:disabled { opacity:.35; cursor:default; }
+.account-order-controls[hidden], #accountOrderLock[hidden] { display:none !important; }
 .account-order-group-root { display:block; min-width:0; }
 .bank-institution-group { min-width:0; margin-bottom:14px; }
 .bank-institution-head { display:flex; align-items:center; gap:8px; padding:8px 0; font-size:13px; color:inherit; }
 .bank-group-items { min-width:0; }
 .bank-group-items > .saving-card { min-width:0; }
-.account-order-editing .bank-group-items { grid-template-columns:minmax(0,1fr); }
 #accountOrderLock { white-space:nowrap; }
 @media(max-width:640px) {
-  .account-order-handle { min-width:34px; min-height:34px; }
+  .account-order-controls button { min-width:40px; min-height:40px; }
   .bank-group-items { grid-template-columns:minmax(0,1fr); }
   .account-panel-head-row .toolbar { flex-wrap:wrap; }
 }
