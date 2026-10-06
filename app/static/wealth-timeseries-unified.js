@@ -514,7 +514,7 @@
 
   function stockSource() {
     try {
-      return Array.isArray(allAssetRecords) ? allAssetRecords : [];
+      return Array.isArray(assetRecords) ? assetRecords : [];
     } catch (_) {
       return [];
     }
@@ -920,7 +920,7 @@
       cache.pnl.key = '';
       cache.dividend.key = '';
       cache.ledgerOwner = '';
-      setTimeout(() => ['stock', 'pnl', 'dividend', 'ledger'].forEach(queue), 0);
+      setTimeout(() => ['pnl', 'dividend', 'ledger'].forEach(queue), 0);
     }
   }
 
