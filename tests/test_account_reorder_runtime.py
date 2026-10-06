@@ -161,9 +161,11 @@ draw();
 SCENARIOS = {
     'locked_institutions': r"""
       check(document.getElementById('accountOrderLock').getAttribute('aria-pressed')==='false','initial locked');
+      check(document.getElementById('accountOrderLock').textContent.includes('🔒 순서 잠금'),'locked icon/text');
       check(controls(groups()[0]).hidden,'locked hidden');
       arrow(groups()[0],1).click();check(!__order.patches.length,'locked no PATCH');
       unlock();check(!controls(groups()[0]).hidden,'unlocked visible');
+      check(document.getElementById('accountOrderLock').textContent.includes('↕ 순서 편집'),'edit icon/text');
       check(arrow(groups()[0],-1).disabled && arrow(groups()[1],1).disabled,'institution bounds');
       arrow(groups()[0],1).click();
       equals(__order.patches[0],{scope:'securities',level:'institutions',order:['toss','kb']},'broker down');

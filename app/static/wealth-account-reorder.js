@@ -49,7 +49,7 @@
     const button = lock();
     if (button) {
       button.hidden = !supported; button.disabled = !ready || saving;
-      button.textContent = unlocked ? '🔓 순서 편집' : '🔒 순서 잠금';
+      button.textContent = unlocked ? '↕ 순서 편집' : '🔒 순서 잠금';
       button.title = unlocked ? '순서 편집을 잠급니다' : '위/아래 버튼으로 계좌/기관 순서를 편집합니다';
       button.setAttribute('aria-label', button.title);
       button.setAttribute('aria-pressed', String(unlocked));
