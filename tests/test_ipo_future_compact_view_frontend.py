@@ -64,8 +64,11 @@ class IpoFutureCompactViewFrontendTests(unittest.TestCase):
 
     def test_metalogos_reference_is_visible_but_explicitly_not_a_wealth_score_input(self) -> None:
         self.assertIn("meta?.sources?.metalogos160", self.compact_js)
-        self.assertIn("160 보조자료", self.compact_js)
-        self.assertIn("Wealth Score 미반영", self.compact_js)
+        self.assertNotIn("160 보조자료", self.compact_js)
+        self.assertNotIn("Wealth Score 미반영", self.compact_js)
+        self.assertIn("Wealth IPO Score 산정에는 사용하지 않습니다.", self.compact_js)
+        self.assertLess(self.compact_js.index("note.appendChild(link)"),
+                        self.compact_js.index("note.appendChild(text)"))
         self.assertIn("attractiveness_score", self.compact_js)
         self.assertIn("demand_participant_count_reference", self.compact_js)
         self.assertIn("lockup_participant_count_reference", self.compact_js)

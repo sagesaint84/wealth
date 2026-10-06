@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta
 from html import unescape
 from html.parser import HTMLParser
 import re
 import xml.etree.ElementTree as ET
 from typing import Any
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -18,6 +19,40 @@ METALOGOS_BASE_URL = "https://metalogos.ai"
 METALOGOS_CALENDAR_URL = f"{METALOGOS_BASE_URL}/160ipo/calendar"
 METALOGOS_SITEMAP_URL = f"{METALOGOS_BASE_URL}/sitemap-0.xml"
 METALOGOS_OFFICIAL_HOSTS = frozenset({"metalogos.ai", "www.metalogos.ai"})
+
+
+_DETAIL_WORKERS = 4
+
+
+def _trusted_stock_url(url: str) -> bool:
+    parsed = urlparse(url)
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme.lower() == "https"
+        and (parsed.hostname or "").lower() in METALOGOS_OFFICIAL_HOSTS
+        and parsed.username is None and parsed.password is None
+        and port in (None, 443)
+        and re.fullmatch(r"/160ipo/stock/[A-Za-z0-9_-]+/?", parsed.path) is not None
+    )
+
+
+def _get_official(client: httpx.Client, url: str, *, headers: dict[str, str], detail: bool = False):
+    """Follow only official HTTPS redirects, checking before each external read."""
+    for _ in range(6):
+        parsed = urlparse(url)
+        if (parsed.scheme.lower() != "https"
+                or (parsed.hostname or "").lower() not in METALOGOS_OFFICIAL_HOSTS
+                or parsed.username is not None or parsed.password is not None
+                or (detail and not _trusted_stock_url(url))):
+            raise MetalogosIpoClientError("160 IPO redirect requires an official HTTPS URL")
+        response = client.get(url, headers=headers)
+        if not response.is_redirect:
+            return response
+        url = urljoin(url, response.headers.get("location", ""))
+    raise MetalogosIpoClientError("160 IPO redirect limit exceeded")
 
 
 class MetalogosIpoClientError(RuntimeError):
@@ -84,7 +119,7 @@ def parse_metalogos_sitemap_stock_urls(
                 continue
             if (parsed.hostname or "").lower() != allowed_host:
                 continue
-            if not parsed.path.startswith("/160ipo/stock/"):
+            if not _trusted_stock_url(loc):
                 continue
             entries.append((lastmod, loc))
     except ET.ParseError:
@@ -93,7 +128,7 @@ def parse_metalogos_sitemap_stock_urls(
             xml_text,
         ):
             parsed = urlparse(loc)
-            if (parsed.hostname or "").lower() == allowed_host:
+            if (parsed.hostname or "").lower() == allowed_host and _trusted_stock_url(loc):
                 entries.append(("", loc))
 
     deduped: dict[str, str] = {}
@@ -101,9 +136,17 @@ def parse_metalogos_sitemap_stock_urls(
         if loc not in deduped or lastmod > deduped[loc]:
             deduped[loc] = lastmod
 
+    def discovery_order(entry: tuple[str, str]) -> tuple[str, str, str]:
+        loc, lastmod = entry
+        # Production lastmod reflects sitemap regeneration, including old IPOs.
+        # Dated stock IDs provide stable newest-issuer ordering instead.
+        identifier = urlparse(loc).path.rstrip('/').rsplit('/', 1)[-1]
+        dated_id = re.fullmatch(r"B(\d{8})\d+", identifier)
+        return (dated_id.group(1) if dated_id else lastmod[:10].replace('-', ''), lastmod, loc)
+
     ordered = sorted(
         deduped.items(),
-        key=lambda item: (item[1], item[0]),
+        key=discovery_order,
         reverse=True,
     )
     return [loc for loc, _lastmod in ordered]
@@ -136,7 +179,7 @@ def parse_metalogos_search_stock_urls(
             continue
         if (parsed.hostname or "").lower() != allowed_host:
             continue
-        if not parsed.path.startswith("/160ipo/stock/"):
+        if not _trusted_stock_url(absolute):
             continue
         if absolute in seen:
             continue
@@ -247,7 +290,10 @@ def parse_metalogos_stock_html(html_text: str, *, source_url: str) -> dict[str, 
     forecast_match = re.search(r"수요예측일\s*:?\s*(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})", text)
     demand_forecast_start = _parse_full_date(*forecast_match.groups()) if forecast_match else None
 
-    price_match = re.search(r"공모가\s*:?\s*([\d,]+)\s*원", text)
+    price_match = re.search(
+        r"(?<![가-힣A-Za-z])(?<!희망 )(?<!예상 )공모가\s*:?\s*([\d,]+)\s*원(?!\s*[~～–-])",
+        text,
+    )
     final_offer_price = _parse_money(price_match.group(0)) if price_match else None
     score_match = re.search(r"매력지수\s*(\d{1,3})", text)
     attractiveness_score = int(score_match.group(1)) if score_match else None
@@ -305,8 +351,7 @@ def _month_window(target_date_str: str) -> tuple[date, date]:
         month_after_next = start.replace(year=start.year + 1, month=1, day=1)
     else:
         month_after_next = start.replace(month=start.month + 2, day=1)
-    from datetime import timedelta
-    return start, month_after_next - timedelta(days=1)
+    return (start - timedelta(days=1)).replace(day=1), month_after_next - timedelta(days=1)
 
 
 def _relevant(item: dict[str, Any], start: date, end: date) -> bool:
@@ -336,95 +381,18 @@ class MetalogosIpoClient:
         target_date_str: str,
         max_items: int = 40,
     ) -> list[dict[str, Any]]:
-        """Enrich already-discovered issuers through public 160 search."""
-        require_external_network("Metalogos 160 IPO")
-
-        names: list[str] = []
-        seen_names: set[str] = set()
-
-        for value in company_names:
-            name = str(value or "").strip()
-            key = normalize_company_name(name)
-            if not key or key in seen_names:
-                continue
-            seen_names.add(key)
-            names.append(name)
-
-        names = names[:max_items]
-        if not names:
+        """Discover once; never treat the client-rendered search shell as results."""
+        keys = {normalize_company_name(str(name or "")) for name in company_names}
+        keys.discard("")
+        if not keys:
             return []
-
-        start, end = _month_window(target_date_str)
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (compatible; Wealth-160-IPO/1.0)",
-            "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.5",
-        }
-
-        results: list[dict[str, Any]] = []
-
-        try:
-            with httpx.Client(
-                timeout=self.timeout_seconds,
-                follow_redirects=True,
-            ) as client:
-                for company_name in names:
-                    search_url = (
-                        f"{self.base_url}/160ipo/stock?query="
-                        f"{quote(company_name)}"
-                    )
-
-                    try:
-                        search = client.get(
-                            search_url,
-                            headers=headers,
-                        )
-                        if search.status_code != 200:
-                            continue
-
-                        links = parse_metalogos_search_stock_urls(
-                            search.text,
-                            base_url=self.base_url,
-                        )
-                    except Exception:
-                        continue
-
-                    target_key = normalize_company_name(company_name)
-
-                    for link in links[:10]:
-                        try:
-                            response = client.get(
-                                link,
-                                headers=headers,
-                            )
-                            if response.status_code != 200:
-                                continue
-
-                            item = parse_metalogos_stock_html(
-                                response.text,
-                                source_url=link,
-                            )
-                        except Exception:
-                            continue
-
-                        item_key = normalize_company_name(
-                            str(item.get("company_name") or "")
-                        )
-                        if item_key != target_key:
-                            continue
-
-                        if not _relevant(item, start, end):
-                            continue
-
-                        results.append(item)
-                        break
-
-            return results
-
-        except Exception as exc:
-            raise MetalogosIpoClientError(
-                f"160 IPO company lookup failed: {exc}"
-            ) from exc
+        rows = self.fetch_calendar_items(
+            target_date_str=target_date_str, max_items=max_items, company_keys=keys,
+        )
+        index = {normalize_company_name(str(row.get("company_name") or "")): row for row in rows}
+        return [index[key] for key in dict.fromkeys(
+            normalize_company_name(str(name or "")) for name in company_names
+        ) if key in index]
 
     def fetch_company_item(
         self,
@@ -435,7 +403,6 @@ class MetalogosIpoClient:
         rows = self.fetch_company_items(
             company_names=[company_name],
             target_date_str=target_date_str,
-            max_items=1,
         )
         return rows[0] if rows else None
 
@@ -443,7 +410,8 @@ class MetalogosIpoClient:
         self,
         *,
         target_date_str: str,
-        max_items: int = 60,
+        max_items: int = 40,
+        company_keys: set[str] | None = None,
     ) -> list[dict[str, Any]]:
         require_external_network("Metalogos 160 IPO")
         headers = {
@@ -453,12 +421,12 @@ class MetalogosIpoClient:
         try:
             with httpx.Client(
                 timeout=self.timeout_seconds,
-                follow_redirects=True,
+                follow_redirects=False,
             ) as client:
                 links: list[str] = []
 
                 # Prefer static calendar links if Metalogos exposes them again.
-                calendar = client.get(
+                calendar = _get_official(client,
                     f"{self.base_url}/160ipo/calendar",
                     headers=headers,
                 )
@@ -469,46 +437,67 @@ class MetalogosIpoClient:
                         dict.fromkeys(
                             urljoin(self.base_url, href)
                             for href in collector.links
+                            if _trusted_stock_url(urljoin(self.base_url, href))
                         )
                     )
 
-                # Current production calendar is client-rendered. The site's
-                # public sitemap exposes the same stock detail resources.
+                # Calendar HTML is client-rendered, and the production sitemap
+                # can lag current issuers. Read the shared public stock list once
+                # (the ?query= route serves this same list for every company).
                 if not links:
-                    sitemap = client.get(
+                    listing = _get_official(client, f"{self.base_url}/160ipo/stock", headers=headers)
+                    if listing.status_code == 200:
+                        links = parse_metalogos_search_stock_urls(listing.text, base_url=self.base_url)
+                    sitemap = _get_official(client,
                         f"{self.base_url}/sitemap-0.xml",
                         headers=headers,
                     )
-                    if sitemap.status_code != 200:
+                    if sitemap.status_code != 200 and not links:
                         raise MetalogosIpoClientError(
                             f"160 IPO sitemap HTTP error {sitemap.status_code}"
                         )
-                    links = parse_metalogos_sitemap_stock_urls(
-                        sitemap.text,
-                        base_url=self.base_url,
-                    )
+                    if sitemap.status_code == 200:
+                        links = list(dict.fromkeys(links + parse_metalogos_sitemap_stock_urls(
+                            sitemap.text, base_url=self.base_url,
+                        )))
 
-                links = links[:max_items]
+                links = links[:max(0, int(max_items))]
                 if not links:
                     return []
 
                 start, end = _month_window(target_date_str)
                 results: list[dict[str, Any]] = []
 
-                for link in links:
+                def fetch_detail(link: str) -> dict[str, Any] | None:
                     try:
-                        response = client.get(link, headers=headers)
+                        response = _get_official(client, link, headers=headers, detail=True)
                         if response.status_code != 200:
-                            continue
-                        item = parse_metalogos_stock_html(
-                            response.text,
-                            source_url=link,
-                        )
+                            return None
+                        # Redirects must not turn trusted discovery into an off-site fetch.
+                        if not _trusted_stock_url(str(response.url)):
+                            return None
+                        item = parse_metalogos_stock_html(response.text, source_url=str(response.url))
+                        key = normalize_company_name(str(item.get("company_name") or ""))
+                        if company_keys is not None and key not in company_keys:
+                            return None
+                        return item if _relevant(item, start, end) else None
                     except Exception:
-                        continue
+                        return None
 
-                    if _relevant(item, start, end):
-                        results.append(item)
+                # A bounded batch avoids scheduling the entire historical sitemap.
+                # executor.map preserves discovery order regardless of completion order.
+                remaining = set(company_keys) if company_keys is not None else None
+                with ThreadPoolExecutor(max_workers=_DETAIL_WORKERS) as pool:
+                    for offset in range(0, len(links), _DETAIL_WORKERS):
+                        for item in pool.map(fetch_detail, links[offset:offset + _DETAIL_WORKERS]):
+                            if item is not None:
+                                key = normalize_company_name(str(item.get("company_name") or ""))
+                                if remaining is None or key in remaining:
+                                    results.append(item)
+                                    if remaining is not None:
+                                        remaining.discard(key)
+                        if remaining is not None and not remaining:
+                            break
 
                 return results
 

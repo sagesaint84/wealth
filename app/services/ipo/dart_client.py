@@ -12,6 +12,10 @@ from urllib.parse import urlencode
 
 import httpx
 
+from app.logging_security import install_credential_log_redaction
+
+install_credential_log_redaction()
+
 logger = logging.getLogger(__name__)
 
 DART_BASE_URL = "https://opendart.fss.or.kr/api"

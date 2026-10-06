@@ -203,7 +203,7 @@
     note.replaceChildren();
     note.title = 'Metalogos 160 공개자료의 참고값입니다. Wealth IPO Score 산정에는 사용하지 않습니다.';
 
-    const parts = ['160 보조자료', 'Wealth Score 미반영'];
+    const parts = [];
     const attractiveness = compactReferenceNumber(reference.attractiveness_score);
     const demandCount = compactReferenceNumber(reference.demand_participant_count_reference);
     const lockupCount = compactReferenceNumber(reference.lockup_participant_count_reference);
@@ -213,19 +213,19 @@
     if (lockupCount) parts.push(`확약기관 ${lockupCount}`);
     if (tradable) parts.push(`유통가능 ${tradable}%`);
 
-    const text = document.createElement('span');
-    text.textContent = parts.join(' · ');
-    note.appendChild(text);
-
     const sourceUrl = trustedMetalogosUrl(reference.url);
     if (sourceUrl) {
-      const separator = document.createTextNode(' · ');
       const link = document.createElement('a');
       link.href = sourceUrl;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.textContent = '160 원문';
-      note.append(separator, link);
+      note.appendChild(link);
+    }
+    if (parts.length) {
+      const text = document.createElement('span');
+      text.textContent = (sourceUrl ? ' · ' : '') + parts.join(' · ');
+      note.appendChild(text);
     }
   }
 

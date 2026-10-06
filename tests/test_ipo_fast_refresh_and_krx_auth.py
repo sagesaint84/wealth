@@ -65,7 +65,7 @@ def test_interactive_refresh_runs_bounded_discovery_with_capped_score_recovery()
         result = refresh_adapter.refresh_ipo_market(username='alice', target_date_str='2026-10-02')
     base_refresh.assert_called_once_with(username='alice', target_date_str='2026-10-02')
     discover.assert_called_once_with(username='alice', target_date_str='2026-10-02')
-    metalogos_ref.assert_called_once_with(target_date_str='2026-10-02')
+    metalogos_ref.assert_called_once_with(target_date_str='2026-10-02', prefetched_rows=[])
     deep.assert_called_once_with(
         username='alice',
         target_date_str='2026-10-02',

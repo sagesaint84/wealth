@@ -20,12 +20,13 @@ def refresh_missing_metalogos_references(
     target_date_str: str,
     client: MetalogosIpoClient | None = None,
     max_items: int = _DEFAULT_SCAN_LIMIT,
+    prefetched_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Fill missing 160 source references without promoting them to Wealth features.
 
-    Public Metalogos search pages are client-rendered and can expose no stock
-    anchors to a server-side lookup. This fallback uses the client's official
-    calendar/sitemap discovery path once, then copies only exact issuer matches
+    Reuse even an empty discovery result within the same refresh. Standalone
+    callers can use the client's official calendar/sitemap discovery path once.
+    This fallback copies only exact issuer matches
     into ``sources.metalogos160``. Canonical schedule fields and Wealth score
     features are deliberately untouched.
     """
@@ -55,7 +56,7 @@ def refresh_missing_metalogos_references(
 
     metalogos = client or MetalogosIpoClient()
     try:
-        rows = metalogos.fetch_calendar_items(
+        rows = prefetched_rows if prefetched_rows is not None else metalogos.fetch_calendar_items(
             target_date_str=target_date_str,
             max_items=max(1, int(max_items)),
         )
