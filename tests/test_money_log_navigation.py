@@ -60,11 +60,11 @@ class MoneyLogNavigationTests(unittest.TestCase):
             with self.subTest(existing_action=existing_action):
                 self.assertIn(existing_action, self.js + self.html)
 
-    def test_legacy_hashes_remain_compatible(self):
+    def test_income_hashes_remain_compatible_and_distinct(self):
         self.assertIn("legacyMoneyLogTabs = { ledger: 'ledger', dividend: 'dividend', pnl: 'pnl' }", self.layout)
         self.assertIn("? 'income'", self.layout)
-        self.assertIn("location.hash === '#ledger'", self.js)
-        self.assertIn("currentIncomeTab === 'pnl' ? '#income'", self.js)
+        self.assertIn("currentIncomeTab === 'calendar' ? '#income' : `#${currentIncomeTab}`", self.js)
+        self.assertIn("[location.hash.slice(1)] || 'calendar'", self.js)
 
     def test_header_and_responsive_tab_contract(self):
         self.assertIn("['머니 로그', '머니 로그', '실현손익, 배당·이자, 수입·지출 내역을 한곳에서 확인하세요.']", self.layout)
