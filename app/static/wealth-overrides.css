@@ -1672,6 +1672,12 @@
   overflow: visible;
 }
 
+#pnlBarChartWrap,
+#dividendBarChartWrap {
+  height: auto;
+  min-height: 250px;
+}
+
 .dividend-bar-group {
   cursor: pointer;
   transition: transform 0.15s ease, opacity 0.15s ease;
