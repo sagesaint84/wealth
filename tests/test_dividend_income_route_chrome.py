@@ -77,6 +77,13 @@ class DelayedDividendPreview(DividendPreview):
         super().do_GET()
 
 
+class ChromePreviewServer(ThreadingHTTPServer):
+    # The complete static bundle arrives in a burst. Windows can refuse core
+    # script connections with the stdlib backlog of five, before any app code
+    # executes. This changes fixture capacity, not chart assertions or delays.
+    request_queue_size = 32
+
+
 @pytest.fixture
 def chrome_preview(request):
     websocket = pytest.importorskip("websocket")
@@ -86,7 +93,7 @@ def chrome_preview(request):
     handler = (DelayedDividendPreview if "dividend_slow_first_frame" in request.node.name
                else DividendPreview if "dividend_visible_chart" in request.node.name or "startup_request" in request.node.name
                else StaticPreview)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    server = ChromePreviewServer(("127.0.0.1", 0), handler)
     # Serve immutable fixture bytes on every request/reload. This avoids Windows
     # file reads in HTTP worker threads without changing script delivery delays.
     server.preview_assets = {path.name: path.read_bytes() for path in STATIC.iterdir() if path.is_file()}

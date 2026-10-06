@@ -1857,6 +1857,26 @@ def get_full_dashboard_for_user(username: str, record_snapshots: bool = False) -
     return data
 
 
+@app.get("/api/account-display-order")
+async def get_account_display_order_api(request: Request) -> dict:
+    from app.services.account_display_order import get_account_display_order
+    return get_account_display_order(get_current_username(request))
+
+
+@app.patch("/api/account-display-order")
+async def patch_account_display_order_api(request: Request) -> dict:
+    from app.services.account_display_order import patch_account_display_order
+    username = get_current_username(request)
+    body = await request.body()
+    if len(body) > 256_000:
+        raise HTTPException(status_code=413, detail="순서 요청이 너무 큽니다.")
+    try:
+        payload = json.loads(body)
+        return patch_account_display_order(username, payload)
+    except (ValueError, TypeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="계좌/기관 순서 요청이 올바르지 않습니다.")
+
+
 @app.get("/api/dashboard")
 async def dashboard(request: Request, record_snapshots: bool = False) -> dict:
     username = get_current_username(request)

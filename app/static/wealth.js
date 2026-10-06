@@ -1866,7 +1866,7 @@ function renderAccounts(items) {
         }
       }
 
-      return `<div class="account-row">
+      return `<div class="account-row" data-order-id="${html(account.id || '')}" data-order-label="${html(account.name || '계좌')}">
         <div class="account-row-info">
           <div class="account-row-title-line" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
             ${typeBadge}
@@ -1898,8 +1898,9 @@ function renderAccounts(items) {
         </div>
       </div>`;
     }).join("");
-    return `<section class="broker-group"><div class="broker-head"><strong>${html(group.broker)}</strong><span>${number(group.count, 0)}개 계좌</span></div><div class="broker-accounts">${accounts}</div></section>`;
+    return `<section class="broker-group" data-order-institution="${html(group.broker || '기타')}"><div class="broker-head"><strong>${html(group.broker)}</strong><span>${number(group.count, 0)}개 계좌</span></div><div class="broker-accounts">${accounts}</div></section>`;
   }).join("");
+  window.WealthAccountReorder?.rendered('securities');
 }
 
 // ── 4-1. 예·적금, 일반 은행 계좌 및 대출·마이너스통장 ───────────────────────
@@ -2054,7 +2055,7 @@ function renderSavingsWithOwner(owner = '모두') {
               : (s.auto_transfer_day ? `매월 ${s.auto_transfer_day}일 이체 · 월 ₩${number(s.monthly_amount || 0, 0)}` : `월 ₩${number(s.monthly_amount || 0, 0)}`));
 
         return `
-          <div class="saving-card ${isHousing ? 'housing-card' : ''}">
+          <div class="saving-card ${isHousing ? 'housing-card' : ''}" data-order-id="${html(s.id || '')}" data-order-institution="${html(s.bank_name || '기타')}" data-order-label="${html(s.product_name || '예·적금')}">
             <div class="saving-card-header">
               <div class="saving-card-title-group">
                 <div class="saving-badge-row">
@@ -2159,10 +2160,10 @@ function renderSavingsWithOwner(owner = '모두') {
               const minusBadge = isMinus ? '<span class="saving-type-badge loan-minus" style="font-size:10px;padding:2px 6px;margin-left:6px;vertical-align:middle;">🔴 마통</span>' : '';
 
               return `
-                <tr style="${isMinus ? 'background:rgba(244,63,94,0.03);' : ''}">
+                <tr data-order-id="${html(b.id || '')}" data-order-institution="${html(b.bank_name || '기타')}" data-order-label="${html(b.account_name || '통장')}" style="${isMinus ? 'background:rgba(244,63,94,0.03);' : ''}">
                   <td><strong>${html(b.bank_name)}</strong></td>
                   <td>${html(b.account_name)}${minusBadge}</td>
-                  <td style="color:#8fa0c5;font-family:monospace;">${html(b.account_number || '-')}</td>
+                  <td style="color:#8fa0c5;font-family:monospace;">${maskBrokerAccountNo(b.account_number) || '-'}</td>
                   <td><span class="saving-owner-badge">${html(b.owner || '모두')}</span></td>
                   <td style="text-align:right;${balStyle}">${formattedBal}</td>
                   <td style="color:#8fa0c5;font-size:11.5px;">${html(b.memo || '')}</td>
@@ -2249,7 +2250,7 @@ function renderSavingsWithOwner(owner = '모두') {
         const isUnusedMinus = l.is_from_bank && curBal === 0;
 
         return `
-          <div class="saving-card loan-card ${isUnusedMinus ? 'unused-minus-card' : ''}">
+          <div class="saving-card loan-card ${isUnusedMinus ? 'unused-minus-card' : ''}" data-order-id="${html(l.id || '')}" data-order-institution="${html(l.bank_name || '기타')}" data-order-label="${html(l.product_name || '대출')}" data-order-derived="${l.is_from_bank ? 'true' : 'false'}">
             <div class="saving-card-header">
               <div class="saving-card-title-group">
                 <div class="saving-badge-row">
@@ -2357,6 +2358,7 @@ function renderSavingsWithOwner(owner = '모두') {
       }).join("");
     }
   }
+  window.WealthAccountReorder?.rendered('banking');
 }
 
 function calcSavingInterestPreview() {
@@ -2821,6 +2823,7 @@ const PAYMENT_STATUS_LABELS = {
 
 function switchAccountCategory(category) {
   currentAccountCategory = category;
+  window.WealthAccountReorder?.setCategory(category);
   document.querySelectorAll('.account-cat-tab').forEach(tab => {
     tab.classList.toggle('active', tab.dataset.cat === category);
   });

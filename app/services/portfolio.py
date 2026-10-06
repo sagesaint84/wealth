@@ -18,7 +18,7 @@ from app.services.broker_registry import normalize_broker
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-_LOCK = threading.Lock()
+_LOCK = threading.RLock()
 
 def _get_user_dir(username: str | None = None) -> Path:
     from app.services.user_manager import get_user_data_dir
@@ -117,23 +117,47 @@ def read_portfolio(username: str | None = None) -> dict[str, Any]:
         return data
 
 
-def write_portfolio(data: dict[str, Any], username: str | None = None, *, replace_planning: bool = False) -> dict[str, Any]:
+def write_portfolio(data: dict[str, Any], username: str | None = None, *, replace_planning: bool = False,
+                    replace_account_display_order: bool = False) -> dict[str, Any]:
     with _LOCK:
         f = _get_portfolio_file(username)
         assert_write_allowed(f)
         f = _ensure_data_file(username)
         # Financial writers may have read before a planning save. Planning owns
         # this metadata; only explicit restore/reset may replace it here.
-        if not replace_planning:
+        if not replace_planning or not replace_account_display_order:
             current = json.loads(f.read_text(encoding="utf-8"))
+        if not replace_planning:
             saved = current.get("settings", {}).get("wealth_planning")
             if saved is not None:
                 data.setdefault("settings", {})["wealth_planning"] = deepcopy(saved)
+        if not replace_account_display_order:
+            current_settings = current.get("settings", {})
+            if "account_display_order" in current_settings:
+                data.setdefault("settings", {})["account_display_order"] = deepcopy(current_settings["account_display_order"])
         data["updated_at"] = now_iso()
         temp_file = f.with_suffix(".json.tmp")
         temp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         temp_file.replace(f)
         return data
+
+
+def mutate_account_display_order(update, username: str) -> dict[str, Any]:
+    """Validate and update presentation metadata against the latest locked file."""
+    with _LOCK:
+        f = _get_portfolio_file(username)
+        assert_write_allowed(f)
+        f = _ensure_data_file(username)
+        # Read raw state rather than read_portfolio's derived daily snapshot.
+        # An order edit must not advance the financial updated_at timestamp or
+        # change unrelated snapshot/planning metadata.
+        data = json.loads(f.read_text(encoding="utf-8"))
+        order = update(data)
+        data.setdefault("settings", {})["account_display_order"] = order
+        temp_file = f.with_suffix(".json.tmp")
+        temp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_file.replace(f)
+        return order
 
 
 def migrate_add_family_group(username: str | None = None) -> None:
