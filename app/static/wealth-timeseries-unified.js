@@ -627,17 +627,27 @@
     return document.getElementById(selectId)?.value || 'all';
   }
 
+  const pnlPending = new Map();
+  const dividendPending = new Map();
+
   async function pnlSource() {
     const owner = currentOwnerValue();
     const tradeType = activePnlTradeType();
     const key = `${owner}|${tradeType}`;
-    if (cache.pnl.key !== key) {
-      const response = await api(`/api/realized-pnl?owner=${encodeURIComponent(owner)}&year=all&trade_type=${encodeURIComponent(tradeType)}`);
-      cache.pnl = { key, raw: Array.isArray(response?.records) ? response.records : [] };
+    let data = cache.pnl;
+    if (data.key !== key) {
+      if (!pnlPending.has(key)) {
+        const pending = api(`/api/realized-pnl?owner=${encodeURIComponent(owner)}&year=all&trade_type=${encodeURIComponent(tradeType)}`)
+          .then(response => ({ key, raw: Array.isArray(response?.records) ? response.records : [] }))
+          .finally(() => pnlPending.delete(key));
+        pnlPending.set(key, pending);
+      }
+      data = await pnlPending.get(key);
+      if (owner === currentOwnerValue() && tradeType === activePnlTradeType()) cache.pnl = data;
     }
     const broker = activeBroker('pnlBrokerFilter');
-    if (broker === 'all') return cache.pnl.raw;
-    return cache.pnl.raw.filter(record => {
+    if (broker === 'all') return data.raw;
+    return data.raw.filter(record => {
       const label = String(record?.broker || '').trim();
       return broker === '__unassigned__' ? !label : label === broker;
     });
@@ -648,10 +658,11 @@
     const header = host?.closest('.dividend-chart-section')?.querySelector('.dividend-chart-header');
     if (!host || !header || typeof api !== 'function') return;
     ensureInjectedControls('pnl', header);
+    const owner = currentOwnerValue();
     const generation = ++pnlRenderGeneration;
     try {
       const source = await pnlSource();
-      if (generation !== pnlRenderGeneration) return;
+      if (generation !== pnlRenderGeneration || owner !== currentOwnerValue()) return;
       const rows = source.map(record => ({ ...record, pnl_value: finite(record?.pnl_krw) }));
       const aggregated = aggregateFlow(rows, modes.pnl, { fields: ['pnl_value'] });
       renderFlowChart(host, aggregated, [
@@ -680,13 +691,19 @@
   async function dividendSource() {
     const owner = currentOwnerValue();
     const key = owner;
-    if (cache.dividend.key !== key) {
-      const response = await api(`/api/actual-dividends?owner=${encodeURIComponent(owner)}&year=all`);
-      cache.dividend = {
-        key,
-        dividend: Array.isArray(response?.records) ? response.records : [],
-        interest: Array.isArray(response?.interest_records) ? response.interest_records : [],
-      };
+    let data = cache.dividend;
+    if (data.key !== key) {
+      if (!dividendPending.has(key)) {
+        const pending = api(`/api/actual-dividends?owner=${encodeURIComponent(owner)}&year=all`)
+          .then(response => ({
+            key,
+            dividend: Array.isArray(response?.records) ? response.records : [],
+            interest: Array.isArray(response?.interest_records) ? response.interest_records : [],
+          })).finally(() => dividendPending.delete(key));
+        dividendPending.set(key, pending);
+      }
+      data = await dividendPending.get(key);
+      if (owner === currentOwnerValue()) cache.dividend = data;
     }
     const broker = activeBroker('dividendBrokerFilter');
     const filterBroker = rows => broker === 'all' ? rows : rows.filter(record => {
@@ -694,8 +711,8 @@
       return broker === '__unassigned__' ? !label : label === broker;
     });
     return {
-      dividend: filterBroker(cache.dividend.dividend),
-      interest: filterBroker(cache.dividend.interest),
+      dividend: filterBroker(data.dividend),
+      interest: filterBroker(data.interest),
     };
   }
 
@@ -709,10 +726,11 @@
       return;
     }
     if (controls) controls.hidden = false;
+    const owner = currentOwnerValue();
     const generation = ++dividendRenderGeneration;
     try {
       const source = await dividendSource();
-      if (generation !== dividendRenderGeneration || dividendMode() !== 'actual') return;
+      if (generation !== dividendRenderGeneration || owner !== currentOwnerValue() || dividendMode() !== 'actual') return;
       const rows = [
         ...source.dividend.map(record => ({ ...record, dividend_value: finite(record?.amount_krw), interest_value: 0 })),
         ...source.interest.map(record => ({ ...record, dividend_value: 0, interest_value: finite(record?.amount_krw) })),
@@ -960,7 +978,9 @@
   function hostNeedsUnified(hostId) {
     const host = document.getElementById(hostId);
     if (!host) return false;
-    return !host.firstElementChild?.classList?.contains('wealth-unified-chart-shell');
+    const child = host.firstElementChild;
+    return !child?.classList?.contains('wealth-unified-chart-shell')
+      && !child?.classList?.contains('wealth-unified-empty');
   }
 
   function refreshVisiblePanZoom(hostId) {

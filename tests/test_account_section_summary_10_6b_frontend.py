@@ -70,11 +70,11 @@ class AccountSectionSummary106BFrontendTests(unittest.TestCase):
         self.assertIn("ownerBreakdown(bankAccounts)", self.summary_js)
 
     def test_summary_refresh_uses_complete_dashboard_for_bank_composition(self) -> None:
-        self.assertIn("/api/accounts?group=All&owner=모두", self.summary_js)
-        self.assertIn("/api/dashboard", self.summary_js)
+        self.assertIn("loadedDashboard.accounts || []", self.summary_js)
+        self.assertIn("const loadedDashboard = typeof rawDashboard", self.summary_js)
         self.assertNotIn("jsonFetch('/api/savings')", self.summary_js)
-        self.assertIn("renderBankSummary(dashboardPayload || {}, owner)", self.summary_js)
-        self.assertIn("credentials: 'same-origin'", self.summary_js)
+        self.assertIn("renderBankSummary(loadedDashboard, owner)", self.summary_js)
+        self.assertNotIn("fetch(", self.summary_js)
 
     def test_summary_observers_are_scoped_to_existing_render_hosts(self) -> None:
         self.assertIn("document.getElementById('accountList')", self.summary_js)

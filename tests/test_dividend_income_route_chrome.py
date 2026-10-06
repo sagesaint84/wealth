@@ -26,9 +26,21 @@ ROUTES = {"calendar": "#income", "pnl": "#pnl", "dividend": "#dividend",
 class DividendPreview(IncomePreview):
     def do_GET(self):
         parsed = urlsplit(self.path)
+        assets = self.server.preview_assets
+        if parsed.path == '/':
+            content = assets['index.html'].replace(
+                b'<body>',
+                '<body><div style="padding:8px;text-align:center;background:#274c46;color:#fff;font-size:12px">가상 데이터 미리보기 · 실제 계좌와 연결되지 않음 · 저장 불가</div>'.encode(),
+            )
+            self.send(content, 'text/html; charset=utf-8')
+            return
+        if (parsed.path in ('/api/actual-dividends', '/api/realized-pnl')
+                and parse_qs(parsed.query).get('owner') == ['synthetic-empty']):
+            self.send({'records': [], 'interest_records': [], 'monthly': [], 'available_years': []})
+            return
         if parsed.path in ("/static/wealth.js", "/static/wealth-timeseries-unified.js"):
             name = parsed.path.rsplit("/", 1)[-1]
-            source = (STATIC / name).read_text(encoding="utf-8")
+            source = assets[name].decode("utf-8")
             marker = ("function renderActualDividends(data) {" if name == "wealth.js"
                       else "async function renderDividend() {")
             counter = "actualCalls" if name == "wealth.js" else "unifiedCalls"
@@ -36,6 +48,13 @@ class DividendPreview(IncomePreview):
             source = source.replace(marker, marker + f"\n    window.__divTrace.{counter}++;", 1)
             self.send(source.encode("utf-8"), "text/javascript; charset=utf-8")
             return
+        if parsed.path.startswith('/static/'):
+            name = parsed.path.removeprefix('/static/')
+            if name in assets:
+                kind = ('text/css' if name.endswith('.css') else
+                        'text/javascript' if name.endswith('.js') else 'application/octet-stream')
+                self.send(assets[name], kind)
+                return
         if parsed.path == "/api/actual-dividends":
             owner = parse_qs(parsed.query).get("owner", [""])[0]
             if owner in ("synthetic-slow", "synthetic-fast"):
@@ -65,9 +84,12 @@ def chrome_preview(request):
     if chrome is None:
         pytest.skip("Chromium browser unavailable")
     handler = (DelayedDividendPreview if "dividend_slow_first_frame" in request.node.name
-               else DividendPreview if "dividend_visible_chart" in request.node.name
+               else DividendPreview if "dividend_visible_chart" in request.node.name or "startup_request" in request.node.name
                else StaticPreview)
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    # Serve immutable fixture bytes on every request/reload. This avoids Windows
+    # file reads in HTTP worker threads without changing script delivery delays.
+    server.preview_assets = {path.name: path.read_bytes() for path in STATIC.iterdir() if path.is_file()}
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     connection = None
@@ -94,11 +116,16 @@ def chrome_preview(request):
             cleanup.callback(stop_chrome)
             active_port = Path(profile) / "DevToolsActivePort"
             for _ in range(100):
-                if active_port.exists():
-                    break
+                try:
+                    port_lines = active_port.read_text().splitlines()
+                    if port_lines:
+                        port = port_lines[0]
+                        break
+                except (FileNotFoundError, PermissionError):
+                    pass
                 time.sleep(0.1)
-            assert active_port.exists()
-            port = active_port.read_text().splitlines()[0]
+            else:
+                pytest.fail("Chrome debugging port did not become readable")
             targets = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=5))
             target = next(item for item in targets if item.get("type") == "page")
             connection = websocket.create_connection(target["webSocketDebuggerUrl"], timeout=15)
@@ -123,14 +150,22 @@ def chrome_preview(request):
             call("Page.enable")
             call("Runtime.enable")
             call("Page.addScriptToEvaluateOnNewDocument", {"source": """
-              window.__divTrace={writes:[],requests:[],errors:[],actualCalls:0,unifiedCalls:0};
+              window.__divTrace={writes:[],requests:[],errors:[],frames:[],actualCalls:0,unifiedCalls:0};
               window.addEventListener('error',event=>window.__divTrace.errors.push(String(event.message)));
               const originalFetch=window.fetch;
               window.fetch=function(...args){
                 const url=String(args[0]);
-                if(url.includes('/api/actual-dividends')) window.__divTrace.requests.push(url);
+                if(url.includes('/api/')) { const parsed=new URL(url,location.origin); parsed.searchParams.sort(); window.__divTrace.requests.push(parsed.pathname+parsed.search); }
                 return originalFetch.apply(this,args);
               };
+              function sampleFrame(){
+                const host=document.getElementById('dividendBarChartWrap');
+                const panel=document.getElementById('dividendPanel');
+                if(host && panel && panel.getBoundingClientRect().height>0 && getComputedStyle(panel).visibility!=='hidden')
+                  window.__divTrace.frames.push({legacy:!!host.querySelector('svg.record-chart'),unified:!!host.querySelector('.wealth-unified-chart-shell')});
+                requestAnimationFrame(sampleFrame);
+              }
+              requestAnimationFrame(sampleFrame);
               const descriptor=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
               Object.defineProperty(Element.prototype,'innerHTML',{
                 get:descriptor.get,
@@ -153,8 +188,12 @@ def chrome_preview(request):
 
 def wait_for(evaluate, expression, timeout=20):
     for _ in range(int(timeout * 10)):
-        if evaluate(expression):
-            return
+        try:
+            if evaluate(expression):
+                return
+        except AssertionError as error:
+            if "Inspected target navigated or closed" not in str(error):
+                raise
         time.sleep(0.1)
     state = evaluate("({href:location.href,ready:document.readyState,origin:performance.timeOrigin,tab:typeof window.setIncomeTab,layout:!!document.querySelector('#incomeTabs'),root:!!document.getElementById('userAssetDashboardWrapper'),hit:!!window.WealthDonutHitTest,scripts:[...document.scripts].map(s=>s.src.split('/').pop()),errors:window.__divTrace?.errors})")
     pytest.fail(f"Chrome preview did not reach: {expression}; state={state}")
@@ -167,7 +206,7 @@ def test_dividend_slow_first_frame_has_one_chart_owner(chrome_preview, width, he
         "screenWidth": width, "screenHeight": height, "deviceScaleFactor": 1,
         "mobile": width <= 430})
     call("Page.navigate", {"url": f"http://127.0.0.1:{port}/#income"})
-    ready_expression = "typeof window.setIncomeTab==='function' && !!document.querySelector('#incomeTabs [data-income=\"dividend\"]')"
+    ready_expression = "typeof window.setIncomeTab==='function' && !!window.WealthUnifiedTimeseries && !!document.querySelector('#incomeTabs [data-income=\"dividend\"]')"
     try:
         wait_for(evaluate, ready_expression, timeout=8)
     except pytest.fail.Exception:
@@ -190,9 +229,12 @@ def test_dividend_slow_first_frame_has_one_chart_owner(chrome_preview, width, he
         document.querySelector('#incomeTabs [data-income="calendar"]').click();
         document.querySelector('#incomeTabs [data-income="dividend"]').click();
         const frames=[sample()];
-        for(let i=0;i<90;i++){
+        let visibleFrames=0;
+        for(let i=0;i<600 && visibleFrames<90;i++){
           await new Promise(requestAnimationFrame);
-          frames.push(sample());
+          const frame=sample();
+          frames.push(frame);
+          if(frame.visible) visibleFrames++;
         }
         visits.push(frames);
       }
@@ -264,8 +306,7 @@ def test_dividend_visible_chart_is_unified_from_first_paint(chrome_preview, widt
         modes[key]={before,after:sample(),selected:window.WealthUnifiedTimeseries.modes.dividend};
       }
       document.querySelector('#dividendModeTabs [data-div-mode="estimated"]').click();
-      await new Promise(requestAnimationFrame);
-      await new Promise(requestAnimationFrame);
+      for(let i=0;i<600 && !host.querySelector('svg.record-chart');i++) await new Promise(requestAnimationFrame);
       const estimated=sample();
       document.querySelector('#dividendModeTabs [data-div-mode="actual"]').click();
       const actualFrames=[sample()];
@@ -335,3 +376,70 @@ def test_income_tab_hash_survives_reload(chrome_preview, tab, hash_value):
         ['dividend','dividendPanel'],['ledger','ledgerSectionPanel'],['ipo','ipoPanel']]
         .map(([name,id])=>[name,!document.getElementById(id).classList.contains('wealth-income-hidden')]))}))()""")
     assert direct["active"] == tab and direct["panels"] == {name: name == tab for name in ROUTES}, direct
+
+
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+def test_dividend_slow_first_frame_direct_reload(chrome_preview, width, height):
+    call, evaluate, port = chrome_preview
+    call("Emulation.setDeviceMetricsOverride", {"width": width, "height": height,
+        "deviceScaleFactor": 1, "mobile": width <= 430})
+    call("Page.navigate", {"url": f"http://127.0.0.1:{port}/#dividend"})
+    for visit in range(2):
+        wait_for(evaluate, "!!document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell') && window.__divTrace.frames.length>0")
+        result = evaluate("window.__divTrace")
+        assert not any(frame['legacy'] for frame in result['frames']), result
+        assert not any(urlsplit(key).path == '/api/dividends' for key in result['requests']), result
+        print("DIRECT_RELOAD_COUNTS=" + json.dumps({key: result['requests'].count(key) for key in sorted(set(result['requests']))}))
+        if visit == 0:
+            origin = evaluate("performance.timeOrigin")
+            call("Page.reload", {"ignoreCache": True})
+            wait_for(evaluate, f"performance.timeOrigin !== {origin}")
+
+
+def test_startup_request_dedupe_and_estimated_lazy_load(chrome_preview):
+    call, evaluate, port = chrome_preview
+    call("Page.navigate", {"url": f"http://127.0.0.1:{port}/#dividend"})
+    wait_for(evaluate, "!!document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell') && typeof loadAssetDataForUser==='function'")
+    evaluate("loadAssetDataForUser()")
+    counts = evaluate("window.__divTrace.requests")
+    print("ACTUAL_STARTUP_COUNTS=" + json.dumps({key: counts.count(key) for key in sorted(set(counts))}))
+    assert evaluate("window.__divTrace.requests.filter(key=>key.startsWith('/api/dividends?')).length") == 0
+    result = evaluate("""(async()=>{
+      currentOwner='synthetic-dedupe';
+      window.__divTrace.requests=[];
+      await Promise.all(Array.from({length:12},()=>window.WealthUnifiedTimeseries.renderPnl()));
+      await Promise.all(Array.from({length:12},()=>window.WealthUnifiedTimeseries.renderDividend()));
+      return window.__divTrace.requests;
+    })()""")
+    for endpoint in ['/api/realized-pnl', '/api/actual-dividends']:
+        calls = [key for key in result if urlsplit(key).path == endpoint]
+        assert len(calls) == 1, result
+    evaluate("document.querySelector('#dividendModeTabs [data-div-mode=estimated]').click()")
+    wait_for(evaluate, "!!dividendData && !!document.querySelector('#dividendBarChartWrap svg.record-chart')")
+    count = evaluate("window.__divTrace.requests.filter(key=>key.startsWith('/api/dividends?')).length")
+    assert count == 1
+    evaluate("document.querySelector('#dividendModeTabs [data-div-mode=actual]').click(); document.querySelector('#dividendModeTabs [data-div-mode=estimated]').click()")
+    assert evaluate("window.__divTrace.requests.filter(key=>key.startsWith('/api/dividends?')).length") == count
+    empty = evaluate("""(async()=>{
+      document.querySelector('#dividendModeTabs [data-div-mode=actual]').click();
+      currentOwner='synthetic-empty';
+      await Promise.all([window.WealthUnifiedTimeseries.renderPnl(),window.WealthUnifiedTimeseries.renderDividend()]);
+      for(let i=0;i<3;i++) await new Promise(requestAnimationFrame);
+      const before=window.__divTrace.unifiedCalls;
+      const probe=document.createElement('div');
+      document.body.append(probe);
+      for(let i=0;i<5;i++) await new Promise(requestAnimationFrame);
+      probe.remove();
+      for(let i=0;i<5;i++) await new Promise(requestAnimationFrame);
+      return {before,after:window.__divTrace.unifiedCalls,
+        pnl:!!document.querySelector('#pnlBarChartWrap > .wealth-unified-empty'),
+        dividend:!!document.querySelector('#dividendBarChartWrap > .wealth-unified-empty')};
+    })()""")
+    assert empty['pnl'] and empty['dividend'] and empty['before'] == empty['after'], empty
+    cursor = evaluate("""(()=>{
+      const node=document.elementFromPoint(innerWidth/2,innerHeight/2);
+      const chain=[];
+      for(let el=node;el;el=el.parentElement){const css=getComputedStyle(el);chain.push({tag:el.tagName,id:el.id,classes:el.className.baseVal??el.className,position:css.position,zIndex:css.zIndex,pointerEvents:css.pointerEvents});}
+      return chain;
+    })()""")
+    print("CURSOR_CENTER_DOM=" + json.dumps(cursor))

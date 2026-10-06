@@ -30,6 +30,7 @@ const recordRenders = [];
 const ledgerRenders = [];
 const data = {accounts: [], holdings: [], summary: {}, fx_rates: {}};
 const context = {
+  dividendData: null, currentDividendMode: 'actual',
   currentOwner: 'A', rawDashboard: data, dashboard: data,
   currentLedgerYear: 2026, currentLedgerMonth: 10,
   allAssetRecords: [], assetRecords: [], rawLedgerData: null,

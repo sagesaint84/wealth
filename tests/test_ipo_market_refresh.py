@@ -311,7 +311,7 @@ class IpoMarketRefreshTests(unittest.TestCase):
 
     def test_frontend_refresh_uses_post_and_keeps_existing_rows_on_failure(self):
         source = (Path(__file__).resolve().parents[1] / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")
-        self.assertIn("fetch('/api/ipo/market/refresh', { method: 'POST' })", source)
+        self.assertIn("window.fetchJson('/api/ipo/market/refresh', { method: 'POST' })", source)
         self.assertIn("marketIpos = Array.isArray(data.market?.ipos) ? data.market.ipos : marketIpos", source)
         self.assertIn("공모주 일정 동기화에 실패했습니다. 기존 데이터를 유지합니다.", source)
         self.assertIn("button.disabled = false;", source)

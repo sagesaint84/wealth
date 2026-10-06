@@ -47,7 +47,7 @@ class IpoFutureCompactViewFrontendTests(unittest.TestCase):
         self.assertIn("expandedIpoIds.has(ipoId)", self.compact_js)
 
     def test_missing_market_is_explicitly_labeled_without_guessing_exchange(self) -> None:
-        self.assertIn("fetch('/api/ipo/market'", self.compact_js)
+        self.assertIn("window.fetchJson('/api/ipo/market')", self.compact_js)
         self.assertIn("const market = String(meta?.market || '').trim()", self.compact_js)
         self.assertIn("market || '시장 미확인'", self.compact_js)
         self.assertIn("ipo-market-unknown", self.compact_js)
