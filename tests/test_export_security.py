@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 import unittest
 from contextlib import ExitStack
 from copy import deepcopy
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import HTTPException, Request
@@ -214,13 +216,15 @@ class ExportSecurityTests(unittest.TestCase):
                     }
                 ],
             },
-            "asset_records": [{"date": "2026-01-02", "total": 12345}],
+            "asset_records": {"records": [{"date": "2026-01-02", "total": 12345}]},
             "dividend_records": [{"symbol": "SAFE", "amount": 321}],
             "realized_pnl_records": [{"symbol": "SAFE", "pnl": 99}],
             "ledger": {"transactions": [{"description": "가상 지출", "amount": 1000}]},
         }
 
         with ExitStack() as stack:
+            temp_dir = stack.enter_context(tempfile.TemporaryDirectory())
+            stack.enter_context(patch("app.services.user_manager.USERS_DIR", Path(temp_dir)))
             stack.enter_context(patch("app.services.user_manager.get_user_by_name", side_effect=fake_user_lookup))
             write_portfolio = stack.enter_context(patch("app.services.portfolio.write_portfolio"))
             write_assets = stack.enter_context(patch("app.services.asset_records.write_asset_records"))
