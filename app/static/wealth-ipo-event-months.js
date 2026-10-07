@@ -1,10 +1,6 @@
 (() => {
   'use strict';
 
-  let canonicalIpos = [];
-  let latestUpdatedAt = null;
-  let synced = false;
-
   const monthKey = (year, month) => `${year}-${String(month).padStart(2, '0')}`;
 
   function currentKey() {
@@ -18,7 +14,7 @@
   }
 
   function projectedForMonth(key) {
-    return canonicalIpos.map(item => {
+    return (window.WealthIpoState?.getCanonicalMarketIpos?.() || []).map(item => {
       const localSort = item?.presentation_month_sort_dates?.[key];
       return {
         ...item,
@@ -29,25 +25,9 @@
 
   function applyMonth(key, { render = false } = {}) {
     const state = window.WealthIpoState;
-    if (!state || !key || canonicalIpos.length === 0) return;
-    state.setMarketIpos?.(projectedForMonth(key));
+    if (!state || !key) return;
+    state.setMarketIpos?.(projectedForMonth(key), { projection: true });
     if (render) state.renderIpoList?.();
-  }
-
-  async function syncFromServer({ forceRender = false } = {}) {
-    const state = window.WealthIpoState;
-    if (!state) return;
-    try {
-      const payload = await window.fetchJson('/api/ipo/market', synced ? { cache: 'no-store' } : {});
-      synced = true;
-      const items = Array.isArray(payload?.ipos) ? payload.ipos : [];
-      const changed = payload?.updated_at !== latestUpdatedAt;
-      canonicalIpos = items;
-      latestUpdatedAt = payload?.updated_at || null;
-      if (changed || forceRender) applyMonth(currentKey(), { render: true });
-    } catch (err) {
-      console.warn('IPO 월별 이벤트 표시 데이터를 불러오지 못했습니다:', err);
-    }
   }
 
   function targetKeyForClick(target) {
@@ -81,19 +61,8 @@
       if (/^\d{4}-\d{2}$/.test(value)) applyMonth(value, { render: false });
     }, true);
 
-    const refreshButton = document.getElementById('ipoRefreshBtn');
-    if (refreshButton) {
-      const observer = new MutationObserver(() => {
-        if (!refreshButton.hasAttribute('aria-busy')) void syncFromServer({ forceRender: true });
-      });
-      observer.observe(refreshButton, { attributes: true, attributeFilter: ['aria-busy'] });
-    }
-
-    window.addEventListener('wealth-ipo-app-updated', () => {
-      window.setTimeout(() => void syncFromServer({ forceRender: true }), 0);
-    });
-
-    void syncFromServer({ forceRender: true });
+    window.addEventListener('wealth:ipo-market-changed', () => applyMonth(currentKey()));
+    applyMonth(currentKey(), { render: true });
   }
 
   if (document.readyState === 'loading') {

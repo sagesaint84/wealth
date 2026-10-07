@@ -47,7 +47,7 @@ class IpoFutureCompactViewFrontendTests(unittest.TestCase):
         self.assertIn("expandedIpoIds.has(ipoId)", self.compact_js)
 
     def test_missing_market_is_explicitly_labeled_without_guessing_exchange(self) -> None:
-        self.assertIn("window.fetchJson('/api/ipo/market')", self.compact_js)
+        self.assertIn("window.WealthIpoState?.getMarketIpos?.()", self.compact_js)
         self.assertIn("const market = String(meta?.market || '').trim()", self.compact_js)
         self.assertIn("market || '시장 미확인'", self.compact_js)
         self.assertIn("ipo-market-unknown", self.compact_js)
@@ -78,10 +78,11 @@ class IpoFutureCompactViewFrontendTests(unittest.TestCase):
         self.assertIn("link.target = '_blank'", self.compact_js)
         self.assertIn("link.rel = 'noopener noreferrer'", self.compact_js)
 
-    def test_refresh_invalidates_market_and_score_metadata_cache(self) -> None:
-        self.assertIn("function invalidateIpoMetadata()", self.compact_js)
-        self.assertIn("'ipoRefreshBtn'", self.compact_js)
-        self.assertIn("metadataDirty = true", self.compact_js)
+    def test_refresh_uses_the_main_market_snapshot_without_a_second_get(self) -> None:
+        self.assertIn("'wealth:ipo-market-rendered', decorate", self.compact_js)
+        self.assertNotIn("loadIpoMetadata", self.compact_js)
+        self.assertNotIn("invalidateIpoMetadata", self.compact_js)
+        self.assertNotIn("fetchJson", self.compact_js)
 
     def test_loader_registers_compact_view_once(self) -> None:
         self.assertIn("wealthIpoCompactViewScript", self.loader_js)
