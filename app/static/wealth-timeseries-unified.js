@@ -143,6 +143,7 @@
     style.textContent = `
       /* Slot targets are hit areas only: stretched SVG strokes can obscure DAY bars. */
       .wealth-unified-bucket-target { fill:none; stroke:none; pointer-events:all; outline:none; cursor:pointer; }
+      .wealth-unified-bucket-target.wealth-unified-day-target { pointer-events:none; }
       .wealth-unified-flow-bar.is-selected,
       .wealth-unified-flow-bar.is-bucket-focused { stroke:currentColor; stroke-width:2; stroke-dasharray:4 2; vector-effect:non-scaling-stroke; }
 
@@ -387,6 +388,7 @@
         0,
         Math.min(newWidth - viewport.clientWidth, ratio * newWidth - anchor),
       );
+      viewport.dispatchEvent(new Event('wealth-timeseries-geometrychange'));
       return true;
     };
 
@@ -608,22 +610,60 @@
       const svg = host.querySelector('svg');
       const targets = buckets.map((bucket, index) => {
         const summary = series.map(item => `${item.label} ${compactWon(finite(bucket.values?.[item.key]))}`).join(' · ');
-        return `<rect class="wealth-unified-bucket-target" data-bucket-index="${index}" data-bucket-key="${html(bucket.key)}" x="${left + slot * index}" y="${top}" width="${slot}" height="${bottom - top}" role="button" tabindex="0" aria-pressed="false" aria-label="${html(bucketHeading(bucket.key, aggregated.mode))} ${html(options.kind === 'pnl' ? '실현손익' : '배당·이자')} 내역 보기 · ${html(summary)}"/>`;
+        return `<rect class="wealth-unified-bucket-target${aggregated.mode === MODES.DAY ? ' wealth-unified-day-target' : ''}" data-bucket-index="${index}" data-bucket-key="${html(bucket.key)}" x="${left + slot * index}" y="${top}" width="${slot}" height="${bottom - top}" role="button" tabindex="0" aria-pressed="false" aria-label="${html(bucketHeading(bucket.key, aggregated.mode))} ${html(options.kind === 'pnl' ? '실현손익' : '배당·이자')} 내역 보기 · ${html(summary)}"/>`;
       }).join('');
       svg.insertAdjacentHTML('beforeend', targets);
-      let gesture = null;
+      let gesture = null, completed = null;
+      const pointIndex = (x, y, pointerType) => {
+        const bounds = viewport.getBoundingClientRect();
+        if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return null;
+        if (aggregated.mode !== MODES.DAY) {
+          const node = document.elementFromPoint(x, y)?.closest('[data-bucket-index]');
+          return node && svg.contains(node) ? node.dataset.bucketIndex : null;
+        }
+        // Mouse clicks belong to painted bars. Touch gets a centered, disjoint
+        // region (65% of a slot), without making whitespace mouse-clickable.
+        const nodes = svg.querySelectorAll(pointerType === 'touch' ? '.wealth-unified-bucket-target' : '.wealth-unified-flow-bar');
+        for (const node of nodes) {
+          const rect = node.getBoundingClientRect();
+          const width = pointerType === 'touch' ? rect.width * 0.65 : rect.width;
+          const center = rect.left + rect.width / 2;
+          if (rect.height > 0 && x >= center - width / 2 && x <= center + width / 2 && y >= rect.top && y <= rect.bottom) return node.dataset.bucketIndex;
+        }
+        return null;
+      };
       viewport.addEventListener('pointerdown', event => {
-        gesture = {x:event.clientX, y:event.clientY, scroll:viewport.scrollLeft,
-          index:event.target.closest('[data-bucket-index]')?.dataset.bucketIndex, cancelled:false};
+        completed = null;
+        gesture = {id:event.pointerId, pointerType:event.pointerType, x:event.clientX, y:event.clientY,
+          scroll:viewport.scrollLeft, cancelled:false};
       }, true);
       viewport.addEventListener('pointermove', event => {
         if (gesture && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 8) gesture.cancelled = true;
       }, true);
-      viewport.addEventListener('pointercancel', () => {if (gesture) gesture.cancelled = true;}, true);
+      viewport.addEventListener('pointerup', event => {
+        completed = gesture && gesture.id === event.pointerId ? {
+          id:event.pointerId, pointerType:gesture.pointerType, x:event.clientX, y:event.clientY,
+          cancelled:gesture.cancelled || Math.abs(viewport.scrollLeft - gesture.scroll) > 3,
+        } : null;
+        gesture = null;
+      }, true);
+      viewport.addEventListener('pointercancel', () => {gesture = null; completed = null;}, true);
       viewport.addEventListener('touchstart', event => {if (gesture && event.touches.length > 1) gesture.cancelled = true;}, {passive:true});
       viewport.addEventListener('click', event => {
-        if (event.detail && gesture && (gesture.cancelled || Math.abs(viewport.scrollLeft - gesture.scroll) > 3)) return;
-        const index = event.target.closest('[data-bucket-index]')?.dataset.bucketIndex ?? (event.detail ? gesture?.index : null);
+        const release = completed;
+        gesture = null; completed = null;
+        let index;
+        if (event.detail) {
+          if (!event.isTrusted || !release || release.cancelled ||
+              (event.pointerId != null && event.pointerId !== release.id) ||
+              (release.pointerType !== 'touch' && (Math.abs(event.clientX - release.x) > 1 || Math.abs(event.clientY - release.y) > 1))) return;
+          // Chrome capture retargets clicks to the viewport and rounds click
+          // coordinates; touch adjustment may move them to a neighboring bar.
+          // Use this click's precise pointerup position instead.
+          index = pointIndex(release.x, release.y, release.pointerType);
+        } else {
+          index = event.target.closest('[data-bucket-index]')?.dataset.bucketIndex;
+        }
         if (index != null && buckets[Number(index)]) options.onBucketClick(buckets[Number(index)], aggregated.mode);
       });
       host.querySelectorAll('.wealth-unified-bucket-target').forEach(node => {

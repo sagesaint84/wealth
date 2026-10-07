@@ -55,7 +55,7 @@
         position: absolute;
         inset: 0;
         pointer-events: none;
-        overflow: visible;
+        overflow: hidden;
         z-index: 3;
         font-variant-numeric: tabular-nums;
       }
@@ -101,7 +101,9 @@
   }
 
   function contentWidth(content, viewport) {
-    return Math.max(content.getBoundingClientRect().width, viewport.scrollWidth, viewport.clientWidth, 1);
+    // scrollWidth may include old overlay labels after the SVG shrinks.
+    // Use the actual SVG container geometry, never the overlay's overflow.
+    return Math.max(content.getBoundingClientRect().width, viewport.clientWidth, 1);
   }
 
   function bucketCenterPx(width, index, count) {
@@ -162,6 +164,8 @@
     if (!bucket?.year) return;
     const year = document.createElement('span');
     year.className = 'wealth-timeseries-html-year';
+    year.dataset.bucketIndex = index;
+    year.dataset.bucketKey = bucket.key;
     year.style.left = `${bucketCenterPx(width, index, buckets.length)}px`;
     year.textContent = `${bucket.year}년`;
     overlay.appendChild(year);
@@ -185,6 +189,8 @@
         const center = bucketCenterPx(width, index, buckets.length);
         const label = document.createElement('span');
         label.className = 'wealth-timeseries-html-xlabel';
+        label.dataset.bucketIndex = index;
+        label.dataset.bucketKey = bucket.key;
         label.style.left = `${center}px`;
         label.textContent = bucket.label || '';
         overlay.appendChild(label);
@@ -204,6 +210,12 @@
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(update);
     };
+    // setScale emits only after both width and anchored scrollLeft are final.
+    // Refresh synchronously so Chrome never paints pre-zoom label positions.
+    viewport.addEventListener('wealth-timeseries-geometrychange', () => {
+      cancelAnimationFrame(frame);
+      update();
+    });
     viewport.addEventListener('scroll', queue, { passive: true });
     viewport.addEventListener('wheel', () => requestAnimationFrame(queue), { passive: true });
     window.addEventListener('resize', queue, { passive: true });
