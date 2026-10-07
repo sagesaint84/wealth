@@ -22,6 +22,7 @@ _DISCOVERY_PRIORITY = "DART/KIND + NAVER/Npay > Metalogos160 > KIS fallback"
 _MAIN_DISCOVERY_KEYS = ("dart_schedule", "kind_discovery", "naver_progress_discovery", "npay")
 _INTERACTIVE_SCORE_RECOVERY_LIMIT = 4
 _INTERACTIVE_SCORE_RECOVERY_MAX_AGE_DAYS = 14
+_INTERACTIVE_SCORE_RECOVERY_LOOKAHEAD_DAYS = 7
 
 
 def _target_date(target_date_str: str | None) -> str:
@@ -79,12 +80,13 @@ def _interactive_score_recovery_candidates(
     """Return only near-term IPOs whose point-in-time score can now be completed.
 
     Interactive refresh must stay bounded. Deep DART parsing is therefore
-    limited to unscored, non-SPAC IPOs whose subscription cutoff has arrived,
-    and stale subscriptions older than two weeks are left to scheduled/full
-    refresh.
+    limited to unscored, non-SPAC IPOs opening within the coming week or the
+    previous two weeks. More distant schedules remain for scheduled/full refresh;
+    the caller's existing four-candidate cap still bounds document downloads.
     """
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
     oldest = target - timedelta(days=_INTERACTIVE_SCORE_RECOVERY_MAX_AGE_DAYS)
+    latest = target + timedelta(days=_INTERACTIVE_SCORE_RECOVERY_LOOKAHEAD_DAYS)
     eligible: list[tuple[date, dict[str, Any]]] = []
 
     for ipo in ipos:
@@ -95,8 +97,7 @@ def _interactive_score_recovery_candidates(
             subscription_start = date.fromisoformat(raw_start)
         except ValueError:
             continue
-        score_cutoff = subscription_start - timedelta(days=1)
-        if score_cutoff > target or subscription_start < oldest:
+        if subscription_start > latest or subscription_start < oldest:
             continue
         eligible.append((subscription_start, ipo))
 
@@ -157,7 +158,8 @@ def _targeted_dart_enrichment(
             skipped += 1
             continue
         try:
-            score_day = datetime.strptime(sub_start, "%Y-%m-%d").date() - timedelta(days=1)
+            subscription_cutoff = datetime.strptime(sub_start, "%Y-%m-%d").date() - timedelta(days=1)
+            score_day = min(subscription_cutoff, date.fromisoformat(target_date_str))
         except ValueError:
             skipped += 1
             continue
@@ -173,7 +175,7 @@ def _targeted_dart_enrichment(
                 last_reprt_at="N",
             )
             filings = filings_resp.get("list", []) if isinstance(filings_resp, dict) else []
-            target_filing = select_point_in_time_filing(filings, score_as_of=sub_start)
+            target_filing = select_point_in_time_filing(filings, score_as_of=score_day.isoformat())
             if not target_filing:
                 skipped += 1
                 continue
@@ -224,6 +226,7 @@ def _targeted_dart_enrichment(
                 "report_nm": target_filing.get("report_nm"),
                 "synced_at": datetime.now(KST).isoformat(),
                 "interactive_targeted": True,
+                "selection_as_of": score_day.isoformat(),
             }
             if structured_data:
                 dart_meta["structured"] = structured_data
@@ -340,8 +343,9 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
 
     Schedule/reference discovery remains limited to the moving three-month
     window. Deep DART parsing is allowed only for a small set of near-term IPOs
-    whose score cutoff has already arrived and whose Wealth score is still
-    calculating.
+    opening within the coming week (or recently opened) whose Wealth score is
+    still calculating. Filing reads stop at today's target or D-1, whichever
+    comes first.
     """
     resolved_target = _target_date(target_date_str)
     total_started = perf_counter()
