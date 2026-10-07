@@ -73,10 +73,19 @@
         display: block;
         margin-top: 6px;
         max-width: 430px;
+        width: 100%;
+        white-space: nowrap;
+        overflow-x: auto;
+        box-sizing: border-box;
         color: #a5b4fc;
         font-size: 10.5px;
         line-height: 1.4;
         font-weight: 500;
+      }
+      #ipoListWrapper .ipo-card-expanded .ipo-score-box {
+        min-width: 0;
+        max-width: 100%;
+        flex-shrink: 1;
       }
       #ipoListWrapper .ipo-metalogos-reference a {
         color: #c4b5fd;
@@ -200,7 +209,6 @@
       note.className = 'ipo-metalogos-reference';
       scoreBox.appendChild(note);
     }
-    note.replaceChildren();
     note.title = 'Metalogos 160 공개자료의 참고값입니다. Wealth IPO Score 산정에는 사용하지 않습니다.';
 
     const parts = [];
@@ -214,6 +222,12 @@
     if (tradable) parts.push(`유통가능 ${tradable}%`);
 
     const sourceUrl = trustedMetalogosUrl(reference.url);
+    // Observer decoration must not remove an anchor between pointerdown/up.
+    const textValue = (sourceUrl && parts.length ? ' · ' : '') + parts.join(' · ');
+    const signature = JSON.stringify([sourceUrl, textValue]);
+    if (note.dataset.referenceSignature === signature) return;
+    note.dataset.referenceSignature = signature;
+    note.replaceChildren();
     if (sourceUrl) {
       const link = document.createElement('a');
       link.href = sourceUrl;
@@ -224,7 +238,7 @@
     }
     if (parts.length) {
       const text = document.createElement('span');
-      text.textContent = (sourceUrl ? ' ' : '') + parts.join(' ');
+      text.textContent = textValue;
       note.appendChild(text);
     }
   }

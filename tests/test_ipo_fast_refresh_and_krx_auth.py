@@ -79,7 +79,7 @@ def test_interactive_refresh_runs_bounded_discovery_with_capped_score_recovery()
     assert orchestrator.refresh_ipo_market is refresh_adapter.refresh_ipo_market
 
 
-def test_interactive_score_recovery_selects_only_due_near_term_calculating_ipos():
+def test_interactive_score_recovery_selects_only_near_term_calculating_ipos():
     rows = [
         {
             'company_name':'진코스텍',
@@ -102,6 +102,11 @@ def test_interactive_score_recovery_selects_only_due_near_term_calculating_ipos(
             'score':{'is_calculating':True,'score':None,'core_missing':['lockup_commitment_ratio']},
         },
         {
+            'company_name':'먼미래청약',
+            'subscription_start':'2026-10-11',
+            'score':{'is_calculating':True,'score':None},
+        },
+        {
             'company_name':'테스트스팩',
             'listing_track':'spac',
             'subscription_start':'2026-10-02',
@@ -112,7 +117,7 @@ def test_interactive_score_recovery_selects_only_due_near_term_calculating_ipos(
         rows,
         target_date_str='2026-10-03',
     )
-    assert [row['company_name'] for row in selected] == ['진코스텍']
+    assert [row['company_name'] for row in selected] == ['진코스텍', '미래청약']
 
 
 @pytest.mark.parametrize('shares_only', [False, True])
