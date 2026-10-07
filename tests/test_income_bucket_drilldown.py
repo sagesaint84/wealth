@@ -247,7 +247,7 @@ SCENARIOS = {
         const geometry=()=>[...svg.querySelectorAll('.wealth-unified-flow-bar')].map(b=>['x','y','width','height'].map(a=>b.getAttribute(a)));
         const before=geometry(),layout=()=>[host(kind).querySelector('.wealth-unified-content').getBoundingClientRect().width,host(kind).querySelector('.wealth-unified-viewport').getBoundingClientRect().width,host(kind).querySelector('.wealth-unified-axis').textContent,...[...svg.querySelectorAll('text')].map(t=>[t.textContent,t.style.visibility])];
         const beforeLayout=layout();
-        const invisible=()=>{const s=getComputedStyle(n);check(s.fill==='none'&&s.stroke==='none'&&s.outlineStyle==='none'&&s.pointerEvents==='all','hit target never painted, still hittable');};
+        const invisible=()=>{const s=getComputedStyle(n);check(s.fill==='none'&&s.stroke==='none'&&s.outlineStyle==='none'&&s.pointerEvents==='none','DAY keyboard target unpainted and pointer-inert');};
         invisible();select(kind,'2026-10-07');n.focus();n.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await frames();
         invisible();check(u.getDetail(kind).key==='2026-10-07','detail opens');eq(geometry(),before,'selection does not change bar geometry');eq(layout(),beforeLayout,'selection does not change axes/width/labels');
         check(svg.getAttribute('preserveAspectRatio')==='none','existing SVG scale retained');
@@ -386,7 +386,7 @@ SCENARIOS = {
           n.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));check(u.getDetail(kind).key===key,'exact DAY detail');
           eq(bars.map(b=>['x','y','width','height'].map(a=>b.getAttribute(a))),geometry,'selection geometry unchanged');
           check(__incomeCalls.length===calls,'no detail request');
-          const paint=getComputedStyle(n);check(paint.fill==='none'&&paint.stroke==='none'&&paint.pointerEvents==='all','invisible usable slot');
+          const paint=getComputedStyle(n);check(paint.fill==='none'&&paint.stroke==='none'&&paint.pointerEvents==='none','invisible DAY keyboard slot');
           u.clearDetail(kind);
           for(const mode of [modes.WEEK,modes.MONTH,modes.YEAR,modes.ALL]){
             await render(kind,mode);await frames();
@@ -452,7 +452,8 @@ def test_native_mobile_bucket_tap_and_pan(chrome_preview, mode, key, kind):
     chart_id = 'pnlBarChartWrap' if kind == 'pnl' else 'dividendBarChartWrap'
     detail_id = 'pnlMonthlyDetail' if kind == 'pnl' else 'dividendMonthlyDetail'
     def position(key):
-        return evaluate("(()=>{const n=document.querySelector('#" + chart_id + " .wealth-unified-bucket-target[data-bucket-key=\"" + key + "\"]');n.scrollIntoView({block:'center',inline:'center',behavior:'instant'});const r=n.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()")
+        selector = '.wealth-unified-flow-bar' if mode == 'DAY' else '.wealth-unified-bucket-target'
+        return evaluate("(()=>{const n=document.querySelector('#" + chart_id + " " + selector + "[data-bucket-key=\"" + key + "\"]');n.scrollIntoView({block:'center',inline:'center',behavior:'instant'});const r=n.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()")
     def touch(kind, point=None):
         call('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': [] if point is None else [point]})
     point = position(key)
@@ -498,7 +499,7 @@ def test_native_keyboard_selection_paint(chrome_preview, kind, tmp_path):
     call('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
     call('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': 'Enter', 'code': 'Enter', 'windowsVirtualKeyCode': 13})
     assert evaluate(f"WealthUnifiedTimeseries.getDetail('{kind}').key") == '2026-10-07'
-    assert evaluate("(()=>{const s=getComputedStyle(__paintTarget);return [s.fill,s.stroke,s.outlineStyle,s.pointerEvents]})()") == ['none','none','none','all']
+    assert evaluate("(()=>{const s=getComputedStyle(__paintTarget);return [s.fill,s.stroke,s.outlineStyle,s.pointerEvents]})()") == ['none','none','none','none']
     assert evaluate(geometry) == before
     (tmp_path / f'{kind}-day-keyboard-selection.png').write_bytes(base64.b64decode(call('Page.captureScreenshot', {'format': 'png'})['data']))
 
@@ -531,3 +532,138 @@ def test_daily_width_desktop_runtime(chrome_preview):
     call('Page.navigate', {'url': f'http://127.0.0.1:{port}/#pnl'})
     wait_for(evaluate, "document.readyState==='complete' && !!window.WealthUnifiedTimeseries && !!window.WealthTimeseriesVisibleRange")
     assert evaluate('(async()=>{' + SETUP + SCENARIOS['daily_width_and_slot_spacing'] + ';return true;})()')
+
+@pytest.mark.parametrize('kind', ['pnl','dividend'])
+@pytest.mark.parametrize('mobile', [False,True])
+def test_native_daily_pointer_accuracy(chrome_preview, kind, mobile):
+    call,evaluate,port=chrome_preview
+    call('Emulation.setDeviceMetricsOverride', {'width':390 if mobile else 1280,'height':900,'deviceScaleFactor':1,'mobile':mobile})
+    if mobile: call('Emulation.setTouchEmulationEnabled', {'enabled':True,'maxTouchPoints':2})
+    call('Page.navigate', {'url':f'http://127.0.0.1:{port}/#pnl'})
+    wait_for(evaluate,"document.readyState==='complete' && !!window.WealthUnifiedTimeseries && !!window.WealthTimeseriesVisibleRange")
+    chart='pnlBarChartWrap' if kind=='pnl' else 'dividendBarChartWrap'
+    evaluate('(async()=>{'+SETUP+f"setIncomeTab('{kind}',{{updateHash:false,loadContent:false}});"+r'''
+      currentOwner='pointer-accuracy';__pnl=Array.from({length:400},(_,i)=>record('N'+i,WealthTimeseriesPeriodCore.isoDate(new Date(Date.UTC(2025,0,i+1))),i%4===0?-100:i%4===1?1:i%4===2?100:500,{owner:currentOwner}));
+      __div=__pnl.map(r=>({...r,amount_krw:Math.abs(r.pnl_krw)}));__interest=__div.map(r=>({...r,id:'I'+r.id,name:'I'+r.name,amount_krw:r.amount_krw/2,income_type:'account_interest'}));
+      window.__pointerEvents=[];
+    '''+f"await render('{kind}',modes.DAY);const viewport=document.querySelector('#{chart} .wealth-unified-viewport');"+r'''
+      for(const type of ['pointerdown','pointerup','click'])viewport.addEventListener(type,e=>{const hit=document.elementFromPoint(e.clientX,e.clientY);__pointerEvents.push({type,x:e.clientX,y:e.clientY,key:e.target.dataset.bucketKey,hitKey:hit?.dataset.bucketKey,target:e.target.tagName,scroll:viewport.scrollLeft});},true);
+      return true;})()''')
+    def point(index,series=0):
+        return evaluate(f"(async()=>{{const bs=document.querySelectorAll('#{chart} .wealth-unified-flow-bar[data-bucket-index=\"{index}\"]'),b=bs[{series}];b.scrollIntoView({{block:'center',inline:'center',behavior:'instant'}});for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);const r=b.getBoundingClientRect();const x=r.x+r.width/2,y=r.y+r.height/2;return {{x,y,key:b.dataset.bucketKey,hitKey:document.elementFromPoint(x,y)?.dataset.bucketKey,rect:r.toJSON(),geometry:[...bs].map(b=>['x','y','width','height'].map(a=>b.getAttribute(a)))}};}})()")
+    def click(p):
+        xy={k:p[k] for k in ['x','y']}
+        if mobile:
+            call('Input.dispatchTouchEvent', {'type':'touchStart','touchPoints':[xy]})
+            call('Input.dispatchTouchEvent', {'type':'touchEnd','touchPoints':[]})
+        else:
+            for t in ['mousePressed','mouseReleased']:call('Input.dispatchMouseEvent', {'type':t,**xy,'button':'left','clickCount':1})
+    for index in [385,386,387,388]:
+        for series in range(1 if kind=='pnl' else 2):
+            evaluate(f"WealthUnifiedTimeseries.clearDetail('{kind}');document.activeElement?.blur();__pointerEvents=[]")
+            p=point(index,series);assert p['hitKey']==p['key'],p
+            click(p)
+            assert evaluate(f"WealthUnifiedTimeseries.getDetail('{kind}')?.key")==p['key'],evaluate('__pointerEvents')
+            assert evaluate(f"[...document.querySelectorAll('#{chart} .wealth-unified-flow-bar.is-selected')].every(b=>b.dataset.bucketKey==='{p['key']}')")
+            assert evaluate(f"[...document.querySelectorAll('#{chart} .wealth-unified-flow-bar[data-bucket-index=\"{index}\"]')].map(b=>['x','y','width','height'].map(a=>b.getAttribute(a)))")==p['geometry']
+            events=evaluate('__pointerEvents');assert next(e for e in events if e['type']=='pointerdown')['hitKey']==p['key']
+            assert next(e for e in events if e['type']=='pointerup')['hitKey']==p['key']
+    before=evaluate(f"WealthUnifiedTimeseries.getDetail('{kind}').key")
+    evaluate(f"document.querySelector('#{chart} .wealth-unified-viewport').dispatchEvent(new MouseEvent('click',{{bubbles:true,detail:1,clientX:10,clientY:10}}))")
+    assert evaluate(f"WealthUnifiedTimeseries.getDetail('{kind}').key")==before
+    evaluate(f"WealthUnifiedTimeseries.clearDetail('{kind}');document.activeElement?.blur()")
+    point(386)
+    gap=evaluate(f"(()=>{{const a=document.querySelector('#{chart} .wealth-unified-flow-bar[data-bucket-index=\"386\"]'),b=document.querySelector('#{chart} .wealth-unified-flow-bar[data-bucket-index=\"387\"]'),ar=a.getBoundingClientRect(),br=b.getBoundingClientRect();return {{x:(ar.right+br.left)/2,y:ar.y+ar.height/2}}}})()")
+    click(gap)
+    assert evaluate(f"WealthUnifiedTimeseries.getDetail('{kind}')") is None, evaluate('__pointerEvents')
+    if mobile:
+        p=point(385);before=evaluate(f"document.querySelector('#{chart} .wealth-unified-viewport').scrollLeft")
+        call('Input.dispatchTouchEvent', {'type':'touchStart','touchPoints':[{'x':p['x'],'y':p['y']}]})
+        for offset in [30,60]:call('Input.dispatchTouchEvent', {'type':'touchMove','touchPoints':[{'x':p['x']+offset,'y':p['y']}]})
+        call('Input.dispatchTouchEvent', {'type':'touchEnd','touchPoints':[]})
+        assert evaluate(f"WealthUnifiedTimeseries.getDetail('{kind}')") is None
+        assert evaluate(f"document.querySelector('#{chart} .wealth-unified-viewport').scrollLeft") < before
+    if not mobile:
+        evaluate(f"(async()=>{{const vp=document.querySelector('#{chart} .wealth-unified-viewport');for(let i=0;i<30;i++)vp.dispatchEvent(new WheelEvent('wheel',{{deltaY:100,clientX:500,bubbles:true,cancelable:true}}));for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);vp.scrollLeft=0;}})()")
+        # Small positive bucket 21 -> positive bucket 22, under 8px and at clamped scrollLeft=0.
+        a=point(21);b=point(22);a['y']=b['y']=min(a['rect']['bottom'],b['rect']['bottom'])-0.2
+        call('Input.dispatchMouseEvent', {'type':'mousePressed','x':a['x'],'y':a['y'],'button':'left','clickCount':1})
+        call('Input.dispatchMouseEvent', {'type':'mouseMoved','x':b['x'],'y':b['y'],'button':'left','buttons':1})
+        call('Input.dispatchMouseEvent', {'type':'mouseReleased','x':b['x'],'y':b['y'],'button':'left','clickCount':1})
+        assert evaluate(f"WealthUnifiedTimeseries.getDetail('{kind}')?.key")==b['key'],evaluate('__pointerEvents')
+
+@pytest.mark.parametrize('kind', ['pnl', 'dividend'])
+def test_native_daily_zoom_label_alignment(chrome_preview, kind):
+    """Every zoom frame uses final SVG geometry; scroll must not repair labels."""
+    call, evaluate, port = chrome_preview
+    call('Emulation.setDeviceMetricsOverride', {'width':1280,'height':900,'deviceScaleFactor':1,'mobile':False})
+    call('Page.navigate', {'url':f'http://127.0.0.1:{port}/#pnl'})
+    wait_for(evaluate, "document.readyState==='complete' && !!window.WealthUnifiedTimeseries && !!window.WealthTimeseriesLabelLayout")
+    chart = 'pnlBarChartWrap' if kind == 'pnl' else 'dividendBarChartWrap'
+    evaluate('(async()=>{' + SETUP + f"setIncomeTab('{kind}',{{updateHash:false,loadContent:false}});" + r'''
+      currentOwner='zoom-alignment';__pnl=Array.from({length:365},(_,i)=>record('Z'+i,WealthTimeseriesPeriodCore.isoDate(new Date(Date.UTC(2025,9,i+1))),100,{owner:currentOwner}));
+      __div=__pnl.map(r=>({...r,amount_krw:200}));__interest=__div.map(r=>({...r,id:'I'+r.id,name:'I'+r.name,amount_krw:100,income_type:'account_interest'}));
+    ''' + f"await render('{kind}',modes.DAY);const chart=host('{kind}'),vp=chart.querySelector('.wealth-unified-viewport'),content=chart.querySelector('.wealth-unified-content');" + r'''
+      const n=chart.querySelector('.wealth-unified-bucket-target[data-bucket-key="2026-09-30"]');n.scrollIntoView({block:'center',inline:'center',behavior:'instant'});
+      for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);
+      window.__zoomPoint=()=>{const r=chart.querySelector('.wealth-unified-flow-bar[data-bucket-key="2026-09-30"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};};
+      const center=n=>{const r=n.getBoundingClientRect();return r.x+r.width/2;};
+      window.__zoomMeasure=()=>({
+        key:u.getDetail(chart.dataset.unifiedKind || vp.closest('[data-unified-kind]').dataset.unifiedKind)?.key,
+        width:content.getBoundingClientRect().width,overlayWidth:chart.querySelector('.wealth-timeseries-html-xaxis').getBoundingClientRect().width,
+        scroll:vp.scrollLeft,scrollWidth:vp.scrollWidth,
+        selected:[...chart.querySelectorAll('.wealth-unified-flow-bar.is-selected')].map(b=>({key:b.dataset.bucketKey,x:center(b),targetX:center(chart.querySelector('.wealth-unified-bucket-target[data-bucket-key="'+b.dataset.bucketKey+'"]'))})),
+        labels:[...chart.querySelectorAll('.wealth-timeseries-html-xlabel,.wealth-timeseries-html-year')].map(label=>{
+          const index=label.dataset.bucketIndex,key=label.dataset.bucketKey,t=chart.querySelector('.wealth-unified-bucket-target[data-bucket-index="'+index+'"]');
+          return {index,key,text:label.textContent,x:center(label),targetKey:t?.dataset.bucketKey,error:t?center(label)-center(t):null};
+        }),
+        legacy:[selectedPnlYear,selectedPnlMonth,selectedDividendYear,selectedDividendMonth],calls:__incomeCalls.length
+      });
+      window.__zoomFrames=[];window.__recordZoom=true;
+      const recordFrame=()=>{if(!__recordZoom)return;__zoomFrames.push(__zoomMeasure());requestAnimationFrame(recordFrame);};requestAnimationFrame(recordFrame);
+      return true;})()''')
+    def click(point):
+        for event in ['mousePressed', 'mouseReleased']:
+            call('Input.dispatchMouseEvent', {'type':event,**point,'button':'left','clickCount':1})
+    click(evaluate('__zoomPoint()'))
+    initial = evaluate('__zoomMeasure()')
+    def assert_frame(frame):
+        assert frame['key'] == '2026-09-30', frame
+        assert frame['selected']
+        for bar in frame['selected']:
+            assert bar['key'] == '2026-09-30'
+            assert abs(bar['x'] - bar['targetX']) < .1, bar
+        assert abs(frame['width'] - frame['overlayWidth']) < .1, frame
+        assert abs(frame['width'] - frame['scrollWidth']) < 1, frame
+        assert frame['labels']
+        for label in frame['labels']:
+            assert label['key'] == label['targetKey'], label
+            assert label['error'] is not None and abs(label['error']) < .5, label
+        assert frame['legacy'] == initial['legacy']
+        assert frame['calls'] == initial['calls'], 'No detail or zoom refetch'
+    assert_frame(initial)
+    evaluate('__zoomFrames=[]')
+    for delta in [-100,-100] + [100]*18:
+        point = evaluate(f"(()=>{{const r=document.querySelector('#{chart} .wealth-unified-viewport').getBoundingClientRect();return {{x:r.x+r.width/2,y:r.y+100}}}})()")
+        call('Input.dispatchMouseEvent', {'type':'mouseWheel',**point,'deltaX':0,'deltaY':delta})
+        evaluate('(async()=>{for(let i=0;i<6;i++)await new Promise(requestAnimationFrame)})()')
+        for frame in evaluate('__zoomFrames.splice(0)'):
+            assert_frame(frame)
+        assert_frame(evaluate('__zoomMeasure()'))
+    before_scroll = evaluate('__zoomMeasure()')
+    # No pan has occurred since zoom. A scroll notification must change nothing.
+    evaluate(f"document.querySelector('#{chart} .wealth-unified-viewport').dispatchEvent(new Event('scroll'))")
+    evaluate('(async()=>{for(let i=0;i<4;i++)await new Promise(requestAnimationFrame)})()')
+    after_scroll = evaluate('__zoomMeasure()')
+    assert_frame(after_scroll)
+    assert before_scroll == after_scroll, 'Scroll must not repair stale label positions'
+    evaluate('__recordZoom=false')
+    # Without any repair pan, zoom back in and verify native pointer accuracy.
+    for _ in range(12):
+        anchor = dict(point, x=evaluate('__zoomPoint().x'))
+        call('Input.dispatchMouseEvent', {'type':'mouseWheel',**anchor,'deltaX':0,'deltaY':-100})
+        evaluate('(async()=>{await new Promise(requestAnimationFrame)})()')
+    point = evaluate('__zoomPoint()')
+    evaluate(f"WealthUnifiedTimeseries.clearDetail('{kind}')")
+    click(point)
+    assert evaluate(f"WealthUnifiedTimeseries.getDetail('{kind}')?.key") == '2026-09-30'
