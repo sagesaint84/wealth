@@ -3,7 +3,7 @@
 > 현재 작업 상태는 `docs/PROJECT_STATE.md`를 먼저 읽습니다.
 > 이 문서는 앞으로 진행할 기능의 우선순위와 완료 기준을 기록합니다.
 
-마지막 갱신: 2026-10-06 (main `faefa4d` 기준)
+마지막 갱신: 2026-10-07 (main `2031cc2` 기준)
 
 ## 1. 완료된 제품 영역
 
@@ -113,6 +113,37 @@ Wealth의 세금 기능은 **종합소득세 신고서 완성**이 아니라 **�
 C-7 가족별 배당 분산 보기 단순화는 기존 Family Financial Income Risk / Family Allocation Simulation과 기능 중복이 커서 **추후 진행 후보**로 계속 보류한다.
 
 ## 2. 다음 단계
+
+### 2026-10-07 시스템 audit 후속 backlog
+
+현재 시스템 audit에서 확인된 안정화 작업은 다음 우선순위로 추적한다. P0 demo 사용자 격리는 완료되었고, 나머지는 기능 작업과 섞지 않고 별도 branch/PR로 진행한다.
+
+| 우선순위 | 항목 | 상태 / 완료 기준 |
+| --- | --- | --- |
+| P0 | `/api/demo` 사용자 격리 | **완료** — PR #110 merge (`2031cc2`). 인증된 사용자에게만 demo portfolio를 기록하고 타 사용자 데이터 불변 regression을 유지한다. |
+| P1 | 금융 JSON writer atomicity / concurrency 일관화 | 대기 — financial writer의 temp+replace/lock 정책을 통일하고 중단·동시쓰기·손상파일 fail-closed regression을 추가한다. |
+| P1 | 초기 계정/비밀번호 및 username 경로 검증 | 대기 — fresh-install credential 정책과 username/path traversal boundary를 분리 점검하고 stable user id migration과 혼합하지 않는다. |
+| P1 | CI test gate before Docker publish | 대기 — PR/main 테스트 성공을 image publish보다 앞선 required gate로 만든다. |
+| P1 | `main` branch protection / required checks | 대기 — required checks 없이 main에 병합되지 않도록 repository rule을 정비한다. |
+| P2 | 로그인 brute-force 방어 / 세션 강제 무효화 | 대기 |
+| P2 | 보안 HTTP headers | 대기 |
+| P2 | 업로드 파일 크기 제한 일관화 | 대기 |
+| P2 | 의존성 고정 / Docker non-root | 대기 |
+| P2 | `main.py`, `wealth.js` 대형 monolith 축소 | 장기 구조개선 |
+| P2 | `PROJECT_STATE.md` / `ROADMAP.md` 최신화 | 진행 중 — 구현/운영 상태가 바뀔 때 문서를 함께 갱신한다. |
+
+### IPO 후속 확인 / 개선 checklist
+
+다음 IPO 작업에서는 **Metalogos 160 매력지수를 Wealth IPO Score로 복사하지 않는다.** 160은 참고 source로 유지하고 Wealth 점수는 기존 canonical feature/provenance 규칙으로 계산한다.
+
+- [ ] Metalogos 참고행을 한 줄로 표시: `160 원문 · 매력지수 · 수요예측기관 · 확약기관 · 유통가능`.
+- [ ] `160 원문` 클릭이 신뢰된 `https://metalogos.ai/160ipo/stock/...` URL을 실제 새 창/새 탭에서 여는지 Chrome regression으로 검증한다.
+- [ ] 엠에스바이오처럼 160 참고수치는 이미 수집됐지만 Wealth가 `tradable_share_ratio` 부족으로 `점수 산정중`인 경우를 실제 pipeline 기준으로 재현한다.
+- [ ] Wealth `tradable_share_ratio`의 canonical source는 DART 문서 파싱 경로를 우선 유지한다. Metalogos `tradable_share_ratio_reference`는 자동으로 canonical feature로 승격하지 않는다.
+- [ ] 일반 새로고침의 targeted DART score recovery가 청약 D-1까지 불필요하게 기다리는지 검증한다. 청약 전에 이미 유효한 DART 근거가 공개된 경우에는 point-in-time 규칙을 지키면서 더 일찍 canonical feature를 회수할 수 있는지 개선한다.
+- [ ] DART source date / filing selection cutoff를 보존하여 청약 이후 공개 정보가 과거 Wealth Score에 역유입되지 않도록 한다.
+- [ ] `attractiveness_score`, 기관 수, 확약기관 수 등 Metalogos reference 값이 Wealth 자체 score feature에 섞이지 않는 regression을 유지한다.
+- [ ] IPO refresh 후 score coverage/core_missing 변화, reference 표시, 링크 동작을 backend + Chrome 테스트로 함께 검증한다.
 
 현재 확정된 다음 기능은 없다. 다음 기능 착수 여부와 순서는 제품 우선순위 결정 후 정한다.
 
