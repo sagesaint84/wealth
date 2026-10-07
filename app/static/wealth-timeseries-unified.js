@@ -569,8 +569,10 @@
     const y = value => bottom - ((value - range.min) / (range.max - range.min)) * (bottom - top);
     const zeroY = y(0);
     const slot = (right - left) / Math.max(1, buckets.length);
-    const groupWidth = Math.min(34, slot * 0.72);
-    const barWidth = Math.max(2, groupWidth / (stacked ? 1 : Math.max(1, series.length)));
+    const narrowDaily = aggregated.mode === MODES.DAY && ['pnl', 'dividend'].includes(options.kind);
+    const groupWidth = narrowDaily ? Math.min(12, slot * 0.32) : Math.min(34, slot * 0.72);
+    const barWidth = narrowDaily ? groupWidth : Math.max(2, groupWidth / (stacked ? 1 : Math.max(1, series.length)));
+    const paintedWidth = narrowDaily ? barWidth : Math.max(1, barWidth - 1);
 
     const clickable = supportsDetail(aggregated.mode) && typeof options.onBucketClick === 'function';
     const bars = buckets.map((bucket, index) => {
@@ -588,7 +590,7 @@
         const startX = cx - (barWidth * (stacked ? 1 : series.length)) / 2;
         const fill = value < 0 ? (item.negativeColor || '#438ee6') : (item.color || '#43d982');
         const stackData = stacked ? ` data-stack-start="${start}" data-stack-end="${end}" data-stack-zero="${emptyStack && seriesIndex === 0}"` : '';
-        return `<rect class="wealth-unified-flow-bar${clickable ? ' is-clickable' : ''}" data-series-key="${html(item.key)}"${stackData} data-bucket-key="${html(bucket.key)}" data-bucket-index="${index}" x="${startX + (stacked ? 0 : seriesIndex * barWidth)}" y="${rectY}" width="${Math.max(1, barWidth - 1)}" height="${rectH}" rx="${stacked ? 0 : 1.5}" fill="${fill}" opacity=".95"><title>${html(bucket.label)} · ${html(item.label)} ${compactWon(value)}</title></rect>`;
+        return `<rect class="wealth-unified-flow-bar${clickable ? ' is-clickable' : ''}" data-series-key="${html(item.key)}"${stackData} data-bucket-key="${html(bucket.key)}" data-bucket-index="${index}" x="${startX + (stacked ? 0 : seriesIndex * barWidth)}" y="${rectY}" width="${paintedWidth}" height="${rectH}" rx="${stacked ? 0 : 1.5}" fill="${fill}" opacity=".95"><title>${html(bucket.label)} · ${html(item.label)} ${compactWon(value)}</title></rect>`;
       }).join('');
     }).join('');
 
