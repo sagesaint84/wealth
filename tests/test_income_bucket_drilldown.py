@@ -356,6 +356,48 @@ SCENARIOS = {
       check(+last[0].getAttribute('height')>50,'small visible stacks use viewport scale');
       check([...shell.querySelectorAll('svg text')].some(n=>n.style.visibility==='hidden'),'daily thinning preserved');
     """,
+
+    'daily_width_and_slot_spacing': r"""
+      const frames=async()=>{for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);};
+      for(const count of [2,60,400]){
+        currentOwner='daily-width-'+count;
+        const rows=Array.from({length:count},(_,i)=>record('W'+i,WealthTimeseriesPeriodCore.isoDate(new Date(Date.UTC(2026,0,i+1))),100,{owner:currentOwner}));
+        __pnl=rows;__div=rows;__interest=rows.map(r=>({...r,id:'I'+r.id,name:'I'+r.name,amount_krw:50,income_type:'account_interest'}));
+        for(const kind of ['pnl','dividend']){
+          setIncomeTab(kind,{updateHash:false,loadContent:false});await render(kind,modes.DAY);await frames();
+          const targets=[...host(kind).querySelectorAll('.wealth-unified-bucket-target')];check(targets.length===count,'one unchanged daily slot');
+          const slot=960/count,oldWidth=Math.max(1,Math.max(2,Math.min(34,slot*0.72))-1);
+          let previousRight=-Infinity;
+          for(const n of targets){
+            const bars=[...host(kind).querySelectorAll(`.wealth-unified-flow-bar[data-bucket-key="${n.dataset.bucketKey}"]`)];
+            check(bars.length===(kind==='pnl'?1:2),'single or stacked series preserved');
+            const width=+bars[0].getAttribute('width'),x=+bars[0].getAttribute('x');
+            check(width>0&&width<oldWidth,'narrower than previous painted DAY width');
+            check(width<=slot*0.32+1e-8&&width<=12,'responsive daily cap and comfortable slot margin');
+            check(Math.abs(+n.getAttribute('width')-slot)<1e-8,'hit target full slot');
+            check(Math.abs(x+width/2-(+n.getAttribute('x')+slot/2))<1e-8,'bar remains centered');
+            check(x-previousRight>=slot*0.68-1e-8,'adjacent day bars separated');previousRight=x+width;
+            check(bars.every(b=>+b.getAttribute('width')===width&&+b.getAttribute('x')===x),'stack segments aligned');
+            const screenBar=bars[0].getBoundingClientRect(),screenTarget=n.getBoundingClientRect();
+            check(screenTarget.width>0&&screenBar.width<=screenTarget.width*0.33,'painted screen width retains full hit area');
+          }
+          const key=targets.at(-1).dataset.bucketKey,n=target(kind,key),bars=[...host(kind).querySelectorAll(`.wealth-unified-flow-bar[data-bucket-key="${key}"]`)];
+          const geometry=bars.map(b=>['x','y','width','height'].map(a=>b.getAttribute(a))),calls=__incomeCalls.length;
+          n.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));check(u.getDetail(kind).key===key,'exact DAY detail');
+          eq(bars.map(b=>['x','y','width','height'].map(a=>b.getAttribute(a))),geometry,'selection geometry unchanged');
+          check(__incomeCalls.length===calls,'no detail request');
+          const paint=getComputedStyle(n);check(paint.fill==='none'&&paint.stroke==='none'&&paint.pointerEvents==='all','invisible usable slot');
+          u.clearDetail(kind);
+          for(const mode of [modes.WEEK,modes.MONTH,modes.YEAR,modes.ALL]){
+            await render(kind,mode);await frames();
+            const n=host(kind).querySelector('.wealth-unified-bucket-target'),bar=host(kind).querySelector('.wealth-unified-flow-bar');
+            const slot=+n.getAttribute('width'),resolved=u.getDetailMode(kind);
+            const expected=resolved===modes.DAY?Math.min(12,slot*0.32):Math.max(1,Math.max(2,Math.min(34,slot*0.72))-1);
+            check(Math.abs(+bar.getAttribute('width')-expected)<1e-8,'non-DAY width unchanged; ALL follows resolved mode');
+          }
+        }
+      }
+    """,
     'keyboard_pan': r"""
       await render('pnl',modes.DAY);const n=target('pnl','2026-10-07');n.focus();check(document.activeElement===n,'focusable');
       for(const key of ['Enter',' ']){n.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));eq(names('pnl'),['P7a','P7b'],'keyboard activates');}
@@ -481,3 +523,11 @@ assert(!bucketContains('2025-12-31','2026',MODES.YEAR));
     subprocess.run(['node', '-e', script], cwd=root, check=True)
     for path in (root / 'app/static').glob('*.js'):
         assert 'MONTH CASHFLOW TREND' not in path.read_text(encoding='utf-8'), path
+
+
+def test_daily_width_desktop_runtime(chrome_preview):
+    call, evaluate, port = chrome_preview
+    call('Emulation.setDeviceMetricsOverride', {'width': 1280, 'height': 900, 'deviceScaleFactor': 1, 'mobile': False})
+    call('Page.navigate', {'url': f'http://127.0.0.1:{port}/#pnl'})
+    wait_for(evaluate, "document.readyState==='complete' && !!window.WealthUnifiedTimeseries && !!window.WealthTimeseriesVisibleRange")
+    assert evaluate('(async()=>{' + SETUP + SCENARIOS['daily_width_and_slot_spacing'] + ';return true;})()')
