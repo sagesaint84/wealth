@@ -70,9 +70,10 @@ class IpoFutureCompactViewFrontendTests(unittest.TestCase):
         self.assertLess(self.compact_js.index("note.appendChild(link)"),
                         self.compact_js.index("note.appendChild(text)"))
         self.assertIn("attractiveness_score", self.compact_js)
-        self.assertIn("demand_participant_count_reference", self.compact_js)
-        self.assertIn("lockup_participant_count_reference", self.compact_js)
-        self.assertIn("tradable_share_ratio_reference", self.compact_js)
+        self.assertNotIn("demand_participant_count_reference", self.compact_js)
+        self.assertNotIn("lockup_participant_count_reference", self.compact_js)
+        self.assertNotIn("tradable_share_ratio_reference", self.compact_js)
+        self.assertNotIn("overflow-x: auto", self.compact_js)
         self.assertIn("host !== 'metalogos.ai' && host !== 'www.metalogos.ai'", self.compact_js)
         self.assertIn("link.target = '_blank'", self.compact_js)
         self.assertIn("link.rel = 'noopener noreferrer'", self.compact_js)

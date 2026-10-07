@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from html import unescape
 from typing import Any, Callable, Iterator
 
 from app.services.ipo.dart_parser import (
@@ -18,6 +19,33 @@ _NUMBER_TOKEN = r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)"
 
 def _normalize_label(value: str) -> str:
     return re.sub(r"\s+", "", value or "")
+
+
+def _float_table_matrix(table: str) -> list[list[str]]:
+    """Expand span headers locally so float ratios retain their denominator."""
+    cells: dict[tuple[int, int], str] = {}
+    rows = re.findall(r"<tr\b[^>]*>(.*?)</tr>", table, re.I | re.S)
+    for row_index, row in enumerate(rows):
+        column = 0
+        for match in re.finditer(r"<t[dh]\b([^>]*)>(.*?)</t[dh]>", row, re.I | re.S):
+            while (row_index, column) in cells:
+                column += 1
+            spans = []
+            for name in ("rowspan", "colspan"):
+                attr = re.search(rf"\b{name}\s*=\s*['\"]?(\d+)", match.group(1), re.I)
+                span = int(attr.group(1)) if attr else 1
+                if not 1 <= span <= 32:
+                    return []
+                spans.append(span)
+            value = unescape(clean_text(match.group(2)))
+            for r in range(row_index, row_index + spans[0]):
+                for c in range(column, column + spans[1]):
+                    if (r, c) in cells:
+                        return []
+                    cells[r, c] = value
+            column += spans[1]
+    width = max((c + 1 for _, c in cells), default=0)
+    return [[cells.get((r, c), "") for c in range(width)] for r in range(len(rows))]
 
 
 def _largest_non_percent_number(cells: list[str]) -> float | None:
@@ -411,10 +439,16 @@ class AccurateDartSemanticParser(_BaseDartSemanticParser):
         return None
 
     def extract_tradable_share_ratio(self, text: str) -> float | None:
-        """Extract the current immediately-tradable ratio from explicit prose."""
+        """Extract immediate float from explicit prose or a labelled ratio column."""
 
         candidates: list[tuple[int, int, float]] = []
+        unresolved_tables: list[tuple[int, int]] = []
         patterns = (
+            re.compile(
+                r"(?:\d{1,3}(?:,\d{3})+|\d+)\s*주\s*\(\s*"
+                r"(\d+(?:\.\d+)?)\s*%\s*\)\s*(?:는|은)\s*"
+                r"상장\s*직후\s*(?:시장\s*에서\s*)?유통\s*가능"
+            ),
             re.compile(
                 r"상장(?:예정)?주식수[^%]{0,180}?중\s*"
                 r"(\d+(?:\.\d+)?)\s*%[^.]{0,220}?"
@@ -434,6 +468,46 @@ class AccurateDartSemanticParser(_BaseDartSemanticParser):
             table_text = clean_text(table)
             if "유통" not in table_text or "상장" not in table_text:
                 continue
+            # DART tables often put (%) in the header, not in each numeric
+            # cell. Read only that declared ratio column and the immediate
+            # listing row; share counts and later unlock rows are not ratios.
+            ratio_columns: list[int] = []
+            header_context: dict[int, str] = {}
+            table_values: list[float] = []
+            has_ratio_row = False
+            for row in _float_table_matrix(table):
+                headers = [position for position, cell in enumerate(row)
+                           if re.fullmatch(r"(?:비율|지분율|유통가능주식수비율)(?:\(%\)|%)?", _normalize_label(cell))]
+                if headers:
+                    post_offer = [p for p in headers if "공모후기준" in header_context.get(p, "")]
+                    ratio_columns = post_offer if post_offer else [
+                        p for p in headers if len(headers) == 1 and not re.search(
+                            r"행사|희석|주식매수선택권|신주인수권", header_context.get(p, "")
+                        )
+                    ]
+                    continue
+                if not any(re.fullmatch(r"상장(?:직후|일)유통가능(?:주식수|주식|물량)?", _normalize_label(cell)) for cell in row):
+                    for position, cell in enumerate(row):
+                        if re.search(r"기준|행사", cell):
+                            header_context[position] = _normalize_label(cell)
+                    continue
+                has_ratio_row = True
+                for position in ratio_columns:
+                    if position >= len(row):
+                        continue
+                    cell = row[position].strip()
+                    if not re.fullmatch(r"\d+(?:\.\d+)?\s*%?", cell):
+                        continue
+                    value = parse_number(cell)
+                    if value is not None and 0.0 < value <= 100.0:
+                        table_values.append(round(value, 2))
+            if has_ratio_row:
+                # Conflicting immediate-float rows in one table are ambiguous.
+                if len(set(table_values)) == 1:
+                    candidates.append((rank, index, table_values[0]))
+                else:
+                    unresolved_tables.append((rank, index))
+                continue
             for pattern in patterns:
                 match = pattern.search(table_text)
                 if not match:
@@ -443,6 +517,10 @@ class AccurateDartSemanticParser(_BaseDartSemanticParser):
                     candidates.append((rank, index, round(value, 2)))
                     break
 
+        if unresolved_tables and (not candidates or max(unresolved_tables) >= max(
+            (rank, index) for rank, index, _value in candidates
+        )):
+            return None
         if candidates:
             return _best_value(candidates)
 

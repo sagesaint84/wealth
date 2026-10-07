@@ -33,11 +33,13 @@ let note = box.children[0];
 assert.equal(note.children[0].tagName, 'a');
 assert.equal(note.children[0].textContent, '160 원문');
 assert.equal(note.children[0].rel, 'noopener noreferrer');
-assert.equal(note.children[1].textContent, ' · 매력지수 79 · 수요예측기관 2,367 · 확약기관 355 · 유통가능 20.81%');
-assert.equal(note.children.map(child => child.textContent).join(''), '160 원문 · 매력지수 79 · 수요예측기관 2,367 · 확약기관 355 · 유통가능 20.81%');
+assert.equal(note.children[1].textContent, ' · 매력지수 79');
+assert.equal(note.children.map(child => child.textContent).join(''), '160 원문 · 매력지수 79');
 const originalLink = note.children[0];
 decorateMetalogosReference(card, {sources:{metalogos160:reference}});
 assert.equal(note.children[0], originalLink, 'unchanged observer decoration must preserve the pressed anchor');
+decorateMetalogosReference(card, {sources:{metalogos160:{...reference,tradable_share_ratio_reference:99}}});
+assert.equal(note.children[0], originalLink, 'hidden backend references must not rebuild the visible link');
 assert.ok(note.title.includes('Wealth IPO Score 산정에는 사용하지 않습니다.'));
 for (const url of ['http://metalogos.ai/160ipo/stock/A', 'https://evil.example/160ipo/stock/A',
                   'https://metalogos.ai/not-stock/A']) {

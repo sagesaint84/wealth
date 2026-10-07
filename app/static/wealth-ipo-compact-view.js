@@ -72,10 +72,7 @@
       #ipoListWrapper .ipo-metalogos-reference {
         display: block;
         margin-top: 6px;
-        max-width: 430px;
-        width: 100%;
         white-space: nowrap;
-        overflow-x: auto;
         box-sizing: border-box;
         color: #a5b4fc;
         font-size: 10.5px;
@@ -213,13 +210,7 @@
 
     const parts = [];
     const attractiveness = compactReferenceNumber(reference.attractiveness_score);
-    const demandCount = compactReferenceNumber(reference.demand_participant_count_reference);
-    const lockupCount = compactReferenceNumber(reference.lockup_participant_count_reference);
-    const tradable = compactReferenceNumber(reference.tradable_share_ratio_reference);
     if (attractiveness) parts.push(`매력지수 ${attractiveness}`);
-    if (demandCount) parts.push(`수요예측기관 ${demandCount}`);
-    if (lockupCount) parts.push(`확약기관 ${lockupCount}`);
-    if (tradable) parts.push(`유통가능 ${tradable}%`);
 
     const sourceUrl = trustedMetalogosUrl(reference.url);
     // Observer decoration must not remove an anchor between pointerdown/up.
