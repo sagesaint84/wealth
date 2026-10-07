@@ -265,12 +265,17 @@
     const bars = [...svg.querySelectorAll('.wealth-unified-flow-bar')];
     const zeroLine = svg.querySelector('line');
     const valueKeys = Object.keys(buckets.find(bucket => bucket?.values)?.values || {});
+    const stacked = shell.dataset.flowStacked === 'true';
 
     const update = () => {
       const bounds = visibleBounds(viewport, buckets.length);
       const visible = buckets.slice(bounds.start, bounds.end + 1);
       const visibleValues = [];
-      visible.forEach(bucket => valueKeys.forEach(key => visibleValues.push(finite(bucket.values?.[key]))));
+      visible.forEach(bucket => {
+        const values = valueKeys.map(key => finite(bucket.values?.[key]));
+        if (stacked) visibleValues.push(values.reduce((sum, value) => sum + Math.max(0, value), 0), values.reduce((sum, value) => sum + Math.min(0, value), 0));
+        else valueKeys.forEach(key => visibleValues.push(finite(bucket.values?.[key])));
+      });
       const range = paddedRange([0, ...visibleValues], true);
       const y = value => clampY(bottom - ((finite(value) - range.min) / (range.max - range.min)) * (bottom - top));
       const zeroY = y(0);
@@ -279,6 +284,12 @@
         const bucketIndex = Number(bar.dataset.bucketIndex);
         const bucket = buckets[bucketIndex];
         if (!bucket) return;
+        if (stacked) {
+          const startY = y(bar.dataset.stackStart), endY = y(bar.dataset.stackEnd);
+          bar.setAttribute('y', String(Math.min(startY, endY)));
+          bar.setAttribute('height', String(bar.dataset.stackZero === 'true' ? 1 : Math.abs(startY - endY)));
+          return;
+        }
         const seriesIndex = flatIndex % Math.max(1, valueKeys.length);
         const key = valueKeys[seriesIndex];
         const value = finite(bucket.values?.[key]);

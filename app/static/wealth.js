@@ -9796,7 +9796,7 @@ function renderActualDividendDetail(month = null, bucketDetail = null) {
   const dividendCount = items.filter(item => item.income_kind !== 'interest').length;
   const interestCount = items.length - dividendCount;
   const sumKrw = items.reduce((sum, item) => sum + Number(item.amount_krw || 0), 0);
-  const period = bucketDetail?.key ? window.WealthUnifiedTimeseries.bucketHeading(bucketDetail.key)
+  const period = bucketDetail?.key ? window.WealthUnifiedTimeseries.bucketHeading(bucketDetail.key, bucketDetail.mode)
     : month ? `${selectedDividendYear && selectedDividendYear !== 'all' ? `${selectedDividendYear}년 ` : ''}${month}월` : '전체';
   title = `📅 ${period} 실제 배당·이자 내역 (배당 ${dividendCount}건 · 이자 ${interestCount}건 · 합계 ${money(sumKrw)})`;
 
@@ -10317,7 +10317,7 @@ function renderPnlMonthlyDetail(month = null, bucketDetail = null) {
   if (bucketDetail) {
     items = [...records];
     const itemSummary = buildRealizedPnlDisplaySummary({}, items, false);
-    const period = bucketDetail.key ? window.WealthUnifiedTimeseries.bucketHeading(bucketDetail.key) : '전체';
+    const period = bucketDetail.key ? window.WealthUnifiedTimeseries.bucketHeading(bucketDetail.key, bucketDetail.mode) : '전체';
     title = `📅 ${period} 매도 실현손익 내역 (${items.length}건 · 합계 ${itemSummary.totalPnlKrw > 0 ? '+' : ''}${money(itemSummary.totalPnlKrw)}${itemSummary.completenessNote ? ` · ${itemSummary.completenessNote}` : ''})`;
   } else if (month && month >= 1 && month <= 12) {
     const monthStr = String(month).padStart(2, '0');

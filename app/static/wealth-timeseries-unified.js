@@ -72,14 +72,16 @@
   }
 
   const details = {pnl: null, dividend: null};
-  const supportsDetail = mode => mode === MODES.DAY || mode === MODES.MONTH;
+  const supportsDetail = mode => [MODES.DAY, MODES.WEEK, MODES.MONTH, MODES.YEAR].includes(mode);
   function bucketContains(date, key, mode) {
     const text = String(date || '').trim();
     if (!core.parseDate(text) || !supportsDetail(mode)) return false;
-    return text.slice(0, mode === MODES.DAY ? 10 : 7) === key;
+    return core.bucketKey(text, mode) === key;
   }
-  function bucketHeading(key) {
+  function bucketHeading(key, mode) {
     const [year, month, day] = String(key).split('-').map(Number);
+    if (mode === MODES.YEAR) return `${year}년`;
+    if (mode === MODES.WEEK) return `${year}년 ${month}월 ${day}일 주간`;
     return `${year}년 ${month}월${day ? ` ${day}일` : ''}`;
   }
   function detailContext(kind) {
@@ -139,10 +141,10 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      .wealth-unified-bucket-target { fill:transparent; cursor:pointer; }
-      .wealth-unified-bucket-target.is-selected { stroke:currentColor; stroke-width:2; stroke-dasharray:5 3; }
-      .wealth-unified-bucket-target:focus-visible { outline:2px solid currentColor; outline-offset:-2px; }
-      .wealth-unified-flow-bar.is-selected { stroke:currentColor; stroke-width:2; }
+      /* Slot targets are hit areas only: stretched SVG strokes can obscure DAY bars. */
+      .wealth-unified-bucket-target { fill:none; stroke:none; pointer-events:all; outline:none; cursor:pointer; }
+      .wealth-unified-flow-bar.is-selected,
+      .wealth-unified-flow-bar.is-bucket-focused { stroke:currentColor; stroke-width:2; stroke-dasharray:4 2; vector-effect:non-scaling-stroke; }
 
       .wealth-unified-periods {
         display: inline-flex;
@@ -551,7 +553,12 @@
     }
 
     const values = [];
-    buckets.forEach(bucket => series.forEach(item => values.push(finite(bucket.values?.[item.key]))));
+    const stacked = options.stacked === true;
+    buckets.forEach(bucket => {
+      const amounts = series.map(item => finite(bucket.values?.[item.key]));
+      if (stacked) values.push(amounts.reduce((sum, value) => sum + Math.max(0, value), 0), amounts.reduce((sum, value) => sum + Math.min(0, value), 0));
+      else values.push(...amounts);
+    });
     const range = niceRange(Math.min(0, ...values), Math.max(0, ...values), true);
     const width = 1000;
     const height = 292;
@@ -563,19 +570,25 @@
     const zeroY = y(0);
     const slot = (right - left) / Math.max(1, buckets.length);
     const groupWidth = Math.min(34, slot * 0.72);
-    const barWidth = Math.max(2, groupWidth / Math.max(1, series.length));
+    const barWidth = Math.max(2, groupWidth / (stacked ? 1 : Math.max(1, series.length)));
 
     const clickable = supportsDetail(aggregated.mode) && typeof options.onBucketClick === 'function';
     const bars = buckets.map((bucket, index) => {
       const cx = left + slot * (index + 0.5);
+      let positive = 0, negative = 0;
+      const emptyStack = series.every(item => finite(bucket.values?.[item.key]) === 0);
       return series.map((item, seriesIndex) => {
         const value = finite(bucket.values?.[item.key]);
-        const py = y(value);
-        const rectY = Math.min(py, zeroY);
-        const rectH = Math.max(value === 0 ? 1 : 2, Math.abs(zeroY - py));
-        const startX = cx - (barWidth * series.length) / 2;
+        const start = stacked ? (value < 0 ? negative : positive) : 0;
+        const end = start + value;
+        if (value < 0) negative = end; else positive = end;
+        const py = y(end), baseY = y(start);
+        const rectY = Math.min(py, baseY);
+        const rectH = stacked ? (emptyStack && seriesIndex === 0 ? 1 : Math.abs(baseY - py)) : Math.max(value === 0 ? 1 : 2, Math.abs(zeroY - py));
+        const startX = cx - (barWidth * (stacked ? 1 : series.length)) / 2;
         const fill = value < 0 ? (item.negativeColor || '#438ee6') : (item.color || '#43d982');
-        return `<rect class="wealth-unified-flow-bar${clickable ? ' is-clickable' : ''}" data-bucket-key="${html(bucket.key)}" data-bucket-index="${index}" x="${startX + seriesIndex * barWidth}" y="${rectY}" width="${Math.max(1, barWidth - 1)}" height="${rectH}" rx="1.5" fill="${fill}" opacity=".95"><title>${html(bucket.label)} · ${html(item.label)} ${compactWon(value)}</title></rect>`;
+        const stackData = stacked ? ` data-stack-start="${start}" data-stack-end="${end}" data-stack-zero="${emptyStack && seriesIndex === 0}"` : '';
+        return `<rect class="wealth-unified-flow-bar${clickable ? ' is-clickable' : ''}" data-series-key="${html(item.key)}"${stackData} data-bucket-key="${html(bucket.key)}" data-bucket-index="${index}" x="${startX + (stacked ? 0 : seriesIndex * barWidth)}" y="${rectY}" width="${Math.max(1, barWidth - 1)}" height="${rectH}" rx="${stacked ? 0 : 1.5}" fill="${fill}" opacity=".95"><title>${html(bucket.label)} · ${html(item.label)} ${compactWon(value)}</title></rect>`;
       }).join('');
     }).join('');
 
@@ -585,14 +598,15 @@
       return `<text x="${cx}" y="262" fill="#9aacd2" font-size="10" text-anchor="middle">${html(bucket.label)}</text>${marker ? `<text x="${cx}" y="280" fill="#6f82ad" font-size="9" font-weight="700" text-anchor="middle">${html(marker)}</text>` : ''}`;
     }).join('');
 
-    host.innerHTML = `<div class="wealth-unified-chart-shell" data-unified-kind="${html(options.kind || '')}"><div class="wealth-unified-axis">${axisHtml([{ range, top, height: bottom - top, count: 5 }])}</div><div class="wealth-unified-viewport"><div class="wealth-unified-content"><svg class="wealth-unified-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="${clickable ? 'group' : 'img'}" aria-label="${html(options.ariaLabel || '금액 막대 차트')}"><line x1="${left}" y1="${zeroY}" x2="${right}" y2="${zeroY}" stroke="#334673" opacity=".9"/>${bars}${labels}</svg></div></div></div>`;
+    const legend = stacked ? `<div class="wealth-unified-flow-legend" style="display:flex;gap:12px;justify-content:flex-end;font-size:11px;margin-top:4px;">${series.map(item => `<span><span aria-hidden="true" style="color:${html(item.color)}">■</span> ${html(item.label)}</span>`).join('')}</div>` : '';
+    host.innerHTML = `<div class="wealth-unified-chart-shell" data-flow-stacked="${stacked}" data-unified-kind="${html(options.kind || '')}"><div class="wealth-unified-axis">${axisHtml([{ range, top, height: bottom - top, count: 5 }])}</div><div class="wealth-unified-viewport"><div class="wealth-unified-content"><svg class="wealth-unified-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="${clickable ? 'group' : 'img'}" aria-label="${html(options.ariaLabel || '금액 막대 차트')}"><line x1="${left}" y1="${zeroY}" x2="${right}" y2="${zeroY}" stroke="#334673" opacity=".9"/>${bars}${labels}</svg></div></div></div>${legend}`;
 
     const viewport = host.querySelector('.wealth-unified-viewport');
     if (clickable) {
       const svg = host.querySelector('svg');
       const targets = buckets.map((bucket, index) => {
         const summary = series.map(item => `${item.label} ${compactWon(finite(bucket.values?.[item.key]))}`).join(' · ');
-        return `<rect class="wealth-unified-bucket-target" data-bucket-index="${index}" data-bucket-key="${html(bucket.key)}" x="${left + slot * index}" y="${top}" width="${slot}" height="${bottom - top}" role="button" tabindex="0" aria-pressed="false" aria-label="${html(bucketHeading(bucket.key))} ${html(options.kind === 'pnl' ? '실현손익' : '배당·이자')} 내역 보기 · ${html(summary)}"/>`;
+        return `<rect class="wealth-unified-bucket-target" data-bucket-index="${index}" data-bucket-key="${html(bucket.key)}" x="${left + slot * index}" y="${top}" width="${slot}" height="${bottom - top}" role="button" tabindex="0" aria-pressed="false" aria-label="${html(bucketHeading(bucket.key, aggregated.mode))} ${html(options.kind === 'pnl' ? '실현손익' : '배당·이자')} 내역 보기 · ${html(summary)}"/>`;
       }).join('');
       svg.insertAdjacentHTML('beforeend', targets);
       let gesture = null;
@@ -611,6 +625,13 @@
         if (index != null && buckets[Number(index)]) options.onBucketClick(buckets[Number(index)], aggregated.mode);
       });
       host.querySelectorAll('.wealth-unified-bucket-target').forEach(node => {
+        const focusBars = focused => {
+          svg.querySelectorAll('.wealth-unified-flow-bar').forEach(bar => {
+            if (bar.dataset.bucketKey === node.dataset.bucketKey) bar.classList.toggle('is-bucket-focused', focused);
+          });
+        };
+        node.addEventListener('focus', () => focusBars(true));
+        node.addEventListener('blur', () => focusBars(false));
         node.addEventListener('keydown', event => {
           if (!['Enter', ' '].includes(event.key)) return;
           event.preventDefault(); options.onBucketClick(buckets[Number(node.dataset.bucketIndex)], aggregated.mode);
@@ -828,6 +849,7 @@
         { key: 'interest_value', label: '이자', color: '#f6b84a' },
       ], {
         kind: 'dividend',
+        stacked: true,
         ariaLabel: '기간별 실제 배당 및 이자',
         onBucketClick: (bucket, resolvedMode) => selectBucket('dividend', bucket, resolvedMode),
       });
