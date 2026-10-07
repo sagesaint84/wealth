@@ -109,7 +109,7 @@ class IpoPresentationTests(unittest.TestCase):
         self.assertIn("button.setAttribute('aria-busy', 'true');", ipo)
         self.assertIn("button.disabled = false;", ipo)
         self.assertIn("refreshInFlight = false;", ipo)
-        self.assertIn("marketIpos = Array.isArray(data.market?.ipos) ? data.market.ipos : marketIpos", ipo)
+        self.assertIn("if (Array.isArray(data.market?.ipos)) setMarketIpos(data.market.ipos)", ipo)
 
     def test_ipo_account_controls_use_backend_broker_and_candidate_resolution(self):
         ipo = (ROOT / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")

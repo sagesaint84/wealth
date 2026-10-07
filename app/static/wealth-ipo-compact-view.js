@@ -11,8 +11,6 @@
   };
   let decorateQueued = false;
   let metadataLoaded = false;
-  let metadataDirty = true;
-  let metadataPromise = null;
 
   function installStyles() {
     if (document.getElementById('wealthIpoCompactViewStyles')) return;
@@ -113,6 +111,7 @@
   function scoreDiagnosticText(score) {
     if (!score || typeof score !== 'object') return '점수 데이터가 아직 생성되지 않았습니다.';
     if (score.status === 'NOT_APPLICABLE') return '';
+    if (typeof score.score === 'number' && Number.isFinite(score.score)) return '';
     const isCalculating = score.is_calculating === true || score.score === null || score.score === undefined;
     if (!isCalculating) return '';
 
@@ -158,6 +157,7 @@
     const diagnostic = scoreDiagnosticText(meta?.score);
     let note = scoreBox.querySelector('.ipo-score-diagnostic');
     if (!diagnostic) {
+      if (note && scoreBox.title === note.textContent) scoreBox.removeAttribute('title');
       note?.remove();
       return;
     }
@@ -274,46 +274,21 @@
     installStyles();
     const wrapper = document.getElementById('ipoListWrapper');
     if (!wrapper) return;
+    const snapshot = window.WealthIpoState?.getMarketIpos?.();
+    metadataLoaded = Array.isArray(snapshot);
+    ipoMetadataById.clear();
+    (snapshot || []).forEach(item => {
+      const ipoId = String(item?.ipo_id || '');
+      if (ipoId) ipoMetadataById.set(ipoId, item);
+    });
     wrapper.querySelectorAll('.ipo-card').forEach(decorateCard);
     enableFutureNavigation(wrapper);
-    if (metadataDirty && !metadataPromise) void loadIpoMetadata();
   }
 
   function queueDecorate() {
     if (decorateQueued) return;
     decorateQueued = true;
     window.requestAnimationFrame(decorate);
-  }
-
-  async function loadIpoMetadata(force = false) {
-    if (!force && metadataLoaded && !metadataDirty) return;
-    if (metadataPromise) return metadataPromise;
-    metadataPromise = (async () => {
-      try {
-        const payload = await window.fetchJson('/api/ipo/market');
-        ipoMetadataById.clear();
-        (Array.isArray(payload?.ipos) ? payload.ipos : []).forEach(item => {
-          const ipoId = String(item?.ipo_id || '');
-          if (ipoId) ipoMetadataById.set(ipoId, item);
-        });
-        metadataLoaded = true;
-        metadataDirty = false;
-      } catch (err) {
-        console.warn('IPO 표시 진단 데이터를 불러오지 못했습니다:', err);
-        metadataLoaded = false;
-        metadataDirty = false;
-      } finally {
-        metadataPromise = null;
-        queueDecorate();
-      }
-    })();
-    return metadataPromise;
-  }
-
-  function invalidateIpoMetadata() {
-    metadataDirty = true;
-    metadataLoaded = false;
-    ipoMetadataById.clear();
   }
 
   function moveAllViewToNextMonth(event, wrapper) {
@@ -360,10 +335,9 @@
     const wrapper = document.getElementById('ipoListWrapper');
     if (!wrapper) return;
     wrapper.addEventListener('click', handleClick, true);
-    document.getElementById('ipoRefreshBtn')?.addEventListener('click', invalidateIpoMetadata, true);
+    window.addEventListener('wealth:ipo-market-rendered', decorate);
     const observer = new MutationObserver(queueDecorate);
     observer.observe(wrapper, { childList: true, subtree: true });
-    void loadIpoMetadata();
     queueDecorate();
   }
 

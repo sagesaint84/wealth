@@ -92,6 +92,17 @@
   let familyMembers = ['아빠', '엄마', '자녀'];
   let userApplications = {};
   let marketIpos = [];
+  let canonicalMarketIpos = [];
+  let marketSnapshotRevision = 0;
+
+  function setMarketIpos(items, { projection = false } = {}) {
+    marketIpos = Array.isArray(items) ? items : [];
+    if (!projection) {
+      canonicalMarketIpos = marketIpos;
+      marketSnapshotRevision += 1;
+      window.dispatchEvent(new CustomEvent('wealth:ipo-market-changed'));
+    }
+  }
   let ipoFilterGroup = 'ALL';
   let refreshInFlight = false;
   let historicalImportInFlight = false;
@@ -308,6 +319,7 @@
   async function loadIpoSchedule() {
     const wrapper = document.getElementById('ipoListWrapper');
     if (!wrapper) return;
+    const revision = marketSnapshotRevision;
 
     try {
       // 1. Fetch user applications and current revision
@@ -324,9 +336,12 @@
       // 2. Fetch canonical market IPO records
       const marketData = await window.fetchJson('/api/ipo/market', marketLoaded ? { cache: 'no-store' } : {});
       marketLoaded = true;
-      marketIpos = Array.isArray(marketData.ipos) ? marketData.ipos : [];
+      // A GET started before a successful refresh cannot replace its snapshot.
+      if (revision !== marketSnapshotRevision) return;
+      setMarketIpos(marketData.ipos);
       renderIpoList();
     } catch (err) {
+      if (revision !== marketSnapshotRevision) return;
       console.error('Failed to load IPO data:', err);
       wrapper.innerHTML = '<p class="empty-text" style="padding:24px;text-align:center;">공모주 데이터를 불러오는 중 오류가 발생했습니다.</p>';
     }
@@ -346,7 +361,7 @@
     if (historicalButton) historicalButton.disabled = true;
     try {
       const data = await window.fetchJson('/api/ipo/market/refresh', { method: 'POST' });
-      marketIpos = Array.isArray(data.market?.ipos) ? data.market.ipos : marketIpos;
+      if (Array.isArray(data.market?.ipos)) setMarketIpos(data.market.ipos);
       renderIpoList();
     } catch (err) {
       console.error('Failed to refresh IPO market data:', err);
@@ -480,7 +495,7 @@
         throw new Error(payload?.detail?.message || '반영에 실패했습니다.');
       }
 
-      marketIpos = Array.isArray(payload.market?.ipos) ? payload.market.ipos : marketIpos;
+      if (Array.isArray(payload.market?.ipos)) setMarketIpos(payload.market.ipos);
       historicalImportTicket = null;
       historicalImportCanCommit = false;
       historicalImportMode = null;
@@ -811,6 +826,7 @@
     }
 
     wrapper.innerHTML = html;
+    window.dispatchEvent(new CustomEvent('wealth:ipo-market-rendered'));
 
     wrapper.querySelectorAll('.ipo-filter').forEach(button => button.addEventListener('click', () => {
       ipoFilterGroup = button.dataset.filterGroup || 'ALL';
@@ -1187,7 +1203,9 @@
     isMonthExplicitlySelected: () => ipoMonthExplicitlySelected,
     setMonthExplicitlySelected: (v) => { ipoMonthExplicitlySelected = v === true; },
     setAllMonthInitialized: (v) => { ipoAllMonthInitialized = v === true; },
-    setMarketIpos: (items) => { marketIpos = Array.isArray(items) ? items : []; },
+    getMarketIpos: () => marketIpos.slice(),
+    getCanonicalMarketIpos: () => canonicalMarketIpos.slice(),
+    setMarketIpos,
     setUserApplications: (apps) => { userApplications = apps || {}; },
     renderIpoList,
   };

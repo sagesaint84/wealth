@@ -11,7 +11,11 @@ class IpoEventMonthsFrontendTests(unittest.TestCase):
     def test_event_month_extension_projects_month_local_sort_date(self):
         source = (ROOT / "app" / "static" / "wealth-ipo-event-months.js").read_text(encoding="utf-8")
         self.assertIn("presentation_month_sort_dates", source)
-        self.assertIn("state.setMarketIpos?.(projectedForMonth(key))", source)
+        self.assertIn("state.setMarketIpos?.(projectedForMonth(key), { projection: true })", source)
+        self.assertIn("getCanonicalMarketIpos", source)
+        self.assertIn("wealth:ipo-market-changed", source)
+        self.assertNotIn("fetchJson", source)
+        self.assertNotIn("MutationObserver", source)
         self.assertIn("date.shiftIpoMonth(year, month, 1).key", source)
         self.assertIn("wrapper.addEventListener('click'", source)
         self.assertIn("}, true);", source)
