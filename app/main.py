@@ -5654,8 +5654,9 @@ async def import_backup(request: Request, file: UploadFile = File(...)) -> dict:
     return {"message": f"{', '.join(msgs)} 데이터를 복원했습니다."}
 
 @app.post("/api/demo")
-async def load_demo() -> dict:
-    seed_demo()
+async def load_demo(request: Request) -> dict:
+    username = get_current_username(request)
+    seed_demo(username=username)
     return {"message": "예시 데이터를 불러왔습니다."}
 
 

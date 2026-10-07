@@ -906,7 +906,9 @@ def import_rows(filename: str, contents: bytes, default_broker: str = "기타 �
     return count, errors[:10]
 
 
-def seed_demo() -> None:
+def seed_demo(username: str) -> None:
+    if not isinstance(username, str) or not username.strip():
+        raise ValueError("Demo data requires an explicit username")
     data = deepcopy(EMPTY_PORTFOLIO)
     data["settings"]["fx_rates"]["USD"] = 1350.0
     data["settings"]["fx_info"] = {"source": "예시 데이터", "valid_until": None}
@@ -924,7 +926,7 @@ def seed_demo() -> None:
         {"code": "NVDA", "name": "NVIDIA", "quantity": 5, "avg_price": 118, "current_price": 128, "currency": "USD", "market": "NAS", "account_id": toss, "broker": "토스증권", "account_name": "토스 해외 주식"},
     ]
     upsert_holdings(data, [normalize_holding(item, item["account_id"], item["broker"], item["account_name"], "demo") for item in examples])
-    write_portfolio(data)
+    write_portfolio(data, username=username)
 
 
 def clear_portfolio() -> None:
