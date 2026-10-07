@@ -8,10 +8,12 @@ import urllib.request
 import pytest
 
 from tests.test_account_reorder_runtime import chrome_preview, wait_for
+from tests.test_ipo_pre_subscription_score_recovery import company
+from app.services.ipo.score import calculate_wealth_ipo_score
 
 
 URL = 'https://metalogos.ai/160ipo/stock/B_SYNTHETIC'
-TEXT = '160 원문 · 매력지수 86 · 수요예측기관 2,269 · 확약기관 636 · 유통가능 23.33%'
+TEXT = '160 원문 · 매력지수 86'
 FRAMES = '(async()=>{for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);return true;})()'
 SETUP = r'''(async()=>{
 window.__ipo={ipo_id:'synthetic-ms',company_name:'엠에스바이오',
@@ -139,10 +141,9 @@ def test_reference_line_and_native_external_link(reference_browser, width):
     assert all(abs(rect['y']-geometry['linkY']) < 1 for rect in geometry['metricRects'])
     assert geometry['right'] <= width
     assert geometry['right'] <= geometry['cardRight']
-    assert geometry['overflow'] == 'auto'
+    assert geometry['overflow'] == 'visible'
     assert geometry['pageWidth'] <= width
-    if width == 1280:
-        assert geometry['textWidth'] <= geometry['rowWidth'], 'normal desktop card must show all values on one line'
+    assert geometry['textWidth'] <= geometry['rowWidth'], 'reference row must never require horizontal scrolling'
     before = {target['targetId'] for target in browser.call('Target.getTargets')['targetInfos']}
     browser.call('Target.setAutoAttach', {'autoAttach':True,'waitForDebuggerOnStart':True,'flatten':True})
     call('Input.dispatchMouseEvent', {'type':'mousePressed','x':geometry['x'],'y':geometry['y'],'button':'left','clickCount':1})
@@ -170,3 +171,22 @@ def test_reference_line_and_native_external_link(reference_browser, width):
     call('Page.bringToFront')
     # Compact/expanded toggle remains usable and never exposes reference overflow.
     assert evaluate("(()=>{const c=document.querySelector('.ipo-card'),b=c.querySelector('.ipo-card-detail-toggle');b.click();const compact=!c.classList.contains('ipo-card-expanded');b.click();return compact&&c.classList.contains('ipo-card-expanded');})()")
+    # A recomputed canonical score must replace the calculating presentation,
+    # independently of the still-visible Metalogos attractiveness reference.
+    row = company()
+    row['features']['tradable_share_ratio'] = {'value':23.33,'status':'ok','source_date':'20261006'}
+    score = calculate_wealth_ipo_score(row, [row])
+    assert score['score'] is not None and score['score'] != 86
+    shown = evaluate('''(async()=>{
+      __ipo.score = ''' + json.dumps(score) + ''';
+      WealthIpoState.setMarketIpos([__ipo]);WealthIpoState.renderIpoList();
+      document.getElementById('ipoRefreshBtn').dispatchEvent(new Event('click',{bubbles:true}));
+      for(let i=0;i<6;i++)await new Promise(requestAnimationFrame);
+      return {score:document.querySelector('.ipo-score-box').textContent,
+        reference:document.querySelector('.ipo-metalogos-reference').textContent,
+        diagnostic:!!document.querySelector('.ipo-score-diagnostic')};
+    })()''')
+    assert '점수 산정중' not in shown['score']
+    assert str(score['score']) in shown['score']
+    assert shown['reference'] == TEXT
+    assert shown['diagnostic'] is False
