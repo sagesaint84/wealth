@@ -1,5 +1,7 @@
 """Synthetic portfolios, native Chrome input, no financial storage or imports."""
+import json
 import pytest
+from app.services.ipo.presentation import derive_lead_manager_filters
 from tests.test_account_reorder_runtime import chrome_preview, wait_for
 
 FRAMES = '(async()=>{for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);return true})()'
@@ -40,6 +42,13 @@ def click(call, evaluate, selector):
 def no_overflow(evaluate, width):
     assert evaluate('document.documentElement.scrollWidth') <= width
 
+def attach_broker_metadata(evaluate, variable):
+    """Use the real presentation helper for synthetic browser response fixtures."""
+    rows = evaluate(variable)
+    for row in rows:
+        row['lead_manager_filters'] = derive_lead_manager_filters(row.get('lead_managers'))
+    evaluate(f'{variable}={json.dumps(rows, ensure_ascii=False)};WealthIpoState.setMarketIpos({variable});WealthIpoState.renderIpoList()')
+
 @pytest.mark.parametrize('width',[1280,390])
 def test_ipo_manager_month_status_and_snapshot(chrome_preview,width):
     call,evaluate=start(chrome_preview,width,'ipo')
@@ -47,10 +56,11 @@ def test_ipo_manager_month_status_and_snapshot(chrome_preview,width):
       const row=(id,managers,month,status)=>({ipo_id:id,company_name:id,lead_managers:managers,filter_group:status,presentation_sort_date:`2026-${month}-12`,subscription_start:`2026-${month}-12`,score:{score:61.9,coverage:75,core_missing:[]}});
       __ipos=[row('mira',['미래에셋증권'],'10','UPCOMING'),row('multi',['미래에셋증권','삼성증권'],'10','ACTIVE'),row('samsung',['삼성증권'],'10','PAST'),row('next',['미래에셋증권'],'11','UPCOMING'),row('past',['미래에셋증권'],'10','PAST'),row('unknown',[],'10','UPCOMING'),row('near-name',['미래에셋증권우'],'10','UPCOMING')];
       WealthIpoState.setMarketIpos(__ipos);WealthIpoState.setFilterGroup('ALL');WealthIpoState.setHistoryYear(2026);WealthIpoState.setHistoryMonth(10);WealthIpoState.setMonthExplicitlySelected(true);WealthIpoState.renderIpoList();
-      window.__chooseBroker=name=>{const s=document.getElementById('ipoBrokerFilter');s.value=name;s.dispatchEvent(new Event('change',{bubbles:true}))};
+      window.__chooseBroker=name=>{const s=document.getElementById('ipoBrokerFilter');s.value=[...s.options].find(o=>o.textContent===name).value;s.dispatchEvent(new Event('change',{bubbles:true}))};
       window.__cards=()=>[...document.querySelectorAll('.ipo-card')].map(c=>c.dataset.ipoId).sort();
-      __chooseBroker('미래에셋증권');
     })()''')
+    attach_broker_metadata(evaluate, '__ipos')
+    evaluate("__chooseBroker('미래에셋증권')")
     assert evaluate('__cards()') == ['mira','multi','past']
     assert evaluate("document.querySelector('[data-filter-group=ALL]').textContent") == '전체 4'
     for status, expected in [('UPCOMING',['mira']),('ACTIVE',['multi']),('PAST',['past']),('ALL',['mira','multi','past'])]:
@@ -58,12 +68,12 @@ def test_ipo_manager_month_status_and_snapshot(chrome_preview,width):
         assert evaluate('__cards()') == expected
     click(call,evaluate,'#ipoNextMonthBtn')
     assert evaluate('__cards()') == ['next']
-    assert evaluate("document.getElementById('ipoBrokerFilter').value") == '미래에셋증권'
+    assert evaluate("document.getElementById('ipoBrokerFilter').value") == 'mirae'
     click(call,evaluate,'#ipoPrevMonthBtn')
     click(call,evaluate,'[data-filter-group="UPCOMING"]')
     click(call,evaluate,'#ipoNextMonthBtn')
     assert evaluate('__cards()') == ['next']
-    assert evaluate("document.getElementById('ipoBrokerFilter').value") == '미래에셋증권'
+    assert evaluate("document.getElementById('ipoBrokerFilter').value") == 'mirae'
     click(call,evaluate,'#ipoPrevMonthBtn')
     click(call,evaluate,'[data-filter-group="ALL"]')
     evaluate("__chooseBroker('삼성증권')")

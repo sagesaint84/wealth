@@ -3,12 +3,43 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any
 
 from app.services import portfolio
+from app.services.broker_registry import normalize_broker, get_display_name
 from app.services.pnl_records import read_pnl_records_readonly
+
+
+def _unknown_manager_name(value: str) -> str:
+    """IPO display fallback only; never use this for financial account identity."""
+    name = re.sub(r"\s+", " ", value).strip()
+    while True:
+        previous = name
+        name = re.sub(r"^(?:\(주\)|㈜|주식회사\s+)\s*", "", name)
+        name = re.sub(r"증권회사 서울지점$", "증권", name)
+        name = re.sub(r"(?: 리미티드)? 서울지점$", "", name)
+        name = re.sub(r"증권주식회사$", "증권", name)
+        name = re.sub(r"(?:\s*\(주\)|\s*㈜|\s+주식회사)$", "", name).strip()
+        if name == previous:
+            return name
+
+
+def derive_lead_manager_filters(lead_managers: object) -> list[dict[str, Any]]:
+    """Resolve known managers through the shared registry, unknowns in raw: scope."""
+    filters: dict[str, dict[str, Any]] = {}
+    for raw in lead_managers if isinstance(lead_managers, list) else []:
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        broker_id = normalize_broker(raw)
+        name = get_display_name(broker_id) if broker_id else _unknown_manager_name(raw)
+        if not name:
+            continue
+        key = broker_id or f"raw:{name}"
+        filters.setdefault(key, {"key": key, "display_name": name, "broker_id": broker_id})
+    return list(filters.values())
 
 
 def current_market_date() -> date:
@@ -192,6 +223,7 @@ def present_market_store(username: str | None, market: dict[str, Any], today: da
         user_state, applicant_counts = derive_user_state(application, records)
         month_keys, month_sort_dates = derive_presentation_months(item)
         item["market_state"] = market_state
+        item["lead_manager_filters"] = derive_lead_manager_filters(item.get("lead_managers"))
         item["user_state"] = user_state
         item["filter_group"] = derive_filter_group(market_state, user_state)
         item["applicant_counts"] = applicant_counts
