@@ -13704,7 +13704,7 @@ function hideTossWtsMessage() {
 function clearTossWtsFetchLoadingRow(message = '조회에 실패했습니다. 조건을 확인한 뒤 다시 시도하세요.') {
   const tbody = document.getElementById('tossWtsTableBody');
   if (!tbody || !tbody.querySelector('.toss-wts-loading')) return;
-  tbody.innerHTML = `<tr><td colspan="8" class="toss-wts-empty">${html(message)}</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="10" class="toss-wts-empty">${html(message)}</td></tr>`;
 }
 
 function updateTossWtsStatusUI(text, stateClass) {
@@ -13891,7 +13891,7 @@ async function fetchTossWtsRealizedFeed() {
   setTossWtsLoading(true);
   const tbody = document.getElementById('tossWtsTableBody');
   if (tbody && (!tossWtsState.rows || tossWtsState.rows.length === 0)) {
-    tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-loading">⏳ 토스 WTS 실현손익을 조회하는 중입니다...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-loading">⏳ 토스 WTS 실현손익을 조회하는 중입니다...</td></tr>';
   }
   showTossWtsMessage('토스 WTS 실현손익을 조회하는 중입니다...', 'info');
 
@@ -14208,22 +14208,18 @@ async function commitWtsImport() {
 
 function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
   const tbody = document.getElementById('tossWtsTableBody');
-  const importBar = document.getElementById('tossWtsImportBar');
   if (!tbody) return;
 
   if (status === 'error') {
-    tbody.innerHTML = '<tr><td colspan="9" class="toss-wts-empty">조회에 실패했습니다.</td></tr>';
-    if (importBar) importBar.style.display = 'none';
+    tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-empty">조회에 실패했습니다.</td></tr>';
     return;
   }
 
   if (!rows || rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="toss-wts-empty">선택한 기간에 조회된 실현손익 내역이 없습니다.</td></tr>';
-    if (importBar) importBar.style.display = 'none';
+    tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-empty">선택한 기간에 조회된 실현손익 내역이 없습니다.</td></tr>';
     return;
   }
 
-  if (importBar) importBar.style.display = 'flex';
 
   const isUsd = basis === 'USD';
   const htmlRows = rows.map((r, idx) => {
@@ -14262,6 +14258,7 @@ function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
       <td class="center">${checkCell}</td>
       <td class="center">${html(r.date || '')}</td>
       <td class="center">${marketBadge}</td>
+      <td class="wts-import-type-cell" data-index="${idx}"></td>
       <td><strong>${html(r.name || '')}</strong> <small class="muted">(${html(r.symbol || r.product_code || '')})</small></td>
       <td class="right">${qtyFormatted}</td>
       <td class="right">${buyAmt}</td>
@@ -14272,6 +14269,7 @@ function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
   }).join('');
 
   tbody.innerHTML = htmlRows;
+  syncWtsRowImportOptions();
 
   // Attach event listeners to row checkboxes
   tbody.querySelectorAll('.wts-row-cb').forEach(cb => {
@@ -14386,15 +14384,12 @@ function updateTossWtsIncomeMeta(data = null) {
 
 function renderTossWtsIncomeTable() {
   const tbody = document.getElementById('tossWtsIncomeTableBody');
-  const importBar = document.getElementById('tossWtsIncomeImportBar');
   if (!tbody) return;
   const rows = tossWtsIncomeState.rows || [];
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-empty">선택한 기간에 가져올 배당·이자 내역이 없습니다.</td></tr>';
-    if (importBar) importBar.style.display = 'none';
     return;
   }
-  if (importBar) importBar.style.display = 'flex';
   tbody.innerHTML = rows.map((row, index) => {
     const imported = tossWtsIncomeState.importedIndices.has(index);
     const selected = tossWtsIncomeState.selectedIndices.has(index);
@@ -14804,7 +14799,34 @@ function brokerImportSelectedItem(state, index) {
   };
 }
 
+function syncWtsRowImportOptions() {
+  document.querySelectorAll('#tossWtsTableBody .wts-import-type-cell').forEach(cell => {
+    const index = Number(cell.dataset.index);
+    const pref = brokerImportPreference(tossWtsState, index);
+    const disabled = tossWtsState.importedIndices.has(index) ? ' disabled' : '';
+    const name = tossWtsState.rows[index]?.name || '종목';
+    cell.innerHTML = `<select class="broker-stock-type-select toss-wts-select" data-index="${index}" aria-label="${html(name)} 유형"${disabled}>
+      <option value="general"${pref.stock_type === 'ipo' ? '' : ' selected'}>일반주식</option>
+      <option value="ipo"${pref.stock_type === 'ipo' ? ' selected' : ''}>공모주</option></select>
+      <label class="broker-ipo-fee-wrap"${pref.stock_type === 'ipo' ? '' : ' hidden'}>공모청약비
+      <input class="broker-ipo-fee-input toss-wts-input" type="number" min="0" step="1" data-index="${index}" aria-label="${html(name)} 공모청약비" value="${html(String(pref.ipo_subscription_fee_krw ?? 2000))}"${disabled}>원</label>`;
+    cell.querySelector('select').addEventListener('change', event => {
+      pref.stock_type = event.target.value;
+      tossWtsState.previewTicket = null;
+      cell.querySelector('label').hidden = pref.stock_type !== 'ipo';
+    });
+    cell.querySelector('input').addEventListener('input', event => {
+      pref.ipo_subscription_fee_krw = event.target.value === '' ? '' : parseInt(event.target.value, 10);
+      tossWtsState.previewTicket = null;
+    });
+  });
+}
+
 function renderBrokerImportOptions(state, containerId, brokerKey) {
+  if (brokerKey === 'toss') {
+    syncWtsRowImportOptions();
+    return;
+  }
   const container = document.getElementById(containerId);
   if (!container) return;
   const selectedIndices = Array.from(state.selectedIndices || []).sort((a, b) => a - b);

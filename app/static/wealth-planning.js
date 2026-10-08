@@ -12,24 +12,25 @@
     ['방어','변동성 방어 자산'], ['현금','투자 대기 자금'],
   ];
   const BUCKET_PRESET_COLORS = {
-    '코어': '#5FC5D9',
-    '성장': '#A8C95B',
-    '배당': '#7F78E8',
-    '섹터': '#A886DB',
-    '테마': '#CF788B',
-    '전술': '#D19A66',
-    '방어': '#82966A',
-    '현금': '#5A9FE8',
-    'core': '#5FC5D9',
-    'growth': '#A8C95B',
-    'dividend': '#7F78E8',
-    'sector': '#A886DB',
-    'theme': '#CF788B',
-    'tactical': '#D19A66',
-    'defensive': '#82966A',
-    'cash': '#5A9FE8',
+    '코어': '#A78BFA',
+    '성장': '#FB7185',
+    '배당': '#7DD3FC',
+    '섹터': '#E11D48',
+    '테마': '#BE123C',
+    '전술': '#8B5CF6',
+    '방어': '#60A5FA',
+    '현금': '#1D4ED8',
+    'core': '#A78BFA',
+    'growth': '#FB7185',
+    'dividend': '#7DD3FC',
+    'sector': '#E11D48',
+    'theme': '#BE123C',
+    'tactical': '#8B5CF6',
+    'defensive': '#60A5FA',
+    'cash': '#1D4ED8',
   };
   const BUCKET_COLORS = ['#5FC5D9','#A8C95B','#7F78E8','#A886DB','#CF788B','#D19A66','#82966A','#5A9FE8'];
+  let selectedBucket = null;
   let state = null, summary = null, portfolioView = null, editorView = null, editorRevision = null, range = '1Y', dirty = false, syncBlocked = false;
   window.addEventListener('beforeunload', e => { if(dirty || editingRecord) { e.preventDefault(); e.returnValue = ''; } });
   const historyPanel = document.createElement('article');
@@ -152,6 +153,7 @@
   window.addEventListener('wealth:planning-refresh', () => load());
   window.addEventListener('wealth:summary', ({detail}) => { summary = detail; renderHistory(); });
   window.addEventListener('wealth:portfolio', ({detail}) => {
+    if (portfolioView?.owner !== detail.owner) selectedBucket = null;
     portfolioView = detail; renderBucketSummary();
     if(!dirty) renderEditor();
     else document.getElementById('wealthBucketStatus').textContent = `미저장 변경 있음 · 편집 범위: ${editorView.owner}. 현재 조회 범위와 다를 수 있습니다. 저장하거나 ‘다시 불러오기’를 선택하세요.`;
@@ -306,7 +308,18 @@
       : '<div class="wealth-bucket-empty"><strong>표시할 현재 증권 자산이 없습니다.</strong><span>선택한 가족 범위의 보유종목과 예수금을 확인하세요.</span></div>';
     const cards=[...buckets,{id:'__unclassified__',name:'미분류',purpose:'버킷이 지정되지 않은 보유내역과 예수금',target:null,value:current.find(item=>item.id==='__unclassified__')?.value||0}];
     const summaryEl=document.getElementById('wealthBucketSummary');
-    summaryEl.innerHTML = `<p class="wealth-help">${esc(portfolioView.owner)} · 증권 평가액과 예수금 ${won(total)} · 매매 주문은 실행하지 않습니다.</p><div class="wealth-bucket-comparison"><section><h4>목표 비중</h4><p>사용자 공통 전략 · 설정 합계 ${targetTotal.toFixed(1)}%</p>${targetPanel}</section><section><h4>현재 비중</h4><p>${esc(portfolioView.owner)} 범위 · 미분류 포함</p>${currentPanel}</section></div><div class="wealth-bucket-cards">${cards.map(b=>{const currentItem=current.find(item=>item.id===b.id),pct=currentItem?.percent||0,value=currentItem?.value||0;return `<article style="--bucket-color:${bucketColor(b.id)}"><h4>${esc(b.name)}</h4><p>${esc(b.purpose)}</p><strong>${won(value)}</strong><p>현재 ${pct.toFixed(1)}%${b.target === null ? '' : ` / 목표 ${b.target}% · 차이 ${(pct-b.target).toFixed(1)}%p`}</p></article>`;}).join('')}</div>`;
+    summaryEl.innerHTML = `<p class="wealth-help">${esc(portfolioView.owner)} · 증권 평가액과 예수금 ${won(total)} · 매매 주문은 실행하지 않습니다.</p><div class="wealth-bucket-comparison"><section><h4>목표 비중</h4><p>사용자 공통 전략 · 설정 합계 ${targetTotal.toFixed(1)}%</p>${targetPanel}</section><section><h4>현재 비중</h4><p>${esc(portfolioView.owner)} 범위 · 미분류 포함</p>${currentPanel}</section></div><div class="wealth-bucket-cards">${cards.map(b=>{const currentItem=current.find(item=>item.id===b.id),pct=currentItem?.percent||0,value=currentItem?.value||0;return `<button type="button" class="wealth-bucket-card" data-bucket-filter="${esc(b.id)}" aria-pressed="${selectedBucket===b.id}" style="--bucket-color:${bucketColor(b.id)}"><h4>${esc(b.name)}</h4><p>${esc(b.purpose)}</p><strong>${won(value)}</strong><p>현재 ${pct.toFixed(1)}%${b.target === null ? '' : ` / 목표 ${b.target}% · 차이 ${(pct-b.target).toFixed(1)}%p`}</p></button>`;}).join('')}</div>`;
+    if (selectedBucket !== null && !cards.some(b => b.id === selectedBucket)) selectedBucket = null;
+    const constituents = window.WealthPlanningModel.bucketConstituents(state, portfolioView);
+    const visible = constituents.filter(row => selectedBucket === null || (row.bucket_id || '__unclassified__') === selectedBucket);
+    const selectedName = cards.find(b => b.id === selectedBucket)?.name || '전체';
+    summaryEl.insertAdjacentHTML('beforeend', `<section class="wealth-bucket-contents" aria-label="버킷 구성 내역" style="--bucket-color:${selectedBucket ? bucketColor(selectedBucket) : '#697386'}"><h4>버킷 구성 내역 · ${esc(selectedName)}</h4><p role="status">${visible.length}건 · 합계 ${won(visible.reduce((sum,row)=>sum+row.value,0))}</p><div class="wealth-bucket-contents-list">${visible.map(row=>`<div class="wealth-bucket-constituent" data-bucket-id="${esc(row.bucket_id)}"><span>${esc(row.broker)} / ${esc(row.account_name)}</span><strong>${esc(row.name)}</strong><span>${won(row.value)}</span><small>${esc(row.bucket_name)}</small></div>`).join('') || '<p>표시할 구성내역이 없습니다.</p>'}</div></section>`);
+    summaryEl.querySelectorAll('[data-bucket-filter]').forEach(button=>button.addEventListener('click',()=>{
+      const key=button.dataset.bucketFilter;
+      selectedBucket=selectedBucket===key?null:key;
+      renderBucketSummary();
+      [...summaryEl.querySelectorAll('[data-bucket-filter]')].find(b=>b.dataset.bucketFilter===key)?.focus();
+    }));
     const chartItems={target:[target,'value'],current:[current,'percent']};
     const activate=(chart,key)=>{const donut=summaryEl.querySelector(`.wealth-bucket-donut[data-bucket-chart="${chart}"]`), data=chartItems[chart];if(!donut||!data)return;donut.style.background=donutGradient(data[0],data[1],key);donut.classList.toggle('has-donut-hover',Boolean(key));summaryEl.querySelectorAll(`[data-bucket-chart="${chart}"][data-bucket-key]`).forEach(row=>row.classList.toggle('is-donut-active',row.dataset.bucketKey===key));};
     summaryEl.querySelectorAll('.wealth-bucket-legend-row').forEach(row=>{const chart=row.dataset.bucketChart,key=row.dataset.bucketKey;row.onpointerenter=()=>activate(chart,key);row.onpointerleave=()=>activate(chart,null);row.onfocus=()=>activate(chart,key);row.onblur=()=>activate(chart,null);});

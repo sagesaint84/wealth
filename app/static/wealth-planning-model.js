@@ -1,26 +1,38 @@
 /* Pure view calculations, shared by browser and dependency-free Node tests. */
 (function (root) {
   'use strict';
-  function bucketTotals(state, view) {
-    const totals = new Map(state.buckets.map(b => [b.id, 0]));
-    totals.set('', 0);
+  function bucketConstituents(state, view) {
+    const buckets = new Map(state.buckets.map(b => [b.id, b.name]));
+    const rows = [];
     const amount = value => {
       const number = Number(value || 0);
       if (!Number.isFinite(number)) throw new Error('평가액이 유효하지 않습니다. 자산 정보를 확인하세요.');
       return number;
     };
-    const add = (id, value) => { const key = totals.has(id) ? id : ''; totals.set(key, totals.get(key) + amount(value)); };
-    const ids = new Set(view.accounts.map(a => String(a.id)));
+    const add = (id, value, account, holding = null) => {
+      const key = buckets.has(id) ? id : '';
+      rows.push({bucket_id:key, bucket_name:buckets.get(key) || '미분류',
+        account_id:String(account.id), broker:account.broker || '', account_name:account.name || '',
+        kind:holding ? 'holding' : 'cash', holding_id:holding ? String(holding.id) : null,
+        name:holding ? (holding.name || holding.code || '보유종목') : '현금', value:amount(value)});
+    };
+    const accountsById = new Map(view.accounts.map(a => [String(a.id), a]));
     view.accounts.forEach(a => {
       const usd = amount(a.cash_usd);
       const fx = Number(view.fxRates?.USD);
       if (usd && (!Number.isFinite(fx) || fx <= 0)) throw new Error('USD 환율을 확인할 수 없어 버킷 합계를 계산하지 않았습니다.');
-      add(state.accounts[a.id], amount(a.cash_krw) + (usd ? usd * fx : 0));
+      add(state.accounts[a.id], amount(a.cash_krw) + (usd ? usd * fx : 0), a);
     });
-    view.holdings.filter(h => ids.has(String(h.account_id))).forEach(h => {
+    view.holdings.filter(h => accountsById.has(String(h.account_id))).forEach(h => {
       const id = Object.hasOwn(state.holdings, h.id) ? state.holdings[h.id] : state.accounts[h.account_id];
-      add(id, h.market_value_krw);
+      add(id, h.market_value_krw, accountsById.get(String(h.account_id)), h);
     });
+    return rows;
+  }
+  function bucketTotals(state, view) {
+    const totals = new Map(state.buckets.map(b => [b.id, 0]));
+    totals.set('', 0);
+    bucketConstituents(state, view).forEach(row => totals.set(row.bucket_id, totals.get(row.bucket_id) + row.value));
     return { totals, total: [...totals.values()].reduce((a, b) => a + b, 0) };
   }
   function bucketAllocationComparison(state, view) {
@@ -61,7 +73,7 @@
     const selected=records.find(r=>r.date===selectedDate) || records.at(-1) || null;
     return {records,selectedDate:selected?.date || '',canEdit:!!selected};
   }
-  const model = { bucketTotals, bucketAllocationComparison, historyView };
+  const model = { bucketConstituents, bucketTotals, bucketAllocationComparison, historyView };
   if (typeof module !== 'undefined' && module.exports) module.exports = model;
   else root.WealthPlanningModel = model;
 })(typeof window !== 'undefined' ? window : this);

@@ -210,6 +210,7 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
 
         // 2. UPCOMING: should sort ASC (2026-10-05 first, then 10-20)
         window.WealthIpoState.setFilterGroup('UPCOMING');
+        window.WealthIpoState.setHistoryMonth(10);
         window.WealthIpoState.renderIpoList();
         const upCards = mockWrapper.querySelectorAll('.ipo-card');
         const upOrder = upCards.map(c => c.dataset.ipoId);
@@ -433,8 +434,8 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
         output = json.loads(_run_js_suite(script))
         self.assertIn("과거 3", output["pastTotalCountInFilterBtn"])
         self.assertEqual(output["pastTabCards"], ["p3"])
-        self.assertEqual(output["activeTabCards"], ["a1"])
-        self.assertFalse(output["hasMonthControlInActive"])
+        self.assertEqual(output["activeTabCards"], [])  # September cannot leak into selected July.
+        self.assertTrue(output["hasMonthControlInActive"])
         self.assertEqual(output["yearAfterReturn"], 2026)
         self.assertEqual(output["monthAfterReturn"], 7)
         self.assertEqual(output["pastCardsAfterReturn"], ["p3"])

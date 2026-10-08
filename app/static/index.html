@@ -781,8 +781,14 @@
                   <option value="USD">달러 (USD)</option>
                 </select>
               </div>
-              <div class="toss-wts-control-action">
+              <div class="toss-wts-control-item toss-wts-account-control">
+                <label for="wtsDestinationAccount">귀속 Wealth 계좌</label>
+                <select id="wtsDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌"><option value="">토스증권 계좌를 선택하세요</option></select>
+              </div>
+              <div id="tossWtsImportBar" class="toss-wts-control-action toss-wts-import-actions">
                 <button type="button" id="btnFetchTossWtsFeed" class="button primary compact toss-wts-fetch-btn">WTS 조회</button>
+                <button type="button" id="btnWtsImportSelected" class="button secondary compact" disabled>선택한 내역 추가</button>
+                <span id="wtsSelectedCountBadge" class="toss-wts-selected-count" aria-live="polite">선택 0건</span>
               </div>
             </div>
 
@@ -803,6 +809,7 @@
                     <th class="center" style="width:36px;"><input type="checkbox" id="wtsSelectAll" title="전체 선택" aria-label="전체 선택"></th>
                     <th class="center" style="width:100px;">거래일자</th>
                     <th class="center" style="width:70px;">시장</th>
+                    <th class="center">유형</th>
                     <th>종목명 (코드)</th>
                     <th class="right" style="width:80px;">수량</th>
                     <th class="right" style="width:110px;">매수금액</th>
@@ -813,29 +820,13 @@
                 </thead>
                 <tbody id="tossWtsTableBody">
                   <tr>
-                    <td colspan="9" class="toss-wts-empty">조회 버튼을 눌러 토스 WTS 실현손익을 조회하세요.</td>
+                    <td colspan="10" class="toss-wts-empty">조회 버튼을 눌러 토스 WTS 실현손익을 조회하세요.</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             <!-- 선택 항목 귀속 및 추가 바 -->
-            <div id="tossWtsImportBar" class="toss-wts-import-bar" style="display:none;">
-              <div class="toss-wts-import-bar-left">
-                <span id="wtsSelectedCountBadge" class="toss-wts-selected-count">선택 0건</span>
-                <div class="toss-wts-dest-wrap">
-                  <label for="wtsDestinationAccount">귀속 Wealth 계좌:</label>
-                  <select id="wtsDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌">
-                    <option value="">계좌를 선택하세요</option>
-                  </select>
-                </div>
-              </div>
-              <div class="toss-wts-import-bar-right">
-                <button type="button" id="btnWtsImportSelected" class="button secondary compact" disabled>선택한 내역 추가</button>
-              </div>
-              <div id="wtsImportOptions" class="broker-import-options" style="width:100%;"></div>
-            </div>
-
             <!-- WTS 실현손익 추가 확인 모달 -->
             <div id="wtsImportModalOverlay" class="toss-wts-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="wtsModalTitle">
               <div class="toss-wts-modal">
@@ -1271,8 +1262,14 @@
                 <label for="tossWtsIncomeToDate">종료일</label>
                 <input type="date" id="tossWtsIncomeToDate" class="toss-wts-input" aria-label="WTS 배당 이자 조회 종료일">
               </div>
-              <div class="toss-wts-control-action">
+              <div class="toss-wts-control-item toss-wts-account-control">
+                <label for="wtsIncomeDestinationAccount">귀속 Wealth 계좌</label>
+                <select id="wtsIncomeDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌"><option value="">토스증권 계좌를 선택하세요</option></select>
+              </div>
+              <div id="tossWtsIncomeImportBar" class="toss-wts-control-action toss-wts-import-actions">
                 <button type="button" id="btnFetchTossWtsIncome" class="button primary compact toss-wts-fetch-btn">배당·이자 조회</button>
+                <button type="button" id="btnWtsIncomeImportSelected" class="button secondary compact" disabled>선택 항목 가져오기</button>
+                <span id="wtsIncomeSelectedCountBadge" class="toss-wts-selected-count" aria-live="polite">선택 0건</span>
               </div>
             </div>
 
@@ -1297,21 +1294,6 @@
                   <tr><td colspan="8" class="toss-wts-empty">WTS 런타임 확인 후 배당·이자를 조회하세요.</td></tr>
                 </tbody>
               </table>
-            </div>
-
-            <div id="tossWtsIncomeImportBar" class="toss-wts-import-bar" style="display:none;">
-              <div class="toss-wts-import-bar-left">
-                <span id="wtsIncomeSelectedCountBadge" class="toss-wts-selected-count">선택 0건</span>
-                <div class="toss-wts-dest-wrap">
-                  <label for="wtsIncomeDestinationAccount">귀속 Wealth 계좌:</label>
-                  <select id="wtsIncomeDestinationAccount" class="toss-wts-select" aria-label="배당 이자 귀속 Wealth 계좌">
-                    <option value="">토스증권 계좌를 선택하세요</option>
-                  </select>
-                </div>
-              </div>
-              <div class="toss-wts-import-bar-right">
-                <button type="button" id="btnWtsIncomeImportSelected" class="button secondary compact" disabled>선택 항목 가져오기</button>
-              </div>
             </div>
 
             <div id="wtsIncomeImportModalOverlay" class="toss-wts-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="wtsIncomeModalTitle">

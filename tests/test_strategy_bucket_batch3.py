@@ -55,7 +55,8 @@ class StrategyBucketBatch3Tests(unittest.TestCase):
         self.assertIn("const { totals, total } = bucketTotals(state, view)", self.model)
         self.assertIn("bucket.value / total * 100", self.model)
         self.assertIn("amount(a.cash_krw) + (usd ? usd * fx : 0)", self.model)
-        self.assertIn("add(id, h.market_value_krw)", self.model)
+        self.assertIn("add(id, h.market_value_krw,", self.model)
+        self.assertIn("bucketConstituents(state, view).forEach", self.model)
 
     def test_same_bucket_color_is_keyed_by_identity_not_array_order(self):
         self.assertIn("function bucketColor(id)", self.ui)

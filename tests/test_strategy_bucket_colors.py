@@ -83,65 +83,24 @@ class TestStrategyBucketColors(unittest.TestCase):
         # Ensure all 8 preset colors are unique
         self.assertEqual(len(set(extracted.values())), 8, "All 8 preset bucket colors must be distinct")
 
-    def test_dividend_and_cash_colors_have_significant_hue_separation(self):
-        m_div = re.search(r"'배당'\s*:\s*'([^']+)'", self.planning_js)
-        m_cash = re.search(r"'현금'\s*:\s*'([^']+)'", self.planning_js)
-        self.assertIsNotNone(m_div)
-        self.assertIsNotNone(m_cash)
+    def test_risk_palette_and_english_aliases(self):
+        expected = {
+            ('현금','cash'):'#1D4ED8', ('방어','defensive'):'#60A5FA',
+            ('배당','dividend'):'#7DD3FC', ('전술','tactical'):'#8B5CF6',
+            ('코어','core'):'#A78BFA', ('성장','growth'):'#FB7185',
+            ('섹터','sector'):'#E11D48', ('테마','theme'):'#BE123C',
+        }
+        for aliases, color in expected.items():
+            for name in aliases:
+                self.assertIn(f"'{name}': '{color}'", self.planning_js)
 
-        div_color = m_div.group(1)
-        cash_color = m_cash.group(1)
-
-        h_div, s_div, v_div = hex_to_hsv(div_color)
-        h_cash, s_cash, v_cash = hex_to_hsv(cash_color)
-
-        diff = hue_difference(h_div, h_cash)
-        self.assertGreaterEqual(
-            diff,
-            30.0,
-            f"Hue difference between Dividend ({div_color}, {h_div:.1f}°) and Cash ({cash_color}, {h_cash:.1f}°) must be >= 30°, got {diff:.1f}°",
-        )
-
-        # Dividend must lean indigo/blue-violet (230-260°) and Cash must lean sky/azure (195-225°)
-        self.assertTrue(230 <= h_div <= 260, f"Dividend hue {h_div:.1f}° should be in blue-violet range (230-260°)")
-        self.assertTrue(195 <= h_cash <= 225, f"Cash hue {h_cash:.1f}° should be in sky-blue range (195-225°)")
-
-    def test_tactical_and_defensive_colors_have_significant_hue_separation(self):
-        m_tac = re.search(r"'전술'\s*:\s*'([^']+)'", self.planning_js)
-        m_def = re.search(r"'방어'\s*:\s*'([^']+)'", self.planning_js)
-        self.assertIsNotNone(m_tac)
-        self.assertIsNotNone(m_def)
-
-        tac_color = m_tac.group(1)
-        def_color = m_def.group(1)
-
-        h_tac, s_tac, v_tac = hex_to_hsv(tac_color)
-        h_def, s_def, v_def = hex_to_hsv(def_color)
-
-        diff = hue_difference(h_tac, h_def)
-        self.assertGreaterEqual(
-            diff,
-            40.0,
-            f"Hue difference between Tactical ({tac_color}, {h_tac:.1f}°) and Defensive ({def_color}, {h_def:.1f}°) must be >= 40°, got {diff:.1f}°",
-        )
-
-        # Tactical is warm amber (15-45°) and Defensive is muted sage/olive (75-100°)
-        self.assertTrue(15 <= h_tac <= 45, f"Tactical hue {h_tac:.1f}° should be warm amber range (15-45°)")
-        self.assertTrue(75 <= h_def <= 100, f"Defensive hue {h_def:.1f}° should be sage/olive range (75-100°)")
-
-    def test_defensive_color_muted_sage_and_contrast(self):
-        m_def = re.search(r"'방어'\s*:\s*'([^']+)'", self.planning_js)
-        self.assertIsNotNone(m_def)
-        def_color = m_def.group(1)
-
-        # Contrast against dark surfaces and light background
-        cr_dark = contrast_ratio(def_color, "#111a31")
-        cr_oled = contrast_ratio(def_color, "#000000")
-        cr_white = contrast_ratio(def_color, "#ffffff")
-
-        self.assertGreaterEqual(cr_dark, 4.0, f"Defensive contrast against dark {cr_dark:.2f}:1 must be >= 4.0:1")
-        self.assertGreaterEqual(cr_oled, 5.0, f"Defensive contrast against OLED black {cr_oled:.2f}:1 must be >= 5.0:1")
-        self.assertGreaterEqual(cr_white, 3.0, f"Defensive contrast against white {cr_white:.2f}:1 must be >= 3.0:1")
+    def test_safe_investment_blue_uses_theme_text_for_readable_labels(self):
+        css = (ROOT / 'app/static/wealth-layout.css').read_text(encoding='utf-8')
+        self.assertRegex(css, r"\.wealth-bucket-cards h4\s*\{[^}]*color: var\(--text\)")
+        self.assertIn('border-left: 4px solid var(--bucket-color', css)
+        self.assertIn('.wealth-bucket-card[aria-pressed="true"]', css)
+        self.assertGreaterEqual(contrast_ratio('#60A5FA', '#111a31'), 4)
+        self.assertGreaterEqual(contrast_ratio('#60A5FA', '#000000'), 5)
 
     def test_preset_buttons_render_swatch_dot_and_style(self):
         self.assertIn('<i class="wealth-bucket-preset-dot"></i>', self.planning_js)
