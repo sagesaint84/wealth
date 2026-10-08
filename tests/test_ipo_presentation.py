@@ -19,7 +19,7 @@ def _run_ipo_date_js(expression: str) -> str:
     script = f"""
 const fs = require('fs');
 globalThis.window = {{ addEventListener: () => {{}}, dispatchEvent: () => {{}} }};
-globalThis.document = {{ getElementById: () => null }};
+globalThis.document = {{ getElementById: () => null, querySelector: () => null }};
 globalThis.CustomEvent = function CustomEvent() {{}};
 eval({json.dumps(source)});
 process.stdout.write(String({expression}));
