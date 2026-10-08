@@ -72,7 +72,7 @@ class TestUIUXBatch5(unittest.TestCase):
 
     # ── 3. Strategy Bucket Card Visual Color Connection ────────────────────────
     def test_bucket_cards_receive_bucket_color_property(self) -> None:
-        # Card article template binds --bucket-color via bucketColor(b.id)
+        # Interactive card template binds --bucket-color via bucketColor(b.id)
         self.assertIn('style="--bucket-color:${bucketColor(b.id)}"', self.planning_js)
 
     def test_bucket_cards_css_restrained_accent_and_background(self) -> None:
@@ -80,9 +80,10 @@ class TestUIUXBatch5(unittest.TestCase):
         self.assertIn("border-left: 4px solid var(--bucket-color", self.layout_css)
         # Soft background tint
         self.assertIn("background: color-mix(in srgb, var(--bucket-color, transparent) 4%, var(--panel));", self.layout_css)
-        # Title tint
-        self.assertIn(".wealth-bucket-cards h4 {", self.layout_css)
-        self.assertIn("color-mix(in srgb, var(--bucket-color, var(--text)) 75%, var(--text))", self.layout_css)
+        # Light blue risk accents must not reduce title contrast on white themes.
+        self.assertRegex(self.layout_css, r"\.wealth-bucket-cards h4\s*\{[^}]*color: var\(--text\)")
+        self.assertIn('.wealth-bucket-card[aria-pressed="true"]', self.layout_css)
+        self.assertIn('outline: 2px solid var(--bucket-color)', self.layout_css)
 
     def test_unclassified_bucket_neutral_color_preserved(self) -> None:
         # bucketColor returns '#697386' for __unclassified__

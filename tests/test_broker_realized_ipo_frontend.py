@@ -13,9 +13,12 @@ MAIN = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
 
 class BrokerRealizedIpoFrontendTests(unittest.TestCase):
     def test_all_broker_import_bars_have_per_row_options(self) -> None:
-        for marker in ("wtsImportOptions", "kisImportOptions", "nhImportOptions", "kiwoomImportOptions"):
+        for marker in ("kisImportOptions", "nhImportOptions", "kiwoomImportOptions"):
             with self.subTest(marker=marker):
                 self.assertIn(f'id="{marker}"', HTML)
+        self.assertIn('class="wts-import-type-cell"', JS)
+        self.assertIn('function syncWtsRowImportOptions()', JS)
+        self.assertNotIn('id="wtsImportOptions"', HTML)
 
     def test_common_controls_default_to_general_and_offer_ipo_fee(self) -> None:
         self.assertIn("stock_type: 'general'", JS)

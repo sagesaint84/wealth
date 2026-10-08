@@ -104,6 +104,7 @@
     }
   }
   let ipoFilterGroup = 'ALL';
+  let ipoBrokerFilter = '';
   let refreshInFlight = false;
   let historicalImportInFlight = false;
   let ipoHistoryYear = null;
@@ -525,8 +526,14 @@
       return;
     }
 
-    const counts = { ALL: marketIpos.length, UPCOMING: 0, ACTIVE: 0, PAST: 0 };
-    marketIpos.forEach(ipo => { if (counts[ipo.filter_group] !== undefined) counts[ipo.filter_group] += 1; });
+    const managers = [...new Set(canonicalMarketIpos.flatMap(ipo =>
+      Array.isArray(ipo.lead_managers) ? ipo.lead_managers.filter(name => typeof name === 'string' && name.trim()) : []
+    ))].sort((a, b) => a.localeCompare(b, 'ko'));
+    if (ipoBrokerFilter && !managers.includes(ipoBrokerFilter)) ipoBrokerFilter = '';
+    const brokerIpos = marketIpos.filter(ipo => !ipoBrokerFilter ||
+      (Array.isArray(ipo.lead_managers) && ipo.lead_managers.includes(ipoBrokerFilter)));
+    const counts = { ALL: brokerIpos.length, UPCOMING: 0, ACTIVE: 0, PAST: 0 };
+    brokerIpos.forEach(ipo => { if (counts[ipo.filter_group] !== undefined) counts[ipo.filter_group] += 1; });
     const labels = { ALL: '전체', UPCOMING: '예정', ACTIVE: '진행', PAST: '과거' };
     const controls = Object.entries(labels).map(([group, label]) =>
       `<button type="button" class="button secondary compact ipo-filter${ipoFilterGroup === group ? ' active' : ''}" data-filter-group="${group}">${label} ${counts[group]}</button>`
@@ -540,7 +547,7 @@
       ipoAllMonthInitialized = true;
     }
     if (ipoFilterGroup === 'PAST' && !ipoMonthExplicitlySelected && !ipoHistoryInitialized) {
-      const latestPast = getLatestPastMonth(marketIpos);
+      const latestPast = getLatestPastMonth(brokerIpos);
       if (latestPast) {
         ipoHistoryYear = latestPast.year;
         ipoHistoryMonth = latestPast.month;
@@ -564,16 +571,16 @@
     let fallbackIpos = [];
     let monthControlHtml = '';
 
-    if (ipoFilterGroup === 'PAST' || ipoFilterGroup === 'ALL') {
+    if (['ALL', 'UPCOMING', 'ACTIVE', 'PAST'].includes(ipoFilterGroup)) {
       const curKst = currentKstYearMonth();
       if (ipoHistoryYear === null || ipoHistoryMonth === null) {
         ipoHistoryYear = curKst.year;
         ipoHistoryMonth = curKst.month;
       }
       const selectedMonthKey = `${ipoHistoryYear}-${String(ipoHistoryMonth).padStart(2, '0')}`;
-      const isCurrentOrFutureKst = selectedMonthKey >= curKst.key;
+      const isCurrentOrFutureKst = ipoFilterGroup === 'PAST' && selectedMonthKey >= curKst.key;
 
-      const scopedIpos = marketIpos.filter(ipo => ipoFilterGroup === 'PAST' ? ipo.filter_group === 'PAST' : true);
+      const scopedIpos = brokerIpos.filter(ipo => ipoFilterGroup === 'ALL' || ipo.filter_group === ipoFilterGroup);
       const datedPast = [];
       scopedIpos.forEach(ipo => {
         const key = ipoMonthKey(ipo);
@@ -602,12 +609,12 @@
           <button type="button" class="button secondary compact ipo-month-btn money-month-nav-btn money-month-nav-today" id="ipoTodayMonthBtn" title="이번 달로 이동" aria-label="이번 달로 이동">이번달</button>
         </div>`;
     } else if (ipoFilterGroup === 'UPCOMING' || ipoFilterGroup === 'ACTIVE') {
-      visibleIpos = marketIpos.filter(ipo => ipo.filter_group === ipoFilterGroup).sort(sortAsc);
+      visibleIpos = brokerIpos.filter(ipo => ipo.filter_group === ipoFilterGroup).sort(sortAsc);
     } else {
-      visibleIpos = marketIpos.slice().sort(sortAsc);
+      visibleIpos = brokerIpos.slice().sort(sortAsc);
     }
 
-    let html = `<div class="ipo-filter-toolbar" role="group" aria-label="공모주 일정 필터">${controls}</div>`;
+    let html = `<div class="ipo-filter-toolbar" role="group" aria-label="공모주 일정 필터">${controls}<label class="ipo-broker-filter">증권사 <select id="ipoBrokerFilter" aria-label="공모주 주관 증권사"><option value="">전체 증권사</option>${managers.map(name => `<option value="${escapeHtml(name)}"${name === ipoBrokerFilter ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></label></div>`;
     if (monthControlHtml) {
       html += monthControlHtml;
     }
@@ -827,13 +834,18 @@
 
     wrapper.innerHTML = html;
     window.dispatchEvent(new CustomEvent('wealth:ipo-market-rendered'));
+    wrapper.querySelector('#ipoBrokerFilter')?.addEventListener('change', event => {
+      ipoBrokerFilter = event.target.value;
+      renderIpoList();
+      wrapper.querySelector('#ipoBrokerFilter')?.focus();
+    });
 
     wrapper.querySelectorAll('.ipo-filter').forEach(button => button.addEventListener('click', () => {
       ipoFilterGroup = button.dataset.filterGroup || 'ALL';
       renderIpoList();
     }));
 
-    if (ipoFilterGroup === 'PAST' || ipoFilterGroup === 'ALL') {
+    if (['ALL', 'UPCOMING', 'ACTIVE', 'PAST'].includes(ipoFilterGroup)) {
       const prevBtn = wrapper.querySelector('#ipoPrevMonthBtn');
       const nextBtn = wrapper.querySelector('#ipoNextMonthBtn');
       const todayBtn = wrapper.querySelector('#ipoTodayMonthBtn');
@@ -884,7 +896,7 @@
         nextBtn.addEventListener('click', () => {
           const curKst = currentKstYearMonth();
           const shifted = shiftIpoMonth(ipoHistoryYear, ipoHistoryMonth, 1);
-          if (shifted.key <= curKst.key) {
+          if (ipoFilterGroup !== 'PAST' || shifted.key <= curKst.key) {
             ipoHistoryYear = shifted.year;
             ipoHistoryMonth = shifted.month;
             ipoMonthExplicitlySelected = true;

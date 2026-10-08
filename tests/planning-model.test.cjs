@@ -1,12 +1,24 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {bucketTotals,bucketAllocationComparison,historyView} = require('../app/static/wealth-planning-model.js');
+const {bucketConstituents,bucketTotals,bucketAllocationComparison,historyView} = require('../app/static/wealth-planning-model.js');
 const state = {buckets:[{id:'growth'},{id:'income'}],accounts:{a:'growth',b:'income'},holdings:{h1:'income',h2:''}};
 const view = {accounts:[{id:'a',cash_krw:100,cash_usd:1},{id:'b',cash_krw:200}],fxRates:{USD:1300},
   holdings:[{id:'h1',account_id:'a',code:'SAME',market_value_krw:500},{id:'h2',account_id:'b',code:'SAME',market_value_krw:800}]};
 test('account defaults, same ticker exceptions and explicit unclassified do not double count',()=>{
   const {totals,total}=bucketTotals(state,view);
   assert.equal(total,2900); assert.equal(totals.get('growth'),1400); assert.equal(totals.get('income'),700); assert.equal(totals.get(''),800);
+});
+test('constituents share totals classification, owner scope and FX without mutation',()=>{
+  const before=JSON.stringify({state,view});
+  const rows=bucketConstituents(state,view), {totals}=bucketTotals(state,view);
+  assert.equal(rows.find(r=>r.holding_id==='h1').bucket_id,'income');
+  assert.equal(rows.find(r=>r.holding_id==='h2').bucket_id,'');
+  assert.equal(rows.find(r=>r.account_id==='a'&&r.kind==='cash').value,1400);
+  assert.equal(rows.find(r=>r.account_id==='a'&&r.kind==='cash').bucket_id,'growth');
+  for(const [key,value] of totals) assert.equal(rows.filter(r=>r.bucket_id===key).reduce((s,r)=>s+r.value,0),value);
+  assert.deepEqual(bucketConstituents(state,{...view,accounts:[view.accounts[0]]}).map(r=>r.account_id),['a','a']);
+  assert.equal(JSON.stringify({state,view}),before);
+  assert.ok(bucketConstituents({...state,accounts:{},holdings:{}},view).every(r=>r.bucket_id===''));
 });
 test('other owner holdings are excluded by account scope',()=>{
   const result=bucketTotals(state,{...view,accounts:[view.accounts[0]]});
