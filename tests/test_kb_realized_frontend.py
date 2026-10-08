@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
+HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8") + (ROOT / "app/static/wealth-settings-surface.js").read_text(encoding="utf-8")
 JS = (ROOT / "app" / "static" / "wealth.js").read_text(encoding="utf-8")
 MAIN = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
 
@@ -140,7 +140,9 @@ class KbRealizedFrontendTests(unittest.TestCase):
         # Separate product input is absent from normal UI
         self.assertNotIn('id="openapiKbProductNo"', HTML)
         self.assertNotIn("openapiKbProductNo", JS)
-        self.assertIn("openapiKbAccountNo", JS)
+        self.assertIn("kb: ['Kb', 'KB App Secret 입력']", JS)
+        self.assertIn("'openapi' + prefix + suffix", JS)
+        self.assertIn("field('AccountNo')", JS)
         self.assertIn("KB증권 계좌번호 (11자리)", HTML)
         self.assertIn("하이픈 없이 11자리 계좌번호를 입력하세요.", HTML)
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
+HTML = (ROOT / "app" / "static" / "wealth-settings-surface.js").read_text(encoding="utf-8")
 JS = (ROOT / "app" / "static" / "wealth-settings.js").read_text(encoding="utf-8")
 CSS = (ROOT / "app" / "static" / "wealth-overrides.css").read_text(encoding="utf-8")
 

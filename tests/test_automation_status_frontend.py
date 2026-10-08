@@ -15,11 +15,12 @@ LAYOUT_JS = (ROOT / "app" / "static" / "wealth-layout.js").read_text(
 class AutomationStatusFrontendTests(unittest.TestCase):
     def test_layout_loads_status_module_without_changing_app_version(self):
         self.assertIn(
-            "import('/static/wealth-automation-status.js?v=1.3.0')",
+            "import('/static/wealth-automation-status.js?v=10.9h1')",
             LAYOUT_JS,
         )
 
     def test_status_panel_covers_all_operational_health_states(self):
+        surface = (ROOT / "app/static/wealth-settings-surface.js").read_text(encoding="utf-8")
         for label in (
             "정상",
             "실패",
@@ -32,8 +33,8 @@ class AutomationStatusFrontendTests(unittest.TestCase):
             "확인 필요",
         ):
             self.assertIn(label, STATUS_JS)
-        self.assertIn("자동화 실행 상태", STATUS_JS)
-        self.assertIn("최근 실행 기록", STATUS_JS)
+        self.assertIn("자동화 실행 상태", surface)
+        self.assertIn("최근 실행 기록", surface)
         self.assertIn("다음 예정", STATUS_JS)
         self.assertIn("시도 횟수", STATUS_JS)
 
@@ -43,6 +44,12 @@ class AutomationStatusFrontendTests(unittest.TestCase):
         self.assertNotIn("window.api", STATUS_JS)
         self.assertIn("settingsAutomationStatusRefresh", STATUS_JS)
         self.assertIn("automation._status", STATUS_JS)
+
+    def test_direct_data_handoff_replaces_dialog_observer(self):
+        self.assertNotIn("MutationObserver", STATUS_JS)
+        self.assertNotIn("createPanel", STATUS_JS)
+        self.assertIn("wealth:automation-settings", STATUS_JS)
+        self.assertIn("getAutomationStatus", STATUS_JS)
 
     def test_server_values_are_rendered_as_text_not_html(self):
         render_job = STATUS_JS.split("function renderJob(job)", 1)[1].split(

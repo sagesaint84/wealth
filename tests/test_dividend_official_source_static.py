@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class DividendOfficialSourceStaticTests(unittest.TestCase):
     def test_index_loads_source_ui_after_core_wealth_js(self):
         html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
-        core = '/static/wealth.js?v=1.3.0'
+        core = '/static/wealth.js?v=10.9h1'
         source = '/static/wealth-dividend-source.js?v=1.3.0'
         self.assertIn(core, html)
         self.assertIn(source, html)

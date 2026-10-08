@@ -4944,9 +4944,8 @@ dialog.dialog .dialog-actions {
   color: #475569 !important;
 }
 
-/* 비밀번호 변경 및 OpenAPI 설정 모달 */
+/* 비밀번호 변경 및 사용자 관리 */
 [data-theme="white"] #forcePasswordModal,
-[data-theme="white"] #userOpenApiModal,
 [data-theme="white"] #changePasswordModal,
 [data-theme="white"] #adminUsersModal {
   background: #ffffff !important;
@@ -4954,12 +4953,7 @@ dialog.dialog .dialog-actions {
   color: #0f172a !important;
 }
 
-/* ── OpenAPI 모달 컴포넌트: 기본 테마 (다크/퍼플) ── */
-#userOpenApiModal {
-  background: #0e162b;
-  border: 1px solid #263558;
-  color: #f3f5ff;
-}
+/* ── OpenAPI 설정 컴포넌트: 기본 테마 (다크/퍼플) ── */
 .openapi-broker-card {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid #263558;
@@ -4998,21 +4992,8 @@ dialog.dialog .dialog-actions {
   background: rgba(66, 213, 163, 0.15);
   color: #42d5a3;
 }
-.openapi-info-box {
-  background: rgba(56, 189, 248, 0.08);
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  color: #bae6fd;
-}
 
-/* ── OpenAPI 모달 컴포넌트: OLED 다크 테마 ── */
-[data-theme="oled"] #userOpenApiModal {
-  background: #070709 !important;
-  border-color: #1a1a24 !important;
-  color: #f8fafc !important;
-}
-[data-theme="oled"] #userOpenApiModal .dialog-head {
-  border-bottom-color: #1a1a24 !important;
-}
+/* ── OpenAPI 설정 컴포넌트: OLED 다크 테마 ── */
 [data-theme="oled"] .openapi-broker-card {
   background: #0b0b10 !important;
   border-color: #1a1a26 !important;
@@ -5036,28 +5017,8 @@ dialog.dialog .dialog-actions {
   background: rgba(66, 213, 163, 0.12) !important;
   color: #42d5a3 !important;
 }
-[data-theme="oled"] .openapi-info-box {
-  background: #08111f !important;
-  border-color: #1e3a8a !important;
-  color: #93c5fd !important;
-}
 
-/* ── OpenAPI 모달 컴포넌트: 화이트 테마 ── */
-[data-theme="white"] #userOpenApiModal {
-  background: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  color: #0f172a !important;
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.15) !important;
-}
-[data-theme="white"] #userOpenApiModal .dialog-head {
-  border-bottom-color: #e2e8f0 !important;
-}
-[data-theme="white"] #userOpenApiModal .dialog-head h2 {
-  color: #0f172a !important;
-}
-[data-theme="white"] #userOpenApiModal .dialog-description {
-  color: #64748b !important;
-}
+/* ── OpenAPI 설정 컴포넌트: 화이트 테마 ── */
 [data-theme="white"] .openapi-broker-card {
   background: #f8fafc !important;
   border-color: #e2e8f0 !important;
@@ -5082,21 +5043,6 @@ dialog.dialog .dialog-actions {
   background: #dcfce7 !important;
   color: #15803d !important;
   border: 1px solid #86efac !important;
-}
-[data-theme="white"] .openapi-info-box {
-  background: #f0f9ff !important;
-  border-color: #bae6fd !important;
-  color: #0369a1 !important;
-}
-[data-theme="white"] #userOpenApiModal .button.secondary {
-  background: #f1f5f9 !important;
-  border-color: #cbd5e1 !important;
-  color: #334155 !important;
-}
-[data-theme="white"] #userOpenApiBtn {
-  color: #0284c7 !important;
-  border-color: #bae6fd !important;
-  background: #f0f9ff !important;
 }
 
 /* ── Admin 패널 및 사용자 관리: 기본 테마 (다크/퍼플) ── */
@@ -5754,11 +5700,9 @@ dialog.dialog .dialog-actions {
 }
 
 /* Notification and automation settings */
-.settings-dialog{max-width:780px;width:94vw;max-height:92vh;overflow:auto;padding:0}
-.settings-dialog-head{position:sticky;top:0;z-index:2;padding:18px 22px 12px;background:#0e162b;border-bottom:1px solid var(--line,#263558)}
-.settings-dialog-head .dialog-description{margin:5px 0 0}
+.settings-surface .settings-help{font-size:12px!important;font-weight:400!important;line-height:1.6!important;color:var(--muted,#91a0c1)}
 .settings-loading{padding:42px;text-align:center;color:var(--muted,#91a0c1)}
-.settings-content{padding:18px 22px 22px;display:grid;gap:16px}
+.settings-content{display:grid;gap:16px}
 .settings-section{border:1px solid var(--line,#263558);border-radius:12px;padding:16px;background:rgba(8,16,34,.45)}
 .settings-section-title{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px}
 .settings-section-title h3{margin:0;font-size:15px}.settings-section-title p{margin:4px 0 0;color:var(--muted,#91a0c1);font-size:11px}
@@ -5775,7 +5719,6 @@ dialog.dialog .dialog-actions {
 .settings-error{margin:10px 0 0;padding:9px 11px;border:1px solid #a34662;border-radius:7px;background:#3a1724;color:#fecdd3;font-size:12px}
 .settings-actions{display:flex;justify-content:flex-end;margin-top:14px}
 .settings-management{margin-top:14px;padding:13px;border:1px solid #2a3859;border-radius:9px}.settings-management h4{margin:0 0 10px;font-size:13px}.settings-management>label{display:grid;gap:6px}.settings-management input{width:100%;box-sizing:border-box;border:1px solid #31415f;border-radius:7px;padding:9px;background:#081022;color:white}.settings-management-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.settings-status-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.settings-status-grid>div{display:grid;gap:5px;padding:10px;border-radius:8px;background:#0a1226;font-size:11px}.settings-status-grid span{color:#94a3b8}.settings-webhook-details{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;margin-top:10px;font-size:11px}.settings-webhook-details span{color:#94a3b8}.settings-webhook-details strong{overflow-wrap:anywhere}
-.settings-dialog .settings-help{margin:7px 0 11px;color:var(--muted,#91a0c1);font-size:12px!important;font-weight:400!important;line-height:1.6!important;letter-spacing:0!important;white-space:normal;overflow-wrap:anywhere}
 .settings-history-actions{margin-top:0;justify-content:flex-end}
 .settings-history-summary{margin:0 0 10px;color:#94a3b8;font-size:11px}
 .settings-history-list{display:grid;gap:8px}
@@ -5789,8 +5732,8 @@ dialog.dialog .dialog-actions {
 .settings-history-providers{display:flex;flex-wrap:wrap;gap:6px}
 .settings-history-provider{padding:4px 7px;border-radius:6px;background:#111b31;font-size:10.5px;color:#cbd5e1}
 .settings-history-provider.sent{color:#86efac}.settings-history-provider.failed{color:#fda4af}.settings-history-provider.disabled,.settings-history-provider.unconfigured,.settings-history-provider.skipped{color:#94a3b8}
-[data-theme="white"] .settings-dialog-head{background:#fff}[data-theme="white"] .settings-section,[data-theme="white"] .settings-secret-card,[data-theme="white"] .settings-history-item{background:#f8fafc}[data-theme="white"] .settings-secret-card input,[data-theme="white"] .settings-fields input,[data-theme="white"] .settings-time,[data-theme="white"] .settings-reminder-row input{background:#fff;color:#172033}[data-theme="white"] .settings-history-provider{background:#eef2f7;color:#475569}[data-theme="white"] .settings-dialog .settings-help{color:#64748b}
-@media(max-width:620px){.settings-content{padding:12px}.settings-secret-grid,.settings-fields,.settings-status-grid{grid-template-columns:1fr}.settings-task{grid-template-columns:1fr}.settings-task>label{padding-top:0}.settings-time,.settings-reminder-row input{max-width:none}.settings-reminder-row{align-items:center}.settings-history-actions{width:100%;justify-content:flex-start}.settings-history-head{align-items:flex-start}}
+[data-theme="white"] .settings-section,[data-theme="white"] .settings-secret-card,[data-theme="white"] .settings-history-item{background:#f8fafc}[data-theme="white"] .settings-secret-card input,[data-theme="white"] .settings-fields input,[data-theme="white"] .settings-time,[data-theme="white"] .settings-reminder-row input{background:#fff;color:#172033}[data-theme="white"] .settings-history-provider{background:#eef2f7;color:#475569}[data-theme="white"] .settings-surface .settings-help{color:#64748b}
+@media(max-width:760px){.settings-content{padding:0}.settings-secret-grid,.settings-fields,.settings-status-grid{grid-template-columns:1fr}.settings-task{grid-template-columns:1fr}.settings-task>label{padding-top:0}.settings-time,.settings-reminder-row input{max-width:none}.settings-reminder-row{align-items:center}.settings-history-actions{width:100%;justify-content:flex-start}.settings-history-head{align-items:flex-start}}
 
 
 
@@ -5803,3 +5746,8 @@ dialog.dialog .dialog-actions {
 
 
 
+
+[data-theme="white"] .settings-surface .settings-source.stored{color:#15803d}
+[data-theme="white"] .settings-surface .settings-source.environment{color:#0369a1}
+[data-theme="white"] .settings-surface :is(.settings-status-grid>div,.settings-management){background:#f1f5f9;border-color:#cbd5e1}
+[data-theme="white"] .settings-surface :is(.settings-status-grid span,.settings-history-summary,.automation-status-head p,.automation-status-meta,.automation-status-recent-main span,.automation-status-empty){color:#64748b}

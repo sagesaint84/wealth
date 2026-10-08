@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HTML = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
+HTML = (ROOT / "app/static/wealth-settings-surface.js").read_text(encoding="utf-8")
 JS = (ROOT / "app/static/wealth-settings.js").read_text(encoding="utf-8")
 CSS = (ROOT / "app/static/wealth-overrides.css").read_text(encoding="utf-8")
 
@@ -57,13 +57,13 @@ class NotificationProviderSettingsFrontendTests(unittest.TestCase):
             "세션이 없거나 만료된 경우 내 Toss WTS 계정을 QR 코드로 인증하거나 재인증할 수 있습니다.",
         ):
             self.assertIn(text, HTML)
-        self.assertIn(".settings-dialog .settings-help", CSS)
+        self.assertIn(".settings-surface .settings-help", CSS)
         self.assertIn("font-size:12px!important", CSS)
         self.assertIn("font-weight:400!important", CSS)
         self.assertIn("line-height:1.6!important", CSS)
         self.assertIn("color:var(--muted,#91a0c1)", CSS)
         self.assertIn(
-            '[data-theme="white"] .settings-dialog .settings-help{color:#64748b}',
+            '[data-theme="white"] .settings-surface .settings-help{color:#64748b}',
             CSS,
         )
 

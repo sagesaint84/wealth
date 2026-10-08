@@ -68,55 +68,8 @@
     document.head.append(style);
   }
 
-  function createPanel() {
-    let panel = byId('settingsAutomationStatusPanel');
-    if (panel) return panel;
-    const anchor = byId('settingsAutomationOwnerSection') || byId('settingsTossSessionSection');
-    if (!anchor || !anchor.parentElement) return null;
-
-    panel = document.createElement('div');
-    panel.id = 'settingsAutomationStatusPanel';
-    panel.className = 'automation-status-panel';
-
-    const head = document.createElement('div');
-    head.className = 'automation-status-head';
-    const titleWrap = document.createElement('div');
-    const title = document.createElement('h4');
-    title.textContent = '자동화 실행 상태';
-    const help = document.createElement('p');
-    help.textContent = '최근 실행 결과와 다음 예정 시간을 표시합니다. 원문 오류·비밀정보는 표시하지 않습니다.';
-    titleWrap.append(title, help);
-    const refresh = document.createElement('button');
-    refresh.id = 'settingsAutomationStatusRefresh';
-    refresh.type = 'button';
-    refresh.className = 'button secondary compact';
-    refresh.textContent = '새로고침';
-    refresh.addEventListener('click', () => refreshStatus(true));
-    head.append(titleWrap, refresh);
-
-    const summary = document.createElement('div');
-    summary.id = 'settingsAutomationStatusSummary';
-    summary.className = 'automation-status-summary';
-    const grid = document.createElement('div');
-    grid.id = 'settingsAutomationStatusGrid';
-    grid.className = 'automation-status-grid';
-    const recent = document.createElement('details');
-    recent.className = 'automation-status-recent';
-    const recentSummary = document.createElement('summary');
-    recentSummary.textContent = '최근 실행 기록';
-    const recentList = document.createElement('div');
-    recentList.id = 'settingsAutomationStatusRecent';
-    recentList.className = 'automation-status-recent-list';
-    recent.append(recentSummary, recentList);
-    const error = document.createElement('p');
-    error.id = 'settingsAutomationStatusError';
-    error.className = 'settings-error';
-    error.hidden = true;
-    error.setAttribute('role', 'alert');
-
-    panel.append(head, summary, grid, recent, error);
-    anchor.parentElement.insertBefore(panel, anchor);
-    return panel;
+  function getPanel() {
+    return byId('settingsAutomationStatusPanel');
   }
 
   function formatTime(value) {
@@ -251,7 +204,7 @@
   }
 
   function renderStatus(status) {
-    createPanel();
+    getPanel();
     const summary = byId('settingsAutomationStatusSummary');
     const grid = byId('settingsAutomationStatusGrid');
     const error = byId('settingsAutomationStatusError');
@@ -295,7 +248,7 @@
   }
 
   async function refreshStatus(showError) {
-    const panel = createPanel();
+    const panel = getPanel();
     if (!panel) return;
     const button = byId('settingsAutomationStatusRefresh');
     const error = byId('settingsAutomationStatusError');
@@ -313,25 +266,18 @@
     }
   }
 
-  function watchDialog() {
+  function connectSettingsSurface() {
     addStyles();
-    createPanel();
-    const dialog = byId('notificationSettingsDialog');
-    if (!dialog) return;
-    const observer = new MutationObserver(() => {
-      if (dialog.hasAttribute('open')) refreshStatus(false);
-    });
-    observer.observe(dialog, {attributes: true, attributeFilter: ['open']});
-    if (dialog.hasAttribute('open')) refreshStatus(false);
-    byId('settingsSaveAutomation')?.addEventListener('click', () => {
-      window.setTimeout(() => refreshStatus(false), 600);
-    });
+    byId('settingsAutomationStatusRefresh')?.addEventListener('click', () => refreshStatus(true));
+    window.addEventListener('wealth:automation-settings', event => renderStatus(event.detail));
+    const snapshot = window.WealthSettings?.getAutomationStatus();
+    if (snapshot !== undefined) renderStatus(snapshot);
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', watchDialog, {once: true});
+    document.addEventListener('DOMContentLoaded', connectSettingsSurface, {once: true});
   } else {
-    watchDialog();
+    connectSettingsSurface();
   }
 
   window.WealthAutomationStatus = {renderStatus, refreshStatus};

@@ -313,17 +313,17 @@
   }
 
   async function saveTossSessionSettings() {
-    const button = byId('settingsSaveTossSession'); setError('settingsAutomationError');
+    const button = byId('settingsSaveTossSession'); setError('settingsTossError');
     try {
       busy(button, true);
       const result = await api('/api/settings/toss-wts', {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_check_enabled:byId('settingsTossSessionEnabled').checked})});
       tossSessionSnapshot = {...(tossSessionSnapshot || {}), ...result.toss_wts}; toast('내 Toss 세션 자동 점검 설정을 저장했습니다.');
-    } catch (error) { const message=safeMessage(error,'Toss 세션 설정을 저장하지 못했습니다.'); setError('settingsAutomationError',message); toast(message,true); }
+    } catch (error) { const message=safeMessage(error,'Toss 세션 설정을 저장하지 못했습니다.'); setError('settingsTossError',message); toast(message,true); }
     finally { busy(button,false); }
   }
 
   async function checkTossSessionStatus() {
-    const button = byId('settingsCheckTossSession'); setError('settingsAutomationError');
+    const button = byId('settingsCheckTossSession'); setError('settingsTossError');
     try {
       busy(button,true); const status=await api('/api/settings/toss-wts/status',{method:'POST'});
       _lastKnownTossStatus = status;
@@ -331,7 +331,7 @@
       byId('settingsTossLiveStatus').textContent=status.active && status.valid ? 'active / valid' : (status.error_code || 'invalid');
       byId('settingsTossExpiry').textContent=status.server_expires_at ? `${status.server_expires_at} · ${status.hours_remaining}시간` : '없음';
       byId('settingsTossCheckedAt').textContent=status.checked_at || '없음';
-    } catch (error) { const message=safeMessage(error,'Toss 세션 상태를 확인하지 못했습니다.'); setError('settingsAutomationError',message); toast(message,true); }
+    } catch (error) { const message=safeMessage(error,'Toss 세션 상태를 확인하지 못했습니다.'); setError('settingsTossError',message); toast(message,true); }
     finally { busy(button,false); }
   }
 
@@ -359,7 +359,7 @@
   }
 
   async function startTossLogin() {
-    setError('settingsAutomationError');
+    setError('settingsTossError');
     const startBtn = byId('settingsTossLoginStart');
     const cancelBtn = byId('settingsTossLoginCancel');
     const qrArea = byId('settingsTossLoginQrArea');
@@ -406,7 +406,7 @@
       } else {
         message = safeMessage(error, 'Toss WTS 인증을 시작하지 못했습니다.');
       }
-      setError('settingsAutomationError', message);
+      setError('settingsTossError', message);
       toast(message, true);
       _tossLoginReset();
     } finally {
@@ -483,7 +483,11 @@
     byId('settingsDisconnectWebhook').disabled = !(system.can_manage && owner && webhookSnapshot?.configured);
   }
 
+  let automationStatusSnapshot;
+
   function renderAutomation(data) {
+    automationStatusSnapshot = data.automation._status;
+    window.dispatchEvent(new CustomEvent('wealth:automation-settings', {detail: automationStatusSnapshot}));
     const automation = data.automation;
     byId('settingsTimezone').textContent = automation.timezone;
     byId('settingsMorningEnabled').checked = automation.ipo_refresh_morning.enabled;
@@ -505,7 +509,6 @@
       api('/api/settings/notifications'),
       api('/api/settings/automation'),
       api('/api/settings/system'),
-      api('/api/settings/toss-wts'),
       api('/api/settings/discord'),
       api('/api/settings/kakao'),
       api('/api/settings/notifications/history?limit=20').catch(() => ({
@@ -516,11 +519,10 @@
       })),
     ];
 
-    const [notifications, automation, system, toss, discord, kakao, history] = await Promise.all(promises);
+    const [notifications, automation, system, discord, kakao, history] = await Promise.all(promises);
     renderNotifications(notifications);
     renderAutomation(automation);
     renderSystem(system);
-    renderTossSession(toss.toss_wts);
     renderDiscord(discord);
     renderKakao(kakao);
     renderNotificationHistory(history);
@@ -617,25 +619,70 @@
     }
   }
 
-  async function openSettings() {
-    const dialog = byId('notificationSettingsDialog');
-    byId('settingsLoading').hidden = false;
-    byId('settingsContent').hidden = true;
-    setError('settingsTelegramError');
-    setError('settingsDiscordError');
-    setError('settingsKakaoError');
-    setError('settingsNotificationHistoryError');
-    setError('settingsAutomationError');
-    dialog.showModal();
-    try {
-      await reloadSettings();
-      byId('settingsContent').hidden = false;
-    } catch (_error) {
-      toast('설정을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.', true);
-      dialog.close();
-    } finally {
-      byId('settingsLoading').hidden = true;
+  let authenticated = false;
+  let inSettings = false;
+  const loadedPanels = new Set();
+  const pendingPanels = new Map();
+
+  async function loadPanel(name, force = false) {
+    if (!authenticated || (!force && loadedPanels.has(name))) return;
+    if (pendingPanels.has(name)) return pendingPanels.get(name);
+    const loading = byId(name === 'api' ? 'settingsApiLoading' : 'settingsLoading');
+    const errorId = name === 'api' ? 'settingsApiError' : 'settingsNotificationsError';
+    const retry = document.querySelector(`[data-settings-retry="${name}"]`);
+    const fields = byId(name === 'api' ? 'settingsApiFields' : 'settingsNotificationsFields');
+    fields.disabled = true;
+    loading.hidden = false;
+    setError(errorId);
+    const promise = (async () => {
+      try {
+        if (name === 'api') {
+          await Promise.all([
+            window.loadUserOpenApiSettings(),
+            window.loadKrxMarketplaceConfig(),
+            api('/api/settings/toss-wts').then(data => renderTossSession(data.toss_wts)),
+          ]);
+        } else {
+          await reloadSettings();
+        }
+        fields.disabled = false;
+        loadedPanels.add(name);
+        retry.hidden = true;
+      } catch (_error) {
+        setError(errorId, '설정을 불러오지 못했습니다. 다시 불러오기를 눌러 주세요.');
+        retry.hidden = false;
+      } finally {
+        loading.hidden = true;
+        pendingPanels.delete(name);
+      }
+    })();
+    pendingPanels.set(name, promise);
+    return promise;
+  }
+
+  function selectSettingsTab(name, focus = false) {
+    const tabs = [...document.querySelectorAll('[data-settings-tab]')];
+    if (!tabs.some(tab => tab.dataset.settingsTab === name)) return;
+    tabs.forEach(tab => {
+      const active = tab.dataset.settingsTab === name;
+      tab.setAttribute('aria-selected', String(active));
+      tab.tabIndex = active ? 0 : -1;
+      if (active && focus) tab.focus();
+    });
+    document.querySelectorAll('[data-settings-panel]').forEach(panel => {
+      panel.hidden = panel.dataset.settingsPanel !== name;
+    });
+    void loadPanel(name);
+  }
+
+  function onSettingsView() {
+    const visible = document.querySelector('.wealth-workspace')?.dataset.activeView === 'settings';
+    if (visible && !inSettings) {
+      // A new visit always starts at API connections; tab switching keeps drafts.
+      loadedPanels.clear();
+      selectSettingsTab('api');
     }
+    inSettings = visible;
   }
 
   async function saveTelegram() {
@@ -954,9 +1001,29 @@
         toast('카카오 연결을 완료하지 못했습니다.', true);
       }
     });
-    document.querySelectorAll('[data-settings-close]').forEach((button) => button.addEventListener('click', () => byId('notificationSettingsDialog').close()));
+    document.querySelectorAll('[data-settings-tab]').forEach(tab => {
+      tab.addEventListener('click', () => selectSettingsTab(tab.dataset.settingsTab));
+      tab.addEventListener('keydown', event => {
+        const tabs = [...document.querySelectorAll('[data-settings-tab]')];
+        const index = tabs.indexOf(tab);
+        const next = {ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length,
+                      Home: 0, End: tabs.length - 1}[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        selectSettingsTab(tabs[next].dataset.settingsTab, true);
+      });
+    });
+    document.querySelectorAll('[data-settings-retry]').forEach(button => {
+      button.addEventListener('click', () => void loadPanel(button.dataset.settingsRetry, true));
+    });
+    window.addEventListener('wealth:view', onSettingsView);
+    window.addEventListener('wealth:role', () => {
+      authenticated = true;
+      if (inSettings) void loadPanel(document.querySelector('[data-settings-tab][aria-selected="true"]').dataset.settingsTab);
+    });
+    authenticated = typeof currentUserProfile !== 'undefined' && !!currentUserProfile;
+    onSettingsView();
   });
 
-  window.openNotificationSettings = openSettings;
-  window.WealthSettings = {validateTime, sourceLabel, parseOptionalId};
+  window.WealthSettings = {validateTime, sourceLabel, parseOptionalId, selectSettingsTab, getAutomationStatus: () => automationStatusSnapshot};
 })();

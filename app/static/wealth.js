@@ -10787,12 +10787,6 @@ async function applyUserRoleView(me) {
     adminBtn.style.setProperty('display', showAdminBtn ? 'inline-flex' : 'none', 'important');
   }
 
-  // OpenAPI modal also contains the administrator's shared OpenDART setting.
-  const openApiBtn = document.getElementById('userOpenApiBtn');
-  if (openApiBtn) {
-    openApiBtn.style.display = 'inline-flex';
-  }
-
   // PWA 설치 버튼은 admin일 때 숨김
   const pwaBtn = document.getElementById('pwaInstallButton');
   if (pwaBtn && isAdminUser) {
@@ -11093,148 +11087,40 @@ async function handleAdminDeleteUser(username) {
 window.handleAdminDeleteUser = handleAdminDeleteUser;
 
 // ── USER OPENAPI CONFIGURATION ──────────────────────────────────────────────
-async function openUserOpenApiModal() {
-  const modal = document.getElementById('userOpenApiModal');
-  if (!modal) return;
+const openApiFields = {
+  toss: ['Toss', 'Client Secret 입력'], kb: ['Kb', 'KB App Secret 입력'],
+  nh: ['Nh', '나무 App Secret 입력'], kis: ['Kis', '한투 App Secret 입력'],
+  kiwoom: ['Kiwoom', '키움 App Secret 입력'],
+};
+let userOpenApiSnapshot = {};
 
-  const statusMsg = document.getElementById('openapiStatusMsg');
-  if (statusMsg) statusMsg.style.display = 'none';
-
-  // 기존 폼 입력값 초기화
-  const tossKey = document.getElementById('openapiTossKey');
-  const tossSec = document.getElementById('openapiTossSecret');
-  const kbKey = document.getElementById('openapiKbKey');
-  const kbSec = document.getElementById('openapiKbSecret');
-  const kbAcc = document.getElementById('openapiKbAccountNo');
-  const nhKey = document.getElementById('openapiNhKey');
-  const nhSec = document.getElementById('openapiNhSecret');
-  const kisKey = document.getElementById('openapiKisKey');
-  const kisSec = document.getElementById('openapiKisSecret');
-  const kisAcc = document.getElementById('openapiKisAccountNo');
-  const kiwoomKey = document.getElementById('openapiKiwoomKey');
-  const kiwoomSec = document.getElementById('openapiKiwoomSecret');
-  const kiwoomAcc = document.getElementById('openapiKiwoomAccountNo');
-  const dartKey = document.getElementById('openapiDartKey');
-  const dartSection = document.getElementById('openapiDartSection');
-
-  if (tossKey) tossKey.value = '';
-  if (tossSec) tossSec.value = '';
-  if (kbKey) kbKey.value = '';
-  if (kbSec) kbSec.value = '';
-  if (kbAcc) kbAcc.value = '';
-  if (nhKey) nhKey.value = '';
-  if (nhSec) nhSec.value = '';
-  if (kisKey) kisKey.value = '';
-  if (kisSec) kisSec.value = '';
-  if (kisAcc) kisAcc.value = '';
-  if (kiwoomKey) kiwoomKey.value = '';
-  if (kiwoomSec) kiwoomSec.value = '';
-  if (kiwoomAcc) kiwoomAcc.value = '';
-  if (dartKey) dartKey.value = '';
-
-  if (dartSection) dartSection.hidden = false;
-
-  modal.showModal();
-
-  try {
-    const config = await api('/api/user/openapi-config');
-    function updateBadge(badge, isConnected) {
-      if (!badge) return;
-      if (isConnected) {
-        badge.textContent = '연결됨';
-        badge.className = 'openapi-badge connected';
-        badge.style.background = '';
-        badge.style.color = '';
-      } else {
-        badge.textContent = '미연결';
-        badge.className = 'openapi-badge disconnected';
-        badge.style.background = '';
-        badge.style.color = '';
-      }
+async function loadUserOpenApiSettings(brokers = null) {
+  const config = await api('/api/user/openapi-config');
+  const selected = brokers || Object.keys(openApiFields);
+  for (const broker of selected) {
+    const [prefix, secretPlaceholder] = openApiFields[broker];
+    const value = config[broker] || {};
+    userOpenApiSnapshot[broker] = value; // This endpoint returns masked values only.
+    const field = suffix => document.getElementById('openapi' + prefix + suffix);
+    const badge = field('Badge');
+    if (badge) {
+      badge.textContent = value.configured ? '연결됨' : '미연결';
+      badge.className = 'openapi-badge ' + (value.configured ? 'connected' : 'disconnected');
     }
-
-    // 토스
-    const tossBadge = document.getElementById('openapiTossBadge');
-    const tossDelBtn = document.getElementById('openapiTossDeleteBtn');
-    const tossConfigured = !!(config.toss && config.toss.configured);
-    updateBadge(tossBadge, tossConfigured);
-    if (tossConfigured) {
-      if (tossDelBtn) tossDelBtn.style.display = 'inline-flex';
-      if (tossKey) tossKey.value = config.toss.app_key || '';
-      if (tossSec) tossSec.placeholder = '******** (등록됨 - 변경 시만 입력)';
-    } else {
-      if (tossDelBtn) tossDelBtn.style.display = 'none';
-      if (tossSec) tossSec.placeholder = 'Client Secret 입력';
+    if (field('DeleteBtn')) field('DeleteBtn').style.display = value.has_app_key || value.configured ? 'inline-flex' : 'none';
+    if (field('Key')) field('Key').value = value.app_key || '';
+    if (field('Secret')) {
+      field('Secret').value = '';
+      field('Secret').placeholder = value.configured ? '******** (등록됨 - 변경 시만 입력)' : secretPlaceholder;
     }
-
-    // KB
-    const kbBadge = document.getElementById('openapiKbBadge');
-    const kbDelBtn = document.getElementById('openapiKbDeleteBtn');
-    const kbConfigured = !!(config.kb && config.kb.configured);
-    updateBadge(kbBadge, kbConfigured);
-    if (kbConfigured) {
-      if (kbDelBtn) kbDelBtn.style.display = 'inline-flex';
-      if (kbKey) kbKey.value = config.kb.app_key || '';
-      if (kbSec) kbSec.placeholder = '******** (등록됨 - 변경 시만 입력)';
-      if (kbAcc) kbAcc.placeholder = config.kb.account_no ? `${config.kb.account_no} (등록됨 - 변경 시만 입력)` : '하이픈 없이 11자리 계좌번호를 입력하세요.';
-    } else {
-      if (kbDelBtn) kbDelBtn.style.display = 'none';
-      if (kbSec) kbSec.placeholder = 'KB App Secret 입력';
-      if (kbAcc) kbAcc.placeholder = (config.kb && config.kb.account_no) ? `${config.kb.account_no} (등록됨 - 변경 시만 입력)` : '하이픈 없이 11자리 계좌번호를 입력하세요.';
+    if (field('AccountNo')) {
+      field('AccountNo').value = '';
+      field('AccountNo').placeholder = value.account_no ? value.account_no + ' (등록됨 - 변경 시만 입력)' : '변경할 계좌번호 입력';
     }
-
-    // NH (나무)
-    const nhBadge = document.getElementById('openapiNhBadge');
-    const nhDelBtn = document.getElementById('openapiNhDeleteBtn');
-    const nhConfigured = !!(config.nh && config.nh.configured);
-    updateBadge(nhBadge, nhConfigured);
-    if (nhConfigured) {
-      if (nhDelBtn) nhDelBtn.style.display = 'inline-flex';
-      if (nhKey) nhKey.value = config.nh.app_key || '';
-      if (nhSec) nhSec.placeholder = '******** (등록됨 - 변경 시만 입력)';
-    } else {
-      if (nhDelBtn) nhDelBtn.style.display = 'none';
-      if (nhSec) nhSec.placeholder = '나무 App Secret 입력';
-    }
-
-    // KIS (한국투자증권)
-    const kisBadge = document.getElementById('openapiKisBadge');
-    const kisDelBtn = document.getElementById('openapiKisDeleteBtn');
-    const kisConfigured = !!(config.kis && config.kis.configured);
-    updateBadge(kisBadge, kisConfigured);
-    if (kisConfigured) {
-      if (kisDelBtn) kisDelBtn.style.display = 'inline-flex';
-      if (kisKey) kisKey.value = config.kis.app_key || '';
-      if (kisSec) kisSec.placeholder = '******** (등록됨 - 변경 시만 입력)';
-      if (kisAcc) kisAcc.value = config.kis.account_no || '';
-    } else {
-      if (kisDelBtn) kisDelBtn.style.display = 'none';
-      if (kisSec) kisSec.placeholder = '한투 App Secret 입력';
-      if (kisAcc) kisAcc.value = (config.kis && config.kis.account_no) || '';
-    }
-
-    // Kiwoom (키움증권)
-    const kiwoomBadge = document.getElementById('openapiKiwoomBadge');
-    const kiwoomDelBtn = document.getElementById('openapiKiwoomDeleteBtn');
-    const kiwoomConfigured = !!(config.kiwoom && config.kiwoom.configured);
-    updateBadge(kiwoomBadge, kiwoomConfigured);
-    if (kiwoomConfigured) {
-      if (kiwoomDelBtn) kiwoomDelBtn.style.display = 'inline-flex';
-      if (kiwoomKey) kiwoomKey.value = config.kiwoom.app_key || '';
-      if (kiwoomSec) kiwoomSec.placeholder = '******** (등록됨 - 변경 시만 입력)';
-      if (kiwoomAcc) kiwoomAcc.value = config.kiwoom.account_no || '';
-    } else {
-      if (kiwoomDelBtn) kiwoomDelBtn.style.display = 'none';
-      if (kiwoomSec) kiwoomSec.placeholder = '키움 App Secret 입력';
-      if (kiwoomAcc) kiwoomAcc.value = (config.kiwoom && config.kiwoom.account_no) || '';
-    }
-
-    renderDartOpenApiStatus(config.dart, updateBadge);
-  } catch (err) {
-    console.error('[OPENAPI] 설정 조회 실패:', err);
   }
+  if (!brokers) renderDartOpenApiStatus(config.dart);
 }
-window.openUserOpenApiModal = openUserOpenApiModal;
+window.loadUserOpenApiSettings = loadUserOpenApiSettings;
 
 function renderDartOpenApiStatus(dartConfig, updateBadge) {
   const badge = document.getElementById('openapiDartBadge');
@@ -11315,7 +11201,7 @@ async function handleDeleteBrokerApi(broker) {
       method: 'DELETE'
     });
     toast(res.message || `${bname} OpenAPI 키가 삭제되었습니다.`);
-    await openUserOpenApiModal();
+    await loadUserOpenApiSettings([broker]);
   } catch (err) {
     alert(err.message || '삭제 실패');
   }
@@ -11327,33 +11213,21 @@ async function handleSaveUserOpenApi(e) {
   const btn = document.getElementById('saveUserOpenApiBtn');
   const statusMsg = document.getElementById('openapiStatusMsg');
 
-  const dartKeyValue = (document.getElementById('openapiDartKey')?.value || '').trim();
-  const payload = {
-    toss: {
-      app_key: (document.getElementById('openapiTossKey')?.value || '').trim(),
-      app_secret: (document.getElementById('openapiTossSecret')?.value || '').trim(),
-    },
-    kb: {
-      app_key: (document.getElementById('openapiKbKey')?.value || '').trim(),
-      app_secret: (document.getElementById('openapiKbSecret')?.value || '').trim(),
-      account_no: (document.getElementById('openapiKbAccountNo')?.value || '').trim(),
-    },
-    nh: {
-      app_key: (document.getElementById('openapiNhKey')?.value || '').trim(),
-      app_secret: (document.getElementById('openapiNhSecret')?.value || '').trim(),
-    },
-    kis: {
-      app_key: (document.getElementById('openapiKisKey')?.value || '').trim(),
-      app_secret: (document.getElementById('openapiKisSecret')?.value || '').trim(),
-      account_no: (document.getElementById('openapiKisAccountNo')?.value || '').trim(),
-    },
-    kiwoom: {
-      app_key: (document.getElementById('openapiKiwoomKey')?.value || '').trim(),
-      app_secret: (document.getElementById('openapiKiwoomSecret')?.value || '').trim(),
-      account_no: (document.getElementById('openapiKiwoomAccountNo')?.value || '').trim(),
-    },
-  };
-  if (dartKeyValue) payload.dart = { api_key: dartKeyValue };
+  // Omit untouched broker sections. The backend's blank app_key means delete,
+  // so retain its masked key when changing only a secret/account number.
+  const payload = {};
+  for (const [broker, [prefix]] of Object.entries(openApiFields)) {
+    const field = suffix => (document.getElementById('openapi' + prefix + suffix)?.value || '').trim();
+    const stored = userOpenApiSnapshot[broker] || {};
+    const key = field('Key'), secret = field('Secret'), account = field('AccountNo');
+    const changedKey = key && key !== (stored.app_key || '');
+    const changedAccount = account && !account.includes('*');
+    if (!changedKey && !secret && !changedAccount) continue;
+    payload[broker] = {app_key: key || stored.app_key || '', app_secret: secret};
+    if (changedAccount) payload[broker].account_no = account;
+  }
+  if (!Object.keys(payload).length) { toast('변경할 인증정보를 입력해 주세요.'); return; }
+  if (statusMsg) statusMsg.style.display = 'none';
 
   if (btn) {
     btn.disabled = true;
@@ -11367,8 +11241,7 @@ async function handleSaveUserOpenApi(e) {
       body: JSON.stringify(payload)
     });
     toast(res.message || '증권사 OpenAPI 설정이 안전하게 저장되었습니다.');
-    const modal = document.getElementById('userOpenApiModal');
-    if (modal) modal.close();
+    await loadUserOpenApiSettings(Object.keys(payload));
   } catch (err) {
     if (statusMsg) {
       statusMsg.style.display = 'block';
@@ -16555,7 +16428,8 @@ async function loadKrxMarketplaceConfig() {
     if (del) del.style.display = data.configured || data.login_id_configured ? '' : 'none';
     if (msg) msg.textContent = '자격증명은 이 사용자 전용 data/users/<username>/secrets에 저장됩니다.';
   } catch (err) {
-    if (msg) msg.textContent = err?.message || 'KRX 설정을 불러오지 못했습니다.';
+    if (msg) msg.textContent = 'KRX 설정을 불러오지 못했습니다.';
+    throw new Error('KRX_CONFIG_LOAD_FAILED');
   }
 }
 
@@ -16638,11 +16512,3 @@ async function deleteKrxMarketplaceConfig() {
 window.saveKrxMarketplaceConfig = saveKrxMarketplaceConfig;
 window.testKrxMarketplaceConfig = testKrxMarketplaceConfig;
 window.deleteKrxMarketplaceConfig = deleteKrxMarketplaceConfig;
-const _openUserOpenApiModalBeforeKrx = window.openUserOpenApiModal;
-if (typeof _openUserOpenApiModalBeforeKrx === 'function') {
-  window.openUserOpenApiModal = async function(...args) {
-    const result = await _openUserOpenApiModalBeforeKrx(...args);
-    await loadKrxMarketplaceConfig();
-    return result;
-  };
-}
