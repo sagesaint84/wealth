@@ -1,93 +1,39 @@
-from __future__ import annotations
-
-import unittest
+"""Core compact presentation has no async decorator dependency."""
 from pathlib import Path
-
-
 ROOT = Path(__file__).resolve().parents[1]
-COMPACT_JS = ROOT / "app" / "static" / "wealth-ipo-compact-view.js"
-LOADER_JS = ROOT / "app" / "static" / "wealth-family-financial-income-allocation.js"
-IPO_JS = ROOT / "app" / "static" / "wealth-ipo.js"
 
 
-class IpoFutureCompactViewFrontendTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.compact_js = COMPACT_JS.read_text(encoding="utf-8")
-        cls.loader_js = LOADER_JS.read_text(encoding="utf-8")
-        cls.ipo_js = IPO_JS.read_text(encoding="utf-8")
-
-    def test_existing_ipo_state_exposes_month_navigation_hooks(self) -> None:
-        self.assertIn("window.WealthIpoState", self.ipo_js)
-        self.assertIn("getHistoryYear", self.ipo_js)
-        self.assertIn("getHistoryMonth", self.ipo_js)
-        self.assertIn("renderIpoList", self.ipo_js)
-        self.assertIn("shiftIpoMonth", self.ipo_js)
-
-    def test_all_view_can_advance_past_current_kst_month(self) -> None:
-        self.assertIn("state.getFilterGroup?.() !== 'ALL'", self.compact_js)
-        self.assertIn("event.stopImmediatePropagation()", self.compact_js)
-        self.assertIn("date.shiftIpoMonth(year, month, 1)", self.compact_js)
-        self.assertIn("state.setMonthExplicitlySelected?.(true)", self.compact_js)
-        self.assertIn("state.renderIpoList?.()", self.compact_js)
-        self.assertIn("nextButton.disabled = false", self.compact_js)
-
-    def test_compact_cards_use_one_row_and_hide_details_until_expanded(self) -> None:
-        self.assertIn("grid-template-columns: minmax(0, 1fr) !important", self.compact_js)
-        self.assertIn(".ipo-card-body", self.compact_js)
-        self.assertIn(".ipo-card-footer", self.compact_js)
-        self.assertIn(".ipo-card-expanded", self.compact_js)
-        self.assertIn("'자세히'", self.compact_js)
-        self.assertIn("'접기'", self.compact_js)
-        self.assertIn("aria-expanded", self.compact_js)
-
-    def test_compact_state_survives_ipo_rerender(self) -> None:
-        self.assertIn("const expandedIpoIds = new Set()", self.compact_js)
-        self.assertIn("MutationObserver", self.compact_js)
-        self.assertIn("expandedIpoIds.has(ipoId)", self.compact_js)
-
-    def test_missing_market_is_explicitly_labeled_without_guessing_exchange(self) -> None:
-        self.assertIn("window.WealthIpoState?.getMarketIpos?.()", self.compact_js)
-        self.assertIn("const market = String(meta?.market || '').trim()", self.compact_js)
-        self.assertIn("market || '시장 미확인'", self.compact_js)
-        self.assertIn("ipo-market-unknown", self.compact_js)
-        self.assertNotIn("market || 'KOSDAQ'", self.compact_js)
-
-    def test_calculating_score_explains_coverage_and_core_missing_inputs(self) -> None:
-        self.assertIn("institutional_competition_ratio: '기관경쟁률'", self.compact_js)
-        self.assertIn("lockup_commitment_ratio: '의무보유확약률'", self.compact_js)
-        self.assertIn("tradable_share_ratio: '유통가능주식비율'", self.compact_js)
-        self.assertIn("pricing_discipline: '공모가 결정정보'", self.compact_js)
-        self.assertIn("`데이터 ${coverage}%`", self.compact_js)
-        self.assertIn("정식 점수 기준 75% 미만", self.compact_js)
-        self.assertIn("ipo-score-diagnostic", self.compact_js)
-
-    def test_metalogos_reference_is_visible_but_explicitly_not_a_wealth_score_input(self) -> None:
-        self.assertIn("meta?.sources?.metalogos160", self.compact_js)
-        self.assertNotIn("160 보조자료", self.compact_js)
-        self.assertNotIn("Wealth Score 미반영", self.compact_js)
-        self.assertIn("Wealth IPO Score 산정에는 사용하지 않습니다.", self.compact_js)
-        self.assertLess(self.compact_js.index("note.appendChild(link)"),
-                        self.compact_js.index("note.appendChild(text)"))
-        self.assertIn("attractiveness_score", self.compact_js)
-        self.assertNotIn("demand_participant_count_reference", self.compact_js)
-        self.assertNotIn("lockup_participant_count_reference", self.compact_js)
-        self.assertNotIn("tradable_share_ratio_reference", self.compact_js)
-        self.assertNotIn("overflow-x: auto", self.compact_js)
-        self.assertIn("host !== 'metalogos.ai' && host !== 'www.metalogos.ai'", self.compact_js)
-        self.assertIn("link.target = '_blank'", self.compact_js)
-        self.assertIn("link.rel = 'noopener noreferrer'", self.compact_js)
-
-    def test_refresh_uses_the_main_market_snapshot_without_a_second_get(self) -> None:
-        self.assertIn("'wealth:ipo-market-rendered', decorate", self.compact_js)
-        self.assertNotIn("loadIpoMetadata", self.compact_js)
-        self.assertNotIn("invalidateIpoMetadata", self.compact_js)
-        self.assertNotIn("fetchJson", self.compact_js)
-
-    def test_loader_registers_compact_view_once(self) -> None:
-        self.assertIn("wealthIpoCompactViewScript", self.loader_js)
-        self.assertIn("/static/wealth-ipo-compact-view.js?v=10.7c1", self.loader_js)
+def test_core_compact_renderer_and_static_styles():
+    source = (ROOT / 'app/static/wealth-ipo.js').read_text(encoding='utf-8')
+    loader = (ROOT / 'app/static/wealth-family-financial-income-allocation.js').read_text(encoding='utf-8')
+    css = (ROOT / 'app/static/wealth-layout.css').read_text(encoding='utf-8')
+    assert not (ROOT / 'app/static/wealth-ipo-compact-view.js').exists()
+    assert 'wealthIpoCompactViewScript' not in loader
+    assert 'wealth-ipo-compact-view.js' not in loader
+    assert 'MutationObserver' not in source
+    assert 'wealthIpoCompactViewStyles' not in source
+    assert '<article class="ipo-card ipo-compact-card' in source
+    assert 'const expandedIpoIds = new Set()' in source
+    assert 'expandedIpoIds.has(ipoId)' in source
+    assert 'aria-expanded="${expanded}"' in source
+    assert '<div class="ipo-card-body"${detailHidden}>' in source
+    assert '<div class="ipo-card-footer"${detailHidden}>' in source
+    assert 'grid-template-columns: minmax(0, 1fr)' in css
+    assert 'repeat(auto-fill, minmax(360px, 1fr))' not in css
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_existing_future_navigation_and_metadata_use_core_snapshot():
+    source = (ROOT / 'app/static/wealth-ipo.js').read_text(encoding='utf-8')
+    assert 'shiftIpoMonth(ipoHistoryYear, ipoHistoryMonth, 1)' in source
+    assert 'ipoMonthExplicitlySelected = true' in source
+    assert 'scoreDiagnosticText(scoreObj)' in source
+    assert 'renderMetalogosReference(ipo)' in source
+    assert "market || '시장 미확인'" in source
+    assert "market || 'KOSDAQ'" not in source
+    assert 'loadIpoMetadata' not in source
+    assert 'invalidateIpoMetadata' not in source
+    for key, label in [('institutional_competition_ratio', '기관경쟁률'),
+                       ('lockup_commitment_ratio', '의무보유확약률'),
+                       ('tradable_share_ratio', '유통가능주식비율'),
+                       ('pricing_discipline', '공모가 결정정보')]:
+        assert f"{key}: '{label}'" in source

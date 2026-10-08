@@ -2,6 +2,66 @@
 (() => {
   'use strict';
 
+  // Expansion is presentation state, independent of the canonical snapshot.
+  const expandedIpoIds = new Set();
+  const SCORE_CORE_LABELS = {
+    institutional_competition_ratio: '기관경쟁률',
+    lockup_commitment_ratio: '의무보유확약률',
+    tradable_share_ratio: '유통가능주식비율',
+    pricing_discipline: '공모가 결정정보',
+  };
+  function scoreDiagnosticText(score) {
+    if (!score || typeof score !== 'object') return '점수 데이터가 아직 생성되지 않았습니다.';
+    if (score.status === 'NOT_APPLICABLE') return '';
+    if (typeof score.score === 'number' && Number.isFinite(score.score)) return '';
+    const isCalculating = score.is_calculating === true || score.score === null || score.score === undefined;
+    if (!isCalculating) return '';
+
+    const parts = [];
+    const coverage = Number(score.coverage);
+    if (Number.isFinite(coverage)) parts.push(`데이터 ${coverage}%`);
+    const missing = Array.isArray(score.core_missing) ? score.core_missing : [];
+    if (missing.length > 0) {
+      const labels = missing.map(key => SCORE_CORE_LABELS[key] || String(key));
+      parts.push(`부족: ${labels.join(', ')}`);
+    } else if (Number.isFinite(coverage) && coverage < 75) {
+      parts.push('정식 점수 기준 75% 미만');
+    }
+    return parts.join(' · ') || '점수 입력 데이터를 확인 중입니다.';
+  }
+
+  function trustedMetalogosUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    try {
+      const url = new URL(raw);
+      const host = url.hostname.toLowerCase();
+      if (url.protocol !== 'https:') return '';
+      if (host !== 'metalogos.ai' && host !== 'www.metalogos.ai') return '';
+      if (!url.pathname.startsWith('/160ipo/stock/')) return '';
+      return url.href;
+    } catch (_err) {
+      return '';
+    }
+  }
+
+  function compactReferenceNumber(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '';
+    return Number.isInteger(number) ? number.toLocaleString('ko-KR') : String(number);
+  }
+
+  function renderMetalogosReference(ipo) {
+    const reference = ipo?.sources?.metalogos160;
+    if (!reference || typeof reference !== 'object') return '';
+    const sourceUrl = trustedMetalogosUrl(reference.url);
+    const value = compactReferenceNumber(reference.attractiveness_score);
+    const metric = value ? `매력지수 ${value}` : '';
+    if (!sourceUrl && !metric) return '';
+    const link = sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">160 원문</a>` : '';
+    return `<span class="ipo-metalogos-reference" title="Metalogos 160 공개자료의 참고값입니다. Wealth IPO Score 산정에는 사용하지 않습니다.">${link}${escapeHtml(`${link && metric ? ' · ' : ''}${metric}`)}</span>`;
+  }
+
   // Presentation metadata owns identity; raw lead_managers remain display data.
   const brokerFilters = ipo => Array.isArray(ipo?.lead_manager_filters)
     ? ipo.lead_manager_filters.filter(item => item && typeof item.key === 'string' && item.key &&
@@ -623,6 +683,9 @@
     const renderCard = (ipo) => {
       let cardHtml = '';
       const ipoId = ipo.ipo_id;
+      const expanded = expandedIpoIds.has(ipoId);
+      const detailHidden = expanded ? '' : ' hidden';
+      const market = String(ipo.market || '').trim();
       const app = userApplications[ipoId] || {};
       const appliedSet = new Set(app.applied_owners || []);
       const targetList = (app.target_owners && app.target_owners.length > 0) ? app.target_owners : familyMembers;
@@ -704,21 +767,21 @@
       const isSpacScore = ipo.listing_track === 'spac' || (!!scoreObj && scoreObj.status === 'NOT_APPLICABLE');
       const isCalculating = !isSpacScore && (!scoreObj || scoreObj.is_calculating || scoreObj.score === null || scoreObj.score === undefined || (scoreObj.core_missing && scoreObj.core_missing.length > 0) || (scoreObj.coverage !== undefined && scoreObj.coverage < 75));
 
-      let scoreBoxHtml = '';
+      const diagnostic = scoreDiagnosticText(scoreObj);
+      const scoreExtras = `${diagnostic ? `<span class="ipo-score-diagnostic" title="${escapeHtml(diagnostic)}">${escapeHtml(diagnostic)}</span>` : ''}${renderMetalogosReference(ipo)}`;
+      let scoreContentHtml = '';
       if (isSpacScore) {
-        scoreBoxHtml = `
-          <div class="ipo-score-box">
+        scoreContentHtml = `
             <span class="ipo-score-title">Wealth IPO Score · BETA</span>
             <strong class="ipo-score-val beta-score">별도평가</strong>
-          </div>`;
+          `;
       } else if (historicalOfficial) {
-        scoreBoxHtml = `<div class="ipo-score-box"><span class="ipo-score-title">Wealth IPO Score · BETA</span><strong class="ipo-score-val beta-score">과거자료 · 미산정</strong></div>`;
+        scoreContentHtml = `<span class="ipo-score-title">Wealth IPO Score · BETA</span><strong class="ipo-score-val beta-score">과거자료 · 미산정</strong>`;
       } else if (isCalculating) {
-        scoreBoxHtml = `
-          <div class="ipo-score-box">
+        scoreContentHtml = `
             <span class="ipo-score-title">Wealth IPO Score · BETA</span>
               <strong class="ipo-score-val beta-score">점수 산정중</strong>
-          </div>`;
+          `;
       } else {
         const numScore = Number(scoreObj.score);
         const grade = scoreObj.grade || '—';
@@ -732,8 +795,7 @@
         const fund = (comps.fundamentals !== undefined && comps.fundamentals !== null) ? Math.round(comps.fundamentals) : '—';
         const marketEnv = (comps.market_environment !== undefined && comps.market_environment !== null) ? Math.round(comps.market_environment) : '—';
 
-        scoreBoxHtml = `
-          <div class="ipo-score-box" title="${scoreObj.score_as_of ? `기준시점: ${escapeHtml(scoreObj.score_as_of)}` : ''}">
+        scoreContentHtml = `
             <span class="ipo-score-title">Wealth IPO Score ${escapeHtml(statusLabel)}</span>
             <div class="ipo-score-header-val">
               <strong class="ipo-score-val score-${escapeHtml(grade.toLowerCase())}">${numScore} / 100 · ${escapeHtml(grade)}</strong>
@@ -746,15 +808,20 @@
               <span class="ipo-comp-pill" title="매출성장/영업이익/부채">기업기초 ${fund}/10</span>
               <span class="ipo-comp-pill" title="최근IPO수익률/시장20일수익률">시장환경 ${marketEnv}/10</span>
             </div>
-          </div>`;
+          `;
       }
 
+      // One detail wrapper owns both score and supplemental metadata.
+      const scoreTitle = !isSpacScore && !historicalOfficial && !isCalculating && scoreObj.score_as_of
+        ? `기준시점: ${scoreObj.score_as_of}` : '';
+      const scoreBoxHtml = `<div class="ipo-score-box"${detailHidden} title="${escapeHtml(scoreTitle)}">${scoreContentHtml}${scoreExtras}</div>`;
+
       cardHtml += `
-        <article class="ipo-card" data-ipo-id="${escapeHtml(ipoId)}">
+        <article class="ipo-card ipo-compact-card${expanded ? ' ipo-card-expanded' : ''}" data-ipo-id="${escapeHtml(ipoId)}">
           <div class="ipo-card-header">
             <div class="ipo-card-title-group">
               <h3 class="ipo-company-name">${escapeHtml(ipo.company_name)}</h3>
-              ${ipo.market ? `<span class="ipo-market-badge">${escapeHtml(ipo.market)}</span>` : ''}
+              <span class="ipo-market-badge${market ? '' : ' ipo-market-unknown'}" title="${market ? '공식 시장 구분' : 'canonical IPO record에 시장 구분이 없습니다.'}">${escapeHtml(market || '시장 미확인')}</span>
               ${ipo.stock_code ? `<span class="ipo-code-badge">${escapeHtml(ipo.stock_code)}</span>` : ''}
             </div>
             <div class="ipo-status-badges">
@@ -762,9 +829,10 @@
               <span class="ipo-user-status">${escapeHtml(userStateLabel)}</span>
             </div>
             ${scoreBoxHtml}
+            <button type="button" class="button secondary compact ipo-card-detail-toggle" aria-expanded="${expanded}" aria-label="${escapeHtml(ipo.company_name || '공모주')} ${expanded ? '상세 접기' : '상세 보기'}">${expanded ? '접기' : '자세히'}</button>
           </div>
 
-          <div class="ipo-card-body">
+          <div class="ipo-card-body"${detailHidden}>
             <div class="ipo-info-grid">
               <div class="ipo-info-item">
                 <span class="info-label">청약 일정</span>
@@ -782,6 +850,8 @@
                 <span class="info-label">${historicalOfficial ? '공모금액' : '수요예측'}</span>
                 <span class="info-value">${escapeHtml(historicalOfficial ? historicalAmountText : forecastSchedule)}</span>
               </div>
+              ${ipo.refund_date ? `<div class="ipo-info-item"><span class="info-label">환불일</span><span class="info-value">${escapeHtml(ipo.refund_date)}</span></div>` : ''}
+              ${ipo.payment_date ? `<div class="ipo-info-item"><span class="info-label">납입일</span><span class="info-value">${escapeHtml(ipo.payment_date)}</span></div>` : ''}
               <div class="ipo-info-item full-row">
                 <span class="info-label">주관사</span>
                 <span class="info-value">${escapeHtml(managers)}</span>
@@ -789,7 +859,7 @@
             </div>
           </div>
 
-          <div class="ipo-card-footer">
+          <div class="ipo-card-footer"${detailHidden}>
             <div class="ipo-family-app-section">
               <div class="ipo-family-app-head">
                 <span class="family-app-title">가족 청약 신청 현황</span>
@@ -834,6 +904,23 @@
     }
 
     wrapper.innerHTML = html;
+    wrapper.querySelectorAll('.ipo-card-detail-toggle').forEach(button => {
+      button.addEventListener('click', () => {
+        const card = button.closest('.ipo-card');
+        const ipoId = card.dataset.ipoId;
+        const expanded = !expandedIpoIds.has(ipoId);
+        if (expanded) expandedIpoIds.add(ipoId);
+        else expandedIpoIds.delete(ipoId);
+        card.classList.toggle('ipo-card-expanded', expanded);
+        card.querySelectorAll('.ipo-card-body, .ipo-card-footer, .ipo-score-box').forEach(detail => {
+          detail.hidden = !expanded;
+        });
+        button.textContent = expanded ? '접기' : '자세히';
+        button.setAttribute('aria-expanded', String(expanded));
+        const name = card.querySelector('.ipo-company-name').textContent;
+        button.setAttribute('aria-label', `${name} ${expanded ? '상세 접기' : '상세 보기'}`);
+      });
+    });
     window.dispatchEvent(new CustomEvent('wealth:ipo-market-rendered'));
     wrapper.querySelector('#ipoBrokerFilter')?.addEventListener('change', event => {
       ipoBrokerFilter = event.target.value;

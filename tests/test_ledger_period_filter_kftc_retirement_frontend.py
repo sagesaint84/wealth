@@ -14,19 +14,20 @@ class LedgerPeriodFilterAndKftcRetirementFrontendTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.ledger_js = LEDGER_JS.read_text(encoding="utf-8")
-        cls.kftc_js = KFTC_JS.read_text(encoding="utf-8")
+        cls.index_html = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
+        cls.wealth_js = (ROOT / "app/static/wealth.js").read_text(encoding="utf-8")
         cls.loader_js = LOADER_JS.read_text(encoding="utf-8")
 
-    def test_loader_registers_ledger_and_kftc_extensions_after_period_core(self) -> None:
+    def test_loader_keeps_ledger_without_a_kftc_retirement_dependency(self) -> None:
         for marker in (
             "wealthPeriodFilterCoreScript",
             "wealthIncomePeriodBrokerFilterScript",
             "wealthLedgerPeriodFilterScript",
-            "wealthKftcRetirementScript",
         ):
             self.assertIn(marker, self.loader_js)
         self.assertIn("/static/wealth-ledger-period-filter.js?v=10.6f1", self.loader_js)
-        self.assertIn("/static/wealth-kftc-retirement.js?v=10.6f1", self.loader_js)
+        self.assertNotIn("wealthKftcRetirementScript", self.loader_js)
+        self.assertFalse(KFTC_JS.exists())
         self.assertLess(
             self.loader_js.index("wealthPeriodFilterCoreScript"),
             self.loader_js.index("wealthLedgerPeriodFilterScript"),
@@ -70,26 +71,20 @@ class LedgerPeriodFilterAndKftcRetirementFrontendTests(unittest.TestCase):
         self.assertIn("annualView = false", self.ledger_js)
         self.assertIn("void window.loadLedger()", self.ledger_js)
 
-    def test_kftc_bank_and_openapi_sections_are_removed_from_ui(self) -> None:
-        self.assertIn("kftcOpenBankingCard", self.kftc_js)
-        self.assertIn("openapiKftcSection", self.kftc_js)
-        self.assertIn("document.getElementById(id)?.remove()", self.kftc_js)
-        self.assertIn("display:none!important", self.kftc_js)
-        self.assertIn("MutationObserver", self.kftc_js)
+    def test_retired_ui_is_never_generated_instead_of_removed_afterward(self) -> None:
+        for marker in ("kftcOpenBankingCard", "openapiKftcSection", "wealthKftcRetirementStyle"):
+            self.assertNotIn(marker, self.index_html)
+            self.assertNotIn(marker, self.wealth_js)
+            self.assertNotIn(marker, self.loader_js)
 
-    def test_kftc_user_facing_actions_are_retired_without_deleting_backend_data(self) -> None:
-        for marker in (
-            "window.refreshKftcStatus = retiredAsync",
-            "window.handleStartKftcOAuth = retiredAction",
-            "window.handleFetchKftcAccounts = retiredAsync",
-            "window.handlePreviewKftcBalance = retiredAsync",
-            "window.handleDisconnectKftc = retiredAsync",
-            "window.refreshUserKftcOpenApiStatus = retiredAsync",
-            "window.handleSaveUserKftcConfig = retiredAsync",
-        ):
-            self.assertIn(marker, self.kftc_js)
-        self.assertNotIn("/api/kftc", self.kftc_js)
-        self.assertNotIn("/api/user/kftc", self.kftc_js)
+    def test_dormant_backend_and_callback_notifications_are_preserved(self) -> None:
+        self.assertIn("kftc_connected", self.wealth_js)
+        self.assertIn("kftc_error", self.wealth_js)
+        self.assertNotIn("/api/kftc", self.wealth_js)
+        self.assertNotIn("/api/user/kftc", self.wealth_js)
+        routes = (ROOT / "app/main.py").read_text(encoding="utf-8")
+        self.assertIn('/api/kftc/openbanking/oauth/callback', routes)
+        self.assertIn('/api/user/kftc-openbanking-config', routes)
 
 
 if __name__ == "__main__":

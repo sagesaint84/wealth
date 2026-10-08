@@ -157,9 +157,7 @@
       await loadScriptOnce('wealthIncomePeriodBrokerFilterScript', '/static/wealth-income-period-broker-filter.js?v=10.6p1');
       await loadScriptOnce('wealthPnlYearIntentScript', '/static/wealth-pnl-year-intent.js?v=10.6f2');
       await loadScriptOnce('wealthLedgerPeriodFilterScript', '/static/wealth-ledger-period-filter.js?v=10.6f1');
-      await loadScriptOnce('wealthKftcRetirementScript', '/static/wealth-kftc-retirement.js?v=10.6f1');
       await loadScriptOnce('wealthIpoEventMonthsScript', '/static/wealth-ipo-event-months.js?v=10.6i1');
-      await loadScriptOnce('wealthIpoCompactViewScript', '/static/wealth-ipo-compact-view.js?v=10.7c1');
     } catch (err) {
       console.error('Wealth 확장 모듈 로드 실패:', err);
     }

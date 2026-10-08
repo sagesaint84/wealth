@@ -20,12 +20,11 @@ class IpoEventMonthsFrontendTests(unittest.TestCase):
         self.assertIn("wrapper.addEventListener('click'", source)
         self.assertIn("}, true);", source)
 
-    def test_event_month_extension_loads_before_compact_view(self):
-        loader = (ROOT / "app" / "static" / "wealth-family-financial-income-allocation.js").read_text(encoding="utf-8")
-        event_pos = loader.index("wealthIpoEventMonthsScript")
-        compact_pos = loader.index("wealthIpoCompactViewScript")
-        self.assertLess(event_pos, compact_pos)
+    def test_event_month_extension_remains_independent_of_removed_decorator(self):
+        loader = (ROOT / "app/static/wealth-family-financial-income-allocation.js").read_text(encoding="utf-8")
+        self.assertEqual(loader.count("wealthIpoEventMonthsScript"), 1)
         self.assertIn("wealth-ipo-event-months.js?v=10.6i1", loader)
+        self.assertNotIn("wealthIpoCompactViewScript", loader)
 
 
 if __name__ == "__main__":
