@@ -14307,13 +14307,6 @@ function showTossWtsIncomeMessage(message, type = 'info') {
   el.style.display = 'block';
 }
 
-function hideTossWtsIncomeMessage() {
-  const el = document.getElementById('tossWtsIncomeMessage');
-  if (!el) return;
-  el.style.display = 'none';
-  el.textContent = '';
-}
-
 function setTossWtsIncomeLoading(loading) {
   tossWtsIncomeState.loading = loading;
   const fetchBtn = document.getElementById('btnFetchTossWtsIncome');

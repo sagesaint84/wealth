@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import colorsys
 import re
 import unittest
 from pathlib import Path
@@ -11,17 +10,6 @@ ROOT = Path(__file__).resolve().parent.parent
 def hex_to_rgb(hex_code: str) -> tuple[float, float, float]:
     h = hex_code.lstrip("#")
     return tuple(int(h[i : i + 2], 16) / 255.0 for i in (0, 2, 4))
-
-
-def hex_to_hsv(hex_code: str) -> tuple[float, float, float]:
-    r, g, b = hex_to_rgb(hex_code)
-    h, s, v = colorsys.rgb_to_hsv(r, g, b)
-    return h * 360.0, s * 100.0, v * 100.0
-
-
-def hue_difference(h1: float, h2: float) -> float:
-    diff = abs(h1 - h2) % 360.0
-    return min(diff, 360.0 - diff)
 
 
 def srgb_to_lin(c: float) -> float:

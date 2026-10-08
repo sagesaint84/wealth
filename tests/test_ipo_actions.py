@@ -335,16 +335,6 @@ class TestExpiryBoundary(unittest.TestCase):
 # 6. mark_ipo_owner_applied — direct command tests
 # ---------------------------------------------------------------------------
 
-def _patch_mark(market=None, apps=None):
-    """Helper: returns patch context managers for market store and user applications."""
-    m = market or _make_market()
-    a = apps or _make_apps()
-    return (
-        patch("app.services.ipo.actions.read_market_store_read_only", return_value=m),
-        patch("app.services.ipo.actions.get_user_applications", return_value=a),
-    )
-
-
 class TestMarkIpoOwnerApplied(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
