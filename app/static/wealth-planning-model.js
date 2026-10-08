@@ -96,7 +96,10 @@ if (typeof document !== 'undefined') {
   }
 
   const loadUnifiedTimeseries = () => {
-    if (!window.WealthTimeseriesPeriodCore) return;
+    if (!window.WealthTimeseriesPeriodCore) {
+      window.WealthLedgerChartModule?.settle('failed');
+      return;
+    }
 
     const loadUnified = () => {
       if (document.querySelector('script[data-wealth-timeseries-unified]')) return;
@@ -104,6 +107,10 @@ if (typeof document !== 'undefined') {
       script.src = '/static/wealth-timeseries-unified.js?v=10.7g1';
       script.async = false;
       script.dataset.wealthTimeseriesUnified = '1';
+      script.addEventListener('error', () => window.WealthLedgerChartModule?.settle('failed'), { once: true });
+      script.addEventListener('load', () => window.WealthLedgerChartModule?.settle(
+        typeof window.WealthUnifiedTimeseries?.renderLedger === 'function' ? 'ready' : 'failed'
+      ), { once: true });
       document.head.append(script);
     };
 
@@ -145,10 +152,12 @@ if (typeof document !== 'undefined') {
     periodCore.async = false;
     periodCore.dataset.wealthTimeseriesPeriodCore = '1';
     periodCore.addEventListener('load', loadUnifiedTimeseries, { once: true });
+    periodCore.addEventListener('error', () => window.WealthLedgerChartModule?.settle('failed'), { once: true });
     document.head.append(periodCore);
   } else if (window.WealthTimeseriesPeriodCore) {
     loadUnifiedTimeseries();
   } else {
     periodCore.addEventListener('load', loadUnifiedTimeseries, { once: true });
+    periodCore.addEventListener('error', () => window.WealthLedgerChartModule?.settle('failed'), { once: true });
   }
 }

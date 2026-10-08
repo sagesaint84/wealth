@@ -24,7 +24,9 @@ class LedgerTimeseriesHistoryTests(unittest.TestCase):
 
     def test_expanded_trend_is_stored_and_rerendered(self):
         self.assertIn("rawLedgerData = { ...data, monthly_trend: merged };", self.js)
-        self.assertIn("renderLedgerTrend(merged);", self.js)
+        self.assertIn("renderLedgerTrendFallback(merged);", self.js)
+        self.assertIn("return window.WealthUnifiedTimeseries.extendLedgerHistory();", self.js)
+        self.assertIn("window.WealthLedgerChartModule?.state !== 'failed'", self.js)
         self.assertIn("updateTrendHeader(merged);", self.js)
 
     def test_zoom_continues_from_previous_visible_range_after_fetch(self):

@@ -47,9 +47,11 @@ class TimeseriesVisibleRangeTests(unittest.TestCase):
         ):
             self.assertIn(marker, self.js)
 
-    def test_legacy_six_month_ledger_eyebrow_is_removed(self):
-        self.assertIn("function hideLegacyLedgerEyebrow", self.js)
-        self.assertIn("eyebrow?.remove()", self.js)
+    def test_legacy_six_month_ledger_eyebrow_has_no_producer_or_remover(self):
+        self.assertNotIn("hideLegacyLedgerEyebrow", self.js)
+        self.assertNotIn("eyebrow?.remove()", self.js)
+        html = (Path(__file__).resolve().parents[1] / 'app/static/index.html').read_text(encoding='utf-8')
+        self.assertNotIn('6-MONTH CASHFLOW TREND', html)
 
 
 if __name__ == "__main__":

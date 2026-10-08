@@ -602,7 +602,7 @@
       return `<text x="${cx}" y="262" fill="#9aacd2" font-size="10" text-anchor="middle">${html(bucket.label)}</text>${marker ? `<text x="${cx}" y="280" fill="#6f82ad" font-size="9" font-weight="700" text-anchor="middle">${html(marker)}</text>` : ''}`;
     }).join('');
 
-    const legend = stacked ? `<div class="wealth-unified-flow-legend" style="display:flex;gap:12px;justify-content:flex-end;font-size:11px;margin-top:4px;">${series.map(item => `<span><span aria-hidden="true" style="color:${html(item.color)}">■</span> ${html(item.label)}</span>`).join('')}</div>` : '';
+    const legend = stacked || options.kind === 'ledger' ? `<div class="wealth-unified-flow-legend" style="display:flex;gap:12px;justify-content:flex-end;font-size:11px;margin-top:4px;">${series.map(item => `<span><span aria-hidden="true" style="color:${html(item.color)}">■</span> ${html(item.label)}</span>`).join('')}</div>` : '';
     host.innerHTML = `<div class="wealth-unified-chart-shell" data-flow-stacked="${stacked}" data-unified-kind="${html(options.kind || '')}"><div class="wealth-unified-axis">${axisHtml([{ range, top, height: bottom - top, count: 5 }])}</div><div class="wealth-unified-viewport"><div class="wealth-unified-content"><svg class="wealth-unified-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="${clickable ? 'group' : 'img'}" aria-label="${html(options.ariaLabel || '금액 막대 차트')}"><line x1="${left}" y1="${zeroY}" x2="${right}" y2="${zeroY}" stroke="#334673" opacity=".9"/>${bars}${labels}</svg></div></div></div>${legend}`;
 
     const viewport = host.querySelector('.wealth-unified-viewport');
@@ -940,8 +940,10 @@
 
   async function fetchLedgerMonth(key, includeTransactions = false) {
     const owner = currentOwnerValue();
+    const version = ledgerDataVersion;
     const [year, month] = key.split('-').map(Number);
     const response = await api(`/api/ledger?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}&owner=${encodeURIComponent(owner)}`);
+    if (owner !== currentOwnerValue() || version !== ledgerDataVersion) return false;
     (Array.isArray(response?.monthly_trend) ? response.monthly_trend : []).forEach(row => {
       const rowKey = monthKey(row.year, row.month);
       cache.ledgerMonthly.set(rowKey, {
@@ -953,6 +955,7 @@
     if (includeTransactions) {
       cache.ledgerTransactions.set(key, Array.isArray(response?.transactions) ? response.transactions : []);
     }
+    return true;
   }
 
   function currentLedgerMonthKey() {
@@ -969,7 +972,10 @@
     const end = currentLedgerMonthKey();
     const keys = Array.from({ length: count }, (_, index) => shiftMonthKey(end, -(count - 1 - index)));
     const missing = keys.filter(key => !cache.ledgerTransactions.has(key));
-    for (const key of missing) await fetchLedgerMonth(key, true);
+    for (const key of missing) {
+      if (!await fetchLedgerMonth(key, true)) return false;
+    }
+    return true;
   }
 
   function ledgerTransactionRows() {
@@ -992,6 +998,8 @@
   async function extendLedgerHistory() {
     if (ledgerLoadingOlder || typeof api !== 'function') return false;
     ledgerLoadingOlder = true;
+    const owner = currentOwnerValue();
+    const version = ledgerDataVersion;
     try {
       seedLedgerMonthly();
       const usingTransactions = modes.ledger === MODES.DAY || modes.ledger === MODES.WEEK;
@@ -1003,11 +1011,12 @@
       if (usingTransactions) {
         const older = Array.from({ length: 6 }, (_, index) => shiftMonthKey(previousEnd, -(5 - index)));
         for (const key of older) {
-          if (!cache.ledgerTransactions.has(key)) await fetchLedgerMonth(key, true);
+          if (!cache.ledgerTransactions.has(key) && !await fetchLedgerMonth(key, true)) return false;
         }
       } else {
-        await fetchLedgerMonth(previousEnd, false);
+        if (!await fetchLedgerMonth(previousEnd, false)) return false;
       }
+      if (owner !== currentOwnerValue() || version !== ledgerDataVersion) return false;
       await renderLedger();
       return true;
     } catch (error) {
@@ -1018,7 +1027,27 @@
     }
   }
 
-  async function renderLedger() {
+  let ledgerDataVersion = 0;
+  let ledgerRenderGeneration = 0;
+  async function renderLedger(data) {
+    if (typeof rawLedgerData === 'undefined' || !rawLedgerData) return;
+    if (rawLedgerData.owner && rawLedgerData.owner !== currentOwnerValue()) return;
+    if (data) {
+      ledgerDataVersion += 1;
+      seedLedgerMonthly();
+      if (!data.monthly_trend?.length) {
+        cache.ledgerMonthly.clear();
+        cache.ledgerTransactions.clear();
+      }
+      // Refresh the selected month's transaction cache as well as monthly totals.
+      if (!data.__ledger_annual_view) {
+        cache.ledgerTransactions.set(monthKey(data.year, data.month), data.transactions || []);
+      } else {
+        cache.ledgerTransactions.clear();
+      }
+    }
+    const generation = ++ledgerRenderGeneration;
+    const owner = currentOwnerValue();
     const host = document.getElementById('ledgerTrendContainer');
     const panel = host?.closest('.ledger-sub-panel');
     if (!host || !panel || typeof api !== 'function') return;
@@ -1034,11 +1063,12 @@
     try {
       let rows;
       if (modes.ledger === MODES.DAY || modes.ledger === MODES.WEEK) {
-        if (!cache.ledgerTransactions.size) await ensureLedgerTransactionMonths(6);
+        if (!await ensureLedgerTransactionMonths(6)) return;
         rows = ledgerTransactionRows();
       } else {
         rows = ledgerMonthlyRows();
       }
+      if (generation !== ledgerRenderGeneration || owner !== currentOwnerValue()) return;
       const aggregated = aggregateFlow(rows, modes.ledger, { fields: ['income_value', 'expense_value'] });
       renderFlowChart(host, aggregated, [
         { key: 'income_value', label: '수입', color: '#42dc88' },
@@ -1092,11 +1122,7 @@
       const value = item.dataset.unifiedPeriod || item.dataset.period;
       item.classList.toggle('active', value === mode);
     });
-    if (kind === 'ledger' && (mode === MODES.DAY || mode === MODES.WEEK)) {
-      void ensureLedgerTransactionMonths(6).then(() => queue('ledger'));
-    } else {
-      queue(kind);
-    }
+    queue(kind);
   }
 
   function handleExternalChange(event) {
@@ -1120,8 +1146,10 @@
       clearDetail('pnl', {render:false}); clearDetail('dividend', {render:false});
       cache.pnl.key = '';
       cache.dividend.key = '';
+      ledgerDataVersion += 1;
+      ledgerRenderGeneration += 1;
       cache.ledgerOwner = '';
-      setTimeout(() => ['pnl', 'dividend', 'ledger'].forEach(queue), 0);
+      setTimeout(() => ['pnl', 'dividend'].forEach(queue), 0);
     }
   }
 
@@ -1144,7 +1172,6 @@
       if (!netWorthCapturePending && hostNeedsUnified('wealthHistoryPlot')) queue('networth');
       if (hostNeedsUnified('pnlBarChartWrap')) queue('pnl');
       if (dividendMode() === 'actual' && hostNeedsUnified('dividendBarChartWrap')) queue('dividend');
-      if (hostNeedsUnified('ledgerTrendContainer')) queue('ledger');
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
@@ -1155,7 +1182,7 @@
     document.addEventListener('change', handleExternalChange, true);
     document.addEventListener('click', handleExternalClick, false);
     installObserver();
-    ['stock', 'networth', 'pnl', 'dividend', 'ledger'].forEach(queue);
+    ['stock', 'networth', 'pnl', 'dividend'].forEach(queue);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, { once: true });

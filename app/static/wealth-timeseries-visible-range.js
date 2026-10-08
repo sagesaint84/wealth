@@ -325,12 +325,6 @@
     requestAnimationFrame(() => requestAnimationFrame(queue));
   }
 
-  function hideLegacyLedgerEyebrow(shell) {
-    const panel = shell.closest('.ledger-sub-panel');
-    const eyebrow = panel?.querySelector('.panel-head .eyebrow');
-    eyebrow?.remove();
-  }
-
   function installShell(shell) {
     if (!shell || installed.has(shell)) return;
     const kind = shell.dataset.unifiedKind;
@@ -339,7 +333,6 @@
     installed.add(shell);
     if (kind === 'stock' || kind === 'networth') installState(shell, kind, aggregated);
     else installFlow(shell, aggregated);
-    if (kind === 'ledger') hideLegacyLedgerEyebrow(shell);
   }
 
   function scan() {
