@@ -11926,6 +11926,27 @@ const _initLedgerKst = getKstYearMonth();
 let currentLedgerYear = _initLedgerKst.year;
 let currentLedgerMonth = _initLedgerKst.month;
 let rawLedgerData = null;
+// Absence of the API means loading, never failure. The production loader settles
+// this promise only after registration or an explicit script/dependency failure.
+let settleLedgerChartModule;
+window.WealthLedgerChartModule = {
+  state: 'loading',
+  ready: new Promise(resolve => { settleLedgerChartModule = resolve; }),
+  settle(state) {
+    if (this.state !== 'loading') return;
+    this.state = state;
+    settleLedgerChartModule(state);
+  },
+};
+window.addEventListener('wealth:unified-ready', () => window.WealthLedgerChartModule.settle('ready'), { once: true });
+let ledgerChartRenderSequence = 0;
+async function renderLedgerChart() {
+  const sequence = ++ledgerChartRenderSequence;
+  const state = await window.WealthLedgerChartModule.ready;
+  if (sequence !== ledgerChartRenderSequence || !rawLedgerData) return;
+  if (state === 'ready') await window.WealthUnifiedTimeseries.renderLedger(rawLedgerData);
+  else renderLedgerTrendFallback(rawLedgerData.monthly_trend || []);
+}
 let currentModule = "wealth"; // "wealth" | "ledger"
 
 function switchMainModule(mod) {
@@ -11964,6 +11985,7 @@ async function loadLedger() {
 
 function renderLedger(data) {
   if (!data) return;
+  rawLedgerData = data;
 
   // 1. 헤더 월 텍스트 & 소유자 뱃지 & 월 피커 동기화
   const monthText = document.getElementById("ledgerCurrentMonthText");
@@ -11988,8 +12010,8 @@ function renderLedger(data) {
   // 3. 카테고리 지출 분석 렌더링
   renderLedgerCategories(data.category_expenses || []);
 
-  // 4. 최근 6개월 추이 막대 그래프 렌더링
-  renderLedgerTrend(data.monthly_trend || []);
+  // 4. One chart owner; wait for the loader before choosing failure fallback.
+  void renderLedgerChart();
 
   // 5. 상세 거래 내역 타임라인 렌더링
   renderLedgerTransactions(data.transactions || []);
@@ -12018,7 +12040,8 @@ function renderLedgerCategories(cats) {
   }).join("");
 }
 
-function renderLedgerTrend(trend) {
+function renderLedgerTrendFallback(trend) {
+  if (window.WealthLedgerChartModule.state !== 'failed') return;
   const container = document.getElementById("ledgerTrendContainer");
   if (!container) return;
   if (!trend || trend.length === 0) {

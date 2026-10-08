@@ -150,7 +150,7 @@
 
     const trendPanel = document.getElementById('ledgerTrendContainer')?.closest('.ledger-sub-panel');
     const trendTitle = trendPanel?.querySelector('h3');
-    if (trendTitle) trendTitle.textContent = `${data.year}년 1월 ~ 12월 현금흐름 추이`;
+    if (trendTitle && window.WealthLedgerChartModule?.state === 'failed') trendTitle.textContent = `${data.year}년 1월 ~ 12월 현금흐름 추이`;
 
     const cols = [...document.querySelectorAll('#ledgerTrendContainer .ledger-trend-col')];
     cols.forEach((col, idx) => {
@@ -169,7 +169,7 @@
 
     const trendPanel = document.getElementById('ledgerTrendContainer')?.closest('.ledger-sub-panel');
     const trendTitle = trendPanel?.querySelector('h3');
-    if (trendTitle) trendTitle.textContent = '최근 6개월 현금흐름 추이';
+    if (trendTitle && window.WealthLedgerChartModule?.state === 'failed') trendTitle.textContent = '최근 6개월 현금흐름 추이';
 
     document.querySelectorAll('#ledgerTrendContainer .ledger-trend-col').forEach((col) => {
       delete col.dataset.ledgerMonth;
@@ -202,7 +202,7 @@
       const data = annualView
         ? await loadAnnualLedger(owner, year, sequence)
         : await fetchLedgerMonth(owner, year, Number(currentLedgerMonth) || 1);
-      if (!data || sequence !== requestSequence) return;
+      if (!data || sequence !== requestSequence || owner !== currentOwner) return;
       if (typeof rawLedgerData !== 'undefined') rawLedgerData = data;
       renderLedgerPeriodAware(data);
       return data;

@@ -196,14 +196,18 @@
       + `&month=${encodeURIComponent(previousEnd.month)}`
       + `&owner=${encodeURIComponent(owner)}`,
     );
-    if (sequence !== requestSequence || activeData() !== data || !response) return null;
+    if (sequence !== requestSequence || activeData() !== data || owner !== activeOwner() || !response) return null;
     return Array.isArray(response.monthly_trend) ? response.monthly_trend : [];
   }
 
   async function expandHistory(viewport) {
+    if (window.WealthUnifiedTimeseries?.extendLedgerHistory) {
+      return window.WealthUnifiedTimeseries.extendLedgerHistory();
+    }
+    if (window.WealthLedgerChartModule?.state !== 'failed') return;
     if (loading) return;
     const data = activeData();
-    if (!data || typeof api !== 'function' || typeof renderLedgerTrend !== 'function') return;
+    if (!data || typeof api !== 'function' || typeof renderLedgerTrendFallback !== 'function') return;
 
     const oldTrend = data.monthly_trend;
     const previousCount = oldTrend.length;
@@ -218,7 +222,7 @@
       if (merged.length <= previousCount) return;
 
       rawLedgerData = { ...data, monthly_trend: merged };
-      renderLedgerTrend(merged);
+      renderLedgerTrendFallback(merged);
       annotateYearLabels(merged);
       updateTrendHeader(merged);
       restoreAnnualMonthLinks(merged, rawLedgerData);
