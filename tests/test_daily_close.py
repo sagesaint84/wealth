@@ -1117,7 +1117,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
             res = _async(run_daily_close_for_user(self.username))
 
         self.assertTrue(res["ok"])
-        svc_sync.assert_called_once_with(self.username)
+        svc_sync.assert_called_once_with(self.username, retry_kb_transient=True)
         svc_price.assert_called_once_with(self.username)
         svc_dash.assert_called_once_with(username=self.username, record_snapshots=False)
 

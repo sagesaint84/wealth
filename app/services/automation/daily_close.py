@@ -539,7 +539,7 @@ async def run_daily_close_for_user(
     # 1. account_sync
     from app.main import sync_all_accounts_for_user
     try:
-        sync_result = await sync_all_accounts_for_user(safe_user)
+        sync_result = await sync_all_accounts_for_user(safe_user, retry_kb_transient=True)
         steps["account_sync"] = {"status": "success", "result": sync_result}
     except Exception as exc:
         logger.exception("Daily close account sync failed for %s", safe_user)

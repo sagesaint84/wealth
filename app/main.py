@@ -14,13 +14,14 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
+import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel, Field
 
-from app.services.kb_openapi import KBOpenAPI, KBOpenAPIError
+from app.services.kb_openapi import KBOpenAPI, KBOpenAPIError, KBTransientAPIError
 from app.services.kb_feed import (
     build_kb_realized_feed, compute_kb_items_hash,
     sign_kb_import_preview_ticket, verify_kb_import_preview_ticket,
@@ -5752,32 +5753,66 @@ async def snapshot_asset_record(request: Request) -> dict:
     }
 
 
-async def sync_kb_for_user(username: str) -> dict:
+async def sync_kb_for_user(username: str, *, retry_transient: bool = False) -> dict:
+    """Retry only read-only holdings fetches, opted in by automatic daily close.
+
+    All authority checks and persistence remain outside the retry loop. The
+    sync-all user lock remains held across both fetches and their short delay.
+    """
     client = KBOpenAPI(username=username)
     if not client.configured:
         return {"broker": "KB증권", "status": "CONFIG_REQUIRED", "message": "KB증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True, "warnings": []}
-    try:
-        records = await client.sync_holdings()
-    except KBOpenAPIError as exc:
-        raise HTTPException(400, str(exc)) from exc
+    retry_info: dict = {}
+    for attempt in range(2 if retry_transient else 1):
+        try:
+            records = await client.sync_holdings()
+            if retry_info:
+                retry_info["retry_recovered"] = True
+            break
+        except Exception as exc:
+            transient = isinstance(exc, (KBTransientAPIError, httpx.TimeoutException, httpx.NetworkError))
+            status = "API_ERROR" if transient else _sync_error_status(exc)
+            if isinstance(exc, ValueError):
+                status = "PARSE_ERROR"
+            reason = (f"KB_HTTP_{exc.status_code}" if isinstance(exc, KBTransientAPIError)
+                      else "KB_TRANSPORT_ERROR" if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError))
+                      else "KB_RESPONSE_INVALID" if status == "PARSE_ERROR"
+                      else "KB_PROVIDER_OR_RESPONSE_ERROR" if isinstance(exc, KBOpenAPIError)
+                      else "KB_FETCH_INTERNAL_ERROR")
+            if retry_transient and attempt == 0 and transient:
+                retry_info = {"retry_attempted": True, "retry_recovered": False,
+                              "initial_failure_reason": reason}
+                await asyncio.sleep(0.1)
+                continue
+            failure = HTTPException(400, reason)
+            failure.kb_sync_diagnostic = {"status": status, "failure_reason": reason,
+                                          "retryable": transient, **retry_info}
+            raise failure from exc
+
+    def unverified_result() -> dict:
+        result = _unverified_holdings_response("KB증권", records)
+        if retry_info:
+            result.update({**retry_info, "retry_recovered": False})
+        return result
+
     if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
-        return _unverified_holdings_response("KB증권", records)
+        return unverified_result()
     data = read_portfolio(username=username)
 
     # 1. 고유 키(kb_primary) 또는 기존 KB 동기화 계좌 찾기
     primary_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and a.get("account_key") == "kb_primary"]
     if len(primary_matches) > 1:
-        return _unverified_holdings_response("KB증권", records)
+        return unverified_result()
     existing = primary_matches[0] if primary_matches else None
     if not existing:
         source_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and a.get("source") == "kb_api"]
         if len(source_matches) > 1:
-            return _unverified_holdings_response("KB증권", records)
+            return unverified_result()
         existing = source_matches[0] if source_matches else None
     if not existing:
         name_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and ("KB" in a.get("name", "") or a.get("name") == "KB OpenAPI 동기화 계좌")]
         if len(name_matches) > 1:
-            return _unverified_holdings_response("KB증권", records)
+            return unverified_result()
         existing = name_matches[0] if name_matches else None
 
     if existing:
@@ -5802,7 +5837,7 @@ async def sync_kb_for_user(username: str) -> dict:
     holdings = [normalize_holding(record, account_id, "KB증권", account_name, "kb_api") for record in records]
     scopes = resolve_scopes(records.scopes, {"kb_primary": (account_id, account_name)})
     if scopes is None:
-        return _unverified_holdings_response("KB증권", records)
+        return unverified_result()
     prices, warnings = await client.refresh_prices(holdings)
     for holding in holdings:
         price = prices.get(holding["id"])
@@ -5815,7 +5850,7 @@ async def sync_kb_for_user(username: str) -> dict:
     write_portfolio(data, username=username)
     status = _holdings_success_status(records)
     message = "KB증권 보유종목이 0개로 확인되었습니다." if not holdings else f"KB증권 보유종목 {len(holdings)}개를 동기화했습니다."
-    return {"broker": "KB증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": False, "cash_updated": False, "data_preserved": False, "warnings": warnings[:10]}
+    return {"broker": "KB증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": False, "cash_updated": False, "data_preserved": False, "warnings": warnings[:10], **retry_info}
 
 
 @app.post("/api/sync/kb")
@@ -6359,7 +6394,7 @@ async def stock_search(q: str = "") -> dict:
     return await async_search_stock_by_name(q)
 
 
-async def sync_all_accounts_for_user(username: str) -> dict:
+async def sync_all_accounts_for_user(username: str, *, retry_kb_transient: bool = False) -> dict:
     if is_test_mode():
         brokers = [
             {"broker": label, "status": "TEST_MODE", "count": 0,
@@ -6403,13 +6438,20 @@ async def sync_all_accounts_for_user(username: str) -> dict:
                     except TypeError:
                         broker_results.append(await route_attr())
                 else:
-                    broker_results.append(await user_fn(username=username))
+                    if label == "KB증권" and retry_kb_transient:
+                        broker_results.append(await user_fn(username=username, retry_transient=True))
+                    else:
+                        broker_results.append(await user_fn(username=username))
             except Exception as exc:
-                status = _sync_error_status(exc)
+                diagnostic = getattr(exc, "kb_sync_diagnostic", {}) if label == "KB증권" else {}
+                status = diagnostic.get("status") or _sync_error_status(exc)
+                # KB diagnostics are allowlisted categories, never raw provider bodies/credentials.
+                message = diagnostic.get("failure_reason", "KB_SYNC_FAILED") if label == "KB증권" else _mask_sync_error(exc, client)
                 broker_results.append({
                     "broker": label, "status": status, "count": 0,
                     "holdings_valid": False, "cash_valid": False, "data_preserved": True,
-                    "message": f"{_mask_sync_error(exc, client)} 기존 데이터는 유지했습니다.",
+                    "message": f"{message} 기존 데이터는 유지했습니다.",
+                    **diagnostic,
                 })
     finally:
         _syncing_users.discard(username)
@@ -7275,11 +7317,15 @@ async def post_web_action_execute(request: Request, token: str) -> HTMLResponse:
             status_code=200,
         )
     elif status == "applied":
+        notification_status = result.get("notification", {}).get("status")
+        confirmation_info = {}
+        if notification_status in {"failed", "partial", "unconfigured"}:
+            confirmation_info["확인 알림"] = "일부 알림을 보내지 못했습니다. 청약 완료 기록은 저장되었습니다."
         return _render_action_card(
             page_title="청약 완료 완료",
             header_title="청약 완료 처리 성공",
             description=f"축하합니다! {owner} 님의 공모주 청약이 성공적으로 완료 처리되었습니다.",
-            info_dict={"대상자": owner, "처리 결과": "청약 완료 등록 성공"},
+            info_dict={"대상자": owner, "처리 결과": "청약 완료 등록 성공", **confirmation_info},
             action_content="",
             status_code=200,
         )

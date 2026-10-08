@@ -383,7 +383,7 @@ def execute_action(
 ) -> dict[str, Any]:
     """Execute a stored action (MARK_IPO_APPLIED).
 
-    Steps (all within action_state_lock):
+    State steps (all within action_state_lock):
     1. Load state (fail-closed)
     2. Look up action_id → ACTION_NOT_FOUND
     3. Already consumed → status=already_processed
@@ -392,7 +392,9 @@ def execute_action(
     6. Mark consumed_at (UTC-aware ISO)
     7. Prune old actions
     8. Atomic save
-    9. Return command result
+
+    After releasing the lock, dispatch confirmation only for the first applied
+    transition and return its delivery status separately from the command result.
     """
     target_path = path if path is not None else ACTION_FILE
     today = today or datetime.now(KST).date()
@@ -411,12 +413,14 @@ def execute_action(
         )
         action["consumed_at"] = _now_utc().isoformat()
         prune_old_actions(data)
-        _save(data, path)
-        return result
+        _save(data, target_path)
+    from app.services.ipo.application_confirmation import confirm_applied_transition
+    return confirm_applied_transition(action["username"], result)
 
 
-def get_action_metadata(action_id: str, *, path: Path = ACTION_FILE) -> dict[str, Any] | None:
+def get_action_metadata(action_id: str, *, path: Path | None = None) -> dict[str, Any] | None:
     """Provider authorization lookup; read-only and action-store-lock protected."""
-    with action_state_lock(path):
-        action = _load(path)["actions"].get(action_id)
+    target_path = path if path is not None else ACTION_FILE
+    with action_state_lock(target_path):
+        action = _load(target_path)["actions"].get(action_id)
         return dict(action) if isinstance(action, dict) else None
