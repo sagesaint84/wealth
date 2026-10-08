@@ -148,6 +148,7 @@ globalThis.window = {{
   alert: () => {{}},
 }};
 globalThis.document = {{
+  querySelector: () => null,
   getElementById: (id) => (id === 'ipoListWrapper' ? mockWrapper : null),
   createElement: (tag) => new MockElement(tag),
 }};

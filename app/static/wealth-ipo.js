@@ -322,36 +322,41 @@
   }
 
   let marketLoaded = false;
+  let ipoLoadPending = null;
 
-  async function loadIpoSchedule() {
+  function loadIpoSchedule() {
+    if (ipoLoadPending) return ipoLoadPending;
     const wrapper = document.getElementById('ipoListWrapper');
-    if (!wrapper) return;
+    if (!wrapper) return Promise.resolve();
     const revision = marketSnapshotRevision;
 
-    try {
-      // 1. Fetch user applications and current revision
-      const appRes = await fetch('/api/ipo/applications');
-      if (appRes.ok) {
-        const appData = await appRes.json();
-        currentRevision = appData.revision || 0;
-        userApplications = appData.applications || {};
-        if (Array.isArray(appData.family_members) && appData.family_members.length > 0) {
-          familyMembers = appData.family_members;
+    ipoLoadPending = (async () => {
+      try {
+        // 1. Fetch user applications and current revision
+        const appRes = await fetch('/api/ipo/applications');
+        if (appRes.ok) {
+          const appData = await appRes.json();
+          currentRevision = appData.revision || 0;
+          userApplications = appData.applications || {};
+          if (Array.isArray(appData.family_members) && appData.family_members.length > 0) {
+            familyMembers = appData.family_members;
+          }
         }
-      }
 
-      // 2. Fetch canonical market IPO records
-      const marketData = await window.fetchJson('/api/ipo/market', marketLoaded ? { cache: 'no-store' } : {});
-      marketLoaded = true;
-      // A GET started before a successful refresh cannot replace its snapshot.
-      if (revision !== marketSnapshotRevision) return;
-      setMarketIpos(marketData.ipos);
-      renderIpoList();
-    } catch (err) {
-      if (revision !== marketSnapshotRevision) return;
-      console.error('Failed to load IPO data:', err);
-      wrapper.innerHTML = '<p class="empty-text" style="padding:24px;text-align:center;">공모주 데이터를 불러오는 중 오류가 발생했습니다.</p>';
-    }
+        // 2. Fetch canonical market IPO records
+        const marketData = await window.fetchJson('/api/ipo/market', marketLoaded ? { cache: 'no-store' } : {});
+        marketLoaded = true;
+        // A GET started before a successful refresh cannot replace its snapshot.
+        if (revision !== marketSnapshotRevision) return;
+        setMarketIpos(marketData.ipos);
+        renderIpoList();
+      } catch (err) {
+        if (revision !== marketSnapshotRevision) return;
+        console.error('Failed to load IPO data:', err);
+        wrapper.innerHTML = '<p class="empty-text" style="padding:24px;text-align:center;">공모주 데이터를 불러오는 중 오류가 발생했습니다.</p>';
+      }
+    })().finally(() => { ipoLoadPending = null; });
+    return ipoLoadPending;
   }
 
   async function refreshIpoSchedule() {
@@ -1214,4 +1219,11 @@
     setUserApplications: (apps) => { userApplications = apps || {}; },
     renderIpoList,
   };
+
+  function shouldLoadIpoOnModuleReady() {
+    return document.querySelector('.wealth-workspace')?.dataset.activeView === 'income' &&
+      document.querySelector('#incomeTabs [data-income="ipo"]')?.getAttribute('aria-selected') === 'true';
+  }
+
+  if (shouldLoadIpoOnModuleReady()) void loadIpoSchedule();
 })();
