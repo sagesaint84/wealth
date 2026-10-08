@@ -17,7 +17,7 @@
     invest: ['주식 투자', '주식 현황', '주식 포트폴리오, 보유종목과 투자 기록을 한곳에서 확인하세요.'],
     assets: ['종합 자산', '자산과 계좌 관리', '증권·은행·보험·부동산과 대출을 관리하세요.'],
     income: ['머니 로그', '머니 로그', '실현손익, 배당·이자, 수입·지출 내역을 한곳에서 확인하세요.'],
-    settings: ['설정', '나에게 맞는 Wealth', '가족 구성원, 증권사 연결, 테마와 백업을 관리하세요.'],
+    settings: ['설정', '설정', 'API 연결, 알림과 자동화, 계정과 데이터를 관리하세요.'],
   };
   const icons = {
     home: '<path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/>',
@@ -50,7 +50,7 @@
         <article class="wealth-composition wealth-home-asset-portfolio" id="homeAssetPortfolioPanel" tabindex="-1"><div class="wealth-section-heading"><div><p class="wealth-eyebrow">ASSET PORTFOLIO</p><h3>자산 포트폴리오</h3></div><a href="#assets">자산 상세보기 ↗</a></div><p class="wealth-help">전체 자산의 핵심 지표와 자산군별 구성을 한눈에 확인하세요.</p><div class="wealth-asset-dashboard"><div id="wealthAssetKpis" class="wealth-asset-kpis" aria-label="자산 포트폴리오 요약"><article class="wealth-asset-kpi tone-net"><span class="wealth-asset-kpi-icon">◆</span><div><span>순자산</span><strong id="wealthAssetNetWorth">—</strong><small id="wealthAssetDebtDetail">총부채 —</small></div></article><article class="wealth-asset-kpi tone-invest"><span class="wealth-asset-kpi-icon">◈</span><div><span>투자자산</span><strong id="wealthAssetInvest">—</strong><small id="wealthAssetInvestDetail">부동산 — · 주식 —</small></div></article><article class="wealth-asset-kpi tone-profit"><span class="wealth-asset-kpi-icon">↗</span><div><span>기대수익</span><strong id="wealthAssetExpected">—</strong><small id="wealthAssetExpectedRate">수익률 —</small><small id="wealthAssetDayDetail">일간 수익 — · 전일 대비</small></div></article><article class="wealth-asset-kpi tone-realized"><span class="wealth-asset-kpi-icon">▤</span><div><span>실현손익</span><strong id="wealthAssetRealized">—</strong><small id="wealthAssetRealizedDetail">매매차익 — · 배당/이자 —</small><small id="wealthAssetRealizedPeriod">연간 — · 월간 —</small></div></article><article class="wealth-asset-kpi tone-safe"><span class="wealth-asset-kpi-icon">◇</span><div><span>안전자산</span><strong id="wealthAssetSafe">—</strong><small id="wealthAssetSafeDetail">예수금 및 예금 —</small><small id="wealthAssetSafeBreakdown">임차보증금 — · 보험 —</small></div></article></div><div class="wealth-asset-allocation"><div class="wealth-asset-allocation-head"><div><span class="wealth-eyebrow">ASSET ALLOCATION</span><h4>전체 자산 구성</h4></div><div id="homeAssetAllocationDonut" class="wealth-asset-donut" role="img" aria-label="전체 자산 구성"><span>전체 자산</span><strong id="homeAssetAllocationTotal">—</strong></div><div id="homeAssetAllocationLegend" class="wealth-asset-donut-legend"></div></div><div id="wealthMixLegend" class="wealth-mix-legend wealth-asset-breakdown"><p class="wealth-help">자산 정보가 준비되면 구성을 표시합니다.</p></div></div></div></article>
         <div id="wealthMarketSlot"></div>
       </section>
-      ${Object.keys(views).filter(key => key !== 'home').map(key => `<section data-wealth-page="${key}" aria-label="${views[key][0]}" hidden></section>`).join('')}
+      ${Object.keys(views).filter(key => key !== 'home').map(key => `<section data-wealth-page="${key}" aria-label="${views[key][0]}" hidden>${key === 'settings' ? window.WealthSettingsSurfaceMarkup() : ''}</section>`).join('')}
     </div>`;
   root.prepend(layout);
   const splitMetricRows = (card, rows) => {
@@ -146,10 +146,10 @@
   enhanceAccountLists();
   const settingsCard = document.createElement('article');
   settingsCard.className = 'wealth-settings-card';
-  settingsCard.innerHTML = '<h3>계정과 연결</h3><p class="wealth-help">가족 구성원과 증권사 연결을 설정합니다. 연결 작업은 버튼을 눌렀을 때 실행됩니다.</p><div class="wealth-settings-actions"></div>';
+  settingsCard.innerHTML = '<h3>계정과 데이터</h3><p class="wealth-help">가족 구성원, 비밀번호, 테마와 백업을 관리합니다.</p><div class="wealth-settings-actions"></div>';
   page('settings').append(settingsCard);
   const actions = settingsCard.querySelector('.wealth-settings-actions');
-  ['topbarFamilyBtn', 'userOpenApiBtn', 'notificationSettingsBtn'].forEach(id => move(id, actions));
+  move('topbarFamilyBtn', actions);
   const footer = document.getElementById('appCommonFooter');
   const footerParent = footer?.parentNode;
   if (footer) page('settings').append(footer);
@@ -292,4 +292,4 @@
 
 // Settings operational status is an optional UI module. It fails independently
 // so dashboard navigation remains available even if the module cannot load.
-import('/static/wealth-automation-status.js?v=1.3.0').catch(() => {});
+import('/static/wealth-automation-status.js?v=10.9h1').catch(() => {});

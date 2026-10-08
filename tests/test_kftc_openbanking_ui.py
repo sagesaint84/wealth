@@ -5,7 +5,7 @@ from pathlib import Path
 class KftcOpenBankingUITests(unittest.TestCase):
     def setUp(self):
         self.static_dir = Path(__file__).resolve().parents[1] / "app" / "static"
-        self.index_html = (self.static_dir / "index.html").read_text(encoding="utf-8")
+        self.index_html = (self.static_dir / "index.html").read_text(encoding="utf-8") + (self.static_dir / "wealth-settings-surface.js").read_text(encoding="utf-8")
         self.wealth_js = (self.static_dir / "wealth.js").read_text(encoding="utf-8")
         self.wealth_settings_js = (self.static_dir / "wealth-settings.js").read_text(encoding="utf-8")
 
@@ -30,7 +30,7 @@ class KftcOpenBankingUITests(unittest.TestCase):
         self.assertNotIn('id="openapiKftcTestbedBadge"', self.index_html)
 
     def test_other_openapi_controls_stay_available(self):
-        for marker in ('userOpenApiModal', 'openapiTossKey', 'openapiKbKey', 'openapiDartKey'):
+        for marker in ('settingsApiPanel', 'openapiTossKey', 'openapiKbKey', 'openapiDartKey'):
             self.assertIn(f'id="{marker}"', self.index_html)
         self.assertIn('function renderDartOpenApiStatus', self.wealth_js)
 

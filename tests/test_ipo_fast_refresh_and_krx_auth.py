@@ -280,9 +280,9 @@ def test_krx_credentials_are_not_wired_through_env_or_compose():
     assert 'KRX_ID' not in compose and 'KRX_PW' not in compose
 
 
-def test_openapi_modal_contains_user_krx_settings_controls():
+def test_settings_surface_contains_user_krx_settings_controls():
     root = Path(__file__).resolve().parents[1]
-    html = (root / 'app/static/index.html').read_text(encoding='utf-8')
+    html = (root / 'app/static/wealth-settings-surface.js').read_text(encoding='utf-8')
     js = (root / 'app/static/wealth.js').read_text(encoding='utf-8')
     for token in ('openapiKrxLoginId','openapiKrxPassword','openapiKrxBadge'):
         assert token in html

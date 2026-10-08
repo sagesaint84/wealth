@@ -3,22 +3,27 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HTML = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
+INDEX_HTML = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
+HTML = (ROOT / "app/static/wealth-settings-surface.js").read_text(encoding="utf-8")
 JS = (ROOT / "app/static/wealth-settings.js").read_text(encoding="utf-8")
 CSS = (ROOT / "app/static/wealth-overrides.css").read_text(encoding="utf-8")
 LAYOUT_JS = (ROOT / "app/static/wealth-layout.js").read_text(encoding="utf-8")
 
 
-def test_settings_entry_dialog_and_module_are_wired():
-    assert 'id="notificationSettingsBtn"' in HTML
-    assert 'onclick="openNotificationSettings()"' in HTML
-    assert '⏰ 알림' in HTML
-    assert '⚙️ 알림·자동화' not in HTML
-    assert "'notificationSettingsBtn'" in LAYOUT_JS
-    assert "['topbarFamilyBtn', 'userOpenApiBtn', 'notificationSettingsBtn']" in LAYOUT_JS
-    assert 'id="notificationSettingsDialog"' in HTML
-    assert '/static/wealth-settings.js?v=1.3.0' in HTML
-    assert 'aria-labelledby="notificationSettingsTitle"' in HTML
+def test_settings_entry_surface_and_module_are_wired():
+    wealth_js = (ROOT / "app/static/wealth.js").read_text(encoding="utf-8")
+    production = INDEX_HTML + HTML + JS + LAYOUT_JS + wealth_js
+    for retired in ("userOpenApiModal", "notificationSettingsDialog", "userOpenApiBtn",
+                    "notificationSettingsBtn", "openUserOpenApiModal", "openNotificationSettings",
+                    "_openUserOpenApiModalBeforeKrx"):
+        assert retired not in production
+    assert 'role="tablist"' in HTML
+    assert 'id="settingsApiPanel"' in HTML
+    assert 'id="settingsNotificationsPanel"' in HTML
+    assert "window.WealthSettingsSurfaceMarkup()" in LAYOUT_JS
+    assert INDEX_HTML.index('wealth-settings-surface.js') < INDEX_HTML.index('wealth-layout.js')
+    assert '/static/wealth-settings.js?v=10.9h1' in INDEX_HTML
+    assert "topbarFamilyBtn" in LAYOUT_JS
 
 
 def test_settings_uses_existing_api_contract_only():
@@ -85,7 +90,7 @@ def test_opendart_user_credential_ui_is_integrated_into_user_openapi():
     assert 'id="openapiDartKey"' in HTML
     assert 'id="openapiDartBadge"' in HTML
     assert 'id="openapiDartDeleteBtn"' in HTML
-    assert "dartSection.hidden = false" in wealth_js
+    assert "renderDartOpenApiStatus(config.dart)" in wealth_js
     assert "'/api/user/openapi-config/dart/test'" in wealth_js
     assert "'/api/user/openapi-config/dart'" in wealth_js
     assert "'/api/settings" + "/dart'" not in wealth_js
@@ -104,9 +109,9 @@ def test_partial_failure_and_blank_secret_contracts():
 
 
 def test_responsive_settings_styles_exist():
-    assert ".settings-dialog" in CSS
+    assert ".settings-surface" in CSS
     assert ".settings-reminder-row" in CSS
-    assert "@media(max-width:620px)" in CSS
+    assert "@media(max-width:760px)" in CSS
 
 
 def test_management_ui_does_not_auto_call_external_status():
@@ -191,7 +196,7 @@ def test_toss_login_settings_uses_extended_api_contract():
 
 class SettingsFrontendTests(unittest.TestCase):
     def test_entry_and_contract(self):
-        test_settings_entry_dialog_and_module_are_wired()
+        test_settings_entry_surface_and_module_are_wired()
         test_settings_uses_existing_api_contract_only()
 
     def test_secret_security_and_sources(self):

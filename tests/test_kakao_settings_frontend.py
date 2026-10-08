@@ -10,8 +10,8 @@ SETTINGS_JS = ROOT / "app" / "static" / "wealth-settings.js"
 
 
 class KakaoSettingsFrontendTests(unittest.TestCase):
-    def test_settings_dialog_contains_kakao_controls(self):
-        html = INDEX.read_text(encoding="utf-8")
+    def test_settings_panel_contains_kakao_controls(self):
+        html = (ROOT / "app/static/wealth-settings-surface.js").read_text(encoding="utf-8")
         for control_id in (
             "settingsKakaoAppStatus",
             "settingsKakaoConnectionStatus",
@@ -33,7 +33,7 @@ class KakaoSettingsFrontendTests(unittest.TestCase):
 
     def test_settings_asset_cache_key_was_bumped(self):
         html = INDEX.read_text(encoding="utf-8")
-        self.assertIn('/static/wealth-settings.js?v=1.3.0', html)
+        self.assertIn('/static/wealth-settings.js?v=10.9h1', html)
 
 
 if __name__ == "__main__":

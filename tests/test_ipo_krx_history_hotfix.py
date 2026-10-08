@@ -206,7 +206,7 @@ def test_dart_identity_does_not_create_duplicate_stock_code():
 def test_krx_openapi_uses_connected_badge_design():
     root = Path(__file__).resolve().parents[1]
 
-    html = (root / "app/static/index.html").read_text(
+    html = (root / "app/static/wealth-settings-surface.js").read_text(
         encoding="utf-8"
     )
     js = (root / "app/static/wealth.js").read_text(
