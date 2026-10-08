@@ -35,6 +35,7 @@ class BrokerRegistryTests(unittest.TestCase):
             "케이비증권": "kb", "KB증권(주)": "kb",
             "엔에이치투자증권": "nh", "아이비케이투자증권": "ibk",
             "엘에스증권": "ls", "(주)비엔케이투자증권": "bnk",
+            "유진증권": "eugene", "유진투자증권": "eugene",
         }
         for raw, expected in cases.items():
             with self.subTest(raw=raw):

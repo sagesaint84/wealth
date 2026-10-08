@@ -10,8 +10,14 @@
 .wealth-bucket-cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 12px; margin: 20px 0; }
 .wealth-bucket-cards .wealth-bucket-card { border: 1px solid color-mix(in srgb, var(--bucket-color, var(--line)) 30%, var(--line)); border-left: 4px solid var(--bucket-color, var(--line)); border-radius: 12px; padding: 16px; min-width: 0; background: color-mix(in srgb, var(--bucket-color, transparent) 4%, var(--panel)); text-align: left; color: var(--text); font: inherit; cursor: pointer; }
 .wealth-bucket-card[aria-pressed="true"], .wealth-bucket-card:focus-visible { outline: 2px solid var(--bucket-color); outline-offset: 2px; }
-.wealth-bucket-contents { border-left: 4px solid var(--bucket-color); padding: 12px; min-width: 0; }
-.wealth-bucket-constituent { display: grid; grid-template-columns: minmax(0,1.5fr) minmax(0,1fr) auto auto; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.wealth-bucket-contents { border-left: 2px solid color-mix(in srgb, var(--bucket-color) 45%, var(--line)); padding: 12px; min-width: 0; background: var(--panel); }
+.wealth-bucket-contents > h4 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+.wealth-bucket-contents > [role="status"] { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.wealth-bucket-constituent { display: grid; grid-template-columns: minmax(0,1.1fr) minmax(0,1.7fr) minmax(100px,auto) auto; gap: 12px; align-items: center; padding: 8px 0; font-size: 12px; line-height: 1.5; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.wealth-bucket-account { color: var(--muted); font-size: 12px; }
+.wealth-bucket-holding { font-size: 13px; font-weight: 600; }
+.wealth-bucket-value { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+.wealth-bucket-badge { justify-self: end; font-size: 11px; line-height: 1.5; padding: 2px 6px; border-radius: 5px; color: var(--text); border: 1px solid color-mix(in srgb, var(--bucket-color) 55%, var(--line)); background: color-mix(in srgb, var(--bucket-color) 10%, var(--panel)); }
 .ipo-broker-filter { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
 .ipo-broker-filter select { min-width: 0; max-width: 180px; padding: 6px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; }
 .toss-wts-controls .toss-wts-account-control { min-width: 0; flex: 1 1 180px; max-width: 260px; }
@@ -24,6 +30,7 @@
 @media(max-width:640px) {
   .wealth-bucket-cards { grid-template-columns: minmax(0,1fr); }
   .wealth-bucket-constituent { grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 6px; }
+  .wealth-bucket-account, .wealth-bucket-holding { grid-column: 1 / -1; }
   .toss-wts-controls .toss-wts-account-control { max-width: 100%; flex: initial; }
 }
 .wealth-bucket-cards h4 { margin: 0 0 10px; color: var(--text); }
