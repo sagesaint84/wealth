@@ -425,9 +425,10 @@ def execute_web_action(
             action["consumed_at"] = _now_utc().isoformat()
             prune_old_v2_actions(data)
             _save_v2(data, target_path)
-            return result
         elif action_type == ACTION_TYPE_OPEN_IPO_SALE_FLOW:
             # Phase 2: Not executable. No mutation, no consumed_at update.
             raise IpoActionError("ACTION_NOT_EXECUTABLE")
         else:
             raise IpoActionError("UNSUPPORTED_ACTION_TYPE")
+    from app.services.ipo.application_confirmation import confirm_applied_transition
+    return confirm_applied_transition(action["username"], result)

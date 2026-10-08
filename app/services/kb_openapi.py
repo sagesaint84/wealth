@@ -39,6 +39,14 @@ class KBOpenAPIError(RuntimeError):
     pass
 
 
+class KBTransientAPIError(KBOpenAPIError):
+    """Allowlisted HTTP transient failure; contains no provider body or credentials."""
+
+    def __init__(self, status_code: int):
+        self.status_code = status_code
+        super().__init__(f"KB_HTTP_{status_code}")
+
+
 KB_REALIZED_MAX_PAGES = 500
 
 
@@ -269,6 +277,8 @@ class KBOpenAPI:
     @staticmethod
     def _raise_for_response(response: httpx.Response) -> None:
         if response.is_error:
+            if response.status_code in {429, 500, 502, 503, 504}:
+                raise KBTransientAPIError(response.status_code)
             try:
                 detail = response.json()
             except ValueError:

@@ -68,7 +68,9 @@ class TelegramEndpointTests(_IsolatedTelegramTestCase):
         run.assert_not_called(); ack.assert_not_called(); self.assertEqual(json.dumps(self.portfolio,sort_keys=True),before)
     def test_unknown_expired_and_wealth_user_mismatch_are_safe(self):
         before=json.dumps(self.portfolio,sort_keys=True)
-        with patch("app.services.ipo.telegram_interactive.get_action_metadata",return_value=None),patch("app.services.ipo.telegram_interactive.execute_action") as run:self.assertEqual(self.post(callback()).status_code,403);run.assert_not_called()
+        with patch("app.services.ipo.telegram_interactive.get_action_metadata",return_value=None),patch("app.services.ipo.telegram_interactive.execute_action") as run,patch.object(IpoTelegramNotifier,"answer_callback_query") as ack:
+            self.assertEqual(self.post(callback()).status_code,200);run.assert_not_called()
+            self.assertIn("찾을 수 없습니다", ack.call_args.args[1])
         with patch("app.services.ipo.telegram_interactive.get_action_metadata",return_value=dict(self.action,username="bob")),patch("app.services.ipo.telegram_interactive.execute_action") as run:self.assertEqual(self.post(callback()).status_code,403);run.assert_not_called()
         with patch("app.services.ipo.telegram_interactive.get_action_metadata",return_value=self.action),patch("app.services.ipo.telegram_interactive.execute_action",side_effect=actions.IpoActionError("ACTION_EXPIRED")):self.assertEqual(self.post(callback()).status_code,200)
         self.assertEqual(json.dumps(self.portfolio,sort_keys=True),before)
