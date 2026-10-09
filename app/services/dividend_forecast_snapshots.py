@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import threading
 import uuid
 from copy import deepcopy
 from datetime import date, datetime, timezone
@@ -11,11 +10,12 @@ from typing import Any
 
 from app.services.dividend_event_identity import normalize_dividend_code
 from app.services.test_safety import assert_write_allowed
+from app.services.financial_json import (FinancialStorageError, financial_lock,
+    read_financial_json, write_financial_json)
 
 
 SCHEMA_VERSION = 1
 STORAGE_FILENAME = "dividend_forecast_snapshots.json"
-_LOCK = threading.RLock()
 
 
 class DividendForecastSnapshotStorageError(RuntimeError):
@@ -194,8 +194,8 @@ def _read_storage_unlocked(path: Path) -> dict[str, Any]:
     if not path.exists():
         return _empty_storage()
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raw = read_financial_json(path)
+    except FinancialStorageError as exc:
         raise DividendForecastSnapshotStorageError(
             "dividend forecast snapshot storage is unreadable"
         ) from exc
@@ -212,9 +212,8 @@ def _read_storage_unlocked(path: Path) -> dict[str, Any]:
 
 
 def list_dividend_forecast_snapshots(username: str | None = None) -> list[dict[str, Any]]:
-    with _LOCK:
-        data = _read_storage_unlocked(_get_snapshot_file(username))
-        return deepcopy(data["snapshots"])
+    data = _read_storage_unlocked(_get_snapshot_file(username))
+    return deepcopy(data["snapshots"])
 
 
 def upsert_dividend_forecast_snapshot(
@@ -229,7 +228,7 @@ def upsert_dividend_forecast_snapshot(
         raise ValueError("snapshot owner is required")
 
     path = _get_snapshot_file(username)
-    with _LOCK:
+    with financial_lock(_get_snapshot_file(username)):
         data = _read_storage_unlocked(path)
         replacement = deepcopy(snapshot)
         replacement["as_of_date"] = as_of
@@ -249,18 +248,9 @@ def upsert_dividend_forecast_snapshot(
         data["updated_at"] = _now_iso()
         path.parent.mkdir(parents=True, exist_ok=True)
         assert_write_allowed(path)
-        temp_path = path.with_suffix(".json.tmp")
         try:
-            temp_path.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False),
-                encoding="utf-8",
-            )
-            temp_path.replace(path)
+            write_financial_json(path, data)
         except (OSError, TypeError, ValueError) as exc:
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
             raise DividendForecastSnapshotStorageError(
                 "dividend forecast snapshot storage write failed"
             ) from exc

@@ -180,7 +180,7 @@ def test_reorder_transaction_holds_portfolio_lock_through_read_validation_write(
     entered, release, finished = threading.Event(), threading.Event(), threading.Event()
     stale = portfolio.read_portfolio('alice')
     def reorder():
-        with portfolio._LOCK:
+        with portfolio.financial_lock(portfolio._get_portfolio_file("alice")):
             entered.set()
             assert release.wait(5)
             patch_account_display_order('alice', dict(scope='securities', level='accounts', institution='KB증권', order=['A4', 'A1']))

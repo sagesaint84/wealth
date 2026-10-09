@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.financial_json import financial_rmw
+
 from typing import Any
 
 from app.services import pnl_records, portfolio
@@ -26,6 +28,7 @@ def record_matches_broker_scope(record: dict[str, Any], broker_scope: str) -> bo
     return broker == broker_scope
 
 
+@financial_rmw("portfolio.json", "realized_pnl_records.json")
 def clear_pnl_records_for_broker(
     broker: Any,
     username: str | None = None,
@@ -38,7 +41,7 @@ def clear_pnl_records_for_broker(
     """
     broker_scope = normalize_broker_scope(broker)
 
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         records = pnl_records.read_pnl_records(username)
         targets = [
             record

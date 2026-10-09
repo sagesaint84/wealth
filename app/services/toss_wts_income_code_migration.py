@@ -17,6 +17,7 @@ import re
 from typing import Any
 
 from app.services.user_manager import DATA_DIR, USERS_DIR
+from app.services.financial_json import financial_lock, write_financial_json
 
 _LEGACY_KR_CODE_RE = re.compile(r"^A([0-9A-Z]{6})$")
 _SUPPORTED_TYPES = frozenset({"dividend", "distribution"})
@@ -46,27 +47,25 @@ def _normalize_record(record: dict[str, Any]) -> bool:
 
 def migrate_dividend_records_file(path: Path, *, apply: bool = False) -> dict[str, Any]:
     path = Path(path)
-    with open(path, "r", encoding="utf-8") as fp:
-        payload = json.load(fp)
-    if not isinstance(payload, dict) or not isinstance(payload.get("records"), list):
-        raise ValueError(f"invalid dividend record structure: {path}")
-    records = payload["records"]
-    if not all(isinstance(record, dict) for record in records):
-        raise ValueError(f"invalid dividend record entry: {path}")
+    with financial_lock(path):
+        with open(path, "r", encoding="utf-8") as fp:
+            payload = json.load(fp)
+        if not isinstance(payload, dict) or not isinstance(payload.get("records"), list):
+            raise ValueError(f"invalid dividend record structure: {path}")
+        records = payload["records"]
+        if not all(isinstance(record, dict) for record in records):
+            raise ValueError(f"invalid dividend record entry: {path}")
 
-    changed = sum(1 for record in records if _normalize_record(record))
-    if apply and changed:
-        payload["updated_at"] = datetime.now().astimezone().isoformat()
-        tmp = path.with_name(path.name + ".tmp")
-        with open(tmp, "w", encoding="utf-8") as fp:
-            json.dump(payload, fp, ensure_ascii=False, indent=2)
-        tmp.replace(path)
+        changed = sum(1 for record in records if _normalize_record(record))
+        if apply and changed:
+            payload["updated_at"] = datetime.now().astimezone().isoformat()
+            write_financial_json(path, payload)
 
-    return {
-        "path": str(path),
-        "matched": changed,
-        "applied": changed if apply else 0,
-    }
+        return {
+            "path": str(path),
+            "matched": changed,
+            "applied": changed if apply else 0,
+        }
 
 
 def candidate_files() -> list[Path]:

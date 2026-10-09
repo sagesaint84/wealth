@@ -32,11 +32,11 @@ def _renamed_owner_list(value: object, old_name: str, new_name: str, *, ipo_id: 
 
 def rename_family_member_references(username: str | None, old_name: str, new_name: str) -> dict[str, Any]:
     """Rename a family display name and all IPO owner references in one write."""
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         path = portfolio._get_portfolio_file(username)
         portfolio.assert_write_allowed(path)
         if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = portfolio.read_financial_json(path)
         else:
             data = deepcopy(portfolio.EMPTY_PORTFOLIO)
 
@@ -88,8 +88,6 @@ def rename_family_member_references(username: str | None, old_name: str, new_nam
 
         path.parent.mkdir(parents=True, exist_ok=True)
         data["updated_at"] = portfolio.now_iso()
-        temp = path.with_suffix(".json.tmp")
-        temp.write_text(json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-        temp.replace(path)
+        portfolio.write_financial_json(path, data)
         return {"members": data["settings"]["family_members"], "ipo_changed": ipo_changed,
                 "ipo_revision": int((data["settings"].get("ipo") or {}).get("revision", 0))}

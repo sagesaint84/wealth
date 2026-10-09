@@ -127,9 +127,9 @@ def set_user_application_account(
     client_revision: int,
 ) -> dict[str, Any]:
     """Persist a broker-validated Wealth UUID for one applied IPO applicant."""
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         path = portfolio._get_portfolio_file(username)
-        pf = json.loads(path.read_text(encoding="utf-8")) if path.exists() else deepcopy(portfolio.EMPTY_PORTFOLIO)
+        pf = portfolio.read_financial_json(path, default=portfolio.EMPTY_PORTFOLIO)
         settings = pf.setdefault("settings", {})
         ipo_settings = settings.setdefault("ipo", {"revision": 0, "applications": {}})
         current_rev = int(ipo_settings.get("revision", 0))
@@ -179,9 +179,7 @@ def set_user_application_account(
         }
         ipo_settings["revision"] = current_rev + 1
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(".json.tmp")
-        temp.write_text(json.dumps(pf, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-        temp.replace(path)
+        portfolio.write_financial_json(path, pf)
         return {
             "revision": current_rev + 1,
             "ipo_id": ipo_id,
@@ -205,9 +203,9 @@ def remap_user_application_account(
     expected_id = str(expected_current_account_id or "").strip()
     if not expected_id:
         raise ApplicationAccountMappingConflict("MAPPING_CONFLICT")
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         path = portfolio._get_portfolio_file(username)
-        pf = json.loads(path.read_text(encoding="utf-8")) if path.exists() else deepcopy(portfolio.EMPTY_PORTFOLIO)
+        pf = portfolio.read_financial_json(path, default=portfolio.EMPTY_PORTFOLIO)
         ipo_settings = pf.setdefault("settings", {}).setdefault("ipo", {"revision": 0, "applications": {}})
         current_rev = int(ipo_settings.get("revision", 0))
         if client_revision != current_rev:
@@ -251,9 +249,7 @@ def remap_user_application_account(
         applicants[owner] = replacement
         ipo_settings["revision"] = current_rev + 1
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(".json.tmp")
-        temp.write_text(json.dumps(pf, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-        temp.replace(path)
+        portfolio.write_financial_json(path, pf)
         return {"revision": current_rev + 1, "ipo_id": ipo_id, "owner": owner,
                 "broker_id": resolution.broker_id, "account_id": selected["account_id"],
                 "resolution_status": "REMAPPED"}
@@ -278,9 +274,9 @@ def update_user_application(
     cleaned_applied = [str(o).strip() for o in applied_owners if str(o).strip()]
 
     # Share the portfolio write lock and read within it directly to prevent deadlock and lost updates
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         path = portfolio._get_portfolio_file(username)
-        pf = json.loads(path.read_text(encoding="utf-8")) if path.exists() else deepcopy(portfolio.EMPTY_PORTFOLIO)
+        pf = portfolio.read_financial_json(path, default=portfolio.EMPTY_PORTFOLIO)
         settings = pf.setdefault("settings", {})
         ipo_settings = settings.setdefault("ipo", {"revision": 0, "applications": {}})
 
@@ -332,9 +328,7 @@ def update_user_application(
         ipo_settings["revision"] = next_rev
 
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(".json.tmp")
-        temp.write_text(json.dumps(pf, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-        temp.replace(path)
+        portfolio.write_financial_json(path, pf)
 
         state = derive_application_state(target_owners, updated_app["applied_owners"])
         return {
@@ -354,9 +348,9 @@ def freeze_untouched_ipo_application(
     ipo_id: str,
 ) -> dict[str, Any] | None:
     """Helper to freeze target_owners for an IPO when subscription closes if never modified."""
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         path = portfolio._get_portfolio_file(username)
-        pf = json.loads(path.read_text(encoding="utf-8")) if path.exists() else deepcopy(portfolio.EMPTY_PORTFOLIO)
+        pf = portfolio.read_financial_json(path, default=portfolio.EMPTY_PORTFOLIO)
         settings = pf.setdefault("settings", {})
         ipo_settings = settings.setdefault("ipo", {"revision": 0, "applications": {}})
         apps = ipo_settings.setdefault("applications", {})
@@ -377,7 +371,5 @@ def freeze_untouched_ipo_application(
         ipo_settings["revision"] = int(ipo_settings.get("revision", 0)) + 1
 
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(".json.tmp")
-        temp.write_text(json.dumps(pf, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-        temp.replace(path)
+        portfolio.write_financial_json(path, pf)
         return app

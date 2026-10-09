@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
 from copy import deepcopy
 from unittest.mock import AsyncMock, patch
 
@@ -211,6 +213,12 @@ class StrictAdapterValidationTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RouteFailClosedTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        super().setUp()
+        root = Path(self.enterContext(TemporaryDirectory(prefix="wealth-sync-lock-fixture-")))
+        self.enterContext(patch("app.services.user_manager.get_user_data_dir",
+                                side_effect=lambda username=None: root / (username or "fixture")))
+
     async def test_ambiguous_existing_account_scope_preserves_every_broker(self):
         main = import_main_without_loading_real_env()
         cases = (

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
 from copy import deepcopy
 from unittest.mock import AsyncMock, patch
 
@@ -199,6 +201,12 @@ class AdapterContractTests(unittest.IsolatedAsyncioTestCase):
 
 
 class EndpointDataProtectionTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        super().setUp()
+        root = Path(self.enterContext(TemporaryDirectory(prefix="wealth-sync-lock-fixture-")))
+        self.enterContext(patch("app.services.user_manager.get_user_data_dir",
+                                side_effect=lambda username=None: root / (username or "fixture")))
+
     async def test_kb_failure_does_not_read_or_write_portfolio(self):
         main = import_main_without_loading_real_env()
 
@@ -332,6 +340,12 @@ class EndpointDataProtectionTests(unittest.IsolatedAsyncioTestCase):
 
 
 class KBEmptyBalanceRegressionTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        super().setUp()
+        root = Path(self.enterContext(TemporaryDirectory(prefix="wealth-sync-lock-fixture-")))
+        self.enterContext(patch("app.services.user_manager.get_user_data_dir",
+                                side_effect=lambda username=None: root / (username or "fixture")))
+
     def make_8092_payload(self, *, flag="A", code="8092", message="해당 계좌의 잔고 내역이 존재하지 않습니다.", body=None):
         payload = {
             "dataHeader": {

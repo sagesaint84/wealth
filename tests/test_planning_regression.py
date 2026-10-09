@@ -144,7 +144,7 @@ class PlanningTests(IsolatedDataTestCase):
     def test_failed_write_leaves_original_portfolio_untouched(self):
         from pathlib import Path
         before=portfolio._get_portfolio_file('A').read_bytes()
-        with patch.object(Path,'replace',side_effect=OSError('fixture failure')):
+        with patch('app.services.secure_files.os.replace',side_effect=OSError('fixture failure')):
             with self.assertRaises(OSError): planning.mutate('A','snapshot',self.snapshot())
         self.assertEqual(portfolio._get_portfolio_file('A').read_bytes(),before)
 

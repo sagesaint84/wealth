@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from app.services.financial_json import (FINANCIAL_FILENAMES, financial_locks,
+    read_financial_json, write_financial_json)
+
 import hashlib
 import json
 import logging
@@ -187,7 +190,12 @@ def init_users_and_migration() -> None:
         # 대상 폴더에 파일이 없고 원본 파일이 루트 data에 존재하면 복사
         if src.exists() and not dst.exists():
             try:
-                shutil.copy2(src, dst)
+                if fname in FINANCIAL_FILENAMES:
+                    with financial_locks((src, dst)):
+                        if not dst.exists():
+                            write_financial_json(dst, read_financial_json(src))
+                else:
+                    shutil.copy2(src, dst)
                 logger.info("마이그레이션 완료: %s -> %s", src.name, dst)
             except Exception as e:
                 logger.error("마이그레이션 실패 (%s): %s", fname, e)
@@ -264,31 +272,28 @@ def create_new_user(username: str, initial_password_4digit: str, role: str = "us
 
 def init_empty_portfolio(user_dir: Path, overwrite: bool = False) -> None:
     """새 사용자를 위한 빈 포트폴리오 템플릿 생성"""
-    port_file = user_dir / "portfolio.json"
-    if overwrite or not port_file.exists():
-        empty_port = {
-            "accounts": [],
-            "holdings": [],
-            "family_members": ["모두", "나"],
-            "updated_at": datetime.now().isoformat(),
-        }
-        with open(port_file, "w", encoding="utf-8") as f:
-            json.dump(empty_port, f, ensure_ascii=False, indent=2)
+    with financial_locks(user_dir / name for name in FINANCIAL_FILENAMES[:5]):
+        port_file = user_dir / "portfolio.json"
+        if overwrite or not port_file.exists():
+            empty_port = {
+                "accounts": [],
+                "holdings": [],
+                "family_members": ["모두", "나"],
+                "updated_at": datetime.now().isoformat(),
+            }
+            write_financial_json(port_file, empty_port)
 
-    rec_file = user_dir / "asset_records.json"
-    if overwrite or not rec_file.exists():
-        with open(rec_file, "w", encoding="utf-8") as f:
-            json.dump({"records": [], "updated_at": None}, f, ensure_ascii=False, indent=2)
+        rec_file = user_dir / "asset_records.json"
+        if overwrite or not rec_file.exists():
+            write_financial_json(rec_file, {"records": [], "updated_at": None})
 
-    div_file = user_dir / "dividend_records.json"
-    if overwrite or not div_file.exists():
-        with open(div_file, "w", encoding="utf-8") as f:
-            json.dump({"estimated": [], "actual": []}, f, ensure_ascii=False, indent=2)
+        div_file = user_dir / "dividend_records.json"
+        if overwrite or not div_file.exists():
+            write_financial_json(div_file, {"estimated": [], "actual": []})
 
-    pnl_file = user_dir / "realized_pnl_records.json"
-    if overwrite or not pnl_file.exists():
-        with open(pnl_file, "w", encoding="utf-8") as f:
-            json.dump([], f, ensure_ascii=False, indent=2)
+        pnl_file = user_dir / "realized_pnl_records.json"
+        if overwrite or not pnl_file.exists():
+            write_financial_json(pnl_file, [])
 
 
 def change_user_password(username: str, old_password: str, new_password: str) -> None:

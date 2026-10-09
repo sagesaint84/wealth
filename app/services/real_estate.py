@@ -4,8 +4,10 @@ from typing import Any
 import uuid
 
 from app.services.portfolio import read_portfolio, write_portfolio
+from app.services.financial_json import financial_rmw
 
 
+@financial_rmw('portfolio.json')
 def save_real_estate(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     """부동산(자가/임대/임차) 항목을 생성하거나 수정합니다."""
     data = read_portfolio(username)
@@ -91,6 +93,7 @@ def save_real_estate(payload: dict[str, Any], username: str | None = None) -> di
     return record
 
 
+@financial_rmw('portfolio.json')
 def delete_real_estate(re_id: str, username: str | None = None) -> bool:
     """부동산 항목을 삭제하고 대출과의 연결을 해제합니다."""
     data = read_portfolio(username)

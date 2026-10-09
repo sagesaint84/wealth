@@ -196,6 +196,8 @@ class KbPreSyncRetryTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.main = import_main_without_loading_real_env()
         stack = self.enterContext(ExitStack())
+        root = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="wealth-kb-lock-fixture-")))
+        stack.enter_context(patch("app.services.portfolio._get_user_dir", side_effect=lambda username=None: root / (username or "fixture")))
         self.client = MagicMock(configured=True)
         self.client.refresh_prices = AsyncMock(return_value=({}, []))
         stack.enter_context(patch.object(self.main, "KBOpenAPI", return_value=self.client))

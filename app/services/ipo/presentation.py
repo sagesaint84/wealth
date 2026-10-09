@@ -198,15 +198,10 @@ def derive_presentation_months(ipo: dict[str, Any]) -> tuple[list[str], dict[str
 
 def _read_portfolio_for_presentation(username: str | None) -> dict[str, Any]:
     """Read applicant state without creating a user portfolio on GET."""
-    with portfolio._LOCK:
-        path = portfolio._get_portfolio_file(username)
-        if not path.exists():
-            return {}
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            return {}
-        return value if isinstance(value, dict) else {}
+    path = portfolio._get_portfolio_file(username)
+    if not path.exists():
+        return {}
+    return portfolio.read_financial_json(path)
 
 
 def present_market_store(username: str | None, market: dict[str, Any], today: date | None = None) -> dict[str, Any]:

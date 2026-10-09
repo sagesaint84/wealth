@@ -5,7 +5,6 @@ import io
 import json
 import math
 import re
-import threading
 import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -15,10 +14,11 @@ from typing import Any, Iterable
 from openpyxl import load_workbook
 from app.services.test_safety import assert_write_allowed
 from app.services.broker_registry import normalize_broker
+from app.services.financial_json import (financial_lock, financial_rmw, ensure_financial_json,
+    read_financial_json, write_financial_json)
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-_LOCK = threading.RLock()
 
 def _get_user_dir(username: str | None = None) -> Path:
     from app.services.user_manager import get_user_data_dir
@@ -83,50 +83,43 @@ def now_iso() -> str:
 
 def _ensure_data_file(username: str | None = None) -> Path:
     f = _get_portfolio_file(username)
-    f.parent.mkdir(parents=True, exist_ok=True)
-    if not f.exists():
-        f.write_text(json.dumps(EMPTY_PORTFOLIO, ensure_ascii=False, indent=2), encoding="utf-8")
-    return f
+    return ensure_financial_json(f, EMPTY_PORTFOLIO)
 
 
 def read_portfolio(username: str | None = None) -> dict[str, Any]:
-    with _LOCK:
-        f = _ensure_data_file(username)
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            data = deepcopy(EMPTY_PORTFOLIO)
-        data.setdefault("settings", deepcopy(EMPTY_PORTFOLIO["settings"]))
-        data["settings"].setdefault("fx_rates", {"KRW": 1.0})
-        data["settings"]["fx_rates"].setdefault("KRW", 1.0)
-        data["settings"].setdefault("fx_info", {})
-        data["settings"].setdefault("daily_snapshot", {})
-        data["settings"].setdefault("cash_balances", {})
-        data.setdefault("accounts", [])
-        data.setdefault("holdings", [])
-        data.setdefault("updated_at", None)
-        previous_date = str(data.get("updated_at") or "")[:10]
-        today = datetime.now().astimezone().date().isoformat()
-        if previous_date and previous_date != today and data["settings"].get("daily_snapshot", {}).get("date") != previous_date:
-            previous_value = 0.0
-            for holding in data["holdings"]:
-                currency = normalize_currency(holding.get("currency"))
-                rate = to_number(data["settings"]["fx_rates"].get(currency), 1.0 if currency == "KRW" else 0.0)
-                previous_value += to_number(holding.get("quantity")) * to_number(holding.get("current_price")) * rate
-            data["settings"]["daily_snapshot"] = {"date": previous_date, "value_krw": previous_value}
-        return data
+    f = _ensure_data_file(username)
+    data = read_financial_json(f)
+    data.setdefault("settings", deepcopy(EMPTY_PORTFOLIO["settings"]))
+    data["settings"].setdefault("fx_rates", {"KRW": 1.0})
+    data["settings"]["fx_rates"].setdefault("KRW", 1.0)
+    data["settings"].setdefault("fx_info", {})
+    data["settings"].setdefault("daily_snapshot", {})
+    data["settings"].setdefault("cash_balances", {})
+    data.setdefault("accounts", [])
+    data.setdefault("holdings", [])
+    data.setdefault("updated_at", None)
+    previous_date = str(data.get("updated_at") or "")[:10]
+    today = datetime.now().astimezone().date().isoformat()
+    if previous_date and previous_date != today and data["settings"].get("daily_snapshot", {}).get("date") != previous_date:
+        previous_value = 0.0
+        for holding in data["holdings"]:
+            currency = normalize_currency(holding.get("currency"))
+            rate = to_number(data["settings"]["fx_rates"].get(currency), 1.0 if currency == "KRW" else 0.0)
+            previous_value += to_number(holding.get("quantity")) * to_number(holding.get("current_price")) * rate
+        data["settings"]["daily_snapshot"] = {"date": previous_date, "value_krw": previous_value}
+    return data
 
 
 def write_portfolio(data: dict[str, Any], username: str | None = None, *, replace_planning: bool = False,
                     replace_account_display_order: bool = False) -> dict[str, Any]:
-    with _LOCK:
+    with financial_lock(_get_portfolio_file(username)):
         f = _get_portfolio_file(username)
         assert_write_allowed(f)
         f = _ensure_data_file(username)
         # Financial writers may have read before a planning save. Planning owns
         # this metadata; only explicit restore/reset may replace it here.
         if not replace_planning or not replace_account_display_order:
-            current = json.loads(f.read_text(encoding="utf-8"))
+            current = read_financial_json(f)
         if not replace_planning:
             saved = current.get("settings", {}).get("wealth_planning")
             if saved is not None:
@@ -136,30 +129,27 @@ def write_portfolio(data: dict[str, Any], username: str | None = None, *, replac
             if "account_display_order" in current_settings:
                 data.setdefault("settings", {})["account_display_order"] = deepcopy(current_settings["account_display_order"])
         data["updated_at"] = now_iso()
-        temp_file = f.with_suffix(".json.tmp")
-        temp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        temp_file.replace(f)
+        write_financial_json(f, data)
         return data
 
 
 def mutate_account_display_order(update, username: str) -> dict[str, Any]:
     """Validate and update presentation metadata against the latest locked file."""
-    with _LOCK:
+    with financial_lock(_get_portfolio_file(username)):
         f = _get_portfolio_file(username)
         assert_write_allowed(f)
         f = _ensure_data_file(username)
         # Read raw state rather than read_portfolio's derived daily snapshot.
         # An order edit must not advance the financial updated_at timestamp or
         # change unrelated snapshot/planning metadata.
-        data = json.loads(f.read_text(encoding="utf-8"))
+        data = read_financial_json(f)
         order = update(data)
         data.setdefault("settings", {})["account_display_order"] = order
-        temp_file = f.with_suffix(".json.tmp")
-        temp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        temp_file.replace(f)
+        write_financial_json(f, data)
         return order
 
 
+@financial_rmw('portfolio.json')
 def migrate_add_family_group(username: str | None = None) -> None:
     """Ensure all account entries have a 'family_group' key.
     Existing accounts without the key will get the default value 'All'."""
@@ -208,6 +198,7 @@ def _finite_account_number(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+@financial_rmw('portfolio.json')
 def import_account_rows(filename: str, contents: bytes, *, username: str | None = None, allowed_owners: set[str] | None = None) -> dict[str, Any]:
     """Create-only brokerage-account import, deliberately separate from holding imports."""
     rows = rows_from_upload(filename, contents)
@@ -549,15 +540,10 @@ def get_dashboard(data: dict[str, Any] | None = None, username: str | None = Non
 
     # Load stock-record history once. Each owner metric below selects its own
     # latest strictly-prior record and session provenance from this list.
-    try:
-        rec_file = _get_user_dir(username) / "asset_records.json"
-        if rec_file.exists():
-            rec_data = json.loads(rec_file.read_text(encoding="utf-8"))
-            existing_records = [
-                record for record in rec_data.get("records", []) if isinstance(record, dict)
-            ]
-    except Exception:
-        pass
+    rec_file = _get_user_dir(username) / "asset_records.json"
+    if rec_file.exists():
+        rec_data = read_financial_json(rec_file)
+        existing_records = rec_data if isinstance(rec_data, list) else rec_data.get("records", [])
 
     # 2. 보유종목의 표시용 1D 등락 금액 합산 계산. This value has no
     # prior-session gate and therefore is not canonical dashboard price P/L.
@@ -866,6 +852,7 @@ def rows_from_upload(filename: str, contents: bytes) -> list[dict[str, Any]]:
     raise ValueError("CSV 인코딩을 읽을 수 없습니다. UTF-8 또는 CP949 파일을 사용하세요.")
 
 
+@financial_rmw('portfolio.json')
 def import_rows(filename: str, contents: bytes, default_broker: str = "기타 증권사", username: str | None = None) -> tuple[int, list[str]]:
     rows = rows_from_upload(filename, contents)
     data = read_portfolio(username)

@@ -258,20 +258,37 @@ class BackupRestoreSafetyTests(unittest.TestCase):
             except Exception as exc:
                 errors.append(exc)
 
-        with patch("app.services.asset_records.write_asset_records", side_effect=fail_second_write):
-            thread = threading.Thread(target=restore)
-            thread.start()
+        attempted, finished = threading.Event(), threading.Event()
+        def normal_write():
+            attempted.set()
             try:
-                self.assertTrue(entered_second_write.wait(5))
                 write_portfolio(
                     {"settings": {}, "accounts": [], "holdings": [], "marker": "normal-write"},
                     username=USERNAME,
                 )
+                finished.set()
+            except Exception as exc:
+                errors.append(exc)
+
+        with patch("app.services.asset_records.write_asset_records", side_effect=fail_second_write):
+            thread = threading.Thread(target=restore)
+            writer = threading.Thread(target=normal_write)
+            thread.start()
+            try:
+                self.assertTrue(entered_second_write.wait(5))
+                writer.start()
+                self.assertTrue(attempted.wait(5))
+                self.assertFalse(finished.is_set())
             finally:
                 release_second_write.set()
                 thread.join(5)
+                if writer.ident is not None:
+                    writer.join(5)
         self.assertFalse(thread.is_alive())
+        self.assertFalse(writer.is_alive())
+        self.assertTrue(finished.is_set())
         self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], OSError)
         self.assertEqual(json.loads(portfolio.read_text(encoding="utf-8"))["marker"], "normal-write")
 
 

@@ -12,6 +12,8 @@ from typing import Any
 import openpyxl
 
 from app.services.broker_realized_import import canonicalize_realized_date
+from app.services.financial_json import (FinancialStorageError, financial_rmw,
+    ensure_financial_json, read_financial_json, write_financial_json)
 from app.services.historical_fx import get_historical_fx_rate, lookup_historical_fx_strict
 from app.services.stock_master import resolve_stock_info
 from app.services.file_import_identity import (
@@ -53,10 +55,11 @@ def _finite_optional_float(value: Any, field: str) -> float | None:
 def _load_pnl_records_file(path: Path) -> list[dict[str, Any]]:
     """Read and structurally validate an existing P/L record file."""
     try:
-        with open(path, "r", encoding="utf-8") as fp:
-            data = json.load(fp)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        data = read_financial_json(path)
+    except FinancialStorageError as exc:
         raise PnlRecordsStorageError("realized P/L storage is unreadable") from exc
+    if data == []:
+        return []
     if not isinstance(data, dict) or not isinstance(data.get("records"), list):
         raise PnlRecordsStorageError("realized P/L storage has an invalid structure")
     records = data["records"]
@@ -81,15 +84,9 @@ def _get_pnl_file(username: str | None = None) -> Path:
 
 def _ensure_pnl_file(username: str | None = None) -> Path:
     f = _get_pnl_file(username)
-    f.parent.mkdir(parents=True, exist_ok=True)
-    if not f.exists():
-        initial = {
-            "records": [],
-            "updated_at": datetime.now().astimezone().isoformat(),
-        }
-        with open(f, "w", encoding="utf-8") as fp:
-            json.dump(initial, fp, ensure_ascii=False, indent=2)
-    return f
+    return ensure_financial_json(f, {
+        "records": [], "updated_at": datetime.now().astimezone().isoformat(),
+    })
 
 
 def read_pnl_records(username: str | None = None) -> list[dict[str, Any]]:
@@ -105,6 +102,7 @@ def read_pnl_records_readonly(username: str | None = None) -> list[dict[str, Any
     return _load_pnl_records_file(f)
 
 
+@financial_rmw('realized_pnl_records.json')
 def write_pnl_records(records: list[dict[str, Any]], username: str | None = None) -> None:
     if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
         raise PnlRecordsStorageError("refusing to write invalid realized P/L records")
@@ -118,10 +116,13 @@ def write_pnl_records(records: list[dict[str, Any]], username: str | None = None
         "records": records,
         "updated_at": datetime.now().astimezone().isoformat(),
     }
-    with open(f, "w", encoding="utf-8") as fp:
-        json.dump(payload, fp, ensure_ascii=False, indent=2)
+    try:
+        write_financial_json(f, payload)
+    except FinancialStorageError as exc:
+        raise PnlRecordsStorageError("realized P/L storage is unreadable") from exc
 
 
+@financial_rmw('realized_pnl_records.json')
 def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     records = read_pnl_records(username)
     now_iso = datetime.now().astimezone().isoformat()
@@ -283,6 +284,7 @@ def create_pnl_record(payload: dict[str, Any], username: str | None = None) -> d
     return record
 
 
+@financial_rmw('realized_pnl_records.json')
 def update_pnl_record(record_id: str, payload: dict[str, Any], username: str | None = None) -> dict[str, Any] | None:
     records = read_pnl_records(username)
     target = None
@@ -400,12 +402,13 @@ def update_pnl_record(record_id: str, payload: dict[str, Any], username: str | N
     return target
 
 
+@financial_rmw('portfolio.json', 'realized_pnl_records.json')
 def delete_pnl_record(record_id: str, username: str | None = None) -> bool:
     # The IPO application and the ledger must be inspected under the same
     # portfolio lock used by link/unlink.  Never cascade-remove a relation.
     from app.services import portfolio
     from app.services.ipo.link_integrity import linked_pnl_reference_counts_from_file
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         records = read_pnl_records(username)
         if not any(str(r.get("id") or "") == str(record_id) for r in records):
             return False
@@ -429,11 +432,12 @@ def is_real_estate_pnl_record(r: dict[str, Any]) -> bool:
     return False
 
 
+@financial_rmw('portfolio.json', 'realized_pnl_records.json')
 def clear_pnl_records(username: str | None = None) -> None:
     """주식/공모주 실현손익만 초기화하고, 부동산 매도 기록은 안전하게 보존합니다."""
     from app.services import portfolio
     from app.services.ipo.link_integrity import linked_pnl_reference_counts_from_file
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         records = read_pnl_records(username)
         removable_ids = {str(r.get("id") or "") for r in records if not is_real_estate_pnl_record(r)}
         references = linked_pnl_reference_counts_from_file(portfolio._get_portfolio_file(username))
@@ -676,6 +680,7 @@ def _pnl_file_import_fingerprint(record: dict[str, Any]) -> str | None:
     })
 
 
+@financial_rmw('realized_pnl_records.json')
 def import_pnl_file_data(content: bytes, filename: str, fx_rate: float = 1385.0, username: str | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     
@@ -818,6 +823,7 @@ def import_pnl_file_data(content: bytes, filename: str, fx_rate: float = 1385.0,
     return imported_records
 
 
+@financial_rmw('realized_pnl_records.json')
 def recalculate_pnl_historical_fx(username: str | None = None) -> int:
     """Safely derive eligible USD records from cached historical FX observations."""
     records = read_pnl_records(username)
