@@ -322,12 +322,13 @@
               <p>최근 최대 100건의 이벤트 종류와 provider별 성공·실패만 저장합니다. 메시지 본문과 비밀정보는 저장하지 않습니다.</p>
             </div>
             <div class="settings-management-actions settings-history-actions">
+              <button id="settingsNotificationHistoryToggle" type="button" class="button secondary compact" aria-expanded="false" aria-controls="settingsNotificationHistoryList">펼치기</button>
               <button id="settingsNotificationHistoryRefresh" type="button" class="button secondary compact">새로고침</button>
               <button id="settingsNotificationHistoryClear" type="button" class="button secondary compact">이력 비우기</button>
             </div>
           </div>
           <p id="settingsNotificationHistorySummary" class="settings-history-summary">최근 이력을 불러오는 중…</p>
-          <div id="settingsNotificationHistoryList" class="settings-history-list" aria-live="polite"></div>
+          <div id="settingsNotificationHistoryList" class="settings-history-list" aria-live="polite" hidden></div>
           <p id="settingsNotificationHistoryError" class="settings-error" role="alert" hidden></p>
         </section>
 
@@ -366,4 +367,32 @@
   </fieldset>
       </section>
 </div>`;
+  const byId = id => document.getElementById(id);
+  const notificationHistoryPreferenceKey = 'wealth.notificationHistory.expanded';
+  let notificationHistoryExpanded = false;
+
+  function applyNotificationHistoryVisibility() {
+    const button = byId('settingsNotificationHistoryToggle');
+    const list = byId('settingsNotificationHistoryList');
+    if (button) {
+      button.setAttribute('aria-expanded', String(notificationHistoryExpanded));
+      button.textContent = notificationHistoryExpanded ? '접기' : '펼치기';
+    }
+    if (list) list.hidden = !notificationHistoryExpanded;
+  }
+
+  function initializeNotificationHistoryVisibility() {
+    try {
+      notificationHistoryExpanded = localStorage.getItem(notificationHistoryPreferenceKey) === 'true';
+    } catch (_) { /* Restricted storage retains the collapsed default. */ }
+    applyNotificationHistoryVisibility();
+    byId('settingsNotificationHistoryToggle')?.addEventListener('click', () => {
+      notificationHistoryExpanded = !notificationHistoryExpanded;
+      try {
+        localStorage.setItem(notificationHistoryPreferenceKey, String(notificationHistoryExpanded));
+      } catch (_) { /* The toggle still works for this page when storage is unavailable. */ }
+      applyNotificationHistoryVisibility();
+    });
+  }
+  document.addEventListener('DOMContentLoaded', initializeNotificationHistoryVisibility);
 })();

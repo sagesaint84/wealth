@@ -40,7 +40,7 @@ class CalendarIpoToneFrontendTests(unittest.TestCase):
 
     def test_final_tones_are_in_first_paint_stylesheet(self) -> None:
         self.assertNotIn("wealthCalendarIpoTonesScript", self.loader_js)
-        self.assertIn('/static/wealth-layout.css?v=10.9k1', self.index_html)
+        self.assertIn('/static/wealth-layout.css?v=10.9m1', self.index_html)
         self.assertIn('/static/wealth-family-financial-income-allocation.js?v=10.7g1', self.index_html)
         self.assertIn(".cal-badge.tone-ipo-subscription", self.layout_css)
         self.assertIn(".calendar-legend-item.tone-ipo-subscription", self.layout_css)

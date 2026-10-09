@@ -220,6 +220,15 @@
   const pct = value => `${Number(value) >= 0 ? '+' : ''}${Number(value || 0).toFixed(2)}%`;
   const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
   const setSigned = (id, value, formatter = signedWon) => { const el = document.getElementById(id); if (!el) return; const n = Number(value); el.textContent = formatter(value); el.classList.toggle('is-positive', Number.isFinite(n) && n > 0); el.classList.toggle('is-negative', Number.isFinite(n) && n < 0); };
+  const investmentShares = (stock, property) => {
+    const total = stock + property;
+    if (!Number.isFinite(stock) || !Number.isFinite(property) || !Number.isFinite(total) || total <= 0) return ['—', '—'];
+    return [stock, property].map(value => {
+      const ratio = value / total * 100;
+      return Number.isFinite(ratio) ? `${ratio.toFixed(1)}%` : '—';
+    });
+  };
+  const investmentDetail = (value, share) => `${Number.isFinite(value) ? won(value) : '—'} (${share})`;
   window.addEventListener('wealth:summary', ({ detail: s }) => {
     setText('wealthNetWorth', won(s.netWorth));
     setText('wealthAssetNetWorth', won(s.netWorth));
@@ -228,8 +237,9 @@
     setText('wealthAssetRealized', won(s.realized));
     setText('wealthAssetSafe', won(s.safe));
     setText('wealthAssetDebtDetail', won(s.debt));
-    setText('wealthAssetPropertyDetail', won(s.property));
-    setText('wealthAssetStockDetail', won(s.stock));
+    const [stockShare, propertyShare] = investmentShares(s.stock, s.property);
+    setText('wealthAssetPropertyDetail', investmentDetail(s.property, propertyShare));
+    setText('wealthAssetStockDetail', investmentDetail(s.stock, stockShare));
     setSigned('wealthAssetPropertyExpected', s.propertyExpected, value => `${signedWon(value)} (${pct(s.propertyExpectedRate)})`);
     setSigned('wealthAssetStockExpected', s.stockExpected, value => `${signedWon(value)} (${pct(s.stockExpectedRate)})`);
     setSigned('wealthAssetDayDetail', s.dayProfit);
