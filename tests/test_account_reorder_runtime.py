@@ -4,17 +4,15 @@ from contextlib import ExitStack
 from http.server import ThreadingHTTPServer
 import json
 import base64
-import os
-import subprocess
 import threading
-import time
 import urllib.request
 from urllib.parse import urlsplit
 
 import pytest
 
+from tests.chrome_harness import chrome_session, safe_preview_server
+
 from tests.test_dividend_income_route_chrome import wait_for as wait_for_page
-from tests.test_pnl_first_visible_frame import chrome_profile
 from tests.test_realized_pnl_viewport import _chrome_path
 from tests.ui_preview import PreviewHandler, STATIC
 
@@ -51,7 +49,7 @@ def chrome_preview():
     chrome = _chrome_path()
     if not chrome:
         pytest.skip('Chrome required')
-    server = ReorderServer(('127.0.0.1', 0), ReorderPreview)
+    server = safe_preview_server(ReorderServer, ReorderPreview)
     # Snapshot files before HTTP workers start: deterministic static delivery,
     # avoiding Windows antivirus/file-read failures in native worker threads.
     server.assets = {path.name: path.read_bytes() for path in STATIC.iterdir() if path.is_file()}
@@ -59,28 +57,7 @@ def chrome_preview():
     thread.start()
     try:
         with ExitStack() as cleanup:
-            profile = cleanup.enter_context(chrome_profile('wealth-reorder-'))
-            process = subprocess.Popen([chrome, '--headless=new', '--no-first-run',
-                '--no-default-browser-check', '--disable-gpu', '--remote-allow-origins=*',
-                '--remote-debugging-port=0', f'--user-data-dir={profile}', 'about:blank'],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
-            def stop():
-                if process.poll() is None:
-                    process.terminate()
-                    try:
-                        process.wait(5)
-                    except subprocess.TimeoutExpired:
-                        process.kill(); process.wait(5)
-            cleanup.callback(stop)
-            for _ in range(100):
-                try:
-                    debug_port = (Path(profile) / 'DevToolsActivePort').read_text().splitlines()[0]
-                    break
-                except (FileNotFoundError, PermissionError, IndexError):
-                    time.sleep(.1)
-            else:
-                pytest.fail('Chrome debugging port unavailable')
+            process, debug_port, profile = cleanup.enter_context(chrome_session(chrome, "wealth-reorder-"))
             targets = json.load(urllib.request.urlopen(f'http://127.0.0.1:{debug_port}/json', timeout=5))
             connection = websocket.create_connection(next(t for t in targets if t['type'] == 'page')['webSocketDebuggerUrl'], timeout=15)
             cleanup.callback(connection.close)
