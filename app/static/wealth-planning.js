@@ -117,15 +117,17 @@
     renderHistory();
   });
   const bucketPanel = document.createElement('article');
+  bucketPanel.id = 'bucketPanel';
   bucketPanel.className = 'wealth-bucket-panel wealth-composition';
   bucketPanel.innerHTML = `<h3>전략 버킷</h3><p class="wealth-help">증권 보유종목과 예수금을 목적별로 관리합니다. 계좌 기본 분류보다 보유내역별 예외가 우선하며, 같은 종목도 계좌별로 구분됩니다. 미분류도 전체 비중에 포함됩니다. 목표는 사용자 공통 설정이며 현재 비중은 선택한 가족 범위 기준입니다.</p><div id="wealthBucketSummary"></div>
     <details id="wealthBucketEditor"><summary>버킷과 분류 관리</summary><form id="wealthBucketForm"><div class="wealth-bucket-presets"><strong>추천 버킷</strong><p class="wealth-help">필요한 항목만 선택하세요. 저장 전에는 실제 분류가 변경되지 않습니다.</p><div id="wealthBucketPresetButtons" class="wealth-bucket-preset-buttons"></div></div><div id="wealthBucketRows"></div><button id="wealthAddBucket" type="button" class="button secondary">+ 사용자 정의 버킷</button><p id="wealthBucketTargetStatus" class="wealth-bucket-target-status" role="status"></p><h4>계좌별 기본 버킷</h4><div id="wealthAccountAssignments"></div><h4>보유내역별 예외</h4><p class="wealth-help">동기화로 보유내역 ID가 바뀌면 기존 예외를 자동 추정하지 않습니다. 분류를 다시 확인하세요.</p><div id="wealthHoldingAssignments"></div><div class="wealth-editor-actions"><button type="submit" class="button primary">분류 저장</button><button type="button" id="wealthReloadPlanning" class="button secondary">다시 불러오기</button></div></form></details><p id="wealthBucketStatus" class="wealth-help" role="status"></p>`;
   invest.append(bucketPanel);
   const nav = document.createElement('div'); nav.className = 'wealth-invest-tabs';
   nav.setAttribute('aria-label','투자 화면 선택');
-  nav.innerHTML = '<button type="button" data-invest="overview" aria-pressed="true">📊 포트폴리오</button><button type="button" data-invest="heatmap">🗺️ 히트맵</button><button type="button" data-invest="records">🗓️ 주식기록</button><button type="button" data-invest="buckets">🎯 전략 버킷</button><button type="button" data-invest="tax_accounts">🧾 절세계좌</button><button type="button" data-invest="holdings">📋 보유종목</button>';
+  nav.innerHTML = '<button type="button" data-invest="overview">📊 포트폴리오</button><button type="button" data-invest="heatmap">🗺️ 히트맵</button><button type="button" data-invest="records">🗓️ 주식기록</button><button type="button" data-invest="buckets">🎯 전략 버킷</button><button type="button" data-invest="tax_accounts">🧾 절세계좌</button><button type="button" data-invest="holdings">📋 보유종목</button>';
   invest.prepend(nav);
   function selectTab(tab) {
+    tab = window.WealthInvestTabState.select(tab);
     ['summaryPanel','assetHeatmapPanel','holdingsPanel'].forEach(id => document.getElementById(id).classList.toggle('wealth-invest-hidden', !((tab === 'overview' && id === 'summaryPanel') || (tab === 'heatmap' && id === 'assetHeatmapPanel') || (tab === 'holdings' && id === 'holdingsPanel'))));
     document.getElementById('recordsPanel').classList.toggle('wealth-invest-hidden',tab !== 'records');
     bucketPanel.classList.toggle('wealth-invest-hidden',tab !== 'buckets');
@@ -138,7 +140,7 @@
     window.dispatchEvent(new CustomEvent('wealth:view',{detail:'invest'}));
   }
   nav.addEventListener('click', e => { if(e.target.dataset.invest) selectTab(e.target.dataset.invest); });
-  selectTab('overview');
+  selectTab(window.WealthInvestTabState.current());
   async function request(path, payload) {
     const response = await fetch('/api/planning' + path, payload ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)} : {});
     const data = await response.json();

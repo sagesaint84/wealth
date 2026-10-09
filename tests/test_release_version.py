@@ -23,14 +23,16 @@ class ReleaseVersionTests(unittest.TestCase):
         css_matches = re.findall(r'href="/static/([^"]+\.css)\?v=([^"]+)"', html)
         self.assertTrue(css_matches)
         for asset, version in css_matches:
-            self.assertEqual(version, "10.9h1" if asset in {"wealth-layout.css", "wealth-overrides.css"} else "1.3.0")
+            expected = "10.9k1" if asset == "wealth-layout.css" else "10.9h1" if asset == "wealth-overrides.css" else "1.3.0"
+            self.assertEqual(version, expected)
 
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
         hotfix_assets = {"wealth-family-financial-income-allocation.js", "wealth-planning-model.js"}
         settings_assets = {"wealth-settings-surface.js", "wealth-settings.js", "wealth-layout.js", "wealth.js"}
+        invest_hotfix_assets = {"wealth-invest-tab-state.js", "wealth.js", "wealth-planning.js"}
         for asset, version in js_matches:
-            expected = "10.9h1" if asset in settings_assets else "10.7g1" if asset in hotfix_assets else "1.3.0"
+            expected = "10.9k1" if asset in invest_hotfix_assets else "10.9h1" if asset in settings_assets else "10.7g1" if asset in hotfix_assets else "1.3.0"
             self.assertEqual(version, expected)
 
     def test_service_worker_cache_name(self):
