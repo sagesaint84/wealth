@@ -101,9 +101,11 @@ class TossOpenAPI:
                     detail = error_obj or payload.get("error_description") or payload
             else:
                 detail = payload
-            raise TossOpenAPIError(
+            error = TossOpenAPIError(
                 f"토스증권 OpenAPI 요청 실패 ({response.status_code}) [{response.request.method} {response.request.url}]: {detail}"
             )
+            error.status_code = response.status_code
+            raise error
 
     async def _get(self, path: str, params: dict[str, Any] | None = None, account_seq: int | None = None) -> Any:
         require_external_network("Toss OpenAPI")

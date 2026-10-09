@@ -18,6 +18,8 @@ from app.services.notifications.models import NotificationEvent, NotificationSen
 from app.services.notifications.service import UserNotificationService
 from app.services.user_manager import get_user_by_name
 
+from app.services.automation.account_pre_sync import read_pre_sync_for_close, as_kst
+
 logger = logging.getLogger(__name__)
 
 KST = timezone(timedelta(hours=9))
@@ -172,7 +174,8 @@ def build_daily_close_summary(
         status = broker.get("status") or "UNKNOWN"
         name = broker.get("broker") or "증권사"
 
-        if status in good_statuses:
+        partial_pre_sync = sync_result.get("source") == "account_pre_sync" and status == "PARTIAL_SUCCESS"
+        if status in good_statuses and not partial_pre_sync:
             mark = "✅"
         elif status == "CONFIG_REQUIRED":
             mark = "➖"
@@ -510,7 +513,7 @@ async def run_daily_close_for_user(
     """Execute end-to-end Wealth daily close processing for a specific user.
 
     Steps:
-    1. account_sync: sync all configured broker accounts
+    1. account_sync: read persisted pre-sync metadata; never call account APIs
     2. price_refresh: refresh market prices and USD/KRW FX rates
     3. dashboard: compile full portfolio and asset dashboard
     4. dividend_forecast_snapshot: freeze the current enriched dividend forecast
@@ -529,32 +532,19 @@ async def run_daily_close_for_user(
         raise ValueError(f"사용자를 찾을 수 없습니다: {safe_user}")
 
     if now is not None:
-        current_dt = now if now.tzinfo else now.replace(tzinfo=KST)
+        current_dt = as_kst(now)
     else:
         current_dt = datetime.now(KST)
     today = current_dt.date().isoformat()
 
     steps: dict[str, Any] = {}
 
-    # 1. account_sync
-    from app.main import sync_all_accounts_for_user
-    try:
-        sync_result = await sync_all_accounts_for_user(safe_user, retry_kb_transient=True)
-        steps["account_sync"] = {"status": "success", "result": sync_result}
-    except Exception as exc:
-        logger.exception("Daily close account sync failed for %s", safe_user)
-        steps["account_sync"] = {"status": "failed", "error": str(exc)}
-        return {
-            "ok": False,
-            "status": "failed",
-            "failed_step": "account_sync",
-            "username": safe_user,
-            "date": today,
-            "steps": steps,
-            "error": f"account_sync failed: {str(exc)}",
-            "telegram_sent": False,
-            "notification_status": "skipped",
-        }
+    # 1. Consume completed account pre-sync metadata without provider fallback.
+    sync_result = read_pre_sync_for_close(safe_user, now=current_dt)
+    steps["account_sync"] = {
+        "status": "degraded" if sync_result["degraded"] else "success",
+        "source": "account_pre_sync", "result": sync_result,
+    }
 
     # 2. price_refresh
     from app.main import refresh_prices_for_user
@@ -742,7 +732,7 @@ async def run_daily_close_for_user(
 
     return {
         "ok": True,
-        "status": "success",
+        "status": "degraded" if sync_result["degraded"] else "success",
         "username": safe_user,
         "date": today,
         "steps": steps,

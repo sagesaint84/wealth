@@ -283,7 +283,9 @@ class KBOpenAPI:
                 detail = response.json()
             except ValueError:
                 detail = response.text
-            raise KBOpenAPIError(f"KB OpenAPI 요청 실패 ({response.status_code}): {detail}")
+            error = KBOpenAPIError(f"KB OpenAPI 요청 실패 ({response.status_code}): {detail}")
+            error.status_code = response.status_code
+            raise error
 
     _EMPTY_BALANCE_CRITERIA: dict[str, str] = {
         "8092": "잔고 내역이 존재하지 않습니다",

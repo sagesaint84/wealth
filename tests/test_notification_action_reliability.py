@@ -1,4 +1,4 @@
-"""Synthetic regression coverage for native/web IPO confirmation and KB close retries."""
+"""Synthetic regression coverage for native/web IPO confirmation and KB account read retries."""
 from __future__ import annotations
 
 from contextlib import ExitStack
@@ -192,7 +192,7 @@ class IpoConfirmationTests(unittest.TestCase):
         self.update.assert_not_called()
 
 
-class KbCloseRetryTests(unittest.IsolatedAsyncioTestCase):
+class KbPreSyncRetryTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.main = import_main_without_loading_real_env()
         stack = self.enterContext(ExitStack())
@@ -291,13 +291,14 @@ class KbCloseRetryTests(unittest.IsolatedAsyncioTestCase):
     async def test_persistence_failure_never_retries_holdings(self):
         self.write.side_effect = OSError("SECRET_TOKEN 123456789012")
         _, kb = await self.sync([self.records()])
-        self.assertEqual(kb["status"], "INTERNAL_ERROR")
+        self.assertEqual(kb["status"], "PERSISTENCE_ERROR")
         self.client.sync_holdings.assert_awaited_once()
         self.assertEqual(kb["message"], "KB_SYNC_FAILED 기존 데이터는 유지했습니다.")
         self.sleep.assert_not_awaited()
 
-    async def test_daily_close_recovered_and_failed_retry_preserve_step_sequence(self):
+    async def test_presync_then_close_preserve_step_sequence(self):
         from app.services.automation.daily_close import run_daily_close_for_user
+        from app.services.automation.account_pre_sync import run_account_pre_sync_for_user
         from tests.test_daily_close import DailyCloseServiceTests
         dashboard = DailyCloseServiceTests._sample_dashboard(self)
         for final, status, warnings in [(self.records(), "CONFIRMED_EMPTY", 0),
@@ -316,7 +317,19 @@ class KbCloseRetryTests(unittest.IsolatedAsyncioTestCase):
                 notify = stack.enter_context(patch("app.services.automation.daily_close.send_daily_close_notifications", return_value={
                     "telegram_sent": True, "status": "sent", "dispatch_status": "sent", "error": None,
                     "provider_results": {}, "notifications_sent_count": 1}))
+                root = stack.enter_context(tempfile.TemporaryDirectory(prefix="wealth-presync-"))
+                stack.enter_context(patch.dict("os.environ", {"WEALTH_DATA_DIR": root}))
+                stack.enter_context(patch("app.services.automation.account_pre_sync.get_user_by_name", return_value={"username": "fixture"}))
+                pre = await run_account_pre_sync_for_user("fixture", clock=lambda: datetime(2026, 10, 8, 20, 50, tzinfo=actions.KST))
+                self.assertTrue(pre["ok"])
+                stock.assert_not_called()
+                net.assert_not_called()
+                notify.assert_not_called()
+                self.assertEqual(self.client.sync_holdings.await_count, 2)
+                self.client.sync_holdings.reset_mock()
+                self.client.sync_holdings.side_effect = AssertionError("21:00 account fetch forbidden")
                 result = await run_daily_close_for_user("fixture", now=datetime(2026, 10, 8, 21, tzinfo=actions.KST))
+                self.client.sync_holdings.assert_not_awaited()
                 self.assertTrue(result["ok"])
                 self.assertEqual(result["sync_warning_count"], warnings)
                 kb = result["steps"]["account_sync"]["result"]["brokers"][0]

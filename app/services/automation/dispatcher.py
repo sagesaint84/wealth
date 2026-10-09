@@ -2,7 +2,7 @@
 
 Evaluates stored automation schedules across registered users, determines due jobs
 for the current exact minute (Asia/Seoul), and dispatches corresponding Python services
-without HTTP bypass or persistent execution state (A2).
+without HTTP bypass, using persistent execution claims for deduplication.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.services.automation.daily_close import run_daily_close_for_user
+from app.services.automation.account_pre_sync import run_account_pre_sync_for_user
 from app.services.automation.execution_state import (
     DEFAULT_MAX_ATTEMPTS,
     DEFAULT_STALE_SECONDS,
@@ -310,6 +311,19 @@ def resolve_due_jobs(
         daily_close_cfg = automation.get("daily_close") or {}
         if daily_close_cfg.get("enabled"):
             close_time = daily_close_cfg.get("time")
+            if isinstance(close_time, str) and _TIME.fullmatch(close_time):
+                close_hour, close_minute = map(int, close_time.split(":"))
+                pre_time = (current_dt.replace(hour=close_hour, minute=close_minute)
+                            - timedelta(minutes=10)).strftime("%H:%M")
+                if pre_time == current_time_str:
+                    due_jobs.append({
+                        "job": "account_pre_sync", "scope": "user", "username": username,
+                        "scheduled_time": pre_time,
+                        "execution_key": build_execution_key(
+                            job="account_pre_sync", target_date=current_date_str,
+                            time_str=pre_time, scope="user", username=username,
+                        ),
+                    })
             if close_time == current_time_str:
                 due_jobs.append({
                     "job": "daily_close",
@@ -341,6 +355,10 @@ def resolve_due_jobs(
 
         scope = rec.get("scope")
         job_type = rec.get("job")
+        # Pre-sync has its own bounded fetch retry. Never replay it at close,
+        # during daily-close catch-up, or after scheduler restart.
+        if job_type == "account_pre_sync":
+            continue
 
         if scope == "global":
             orig_owner = rec.get("owner") or global_owner
@@ -410,6 +428,7 @@ async def execute_job(
     *,
     now: datetime,
     daily_close_runner: Callable[..., Any] | None = None,
+    account_pre_sync_runner: Callable[..., Any] | None = None,
     reminder_runner: Callable[..., Any] | None = None,
     listing_reminder_runner: Callable[..., Any] | None = None,
     ipo_refresh_runner: Callable[..., Any] | None = None,
@@ -565,6 +584,28 @@ async def execute_job(
                     "slot": slot, "scheduled_time": scheduled_time,
                     "status": "failed", "error": str(exc)}
 
+    if job_type == "account_pre_sync":
+        username = job.get("username")
+        runner = account_pre_sync_runner or run_account_pre_sync_for_user
+        try:
+            if inspect.iscoroutinefunction(runner):
+                res = await runner(username, now=now)
+            else:
+                res = await asyncio.to_thread(runner, username, now=now)
+            return {
+                "job": job_type, "scope": "user", "username": username,
+                "scheduled_time": scheduled_time,
+                "status": "success" if res.get("ok") else "failed",
+                "details": {"completed_at": res.get("completed_at"),
+                            "providers": res.get("providers", {})},
+                **({} if res.get("ok") else {"error": "ACCOUNT_PRE_SYNC_FAILED"}),
+            }
+        except Exception:
+            logger.warning("Account pre-sync failed for user")
+            return {"job": job_type, "scope": "user", "username": username,
+                    "scheduled_time": scheduled_time, "status": "failed",
+                    "error": "ACCOUNT_PRE_SYNC_FAILED"}
+
     if job_type == "daily_close":
         username = job.get("username")
         runner = daily_close_runner or run_daily_close_for_user
@@ -582,6 +623,7 @@ async def execute_job(
                     "scheduled_time": scheduled_time,
                     "status": "success",
                     "details": {
+                        "account_sync_quality": res.get("steps", {}).get("account_sync", {}).get("status"),
                         "telegram_sent": res.get("telegram_sent", False),
                         "notification_status": res.get("notification_status"),
                         "notification_dispatch_status": res.get(
@@ -630,6 +672,7 @@ async def run_due_automation(
     dry_run: bool = False,
     state_path: Path | None = None,
     daily_close_runner: Callable[..., Any] | None = None,
+    account_pre_sync_runner: Callable[..., Any] | None = None,
     reminder_runner: Callable[..., Any] | None = None,
     listing_reminder_runner: Callable[..., Any] | None = None,
     ipo_refresh_runner: Callable[..., Any] | None = None,
@@ -715,6 +758,7 @@ async def run_due_automation(
                 job,
                 now=current_dt,
                 daily_close_runner=daily_close_runner,
+                account_pre_sync_runner=account_pre_sync_runner,
                 reminder_runner=reminder_runner,
                 listing_reminder_runner=listing_reminder_runner,
                 ipo_refresh_runner=ipo_refresh_runner,

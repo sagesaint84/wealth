@@ -254,6 +254,11 @@ APP_VERSION = "1.3.0"
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+from app.services.account_sync_retry import (
+    AccountSyncPersistenceError, fetch_account_holdings, get_failure_diagnostic, read_account_with_retry,
+)
+
+
 _syncing_users: set[str] = set()
 
 
@@ -271,6 +276,8 @@ def _mask_sync_error(error: Exception, client: object | None = None) -> str:
 
 
 def _sync_error_status(error: Exception) -> str:
+    if isinstance(error, AccountSyncPersistenceError):
+        return "PERSISTENCE_ERROR"
     text = str(error.detail if isinstance(error, HTTPException) else error)
     if any(marker in text for marker in ("응답 형식", "올바른 JSON", "항목 형식", "연속조회")):
         return "PARSE_ERROR"
@@ -304,6 +311,20 @@ def _holdings_success_status(records: BrokerHoldingsResult) -> str:
 
 def _mark_sync_success(data: dict, broker: str) -> None:
     data.setdefault("settings", {}).setdefault("sync_last_success", {})[broker] = datetime.now().astimezone().isoformat(timespec="seconds")
+
+def _save_account_sync(data: dict, username: str) -> None:
+    try:
+        write_portfolio(data, username=username)
+    except Exception as exc:
+        raise AccountSyncPersistenceError("ACCOUNT_SYNC_PERSISTENCE_FAILED") from exc
+
+
+def _load_account_sync(username: str) -> dict:
+    try:
+        return read_portfolio(username=username)
+    except Exception as exc:
+        raise AccountSyncPersistenceError("ACCOUNT_SYNC_STORAGE_INVALID") from exc
+
 
 @app.get("/sw.js")
 async def service_worker_file():
@@ -5754,7 +5775,7 @@ async def snapshot_asset_record(request: Request) -> dict:
 
 
 async def sync_kb_for_user(username: str, *, retry_transient: bool = False) -> dict:
-    """Retry only read-only holdings fetches, opted in by automatic daily close.
+    """Retry only read-only holdings fetches, opted in by account pre-sync.
 
     All authority checks and persistence remain outside the retry loop. The
     sync-all user lock remains held across both fetches and their short delay.
@@ -5762,32 +5783,13 @@ async def sync_kb_for_user(username: str, *, retry_transient: bool = False) -> d
     client = KBOpenAPI(username=username)
     if not client.configured:
         return {"broker": "KB증권", "status": "CONFIG_REQUIRED", "message": "KB증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True, "warnings": []}
-    retry_info: dict = {}
-    for attempt in range(2 if retry_transient else 1):
-        try:
-            records = await client.sync_holdings()
-            if retry_info:
-                retry_info["retry_recovered"] = True
-            break
-        except Exception as exc:
-            transient = isinstance(exc, (KBTransientAPIError, httpx.TimeoutException, httpx.NetworkError))
-            status = "API_ERROR" if transient else _sync_error_status(exc)
-            if isinstance(exc, ValueError):
-                status = "PARSE_ERROR"
-            reason = (f"KB_HTTP_{exc.status_code}" if isinstance(exc, KBTransientAPIError)
-                      else "KB_TRANSPORT_ERROR" if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError))
-                      else "KB_RESPONSE_INVALID" if status == "PARSE_ERROR"
-                      else "KB_PROVIDER_OR_RESPONSE_ERROR" if isinstance(exc, KBOpenAPIError)
-                      else "KB_FETCH_INTERNAL_ERROR")
-            if retry_transient and attempt == 0 and transient:
-                retry_info = {"retry_attempted": True, "retry_recovered": False,
-                              "initial_failure_reason": reason}
-                await asyncio.sleep(0.1)
-                continue
-            failure = HTTPException(400, reason)
-            failure.kb_sync_diagnostic = {"status": status, "failure_reason": reason,
-                                          "retryable": transient, **retry_info}
-            raise failure from exc
+    try:
+        records, retry_info = await fetch_account_holdings(client, "KB", retry_transient=retry_transient)
+    except Exception as exc:
+        diagnostic = get_failure_diagnostic(exc)
+        failure = HTTPException(400, diagnostic.get("failure_reason", "KB_FETCH_INTERNAL_ERROR"))
+        failure.kb_sync_diagnostic = diagnostic
+        raise failure from exc
 
     def unverified_result() -> dict:
         result = _unverified_holdings_response("KB증권", records)
@@ -5797,7 +5799,7 @@ async def sync_kb_for_user(username: str, *, retry_transient: bool = False) -> d
 
     if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
         return unverified_result()
-    data = read_portfolio(username=username)
+    data = _load_account_sync(username)
 
     # 1. 고유 키(kb_primary) 또는 기존 KB 동기화 계좌 찾기
     primary_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and a.get("account_key") == "kb_primary"]
@@ -5847,7 +5849,7 @@ async def sync_kb_for_user(username: str, *, retry_transient: bool = False) -> d
                 holding["avg_price"] = price
     replace_holdings_in_scopes(data, holdings, source="kb_api", scopes=scopes)
     _mark_sync_success(data, "kb")
-    write_portfolio(data, username=username)
+    _save_account_sync(data, username)
     status = _holdings_success_status(records)
     message = "KB증권 보유종목이 0개로 확인되었습니다." if not holdings else f"KB증권 보유종목 {len(holdings)}개를 동기화했습니다."
     return {"broker": "KB증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": False, "cash_updated": False, "data_preserved": False, "warnings": warnings[:10], **retry_info}
@@ -5860,18 +5862,18 @@ async def sync_kb(request: Request = None) -> dict:
 
 
 
-async def sync_toss_for_user(username: str) -> dict:
+async def sync_toss_for_user(username: str, *, retry_transient: bool = False) -> dict:
     client = TossOpenAPI(username=username)
     if not client.configured:
         return {"broker": "토스증권", "status": "CONFIG_REQUIRED", "message": "토스증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
     try:
-        records = await client.sync_holdings()
+        records, retry_info = await fetch_account_holdings(client, "TOSS", retry_transient=retry_transient)
         toss_accounts = client.last_accounts
     except TossOpenAPIError as exc:
         raise HTTPException(400, str(exc)) from exc
     if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
         return _unverified_holdings_response("토스증권", records)
-    data = read_portfolio(username=username)
+    data = _load_account_sync(username)
     cash = data["settings"].setdefault("toss_cash", {})
     cash_balances = data["settings"].setdefault("cash_balances", {})
 
@@ -5947,11 +5949,21 @@ async def sync_toss_for_user(username: str) -> dict:
         toss_map[seq_str] = (account_id, account_name)
         if seq is not None:
             try:
-                bp = await client.get_buying_power(int(seq))
+                bp, cash_retry = await read_account_with_retry(
+                    lambda: client.get_buying_power(int(seq)), "TOSS", retry_transient=retry_transient,
+                )
+                if cash_retry:
+                    retry_info.update(cash_retry)
                 cash[str(seq)] = bp
                 cash_balances[account_id] = bp
                 cash_successes += 1
-            except TossOpenAPIError:
+            except TossOpenAPIError as exc:
+                diagnostic = get_failure_diagnostic(exc)
+                retry_info.update({key: diagnostic[key] for key in ("failure_reason", "retryable")
+                                   if key in diagnostic})
+                if diagnostic.get("retry_attempted"):
+                    retry_info.update({key: diagnostic[key] for key in
+                                       ("retry_attempted", "retry_recovered", "initial_failure_reason")})
                 cash_failures += 1
 
     data["settings"]["toss_cash"] = cash
@@ -5970,11 +5982,11 @@ async def sync_toss_for_user(username: str) -> dict:
         return _unverified_holdings_response("토스증권", records)
     replace_holdings_in_scopes(data, holdings, source="toss_api", scopes=scopes)
     _mark_sync_success(data, "toss")
-    write_portfolio(data, username=username)
+    _save_account_sync(data, username)
     status = "PARTIAL_SUCCESS" if cash_failures else _holdings_success_status(records)
     message = "토스증권 보유종목이 0개로 확인되었습니다." if not holdings else f"토스증권 보유종목 {len(holdings)}개를 동기화했습니다."
     message += " 예수금 조회 실패 계좌의 기존 데이터는 유지했습니다." if cash_failures else " 예수금도 동기화했습니다."
-    return {"broker": "토스증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": not cash_failures, "cash_updated": bool(cash_successes), "data_preserved": bool(cash_failures)}
+    return {"broker": "토스증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": not cash_failures, "cash_updated": bool(cash_successes), "data_preserved": bool(cash_failures), **retry_info}
 
 
 @app.post("/api/sync/toss")
@@ -5984,12 +5996,12 @@ async def sync_toss(request: Request = None) -> dict:
 
 
 
-async def sync_namoo_for_user(username: str) -> dict:
+async def sync_namoo_for_user(username: str, *, retry_transient: bool = False) -> dict:
     client = NhPlugOpenAPI(username=username)
     if not client.configured:
         return {"broker": "NH투자증권(나무)", "status": "CONFIG_REQUIRED", "message": "나무증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
     try:
-        records = await client.sync_holdings()
+        records, retry_info = await fetch_account_holdings(client, "NH", retry_transient=retry_transient)
     except NhPlugOpenAPIError as exc:
         detail = str(exc)
         if isinstance(exc, NhPlugRateLimitError) or "IGW42903" in detail or "거래건수를 초과" in detail:
@@ -5997,7 +6009,7 @@ async def sync_namoo_for_user(username: str) -> dict:
         raise HTTPException(429 if isinstance(exc, NhPlugRateLimitError) or "IGW42903" in str(exc) else 400, detail) from exc
     if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
         return _unverified_holdings_response("NH투자증권(나무)", records)
-    data = read_portfolio(username=username)
+    data = _load_account_sync(username)
     cash_balances = data["settings"].setdefault("cash_balances", {})
 
     def resolve_namoo_account(data_accounts, acct_no, default_name):
@@ -6073,10 +6085,10 @@ async def sync_namoo_for_user(username: str) -> dict:
     replace_holdings_in_scopes(data, holdings, source="nhplug_api", scopes=scopes)
     data["settings"]["cash_balances"] = cash_balances
     _mark_sync_success(data, "nh")
-    write_portfolio(data, username=username)
+    _save_account_sync(data, username)
     status = _holdings_success_status(records)
     message = "나무증권 보유종목이 0개로 확인되어 예수금만 동기화했습니다." if not holdings else f"나무증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다."
-    return {"broker": "NH투자증권(나무)", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False}
+    return {"broker": "NH투자증권(나무)", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
 
 
 @app.post("/api/sync/namoo")
@@ -6086,19 +6098,19 @@ async def sync_namoo(request: Request = None) -> dict:
 
 
 
-async def sync_kis_for_user(username: str) -> dict:
+async def sync_kis_for_user(username: str, *, retry_transient: bool = False) -> dict:
     client = KISOpenAPI(username=username)
     if not client.configured:
         return {"broker": "한국투자증권", "status": "CONFIG_REQUIRED", "message": "한국투자증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
     if not client._parse_account_no()[0]:
         return {"broker": "한국투자증권", "status": "CONFIG_REQUIRED", "message": "한국투자증권 계좌번호(CANO 8자리 또는 8자리-상품코드 2자리)를 확인해 주세요. 기존 데이터는 유지했습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
     try:
-        records = await client.sync_holdings()
+        records, retry_info = await fetch_account_holdings(client, "KIS", retry_transient=retry_transient)
     except KISOpenAPIError as exc:
         raise HTTPException(400, str(exc)) from exc
     if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
         return _unverified_holdings_response("한국투자증권", records)
-    data = read_portfolio(username=username)
+    data = _load_account_sync(username)
     cash_balances = data["settings"].setdefault("cash_balances", {})
 
     def resolve_kis_account(data_accounts, acct_no, default_name):
@@ -6175,10 +6187,10 @@ async def sync_kis_for_user(username: str) -> dict:
     replace_holdings_in_scopes(data, holdings, source="kis_api", scopes=scopes)
     data["settings"]["cash_balances"] = cash_balances
     _mark_sync_success(data, "kis")
-    write_portfolio(data, username=username)
+    _save_account_sync(data, username)
     status = _holdings_success_status(records)
     message = "한국투자증권 보유종목이 0개로 확인되어 예수금만 동기화했습니다." if not holdings else f"한국투자증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다."
-    return {"broker": "한국투자증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False}
+    return {"broker": "한국투자증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
 
 
 @app.post("/api/sync/kis")
@@ -6188,17 +6200,17 @@ async def sync_kis(request: Request = None) -> dict:
 
 
 
-async def sync_kiwoom_for_user(username: str) -> dict:
+async def sync_kiwoom_for_user(username: str, *, retry_transient: bool = False) -> dict:
     client = KiwoomOpenAPI(username=username)
     if not client.configured:
         return {"broker": "키움증권", "status": "CONFIG_REQUIRED", "message": "키움증권 OpenAPI 키가 설정되지 않았습니다.", "count": 0, "holdings_valid": False, "cash_valid": False, "data_preserved": True}
     try:
-        records = await client.sync_holdings()
+        records, retry_info = await fetch_account_holdings(client, "KIWOOM", retry_transient=retry_transient)
     except KiwoomOpenAPIError as exc:
         raise HTTPException(400, str(exc)) from exc
     if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
         return _unverified_holdings_response("키움증권", records)
-    data = read_portfolio(username=username)
+    data = _load_account_sync(username)
     cash_balances = data["settings"].setdefault("cash_balances", {})
 
     def resolve_kiwoom_account(data_accounts, acct_no, default_name):
@@ -6275,10 +6287,10 @@ async def sync_kiwoom_for_user(username: str) -> dict:
     replace_holdings_in_scopes(data, holdings, source="kiwoom_api", scopes=scopes)
     data["settings"]["cash_balances"] = cash_balances
     _mark_sync_success(data, "kiwoom")
-    write_portfolio(data, username=username)
+    _save_account_sync(data, username)
     status = _holdings_success_status(records)
     message = "키움증권 국내 보유종목이 0개로 확인되어 KRW 예수금만 동기화했습니다." if not holdings else f"키움증권 국내 보유종목 {len(holdings)}개 및 KRW 예수금을 동기화했습니다."
-    return {"broker": "키움증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False}
+    return {"broker": "키움증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
 
 
 @app.post("/api/sync/kiwoom")
@@ -6394,7 +6406,11 @@ async def stock_search(q: str = "") -> dict:
     return await async_search_stock_by_name(q)
 
 
-async def sync_all_accounts_for_user(username: str, *, retry_kb_transient: bool = False) -> dict:
+async def sync_all_accounts_for_user(
+    username: str, *, retry_kb_transient: bool = False,
+    retry_account_transient: bool = False, provider_observer=None, sync_clock=None,
+) -> dict:
+    sync_clock = sync_clock or (lambda: datetime.now().astimezone())
     if is_test_mode():
         brokers = [
             {"broker": label, "status": "TEST_MODE", "count": 0,
@@ -6423,12 +6439,15 @@ async def sync_all_accounts_for_user(username: str, *, retry_kb_transient: bool 
             ("키움증권", KiwoomOpenAPI(username=username), "sync_kiwoom", sync_kiwoom_for_user),
         ]
         for label, client, route_name, user_fn in jobs:
+            started_at = sync_clock() if provider_observer else None
             if not client.configured:
                 broker_results.append({
                     "broker": label, "status": "CONFIG_REQUIRED", "count": 0,
                     "holdings_valid": False, "cash_valid": False, "data_preserved": True,
                     "message": "OpenAPI 연결 정보가 필요합니다. 기존 데이터는 유지했습니다.",
                 })
+                if provider_observer:
+                    provider_observer(broker_results[-1], started_at, sync_clock())
                 continue
             try:
                 route_attr = globals().get(route_name)
@@ -6438,21 +6457,25 @@ async def sync_all_accounts_for_user(username: str, *, retry_kb_transient: bool 
                     except TypeError:
                         broker_results.append(await route_attr())
                 else:
-                    if label == "KB증권" and retry_kb_transient:
+                    if retry_account_transient or (label == "KB증권" and retry_kb_transient):
                         broker_results.append(await user_fn(username=username, retry_transient=True))
                     else:
                         broker_results.append(await user_fn(username=username))
             except Exception as exc:
-                diagnostic = getattr(exc, "kb_sync_diagnostic", {}) if label == "KB증권" else {}
+                diagnostic = get_failure_diagnostic(exc) or (getattr(exc, "kb_sync_diagnostic", {}) if label == "KB증권" else {})
                 status = diagnostic.get("status") or _sync_error_status(exc)
                 # KB diagnostics are allowlisted categories, never raw provider bodies/credentials.
-                message = diagnostic.get("failure_reason", "KB_SYNC_FAILED") if label == "KB증권" else _mask_sync_error(exc, client)
+                message = (diagnostic.get("failure_reason", "KB_SYNC_FAILED") if diagnostic or label == "KB증권"
+                           else "ACCOUNT_SYNC_PERSISTENCE_FAILED" if isinstance(exc, AccountSyncPersistenceError)
+                           else _mask_sync_error(exc, client))
                 broker_results.append({
                     "broker": label, "status": status, "count": 0,
                     "holdings_valid": False, "cash_valid": False, "data_preserved": True,
                     "message": f"{message} 기존 데이터는 유지했습니다.",
                     **diagnostic,
                 })
+            if provider_observer:
+                provider_observer(broker_results[-1], started_at, sync_clock())
     finally:
         _syncing_users.discard(username)
 

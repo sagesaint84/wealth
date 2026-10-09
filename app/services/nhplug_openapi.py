@@ -38,6 +38,7 @@ class NhPlugRateLimitError(NhPlugOpenAPIError):
     """NH provider rejected a read request because its shared quota is exhausted."""
 
     def __init__(self, code: str = "", retry_after: float | None = None) -> None:
+        self.status_code = 429
         self.provider_code = code
         self.retry_after = retry_after
         suffix = f" ({code})" if code else ""
@@ -175,7 +176,9 @@ class NhPlugOpenAPI:
                 detail = response.json()
             except ValueError:
                 detail = response.text
-            raise NhPlugOpenAPIError(f"나무증권 OpenAPI 요청 실패 ({response.status_code}): {detail}")
+            error = NhPlugOpenAPIError(f"나무증권 OpenAPI 요청 실패 ({response.status_code}): {detail}")
+            error.status_code = response.status_code
+            raise error
 
     @staticmethod
     def _rate_limit_details(response: httpx.Response) -> tuple[bool, str, float | None]:
