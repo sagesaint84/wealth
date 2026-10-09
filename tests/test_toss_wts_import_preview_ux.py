@@ -21,7 +21,8 @@ def test_toss_wts_realized_destination_dropdown_only_lists_toss_accounts() -> No
     assert ".filter(account => {" in block
     assert "broker.includes('토스') || broker.includes('toss')" in block
     assert "토스증권 계좌를 선택하세요" in block
-    assert "accounts.length === 1" in block
+    assert "accounts.length === 1" not in block
+    assert "restoreImportSelection(select, 'toss_wts_realized', accounts)" in block
     assert "accounts.some" in block
 
 
