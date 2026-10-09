@@ -328,10 +328,10 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-asset-kpi > div > span { color:var(--muted); font-size:10px; margin-bottom:3px; }
 .wealth-asset-kpi strong { font-size:17px; line-height:1.35; font-variant-numeric:tabular-nums; margin-bottom:4px; }
 .wealth-asset-kpi small { color:var(--muted); font-size:10.5px; line-height:1.55; font-variant-numeric:tabular-nums; }
-.wealth-asset-kpi > div { width:fit-content; max-width:100%; }
-.wealth-asset-secondary-row { display:grid !important; grid-template-columns:max-content max-content; gap:12px; align-items:baseline; min-height:20px; }
-.wealth-asset-secondary-row em { color:var(--muted); font-style:normal; font-size:10.5px; white-space:nowrap; }
-.wealth-asset-secondary-row small { text-align:right; white-space:nowrap; }
+.wealth-asset-kpi > div { width:100%; min-width:0; max-width:100%; }
+.wealth-asset-secondary-row { display:grid !important; grid-template-columns:minmax(0,1fr) fit-content(70%); gap:12px; align-items:baseline; min-height:20px; text-align:right; }
+.wealth-asset-secondary-row em { color:var(--muted); font-style:normal; font-size:10.5px; white-space:normal; overflow-wrap:anywhere; }
+.wealth-asset-secondary-row small { min-width:0; text-align:right; white-space:normal; overflow-wrap:anywhere; }
 .wealth-asset-secondary-row .is-positive, .wealth-asset-kpi strong.is-positive { color: var(--red, #ef4444); }
 .wealth-asset-secondary-row .is-negative, .wealth-asset-kpi strong.is-negative { color: #3b82f6; }
 .wealth-asset-secondary-row.is-debt em, .wealth-asset-secondary-row.is-debt small { color: #d6a85f; }
