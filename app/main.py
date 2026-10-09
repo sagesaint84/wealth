@@ -50,6 +50,7 @@ from app.services.web_finance import (
     get_web_dividend_summary,
 )
 fetch_market_overview = get_web_market_overview
+from app.services.financial_json import FinancialStorageError, financial_user_locks
 from app.services.portfolio import (
     clear_portfolio, get_dashboard, get_or_add_account, import_rows, normalize_holding,
     read_portfolio, seed_demo, upsert_holdings, write_portfolio, to_number, migrate_add_family_group,
@@ -276,7 +277,7 @@ def _mask_sync_error(error: Exception, client: object | None = None) -> str:
 
 
 def _sync_error_status(error: Exception) -> str:
-    if isinstance(error, AccountSyncPersistenceError):
+    if isinstance(error, (AccountSyncPersistenceError, FinancialStorageError)):
         return "PERSISTENCE_ERROR"
     text = str(error.detail if isinstance(error, HTTPException) else error)
     if any(marker in text for marker in ("응답 형식", "올바른 JSON", "항목 형식", "연속조회")):
@@ -2982,10 +2983,11 @@ async def clear_realized_pnl_endpoint(
 async def clear_holdings_endpoint(request: Request) -> dict:
     """Clear all portfolio holdings."""
     username = get_current_username(request)
-    data = read_portfolio(username=username)
-    data["holdings"] = []
-    write_portfolio(data, username=username)
-    return {"message": "모든 보유종목이 삭제되었습니다."}
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        data["holdings"] = []
+        write_portfolio(data, username=username)
+        return {"message": "모든 보유종목이 삭제되었습니다."}
 
 
 @app.post("/api/import-realized-pnl")
@@ -3383,73 +3385,74 @@ async def toss_wts_realized_feed_import(request: Request) -> JSONResponse:
     if profit_rate_basis not in ("KRW", "USD"):
         profit_rate_basis = "KRW"
 
-    fresh_existing = read_pnl_records(username=username)
-    classification = preview_toss_wts_realized_selection(
-        selected_items=selected_items,
-        destination_account=destination_account,
-        existing_records=fresh_existing,
-        user_id=str(user_id),
-        current_generation_id=gen_id,
-        profit_rate_basis=profit_rate_basis,
-    )
-    classification = _apply_broker_import_preferences(classification, selected_items)
+    with financial_user_locks(username, 'realized_pnl_records.json'):
+        fresh_existing = read_pnl_records(username=username)
+        classification = preview_toss_wts_realized_selection(
+            selected_items=selected_items,
+            destination_account=destination_account,
+            existing_records=fresh_existing,
+            user_id=str(user_id),
+            current_generation_id=gen_id,
+            profit_rate_basis=profit_rate_basis,
+        )
+        classification = _apply_broker_import_preferences(classification, selected_items)
 
-    imported_count = 0
-    already_imported_count = 0
-    possible_duplicate_skipped = 0
-    invalid_count = 0
-    imported_ids: list[str] = []
-    now_iso = datetime.now().astimezone().isoformat()
+        imported_count = 0
+        already_imported_count = 0
+        possible_duplicate_skipped = 0
+        invalid_count = 0
+        imported_ids: list[str] = []
+        now_iso = datetime.now().astimezone().isoformat()
 
-    for item in classification["items"]:
-        status = item["status"]
-        if status == "ALREADY_IMPORTED":
-            already_imported_count += 1
-            continue
-        if status == "INVALID":
-            invalid_count += 1
-            continue
-        if status == "POSSIBLE_DUPLICATE":
-            if not include_possible_duplicates:
-                possible_duplicate_skipped += 1
+        for item in classification["items"]:
+            status = item["status"]
+            if status == "ALREADY_IMPORTED":
+                already_imported_count += 1
+                continue
+            if status == "INVALID":
+                invalid_count += 1
+                continue
+            if status == "POSSIBLE_DUPLICATE":
+                if not include_possible_duplicates:
+                    possible_duplicate_skipped += 1
+                    continue
+
+            candidate = item.get("candidate")
+            if not candidate:
+                invalid_count += 1
                 continue
 
-        candidate = item.get("candidate")
-        if not candidate:
-            invalid_count += 1
-            continue
+            candidate_payload = dict(candidate)
+            candidate_payload["source"] = "toss_wts"
+            candidate_payload["source_fingerprint"] = item["fingerprint"]
+            candidate_payload["source_scope_verified"] = False
+            candidate_payload["imported_by_user_action"] = True
+            candidate_payload["imported_at"] = now_iso
 
-        candidate_payload = dict(candidate)
-        candidate_payload["source"] = "toss_wts"
-        candidate_payload["source_fingerprint"] = item["fingerprint"]
-        candidate_payload["source_scope_verified"] = False
-        candidate_payload["imported_by_user_action"] = True
-        candidate_payload["imported_at"] = now_iso
+            created = create_pnl_record(candidate_payload, username=username)
+            imported_ids.append(created["id"])
+            imported_count += 1
 
-        created = create_pnl_record(candidate_payload, username=username)
-        imported_ids.append(created["id"])
-        imported_count += 1
-
-    return JSONResponse(
-        status_code=200,
-        content={
-            "selected": len(selected_items),
-            "imported": imported_count,
-            "already_imported": already_imported_count,
-            "possible_duplicate_skipped": possible_duplicate_skipped,
-            "invalid": invalid_count,
-            "imported_ids": imported_ids,
-            "scope_kind": "unverified",
-            "scope_verified": False,
-            "destination_account": {
-                "id": destination_account.get("id"),
-                "broker": destination_account.get("broker"),
-                "account_name": destination_account.get("account_name") or destination_account.get("name"),
-                "owner": destination_account.get("owner"),
+        return JSONResponse(
+            status_code=200,
+            content={
+                "selected": len(selected_items),
+                "imported": imported_count,
+                "already_imported": already_imported_count,
+                "possible_duplicate_skipped": possible_duplicate_skipped,
+                "invalid": invalid_count,
+                "imported_ids": imported_ids,
+                "scope_kind": "unverified",
+                "scope_verified": False,
+                "destination_account": {
+                    "id": destination_account.get("id"),
+                    "broker": destination_account.get("broker"),
+                    "account_name": destination_account.get("account_name") or destination_account.get("name"),
+                    "owner": destination_account.get("owner"),
+                },
             },
-        },
-        headers={"Cache-Control": "no-store"},
-    )
+            headers={"Cache-Control": "no-store"},
+        )
 
 
 
@@ -3591,7 +3594,7 @@ async def toss_wts_income_feed_import(request: Request) -> JSONResponse:
     if not valid:
         raise HTTPException(status_code=400, detail={"code": error or "PREVIEW_TICKET_INVALID"}, headers={"Cache-Control": "no-store"})
     include_possible = bool(body.get("include_possible_duplicates", False))
-    with _TOSS_WTS_INCOME_IMPORT_LOCK:
+    with _TOSS_WTS_INCOME_IMPORT_LOCK, financial_user_locks(username, 'dividend_records.json'):
         try:
             fresh_existing = read_dividend_records_for_import(username=username)
         except DividendRecordsStorageError as exc:
@@ -3962,86 +3965,87 @@ async def kis_realized_feed_import(request: Request) -> JSONResponse:
             str(destination_account["id"]),
         )
 
-    fresh_existing = read_pnl_records(username=username)
-    classification = preview_kis_realized_selection(
-        selected_items=selected_items,
-        destination_account=destination_account,
-        existing_records=fresh_existing,
-        user_id=str(user_id),
-        source_account_key=source_account_key,
-        source_account_label=masked_account,
-        market=market,
-    )
-    classification = _apply_broker_import_preferences(classification, selected_items)
+    with _KIS_IMPORT_LOCK, financial_user_locks(username, 'realized_pnl_records.json'):
+        fresh_existing = read_pnl_records(username=username)
+        classification = preview_kis_realized_selection(
+            selected_items=selected_items,
+            destination_account=destination_account,
+            existing_records=fresh_existing,
+            user_id=str(user_id),
+            source_account_key=source_account_key,
+            source_account_label=masked_account,
+            market=market,
+        )
+        classification = _apply_broker_import_preferences(classification, selected_items)
 
-    imported_count = 0
-    already_imported_count = 0
-    possible_duplicate_skipped = 0
-    invalid_count = 0
-    imported_ids: list[str] = []
-    now_iso = datetime.now().astimezone().isoformat()
+        imported_count = 0
+        already_imported_count = 0
+        possible_duplicate_skipped = 0
+        invalid_count = 0
+        imported_ids: list[str] = []
+        now_iso = datetime.now().astimezone().isoformat()
 
-    for item in classification["items"]:
-        status = item["status"]
-        if status == "ALREADY_IMPORTED":
-            already_imported_count += 1
-            continue
-        if status == "INVALID":
-            invalid_count += 1
-            continue
-        if status == "POSSIBLE_DUPLICATE":
-            if not include_possible_duplicates:
-                possible_duplicate_skipped += 1
+        for item in classification["items"]:
+            status = item["status"]
+            if status == "ALREADY_IMPORTED":
+                already_imported_count += 1
+                continue
+            if status == "INVALID":
+                invalid_count += 1
+                continue
+            if status == "POSSIBLE_DUPLICATE":
+                if not include_possible_duplicates:
+                    possible_duplicate_skipped += 1
+                    continue
+
+            candidate = item.get("candidate")
+            if not candidate:
+                invalid_count += 1
                 continue
 
-        candidate = item.get("candidate")
-        if not candidate:
-            invalid_count += 1
-            continue
+            candidate_payload = dict(candidate)
+            candidate_payload["source"] = "kis"
+            candidate_payload["source_fingerprint"] = item["fingerprint"]
+            candidate_payload["source_account_key"] = source_account_key
+            candidate_payload["source_account_label"] = masked_account
+            candidate_payload["source_account_scope"] = f"kis:{source_account_key}"
+            candidate_payload["source_scope_verified"] = True
+            candidate_payload["account_id"] = str(destination_account["id"])
+            candidate_payload["destination_account_id"] = str(destination_account["id"])
+            candidate_payload["imported_by_user_action"] = True
+            candidate_payload["imported_at"] = now_iso
 
-        candidate_payload = dict(candidate)
-        candidate_payload["source"] = "kis"
-        candidate_payload["source_fingerprint"] = item["fingerprint"]
-        candidate_payload["source_account_key"] = source_account_key
-        candidate_payload["source_account_label"] = masked_account
-        candidate_payload["source_account_scope"] = f"kis:{source_account_key}"
-        candidate_payload["source_scope_verified"] = True
-        candidate_payload["account_id"] = str(destination_account["id"])
-        candidate_payload["destination_account_id"] = str(destination_account["id"])
-        candidate_payload["imported_by_user_action"] = True
-        candidate_payload["imported_at"] = now_iso
+            created = create_pnl_record(candidate_payload, username=username)
+            imported_ids.append(created["id"])
+            imported_count += 1
 
-        created = create_pnl_record(candidate_payload, username=username)
-        imported_ids.append(created["id"])
-        imported_count += 1
+        # Do not silently remap a verified KIS source to another Wealth account.
+        if source_account_key and destination_account.get("id"):
+            with _KIS_IMPORT_LOCK:
+                _write_kis_mapping(username, source_account_key, str(destination_account["id"]))
 
-    # Do not silently remap a verified KIS source to another Wealth account.
-    if source_account_key and destination_account.get("id"):
-        with _KIS_IMPORT_LOCK:
-            _write_kis_mapping(username, source_account_key, str(destination_account["id"]))
-
-    return JSONResponse(
-        status_code=200,
-        content={
-            "selected": len(selected_items),
-            "imported": imported_count,
-            "already_imported": already_imported_count,
-            "possible_duplicate_skipped": possible_duplicate_skipped,
-            "invalid": invalid_count,
-            "imported_ids": imported_ids,
-            "scope_kind": "verified",
-            "scope_verified": True,
-            "source_account_key": source_account_key,
-            "source_account_label": masked_account,
-            "destination_account": {
-                "id": destination_account.get("id"),
-                "broker": destination_account.get("broker") or "한국투자증권",
-                "account_name": destination_account.get("account_name") or destination_account.get("name"),
-                "owner": destination_account.get("owner"),
+        return JSONResponse(
+            status_code=200,
+            content={
+                "selected": len(selected_items),
+                "imported": imported_count,
+                "already_imported": already_imported_count,
+                "possible_duplicate_skipped": possible_duplicate_skipped,
+                "invalid": invalid_count,
+                "imported_ids": imported_ids,
+                "scope_kind": "verified",
+                "scope_verified": True,
+                "source_account_key": source_account_key,
+                "source_account_label": masked_account,
+                "destination_account": {
+                    "id": destination_account.get("id"),
+                    "broker": destination_account.get("broker") or "한국투자증권",
+                    "account_name": destination_account.get("account_name") or destination_account.get("name"),
+                    "owner": destination_account.get("owner"),
+                },
             },
-        },
-        headers={"Cache-Control": "no-store"},
-    )
+            headers={"Cache-Control": "no-store"},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -4224,7 +4228,7 @@ async def nh_realized_feed_import(request: Request) -> JSONResponse:
     destination=_nh_destination(username,body.get("account_id"),key,act_no)
     valid,error=verify_nh_import_preview_ticket(str(body.get("preview_ticket") or ""),account_id=str(destination["id"]),items_hash=_broker_import_items_hash(compute_nh_items_hash(selected),selected),user_id=str(user_id),source_account_key=key,market=market)
     if not valid: raise HTTPException(status_code=400,detail={"code":error or "PREVIEW_TICKET_INVALID","message":"NH preview verification failed"})
-    with _NH_IMPORT_LOCK:
+    with _NH_IMPORT_LOCK, financial_user_locks(username, 'realized_pnl_records.json'):
         destination_id=str(destination["id"])
         mapping_exists=_assert_nh_mapping_compatible(username,key,destination_id)
         current=_read_nh_pnl_records_strict(username)
@@ -4507,7 +4511,7 @@ async def kb_realized_feed_import(request: Request) -> JSONResponse:
             status_code=400,
             detail={"code": error or "PREVIEW_TICKET_INVALID", "message": "KB preview verification failed"},
         )
-    with _KB_IMPORT_LOCK:
+    with _KB_IMPORT_LOCK, financial_user_locks(username, 'realized_pnl_records.json'):
         destination_id = str(destination["id"])
         mapping_exists = _assert_kb_mapping_compatible(username, source_key, destination_id)
         current = _read_kb_pnl_records_strict(username)
@@ -4829,7 +4833,7 @@ async def kiwoom_realized_feed_import(request: Request) -> JSONResponse:
             status_code=400,
             detail={"code": error or "PREVIEW_TICKET_INVALID", "message": "Kiwoom preview verification failed"},
         )
-    with _KIWOOM_IMPORT_LOCK:
+    with _KIWOOM_IMPORT_LOCK, financial_user_locks(username, 'realized_pnl_records.json'):
         destination_id = str(destination["id"])
         mapping_exists = _assert_kiwoom_mapping_compatible(username, source_key, destination_id)
         current = _read_kiwoom_pnl_records_strict(username)
@@ -4962,74 +4966,75 @@ async def create_account(request: Request) -> dict:
     owner = (body.get("owner") or "모두").strip()
     if not broker or not account_name:
         raise HTTPException(status_code=400, detail="증권사와 계좌 이름은 필수입니다.")
-    data = read_portfolio(username=username)
-    if owner not in set(get_family_members(data)):
-        raise HTTPException(status_code=400, detail="등록된 가족 구성원만 소유자로 선택할 수 있습니다.")
-    account_no = str(body.get("account_no") or "").strip()
-    if account_no:
-        duplicate = next((account for account in data["accounts"] if canonical_broker_account_identity(account.get("broker")) == canonical_broker_account_identity(broker) and normalize_broker_account_no(account.get("account_no")) == normalize_broker_account_no(account_no)), None)
-        if duplicate:
-            code = "ACCOUNT_NUMBER_OWNER_CONFLICT" if str(duplicate.get("owner") or "모두") != owner else "ACCOUNT_ALREADY_EXISTS"
-            raise HTTPException(status_code=409, detail={"code": code, "message": "같은 증권사와 계좌번호의 계좌가 이미 등록되어 있습니다."})
-    acc_type = (body.get("account_type") or "general").strip()
-    income_lvl = (body.get("income_level") or "low").strip()
-    annual_dep = max(0.0, float(body.get("annual_deposit") or 0.0))
-    isa_tr = max(0.0, float(body.get("isa_transfer_amount") or 0.0))
-    isa_year = str(body.get("isa_transfer_year") or "2026").strip()
-    def _parse_bool(val: Any, default: bool = True) -> bool:
-        if val is None:
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        if owner not in set(get_family_members(data)):
+            raise HTTPException(status_code=400, detail="등록된 가족 구성원만 소유자로 선택할 수 있습니다.")
+        account_no = str(body.get("account_no") or "").strip()
+        if account_no:
+            duplicate = next((account for account in data["accounts"] if canonical_broker_account_identity(account.get("broker")) == canonical_broker_account_identity(broker) and normalize_broker_account_no(account.get("account_no")) == normalize_broker_account_no(account_no)), None)
+            if duplicate:
+                code = "ACCOUNT_NUMBER_OWNER_CONFLICT" if str(duplicate.get("owner") or "모두") != owner else "ACCOUNT_ALREADY_EXISTS"
+                raise HTTPException(status_code=409, detail={"code": code, "message": "같은 증권사와 계좌번호의 계좌가 이미 등록되어 있습니다."})
+        acc_type = (body.get("account_type") or "general").strip()
+        income_lvl = (body.get("income_level") or "low").strip()
+        annual_dep = max(0.0, float(body.get("annual_deposit") or 0.0))
+        isa_tr = max(0.0, float(body.get("isa_transfer_amount") or 0.0))
+        isa_year = str(body.get("isa_transfer_year") or "2026").strip()
+        def _parse_bool(val: Any, default: bool = True) -> bool:
+            if val is None:
+                return default
+            if isinstance(val, bool):
+                return val
+            if isinstance(val, (int, float)):
+                return bool(val)
+            if isinstance(val, str):
+                s = val.strip().lower()
+                if s in ("false", "0", "no", "off", "non_deductible"):
+                    return False
+                if s in ("true", "1", "yes", "on", "deductible"):
+                    return True
             return default
-        if isinstance(val, bool):
-            return val
-        if isinstance(val, (int, float)):
-            return bool(val)
-        if isinstance(val, str):
-            s = val.strip().lower()
-            if s in ("false", "0", "no", "off", "non_deductible"):
-                return False
-            if s in ("true", "1", "yes", "on", "deductible"):
-                return True
-        return default
 
-    tax_deductible = _parse_bool(body.get("tax_deductible"), True)
+        tax_deductible = _parse_bool(body.get("tax_deductible"), True)
 
-    new_account = {
-        "id": str(uuid.uuid4()),
-        "broker": broker,
-        "name": account_name,
-        "owner": owner,
-        "account_type": acc_type,
-        "tax_deductible": tax_deductible,
-        "income_level": income_lvl,
-        "annual_deposit": annual_dep,
-        "isa_transfer_amount": isa_tr,
-        "isa_transfer_year": isa_year,
-        "family_group": "All",
-        "market_value_krw": 0,
-        "stock_value_krw": 0,
-        "cash_krw": 0,
-        "cash_usd": 0,
-        "cash_total_krw": 0,
-        "profit_krw": 0,
-        "holding_count": 0,
-        "account_no": account_no,
-    }
-    cash_krw = float(to_number(body.get("cash_krw", 0.0)))
-    cash_usd = float(to_number(body.get("cash_usd", 0.0)))
-    if cash_krw > 0 or cash_usd > 0:
-        cash_balances = data["settings"].setdefault("cash_balances", {})
-        cash_balances[new_account["id"]] = {"KRW": cash_krw, "USD": cash_usd}
-        usd_rate = float(data.get("settings", {}).get("usd_krw_rate", 1400.0))
-        cash_total_krw = cash_krw + (cash_usd * usd_rate)
-        new_account["cash_krw"] = cash_krw
-        new_account["cash_usd"] = cash_usd
-        new_account["cash_total_krw"] = cash_total_krw
-        new_account["market_value_krw"] = cash_total_krw
-    if "yearly_contributions" in body:
-        new_account["yearly_contributions"] = body.get("yearly_contributions") or []
-    data.setdefault("accounts", []).append(new_account)
-    write_portfolio(data, username=username)
-    return {"message": f"계좌 '{broker} - {account_name}'이(가) 추가되었습니다.", **new_account}
+        new_account = {
+            "id": str(uuid.uuid4()),
+            "broker": broker,
+            "name": account_name,
+            "owner": owner,
+            "account_type": acc_type,
+            "tax_deductible": tax_deductible,
+            "income_level": income_lvl,
+            "annual_deposit": annual_dep,
+            "isa_transfer_amount": isa_tr,
+            "isa_transfer_year": isa_year,
+            "family_group": "All",
+            "market_value_krw": 0,
+            "stock_value_krw": 0,
+            "cash_krw": 0,
+            "cash_usd": 0,
+            "cash_total_krw": 0,
+            "profit_krw": 0,
+            "holding_count": 0,
+            "account_no": account_no,
+        }
+        cash_krw = float(to_number(body.get("cash_krw", 0.0)))
+        cash_usd = float(to_number(body.get("cash_usd", 0.0)))
+        if cash_krw > 0 or cash_usd > 0:
+            cash_balances = data["settings"].setdefault("cash_balances", {})
+            cash_balances[new_account["id"]] = {"KRW": cash_krw, "USD": cash_usd}
+            usd_rate = float(data.get("settings", {}).get("usd_krw_rate", 1400.0))
+            cash_total_krw = cash_krw + (cash_usd * usd_rate)
+            new_account["cash_krw"] = cash_krw
+            new_account["cash_usd"] = cash_usd
+            new_account["cash_total_krw"] = cash_total_krw
+            new_account["market_value_krw"] = cash_total_krw
+        if "yearly_contributions" in body:
+            new_account["yearly_contributions"] = body.get("yearly_contributions") or []
+        data.setdefault("accounts", []).append(new_account)
+        write_portfolio(data, username=username)
+        return {"message": f"계좌 '{broker} - {account_name}'이(가) 추가되었습니다.", **new_account}
 
 
 # ---------------------------------------------------------------------------
@@ -5185,67 +5190,68 @@ async def sell_real_estate_and_record_pnl(request: Request, re_id: str) -> dict:
     from app.services.pnl_records import create_pnl_record
     from app.services.real_estate import delete_real_estate
 
-    pf = read_portfolio(username)
-    re_list = pf.get("real_estates", [])
-    target = next((r for r in re_list if r.get("id") == re_id), None)
+    with financial_user_locks(username, 'portfolio.json', 'realized_pnl_records.json'):
+        pf = read_portfolio(username)
+        re_list = pf.get("real_estates", [])
+        target = next((r for r in re_list if r.get("id") == re_id), None)
     
-    is_direct = re_id in ("direct", "new") or not target
-    if not target and not is_direct:
-        raise HTTPException(404, "해당 부동산 항목을 찾을 수 없습니다.")
+        is_direct = re_id in ("direct", "new") or not target
+        if not target and not is_direct:
+            raise HTTPException(404, "해당 부동산 항목을 찾을 수 없습니다.")
 
-    sell_price = float(body.get("sell_price") or 0.0)
-    expenses = float(body.get("expenses") or 0.0)
-    sell_date = str(body.get("sell_date") or datetime.now().strftime("%Y-%m-%d")).strip()
-    purchase_price = float(body.get("purchase_price") or (target.get("purchase_price") if target else 0.0) or 0.0)
-    pnl_krw = round(sell_price - purchase_price - expenses)
+        sell_price = float(body.get("sell_price") or 0.0)
+        expenses = float(body.get("expenses") or 0.0)
+        sell_date = str(body.get("sell_date") or datetime.now().strftime("%Y-%m-%d")).strip()
+        purchase_price = float(body.get("purchase_price") or (target.get("purchase_price") if target else 0.0) or 0.0)
+        pnl_krw = round(sell_price - purchase_price - expenses)
 
-    re_name = str(body.get("name") or (target.get("name") if target else "부동산") or "부동산").strip()
-    pnl_title = f"[부동산] {re_name}"
-    owner = str(body.get("owner") or (target.get("owner") if target else "모두") or "모두").strip()
-    memo = str(body.get("memo") or f"매도가 ₩{sell_price:,.0f}, 매수가 ₩{purchase_price:,.0f}, 필요경비 ₩{expenses:,.0f}").strip()
+        re_name = str(body.get("name") or (target.get("name") if target else "부동산") or "부동산").strip()
+        pnl_title = f"[부동산] {re_name}"
+        owner = str(body.get("owner") or (target.get("owner") if target else "모두") or "모두").strip()
+        memo = str(body.get("memo") or f"매도가 ₩{sell_price:,.0f}, 매수가 ₩{purchase_price:,.0f}, 필요경비 ₩{expenses:,.0f}").strip()
 
-    address = str(target.get("address", "") if target else body.get("address", "")).strip()
-    original_property_type = str(target.get("property_type", "own") if target else body.get("property_type", "own")).strip()
-    exclusive_area = float(target.get("exclusive_area") or body.get("exclusive_area") or 0.0) if target else float(body.get("exclusive_area") or 0.0)
-    acquisition_date = str(target.get("contract_date", "") if target else body.get("acquisition_date", "")).strip()
-    is_joint = bool(target.get("is_joint_ownership", False) if target else body.get("is_joint_ownership", False))
-    ownerships = target.get("ownerships", []) if target else body.get("ownerships", [])
+        address = str(target.get("address", "") if target else body.get("address", "")).strip()
+        original_property_type = str(target.get("property_type", "own") if target else body.get("property_type", "own")).strip()
+        exclusive_area = float(target.get("exclusive_area") or body.get("exclusive_area") or 0.0) if target else float(body.get("exclusive_area") or 0.0)
+        acquisition_date = str(target.get("contract_date", "") if target else body.get("acquisition_date", "")).strip()
+        is_joint = bool(target.get("is_joint_ownership", False) if target else body.get("is_joint_ownership", False))
+        ownerships = target.get("ownerships", []) if target else body.get("ownerships", [])
 
-    pnl_payload = {
-        "date": sell_date,
-        "code": "REAL_ESTATE",
-        "name": pnl_title,
-        "asset_type": "real_estate",
-        "currency": "KRW",
-        "pnl": pnl_krw,
-        "pnl_krw": pnl_krw,
-        "owner": owner,
-        "memo": memo,
-        "re_id": re_id if not is_direct else "",
-        "real_estate_name": re_name,
-        "purchase_price": purchase_price,
-        "sell_price": sell_price,
-        "expenses": expenses,
-        "address": address,
-        "original_property_type": original_property_type,
-        "exclusive_area": exclusive_area,
-        "acquisition_date": acquisition_date,
-        "is_joint_ownership": is_joint,
-        "ownerships": ownerships,
-    }
-    pnl_rec = create_pnl_record(pnl_payload, username=username)
+        pnl_payload = {
+            "date": sell_date,
+            "code": "REAL_ESTATE",
+            "name": pnl_title,
+            "asset_type": "real_estate",
+            "currency": "KRW",
+            "pnl": pnl_krw,
+            "pnl_krw": pnl_krw,
+            "owner": owner,
+            "memo": memo,
+            "re_id": re_id if not is_direct else "",
+            "real_estate_name": re_name,
+            "purchase_price": purchase_price,
+            "sell_price": sell_price,
+            "expenses": expenses,
+            "address": address,
+            "original_property_type": original_property_type,
+            "exclusive_area": exclusive_area,
+            "acquisition_date": acquisition_date,
+            "is_joint_ownership": is_joint,
+            "ownerships": ownerships,
+        }
+        pnl_rec = create_pnl_record(pnl_payload, username=username)
 
-    removed = False
-    if target and body.get("remove_from_assets", True):
-        delete_real_estate(re_id, username=username)
-        removed = True
+        removed = False
+        if target and body.get("remove_from_assets", True):
+            delete_real_estate(re_id, username=username)
+            removed = True
 
-    return {
-        "message": f"[{re_name}] 매각 실현손익(₩{pnl_krw:,.0f})이 성공적으로 기록되었습니다.",
-        "pnl_krw": pnl_krw,
-        "pnl_record": pnl_rec,
-        "removed_from_assets": removed,
-    }
+        return {
+            "message": f"[{re_name}] 매각 실현손익(₩{pnl_krw:,.0f})이 성공적으로 기록되었습니다.",
+            "pnl_krw": pnl_krw,
+            "pnl_record": pnl_rec,
+            "removed_from_assets": removed,
+        }
 
 
 @app.get("/api/real-estates/kb-price")
@@ -5290,49 +5296,50 @@ async def get_kb_price_api(
 @app.post("/api/real-estates/{re_id}/refresh-kb-price")
 async def refresh_kb_price_api(request: Request, re_id: str) -> dict:
     username = get_current_username(request)
-    data = read_portfolio(username)
-    real_estates = data.get("real_estates", [])
-    item = next((r for r in real_estates if r.get("id") == re_id), None)
-    if not item:
-        raise HTTPException(404, "부동산 항목을 찾을 수 없습니다.")
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username)
+        real_estates = data.get("real_estates", [])
+        item = next((r for r in real_estates if r.get("id") == re_id), None)
+        if not item:
+            raise HTTPException(404, "부동산 항목을 찾을 수 없습니다.")
 
-    import re
-    from datetime import datetime
-    from app.services.kb_land import search_kb_complex, get_kb_market_prices
-    from app.services.portfolio import write_portfolio
+        import re
+        from datetime import datetime
+        from app.services.kb_land import search_kb_complex, get_kb_market_prices
+        from app.services.portfolio import write_portfolio
 
-    c_no = (item.get("kb_complex_no") or "").strip()
-    if not c_no:
-        clean_name = re.sub(r'\s*\d+[-~_동호].*$', '', item.get("name") or "").strip()
-        complexes = search_kb_complex(clean_name or item.get("name") or "")
-        if complexes:
-            c_no = complexes[0]["complex_no"]
+        c_no = (item.get("kb_complex_no") or "").strip()
+        if not c_no:
+            clean_name = re.sub(r'\s*\d+[-~_동호].*$', '', item.get("name") or "").strip()
+            complexes = search_kb_complex(clean_name or item.get("name") or "")
+            if complexes:
+                c_no = complexes[0]["complex_no"]
+                item["kb_complex_no"] = c_no
+
+        if not c_no:
+            raise HTTPException(404, f"'{item.get('name')}' 단지를 KB부동산에서 찾지 못했습니다.")
+
+        excl_area = float(item.get("exclusive_area") or 0.0)
+        price_data = get_kb_market_prices(c_no, target_area=excl_area if excl_area > 0 else None)
+        if "error" in price_data or not price_data.get("matched"):
+            raise HTTPException(400, price_data.get("error") or "KB시세 정보를 찾을 수 없습니다.")
+
+        matched = price_data["matched"]
+        new_price = matched.get("deal_avg") or matched.get("deal_high") or matched.get("deal_low") or 0
+        if new_price > 0:
+            item["current_price"] = float(new_price)
             item["kb_complex_no"] = c_no
-
-    if not c_no:
-        raise HTTPException(404, f"'{item.get('name')}' 단지를 KB부동산에서 찾지 못했습니다.")
-
-    excl_area = float(item.get("exclusive_area") or 0.0)
-    price_data = get_kb_market_prices(c_no, target_area=excl_area if excl_area > 0 else None)
-    if "error" in price_data or not price_data.get("matched"):
-        raise HTTPException(400, price_data.get("error") or "KB시세 정보를 찾을 수 없습니다.")
-
-    matched = price_data["matched"]
-    new_price = matched.get("deal_avg") or matched.get("deal_high") or matched.get("deal_low") or 0
-    if new_price > 0:
-        item["current_price"] = float(new_price)
-        item["kb_complex_no"] = c_no
-        item["kb_matched_type"] = matched.get("type_display")
-        item["updated_at"] = datetime.now().astimezone().isoformat()
-        write_portfolio(data, username)
-        return {
-            "message": f"KB시세가 갱신되었습니다. (₩{new_price:,.0f})",
-            "new_price": new_price,
-            "matched_type": matched.get("type_display"),
-            "real_estate": item
-        }
-    else:
-        raise HTTPException(400, "조회된 KB시세 금액이 0원입니다.")
+            item["kb_matched_type"] = matched.get("type_display")
+            item["updated_at"] = datetime.now().astimezone().isoformat()
+            write_portfolio(data, username)
+            return {
+                "message": f"KB시세가 갱신되었습니다. (₩{new_price:,.0f})",
+                "new_price": new_price,
+                "matched_type": matched.get("type_display"),
+                "real_estate": item
+            }
+        else:
+            raise HTTPException(400, "조회된 KB시세 금액이 0원입니다.")
 
 # Family members CRUD API
 # ---------------------------------------------------------------------------
@@ -5350,14 +5357,15 @@ async def add_family_member(request: Request) -> dict:
     name = (body.get("name") or "").strip()
     if not name:
         raise HTTPException(400, "이름을 입력해 주세요.")
-    data = read_portfolio(username=username)
-    members = get_family_members(data)
-    if name in members:
-        raise HTTPException(409, "이미 존재하는 이름입니다.")
-    members.append(name)
-    data.setdefault("settings", {})["family_members"] = members
-    write_portfolio(data, username=username)
-    return {"members": members, "message": f"'{name}' 구성원을 추가했습니다."}
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        members = get_family_members(data)
+        if name in members:
+            raise HTTPException(409, "이미 존재하는 이름입니다.")
+        members.append(name)
+        data.setdefault("settings", {})["family_members"] = members
+        write_portfolio(data, username=username)
+        return {"members": members, "message": f"'{name}' 구성원을 추가했습니다."}
 
 @app.put("/api/family-members/{old_name}")
 async def rename_family_member(old_name: str, request: Request) -> dict:
@@ -5388,18 +5396,19 @@ async def rename_family_member(old_name: str, request: Request) -> dict:
 @app.delete("/api/family-members/{member_name}")
 async def delete_family_member(member_name: str, request: Request) -> dict:
     username = get_current_username(request)
-    data = read_portfolio(username=username)
-    members = get_family_members(data)
-    if member_name not in members:
-        raise HTTPException(404, "구성원을 찾지 못했습니다.")
-    members = [m for m in members if m != member_name]
-    data.setdefault("settings", {})["family_members"] = members
-    # Reset owner on accounts that belonged to deleted member
-    for acct in data.get("accounts", []):
-        if acct.get("owner") == member_name:
-            acct["owner"] = "모두"
-    write_portfolio(data, username=username)
-    return {"members": members, "message": f"'{member_name}' 구성원을 삭제했습니다."}
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        members = get_family_members(data)
+        if member_name not in members:
+            raise HTTPException(404, "구성원을 찾지 못했습니다.")
+        members = [m for m in members if m != member_name]
+        data.setdefault("settings", {})["family_members"] = members
+        # Reset owner on accounts that belonged to deleted member
+        for acct in data.get("accounts", []):
+            if acct.get("owner") == member_name:
+                acct["owner"] = "모두"
+        write_portfolio(data, username=username)
+        return {"members": members, "message": f"'{member_name}' 구성원을 삭제했습니다."}
 
 
 @app.get("/api/market-overview")
@@ -5409,46 +5418,49 @@ async def market_overview() -> dict:
 @app.post("/api/holdings", status_code=201)
 async def create_holding(payload: HoldingCreate, request: Request) -> dict:
     username = get_current_username(request)
-    data = read_portfolio(username=username)
-    account_id = get_or_add_account(data, payload.broker.strip(), payload.account_name.strip(), "manual")
-    item = normalize_holding(payload.model_dump(), account_id, payload.broker.strip(), payload.account_name.strip(), "manual")
-    # propagate owner to account
-    owner_val = getattr(payload, "owner", "모두") or "모두"
-    for acct in data.get("accounts", []):
-        if acct.get("id") == account_id:
-            acct["owner"] = owner_val
-            break
-    upsert_holdings(data, [item])
-    write_portfolio(data, username=username)
-    return {"message": "보유종목을 저장했습니다.", "dashboard": get_dashboard(username=username)}
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        account_id = get_or_add_account(data, payload.broker.strip(), payload.account_name.strip(), "manual")
+        item = normalize_holding(payload.model_dump(), account_id, payload.broker.strip(), payload.account_name.strip(), "manual")
+        # propagate owner to account
+        owner_val = getattr(payload, "owner", "모두") or "모두"
+        for acct in data.get("accounts", []):
+            if acct.get("id") == account_id:
+                acct["owner"] = owner_val
+                break
+        upsert_holdings(data, [item])
+        write_portfolio(data, username=username)
+        return {"message": "보유종목을 저장했습니다.", "dashboard": get_dashboard(username=username)}
 
 
 @app.delete("/api/holdings/{holding_id}")
 async def delete_holding(holding_id: str, request: Request) -> dict:
     username = get_current_username(request)
-    data = read_portfolio(username=username)
-    before = len(data["holdings"])
-    data["holdings"] = [holding for holding in data["holdings"] if holding["id"] != holding_id]
-    if before == len(data["holdings"]):
-        raise HTTPException(404, "보유종목을 찾지 못했습니다.")
-    used_accounts = {holding["account_id"] for holding in data["holdings"]}
-    data["accounts"] = [account for account in data["accounts"] if account["id"] in used_accounts]
-    write_portfolio(data, username=username)
-    return {"message": "보유종목을 삭제했습니다."}
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        before = len(data["holdings"])
+        data["holdings"] = [holding for holding in data["holdings"] if holding["id"] != holding_id]
+        if before == len(data["holdings"]):
+            raise HTTPException(404, "보유종목을 찾지 못했습니다.")
+        used_accounts = {holding["account_id"] for holding in data["holdings"]}
+        data["accounts"] = [account for account in data["accounts"] if account["id"] in used_accounts]
+        write_portfolio(data, username=username)
+        return {"message": "보유종목을 삭제했습니다."}
 
 
 @app.delete("/api/accounts/{account_id}")
 async def delete_account(account_id: str, request: Request) -> dict:
     username = get_current_username(request)
-    data = read_portfolio(username=username)
-    if not any(account.get("id") == account_id for account in data["accounts"]):
-        raise HTTPException(404, "계좌를 찾지 못했습니다.")
-    data["accounts"] = [account for account in data["accounts"] if account.get("id") != account_id]
-    data["holdings"] = [holding for holding in data["holdings"] if holding.get("account_id") != account_id]
-    if "cash_balances" in data["settings"] and account_id in data["settings"]["cash_balances"]:
-        del data["settings"]["cash_balances"][account_id]
-    write_portfolio(data, username=username)
-    return {"message": "증권사 계좌와 연결된 보유종목을 삭제했습니다."}
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        if not any(account.get("id") == account_id for account in data["accounts"]):
+            raise HTTPException(404, "계좌를 찾지 못했습니다.")
+        data["accounts"] = [account for account in data["accounts"] if account.get("id") != account_id]
+        data["holdings"] = [holding for holding in data["holdings"] if holding.get("account_id") != account_id]
+        if "cash_balances" in data["settings"] and account_id in data["settings"]["cash_balances"]:
+            del data["settings"]["cash_balances"][account_id]
+        write_portfolio(data, username=username)
+        return {"message": "증권사 계좌와 연결된 보유종목을 삭제했습니다."}
 
 
 @app.put("/api/accounts/{account_id}")
@@ -5458,78 +5470,79 @@ async def rename_account(account_id: str, payload: dict, request: Request) -> di
     broker = str(payload.get("broker") or "").strip()
     if not name:
         raise HTTPException(400, "계좌 이름을 입력해 주세요.")
-    data = read_portfolio(username=username)
-    account = next((item for item in data["accounts"] if item.get("id") == account_id), None)
-    if account is None:
-        raise HTTPException(404, "계좌를 찾지 못했습니다.")
-    owner_val = str(payload.get("owner") or "").strip()
-    effective_broker = broker or str(account.get("broker") or "")
-    effective_owner = owner_val or str(account.get("owner") or "모두")
-    if "account_no" in payload:
-        requested_no = str(payload.get("account_no") or "").strip()
-        if requested_no:
-            duplicate = next((item for item in data["accounts"] if item.get("id") != account_id and canonical_broker_account_identity(item.get("broker")) == canonical_broker_account_identity(effective_broker) and normalize_broker_account_no(item.get("account_no")) == normalize_broker_account_no(requested_no)), None)
-            if duplicate:
-                code = "ACCOUNT_NUMBER_OWNER_CONFLICT" if str(duplicate.get("owner") or "모두") != effective_owner else "ACCOUNT_ALREADY_EXISTS"
-                raise HTTPException(409, detail={"code": code, "message": "같은 증권사와 계좌번호의 계좌가 이미 등록되어 있습니다."})
-    account["name"] = name
-    if broker:
-        account["broker"] = broker
-    if owner_val:
-        account["owner"] = owner_val
-    if "account_type" in payload:
-        account["account_type"] = str(payload.get("account_type") or "general").strip()
-    if "account_no" in payload:
-        requested_no = str(payload.get("account_no") or "").strip()
-        account["account_no"] = requested_no
-    if "tax_deductible" in payload:
-        td_val = payload.get("tax_deductible")
-        if isinstance(td_val, bool):
-            account["tax_deductible"] = td_val
-        elif isinstance(td_val, str):
-            account["tax_deductible"] = td_val.strip().lower() not in ("false", "0", "no", "off", "non_deductible")
-        elif isinstance(td_val, (int, float)):
-            account["tax_deductible"] = bool(td_val)
-        else:
-            account["tax_deductible"] = bool(td_val)
-    if "income_level" in payload:
-        account["income_level"] = str(payload.get("income_level") or "low").strip()
-    if "annual_deposit" in payload:
-        account["annual_deposit"] = max(0.0, float(payload.get("annual_deposit") or 0.0))
-    if "isa_transfer_amount" in payload:
-        account["isa_transfer_amount"] = max(0.0, float(payload.get("isa_transfer_amount") or 0.0))
-    if "isa_transfer_year" in payload:
-        account["isa_transfer_year"] = str(payload.get("isa_transfer_year") or "").strip()
-    if "yearly_contributions" in payload:
-        ycs = payload.get("yearly_contributions") or []
-        inc = account.get("income_level") or "low"
-        for yc in ycs:
-            if isinstance(yc, dict) and not yc.get("income_level"):
-                yc["income_level"] = inc
-        account["yearly_contributions"] = ycs
-    elif account.get("account_type") in ("pension_savings", "irp") and float(account.get("annual_deposit") or 0) > 0 and not account.get("yearly_contributions"):
-        from datetime import datetime as _dt
-        account["yearly_contributions"] = [{
-            "year": str(_dt.now().year),
-            "deposit": float(account.get("annual_deposit") or 0),
-            "is_deductible": account.get("tax_deductible", True),
-            "income_level": account.get("income_level", "low")
-        }]
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        account = next((item for item in data["accounts"] if item.get("id") == account_id), None)
+        if account is None:
+            raise HTTPException(404, "계좌를 찾지 못했습니다.")
+        owner_val = str(payload.get("owner") or "").strip()
+        effective_broker = broker or str(account.get("broker") or "")
+        effective_owner = owner_val or str(account.get("owner") or "모두")
+        if "account_no" in payload:
+            requested_no = str(payload.get("account_no") or "").strip()
+            if requested_no:
+                duplicate = next((item for item in data["accounts"] if item.get("id") != account_id and canonical_broker_account_identity(item.get("broker")) == canonical_broker_account_identity(effective_broker) and normalize_broker_account_no(item.get("account_no")) == normalize_broker_account_no(requested_no)), None)
+                if duplicate:
+                    code = "ACCOUNT_NUMBER_OWNER_CONFLICT" if str(duplicate.get("owner") or "모두") != effective_owner else "ACCOUNT_ALREADY_EXISTS"
+                    raise HTTPException(409, detail={"code": code, "message": "같은 증권사와 계좌번호의 계좌가 이미 등록되어 있습니다."})
+        account["name"] = name
+        if broker:
+            account["broker"] = broker
+        if owner_val:
+            account["owner"] = owner_val
+        if "account_type" in payload:
+            account["account_type"] = str(payload.get("account_type") or "general").strip()
+        if "account_no" in payload:
+            requested_no = str(payload.get("account_no") or "").strip()
+            account["account_no"] = requested_no
+        if "tax_deductible" in payload:
+            td_val = payload.get("tax_deductible")
+            if isinstance(td_val, bool):
+                account["tax_deductible"] = td_val
+            elif isinstance(td_val, str):
+                account["tax_deductible"] = td_val.strip().lower() not in ("false", "0", "no", "off", "non_deductible")
+            elif isinstance(td_val, (int, float)):
+                account["tax_deductible"] = bool(td_val)
+            else:
+                account["tax_deductible"] = bool(td_val)
+        if "income_level" in payload:
+            account["income_level"] = str(payload.get("income_level") or "low").strip()
+        if "annual_deposit" in payload:
+            account["annual_deposit"] = max(0.0, float(payload.get("annual_deposit") or 0.0))
+        if "isa_transfer_amount" in payload:
+            account["isa_transfer_amount"] = max(0.0, float(payload.get("isa_transfer_amount") or 0.0))
+        if "isa_transfer_year" in payload:
+            account["isa_transfer_year"] = str(payload.get("isa_transfer_year") or "").strip()
+        if "yearly_contributions" in payload:
+            ycs = payload.get("yearly_contributions") or []
+            inc = account.get("income_level") or "low"
+            for yc in ycs:
+                if isinstance(yc, dict) and not yc.get("income_level"):
+                    yc["income_level"] = inc
+            account["yearly_contributions"] = ycs
+        elif account.get("account_type") in ("pension_savings", "irp") and float(account.get("annual_deposit") or 0) > 0 and not account.get("yearly_contributions"):
+            from datetime import datetime as _dt
+            account["yearly_contributions"] = [{
+                "year": str(_dt.now().year),
+                "deposit": float(account.get("annual_deposit") or 0),
+                "is_deductible": account.get("tax_deductible", True),
+                "income_level": account.get("income_level", "low")
+            }]
 
-    if "cash_krw" in payload or "cash_usd" in payload:
-        cash_balances = data["settings"].setdefault("cash_balances", {})
-        existing_cash = cash_balances.get(account_id, {})
-        cash_krw = float(to_number(payload["cash_krw"])) if "cash_krw" in payload else float(to_number(existing_cash.get("KRW", existing_cash.get("krw", 0.0))))
-        cash_usd = float(to_number(payload["cash_usd"])) if "cash_usd" in payload else float(to_number(existing_cash.get("USD", existing_cash.get("usd", 0.0))))
-        cash_balances[account_id] = {"KRW": cash_krw, "USD": cash_usd}
+        if "cash_krw" in payload or "cash_usd" in payload:
+            cash_balances = data["settings"].setdefault("cash_balances", {})
+            existing_cash = cash_balances.get(account_id, {})
+            cash_krw = float(to_number(payload["cash_krw"])) if "cash_krw" in payload else float(to_number(existing_cash.get("KRW", existing_cash.get("krw", 0.0))))
+            cash_usd = float(to_number(payload["cash_usd"])) if "cash_usd" in payload else float(to_number(existing_cash.get("USD", existing_cash.get("usd", 0.0))))
+            cash_balances[account_id] = {"KRW": cash_krw, "USD": cash_usd}
 
-    for holding in data["holdings"]:
-        if holding.get("account_id") == account_id:
-            holding["account_name"] = name
-            if broker:
-                holding["broker"] = broker
-    write_portfolio(data, username=username)
-    return {"message": "증권사 및 계좌 정보를 수정했습니다.", "dashboard": get_dashboard(username=username)}
+        for holding in data["holdings"]:
+            if holding.get("account_id") == account_id:
+                holding["account_name"] = name
+                if broker:
+                    holding["broker"] = broker
+        write_portfolio(data, username=username)
+        return {"message": "증권사 및 계좌 정보를 수정했습니다.", "dashboard": get_dashboard(username=username)}
 
 
 @app.get("/api/tax-benefits")
@@ -5543,32 +5556,34 @@ async def get_tax_benefits_endpoint(request: Request, owner: str | None = None) 
 @app.put("/api/accounts/{account_id}/cash")
 async def update_account_cash(account_id: str, payload: dict, request: Request) -> dict:
     username = get_current_username(request)
-    data = read_portfolio(username=username)
-    if not any(account.get("id") == account_id for account in data["accounts"]):
-        raise HTTPException(404, "계좌를 찾지 못했습니다.")
-    cash_krw = float(to_number(payload.get("cash_krw") or payload.get("KRW")))
-    cash_usd = float(to_number(payload.get("cash_usd") or payload.get("USD")))
-    cash_balances = data["settings"].setdefault("cash_balances", {})
-    cash_balances[account_id] = {"KRW": cash_krw, "USD": cash_usd}
-    write_portfolio(data, username=username)
-    return {"message": "계좌 예수금을 수정했습니다.", "dashboard": get_dashboard(username=username)}
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        if not any(account.get("id") == account_id for account in data["accounts"]):
+            raise HTTPException(404, "계좌를 찾지 못했습니다.")
+        cash_krw = float(to_number(payload.get("cash_krw") or payload.get("KRW")))
+        cash_usd = float(to_number(payload.get("cash_usd") or payload.get("USD")))
+        cash_balances = data["settings"].setdefault("cash_balances", {})
+        cash_balances[account_id] = {"KRW": cash_krw, "USD": cash_usd}
+        write_portfolio(data, username=username)
+        return {"message": "계좌 예수금을 수정했습니다.", "dashboard": get_dashboard(username=username)}
 
 
 @app.put("/api/holdings/{holding_id}")
 async def update_holding(holding_id: str, payload: HoldingCreate, request: Request) -> dict:
     username = get_current_username(request)
-    data = read_portfolio(username=username)
-    current = next((item for item in data["holdings"] if item["id"] == holding_id), None)
-    if current is None:
-        raise HTTPException(404, "보유종목을 찾지 못했습니다.")
-    broker = payload.broker.strip()
-    account_name = payload.account_name.strip()
-    account_id = get_or_add_account(data, broker, account_name, current.get("source", "manual"))
-    item = normalize_holding(payload.model_dump(), account_id, broker, account_name, current.get("source", "manual"))
-    item["id"] = holding_id
-    data["holdings"] = [item if holding["id"] == holding_id else holding for holding in data["holdings"]]
-    write_portfolio(data, username=username)
-    return {"message": "보유종목을 수정했습니다.", "dashboard": get_dashboard(username=username)}
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        current = next((item for item in data["holdings"] if item["id"] == holding_id), None)
+        if current is None:
+            raise HTTPException(404, "보유종목을 찾지 못했습니다.")
+        broker = payload.broker.strip()
+        account_name = payload.account_name.strip()
+        account_id = get_or_add_account(data, broker, account_name, current.get("source", "manual"))
+        item = normalize_holding(payload.model_dump(), account_id, broker, account_name, current.get("source", "manual"))
+        item["id"] = holding_id
+        data["holdings"] = [item if holding["id"] == holding_id else holding for holding in data["holdings"]]
+        write_portfolio(data, username=username)
+        return {"message": "보유종목을 수정했습니다.", "dashboard": get_dashboard(username=username)}
 
 
 @app.post("/api/import")
@@ -5685,11 +5700,12 @@ async def load_demo(request: Request) -> dict:
 @app.post("/api/clear")
 async def clear_all(request: Request) -> dict:
     username = get_current_username(request)
-    data = read_portfolio(username=username)
-    data["holdings"] = []
-    data["accounts"] = []
-    write_portfolio(data, username=username)
-    return {"message": "저장된 보유내역을 모두 지웠습니다."}
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        data["holdings"] = []
+        data["accounts"] = []
+        write_portfolio(data, username=username)
+        return {"message": "저장된 보유내역을 모두 지웠습니다."}
 
 
 @app.get("/api/planning")
@@ -5774,6 +5790,26 @@ async def snapshot_asset_record(request: Request) -> dict:
     }
 
 
+def _resolve_kb_sync_account(data: dict):
+    # 1. 고유 키(kb_primary) 또는 기존 KB 동기화 계좌 찾기
+    primary_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and a.get("account_key") == "kb_primary"]
+    if len(primary_matches) > 1:
+        return None, False
+    existing = primary_matches[0] if primary_matches else None
+    if not existing:
+        source_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and a.get("source") == "kb_api"]
+        if len(source_matches) > 1:
+            return None, False
+        existing = source_matches[0] if source_matches else None
+    if not existing:
+        name_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and ("KB" in a.get("name", "") or a.get("name") == "KB OpenAPI 동기화 계좌")]
+        if len(name_matches) > 1:
+            return None, False
+        existing = name_matches[0] if name_matches else None
+
+    return existing, True
+
+
 async def sync_kb_for_user(username: str, *, retry_transient: bool = False) -> dict:
     """Retry only read-only holdings fetches, opted in by account pre-sync.
 
@@ -5799,60 +5835,60 @@ async def sync_kb_for_user(username: str, *, retry_transient: bool = False) -> d
 
     if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
         return unverified_result()
-    data = _load_account_sync(username)
-
-    # 1. 고유 키(kb_primary) 또는 기존 KB 동기화 계좌 찾기
-    primary_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and a.get("account_key") == "kb_primary"]
-    if len(primary_matches) > 1:
+    # Preserve scope validation before optional quote reads; revalidate the
+    # latest account again inside the commit after those asynchronous reads.
+    preview = _load_account_sync(username)
+    existing, verified = _resolve_kb_sync_account(preview)
+    if not verified or resolve_scopes(records.scopes, {"kb_primary": ("preview", "KB")}) is None:
         return unverified_result()
-    existing = primary_matches[0] if primary_matches else None
-    if not existing:
-        source_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and a.get("source") == "kb_api"]
-        if len(source_matches) > 1:
-            return unverified_result()
-        existing = source_matches[0] if source_matches else None
-    if not existing:
-        name_matches = [a for a in data["accounts"] if a.get("broker") == "KB증권" and ("KB" in a.get("name", "") or a.get("name") == "KB OpenAPI 동기화 계좌")]
-        if len(name_matches) > 1:
-            return unverified_result()
-        existing = name_matches[0] if name_matches else None
-
-    if existing:
-        account_id = existing["id"]
-        account_name = existing["name"]  # 사용자가 변경한 이름을 100% 보존!
-        existing["source"] = "kb_api"
-        existing["account_key"] = "kb_primary"
-    else:
-        # 삭제되었거나 신규일 때 자동 복구 생성
-        account_id = str(uuid.uuid4())
-        account_name = "KB OpenAPI 동기화 계좌"
-        data["accounts"].append({
-            "id": account_id,
-            "broker": "KB증권",
-            "name": account_name,
-            "family_group": "All",
-            "source": "kb_api",
-            "account_key": "kb_primary",
-            "owner": "모두",
-        })
-
-    holdings = [normalize_holding(record, account_id, "KB증권", account_name, "kb_api") for record in records]
-    scopes = resolve_scopes(records.scopes, {"kb_primary": (account_id, account_name)})
-    if scopes is None:
-        return unverified_result()
+    holdings = [normalize_holding(record, existing["id"] if existing else "",
+                                 "KB증권", existing["name"] if existing else "", "kb_api")
+                for record in records]
     prices, warnings = await client.refresh_prices(holdings)
-    for holding in holdings:
-        price = prices.get(holding["id"])
-        if price:
-            holding["current_price"] = price
-            if holding["avg_price"] == 0:
-                holding["avg_price"] = price
-    replace_holdings_in_scopes(data, holdings, source="kb_api", scopes=scopes)
-    _mark_sync_success(data, "kb")
-    _save_account_sync(data, username)
-    status = _holdings_success_status(records)
-    message = "KB증권 보유종목이 0개로 확인되었습니다." if not holdings else f"KB증권 보유종목 {len(holdings)}개를 동기화했습니다."
-    return {"broker": "KB증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": False, "cash_updated": False, "data_preserved": False, "warnings": warnings[:10], **retry_info}
+    with financial_user_locks(username, 'portfolio.json'):
+        data = _load_account_sync(username)
+
+        existing, verified = _resolve_kb_sync_account(data)
+        if not verified:
+            return unverified_result()
+
+        if existing:
+            account_id = existing["id"]
+            account_name = existing["name"]  # 사용자가 변경한 이름을 100% 보존!
+            existing["source"] = "kb_api"
+            existing["account_key"] = "kb_primary"
+        else:
+            # 삭제되었거나 신규일 때 자동 복구 생성
+            account_id = str(uuid.uuid4())
+            account_name = "KB OpenAPI 동기화 계좌"
+            data["accounts"].append({
+                "id": account_id,
+                "broker": "KB증권",
+                "name": account_name,
+                "family_group": "All",
+                "source": "kb_api",
+                "account_key": "kb_primary",
+                "owner": "모두",
+            })
+
+        for holding in holdings:
+            holding["account_id"] = account_id
+            holding["account_name"] = account_name
+        scopes = resolve_scopes(records.scopes, {"kb_primary": (account_id, account_name)})
+        if scopes is None:
+            return unverified_result()
+        for holding in holdings:
+            price = prices.get(holding["id"])
+            if price:
+                holding["current_price"] = price
+                if holding["avg_price"] == 0:
+                    holding["avg_price"] = price
+        replace_holdings_in_scopes(data, holdings, source="kb_api", scopes=scopes)
+        _mark_sync_success(data, "kb")
+        _save_account_sync(data, username)
+        status = _holdings_success_status(records)
+        message = "KB증권 보유종목이 0개로 확인되었습니다." if not holdings else f"KB증권 보유종목 {len(holdings)}개를 동기화했습니다."
+        return {"broker": "KB증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": False, "cash_updated": False, "data_preserved": False, "warnings": warnings[:10], **retry_info}
 
 
 @app.post("/api/sync/kb")
@@ -5873,10 +5909,6 @@ async def sync_toss_for_user(username: str, *, retry_transient: bool = False) ->
         raise HTTPException(400, str(exc)) from exc
     if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
         return _unverified_holdings_response("토스증권", records)
-    data = _load_account_sync(username)
-    cash = data["settings"].setdefault("toss_cash", {})
-    cash_balances = data["settings"].setdefault("cash_balances", {})
-
     def resolve_toss_account(data_accounts, seq, acct_no, default_name):
         seq_str = str(seq) if seq is not None else ""
         suffix = str(acct_no)[-4:] if acct_no else ""
@@ -5910,43 +5942,19 @@ async def sync_toss_for_user(username: str, *, retry_transient: bool = False) ->
             return name_matches[0], True
         return None, True
 
-    toss_map = {}
-    cash_failures = 0
-    cash_successes = 0
+    preview = _load_account_sync(username)
     for account in toss_accounts:
         seq = account.get("accountSeq")
-        seq_str = str(seq) if seq is not None else ""
         account_no = str(account.get("accountNo", ""))
         suffix = account_no[-4:] if account_no else ""
-        account_name_default = f"토스증권 계좌 {suffix}" if suffix else (f"토스증권 계좌 {seq}" if seq is not None else "토스증권")
-        
-        existing, account_scope_verified = resolve_toss_account(data["accounts"], seq, account_no, account_name_default)
-        if not account_scope_verified:
+        default_name = f"토스증권 계좌 {suffix}" if suffix else (f"토스증권 계좌 {seq}" if seq is not None else "토스증권")
+        _, verified = resolve_toss_account(preview["accounts"], seq, account_no, default_name)
+        if not verified:
             return _unverified_holdings_response("토스증권", records)
-        if existing:
-            account_id = existing["id"]
-            account_name = existing["name"]  # 사용자가 변경한 이름을 100% 보존!
-            existing["source"] = "toss_api"
-            if seq_str:
-                existing["account_key"] = seq_str
-            if suffix:
-                existing["account_no"] = suffix
-        else:
-            # 삭제되었거나 신규일 때 자동 복구 생성
-            account_id = str(uuid.uuid4())
-            account_name = account_name_default
-            data["accounts"].append({
-                "id": account_id,
-                "broker": "토스증권",
-                "name": account_name,
-                "family_group": "All",
-                "source": "toss_api",
-                "account_key": seq_str,
-                "account_no": suffix,
-                "owner": "모두",
-            })
-
-        toss_map[seq_str] = (account_id, account_name)
+    buying_power = {}
+    cash_failures = 0
+    for account in toss_accounts:
+        seq = account.get("accountSeq")
         if seq is not None:
             try:
                 bp, cash_retry = await read_account_with_retry(
@@ -5954,9 +5962,7 @@ async def sync_toss_for_user(username: str, *, retry_transient: bool = False) ->
                 )
                 if cash_retry:
                     retry_info.update(cash_retry)
-                cash[str(seq)] = bp
-                cash_balances[account_id] = bp
-                cash_successes += 1
+                buying_power[str(seq)] = bp
             except TossOpenAPIError as exc:
                 diagnostic = get_failure_diagnostic(exc)
                 retry_info.update({key: diagnostic[key] for key in ("failure_reason", "retryable")
@@ -5965,28 +5971,74 @@ async def sync_toss_for_user(username: str, *, retry_transient: bool = False) ->
                     retry_info.update({key: diagnostic[key] for key in
                                        ("retry_attempted", "retry_recovered", "initial_failure_reason")})
                 cash_failures += 1
+    with financial_user_locks(username, 'portfolio.json'):
+        data = _load_account_sync(username)
+        cash = data["settings"].setdefault("toss_cash", {})
+        cash_balances = data["settings"].setdefault("cash_balances", {})
 
-    data["settings"]["toss_cash"] = cash
-    data["settings"]["cash_balances"] = cash_balances
-    holdings = []
-    for record in records:
-        acct_key = str(record.get("account_key", ""))
-        if acct_key in toss_map:
-            account_id, account_name = toss_map[acct_key]
-        else:
+        toss_map = {}
+        cash_successes = 0
+        for account in toss_accounts:
+            seq = account.get("accountSeq")
+            seq_str = str(seq) if seq is not None else ""
+            account_no = str(account.get("accountNo", ""))
+            suffix = account_no[-4:] if account_no else ""
+            account_name_default = f"토스증권 계좌 {suffix}" if suffix else (f"토스증권 계좌 {seq}" if seq is not None else "토스증권")
+
+            existing, account_scope_verified = resolve_toss_account(data["accounts"], seq, account_no, account_name_default)
+            if not account_scope_verified:
+                return _unverified_holdings_response("토스증권", records)
+            if existing:
+                account_id = existing["id"]
+                account_name = existing["name"]  # 사용자가 변경한 이름을 100% 보존!
+                existing["source"] = "toss_api"
+                if seq_str:
+                    existing["account_key"] = seq_str
+                if suffix:
+                    existing["account_no"] = suffix
+            else:
+                # 삭제되었거나 신규일 때 자동 복구 생성
+                account_id = str(uuid.uuid4())
+                account_name = account_name_default
+                data["accounts"].append({
+                    "id": account_id,
+                    "broker": "토스증권",
+                    "name": account_name,
+                    "family_group": "All",
+                    "source": "toss_api",
+                    "account_key": seq_str,
+                    "account_no": suffix,
+                    "owner": "모두",
+                })
+
+            toss_map[seq_str] = (account_id, account_name)
+            if seq_str in buying_power:
+                bp = buying_power[seq_str]
+                cash[str(seq)] = bp
+                cash_balances[account_id] = bp
+                cash_successes += 1
+
+        data["settings"]["toss_cash"] = cash
+        data["settings"]["cash_balances"] = cash_balances
+        holdings = []
+        for record in records:
+            acct_key = str(record.get("account_key", ""))
+            if acct_key in toss_map:
+                account_id, account_name = toss_map[acct_key]
+            else:
+                return _unverified_holdings_response("토스증권", records)
+            holdings.append(normalize_holding(record, account_id, "토스증권", account_name, "toss_api"))
+
+        scopes = resolve_scopes(records.scopes, toss_map)
+        if scopes is None:
             return _unverified_holdings_response("토스증권", records)
-        holdings.append(normalize_holding(record, account_id, "토스증권", account_name, "toss_api"))
-
-    scopes = resolve_scopes(records.scopes, toss_map)
-    if scopes is None:
-        return _unverified_holdings_response("토스증권", records)
-    replace_holdings_in_scopes(data, holdings, source="toss_api", scopes=scopes)
-    _mark_sync_success(data, "toss")
-    _save_account_sync(data, username)
-    status = "PARTIAL_SUCCESS" if cash_failures else _holdings_success_status(records)
-    message = "토스증권 보유종목이 0개로 확인되었습니다." if not holdings else f"토스증권 보유종목 {len(holdings)}개를 동기화했습니다."
-    message += " 예수금 조회 실패 계좌의 기존 데이터는 유지했습니다." if cash_failures else " 예수금도 동기화했습니다."
-    return {"broker": "토스증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": not cash_failures, "cash_updated": bool(cash_successes), "data_preserved": bool(cash_failures), **retry_info}
+        replace_holdings_in_scopes(data, holdings, source="toss_api", scopes=scopes)
+        _mark_sync_success(data, "toss")
+        _save_account_sync(data, username)
+        status = "PARTIAL_SUCCESS" if cash_failures else _holdings_success_status(records)
+        message = "토스증권 보유종목이 0개로 확인되었습니다." if not holdings else f"토스증권 보유종목 {len(holdings)}개를 동기화했습니다."
+        message += " 예수금 조회 실패 계좌의 기존 데이터는 유지했습니다." if cash_failures else " 예수금도 동기화했습니다."
+        return {"broker": "토스증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": not cash_failures, "cash_updated": bool(cash_successes), "data_preserved": bool(cash_failures), **retry_info}
 
 
 @app.post("/api/sync/toss")
@@ -6009,86 +6061,87 @@ async def sync_namoo_for_user(username: str, *, retry_transient: bool = False) -
         raise HTTPException(429 if isinstance(exc, NhPlugRateLimitError) or "IGW42903" in str(exc) else 400, detail) from exc
     if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
         return _unverified_holdings_response("NH투자증권(나무)", records)
-    data = _load_account_sync(username)
-    cash_balances = data["settings"].setdefault("cash_balances", {})
+    with financial_user_locks(username, 'portfolio.json'):
+        data = _load_account_sync(username)
+        cash_balances = data["settings"].setdefault("cash_balances", {})
 
-    def resolve_namoo_account(data_accounts, acct_no, default_name):
-        suffix = str(acct_no)[-4:] if acct_no else ""
-        broker_accounts = [
-            a for a in data_accounts
-            if canonical_broker_account_identity(a.get("broker"))
-            == canonical_broker_account_identity("NH투자증권(나무)")
-        ]
-        exact = [a for a in broker_accounts if normalize_broker_account_no(a.get("account_no")) == normalize_broker_account_no(acct_no)]
-        if len(exact) == 1:
-            return exact[0], True
-        if len(exact) > 1:
-            return None, False
-        suffix_matches = [a for a in broker_accounts if suffix and a.get("account_key") == suffix]
-        if len(suffix_matches) == 1:
-            return suffix_matches[0], True
-        if len(suffix_matches) > 1:
-            return None, False
-        name_matches = [
-            a for a in broker_accounts
-            if (suffix and suffix in a.get("name", "")) or a.get("name") == default_name
-        ]
-        if len(name_matches) == 1:
-            return name_matches[0], True
-        return None, True
+        def resolve_namoo_account(data_accounts, acct_no, default_name):
+            suffix = str(acct_no)[-4:] if acct_no else ""
+            broker_accounts = [
+                a for a in data_accounts
+                if canonical_broker_account_identity(a.get("broker"))
+                == canonical_broker_account_identity("NH투자증권(나무)")
+            ]
+            exact = [a for a in broker_accounts if normalize_broker_account_no(a.get("account_no")) == normalize_broker_account_no(acct_no)]
+            if len(exact) == 1:
+                return exact[0], True
+            if len(exact) > 1:
+                return None, False
+            suffix_matches = [a for a in broker_accounts if suffix and a.get("account_key") == suffix]
+            if len(suffix_matches) == 1:
+                return suffix_matches[0], True
+            if len(suffix_matches) > 1:
+                return None, False
+            name_matches = [
+                a for a in broker_accounts
+                if (suffix and suffix in a.get("name", "")) or a.get("name") == default_name
+            ]
+            if len(name_matches) == 1:
+                return name_matches[0], True
+            return None, True
 
-    account_map = {}  # acct_no -> (account_id, account_name)
-    for account in client.last_accounts:
-        account_no = str(account.get("acct_no", ""))
-        default_name = client._account_name(account)
-        suffix = account_no[-4:] if account_no else ""
-        if account_no:
-            existing, account_scope_verified = resolve_namoo_account(data["accounts"], account_no, default_name)
-            if not account_scope_verified:
-                return _unverified_holdings_response("NH투자증권(나무)", records)
-            if existing:
-                account_id = existing["id"]
-                account_name = existing["name"]  # 사용자가 변경한 이름을 100% 보존!
-                existing["source"] = "nhplug_api"
-                existing["account_key"] = suffix
-                existing["account_no"] = account_no
+        account_map = {}  # acct_no -> (account_id, account_name)
+        for account in client.last_accounts:
+            account_no = str(account.get("acct_no", ""))
+            default_name = client._account_name(account)
+            suffix = account_no[-4:] if account_no else ""
+            if account_no:
+                existing, account_scope_verified = resolve_namoo_account(data["accounts"], account_no, default_name)
+                if not account_scope_verified:
+                    return _unverified_holdings_response("NH투자증권(나무)", records)
+                if existing:
+                    account_id = existing["id"]
+                    account_name = existing["name"]  # 사용자가 변경한 이름을 100% 보존!
+                    existing["source"] = "nhplug_api"
+                    existing["account_key"] = suffix
+                    existing["account_no"] = account_no
+                else:
+                    # 삭제되었거나 신규일 때 자동 복구 생성
+                    account_id = str(uuid.uuid4())
+                    account_name = default_name
+                    data["accounts"].append({
+                        "id": account_id,
+                        "broker": "NH투자증권(나무)",
+                        "name": account_name,
+                        "family_group": "All",
+                        "source": "nhplug_api",
+                        "account_key": suffix,
+                        "account_no": account_no,
+                        "owner": "모두",
+                    })
+                account_map[account_no] = (account_id, account_name)
+                if account_no in client.account_cash:
+                    cash_balances[account_id] = client.account_cash[account_no]
+
+        holdings = []
+        for record in records:
+            acct_key = str(record.get("account_key", ""))
+            if acct_key in account_map:
+                account_id, account_name = account_map[acct_key]
             else:
-                # 삭제되었거나 신규일 때 자동 복구 생성
-                account_id = str(uuid.uuid4())
-                account_name = default_name
-                data["accounts"].append({
-                    "id": account_id,
-                    "broker": "NH투자증권(나무)",
-                    "name": account_name,
-                    "family_group": "All",
-                    "source": "nhplug_api",
-                    "account_key": suffix,
-                    "account_no": account_no,
-                    "owner": "모두",
-                })
-            account_map[account_no] = (account_id, account_name)
-            if account_no in client.account_cash:
-                cash_balances[account_id] = client.account_cash[account_no]
+                return _unverified_holdings_response("NH투자증권(나무)", records)
+            holdings.append(normalize_holding(record, account_id, "NH투자증권(나무)", account_name, "nhplug_api"))
 
-    holdings = []
-    for record in records:
-        acct_key = str(record.get("account_key", ""))
-        if acct_key in account_map:
-            account_id, account_name = account_map[acct_key]
-        else:
+        scopes = resolve_scopes(records.scopes, account_map)
+        if scopes is None:
             return _unverified_holdings_response("NH투자증권(나무)", records)
-        holdings.append(normalize_holding(record, account_id, "NH투자증권(나무)", account_name, "nhplug_api"))
-
-    scopes = resolve_scopes(records.scopes, account_map)
-    if scopes is None:
-        return _unverified_holdings_response("NH투자증권(나무)", records)
-    replace_holdings_in_scopes(data, holdings, source="nhplug_api", scopes=scopes)
-    data["settings"]["cash_balances"] = cash_balances
-    _mark_sync_success(data, "nh")
-    _save_account_sync(data, username)
-    status = _holdings_success_status(records)
-    message = "나무증권 보유종목이 0개로 확인되어 예수금만 동기화했습니다." if not holdings else f"나무증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다."
-    return {"broker": "NH투자증권(나무)", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
+        replace_holdings_in_scopes(data, holdings, source="nhplug_api", scopes=scopes)
+        data["settings"]["cash_balances"] = cash_balances
+        _mark_sync_success(data, "nh")
+        _save_account_sync(data, username)
+        status = _holdings_success_status(records)
+        message = "나무증권 보유종목이 0개로 확인되어 예수금만 동기화했습니다." if not holdings else f"나무증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다."
+        return {"broker": "NH투자증권(나무)", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
 
 
 @app.post("/api/sync/namoo")
@@ -6110,87 +6163,88 @@ async def sync_kis_for_user(username: str, *, retry_transient: bool = False) -> 
         raise HTTPException(400, str(exc)) from exc
     if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
         return _unverified_holdings_response("한국투자증권", records)
-    data = _load_account_sync(username)
-    cash_balances = data["settings"].setdefault("cash_balances", {})
+    with financial_user_locks(username, 'portfolio.json'):
+        data = _load_account_sync(username)
+        cash_balances = data["settings"].setdefault("cash_balances", {})
 
-    def resolve_kis_account(data_accounts, acct_no, default_name):
-        suffix = str(acct_no)[-4:] if acct_no else ""
-        broker_accounts = [
-            a for a in data_accounts
-            if canonical_broker_account_identity(a.get("broker"))
-            == canonical_broker_account_identity("한국투자증권")
-        ]
-        exact = [a for a in broker_accounts if normalize_broker_account_no(a.get("account_no")) == normalize_broker_account_no(acct_no)]
-        if len(exact) == 1:
-            return exact[0], True
-        if len(exact) > 1:
-            return None, False
-        suffix_matches = [a for a in broker_accounts if suffix and a.get("account_key") == suffix]
-        if len(suffix_matches) == 1:
-            return suffix_matches[0], True
-        if len(suffix_matches) > 1:
-            return None, False
-        name_matches = [
-            a for a in broker_accounts
-            if (suffix and suffix in a.get("name", "")) or a.get("name") == default_name
-        ]
-        if len(name_matches) == 1:
-            return name_matches[0], True
-        return None, True
+        def resolve_kis_account(data_accounts, acct_no, default_name):
+            suffix = str(acct_no)[-4:] if acct_no else ""
+            broker_accounts = [
+                a for a in data_accounts
+                if canonical_broker_account_identity(a.get("broker"))
+                == canonical_broker_account_identity("한국투자증권")
+            ]
+            exact = [a for a in broker_accounts if normalize_broker_account_no(a.get("account_no")) == normalize_broker_account_no(acct_no)]
+            if len(exact) == 1:
+                return exact[0], True
+            if len(exact) > 1:
+                return None, False
+            suffix_matches = [a for a in broker_accounts if suffix and a.get("account_key") == suffix]
+            if len(suffix_matches) == 1:
+                return suffix_matches[0], True
+            if len(suffix_matches) > 1:
+                return None, False
+            name_matches = [
+                a for a in broker_accounts
+                if (suffix and suffix in a.get("name", "")) or a.get("name") == default_name
+            ]
+            if len(name_matches) == 1:
+                return name_matches[0], True
+            return None, True
 
-    account_map = {}
-    for account in client.last_accounts:
-        account_no = str(account.get("account_number", ""))
-        default_name = account.get("account_name", f"한국투자증권 ({account_no[:4]}****)")
-        suffix = account_no[-4:] if account_no else ""
-        if account_no:
-            existing, account_scope_verified = resolve_kis_account(data["accounts"], account_no, default_name)
-            if not account_scope_verified:
-                return _unverified_holdings_response("한국투자증권", records)
-            if existing:
-                account_id = existing["id"]
-                account_name = existing["name"]  # 사용자 지정 이름 100% 보존
-                existing["source"] = "kis_api"
-                existing["account_key"] = suffix
-                existing["account_no"] = account_no
+        account_map = {}
+        for account in client.last_accounts:
+            account_no = str(account.get("account_number", ""))
+            default_name = account.get("account_name", f"한국투자증권 ({account_no[:4]}****)")
+            suffix = account_no[-4:] if account_no else ""
+            if account_no:
+                existing, account_scope_verified = resolve_kis_account(data["accounts"], account_no, default_name)
+                if not account_scope_verified:
+                    return _unverified_holdings_response("한국투자증권", records)
+                if existing:
+                    account_id = existing["id"]
+                    account_name = existing["name"]  # 사용자 지정 이름 100% 보존
+                    existing["source"] = "kis_api"
+                    existing["account_key"] = suffix
+                    existing["account_no"] = account_no
+                else:
+                    account_id = str(uuid.uuid4())
+                    account_name = default_name
+                    data["accounts"].append({
+                        "id": account_id,
+                        "broker": "한국투자증권",
+                        "name": account_name,
+                        "family_group": "All",
+                        "source": "kis_api",
+                        "account_key": suffix,
+                        "account_no": account_no,
+                        "owner": "모두",
+                    })
+                account_map[account_no] = (account_id, account_name)
+                if account_no in client.account_cash:
+                    cash_balances.setdefault(account_id, {})
+                    for ccy, amt in client.account_cash[account_no].items():
+                        cash_balances[account_id][ccy] = amt
+
+        holdings = []
+        for record in records:
+            acct_no = str(record.get("account_number", ""))
+            if acct_no in account_map:
+                account_id, account_name = account_map[acct_no]
             else:
-                account_id = str(uuid.uuid4())
-                account_name = default_name
-                data["accounts"].append({
-                    "id": account_id,
-                    "broker": "한국투자증권",
-                    "name": account_name,
-                    "family_group": "All",
-                    "source": "kis_api",
-                    "account_key": suffix,
-                    "account_no": account_no,
-                    "owner": "모두",
-                })
-            account_map[account_no] = (account_id, account_name)
-            if account_no in client.account_cash:
-                cash_balances.setdefault(account_id, {})
-                for ccy, amt in client.account_cash[account_no].items():
-                    cash_balances[account_id][ccy] = amt
+                return _unverified_holdings_response("한국투자증권", records)
+            holdings.append(normalize_holding(record, account_id, "한국투자증권", account_name, "kis_api"))
 
-    holdings = []
-    for record in records:
-        acct_no = str(record.get("account_number", ""))
-        if acct_no in account_map:
-            account_id, account_name = account_map[acct_no]
-        else:
+        scopes = resolve_scopes(records.scopes, account_map)
+        if scopes is None:
             return _unverified_holdings_response("한국투자증권", records)
-        holdings.append(normalize_holding(record, account_id, "한국투자증권", account_name, "kis_api"))
-
-    scopes = resolve_scopes(records.scopes, account_map)
-    if scopes is None:
-        return _unverified_holdings_response("한국투자증권", records)
-    replace_holdings_in_scopes(data, holdings, source="kis_api", scopes=scopes)
-    data["settings"]["cash_balances"] = cash_balances
-    _mark_sync_success(data, "kis")
-    _save_account_sync(data, username)
-    status = _holdings_success_status(records)
-    message = "한국투자증권 보유종목이 0개로 확인되어 예수금만 동기화했습니다." if not holdings else f"한국투자증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다."
-    return {"broker": "한국투자증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
+        replace_holdings_in_scopes(data, holdings, source="kis_api", scopes=scopes)
+        data["settings"]["cash_balances"] = cash_balances
+        _mark_sync_success(data, "kis")
+        _save_account_sync(data, username)
+        status = _holdings_success_status(records)
+        message = "한국투자증권 보유종목이 0개로 확인되어 예수금만 동기화했습니다." if not holdings else f"한국투자증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다."
+        return {"broker": "한국투자증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
 
 
 @app.post("/api/sync/kis")
@@ -6210,87 +6264,88 @@ async def sync_kiwoom_for_user(username: str, *, retry_transient: bool = False) 
         raise HTTPException(400, str(exc)) from exc
     if not isinstance(records, BrokerHoldingsResult) or not records.authoritative:
         return _unverified_holdings_response("키움증권", records)
-    data = _load_account_sync(username)
-    cash_balances = data["settings"].setdefault("cash_balances", {})
+    with financial_user_locks(username, 'portfolio.json'):
+        data = _load_account_sync(username)
+        cash_balances = data["settings"].setdefault("cash_balances", {})
 
-    def resolve_kiwoom_account(data_accounts, acct_no, default_name):
-        suffix = str(acct_no)[-4:] if acct_no else ""
-        broker_accounts = [
-            a for a in data_accounts
-            if canonical_broker_account_identity(a.get("broker"))
-            == canonical_broker_account_identity("키움증권")
-        ]
-        exact = [a for a in broker_accounts if normalize_broker_account_no(a.get("account_no")) == normalize_broker_account_no(acct_no)]
-        if len(exact) == 1:
-            return exact[0], True
-        if len(exact) > 1:
-            return None, False
-        suffix_matches = [a for a in broker_accounts if suffix and a.get("account_key") == suffix]
-        if len(suffix_matches) == 1:
-            return suffix_matches[0], True
-        if len(suffix_matches) > 1:
-            return None, False
-        name_matches = [
-            a for a in broker_accounts
-            if (suffix and suffix in a.get("name", "")) or a.get("name") == default_name
-        ]
-        if len(name_matches) == 1:
-            return name_matches[0], True
-        return None, True
+        def resolve_kiwoom_account(data_accounts, acct_no, default_name):
+            suffix = str(acct_no)[-4:] if acct_no else ""
+            broker_accounts = [
+                a for a in data_accounts
+                if canonical_broker_account_identity(a.get("broker"))
+                == canonical_broker_account_identity("키움증권")
+            ]
+            exact = [a for a in broker_accounts if normalize_broker_account_no(a.get("account_no")) == normalize_broker_account_no(acct_no)]
+            if len(exact) == 1:
+                return exact[0], True
+            if len(exact) > 1:
+                return None, False
+            suffix_matches = [a for a in broker_accounts if suffix and a.get("account_key") == suffix]
+            if len(suffix_matches) == 1:
+                return suffix_matches[0], True
+            if len(suffix_matches) > 1:
+                return None, False
+            name_matches = [
+                a for a in broker_accounts
+                if (suffix and suffix in a.get("name", "")) or a.get("name") == default_name
+            ]
+            if len(name_matches) == 1:
+                return name_matches[0], True
+            return None, True
 
-    account_map = {}
-    for account in client.last_accounts:
-        account_no = str(account.get("account_number", ""))
-        default_name = account.get("account_name", f"키움증권 ({account_no[:4]}****)")
-        suffix = account_no[-4:] if account_no else ""
-        if account_no:
-            existing, account_scope_verified = resolve_kiwoom_account(data["accounts"], account_no, default_name)
-            if not account_scope_verified:
-                return _unverified_holdings_response("키움증권", records)
-            if existing:
-                account_id = existing["id"]
-                account_name = existing["name"]  # 사용자 지정 이름 100% 보존
-                existing["source"] = "kiwoom_api"
-                existing["account_key"] = suffix
-                existing["account_no"] = account_no
+        account_map = {}
+        for account in client.last_accounts:
+            account_no = str(account.get("account_number", ""))
+            default_name = account.get("account_name", f"키움증권 ({account_no[:4]}****)")
+            suffix = account_no[-4:] if account_no else ""
+            if account_no:
+                existing, account_scope_verified = resolve_kiwoom_account(data["accounts"], account_no, default_name)
+                if not account_scope_verified:
+                    return _unverified_holdings_response("키움증권", records)
+                if existing:
+                    account_id = existing["id"]
+                    account_name = existing["name"]  # 사용자 지정 이름 100% 보존
+                    existing["source"] = "kiwoom_api"
+                    existing["account_key"] = suffix
+                    existing["account_no"] = account_no
+                else:
+                    account_id = str(uuid.uuid4())
+                    account_name = default_name
+                    data["accounts"].append({
+                        "id": account_id,
+                        "broker": "키움증권",
+                        "name": account_name,
+                        "family_group": "All",
+                        "source": "kiwoom_api",
+                        "account_key": suffix,
+                        "account_no": account_no,
+                        "owner": "모두",
+                    })
+                account_map[account_no] = (account_id, account_name)
+                if account_no in client.account_cash:
+                    cash_balances.setdefault(account_id, {})
+                    for ccy, amt in client.account_cash[account_no].items():
+                        cash_balances[account_id][ccy] = amt
+
+        holdings = []
+        for record in records:
+            acct_no = str(record.get("account_number", ""))
+            if acct_no in account_map:
+                account_id, account_name = account_map[acct_no]
             else:
-                account_id = str(uuid.uuid4())
-                account_name = default_name
-                data["accounts"].append({
-                    "id": account_id,
-                    "broker": "키움증권",
-                    "name": account_name,
-                    "family_group": "All",
-                    "source": "kiwoom_api",
-                    "account_key": suffix,
-                    "account_no": account_no,
-                    "owner": "모두",
-                })
-            account_map[account_no] = (account_id, account_name)
-            if account_no in client.account_cash:
-                cash_balances.setdefault(account_id, {})
-                for ccy, amt in client.account_cash[account_no].items():
-                    cash_balances[account_id][ccy] = amt
+                return _unverified_holdings_response("키움증권", records)
+            holdings.append(normalize_holding(record, account_id, "키움증권", account_name, "kiwoom_api"))
 
-    holdings = []
-    for record in records:
-        acct_no = str(record.get("account_number", ""))
-        if acct_no in account_map:
-            account_id, account_name = account_map[acct_no]
-        else:
+        scopes = resolve_scopes(records.scopes, account_map)
+        if scopes is None:
             return _unverified_holdings_response("키움증권", records)
-        holdings.append(normalize_holding(record, account_id, "키움증권", account_name, "kiwoom_api"))
-
-    scopes = resolve_scopes(records.scopes, account_map)
-    if scopes is None:
-        return _unverified_holdings_response("키움증권", records)
-    replace_holdings_in_scopes(data, holdings, source="kiwoom_api", scopes=scopes)
-    data["settings"]["cash_balances"] = cash_balances
-    _mark_sync_success(data, "kiwoom")
-    _save_account_sync(data, username)
-    status = _holdings_success_status(records)
-    message = "키움증권 국내 보유종목이 0개로 확인되어 KRW 예수금만 동기화했습니다." if not holdings else f"키움증권 국내 보유종목 {len(holdings)}개 및 KRW 예수금을 동기화했습니다."
-    return {"broker": "키움증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
+        replace_holdings_in_scopes(data, holdings, source="kiwoom_api", scopes=scopes)
+        data["settings"]["cash_balances"] = cash_balances
+        _mark_sync_success(data, "kiwoom")
+        _save_account_sync(data, username)
+        status = _holdings_success_status(records)
+        message = "키움증권 국내 보유종목이 0개로 확인되어 KRW 예수금만 동기화했습니다." if not holdings else f"키움증권 국내 보유종목 {len(holdings)}개 및 KRW 예수금을 동기화했습니다."
+        return {"broker": "키움증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
 
 
 @app.post("/api/sync/kiwoom")
@@ -6304,13 +6359,14 @@ async def sync_kiwoom(request: Request = None) -> dict:
 async def refresh_fx_rate(request: Request) -> dict:
     username = get_current_username(request)
     rate = await fetch_fx_rate_usd_krw()
-    data = read_portfolio(username=username)
-    data["settings"]["fx_rates"]["USD"] = rate
-    now_str = datetime.now().astimezone().isoformat(timespec="seconds")
-    data["settings"]["fx_info"] = {"source": "실시간 웹 환율", "rate": rate, "updated_at": now_str}
-    data["settings"]["fx_updated_at"] = now_str
-    write_portfolio(data, username=username)
-    return {"message": f"실시간 환율(USD/KRW: {rate:,.1f}원)을 반영했습니다.", "rate": rate}
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        data["settings"]["fx_rates"]["USD"] = rate
+        now_str = datetime.now().astimezone().isoformat(timespec="seconds")
+        data["settings"]["fx_info"] = {"source": "실시간 웹 환율", "rate": rate, "updated_at": now_str}
+        data["settings"]["fx_updated_at"] = now_str
+        write_portfolio(data, username=username)
+        return {"message": f"실시간 환율(USD/KRW: {rate:,.1f}원)을 반영했습니다.", "rate": rate}
 
 
 async def refresh_prices_for_user(username: str) -> dict:
@@ -6330,12 +6386,14 @@ async def refresh_prices_for_user(username: str) -> dict:
     if not data.get("holdings"):
         fx_rate = await fetch_fx_rate_usd_krw()
         if fx_rate and fx_rate > 0:
-            data.setdefault("settings", {})
-            data["settings"].setdefault("exchange_rates", {})["USD"] = fx_rate
-            data["settings"]["fx_rates"] = {"KRW": 1.0, "USD": fx_rate}
-            data["settings"]["fx_info"] = {"source": "실시간 웹 환율", "rate": fx_rate, "updated_at": now_str}
-            data["settings"]["fx_updated_at"] = now_str
-            write_portfolio(data, username=username)
+            with financial_user_locks(username, 'portfolio.json'):
+                data = read_portfolio(username=username)
+                data.setdefault("settings", {})
+                data["settings"].setdefault("exchange_rates", {})["USD"] = fx_rate
+                data["settings"]["fx_rates"] = {"KRW": 1.0, "USD": fx_rate}
+                data["settings"]["fx_info"] = {"source": "실시간 웹 환율", "rate": fx_rate, "updated_at": now_str}
+                data["settings"]["fx_updated_at"] = now_str
+                write_portfolio(data, username=username)
         return {
             "message": "지수 및 환율을 갱신했습니다.",
             "count": 0,
@@ -6350,38 +6408,40 @@ async def refresh_prices_for_user(username: str) -> dict:
     period_rates = res.get("period_rates", {})
     fx_rate = res.get("fx_rate", 1385.0)
 
-    # 포트폴리오 업데이트
-    for holding in data["holdings"]:
-        hid = holding["id"]
-        if hid in prices and prices[hid] > 0:
-            holding["current_price"] = prices[hid]
-            holding["price_updated_at"] = now_str
+    with financial_user_locks(username, 'portfolio.json'):
+        data = read_portfolio(username=username)
+        # 포트폴리오 업데이트
+        for holding in data["holdings"]:
+            hid = holding["id"]
+            if hid in prices and prices[hid] > 0:
+                holding["current_price"] = prices[hid]
+                holding["price_updated_at"] = now_str
 
-    if daily_changes:
-        data["settings"].setdefault("daily_price_changes", {}).update(daily_changes)
-    if period_rates:
-        data["settings"].setdefault("period_rates", {}).update(period_rates)
-    session_obs = res.get("session_obs", {})
-    if session_obs:
-        stored_obs = data["settings"].setdefault("price_session_obs", {})
-        merge_price_session_obs(stored_obs, session_obs)
+        if daily_changes:
+            data["settings"].setdefault("daily_price_changes", {}).update(daily_changes)
+        if period_rates:
+            data["settings"].setdefault("period_rates", {}).update(period_rates)
+        session_obs = res.get("session_obs", {})
+        if session_obs:
+            stored_obs = data["settings"].setdefault("price_session_obs", {})
+            merge_price_session_obs(stored_obs, session_obs)
 
-    session_dates = res.get("session_dates", {})
-    if session_dates:
-        stored_dates = data["settings"].setdefault("price_session_dates", {})
-        for code, inc_date in session_dates.items():
-            inc_norm = normalize_session_date(inc_date)
-            if not inc_norm:
-                continue
-            cur_date = normalize_session_date(stored_dates.get(code))
-            if cur_date and inc_norm < cur_date:
-                continue
-            stored_dates[code] = inc_date
-    if fx_rate and fx_rate > 0:
-        data["settings"].setdefault("exchange_rates", {})["USD"] = fx_rate
-        data["settings"]["fx_updated_at"] = now_str
+        session_dates = res.get("session_dates", {})
+        if session_dates:
+            stored_dates = data["settings"].setdefault("price_session_dates", {})
+            for code, inc_date in session_dates.items():
+                inc_norm = normalize_session_date(inc_date)
+                if not inc_norm:
+                    continue
+                cur_date = normalize_session_date(stored_dates.get(code))
+                if cur_date and inc_norm < cur_date:
+                    continue
+                stored_dates[code] = inc_date
+        if fx_rate and fx_rate > 0:
+            data["settings"].setdefault("exchange_rates", {})["USD"] = fx_rate
+            data["settings"]["fx_updated_at"] = now_str
 
-    write_portfolio(data, username=username)
+        write_portfolio(data, username=username)
     return {
         "message": f"전체 {len(prices)}개 종목 시세 및 환율({fx_rate:,.1f}원)을 갱신했습니다.",
         "count": len(prices),

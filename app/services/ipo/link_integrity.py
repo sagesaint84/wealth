@@ -1,7 +1,7 @@
 """Pure helpers for protecting IPO allocation links from P/L ledger deletion."""
 from __future__ import annotations
 
-import json
+from app.services.financial_json import read_financial_json, FinancialStorageError
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +37,8 @@ def linked_pnl_reference_counts_from_file(path: Path) -> dict[str, int]:
     if not path.exists():
         return {}
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+        value = read_financial_json(path)
+    except FinancialStorageError:
         # A malformed portfolio must not be used to approve a financial delete.
         raise RuntimeError("IPO_LINK_GUARD_UNAVAILABLE")
     if not isinstance(value, dict):

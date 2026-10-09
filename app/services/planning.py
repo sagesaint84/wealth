@@ -187,9 +187,9 @@ def upsert_current_snapshots(username, snapshots, source="auto", as_of=None):
     if not rows:
         return read_planning(username)
 
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         path = portfolio._get_portfolio_file(username)
-        pf = json.loads(path.read_text(encoding="utf-8")) if path.exists() else deepcopy(portfolio.EMPTY_PORTFOLIO)
+        pf = portfolio.read_financial_json(path, default=portfolio.EMPTY_PORTFOLIO)
         state = deepcopy(pf.get("settings", {}).get("wealth_planning", empty()))
         if as_of is not None:
             now = as_of if as_of.tzinfo else as_of.replace(tzinfo=timezone(timedelta(hours=9)))
@@ -232,16 +232,14 @@ def upsert_current_snapshots(username, snapshots, source="auto", as_of=None):
         state["revision"] += 1
         pf.setdefault("settings", {})["wealth_planning"] = state
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(".json.tmp")
-        temp.write_text(json.dumps(pf, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-        temp.replace(path)
+        portfolio.write_financial_json(path, pf)
         return deepcopy(state)
 
 def mutate(username, operation, payload):
     # Share the portfolio write lock and read within it (no stale planning copy).
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         path = portfolio._get_portfolio_file(username)
-        pf = json.loads(path.read_text(encoding="utf-8")) if path.exists() else deepcopy(portfolio.EMPTY_PORTFOLIO)
+        pf = portfolio.read_financial_json(path, default=portfolio.EMPTY_PORTFOLIO)
         state = deepcopy(pf.get("settings", {}).get("wealth_planning", empty()))
         if payload.get("revision") != state["revision"]:
             raise PlanningConflict("다른 화면에서 기록이 변경되었습니다. 다시 불러온 뒤 저장하세요.")
@@ -330,7 +328,5 @@ def mutate(username, operation, payload):
         pf.setdefault("settings", {})["wealth_planning"] = state
         # Classification and user-confirmed history are not quote refreshes.
         path.parent.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix('.json.tmp')
-        temp.write_text(json.dumps(pf, ensure_ascii=False, indent=2, allow_nan=False), encoding='utf-8')
-        temp.replace(path)
+        portfolio.write_financial_json(path, pf)
         return deepcopy(state)

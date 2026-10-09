@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import json
-import threading
 import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from app.services.test_safety import assert_write_allowed
+from app.services.financial_json import (financial_lock, financial_rmw, ensure_financial_json,
+    read_financial_json, write_financial_json)
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-_LOCK = threading.Lock()
 
 def _get_user_dir(username: str | None = None) -> Path:
     from app.services.user_manager import get_user_data_dir
@@ -29,10 +28,7 @@ def now_iso() -> str:
 
 def _ensure_data_file(username: str | None = None) -> Path:
     f = _get_records_file(username)
-    f.parent.mkdir(parents=True, exist_ok=True)
-    if not f.exists():
-        f.write_text(json.dumps(EMPTY_RECORDS, ensure_ascii=False, indent=2), encoding="utf-8")
-    return f
+    return ensure_financial_json(f, EMPTY_RECORDS)
 
 
 def _coerce_float(value: Any, default: float = 0.0) -> float:
@@ -43,39 +39,28 @@ def _coerce_float(value: Any, default: float = 0.0) -> float:
 
 
 def read_asset_records(username: str | None = None) -> dict[str, Any]:
-    with _LOCK:
-        f = _ensure_data_file(username)
-        try:
-            raw = json.loads(f.read_text(encoding="utf-8"))
-            if isinstance(raw, list):
-                data = {"records": raw, "updated_at": None}
-            elif isinstance(raw, dict):
-                data = raw
-            else:
-                data = deepcopy(EMPTY_RECORDS)
-        except (json.JSONDecodeError, OSError):
-            data = deepcopy(EMPTY_RECORDS)
-        data.setdefault("records", [])
-        data.setdefault("updated_at", None)
-        normalized: list[dict[str, Any]] = []
-        for item in data["records"]:
-            if not isinstance(item, dict):
-                continue
-            normalized.append(normalize_record(item, preserve_id=True))
-        normalized.sort(key=lambda item: (item.get("date") or "", item.get("created_at") or "", item.get("id") or ""))
-        data["records"] = normalized
-        return data
+    f = _ensure_data_file(username)
+    raw = read_financial_json(f)
+    data = {"records": raw, "updated_at": None} if isinstance(raw, list) else raw
+    data.setdefault("records", [])
+    data.setdefault("updated_at", None)
+    normalized: list[dict[str, Any]] = []
+    for item in data["records"]:
+        if not isinstance(item, dict):
+            continue
+        normalized.append(normalize_record(item, preserve_id=True))
+    normalized.sort(key=lambda item: (item.get("date") or "", item.get("created_at") or "", item.get("id") or ""))
+    data["records"] = normalized
+    return data
 
 
 def write_asset_records(data: dict[str, Any], username: str | None = None) -> dict[str, Any]:
-    with _LOCK:
+    with financial_lock(_get_records_file(username)):
         f = _get_records_file(username)
         assert_write_allowed(f)
         f = _ensure_data_file(username)
         data["updated_at"] = now_iso()
-        temp_file = f.with_suffix(".json.tmp")
-        temp_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        temp_file.replace(f)
+        write_financial_json(f, data)
         return data
 
 
@@ -113,6 +98,7 @@ def list_asset_records(username: str | None = None) -> list[dict[str, Any]]:
     return read_asset_records(username)["records"]
 
 
+@financial_rmw('asset_records.json')
 def upsert_asset_record(raw: dict[str, Any], by_date: bool = False, username: str | None = None) -> dict[str, Any]:
     data = read_asset_records(username)
     record = normalize_record(raw)
@@ -140,6 +126,7 @@ def upsert_asset_record(raw: dict[str, Any], by_date: bool = False, username: st
     return record
 
 
+@financial_rmw('asset_records.json')
 def delete_asset_record(record_id: str, username: str | None = None) -> bool:
     data = read_asset_records(username)
     before = len(data["records"])

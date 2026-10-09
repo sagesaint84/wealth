@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.financial_json import financial_rmw
+
 import json
 import math
 import uuid
@@ -383,6 +385,7 @@ def get_savings_data(username: str | None = None) -> dict[str, Any]:
     }
 
 
+@financial_rmw('portfolio.json')
 def save_bank_account(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     """일반 은행 계좌를 생성하거나 수정합니다."""
     data = read_portfolio(username)
@@ -420,6 +423,7 @@ def save_bank_account(payload: dict[str, Any], username: str | None = None) -> d
     return record
 
 
+@financial_rmw('ledger.json', 'portfolio.json')
 def delete_bank_account(acc_id: str, username: str | None = None) -> bool:
     """일반 은행 계좌를 삭제합니다."""
     data = read_portfolio(username)
@@ -439,6 +443,7 @@ def delete_bank_account(acc_id: str, username: str | None = None) -> bool:
     return True
 
 
+@financial_rmw('portfolio.json')
 def save_saving_account(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     """예·적금 상품 계좌를 생성하거나 수정합니다."""
     data = read_portfolio(username)
@@ -482,6 +487,7 @@ def save_saving_account(payload: dict[str, Any], username: str | None = None) ->
     return record
 
 
+@financial_rmw('portfolio.json')
 def delete_saving_account(saving_id: str, username: str | None = None) -> bool:
     """예·적금 상품 계좌를 삭제합니다."""
     data = read_portfolio(username)
@@ -494,6 +500,7 @@ def delete_saving_account(saving_id: str, username: str | None = None) -> bool:
     return True
 
 
+@financial_rmw('portfolio.json')
 def save_insurance_account(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     """보험/연금/공제 계좌를 생성하거나 수정합니다."""
     data = read_portfolio(username)
@@ -550,6 +557,7 @@ def save_insurance_account(payload: dict[str, Any], username: str | None = None)
     return record
 
 
+@financial_rmw('portfolio.json')
 def delete_insurance_account(ins_id: str, username: str | None = None) -> bool:
     """보험/연금/공제 계좌를 삭제합니다."""
     data = read_portfolio(username)
@@ -562,6 +570,7 @@ def delete_insurance_account(ins_id: str, username: str | None = None) -> bool:
     return True
 
 
+@financial_rmw('ledger.json', 'portfolio.json')
 def save_loan_account(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     """대출·마이너스통장 계좌를 생성하거나 수정합니다."""
     data = read_portfolio(username)
@@ -627,6 +636,7 @@ def save_loan_account(payload: dict[str, Any], username: str | None = None) -> d
     return record
 
 
+@financial_rmw('ledger.json', 'portfolio.json')
 def delete_loan_account(loan_id: str, username: str | None = None) -> bool:
     """대출·마이너스통장 계좌를 삭제합니다."""
     data = read_portfolio(username)

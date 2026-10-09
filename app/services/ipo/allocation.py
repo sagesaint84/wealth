@@ -1,6 +1,8 @@
 """IPO allocation lots and non-mutating links to authoritative P/L records."""
 from __future__ import annotations
 
+from app.services.financial_json import financial_rmw
+
 import json
 import math
 import uuid
@@ -63,9 +65,9 @@ def set_allocation(username: str | None, ipo_id: str, owner: str, quantity: obje
     try: price = float(offer_price)
     except (TypeError, ValueError) as exc: raise InvalidApplicationError("IPO_OFFER_PRICE_UNAVAILABLE") from exc
     if not math.isfinite(price) or price <= 0: raise InvalidApplicationError("IPO_OFFER_PRICE_UNAVAILABLE")
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         path = portfolio._get_portfolio_file(username)
-        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else deepcopy(portfolio.EMPTY_PORTFOLIO)
+        data = portfolio.read_financial_json(path, default=portfolio.EMPTY_PORTFOLIO)
         ipo = data.setdefault("settings", {}).setdefault("ipo", {"revision": 0, "applications": {}})
         if int(ipo.get("revision", 0)) != revision: raise ApplicationRevisionConflict("Revision conflict")
         _, applicant, _ = _load_applicant(data, ipo_id, owner)
@@ -77,8 +79,8 @@ def set_allocation(username: str | None, ipo_id: str, owner: str, quantity: obje
             applicant["allocation"] = allocation
         allocation.update({"quantity": qty, "offer_price": price, "updated_at": datetime.now().astimezone().isoformat()})
         ipo["revision"] = revision + 1
-        path.parent.mkdir(parents=True, exist_ok=True); temp = path.with_suffix(".json.tmp")
-        temp.write_text(json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8"); temp.replace(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        portfolio.write_financial_json(path, data)
         return {"revision": revision + 1, "allocation_id": allocation["id"], "quantity": qty, "offer_price": price}
 
 
@@ -91,16 +93,17 @@ def _eligible(record: dict[str, Any], applicant: dict[str, Any], stock_code: str
     return True
 
 
+@financial_rmw("portfolio.json", "realized_pnl_records.json")
 def link_sale(username: str | None, ipo_id: str, owner: str, pnl_record_id: str, matched_quantity: object, revision: int, stock_code: str, listing_date: str | None) -> dict[str, Any]:
     requested = _quantity(matched_quantity, "matched_quantity")
     if requested <= 0: raise InvalidApplicationError("matched_quantity must be positive")
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         # Keep P/L lookup inside the same lock used by its delete guard: a
         # record cannot disappear between validation and link persistence.
         records = {str(item.get("id") or ""): item for item in read_pnl_records_readonly(username)}
         record = records.get(str(pnl_record_id))
         if not isinstance(record, dict): raise InvalidApplicationError("PNL_RECORD_NOT_FOUND")
-        path = portfolio._get_portfolio_file(username); data = json.loads(path.read_text(encoding="utf-8"))
+        path = portfolio._get_portfolio_file(username); data = portfolio.read_financial_json(path)
         ipo = data.setdefault("settings", {}).setdefault("ipo", {"revision": 0, "applications": {}})
         if int(ipo.get("revision", 0)) != revision: raise ApplicationRevisionConflict("Revision conflict")
         _, applicant, apps = _load_applicant(data, ipo_id, owner); allocation = applicant.get("allocation")
@@ -116,16 +119,16 @@ def link_sale(username: str | None, ipo_id: str, owner: str, pnl_record_id: str,
         if sold + requested > _quantity(allocation.get("quantity"), "allocated_quantity"): raise AllocationConflict("ALLOCATION_OVERRUN")
         if _all_consumed(apps, str(pnl_record_id)) + requested > _quantity(record.get("quantity"), "quantity"): raise AllocationConflict("PNL_OVERRUN")
         links.append({"pnl_record_id": str(pnl_record_id), "matched_quantity": requested, "linked_at": datetime.now().astimezone().isoformat()})
-        ipo["revision"] = revision + 1; temp = path.with_suffix(".json.tmp")
-        temp.write_text(json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8"); temp.replace(path)
+        ipo["revision"] = revision + 1
+        portfolio.write_financial_json(path, data)
         return {"revision": revision + 1, "allocation_id": allocation["id"], "matched_quantity": requested, "status": "LINKED"}
 
 
 def unlink_sale(username: str | None, ipo_id: str, owner: str, pnl_record_id: str, revision: int) -> dict[str, Any]:
     """Explicitly remove one allocation-side relationship, never the P/L record."""
-    with portfolio._LOCK:
+    with portfolio.financial_lock(portfolio._get_portfolio_file(username)):
         path = portfolio._get_portfolio_file(username)
-        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else deepcopy(portfolio.EMPTY_PORTFOLIO)
+        data = portfolio.read_financial_json(path, default=portfolio.EMPTY_PORTFOLIO)
         ipo = data.setdefault("settings", {}).setdefault("ipo", {"revision": 0, "applications": {}})
         if int(ipo.get("revision", 0)) != revision:
             raise ApplicationRevisionConflict("Revision conflict")
@@ -143,9 +146,7 @@ def unlink_sale(username: str | None, ipo_id: str, owner: str, pnl_record_id: st
             raise InvalidApplicationError("LINK_NOT_FOUND")
         removed = links.pop(target_index)
         ipo["revision"] = revision + 1
-        temp = path.with_suffix(".json.tmp")
-        temp.write_text(json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-        temp.replace(path)
+        portfolio.write_financial_json(path, data)
         return {"revision": revision + 1, "allocation_id": allocation.get("id"),
                 "pnl_record_id": target_id, "matched_quantity": _quantity(removed.get("matched_quantity"), "matched_quantity"),
                 "status": "UNLINKED"}

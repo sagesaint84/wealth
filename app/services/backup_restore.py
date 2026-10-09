@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from app.services.settings import settings_lock
+from app.services.financial_json import financial_locks, read_financial_json
+from app.services.secure_files import atomic_write_private_bytes
 from app.services.test_safety import assert_write_allowed
 from app.services.user_manager import get_user_data_dir
 
@@ -54,9 +55,10 @@ def restore_general_data(username: str, bundle: dict[str, Any]) -> list[str]:
         ledger.setdefault("budgets", {})
         targets.append(("ledger.json", ledger, lambda value: write_ledger(value, username=username), "가계부"))
 
-    # This existing advisory lock serializes restores for the same user across
-    # processes. Other writer families do not acquire it.
-    with settings_lock(user_dir / ".backup-restore"):
+    # Restore and rollback hold the same sorted domains as normal financial writers.
+    with settings_lock(user_dir / ".backup-restore"), financial_locks(
+        user_dir / filename for filename, _, _, _ in targets
+    ):
         with tempfile.TemporaryDirectory(prefix=".backup-restore-", dir=user_dir) as temporary:
             snapshots: dict[Path, Path | None] = {}
             for filename, _, _, _ in targets:
@@ -64,6 +66,7 @@ def restore_general_data(username: str, bundle: dict[str, Any]) -> list[str]:
                 assert_write_allowed(destination)
                 snapshot = Path(temporary) / filename
                 if destination.exists():
+                    read_financial_json(destination)
                     shutil.copy2(destination, snapshot)
                     snapshots[destination] = snapshot
                 else:
@@ -91,7 +94,7 @@ def restore_general_data(username: str, bundle: dict[str, Any]) -> list[str]:
                         if snapshot is None:
                             destination.unlink(missing_ok=True)
                         else:
-                            os.replace(snapshot, destination)
+                            atomic_write_private_bytes(destination, snapshot.read_bytes())
                     except OSError as exc:
                         rollback_errors.append(exc)
                 if rollback_errors:

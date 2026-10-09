@@ -223,6 +223,11 @@ class AccountImportApiTests(unittest.TestCase):
 
 
 class AccountNumberReconciliationTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        super().setUp()
+        root = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="wealth-reconciliation-lock-fixture-")))
+        self.enterContext(patch.object(portfolio, "_get_user_dir", side_effect=lambda username=None: root / (username or "fixture")))
+
     @staticmethod
     def _empty_portfolio(**overrides):
         data = deepcopy(portfolio.EMPTY_PORTFOLIO)

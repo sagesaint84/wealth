@@ -85,7 +85,12 @@ class UserDataIsolationRegressionTests(IsolatedDataTestCase):
         self.assertTrue(actual_a.isdisjoint(actual_b))
 
         generated_files = [path for path in self.fixture_root.rglob("*") if path.is_file()]
-        self.assertEqual(len(generated_files), 10)
+        json_files = {path for path in generated_files if path.suffix == ".json"}
+        lock_files = {path for path in generated_files if path.suffix == ".lock"}
+        self.assertEqual(len(json_files), 10)
+        self.assertEqual(len(lock_files), 10)
+        self.assertEqual(lock_files, {path.with_name(f".{path.name}.lock") for path in json_files})
+        self.assertEqual(set(generated_files), json_files | lock_files)
         for path in generated_files:
             with self.subTest(path=path):
                 self.assertTrue(path.is_relative_to(self.fixture_root))

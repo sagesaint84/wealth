@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 import openpyxl
 
+from app.services.financial_json import (FinancialStorageError, financial_rmw,
+    ensure_financial_json, read_financial_json, write_financial_json)
 from app.services.historical_fx import get_historical_fx_rate
 from app.services.stock_master import resolve_stock_info
 from app.services.file_import_identity import (
@@ -38,25 +40,17 @@ def _get_dividend_file(username: str | None = None) -> Path:
 
 def _ensure_dividend_file(username: str | None = None) -> Path:
     f = _get_dividend_file(username)
-    f.parent.mkdir(parents=True, exist_ok=True)
-    if not f.exists():
-        initial = {
-            "records": [],
-            "updated_at": datetime.now().astimezone().isoformat(),
-        }
-        with open(f, "w", encoding="utf-8") as fp:
-            json.dump(initial, fp, ensure_ascii=False, indent=2)
-    return f
+    return ensure_financial_json(f, {
+        "records": [], "updated_at": datetime.now().astimezone().isoformat(),
+    })
 
 
 def read_dividend_records(username: str | None = None) -> list[dict[str, Any]]:
     f = _ensure_dividend_file(username)
     try:
-        with open(f, "r", encoding="utf-8") as fp:
-            data = json.load(fp)
-            return data.get("records", [])
-    except Exception:
-        return []
+        return read_financial_json(f).get("records", [])
+    except FinancialStorageError as exc:
+        raise DividendRecordsStorageError("dividend storage is unreadable") from exc
 
 
 def _read_dividend_records_for_import(username: str | None = None) -> list[dict[str, Any]]:
@@ -64,9 +58,8 @@ def _read_dividend_records_for_import(username: str | None = None) -> list[dict[
     if not path.exists():
         return []
     try:
-        with open(path, "r", encoding="utf-8") as fp:
-            data = json.load(fp)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        data = read_financial_json(path)
+    except FinancialStorageError as exc:
         raise DividendRecordsStorageError("dividend storage is unreadable") from exc
     if not isinstance(data, dict) or not isinstance(data.get("records"), list):
         raise DividendRecordsStorageError("dividend storage has an invalid structure")
@@ -81,16 +74,20 @@ def read_dividend_records_for_import(username: str | None = None) -> list[dict[s
     return _read_dividend_records_for_import(username)
 
 
+@financial_rmw('dividend_records.json')
 def write_dividend_records(records: list[dict[str, Any]], username: str | None = None) -> None:
     f = _ensure_dividend_file(username)
     payload = {
         "records": records,
         "updated_at": datetime.now().astimezone().isoformat(),
     }
-    with open(f, "w", encoding="utf-8") as fp:
-        json.dump(payload, fp, ensure_ascii=False, indent=2)
+    try:
+        write_financial_json(f, payload)
+    except FinancialStorageError as exc:
+        raise DividendRecordsStorageError("dividend storage is unreadable") from exc
 
 
+@financial_rmw('dividend_records.json')
 def create_dividend_record(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     records = read_dividend_records(username)
     now_iso = datetime.now().astimezone().isoformat()
@@ -175,6 +172,7 @@ def create_dividend_record(payload: dict[str, Any], username: str | None = None)
     return record
 
 
+@financial_rmw('dividend_records.json')
 def update_dividend_record(record_id: str, payload: dict[str, Any], username: str | None = None) -> dict[str, Any] | None:
     records = read_dividend_records(username)
     target = None
@@ -217,6 +215,7 @@ def update_dividend_record(record_id: str, payload: dict[str, Any], username: st
     return target
 
 
+@financial_rmw('dividend_records.json')
 def delete_dividend_record(record_id: str, username: str | None = None) -> bool:
     records = read_dividend_records(username)
     initial_len = len(records)
@@ -227,6 +226,7 @@ def delete_dividend_record(record_id: str, username: str | None = None) -> bool:
     return False
 
 
+@financial_rmw('dividend_records.json')
 def clear_dividend_records(username: str | None = None) -> None:
     write_dividend_records([], username)
 
@@ -421,6 +421,7 @@ def _dividend_file_import_fingerprint(record: dict[str, Any]) -> str | None:
     })
 
 
+@financial_rmw('dividend_records.json')
 def import_dividend_file_data(content: bytes, filename: str, fx_rate: float = 1385.0, username: str | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     
@@ -546,6 +547,7 @@ def import_dividend_file_data(content: bytes, filename: str, fx_rate: float = 13
     return imported_records
 
 
+@financial_rmw('dividend_records.json')
 def recalculate_dividend_historical_fx(username: str | None = None) -> int:
     """기존 등록된 모든 배당 내역의 환율을 입금일 기준 과거 환율로 일괄 재계산합니다."""
     records = read_dividend_records(username)

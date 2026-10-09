@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from app.services.user_manager import get_user_data_dir
+from app.services.financial_json import (FinancialStorageError, financial_rmw, ensure_financial_json,
+    read_financial_json, write_financial_json)
 from app.services.file_import_identity import (
     FILE_IMPORT_FINGERPRINT_FIELD,
     build_file_import_fingerprint,
@@ -87,34 +89,19 @@ def default_ledger_data() -> dict[str, Any]:
 
 
 def read_ledger(username: str | None = None) -> dict[str, Any]:
-    path = get_ledger_path(username)
-    if not os.path.exists(path):
-        data = default_ledger_data()
-        write_ledger(data, username=username)
-        return data
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        data.setdefault("version", "1.0")
-        data.setdefault("categories", DEFAULT_CATEGORIES)
-        data.setdefault("transactions", [])
-        data.setdefault("recurring", [])
-        data.setdefault("cards", [])
-        data.setdefault("budgets", {})
-        return data
-    except Exception:
-        data = default_ledger_data()
-        write_ledger(data, username=username)
-        return data
+    path = ensure_financial_json(get_ledger_path(username), default_ledger_data())
+    data = read_financial_json(path)
+    data.setdefault("version", "1.0")
+    data.setdefault("categories", DEFAULT_CATEGORIES)
+    data.setdefault("transactions", [])
+    data.setdefault("recurring", [])
+    data.setdefault("cards", [])
+    data.setdefault("budgets", {})
+    return data
 
 
 def write_ledger(data: dict[str, Any], username: str | None = None) -> None:
-    path = get_ledger_path(username)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    temp_path = f"{path}.tmp"
-    with open(temp_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(temp_path, path)
+    write_financial_json(get_ledger_path(username), data)
 
 
 def _read_ledger_for_file_import(username: str | None = None) -> dict[str, Any]:
@@ -122,9 +109,8 @@ def _read_ledger_for_file_import(username: str | None = None) -> dict[str, Any]:
     if not path.exists():
         return default_ledger_data()
     try:
-        with open(path, "r", encoding="utf-8") as fp:
-            data = json.load(fp)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        data = read_financial_json(path)
+    except FinancialStorageError as exc:
         raise LedgerImportStorageError("ledger storage is unreadable") from exc
     if not isinstance(data, dict) or not isinstance(data.get("transactions"), list):
         raise LedgerImportStorageError("ledger storage has an invalid structure")
@@ -418,6 +404,7 @@ def _apply_balance_delta_to_portfolio(
     return result
 
 
+@financial_rmw('portfolio.json')
 def _apply_account_balance_delta(
     acc_id: str | None,
     delta: float,
@@ -546,6 +533,7 @@ def get_cards(username: str | None = None, owner: str = "모두") -> list[dict[s
     return result
 
 
+@financial_rmw('ledger.json')
 def create_card(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     data = read_ledger(username=username)
     cid = payload.get("id") or str(uuid.uuid4())
@@ -569,6 +557,7 @@ def create_card(payload: dict[str, Any], username: str | None = None) -> dict[st
     return card
 
 
+@financial_rmw('ledger.json')
 def update_card(card_id: str, payload: dict[str, Any], username: str | None = None) -> dict[str, Any] | None:
     data = read_ledger(username=username)
     for idx, c in enumerate(data.get("cards", [])):
@@ -585,6 +574,7 @@ def update_card(card_id: str, payload: dict[str, Any], username: str | None = No
     return None
 
 
+@financial_rmw('ledger.json')
 def delete_card(card_id: str, username: str | None = None) -> bool:
     data = read_ledger(username=username)
     before = len(data.get("cards", []))
@@ -595,6 +585,7 @@ def delete_card(card_id: str, username: str | None = None) -> bool:
     return False
 
 
+@financial_rmw('ledger.json', 'portfolio.json')
 def settle_card_payment(card_id: str, payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     data = read_ledger(username=username)
     target_card = next((c for c in data.get("cards", []) if c.get("id") == card_id), None)
@@ -675,6 +666,7 @@ def settle_card_payment(card_id: str, payload: dict[str, Any], username: str | N
     }
 
 
+@financial_rmw('ledger.json', 'portfolio.json')
 def add_transaction(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     data = read_ledger(username=username)
     tx_id = payload.get("id") or str(uuid.uuid4())
@@ -738,6 +730,7 @@ def add_transaction(payload: dict[str, Any], username: str | None = None) -> dic
     return tx
 
 
+@financial_rmw('ledger.json', 'portfolio.json')
 def update_transaction(tx_id: str, payload: dict[str, Any], username: str | None = None) -> dict[str, Any] | None:
     data = read_ledger(username=username)
     for idx, tx in enumerate(data.get("transactions", [])):
@@ -849,6 +842,7 @@ def update_transaction(tx_id: str, payload: dict[str, Any], username: str | None
     return None
 
 
+@financial_rmw('ledger.json', 'portfolio.json')
 def delete_transaction(tx_id: str, username: str | None = None) -> bool:
     data = read_ledger(username=username)
     before = len(data.get("transactions", []))
@@ -899,6 +893,7 @@ def delete_transaction(tx_id: str, username: str | None = None) -> bool:
     return False
 
 
+@financial_rmw('ledger.json', 'portfolio.json')
 def add_recurring(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     data = read_ledger(username=username)
     rec_id = payload.get("id") or str(uuid.uuid4())
@@ -924,6 +919,7 @@ def add_recurring(payload: dict[str, Any], username: str | None = None) -> dict[
     return rec
 
 
+@financial_rmw('ledger.json', 'portfolio.json')
 def edit_recurring(rec_id: str, payload: dict[str, Any], username: str | None = None) -> dict[str, Any] | None:
     data = read_ledger(username=username)
     for idx, r in enumerate(data.get("recurring", [])):
@@ -951,6 +947,7 @@ def edit_recurring(rec_id: str, payload: dict[str, Any], username: str | None = 
     return None
 
 
+@financial_rmw('ledger.json')
 def delete_recurring(rec_id: str, username: str | None = None) -> bool:
     data = read_ledger(username=username)
     before = len(data.get("recurring", []))
@@ -962,6 +959,7 @@ def delete_recurring(rec_id: str, username: str | None = None) -> bool:
     return False
 
 
+@financial_rmw('ledger.json', 'portfolio.json')
 def process_recurring_deductions(
     username: str | None = None, *, pending_data: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
@@ -1089,6 +1087,7 @@ def _ledger_file_import_fingerprint(record: dict[str, Any]) -> str | None:
     })
 
 
+@financial_rmw('ledger.json')
 def import_ledger_from_file_bytes(
     file_bytes: bytes,
     filename: str,

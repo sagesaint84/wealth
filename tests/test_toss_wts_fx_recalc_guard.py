@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import copy
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from app.services import pnl_records
 
 
 class TossWtsFxRecalculationGuardTests(unittest.TestCase):
+    def setUp(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="wealth-fx-lock-fixture-")))
+        self.enterContext(patch.object(pnl_records, "_get_user_dir", side_effect=lambda username=None: root / (username or "fixture")))
+
     @staticmethod
     def usd_record(*, source: str | None = None, broker: str = "가상증권") -> dict:
         record = {
