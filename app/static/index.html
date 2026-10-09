@@ -726,6 +726,8 @@
               <div class="toss-wts-control-item toss-wts-account-control">
                 <label for="wtsDestinationAccount">귀속 Wealth 계좌</label>
                 <select id="wtsDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌"><option value="">토스증권 계좌를 선택하세요</option></select>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;"><button id="wtsDestinationAccountRemember" type="button" class="button secondary compact">이 계좌를 기본값으로 기억</button><button id="wtsDestinationAccountClear" type="button" class="button secondary compact">기본값 해제</button></div>
+                <small id="wtsDestinationAccountDefaultNotice" role="status"></small>
               </div>
               <div id="tossWtsImportBar" class="toss-wts-control-action toss-wts-import-actions">
                 <button type="button" id="btnFetchTossWtsFeed" class="button primary compact toss-wts-fetch-btn">WTS 조회</button>
@@ -1207,6 +1209,8 @@
               <div class="toss-wts-control-item toss-wts-account-control">
                 <label for="wtsIncomeDestinationAccount">귀속 Wealth 계좌</label>
                 <select id="wtsIncomeDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌"><option value="">토스증권 계좌를 선택하세요</option></select>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;"><button id="wtsIncomeDestinationAccountRemember" type="button" class="button secondary compact">이 계좌를 기본값으로 기억</button><button id="wtsIncomeDestinationAccountClear" type="button" class="button secondary compact">기본값 해제</button></div>
+                <small id="wtsIncomeDestinationAccountDefaultNotice" role="status"></small>
               </div>
               <div id="tossWtsIncomeImportBar" class="toss-wts-control-action toss-wts-import-actions">
                 <button type="button" id="btnFetchTossWtsIncome" class="button primary compact toss-wts-fetch-btn">배당·이자 조회</button>
@@ -2513,7 +2517,7 @@
         <h2 id="ledgerTxDialogTitle">수입 / 지출 내역 등록</h2>
         <button value="cancel" class="close" aria-label="닫기" onclick="this.closest('dialog')?.close()">×</button>
       </div>
-      <div class="form-grid" style="grid-template-columns:repeat(2,1fr);margin-top:14px;">
+      <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));margin-top:14px;">
         <label id="ledgerTxDateWrap">거래 일자
           <div class="split-date-wrap" id="ledgerTxSplitDateWrap">
             <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" class="date-part date-part-year" id="ledgerTxDateYear" placeholder="YYYY" aria-label="거래일자 연도 4자리" autocomplete="off" title="마우스 휠로 연도 조절 가능" />
@@ -2583,6 +2587,15 @@
         </div>
 
         <!-- 실시간 계좌 잔액 변동 인포 바 -->
+        <div style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;">
+          <button id="ledgerDefaultSave" type="button" class="button secondary compact">★ 현재 선택을 기본값으로 지정</button>
+          <button id="ledgerDefaultClear" type="button" class="button secondary compact">기본값 해제</button>
+          <small id="ledgerDefaultNotice" role="status" style="flex-basis:100%;"></small>
+        </div>
+        <div id="ledgerInterestLinkBox" hidden style="grid-column:1/-1;">
+          <label style="display:flex;align-items:center;gap:8px;"><input id="ledgerInterestLink" type="checkbox" style="width:auto;flex:none;" /> 은행 이자로 배당·이자에도 반영</label>
+          <small id="ledgerInterestLinkHint"></small>
+        </div>
         <div id="ledgerBalancePreviewBox" class="ledger-balance-preview-box" style="display:none;grid-column:1/-1;border-radius:8px;padding:10px 14px;font-size:12.5px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
             <span class="ledger-preview-label">기존 계좌 잔액:</span>
@@ -3244,7 +3257,8 @@
     <script src="/static/wealth-settings-surface.js?v=10.9m1"></script>
     <script src="/static/wealth-layout.js?v=10.9m1"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
-    <script src="/static/wealth.js?v=10.9k1"></script>
+    <script src="/static/wealth.js?v=10.9n1"></script>
+    <script src="/static/wealth-transaction-defaults.js?v=10.9n1"></script>
     <script src="/static/wealth-dividend-source.js?v=1.3.0"></script>
     <script src="/static/wealth-money-input.js?v=1.3.0"></script>
     <script src="/static/wealth-financial-income-what-if.js?v=1.3.0"></script>

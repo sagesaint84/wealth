@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.user_manager import get_user_data_dir
+from app.services.ledger_interest import interest_transaction
 from app.services.financial_json import (FinancialStorageError, financial_rmw, ensure_financial_json,
     read_financial_json, write_financial_json)
 from app.services.file_import_identity import (
@@ -666,7 +667,7 @@ def settle_card_payment(card_id: str, payload: dict[str, Any], username: str | N
     }
 
 
-@financial_rmw('ledger.json', 'portfolio.json')
+@interest_transaction
 def add_transaction(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     data = read_ledger(username=username)
     tx_id = payload.get("id") or str(uuid.uuid4())
@@ -719,6 +720,9 @@ def add_transaction(payload: dict[str, Any], username: str | None = None) -> dic
         "is_recurring": bool(payload.get("is_recurring", False)),
         "created_at": datetime.now().isoformat(),
     }
+    if "mirror_to_dividend_interest" in payload:
+        tx["mirror_to_dividend_interest"] = bool(payload["mirror_to_dividend_interest"])
+        tx["linked_interest_record_id"] = str(payload.get("linked_interest_record_id") or "")
     _set_balance_metadata(tx, balance_result)
     data["transactions"].append(tx)
     _commit_ledger_and_portfolio(
@@ -730,7 +734,7 @@ def add_transaction(payload: dict[str, Any], username: str | None = None) -> dic
     return tx
 
 
-@financial_rmw('ledger.json', 'portfolio.json')
+@interest_transaction
 def update_transaction(tx_id: str, payload: dict[str, Any], username: str | None = None) -> dict[str, Any] | None:
     data = read_ledger(username=username)
     for idx, tx in enumerate(data.get("transactions", [])):
@@ -746,6 +750,9 @@ def update_transaction(tx_id: str, payload: dict[str, Any], username: str | None
             old_acc_id = str(tx.get("account_id") or "").strip()
 
             updated_tx = deepcopy(tx)
+            if "mirror_to_dividend_interest" in payload:
+                updated_tx["mirror_to_dividend_interest"] = bool(payload["mirror_to_dividend_interest"])
+                updated_tx["linked_interest_record_id"] = str(payload.get("linked_interest_record_id") or "")
             for k in ["date", "type", "category", "owner", "pay_method", "card_id", "card_name", "is_card_payment", "is_settled", "account_id", "account_name", "merchant", "memo", "is_recurring"]:
                 if k in payload:
                     if k in ["is_recurring", "is_card_payment", "is_settled"]:
@@ -842,7 +849,7 @@ def update_transaction(tx_id: str, payload: dict[str, Any], username: str | None
     return None
 
 
-@financial_rmw('ledger.json', 'portfolio.json')
+@interest_transaction
 def delete_transaction(tx_id: str, username: str | None = None) -> bool:
     data = read_ledger(username=username)
     before = len(data.get("transactions", []))

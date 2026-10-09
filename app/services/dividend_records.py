@@ -89,6 +89,8 @@ def write_dividend_records(records: list[dict[str, Any]], username: str | None =
 
 @financial_rmw('dividend_records.json')
 def create_dividend_record(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
+    if payload.get("source") == "ledger_interest":
+        raise ValueError("가계부 연동 기록은 가계부에서 등록해 주세요.")
     records = read_dividend_records(username)
     now_iso = datetime.now().astimezone().isoformat()
     
@@ -182,6 +184,8 @@ def update_dividend_record(record_id: str, payload: dict[str, Any], username: st
             break
     if not target:
         return None
+    if target.get("source") == "ledger_interest" or payload.get("source") == "ledger_interest":
+        raise ValueError("가계부 연동 기록은 가계부에서 수정해 주세요.")
 
     currency = str(payload.get("currency", target.get("currency", "KRW"))).upper()
     amount = float(payload.get("amount", target.get("amount", 0.0)))
@@ -218,6 +222,8 @@ def update_dividend_record(record_id: str, payload: dict[str, Any], username: st
 @financial_rmw('dividend_records.json')
 def delete_dividend_record(record_id: str, username: str | None = None) -> bool:
     records = read_dividend_records(username)
+    if any(r.get("id") == record_id and r.get("source") == "ledger_interest" for r in records):
+        raise ValueError("가계부 연동 기록은 가계부에서 삭제해 주세요.")
     initial_len = len(records)
     records = [r for r in records if r.get("id") != record_id]
     if len(records) < initial_len:
@@ -228,7 +234,7 @@ def delete_dividend_record(record_id: str, username: str | None = None) -> bool:
 
 @financial_rmw('dividend_records.json')
 def clear_dividend_records(username: str | None = None) -> None:
-    write_dividend_records([], username)
+    write_dividend_records([r for r in read_dividend_records(username) if r.get("source") == "ledger_interest"], username)
 
 
 def _dividend_income_type(record: dict[str, Any]) -> str:
@@ -555,6 +561,8 @@ def recalculate_dividend_historical_fx(username: str | None = None) -> int:
     now_iso = datetime.now().astimezone().isoformat()
 
     for r in records:
+        if r.get("source") == "ledger_interest":
+            continue  # Ledger owns the exact KRW amount, including fractional input.
         curr = str(r.get("currency", "KRW")).upper()
         if curr == "USD":
             dt = str(r.get("date", ""))

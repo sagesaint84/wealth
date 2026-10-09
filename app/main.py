@@ -2272,7 +2272,10 @@ async def add_actual_dividend(request: Request) -> dict:
     """Add a new actual dividend record."""
     username = get_current_username(request)
     body = await request.json()
-    record = create_dividend_record(body, username=username)
+    try:
+        record = create_dividend_record(body, username=username)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return {"message": "배당금이 등록되었습니다.", "record": record}
 
 
@@ -2281,7 +2284,10 @@ async def edit_actual_dividend(record_id: str, request: Request) -> dict:
     """Update an existing actual dividend record."""
     username = get_current_username(request)
     body = await request.json()
-    record = update_dividend_record(record_id, body, username=username)
+    try:
+        record = update_dividend_record(record_id, body, username=username)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if not record:
         raise HTTPException(status_code=404, detail="배당 기록을 찾을 수 없습니다.")
     return {"message": "배당금이 수정되었습니다.", "record": record}
@@ -2291,7 +2297,10 @@ async def edit_actual_dividend(record_id: str, request: Request) -> dict:
 async def remove_actual_dividend(record_id: str, request: Request) -> dict:
     """Delete an actual dividend record."""
     username = get_current_username(request)
-    ok = delete_dividend_record(record_id, username=username)
+    try:
+        ok = delete_dividend_record(record_id, username=username)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if not ok:
         raise HTTPException(status_code=404, detail="배당 기록을 찾을 수 없습니다.")
     return {"message": "배당 기록이 삭제되었습니다."}
@@ -6591,6 +6600,42 @@ async def get_ledger(
         raise HTTPException(409, str(exc)) from exc
 
 
+@app.get("/api/ledger/preferences")
+async def ledger_preferences(request: Request) -> dict:
+    from app.services.transaction_preferences import get_transaction_defaults
+    return {"transaction_defaults": get_transaction_defaults(get_current_username(request))}
+
+
+@app.put("/api/ledger/preferences/transaction-defaults")
+async def ledger_transaction_defaults(request: Request) -> dict:
+    from app.services.transaction_preferences import set_transaction_defaults
+    body = await request.json()
+    try:
+        defaults = set_transaction_defaults(body.get("owner", "모두"), body.get("defaults", {}),
+                                            username=get_current_username(request))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"transaction_defaults": defaults}
+
+
+@app.get("/api/import-destination-defaults")
+async def import_destination_defaults(request: Request) -> dict:
+    from app.services.transaction_preferences import get_import_defaults
+    return {"defaults": get_import_defaults(get_current_username(request))}
+
+
+@app.put("/api/import-destination-defaults")
+async def update_import_destination_default(request: Request) -> dict:
+    from app.services.transaction_preferences import set_import_default
+    body = await request.json()
+    try:
+        defaults = set_import_default(body.get("workflow"), body.get("account_id", ""),
+                                      body.get("owner", "모두"), username=get_current_username(request))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"defaults": defaults}
+
+
 @app.post("/api/ledger/transactions")
 async def create_ledger_transaction(request: Request) -> dict:
     """Create a new income/expense/transfer transaction."""
@@ -6602,6 +6647,8 @@ async def create_ledger_transaction(request: Request) -> dict:
         tx = add_transaction(payload, username=username)
     except BalanceConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return {"message": "내역이 등록되었습니다.", "transaction": tx}
 
 
@@ -6614,6 +6661,8 @@ async def edit_ledger_transaction(tx_id: str, request: Request) -> dict:
         tx = update_transaction(tx_id, payload, username=username)
     except (LegacyBalanceDeltaError, BalanceConflictError) as exc:
         raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if not tx:
         raise HTTPException(404, "수정할 내역을 찾을 수 없습니다.")
     return {"message": "내역이 수정되었습니다.", "transaction": tx}

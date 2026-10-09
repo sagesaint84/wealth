@@ -9501,9 +9501,9 @@ function renderActualDividendDetail(month = null, bucketDetail = null) {
         <td class="center"><span class="td-currency">${html(item.currency || 'KRW')}</span></td>
         <td class="num td-orig-amt">${origAmt}${fxInfo}</td>
         <td class="num td-krw-amt pnl-gain-val" style="font-size:13.5px;font-weight:700;">${money(item.amount_krw)}</td>
-        <td class="td-memo">${html(item.memo || '-')}</td>
+        <td class="td-memo">${html(item.memo || '-')}${item.source === 'ledger_interest' ? `<br><span class="td-owner-badge">가계부 연동</span><br>${html(item.account_name || '')}` : ''}</td>
         <td class="center" style="white-space:nowrap;">
-          ${item.income_kind === 'interest' ? '<span title="이자 내역은 읽기 전용입니다">읽기 전용</span>' : `<div class="account-row-actions" style="justify-content:center;">
+          ${item.source === 'ledger_interest' ? '<span title="원본 가계부 거래에서 수정하거나 삭제해 주세요">가계부에서 수정</span>' : item.income_kind === 'interest' ? '<span title="이자 내역은 읽기 전용입니다">읽기 전용</span>' : `<div class="account-row-actions" style="justify-content:center;">
             <button class="account-action-button edit-actual-div-btn" data-id="${item.id}" title="배당 수정" type="button">✎</button>
             <button class="account-action-button mini-delete-button delete-actual-div-btn" data-id="${item.id}" title="배당 삭제" type="button">🗑️</button>
           </div>`}
@@ -12192,11 +12192,13 @@ function updateLedgerBalancePreview() {
 }
 window.updateLedgerBalancePreview = updateLedgerBalancePreview;
 
-function openLedgerTxModal(txId = null) {
+async function openLedgerTxModal(txId = null) {
   const dialog = document.getElementById("ledgerTxDialog");
   const form = document.getElementById("ledgerTxForm");
   const title = document.getElementById("ledgerTxDialogTitle");
   if (!dialog || !form) return;
+
+  await window.WealthTransactionDefaults?.load();
 
   setupAutoAdvancingDateInput("#ledgerTxSplitDateWrap");
 
@@ -12233,6 +12235,7 @@ function openLedgerTxModal(txId = null) {
       populateLedgerAccountOptions(tx.account_id || "", tx.owner || "모두");
       populateLedgerCardOptions(tx.card_id || "", tx.owner || "모두");
       updateLedgerBalancePreview();
+      window.WealthTransactionDefaults?.restoreInterest(tx);
       dialog.showModal();
       return;
     }
@@ -12251,6 +12254,9 @@ function openLedgerTxModal(txId = null) {
   populateLedgerAccountOptions("", currentOwner || "모두");
   populateLedgerCardOptions("", currentOwner || "모두");
   updateLedgerBalancePreview();
+  form.dataset.newTxId = crypto.randomUUID();
+  window.WealthTransactionDefaults?.apply();
+  window.WealthTransactionDefaults?.restoreInterest(null);
   dialog.showModal();
 }
 window.openLedgerTxModal = openLedgerTxModal;
@@ -12323,6 +12329,8 @@ async function saveLedgerTransaction() {
   }
 
   const payload = {
+    ...(txId ? {} : {id: form.dataset.newTxId}),
+    mirror_to_dividend_interest: Boolean(document.getElementById('ledgerInterestLink')?.checked),
     date: dateVal,
     type: typeVal,
     amount: amountVal,
@@ -13468,9 +13476,10 @@ function populateWtsAccounts() {
 
   if (currentVal && accounts.some(a => String(a.id) === currentVal)) {
     select.value = currentVal;
-  } else if (accounts.length === 1) {
-    select.value = String(accounts[0].id || '');
+  } else {
+    select.value = '';
   }
+  window.WealthTransactionDefaults?.restoreImportSelection(select, 'toss_wts_realized', accounts);
 }
 
 let currentPreviewData = null;
@@ -13782,9 +13791,10 @@ function populateTossWtsIncomeAccounts() {
   }).join('');
   if (current && accounts.some(account => String(account.id) === current)) {
     select.value = current;
-  } else if (accounts.length === 1) {
-    select.value = String(accounts[0].id || '');
+  } else {
+    select.value = '';
   }
+  window.WealthTransactionDefaults?.restoreImportSelection(select, 'toss_wts_income', accounts);
 }
 
 function updateTossWtsIncomeMeta(data = null) {
