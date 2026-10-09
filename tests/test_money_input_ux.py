@@ -12,7 +12,7 @@ MONEY_JS = ROOT / "app" / "static" / "wealth-money-input.js"
 class MoneyInputUxStaticTests(unittest.TestCase):
     def test_index_loads_money_input_module_after_core_wealth_js(self):
         html = INDEX.read_text(encoding="utf-8")
-        core = '/static/wealth.js?v=10.9n1'
+        core = '/static/wealth.js?v=10.9o1'
         money = '/static/wealth-money-input.js?v=1.3.0'
         self.assertIn(core, html)
         self.assertIn(money, html)

@@ -1,0 +1,20 @@
+#savingContributionsDialog { width:min(720px,calc(100vw - 24px)); max-width:720px; max-height:calc(100dvh - 24px); box-sizing:border-box; overflow:auto; padding:16px; }
+#savingContributionsDialog .dialog-head { padding:0; gap:8px; }
+#savingContributionsTitle { min-width:0; overflow-wrap:anywhere; }
+#savingContributionSummary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:16px 0; }
+#savingContributionSummary strong { display:block; overflow-wrap:anywhere; }
+#savingContributionForm { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+#savingContributionForm label { display:flex; flex-direction:column; min-width:0; gap:4px; }
+#savingContributionForm input, #savingContributionForm select { width:100%; min-width:0; box-sizing:border-box; }
+#savingContributionForm .saving-contribution-actions { grid-column:1/-1; }
+#savingContributionNotice { overflow-wrap:anywhere; }
+.saving-contribution-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; padding:12px 0; border-bottom:1px solid #28375c; }
+.saving-contribution-reference,.saving-contribution-memo { min-width:0; overflow-wrap:anywhere; }
+.saving-contribution-memo { white-space:pre-wrap; }
+.saving-contribution-actions { display:flex; gap:8px; flex-wrap:wrap; grid-column:1/-1; }
+.saving-contribution-source { font-size:12px; border:1px solid #456; border-radius:6px; padding:2px 6px; }
+.saving-contribution-card { display:flex; flex-direction:column; align-items:flex-start; gap:6px; margin-top:12px; overflow-wrap:anywhere; }
+@media(max-width:480px) {
+  #savingContributionSummary,#savingContributionForm { grid-template-columns:minmax(0,1fr); }
+  .saving-contribution-row { grid-template-columns:minmax(0,1fr); }
+}

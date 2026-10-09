@@ -17,6 +17,7 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
     <link rel="stylesheet" href="/static/wealth.css?v=1.3.0" />
+    <link rel="stylesheet" href="/static/wealth-savings-contributions.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-account-reorder.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-overrides.css?v=10.9h1" />
     <link rel="stylesheet" href="/static/wealth-layout.css?v=10.9m1" />
@@ -1957,6 +1958,7 @@
           </label>
           <label>현재까지 누적 납입액 (KRW)
             <input name="current_paid_amount" type="number" step="any" min="0" placeholder="현재까지 불입한 원금" id="savingCurrentPaid" data-korean-currency />
+            <small id="savingCurrentPaidNotice" hidden>납입 이력이 시작된 상품입니다. 누적액은 납입 내역에서 관리합니다.</small>
           </label>
           <label>과세 구분
             <select name="tax_type" id="savingTaxType">
@@ -1998,6 +2000,21 @@
           <button class="button primary" type="submit">저장</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="savingContributionsDialog" class="dialog" aria-labelledby="savingContributionsTitle">
+      <div class="dialog-head"><h2 id="savingContributionsTitle">납입 내역</h2><button id="savingContributionsClose" type="button" class="close" aria-label="납입 내역 닫기">×</button></div>
+      <p>이미 납입한 금액을 기록합니다. 출금계좌는 이력 참조이며 통장 잔액은 변경되지 않습니다.</p>
+      <div id="savingContributionSummary" aria-label="납입 누적액 요약"></div>
+      <form id="savingContributionForm">
+        <label for="savingContributionDate">납입일<input id="savingContributionDate" name="date" type="date" required /></label>
+        <label for="savingContributionAmount">납입금액 (KRW)<input id="savingContributionAmount" name="amount" type="number" step="any" min="0.01" required data-korean-currency /></label>
+        <label for="savingContributionWithdraw">출금계좌 (선택)<select id="savingContributionWithdraw" name="withdraw_account_id"><option value="">선택 안 함</option></select></label>
+        <label for="savingContributionMemo">메모<input id="savingContributionMemo" name="memo" type="text" /></label>
+        <div class="saving-contribution-actions"><button id="savingContributionSave" type="submit" class="button primary">납입 기록 저장</button><button id="savingContributionCancelEdit" type="button" class="button secondary" hidden>수정 취소</button></div>
+      </form>
+      <p id="savingContributionNotice" role="status" aria-live="polite"></p>
+      <h3>납입 이력</h3><div id="savingContributionHistory"></div>
     </dialog>
 
     <!-- 보험/연금/공제 등록 및 수정 다이얼로그 -->
@@ -3257,7 +3274,8 @@
     <script src="/static/wealth-settings-surface.js?v=10.9m1"></script>
     <script src="/static/wealth-layout.js?v=10.9m1"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
-    <script src="/static/wealth.js?v=10.9n1"></script>
+    <script src="/static/wealth.js?v=10.9o1"></script>
+    <script src="/static/wealth-savings-contributions.js?v=1.3.0"></script>
     <script src="/static/wealth-transaction-defaults.js?v=10.9n1"></script>
     <script src="/static/wealth-dividend-source.js?v=1.3.0"></script>
     <script src="/static/wealth-money-input.js?v=1.3.0"></script>

@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 STATIC = Path(__file__).resolve().parents[1] / "app" / "static"
-ALLOWED = {"index.html", "wealth.js", "wealth-transaction-defaults.js", "wealth.css", "wealth-overrides.css",
+ALLOWED = {"index.html", "wealth.js", "wealth-transaction-defaults.js", "wealth-savings-contributions.js", "wealth-savings-contributions.css", "wealth.css", "wealth-overrides.css",
            "wealth-layout.js", "wealth-layout.css", "wealth-invest-tab-state.js", "wealth-settings-surface.js", "wealth-settings.js", "wealth-automation-status.js", "wealth-planning.js", "wealth-planning-model.js", "icon-192.png", "apple-touch-icon.png"}
 DASHBOARD = {
     "summary": {"total_value_krw": 85000000, "total_stock_value_krw": 80000000,
