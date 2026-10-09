@@ -12,13 +12,14 @@
     <meta name="apple-mobile-web-app-title" content="Wealth" />
     <meta name="application-name" content="Wealth" />
     <meta name="application-version" content="1.3.0" />
+    <script src="/static/wealth-invest-tab-state.js?v=10.9k1"></script>
     <link rel="manifest" href="/manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
     <link rel="stylesheet" href="/static/wealth.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-account-reorder.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-overrides.css?v=10.9h1" />
-    <link rel="stylesheet" href="/static/wealth-layout.css?v=10.9h1" />
+    <link rel="stylesheet" href="/static/wealth-layout.css?v=10.9k1" />
     <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-family-financial-income-risk.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-family-financial-income-allocation.css?v=1.3.0" />
@@ -178,59 +179,47 @@
           <!-- 좌측 열: 핵심 요약 지표 리스트 -->
           <div class="overview-summary-col">
             <div class="summary-item-list">
-              <!-- 1. 순자산 (자산 탭 전용) -->
-              <div class="summary-row featured" id="netWorthRow" style="background:rgba(56,189,248,0.06);border-left:3px solid #38bdf8;">
-                <div class="summary-row-label">
-                  <span class="card-icon mini" style="background:rgba(56,189,248,0.2);color:#38bdf8;">💎</span>
-                  <strong style="font-size:14.5px;">순자산</strong>
-                </div>
-                <div class="summary-row-val">
-                  <strong id="summaryNetWorth" class="value-highlight" style="font-size:19px;font-weight:800;">₩0</strong>
-                  <small id="summaryTotalDebtCaption" style="color:#38bdf8;font-weight:700;display:block;margin-top:2px;">총부채 ₩0</small>
-                </div>
-              </div>
 
-              <!-- 2. 투자자산 / 총 주식자산 -->
+
+
+              <!-- 총 주식자산 -->
               <div class="summary-row featured" id="totalInvestRow" style="background:rgba(167,139,250,0.06);border-left:3px solid #a78bfa;">
                 <div class="summary-row-label">
                   <span class="card-icon mini" style="background:rgba(167,139,250,0.2);color:#a78bfa;">◈</span>
-                  <strong id="totalInvestLabelText" style="font-size:14.5px;">투자자산</strong>
+                  <strong id="totalInvestLabelText" style="font-size:14.5px;">총 주식자산</strong>
                 </div>
                 <div class="summary-row-val">
-                  <strong id="totalValue" class="value-highlight" style="font-size:19px;font-weight:800;">₩0</strong>
-                  <div id="subAssetBreakdown" style="font-size:12px;color:#c4b5fd;margin-top:6px;line-height:1.6;display:flex;flex-direction:column;gap:3px;align-items:flex-end;">
-                    <span id="subRealEstateVal" style="color:#c4b5fd;display:block;">부동산 ₩0</span>
-                    <span id="subStockVal" style="color:#c4b5fd;display:block;">주식 ₩0</span>
-                  </div>
+                  <strong id="totalValue" class="value-highlight" style="font-size:19px;font-weight:800;">—</strong>
+
                 </div>
               </div>
 
               <!-- 2-1. 원화 주식 (주식 탭 전용) -->
-              <div class="summary-row featured" id="krwStockRow" style="display:none;background:rgba(56,189,248,0.06);border-left:3px solid #38bdf8;">
+              <div class="summary-row featured" id="krwStockRow" style="background:rgba(56,189,248,0.06);border-left:3px solid #38bdf8;">
                 <div class="summary-row-label">
                   <span class="card-icon mini" style="background:rgba(56,189,248,0.2);color:#38bdf8;">🇰🇷</span>
                   <strong style="font-size:14.5px;">원화 주식</strong>
                 </div>
                 <div class="summary-row-val">
-                  <strong id="summaryKrwStockVal" class="value-highlight" style="font-size:18px;font-weight:800;">₩0</strong>
+                  <strong id="summaryKrwStockVal" class="value-highlight" style="font-size:18px;font-weight:800;">—</strong>
                   <div style="margin-top:4px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-end;">
-                    <span id="summaryKrwStockProfit" style="font-weight:700;display:block;">+₩0 (+0.00%)</span>
-                    <span id="summaryKrwStockCount" style="color:#94a3b8;font-size:11px;margin-top:1px;">0개 종목</span>
+                    <span id="summaryKrwStockProfit" style="font-weight:700;display:block;">—</span>
+                    <span id="summaryKrwStockCount" style="color:#94a3b8;font-size:11px;margin-top:1px;">—</span>
                   </div>
                 </div>
               </div>
 
               <!-- 2-2. 달러 주식 (주식 탭 전용) -->
-              <div class="summary-row featured" id="usdStockRow" style="display:none;background:rgba(45,212,191,0.06);border-left:3px solid #2dd4bf;">
+              <div class="summary-row featured" id="usdStockRow" style="background:rgba(45,212,191,0.06);border-left:3px solid #2dd4bf;">
                 <div class="summary-row-label">
                   <span class="card-icon mini" style="background:rgba(45,212,191,0.2);color:#2dd4bf;">🇺🇸</span>
                   <strong style="font-size:14.5px;">달러 주식</strong>
                 </div>
                 <div class="summary-row-val">
-                  <strong id="summaryUsdStockValKrw" class="value-highlight" style="font-size:18px;font-weight:800;">₩0</strong>
+                  <strong id="summaryUsdStockValKrw" class="value-highlight" style="font-size:18px;font-weight:800;">—</strong>
                   <div style="margin-top:4px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-end;">
-                    <span id="summaryUsdStockValUsd" style="font-weight:700;color:#2dd4bf;display:block;">$0.00 (0개 종목)</span>
-                    <span id="summaryUsdStockProfit" style="font-weight:600;display:block;font-size:11.5px;margin-top:1px;">+₩0 (+0.00%)</span>
+                    <span id="summaryUsdStockValUsd" style="font-weight:700;color:#2dd4bf;display:block;">—</span>
+                    <span id="summaryUsdStockProfit" style="font-weight:600;display:block;font-size:11.5px;margin-top:1px;">—</span>
                   </div>
                 </div>
               </div>
@@ -239,12 +228,12 @@
               <div class="summary-row featured" id="expectedProfitRow" style="background:rgba(244,63,94,0.06);border-left:3px solid #f43f5e;">
                 <div class="summary-row-label">
                   <span class="card-icon mini" style="background:rgba(244,63,94,0.2);color:#f43f5e;">↗</span>
-                  <strong id="profitLabelText" style="font-size:14.5px;">기대수익</strong>
+                  <strong id="profitLabelText" style="font-size:14.5px;">주식 기대수익</strong>
                 </div>
                 <div class="summary-row-val">
                   <div class="val-line" style="display:flex;align-items:baseline;justify-content:flex-end;gap:6px;">
-                    <strong id="totalProfit" style="font-size:16px;">₩0</strong>
-                    <span id="profitRate" class="sub-rate" style="font-size:13.5px;font-weight:700;">(+0.00%)</span>
+                    <strong id="totalProfit" style="font-size:16px;">—</strong>
+                    <span id="profitRate" class="sub-rate" style="font-size:13.5px;font-weight:700;">—</span>
                   </div>
                   <div id="dayProfitSubLine" style="margin-top:4px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-end;">
                     <span id="dayProfitVal" style="font-weight:700;display:block;">당일 가격변동 손익 —</span>
@@ -254,68 +243,55 @@
                 </div>
               </div>
 
-              <!-- 4. 실현손익 (자산: 통합 실현손익 / 주식: 주식 실현손익) -->
+              <!-- 주식 실현손익 -->
               <div class="summary-row featured" id="realizedPnlRow" style="background:rgba(245,158,11,0.06);border-left:3px solid #f59e0b;">
                 <div class="summary-row-label">
                   <span class="card-icon mini" style="background:rgba(245,158,11,0.2);color:#f59e0b;">📈</span>
-                  <strong id="pnlLabelText" style="font-size:14.5px;">실현손익</strong>
+                  <strong id="pnlLabelText" style="font-size:14.5px;">주식 실현손익</strong>
                 </div>
                 <div class="summary-row-val">
                   <div class="val-line">
-                    <strong id="summaryRealizedPnl" class="gain up" style="color:#f43f5e;font-weight:700;font-size:16px;">+₩0</strong>
+                    <strong id="summaryRealizedPnl" style="color:#f43f5e;font-weight:700;font-size:16px;">—</strong>
                   </div>
-                  <div id="pnlSubBreakdown" style="font-size:11.5px;color:#cbd5e1;margin-top:4px;display:none;flex-direction:column;align-items:flex-end;gap:2px;"></div>
+
                   <div style="margin-top:5px;font-size:12px;line-height:1.6;display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
                     <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
-                      <span id="pnlYearLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">26년</span>
-                      <strong id="summaryRealizedPnlYear" style="color:#f43f5e;font-weight:700;min-width:70px;text-align:right;">+₩0</strong>
+                      <span id="pnlYearLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">—</span>
+                      <strong id="summaryRealizedPnlYear" style="color:#f43f5e;font-weight:700;min-width:70px;text-align:right;">—</strong>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
-                      <span id="pnlMonthLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">09월</span>
-                      <strong id="summaryRealizedPnlMonth" style="color:#f43f5e;font-weight:700;min-width:70px;text-align:right;">+₩0</strong>
+                      <span id="pnlMonthLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">—</span>
+                      <strong id="summaryRealizedPnlMonth" style="color:#f43f5e;font-weight:700;min-width:70px;text-align:right;">—</strong>
                     </div>
                   </div>
                 </div>
               </div>
 
               <!-- 5. 총 배당금 및 이자 (주식 탭 전용 행) -->
-              <div class="summary-row featured" id="dividendRow" style="display:none;background:rgba(234,179,8,0.06);border-left:3px solid #eab308;">
+              <div class="summary-row featured" id="dividendRow" style="background:rgba(234,179,8,0.06);border-left:3px solid #eab308;">
                 <div class="summary-row-label">
                   <span class="card-icon mini" style="background:rgba(234,179,8,0.2);color:#eab308;">💰</span>
                   <strong id="divLabelText" style="font-size:14.5px;">배당금</strong>
                 </div>
                 <div class="summary-row-val">
                   <div class="val-line">
-                    <strong id="summaryActualDividend" style="font-weight:700;font-size:16px;">₩0</strong>
+                    <strong id="summaryActualDividend" style="font-weight:700;font-size:16px;">—</strong>
                   </div>
                   <div style="margin-top:5px;font-size:12px;line-height:1.6;display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
                     <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
-                      <span id="divYearLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">26년</span>
-                      <strong id="summaryActualDivYear" style="color:#a78bfa;font-weight:600;min-width:70px;text-align:right;">+₩0</strong>
+                      <span id="divYearLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">—</span>
+                      <strong id="summaryActualDivYear" style="color:#a78bfa;font-weight:600;min-width:70px;text-align:right;">—</strong>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
-                      <span id="divMonthLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">09월</span>
-                      <strong id="summaryActualDivMonth" style="color:#a78bfa;font-weight:600;min-width:70px;text-align:right;">+₩0</strong>
+                      <span id="divMonthLabel" style="color:#94a3b8;font-size:11.5px;min-width:30px;text-align:right;">—</span>
+                      <strong id="summaryActualDivMonth" style="color:#a78bfa;font-weight:600;min-width:70px;text-align:right;">—</strong>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <!-- 6. 안전자산 (자산 탭 전용) -->
-              <div class="summary-row featured" id="safeAssetRow" style="background:rgba(52,211,153,0.06);border-left:3px solid #34d399;">
-                <div class="summary-row-label">
-                  <span class="card-icon mini" style="background:rgba(52,211,153,0.2);color:#34d399;">🛡️</span>
-                  <strong style="font-size:14.5px;">안전자산</strong>
-                </div>
-                <div class="summary-row-val">
-                  <strong id="summarySafeAssetVal" class="value-highlight" style="font-size:19px;font-weight:800;">₩0</strong>
-                  <div id="subSafeAssetBreakdown" style="font-size:12px;color:#86efac;margin-top:6px;line-height:1.6;display:flex;flex-direction:column;gap:3px;align-items:flex-end;">
-                    <span id="subSafeCashVal" style="color:#86efac;display:block;">예수금 및 예금 ₩0</span>
-                    <span id="subSafeLeaseVal" style="color:#86efac;display:block;">임차보증금 ₩0</span>
-                    <span id="subSafeInsuranceVal" style="color:#86efac;display:block;">보험 ₩0</span>
-                  </div>
-                </div>
-              </div>
+
+
             </div>
           </div>
 
@@ -635,7 +611,7 @@
             <!-- 월 컨트롤러 -->
             <div class="money-month-nav pnl-month-control" role="group" aria-label="실현손익 월 선택" style="margin-left:4px;">
               <button id="pnlPrevMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-prev" type="button" title="이전 달" aria-label="이전 달">◀</button>
-              <button type="button" id="pnlCurrentMonthText" class="money-month-text" title="클릭하여 원하는 년/월 직접 선택" aria-label="조회 월 선택">2026년 9월</button>
+              <button type="button" id="pnlCurrentMonthText" class="money-month-text" title="클릭하여 원하는 년/월 직접 선택" aria-label="조회 월 선택">—</button>
               <input type="month" id="pnlMonthPicker" class="money-month-picker" aria-label="실현손익 년/월 선택" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" />
               <button id="pnlNextMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-next" type="button" title="다음 달" aria-label="다음 달">▶</button>
               <button id="pnlTodayMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-today" type="button" title="이번 달로 이동" aria-label="이번 달로 이동">이번달</button>
@@ -647,7 +623,7 @@
           </div>
           <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
             <select id="pnlYearSelect" class="heatmap-select" style="min-width:90px;font-size:12px;" aria-label="실현손익 연도 선택">
-              <option value="2026">2026년</option>
+              <option value="">—</option>
               <option value="all">전체 기간</option>
             </select>
           </div>
@@ -1139,7 +1115,7 @@
             <!-- 월 컨트롤러 -->
             <div class="money-month-nav dividend-month-control" role="group" aria-label="배당 월 선택" style="margin-left:4px;">
               <button id="dividendPrevMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-prev" type="button" title="이전 달" aria-label="이전 달">◀</button>
-              <button type="button" id="dividendCurrentMonthText" class="money-month-text" title="클릭하여 원하는 년/월 직접 선택" aria-label="조회 월 선택">2026년 9월</button>
+              <button type="button" id="dividendCurrentMonthText" class="money-month-text" title="클릭하여 원하는 년/월 직접 선택" aria-label="조회 월 선택">—</button>
               <input type="month" id="dividendMonthPicker" class="money-month-picker" aria-label="배당 년/월 선택" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;" />
               <button id="dividendNextMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-next" type="button" title="다음 달" aria-label="다음 달">▶</button>
               <button id="dividendTodayMonthBtn" class="button secondary compact money-month-nav-btn money-month-nav-today" type="button" title="이번 달로 이동" aria-label="이번 달로 이동">이번달</button>
@@ -1151,7 +1127,7 @@
           </div>
           <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
             <select id="dividendYearSelect" class="heatmap-select" style="min-width:90px;font-size:12px;" aria-label="배당 연도 선택">
-              <option value="2026">2026년</option>
+              <option value="">—</option>
               <option value="all">전체 기간</option>
             </select>
           </div>
@@ -3268,7 +3244,7 @@
     <script src="/static/wealth-settings-surface.js?v=10.9h1"></script>
     <script src="/static/wealth-layout.js?v=10.9h1"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
-    <script src="/static/wealth.js?v=10.9h1"></script>
+    <script src="/static/wealth.js?v=10.9k1"></script>
     <script src="/static/wealth-dividend-source.js?v=1.3.0"></script>
     <script src="/static/wealth-money-input.js?v=1.3.0"></script>
     <script src="/static/wealth-financial-income-what-if.js?v=1.3.0"></script>
@@ -3278,7 +3254,7 @@
     <script src="/static/wealth-ipo.js?v=1.3.0"></script>
     <script src="/static/wealth-calendar.js?v=1.3.0"></script>
     <script src="/static/wealth-planning-model.js?v=10.7g1"></script>
-    <script src="/static/wealth-planning.js?v=1.3.0"></script>
+    <script src="/static/wealth-planning.js?v=10.9k1"></script>
   </body>
 </html>
 

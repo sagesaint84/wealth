@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 STATIC = Path(__file__).resolve().parents[1] / "app" / "static"
 ALLOWED = {"index.html", "wealth.js", "wealth.css", "wealth-overrides.css",
-           "wealth-layout.js", "wealth-layout.css", "wealth-settings-surface.js", "wealth-settings.js", "wealth-automation-status.js", "wealth-planning.js", "wealth-planning-model.js", "icon-192.png", "apple-touch-icon.png"}
+           "wealth-layout.js", "wealth-layout.css", "wealth-invest-tab-state.js", "wealth-settings-surface.js", "wealth-settings.js", "wealth-automation-status.js", "wealth-planning.js", "wealth-planning-model.js", "icon-192.png", "apple-touch-icon.png"}
 DASHBOARD = {
     "summary": {"total_value_krw": 85000000, "total_stock_value_krw": 80000000,
                 "total_cash_krw": 5000000, "account_count": 2},

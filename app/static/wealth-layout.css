@@ -3,6 +3,12 @@
 .wealth-refresh-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; flex-shrink: 0; }
 .wealth-history-chart { display: block; width: 100%; max-height: 280px; }
 .wealth-invest-hidden { display: none !important; }
+/* The validated session route applies before layout/planning scripts run. */
+html[data-wealth-invest-tab]:not([data-wealth-invest-tab="overview"]) #summaryPanel,
+html[data-wealth-invest-tab]:not([data-wealth-invest-tab="heatmap"]) #assetHeatmapPanel,
+html[data-wealth-invest-tab]:not([data-wealth-invest-tab="holdings"]) #holdingsPanel,
+html[data-wealth-invest-tab]:not([data-wealth-invest-tab="records"]):not([data-wealth-invest-tab="tax_accounts"]) #recordsPanel,
+html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPanel { display: none !important; }
 .wealth-periods, .wealth-invest-tabs, .wealth-editor-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
 .wealth-periods button, .wealth-invest-tabs button { border: 1px solid var(--line); border-radius: 8px; padding: 9px 13px; color: var(--text); background: var(--panel); cursor: pointer; }
 .wealth-periods button[aria-pressed="true"], .wealth-invest-tabs button[aria-pressed="true"] { color: var(--workspace-accent); border-color: var(--workspace-accent); }

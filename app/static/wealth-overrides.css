@@ -2425,25 +2425,14 @@ dialog.dialog .dialog-actions {
   color: #0f172a !important;
 }
 
-[data-theme="white"] #subRealEstateVal,
-[data-theme="white"] #subStockVal {
-  color: #6366f1 !important;
-}
 
-[data-theme="white"] #subSafeCashVal,
-[data-theme="white"] #subSafeLeaseVal,
-[data-theme="white"] #subSafeInsuranceVal {
-  color: #059669 !important;
-}
 
 [data-theme="white"] #dayCaption,
-[data-theme="white"] #pnlSubBreakdown,
 [data-theme="white"] #pnlYearLabel,
 [data-theme="white"] #pnlMonthLabel,
 [data-theme="white"] #divYearLabel,
 [data-theme="white"] #divMonthLabel,
-[data-theme="white"] #summaryKrwStockCount,
-[data-theme="white"] #summaryTotalDebtCaption {
+[data-theme="white"] #summaryKrwStockCount {
   color: #64748b !important;
 }
 

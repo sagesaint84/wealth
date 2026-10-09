@@ -1,7 +1,7 @@
 let allAssetRecords = [];
 let assetRecords = [];
 let currentRecordPeriod = 'ALL'; // '1M' | '3M' | '6M' | '1Y' | 'ALL'
-let currentRecordView = 'combo'; // 'combo' | 'tax_accounts'
+let currentRecordView = window.WealthInvestTabState?.current() === 'tax_accounts' ? 'tax_accounts' : 'combo';
 let currentTaxAccountFilter = 'all'; // 'all' | 'isa' | 'irp' | 'pension_savings' | acc_<id>
 // Stock page is intentionally stock-focused; the former asset/stock UI toggle
 // is no longer user-facing. Asset overview remains on the home page.
@@ -39,9 +39,9 @@ function getKstYearMonth(now = new Date()) {
     const key = `${year}-${String(month).padStart(2, '0')}`;
     return { year, month, key };
   } catch (e) {
-    const d = new Date(now);
-    const year = d.getFullYear();
-    const month = d.getMonth() + 1;
+    const d = new Date(new Date(now).getTime() + 9 * 60 * 60 * 1000);
+    const year = d.getUTCFullYear();
+    const month = d.getUTCMonth() + 1;
     const key = `${year}-${String(month).padStart(2, '0')}`;
     return { year, month, key };
   }
@@ -90,6 +90,30 @@ window.WealthDateHelper = {
   parseYearMonth,
 };
 
+// Dates are current before any API request; initial HTML contains neutral labels.
+function initializeSummaryPeriodLabels() {
+  const {year, month} = getKstYearMonth();
+  for (const prefix of ['pnl', 'div']) {
+    const yearLabel = document.querySelector(`#${prefix}YearLabel`);
+    const monthLabel = document.querySelector(`#${prefix}MonthLabel`);
+    if (yearLabel) yearLabel.textContent = `${String(year).slice(2)}년`;
+    if (monthLabel) monthLabel.textContent = `${String(month).padStart(2, '0')}월`;
+  }
+  for (const prefix of ['pnl', 'dividend']) {
+    const text = document.querySelector(`#${prefix}CurrentMonthText`);
+    const picker = document.querySelector(`#${prefix}MonthPicker`);
+    const select = document.querySelector(`#${prefix}YearSelect`);
+    if (text) text.textContent = `${year}년 ${month}월`;
+    if (picker) picker.value = `${year}-${String(month).padStart(2, '0')}`;
+    if (select?.options?.[0]) {
+      select.options[0].value = String(year);
+      select.options[0].textContent = `${year}년`;
+      select.value = String(year);
+    }
+  }
+}
+initializeSummaryPeriodLabels();
+
 const $ = (selector) => document.querySelector(selector);
 let dashboard = null;
 let rawDashboard = null; // 필터링 전 원본 서버 데이터
@@ -131,17 +155,14 @@ async function updateOverviewCardsAllTime(owner = currentOwner) {
       const winRate = pnlView.winRate;
       const recordCount = pnlView.recordCount;
 
-      const isStockTab = (STOCK_PORTFOLIO_MODE === 'sector');
-      if (isStockTab) {
-        const summaryPnlEl = $("#summaryRealizedPnl");
-        if (summaryPnlEl) {
-          summaryPnlEl.textContent = `${totalPnl > 0 ? '+' : ''}${money(totalPnl)}`;
-          summaryPnlEl.className = `${totalPnl > 0 ? 'gain up' : (totalPnl < 0 ? 'loss down' : '')}`;
-        }
-        const subEl = $("#summaryRealizedPnlSub");
-        if (subEl) {
-          subEl.textContent = `승률 ${number(winRate, 1)}% · 총 ${recordCount}건 실현${pnlView.completenessNote ? ` · ${pnlView.completenessNote}` : ''}`;
-        }
+      const summaryPnlEl = $("#summaryRealizedPnl");
+      if (summaryPnlEl) {
+        summaryPnlEl.textContent = `${totalPnl > 0 ? '+' : ''}${money(totalPnl)}`;
+        summaryPnlEl.className = `${totalPnl > 0 ? 'gain up' : (totalPnl < 0 ? 'loss down' : '')}`;
+      }
+      const subEl = $("#summaryRealizedPnlSub");
+      if (subEl) {
+        subEl.textContent = `승률 ${number(winRate, 1)}% · 총 ${recordCount}건 실현${pnlView.completenessNote ? ` · ${pnlView.completenessNote}` : ''}`;
       }
     }
   } catch (err) {
@@ -157,15 +178,7 @@ async function updateOverviewCardsAllTime(owner = currentOwner) {
       if (actualEl) {
         actualEl.textContent = money(totalActual);
       }
-      const isStockTab = (STOCK_PORTFOLIO_MODE === 'sector');
-      if (!isStockTab) {
-        const combined = totalPnl + totalActual;
-        const summaryPnlEl = $("#summaryRealizedPnl");
-        if (summaryPnlEl) {
-          summaryPnlEl.textContent = `${combined >= 0 ? '+' : ''}${money(combined)}`;
-          summaryPnlEl.className = `${combined > 0 ? 'gain up' : (combined < 0 ? 'loss down' : '')}`;
-        }
-      }
+
     }
   } catch (err) {
     console.error("핵심 요약 실제 배당금 갱신 실패:", err);
@@ -1232,10 +1245,10 @@ function renderSummary(data) {
   const stockPnlRecords = rawPnlList.filter(r => !isReRec(r));
   const pnlRecords = filterByOwner(stockPnlRecords);
 
-  const now = new Date();
-  const currFullYear = now.getFullYear().toString();
+  const currentPeriod = getKstYearMonth();
+  const currFullYear = String(currentPeriod.year);
   const currYear2Digit = currFullYear.slice(2);
-  const currMonthNum = now.getMonth() + 1;
+  const currMonthNum = currentPeriod.month;
   const currMonthStr = currMonthNum < 10 ? `0${currMonthNum}` : `${currMonthNum}`;
   const currYearMonthPrefix = `${currFullYear}-${currMonthStr}`;
 
@@ -1244,12 +1257,7 @@ function renderSummary(data) {
   let yearRealizedKrw = 0;
   let monthRealizedKrw = 0;
 
-  if (o === '모두' && realizedView.canonicalUsed) {
-    const yearBucket = (curRealized.yearly_schedule || []).find(item => String(item.year) === currFullYear);
-    const monthBucket = (curRealized.monthly_schedule || []).find(item => Number(item.month) === currMonthNum);
-    yearRealizedKrw = finiteRealizedPnlNumber(yearBucket?.total_krw) ?? 0;
-    monthRealizedKrw = finiteRealizedPnlNumber(monthBucket?.total_krw) ?? 0;
-  } else if (pnlRecords.length > 0) {
+  if (pnlRecords.length > 0) {
     pnlRecords.forEach(r => {
       const compactDate = String(r.date || '').replaceAll('-', '');
       const p = finiteRealizedPnlNumber(r.pnl_krw);
@@ -1336,172 +1344,85 @@ function renderSummary(data) {
   // Reuse the same property return rule already shown by the real-estate view.
   const realEstateReturnRate = totalREPurchaseVal > 0 ? (totalREProfit / totalREPurchaseVal) * 100 : 0;
 
-  const isStockTab = (STOCK_PORTFOLIO_MODE === 'sector');
+  // The investment summary has one stock-only renderer.
+  // 2. 총 주식자산
+  if ($("#totalInvestRow")) $("#totalInvestRow").style.display = "flex";
+  if ($("#totalInvestLabelText")) $("#totalInvestLabelText").textContent = "총 주식자산";
+  if ($("#totalValue")) $("#totalValue").textContent = money(totalStockVal);
 
-  // =========================================================================
-  // [자산] 탭 vs [주식] 탭 조건부 좌측 요약 렌더링
-  // =========================================================================
-  if (isStockTab) {
-    // -----------------------------------------------------------------------
-    // MODE B: [주식] 탭 선택 시 (주식 전용 뷰)
-    // -----------------------------------------------------------------------
-    // 1. 순자산 행 숨김
-    if ($("#netWorthRow")) $("#netWorthRow").style.display = "none";
+  // 2-1. 원화 주식 카드 표시
+  if ($("#krwStockRow")) $("#krwStockRow").style.display = "flex";
+  if ($("#summaryKrwStockVal")) $("#summaryKrwStockVal").textContent = money(krwStockVal);
+  if ($("#summaryKrwStockProfit")) {
+    const kSign = krwStockProfit >= 0 ? "+" : "";
+    const krSign = krwStockReturnRate >= 0 ? "+" : "";
+    $("#summaryKrwStockProfit").textContent = `${kSign}${money(krwStockProfit)} (${krSign}${number(krwStockReturnRate, 2)}%)`;
+    $("#summaryKrwStockProfit").style.color = krwStockProfit >= 0 ? "#f43f5e" : "#38bdf8";
+  }
+  if ($("#summaryKrwStockCount")) {
+    $("#summaryKrwStockCount").textContent = `${krwHoldingCount}개 종목`;
+  }
 
-    // 2. 총 주식자산
-    if ($("#totalInvestRow")) $("#totalInvestRow").style.display = "flex";
-    if ($("#totalInvestLabelText")) $("#totalInvestLabelText").textContent = "총 주식자산";
-    if ($("#totalValue")) $("#totalValue").textContent = money(totalStockVal);
-    if ($("#subAssetBreakdown")) $("#subAssetBreakdown").style.display = "none";
+  // 2-2. 달러 주식 카드 표시
+  if ($("#usdStockRow")) $("#usdStockRow").style.display = "flex";
+  if ($("#summaryUsdStockValKrw")) $("#summaryUsdStockValKrw").textContent = money(usdStockValKrw);
+  if ($("#summaryUsdStockValUsd")) {
+    $("#summaryUsdStockValUsd").textContent = `$${number(usdStockValUsd, 2)} (${usdHoldingCount}개 종목)`;
+  }
+  if ($("#summaryUsdStockProfit")) {
+    const uSign = usdStockProfitKrw >= 0 ? "+" : "";
+    const urSign = usdStockReturnRate >= 0 ? "+" : "";
+    $("#summaryUsdStockProfit").textContent = `${uSign}${money(usdStockProfitKrw)} (${urSign}${number(usdStockReturnRate, 2)}%)`;
+    $("#summaryUsdStockProfit").style.color = usdStockProfitKrw >= 0 ? "#f43f5e" : "#38bdf8";
+  }
 
-    // 2-1. 원화 주식 카드 표시
-    if ($("#krwStockRow")) $("#krwStockRow").style.display = "flex";
-    if ($("#summaryKrwStockVal")) $("#summaryKrwStockVal").textContent = money(krwStockVal);
-    if ($("#summaryKrwStockProfit")) {
-      const kSign = krwStockProfit >= 0 ? "+" : "";
-      const krSign = krwStockReturnRate >= 0 ? "+" : "";
-      $("#summaryKrwStockProfit").textContent = `${kSign}${money(krwStockProfit)} (${krSign}${number(krwStockReturnRate, 2)}%)`;
-      $("#summaryKrwStockProfit").style.color = krwStockProfit >= 0 ? "#f43f5e" : "#38bdf8";
-    }
-    if ($("#summaryKrwStockCount")) {
-      $("#summaryKrwStockCount").textContent = `${krwHoldingCount}개 종목`;
-    }
+  // 3. 주식 기대수익 (주식 평가손익) & 일간 수익
+  if ($("#expectedProfitRow")) $("#expectedProfitRow").style.display = "flex";
+  if ($("#profitLabelText")) $("#profitLabelText").textContent = "주식 기대수익";
+  if ($("#totalProfit")) {
+    $("#totalProfit").textContent = money(s.profit_krw);
+    $("#totalProfit").style.color = (s.profit_krw || 0) >= 0 ? "#f43f5e" : "#38bdf8";
+  }
+  const profitRateEl = $("#profitRate");
+  if (profitRateEl) {
+    profitRateEl.textContent = `(${s.return_rate >= 0 ? "+" : ""}${number(s.return_rate)}%)`;
+    profitRateEl.style.color = (s.profit_krw || 0) >= 0 ? "#f43f5e" : "#38bdf8";
+  }
 
-    // 2-2. 달러 주식 카드 표시
-    if ($("#usdStockRow")) $("#usdStockRow").style.display = "flex";
-    if ($("#summaryUsdStockValKrw")) $("#summaryUsdStockValKrw").textContent = money(usdStockValKrw);
-    if ($("#summaryUsdStockValUsd")) {
-      $("#summaryUsdStockValUsd").textContent = `$${number(usdStockValUsd, 2)} (${usdHoldingCount}개 종목)`;
-    }
-    if ($("#summaryUsdStockProfit")) {
-      const uSign = usdStockProfitKrw >= 0 ? "+" : "";
-      const urSign = usdStockReturnRate >= 0 ? "+" : "";
-      $("#summaryUsdStockProfit").textContent = `${uSign}${money(usdStockProfitKrw)} (${urSign}${number(usdStockReturnRate, 2)}%)`;
-      $("#summaryUsdStockProfit").style.color = usdStockProfitKrw >= 0 ? "#f43f5e" : "#38bdf8";
-    }
+  // 4. 주식 실현손익
+  if ($("#realizedPnlRow")) $("#realizedPnlRow").style.display = "flex";
+  if ($("#pnlLabelText")) $("#pnlLabelText").textContent = "주식 실현손익";
+  if ($("#summaryRealizedPnl")) {
+    $("#summaryRealizedPnl").textContent = `${totalRealizedKrw >= 0 ? "+" : ""}${money(totalRealizedKrw)}`;
+    $("#summaryRealizedPnl").className = totalRealizedKrw > 0 ? 'gain up' : (totalRealizedKrw < 0 ? 'loss down' : '');
+    $("#summaryRealizedPnl").style.color = totalRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
+  }
+  if ($("#pnlYearLabel")) $("#pnlYearLabel").textContent = `${currYear2Digit}년`;
+  if ($("#summaryRealizedPnlYear")) {
+    $("#summaryRealizedPnlYear").textContent = `${yearRealizedKrw >= 0 ? '+' : ''}${money(yearRealizedKrw)}`;
+    $("#summaryRealizedPnlYear").className = yearRealizedKrw > 0 ? 'gain up' : (yearRealizedKrw < 0 ? 'loss down' : '');
+    $("#summaryRealizedPnlYear").style.color = yearRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
+  }
+  if ($("#pnlMonthLabel")) $("#pnlMonthLabel").textContent = `${currMonthStr}월`;
+  if ($("#summaryRealizedPnlMonth")) {
+    $("#summaryRealizedPnlMonth").textContent = `${monthRealizedKrw >= 0 ? '+' : ''}${money(monthRealizedKrw)}`;
+    $("#summaryRealizedPnlMonth").className = monthRealizedKrw > 0 ? 'gain up' : (monthRealizedKrw < 0 ? 'loss down' : '');
+    $("#summaryRealizedPnlMonth").style.color = monthRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
+  }
 
-    // 3. 주식 기대수익 (주식 평가손익) & 일간 수익
-    if ($("#expectedProfitRow")) $("#expectedProfitRow").style.display = "flex";
-    if ($("#profitLabelText")) $("#profitLabelText").textContent = "주식 기대수익";
-    if ($("#totalProfit")) {
-      $("#totalProfit").textContent = money(s.profit_krw);
-      $("#totalProfit").style.color = (s.profit_krw || 0) >= 0 ? "#f43f5e" : "#38bdf8";
-    }
-    const profitRateEl = $("#profitRate");
-    if (profitRateEl) {
-      profitRateEl.textContent = `(${s.return_rate >= 0 ? "+" : ""}${number(s.return_rate)}%)`;
-      profitRateEl.style.color = (s.profit_krw || 0) >= 0 ? "#f43f5e" : "#38bdf8";
-    }
-
-    // 4. 주식 실현손익
-    if ($("#realizedPnlRow")) $("#realizedPnlRow").style.display = "flex";
-    if ($("#pnlLabelText")) $("#pnlLabelText").textContent = "주식 실현손익";
-    if ($("#summaryRealizedPnl")) {
-      $("#summaryRealizedPnl").textContent = `${totalRealizedKrw >= 0 ? "+" : ""}${money(totalRealizedKrw)}`;
-      $("#summaryRealizedPnl").style.color = totalRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
-    }
-    if ($("#pnlSubBreakdown")) $("#pnlSubBreakdown").style.display = "none";
-    if ($("#pnlYearLabel")) $("#pnlYearLabel").textContent = `${currYear2Digit}년`;
-    if ($("#summaryRealizedPnlYear")) {
-      $("#summaryRealizedPnlYear").textContent = `${yearRealizedKrw >= 0 ? '+' : ''}${money(yearRealizedKrw)}`;
-      $("#summaryRealizedPnlYear").style.color = yearRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
-    }
-    if ($("#pnlMonthLabel")) $("#pnlMonthLabel").textContent = `${currMonthStr}월`;
-    if ($("#summaryRealizedPnlMonth")) {
-      $("#summaryRealizedPnlMonth").textContent = `${monthRealizedKrw >= 0 ? '+' : ''}${money(monthRealizedKrw)}`;
-      $("#summaryRealizedPnlMonth").style.color = monthRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
-    }
-
-    // 5. 배당금 (주식 탭에서 별도 표시)
-    if ($("#dividendRow")) $("#dividendRow").style.display = "flex";
-    if ($("#divLabelText")) $("#divLabelText").textContent = "배당금";
-    if ($("#summaryActualDividend")) {
-      $("#summaryActualDividend").textContent = money(totalActualDivKrw);
-    }
-    if ($("#divYearLabel")) $("#divYearLabel").textContent = `${currYear2Digit}년`;
-    if ($("#summaryActualDivYear")) {
-      $("#summaryActualDivYear").textContent = `${yearActualDivKrw >= 0 ? '+' : ''}${money(yearActualDivKrw)}`;
-    }
-    if ($("#divMonthLabel")) $("#divMonthLabel").textContent = `${currMonthStr}월`;
-    if ($("#summaryActualDivMonth")) {
-      $("#summaryActualDivMonth").textContent = `${monthActualDivKrw >= 0 ? '+' : ''}${money(monthActualDivKrw)}`;
-    }
-
-    // 6. 안전자산 행 숨김
-    if ($("#safeAssetRow")) $("#safeAssetRow").style.display = "none";
-
-  } else {
-    // -----------------------------------------------------------------------
-    // MODE A: [자산] 탭 선택 시 (자산 종합 뷰)
-    // -----------------------------------------------------------------------
-    // 1. 순자산 (흰색) & 총부채 (푸른색)
-    if ($("#netWorthRow")) $("#netWorthRow").style.display = "flex";
-    if ($("#summaryNetWorth")) $("#summaryNetWorth").textContent = money(netWorth);
-    if ($("#summaryTotalDebtCaption")) {
-      $("#summaryTotalDebtCaption").textContent = totalAllDebt > 0 
-        ? `총부채 ₩${number(totalAllDebt, 0)}` 
-        : `부채 ₩0`;
-    }
-
-    // 원화/달러 주식 행 숨김 (자산 탭 전용 뷰에서는 투자자산 카드 내 주식으로 통합 표시)
-    if ($("#krwStockRow")) $("#krwStockRow").style.display = "none";
-    if ($("#usdStockRow")) $("#usdStockRow").style.display = "none";
-
-    // 2. 투자자산 (부동산 + 주식)
-    if ($("#totalInvestRow")) $("#totalInvestRow").style.display = "flex";
-    if ($("#totalInvestLabelText")) $("#totalInvestLabelText").textContent = "투자자산";
-    if ($("#totalValue")) $("#totalValue").textContent = money(totalInvestAssets);
-    if ($("#subAssetBreakdown")) $("#subAssetBreakdown").style.display = "flex";
-    if ($("#subRealEstateVal")) $("#subRealEstateVal").textContent = `부동산 ${money(totalREInvestEquity)}`;
-    if ($("#subStockVal")) $("#subStockVal").textContent = `주식 ${money(totalStockVal)}`;
-
-    // 3. 기대수익 (주식 평가손익 + 부동산 예상 수익 통합 반영!) & 일간 수익
-    if ($("#expectedProfitRow")) $("#expectedProfitRow").style.display = "flex";
-    if ($("#profitLabelText")) $("#profitLabelText").textContent = "기대수익";
-    if ($("#totalProfit")) {
-      $("#totalProfit").textContent = money(totalExpectedProfit);
-      $("#totalProfit").style.color = totalExpectedProfit >= 0 ? "#f43f5e" : "#38bdf8";
-    }
-    const profitRateEl = $("#profitRate");
-    if (profitRateEl) {
-      profitRateEl.textContent = `(${combinedReturnRate >= 0 ? "+" : ""}${number(combinedReturnRate)}%)`;
-      profitRateEl.style.color = totalExpectedProfit >= 0 ? "#f43f5e" : "#38bdf8";
-    }
-
-    // 4. 실현손익 (총 실현손익과 배당 및 이자를 포함하여 통합 합산 표시!)
-    if ($("#realizedPnlRow")) $("#realizedPnlRow").style.display = "flex";
-    if ($("#pnlLabelText")) $("#pnlLabelText").textContent = "실현손익";
-    if ($("#summaryRealizedPnl")) {
-      $("#summaryRealizedPnl").textContent = `${combinedRealizedKrw >= 0 ? "+" : ""}${money(combinedRealizedKrw)}`;
-      $("#summaryRealizedPnl").style.color = combinedRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
-    }
-    if ($("#pnlSubBreakdown")) {
-      $("#pnlSubBreakdown").style.display = "flex";
-      $("#pnlSubBreakdown").innerHTML = `
-        <span style="color:#cbd5e1;display:block;">매매차익 ₩${number(totalRealizedKrw, 0)}</span>
-        <span style="color:#cbd5e1;display:block;">배당/이자 ₩${number(totalActualDivKrw, 0)}</span>
-      `;
-    }
-    if ($("#pnlYearLabel")) $("#pnlYearLabel").textContent = `${currYear2Digit}년`;
-    if ($("#summaryRealizedPnlYear")) {
-      $("#summaryRealizedPnlYear").textContent = `${combinedYearRealizedKrw >= 0 ? '+' : ''}${money(combinedYearRealizedKrw)}`;
-      $("#summaryRealizedPnlYear").style.color = combinedYearRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
-    }
-    if ($("#pnlMonthLabel")) $("#pnlMonthLabel").textContent = `${currMonthStr}월`;
-    if ($("#summaryRealizedPnlMonth")) {
-      $("#summaryRealizedPnlMonth").textContent = `${combinedMonthRealizedKrw >= 0 ? '+' : ''}${money(combinedMonthRealizedKrw)}`;
-      $("#summaryRealizedPnlMonth").style.color = combinedMonthRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
-    }
-
-    // 5. 배당금 행 숨김 (실현손익에 통합 표기됨)
-    if ($("#dividendRow")) $("#dividendRow").style.display = "none";
-
-    // 6. 안전자산 (예수금·예금, 임차보증금, 보험)
-    if ($("#safeAssetRow")) $("#safeAssetRow").style.display = "flex";
-    if ($("#summarySafeAssetVal")) $("#summarySafeAssetVal").textContent = money(totalSafeAssets);
-    if ($("#subSafeCashVal")) $("#subSafeCashVal").textContent = `예수금 및 예금 ${money(totalAllCash)}`;
-    if ($("#subSafeLeaseVal")) $("#subSafeLeaseVal").textContent = `임차보증금 ${money(totalTenantDepositVal)}`;
-    if ($("#subSafeInsuranceVal")) $("#subSafeInsuranceVal").textContent = `보험 ${money(insuranceTotal)}`;
+  // 5. 배당금 (주식 탭에서 별도 표시)
+  if ($("#dividendRow")) $("#dividendRow").style.display = "flex";
+  if ($("#divLabelText")) $("#divLabelText").textContent = "배당금";
+  if ($("#summaryActualDividend")) {
+    $("#summaryActualDividend").textContent = money(totalActualDivKrw);
+  }
+  if ($("#divYearLabel")) $("#divYearLabel").textContent = `${currYear2Digit}년`;
+  if ($("#summaryActualDivYear")) {
+    $("#summaryActualDivYear").textContent = `${yearActualDivKrw >= 0 ? '+' : ''}${money(yearActualDivKrw)}`;
+  }
+  if ($("#divMonthLabel")) $("#divMonthLabel").textContent = `${currMonthStr}월`;
+  if ($("#summaryActualDivMonth")) {
+    $("#summaryActualDivMonth").textContent = `${monthActualDivKrw >= 0 ? '+' : ''}${money(monthActualDivKrw)}`;
   }
 
   // Canonical session-gated price P/L and record-to-record valuation change
