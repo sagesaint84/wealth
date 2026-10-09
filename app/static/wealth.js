@@ -2047,6 +2047,7 @@ function renderSavingsWithOwner(owner = '모두') {
                 <span style="color:#42d5a3;font-size:14px;">₩${number(isHousing ? (curVal + (calc.after_tax_interest || 0)) : (calc.maturity_total || 0), 0)}</span>
               </div>
             </div>
+            ${window.WealthSavingsContributions?.card(s) || ''}
           </div>
         `;
       }).join("");
@@ -2461,6 +2462,7 @@ function openSavingAccountDialog(saving = null) {
     form.querySelector("[name='end_date']").value = nextYear.toISOString().slice(0, 10);
   }
 
+  window.WealthSavingsContributions?.protectTotal(saving);
   updateSavingTypeFields();
   calcSavingInterestPreview();
   refreshDialogKoreanHints(dialog);

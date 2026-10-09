@@ -10,6 +10,7 @@ from datetime import date, datetime
 from typing import Any
 
 from app.services.portfolio import read_portfolio, write_portfolio
+from app.services.savings_contributions import contribution_state, SUPPORTED_TYPES
 from app.services.tax_benefit import calculate_yellow_umbrella_benefit, get_total_tax_benefits
 
 
@@ -187,13 +188,19 @@ def get_savings_data(username: str | None = None) -> dict[str, Any]:
     for sa in savings_accounts:
         item = deepcopy(sa)
         s_type = item.get("saving_type") or "deposit"
+        started, opening, contributions, history_total = contribution_state(sa)
+        if started:
+            item["current_paid_amount"] = math.fsum([opening, history_total])
+        item["contributions"] = deepcopy(contributions)
+        item["contribution_history_started"] = started
+        item["contribution_history_total"] = history_total
         rate = float(item.get("interest_rate") or 0.0)
         months = int(item.get("duration_months") or 12)
         tax = item.get("tax_type") or "normal"
 
         cur_val = float(item.get("current_paid_amount") or 0)
         if s_type == "housing":
-            amount = float(item.get("monthly_amount") or 0.0)
+            amount = cur_val if started else float(item.get("monthly_amount") or 0.0)
             calc = calculate_interest(s_type, amount, rate, months, tax, current_paid_amount=cur_val)
         else:
             amount = float(item.get("target_amount") or 0.0) if s_type == "deposit" else float(item.get("monthly_amount") or 0.0)
@@ -452,6 +459,11 @@ def save_saving_account(payload: dict[str, Any], username: str | None = None) ->
     sid = payload.get("id") or f"saving-{uuid.uuid4().hex[:12]}"
     existing_index = next((i for i, s in enumerate(savings) if s.get("id") == sid), None)
 
+    previous = savings[existing_index] if existing_index is not None else None
+    if "contributions" in payload or "contribution_opening_amount" in payload:
+        raise ValueError("납입 이력은 납입 내역 화면에서 관리해 주세요.")
+    started, opening, history, history_total = contribution_state(previous or {})
+
     saving_type = payload.get("saving_type") or "deposit"
     duration = int(payload.get("duration_months") or 12)
     rate = float(payload.get("interest_rate") or 0.0)
@@ -476,6 +488,15 @@ def save_saving_account(payload: dict[str, Any], username: str | None = None) ->
         "memo": (payload.get("memo") or "").strip(),
         "updated_at": datetime.now().astimezone().isoformat(),
     }
+
+    if started:
+        if saving_type not in SUPPORTED_TYPES:
+            raise ValueError("납입 이력이 시작된 상품은 정기예금으로 변경할 수 없습니다.")
+        record["contribution_opening_amount"] = opening
+        record["contributions"] = deepcopy(history)
+        record["current_paid_amount"] = math.fsum([opening, history_total])
+    if previous and "created_at" in previous:
+        record["created_at"] = previous["created_at"]
 
     if existing_index is not None:
         savings[existing_index] = record

@@ -5084,7 +5084,10 @@ async def save_saving_account_endpoint(request: Request) -> dict:
     from app.services.savings import save_saving_account
     username = get_current_username(request)
     body = await request.json()
-    record = save_saving_account(body, username=username)
+    try:
+        record = save_saving_account(body, username=username)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return {"message": "예·적금 상품이 저장되었습니다.", "saving": record}
 
 @app.delete("/api/savings-accounts/{saving_id}")
@@ -5095,6 +5098,45 @@ async def delete_saving_account_endpoint(saving_id: str, request: Request) -> di
     if not success:
         raise HTTPException(404, "예·적금 상품을 찾을 수 없습니다.")
     return {"message": "예·적금 상품이 삭제되었습니다."}
+
+
+async def _saving_contribution_action(request: Request, saving_id: str, action, contribution_id: str | None = None) -> dict:
+    from app.services.savings_contributions import ContributionConflict
+    username = get_current_username(request)
+    try:
+        if request.method == "DELETE":
+            action(saving_id, contribution_id, username=username)
+            return {"message": "납입 이력이 삭제되었습니다."}
+        body = await request.json()
+        if contribution_id is None:
+            record = action(saving_id, body, username=username)
+        else:
+            record = action(saving_id, contribution_id, body, username=username)
+    except ContributionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"message": "납입 이력이 저장되었습니다.", "contribution": record}
+
+
+@app.post("/api/savings-accounts/{saving_id}/contributions")
+async def add_saving_contribution(saving_id: str, request: Request) -> dict:
+    from app.services.savings_contributions import create_contribution
+    return await _saving_contribution_action(request, saving_id, create_contribution)
+
+
+@app.put("/api/savings-accounts/{saving_id}/contributions/{contribution_id}")
+async def edit_saving_contribution(saving_id: str, contribution_id: str, request: Request) -> dict:
+    from app.services.savings_contributions import update_contribution
+    return await _saving_contribution_action(request, saving_id, update_contribution, contribution_id)
+
+
+@app.delete("/api/savings-accounts/{saving_id}/contributions/{contribution_id}")
+async def remove_saving_contribution(saving_id: str, contribution_id: str, request: Request) -> dict:
+    from app.services.savings_contributions import delete_contribution
+    return await _saving_contribution_action(request, saving_id, delete_contribution, contribution_id)
 
 @app.post("/api/savings/calculate")
 async def calculate_saving_endpoint(request: Request) -> dict:
