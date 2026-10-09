@@ -246,7 +246,9 @@ class KiwoomOpenAPI:
     @staticmethod
     def _raise_for_response(response: httpx.Response) -> None:
         if response.is_error:
-            raise KiwoomOpenAPIError(f"키움증권 API HTTP 오류 ({response.status_code})")
+            error = KiwoomOpenAPIError(f"키움증권 API HTTP 오류 ({response.status_code})")
+            error.status_code = response.status_code
+            raise error
 
     async def _post_api(self, client: httpx.AsyncClient, token: str, api_id: str,
                         body: dict[str, Any], *, cont_yn: str = "", next_key: str = "") -> tuple[dict[str, Any], str, str]:

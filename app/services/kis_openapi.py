@@ -396,7 +396,9 @@ class KISOpenAPI:
                 detail = response.json()
             except ValueError:
                 detail = response.text
-            raise KISOpenAPIError(f"한국투자증권 API 요청 실패 ({response.status_code}): {detail}")
+            error = KISOpenAPIError(f"한국투자증권 API 요청 실패 ({response.status_code}): {detail}")
+            error.status_code = response.status_code
+            raise error
 
     @staticmethod
     def _validate_ksdinfo_body(body: Any, label: str) -> dict[str, Any]:

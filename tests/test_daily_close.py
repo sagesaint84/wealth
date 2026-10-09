@@ -130,7 +130,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
             {"broker": "한국투자증권", "status": "API_ERROR" if warning else "SUCCESS"},
             {"broker": "키움증권", "status": "SUCCESS"},
         ]
-        return {"synced": 3, "brokers": brokers}
+        return {"synced": 3, "brokers": brokers, "degraded": warning, "source": "account_pre_sync"}
 
     def _sample_price_result(self) -> dict:
         return {
@@ -171,7 +171,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
     # -----------------------------------------------------------------------
     def test_daily_close_happy_path(self):
         """Verify complete happy path execution with all steps succeeding."""
-        sync_mock = AsyncMock(return_value=self._sample_sync_result())
+        sync_mock = MagicMock(return_value=self._sample_sync_result())
         price_mock = AsyncMock(return_value=self._sample_price_result())
         dash_mock = MagicMock(return_value=self._sample_dashboard())
 
@@ -181,7 +181,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
 
         now_fixed = datetime(2026, 9, 21, 21, 0, 0, tzinfo=KST)
 
-        with patch("app.main.sync_all_accounts_for_user", sync_mock), \
+        with patch("app.services.automation.daily_close.read_pre_sync_for_close", sync_mock), \
              patch("app.main.refresh_prices_for_user", price_mock), \
              patch("app.main.get_full_dashboard_for_user", dash_mock), \
              patch("app.services.automation.daily_close.resolve_telegram_config",
@@ -238,8 +238,8 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
         }
         with (
             patch(
-                "app.main.sync_all_accounts_for_user",
-                AsyncMock(return_value=self._sample_sync_result()),
+                "app.services.automation.daily_close.read_pre_sync_for_close",
+                MagicMock(return_value=self._sample_sync_result()),
             ),
             patch(
                 "app.main.refresh_prices_for_user",
@@ -277,8 +277,8 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
     def test_dividend_forecast_snapshot_failure_is_non_fatal(self):
         with (
             patch(
-                "app.main.sync_all_accounts_for_user",
-                AsyncMock(return_value=self._sample_sync_result()),
+                "app.services.automation.daily_close.read_pre_sync_for_close",
+                MagicMock(return_value=self._sample_sync_result()),
             ),
             patch(
                 "app.main.refresh_prices_for_user",
@@ -339,7 +339,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
     def test_telegram_disabled_is_non_fatal(self):
         """When Telegram is disabled, daily close succeeds and notification is skipped."""
         dash_mock = MagicMock(return_value=self._sample_dashboard())
-        with patch("app.main.sync_all_accounts_for_user", AsyncMock(return_value=self._sample_sync_result())), \
+        with patch("app.services.automation.daily_close.read_pre_sync_for_close", MagicMock(return_value=self._sample_sync_result())), \
              patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
              patch("app.main.get_full_dashboard_for_user", dash_mock), \
              patch("app.services.automation.daily_close.resolve_telegram_config",
@@ -354,7 +354,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
     def test_telegram_unconfigured_is_non_fatal(self):
         """When Telegram is enabled but unconfigured, daily close succeeds."""
         dash_mock = MagicMock(return_value=self._sample_dashboard())
-        with patch("app.main.sync_all_accounts_for_user", AsyncMock(return_value=self._sample_sync_result())), \
+        with patch("app.services.automation.daily_close.read_pre_sync_for_close", MagicMock(return_value=self._sample_sync_result())), \
              patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
              patch("app.main.get_full_dashboard_for_user", dash_mock), \
              patch("app.services.automation.daily_close.resolve_telegram_config",
@@ -378,7 +378,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
         def exploding_transport(cfg, msg):
             raise OSError(f"Connection timeout to https://api.telegram.org/bot{cfg.bot_token}/sendMessage")
 
-        with patch("app.main.sync_all_accounts_for_user", AsyncMock(return_value=self._sample_sync_result())), \
+        with patch("app.services.automation.daily_close.read_pre_sync_for_close", MagicMock(return_value=self._sample_sync_result())), \
              patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
              patch("app.main.get_full_dashboard_for_user", dash_mock), \
              patch("app.services.automation.daily_close.resolve_telegram_config",
@@ -406,20 +406,23 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
     # -----------------------------------------------------------------------
     # 7. Critical Step Failures (Fatal)
     # -----------------------------------------------------------------------
-    def test_account_sync_failure_is_fatal(self):
-        """Unhandled account sync error fails daily close and reports step."""
-        with patch("app.main.sync_all_accounts_for_user", AsyncMock(side_effect=RuntimeError("Broker network crash"))):
+    def test_missing_pre_sync_uses_preserved_data_without_account_calls(self):
+        """Missing metadata degrades the close; accounts are never fetched as fallback."""
+        with patch("app.main.sync_all_accounts_for_user", AsyncMock(side_effect=AssertionError("account fetch forbidden"))) as sync, \
+             patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
+             patch("app.main.get_full_dashboard_for_user", return_value=self._sample_dashboard()), \
+             patch("app.services.automation.daily_close.resolve_telegram_config", return_value=TelegramConfig(username=self.username, enabled=False)):
             result = _async(run_daily_close_for_user(self.username))
-
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["status"], "failed")
-        self.assertEqual(result["failed_step"], "account_sync")
-        self.assertIn("Broker network crash", result["error"])
-        self.assertFalse(result["telegram_sent"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "degraded")
+        self.assertEqual(result["sync_warning_count"], 5)
+        self.assertTrue(result["stock_record_saved"])
+        self.assertTrue(result["net_record_saved"])
+        sync.assert_not_awaited()
 
     def test_price_refresh_failure_is_fatal(self):
         """Unhandled price refresh error fails daily close and reports step."""
-        with patch("app.main.sync_all_accounts_for_user", AsyncMock(return_value=self._sample_sync_result())), \
+        with patch("app.services.automation.daily_close.read_pre_sync_for_close", MagicMock(return_value=self._sample_sync_result())), \
              patch("app.main.refresh_prices_for_user", AsyncMock(side_effect=RuntimeError("Price API down"))):
             result = _async(run_daily_close_for_user(self.username))
 
@@ -430,7 +433,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
 
     def test_dashboard_failure_is_fatal(self):
         """Dashboard compilation failure fails daily close."""
-        with patch("app.main.sync_all_accounts_for_user", AsyncMock(return_value=self._sample_sync_result())), \
+        with patch("app.services.automation.daily_close.read_pre_sync_for_close", MagicMock(return_value=self._sample_sync_result())), \
              patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
              patch("app.main.get_full_dashboard_for_user", MagicMock(side_effect=RuntimeError("Corrupt storage"))):
             result = _async(run_daily_close_for_user(self.username))
@@ -442,7 +445,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
     def test_broker_warning_is_non_fatal(self):
         """Broker sync warning (e.g. API_ERROR) is non-fatal and counted."""
         dash_mock = MagicMock(return_value=self._sample_dashboard())
-        with patch("app.main.sync_all_accounts_for_user", AsyncMock(return_value=self._sample_sync_result(warning=True))), \
+        with patch("app.services.automation.daily_close.read_pre_sync_for_close", MagicMock(return_value=self._sample_sync_result(warning=True))), \
              patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
              patch("app.main.get_full_dashboard_for_user", dash_mock), \
              patch("app.services.automation.daily_close.resolve_telegram_config",
@@ -559,7 +562,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
             upsert_asset_record(record, by_date=True, username=self.username)
 
         now_fixed = datetime(2026, 9, 21, 21, 0, tzinfo=KST)
-        with patch("app.main.sync_all_accounts_for_user", AsyncMock(return_value=self._sample_sync_result())), \
+        with patch("app.services.automation.daily_close.read_pre_sync_for_close", MagicMock(return_value=self._sample_sync_result())), \
              patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
              patch("app.main.get_full_dashboard_for_user", MagicMock(return_value=self._sample_dashboard())):
             result = _async(run_daily_close(self.username, now=now_fixed, skip_telegram=True))
@@ -584,7 +587,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
         dash_v2["holdings"][0]["current_price"] = 100000.0
         dash_v2["holdings"][0]["market_value_krw"] = 10000000.0
 
-        with patch("app.main.sync_all_accounts_for_user", AsyncMock(return_value=self._sample_sync_result())), \
+        with patch("app.services.automation.daily_close.read_pre_sync_for_close", MagicMock(return_value=self._sample_sync_result())), \
              patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
              patch("app.services.automation.daily_close.resolve_telegram_config",
                    return_value=TelegramConfig(username=self.username, enabled=False)):
@@ -624,7 +627,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
         target_dt = datetime(2026, 12, 31, 23, 59, 0, tzinfo=KST)
         dash = self._sample_dashboard()
 
-        with patch("app.main.sync_all_accounts_for_user", AsyncMock(return_value=self._sample_sync_result())), \
+        with patch("app.services.automation.daily_close.read_pre_sync_for_close", MagicMock(return_value=self._sample_sync_result())), \
              patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())), \
              patch("app.main.get_full_dashboard_for_user", MagicMock(return_value=dash)), \
              patch("app.services.automation.daily_close.resolve_telegram_config",
@@ -971,8 +974,8 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
         """Completed financial snapshots remain successful if notification plumbing fails."""
         now_fixed = datetime(2026, 9, 21, 21, 0, 0, tzinfo=KST)
         with patch(
-            "app.main.sync_all_accounts_for_user",
-            AsyncMock(return_value=self._sample_sync_result()),
+            "app.services.automation.daily_close.read_pre_sync_for_close",
+            MagicMock(return_value=self._sample_sync_result()),
         ), patch(
             "app.main.refresh_prices_for_user",
             AsyncMock(return_value=self._sample_price_result()),
@@ -1109,7 +1112,7 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
             route_mocks.append(m)
 
         # Service functions ARE called
-        with patch("app.main.sync_all_accounts_for_user", AsyncMock(return_value=self._sample_sync_result())) as svc_sync, \
+        with patch("app.services.automation.daily_close.read_pre_sync_for_close", MagicMock(return_value=self._sample_sync_result())) as svc_sync, \
              patch("app.main.refresh_prices_for_user", AsyncMock(return_value=self._sample_price_result())) as svc_price, \
              patch("app.main.get_full_dashboard_for_user", MagicMock(return_value=self._sample_dashboard())) as svc_dash, \
              patch("app.services.automation.daily_close.resolve_telegram_config",
@@ -1117,7 +1120,9 @@ class DailyCloseServiceTests(IsolatedDataTestCase):
             res = _async(run_daily_close_for_user(self.username))
 
         self.assertTrue(res["ok"])
-        svc_sync.assert_called_once_with(self.username, retry_kb_transient=True)
+        svc_sync.assert_called_once()
+        self.assertEqual(svc_sync.call_args.args, (self.username,))
+        self.assertIn("now", svc_sync.call_args.kwargs)
         svc_price.assert_called_once_with(self.username)
         svc_dash.assert_called_once_with(username=self.username, record_snapshots=False)
 
