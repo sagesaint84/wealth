@@ -1,10 +1,7 @@
 """Real Chrome viewport check using the read-only synthetic UI preview."""
 
 import json
-import os
 import shutil
-import subprocess
-import tempfile
 import threading
 import time
 import urllib.request
@@ -14,6 +11,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
+
+from tests.chrome_harness import chrome_session, safe_preview_server
 
 from tests.ui_preview import PreviewHandler, STATIC
 
@@ -54,37 +53,14 @@ def test_realized_pnl_page_stays_within_eight_viewports():
     chrome = _chrome_path()
     if chrome is None:
         pytest.skip("Chromium browser unavailable")
-    server = ThreadingHTTPServer(("127.0.0.1", 0), StaticPreview)
+    server = safe_preview_server(ThreadingHTTPServer, StaticPreview)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     process = None
     connection = None
     try:
         with ExitStack() as cleanup:
-            profile = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="wealth-viewport-"))
-            flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-            process = subprocess.Popen(
-                [chrome, "--headless=new", "--no-first-run", "--no-default-browser-check",
-                 "--disable-gpu", "--remote-allow-origins=*", "--remote-debugging-port=0",
-                 f"--user-data-dir={profile}", "about:blank"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags,
-            )
-            def stop_chrome():
-                if process.poll() is None:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=5)
-            cleanup.callback(stop_chrome)
-            active_port = Path(profile) / "DevToolsActivePort"
-            for _ in range(100):
-                if active_port.exists():
-                    break
-                time.sleep(0.1)
-            assert active_port.exists(), "Chrome DevTools port did not start"
-            port = active_port.read_text().splitlines()[0]
+            process, port, profile = cleanup.enter_context(chrome_session(chrome, "wealth-viewport-"))
             targets = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=5))
             target = next(item for item in targets if item.get("type") == "page")
             connection = websocket.create_connection(target["webSocketDebuggerUrl"], timeout=15)

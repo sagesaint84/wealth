@@ -1,11 +1,12 @@
 """Native Chrome link activation against synthetic IPO data and intercepted HTML."""
 import base64
 import json
-from pathlib import Path
 import subprocess
 import urllib.request
 
 import pytest
+
+from tests.chrome_harness import wait_for_active_port
 
 from tests.test_account_reorder_runtime import chrome_preview, wait_for
 from tests.test_ipo_pre_subscription_score_recovery import company
@@ -91,6 +92,7 @@ class Browser:
 @pytest.fixture
 def reference_browser(monkeypatch, request):
     profile = []
+    processes = []
     native = subprocess.Popen
 
     def launch(args, **kwargs):
@@ -99,11 +101,13 @@ def reference_browser(monkeypatch, request):
                 profile.append(str(arg).split('=',1)[1])
         # Even a broken interception must not contact external services.
         args = [*args, '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1']
-        return native(args, **kwargs)
+        process = native(args, **kwargs)
+        processes.append(process)
+        return process
 
     monkeypatch.setattr(subprocess, 'Popen', launch)
     preview = request.getfixturevalue('chrome_preview')
-    port = (Path(profile[0]) / 'DevToolsActivePort').read_text().splitlines()[0]
+    port = wait_for_active_port(processes[0], profile[0])
     with urllib.request.urlopen(f'http://127.0.0.1:{port}/json/version', timeout=5) as response:
         url = json.load(response)['webSocketDebuggerUrl']
     websocket = pytest.importorskip('websocket')

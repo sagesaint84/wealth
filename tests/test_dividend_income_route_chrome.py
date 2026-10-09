@@ -1,19 +1,18 @@
 """Chrome regressions for dividend chart ownership and income tab URLs."""
 
 import json
-import os
-import subprocess
 import threading
 import time
 import urllib.request
 from contextlib import ExitStack
 from http.server import ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from tests.test_pnl_first_visible_frame import IncomePreview, RECORDS, chrome_profile
+from tests.chrome_harness import chrome_session, safe_preview_server
+
+from tests.test_pnl_first_visible_frame import IncomePreview, RECORDS
 from tests.test_realized_pnl_viewport import StaticPreview, _chrome_path
 from tests.ui_preview import STATIC
 
@@ -93,7 +92,7 @@ def chrome_preview(request):
     handler = (DelayedDividendPreview if "dividend_slow_first_frame" in request.node.name
                else DividendPreview if "dividend_visible_chart" in request.node.name or "startup_request" in request.node.name
                else StaticPreview)
-    server = ChromePreviewServer(("127.0.0.1", 0), handler)
+    server = safe_preview_server(ChromePreviewServer, handler)
     # Serve immutable fixture bytes on every request/reload. This avoids Windows
     # file reads in HTTP worker threads without changing script delivery delays.
     server.preview_assets = {path.name: path.read_bytes() for path in STATIC.iterdir() if path.is_file()}
@@ -102,37 +101,7 @@ def chrome_preview(request):
     connection = None
     try:
         with ExitStack() as cleanup:
-            profile = cleanup.enter_context(chrome_profile("wealth-dividend-route-"))
-            flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-            process = subprocess.Popen(
-                [chrome, "--headless=new", "--no-first-run", "--no-default-browser-check",
-                 "--disable-gpu", "--remote-allow-origins=*", "--remote-debugging-port=0",
-                 f"--user-data-dir={profile}", "about:blank"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags,
-            )
-
-            def stop_chrome():
-                if process.poll() is None:
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait(timeout=5)
-
-            cleanup.callback(stop_chrome)
-            active_port = Path(profile) / "DevToolsActivePort"
-            for _ in range(100):
-                try:
-                    port_lines = active_port.read_text().splitlines()
-                    if port_lines:
-                        port = port_lines[0]
-                        break
-                except (FileNotFoundError, PermissionError):
-                    pass
-                time.sleep(0.1)
-            else:
-                pytest.fail("Chrome debugging port did not become readable")
+            process, port, profile = cleanup.enter_context(chrome_session(chrome, "wealth-dividend-route-"))
             targets = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=5))
             target = next(item for item in targets if item.get("type") == "page")
             connection = websocket.create_connection(target["webSocketDebuggerUrl"], timeout=15)
