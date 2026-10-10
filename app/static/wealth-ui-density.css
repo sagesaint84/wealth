@@ -1,0 +1,75 @@
+/* Phase 1: four surface-scoped fixes; global dialog sizing stays unchanged. */
+#savingContributionsDialog > p {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted, #94a3b8);
+}
+#savingContributionsDialog #savingContributionSummary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 12px 0 14px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+#savingContributionsDialog #savingContributionSummary > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#savingContributionsDialog #savingContributionSummary strong {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+#savingContributionsDialog #savingContributionForm {
+  padding: 10px;
+  gap: 10px;
+}
+#savingContributionsDialog h3 {
+  margin: 22px 0 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+#savingContributionsDialog #savingContributionNotice {
+  margin: 8px 0;
+  font-size: 11px;
+}
+#savingContributionsDialog .saving-contribution-row {
+  padding: 10px 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+#savingContributionsDialog .saving-contribution-row > strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+#savingContributionsDialog .saving-contribution-source {
+  font-size: 10px;
+}
+#savingContributionsDialog .empty {
+  padding: 30px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+#openapiKrxSection .form-grid > label {
+  font-size: 11.5px;
+}
+@media (max-width: 480px) {
+  :is(#savingsGrid, #loansGrid, #insuranceGrid, #realEstateGrid),
+  :is(#savingsGrid, #loansGrid, #insuranceGrid, #realEstateGrid) .savings-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    width: 100%;
+  }
+  :is(#savingsGrid, #loansGrid, #insuranceGrid, #realEstateGrid) > *,
+  :is(#savingsGrid, #loansGrid, #insuranceGrid, #realEstateGrid) .savings-card-grid > * {
+    min-width: 0;
+  }
+  #realizedPnlPanel .dividend-summary-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  #realizedPnlPanel .div-summary-card {
+    min-width: 0;
+    padding: 12px;
+    overflow-wrap: anywhere;
+  }
+}
