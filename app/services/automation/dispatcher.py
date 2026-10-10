@@ -41,6 +41,10 @@ from app.services.settings import (
 from app.services.system_settings import get_effective_system_settings
 from app.services.toss_wts_session import run_toss_session_maintenance
 from app.services.user_manager import list_users
+from app.services.savings_contributions import (
+    SAVINGS_AUTO_CONTRIBUTION_TIME,
+    process_scheduled_savings_contributions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +250,16 @@ def resolve_due_jobs(
 
     for user_item in sorted_users:
         username = user_item["username"]
+        # Product opt-in lives in portfolio.json; no user schedule/config override.
+        if current_time_str == SAVINGS_AUTO_CONTRIBUTION_TIME:
+            due_jobs.append({
+                "job": "savings_auto_contribution", "scope": "user", "username": username,
+                "scheduled_time": SAVINGS_AUTO_CONTRIBUTION_TIME,
+                "execution_key": build_execution_key(
+                    job="savings_auto_contribution", target_date=current_date_str,
+                    time_str=SAVINGS_AUTO_CONTRIBUTION_TIME, scope="user", username=username,
+                ),
+            })
         try:
             user_settings = get_effective_settings(username)
         except Exception as exc:
@@ -433,6 +447,7 @@ async def execute_job(
     listing_reminder_runner: Callable[..., Any] | None = None,
     ipo_refresh_runner: Callable[..., Any] | None = None,
     toss_session_runner: Callable[..., Any] | None = None,
+    savings_auto_runner: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a single due job with error isolation and secret-safe result."""
     job_type = job.get("job")
@@ -441,6 +456,24 @@ async def execute_job(
     # Handle already-errored/unconfigured job descriptors
     if "status" in job:
         return dict(job)
+
+    if job_type == "savings_auto_contribution":
+        result = {"job": job_type, "scope": "user", "username": job.get("username"),
+                  "scheduled_time": scheduled_time}
+        try:
+            runner = savings_auto_runner or process_scheduled_savings_contributions
+            if inspect.iscoroutinefunction(runner):
+                res = await runner(job["username"], now=now)
+            else:
+                res = await asyncio.to_thread(runner, job["username"], now=now)
+            result.update(status="success", details={
+                key: res[key] for key in ("created_count", "created_ids", "skipped_count", "skipped_reasons")
+                if key in res
+            })
+        except Exception:
+            # Canonical validation/write failures must fail the claim, without secrets.
+            result.update(status="failed", error="SAVINGS_AUTO_CONTRIBUTION_FAILED")
+        return result
 
     if job_type == "toss_session_maintenance":
         owner = job.get("owner")
@@ -677,6 +710,7 @@ async def run_due_automation(
     listing_reminder_runner: Callable[..., Any] | None = None,
     ipo_refresh_runner: Callable[..., Any] | None = None,
     toss_session_runner: Callable[..., Any] | None = None,
+    savings_auto_runner: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Primary automation dispatcher entry point.
 
@@ -763,6 +797,7 @@ async def run_due_automation(
                 listing_reminder_runner=listing_reminder_runner,
                 ipo_refresh_runner=ipo_refresh_runner,
                 toss_session_runner=toss_session_runner,
+                savings_auto_runner=savings_auto_runner,
             )
         except Exception as exc:
             logger.exception("Unexpected exception in execute_job for '%s'", key)

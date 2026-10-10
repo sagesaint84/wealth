@@ -18,3 +18,10 @@
   #savingContributionSummary,#savingContributionForm { grid-template-columns:minmax(0,1fr); }
   .saving-contribution-row { grid-template-columns:minmax(0,1fr); }
 }
+#savingAccountDialog .saving-auto-settings { min-width:0; margin:16px 0; padding:12px; border:1px solid var(--line); border-radius:10px; }
+#savingAccountDialog .saving-auto-toggle { display:flex; align-items:center; gap:8px; min-height:36px; font-size:12px; }
+#savingAccountDialog .saving-auto-toggle input { flex:0 0 auto; width:18px; height:18px; padding:0; margin:0; }
+#savingAccountDialog .saving-auto-toggle span { min-width:0; overflow-wrap:anywhere; }
+#savingAccountDialog .saving-auto-help, #savingAccountDialog .saving-auto-warning { font-size:11px; line-height:1.6; margin:6px 0 10px; overflow-wrap:anywhere; }
+#savingAccountDialog .saving-auto-help { color:var(--muted); }
+#savingAccountDialog .saving-auto-warning { color:var(--text); border-left:2px solid var(--muted); padding-left:8px; }

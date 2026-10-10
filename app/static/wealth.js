@@ -2463,13 +2463,47 @@ function openSavingAccountDialog(saving = null) {
   }
 
   window.WealthSavingsContributions?.protectTotal(saving);
+  $("#savingAutoContributionEnabled").checked = saving?.auto_contribution_enabled === true;
+  $("#savingAutoDebitBalance").checked = typeof saving?.auto_contribution_debit_balance === "boolean"
+    ? saving.auto_contribution_debit_balance : true;
   updateSavingTypeFields();
   calcSavingInterestPreview();
   refreshDialogKoreanHints(dialog);
   dialog.showModal();
 }
 
+function updateSavingAutoContributionFields() {
+  const form = $("#savingAccountForm");
+  const enabled = $("#savingAutoContributionEnabled");
+  const debit = $("#savingAutoDebitBalance");
+  if (!form || !enabled || !debit) return;
+  const eligible = ["installment", "free", "housing"].includes($("#savingTypeSelect")?.value);
+  $("#savingAutoContributionSettings").hidden = !eligible;
+  enabled.disabled = !eligible;
+  if (!eligible) enabled.checked = false;
+  const active = eligible && enabled.checked;
+  $("#savingAutoDebitSettings").hidden = !active;
+  debit.disabled = !active;
+  $("#savingAutoDebitWarning").hidden = !active || debit.checked;
+  const day = form.elements.auto_transfer_day;
+  day.required = active;
+  day.min = active ? "1" : "0";
+  const monthly = $("#savingMonthlyAmount");
+  monthly.required = active;
+  monthly.min = active ? "0.01" : "0";
+  const withdraw = $("#savingWithdrawAccountSelect");
+  withdraw.required = active;
+  const owner = form.elements.owner.value || "모두";
+  const selected = withdraw.value;
+  const banks = rawBankAccounts.filter(b => !active || ((b.currency || "KRW") === "KRW"
+    && (owner === "모두" || [owner, "모두"].includes(b.owner || "모두"))));
+  withdraw.innerHTML = '<option value="">-- 은행 계좌 선택 --</option>' + banks.map(b =>
+    `<option value="${escapeHtml(b.id)}">${escapeHtml(b.bank_name)} - ${escapeHtml(b.account_name)} (${escapeHtml(b.owner || '모두')})</option>`).join('');
+  withdraw.value = selected;
+}
+
 function updateSavingTypeFields() {
+  updateSavingAutoContributionFields();
   const type = $("#savingTypeSelect")?.value || "deposit";
   const monthlyLabel = $("#monthlyAmountLabel");
   const targetLabel = $("#targetAmountLabel");
@@ -11233,6 +11267,8 @@ function initSavingsListeners() {
         current_paid_amount: Number(fd.get("current_paid_amount")) || 0,
         tax_type: fd.get("tax_type") || "normal",
         auto_transfer_day: Number(fd.get("auto_transfer_day")) || 0,
+        auto_contribution_enabled: $("#savingAutoContributionEnabled").checked,
+        auto_contribution_debit_balance: $("#savingAutoDebitBalance").checked,
         withdraw_account_id: fd.get("withdraw_account_id") || "",
         deposit_account_id: fd.get("deposit_account_id") || "",
         memo: fd.get("memo") || "",
