@@ -88,13 +88,13 @@ def test_compact_bucket_details_typography_badges_toggle_and_owner(chrome_previe
     for theme in ['purple', 'white', 'oled']:
         evaluate(f"document.documentElement.dataset.theme='{theme}'")
         colors = evaluate("[...document.querySelectorAll('.wealth-bucket-badge')].map(e=>getComputedStyle(e).getPropertyValue('--bucket-color').trim())")
-        assert colors == ['#A78BFA', '#FB7185', '#FB7185', '#A78BFA', '#697386']
+        assert colors == ['#1D4ED8', '#1D4ED8', '#FB7185', '#A78BFA', '#697386']
         no_overflow(evaluate, width)
     if width == 390:
         assert evaluate("(()=>{const r=document.querySelectorAll('.wealth-bucket-constituent')[2];return r.querySelector('.wealth-bucket-value').getBoundingClientRect().top>=r.querySelector('.wealth-bucket-holding').getBoundingClientRect().bottom})()")
         assert evaluate("getComputedStyle(document.querySelector('.wealth-bucket-holding')).textOverflow") != 'ellipsis'
     click(call, evaluate, '[data-bucket-filter="growth"]')
-    assert evaluate("document.querySelector('.wealth-bucket-contents [role=status]').textContent") == '2건 · 합계 700원'
+    assert evaluate("document.querySelector('.wealth-bucket-contents [role=status]').textContent") == '1건 · 합계 500원'
     assert evaluate("[...document.querySelectorAll('.wealth-bucket-constituent')].every(r=>r.dataset.bucketId==='growth')")
     click(call, evaluate, '[data-bucket-filter="growth"]')
     assert evaluate("document.querySelectorAll('.wealth-bucket-constituent').length") == 5

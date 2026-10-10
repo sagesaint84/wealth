@@ -108,6 +108,12 @@
     <button type="button" class="account-cat-tab" data-cat="banking">🏦 은행 (<span id="bankingTabCount">0</span>)</button>
     <button type="button" class="account-cat-tab" data-cat="insurance">🛡️ 보험 (<span id="insuranceTabCount">0</span>)</button>
     <button type="button" class="account-cat-tab" data-cat="real_estate">🏠 부동산 (<span id="realEstateTabCount">0</span>)</button>`;
+  const assetPanels = {securities:'catPanelSecurities',banking:'catPanelBanking',insurance:'catPanelInsurance',real_estate:'catPanelRealEstate'};
+  assetCategoryTabs.querySelectorAll('button').forEach(button => {
+    const active = button.dataset.cat === (window.WealthAssetCategoryState?.current() || 'securities');
+    button.setAttribute('role','tab'); button.setAttribute('aria-controls',assetPanels[button.dataset.cat]);
+    button.setAttribute('aria-selected',String(active)); button.classList.toggle('active',active);
+  });
   page('assets').append(assetCategoryTabs);
   move('accountsPanel', page('assets'));
   const incomeTabs = document.createElement('div');
