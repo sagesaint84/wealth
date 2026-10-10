@@ -1,0 +1,74 @@
+/* Native dialogs: safe standard fallback, explicit desktop sizes, shared roles. */
+dialog.dialog {
+  width: min(var(--dialog-width, 620px), calc(100vw - 24px)) !important;
+  max-width: var(--dialog-width, 620px) !important;
+}
+dialog.dialog--compact { --dialog-width: 500px; }
+dialog.dialog--standard { --dialog-width: 620px; }
+dialog.dialog--wide { --dialog-width: 760px; }
+dialog.dialog--xwide { --dialog-width: 900px; }
+/* Runtime editors retain their existing markup and use the standard fallback. */
+
+dialog.dialog .dialog-head {
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+dialog.dialog .dialog-head h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+dialog.dialog .dialog-head > div:first-child { min-width: 0; }
+dialog.dialog .dialog-head .close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  line-height: 1;
+}
+dialog.dialog :is(.dialog-description, .ipo-manual-sale-note) {
+  margin: 8px 0 16px !important;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+  color: var(--muted) !important;
+  overflow-wrap: anywhere;
+}
+dialog.dialog .dialog-subheading {
+  margin: 22px 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+/* Only list/history/table empty roles. Chart no-data and page .empty stay intact. */
+dialog.dialog :is(.dialog-empty, #ledgerCardsList .empty, #ledgerRecurringList .empty, .admin-empty-cell) {
+  padding: 30px 14px !important;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  text-align: center;
+}
+dialog.dialog :is(#ledgerCardsList, #ledgerRecurringList) .empty > p {
+  font-size: inherit !important;
+  color: inherit !important;
+}
+/* An empty table has no data columns requiring the global table minimum. */
+#adminUsersModal .admin-user-table:has(.admin-empty-cell) { min-width: 0; }
+#adminUsersModal .admin-empty-cell { white-space: normal; overflow-wrap: anywhere; }
+#stockChartDialog .dialog-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 8px 12px;
+}
+#stockChartDialog .dialog-head > div:first-child { grid-column: 1; grid-row: 1; }
+#stockChartDialog .dialog-head > .close { grid-column: 2; grid-row: 1; }
+#stockChartDialog #stockChartPeriodTabs {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0 !important;
+  flex-wrap: wrap;
+}

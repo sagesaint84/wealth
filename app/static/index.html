@@ -25,6 +25,7 @@
     <link rel="stylesheet" href="/static/wealth-family-financial-income-risk.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-family-financial-income-allocation.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-ui-density.css?v=10.9o1" />
+    <link rel="stylesheet" href="/static/wealth-dialog-system.css?v=10.9o2" />
   </head>
   <body>
     <main class="shell">
@@ -1438,12 +1439,12 @@
 
     </main>
 
-    <dialog id="ipoHistoricalImportDialog" class="dialog">
+    <dialog id="ipoHistoricalImportDialog" class="dialog dialog--wide">
       <form id="ipoHistoricalImportForm" method="dialog">
         <div class="dialog-head"><h2>과거 공모주 가져오기</h2><button value="cancel" class="close" aria-label="닫기">×</button></div>
-        <p class="muted">온라인 전체 조회는 KRX Data Marketplace [20001] 신규상장종목 현황의 2020년~현재 자료를 연도별로 조회합니다. 조회 자체는 데이터를 변경하지 않으며, 미리보기 확인 후 반영할 때만 KRX 공식값으로 과거 공모주의 상장시장·실제 상장일·확정 공모가·주관사를 정정/보완합니다.</p>
+        <p class="muted dialog-description">온라인 전체 조회는 KRX Data Marketplace [20001] 신규상장종목 현황의 2020년~현재 자료를 연도별로 조회합니다. 조회 자체는 데이터를 변경하지 않으며, 미리보기 확인 후 반영할 때만 KRX 공식값으로 과거 공모주의 상장시장·실제 상장일·확정 공모가·주관사를 정정/보완합니다.</p>
         <div class="dialog-actions"><button type="button" id="ipoHistoricalOnlinePreviewBtn" class="button secondary">🌐 KRX 전체 과거자료 조회</button></div>
-        <p class="muted">또는 KRX Data Marketplace [20001] / KIND에서 직접 다운로드한 공식 Excel/CSV 파일을 불러올 수 있습니다. KIND는 선택조건에서 <strong>공모가</strong>를 포함해 주세요.</p>
+        <p class="muted dialog-description">또는 KRX Data Marketplace [20001] / KIND에서 직접 다운로드한 공식 Excel/CSV 파일을 불러올 수 있습니다. KIND는 선택조건에서 <strong>공모가</strong>를 포함해 주세요.</p>
         <label>공식 파일 <input id="ipoHistoricalImportFile" type="file" accept=".xlsx,.xlsm,.xls,.csv" /></label>
         <div id="ipoHistoricalImportPreview" class="muted" aria-live="polite" aria-atomic="false"></div>
         <p class="muted">온라인 KRX 조회는 미리보기에 표시된 공식값 변경만 반영합니다. 파일 가져오기는 기존처럼 신규 및 안전하게 보완 가능한 값만 반영하며 기존 비어 있지 않은 값은 덮어쓰지 않습니다.</p>
@@ -1451,7 +1452,7 @@
       </form>
     </dialog>
 
-    <dialog id="holdingDialog" class="dialog">
+    <dialog id="holdingDialog" class="dialog dialog--standard">
       <form id="holdingForm" method="dialog">
         <div class="dialog-head">
           <h2 id="holdingDialogTitle">보유종목 직접 추가</h2>
@@ -1505,7 +1506,7 @@
       </form>
     </dialog>
 
-    <dialog id="accountImportDialog" class="dialog" style="max-width:540px;width:95vw;">
+    <dialog id="accountImportDialog" class="dialog dialog--wide">
       <form id="accountImportForm" method="dialog">
         <div class="dialog-head"><h2>증권계좌 파일 가져오기</h2><button value="cancel" class="close" aria-label="닫기">×</button></div>
         <p class="dialog-description">엑셀(.xlsx) 또는 CSV 파일로 증권계좌를 일괄 등록합니다.<br><strong>[소유자 / 증권사 / 계좌명 / 계좌번호 / 계좌유형 / 원화예수금 / 달러예수금 / 세액공제적용 / 소득구간 / 올해연금납입액 / ISA전환입금액 / ISA전환연도]</strong></p>
@@ -1515,7 +1516,7 @@
       </form>
     </dialog>
     <!-- 보유종목 파일 가져오기 다이얼로그 -->
-    <dialog id="importDialog" class="dialog">
+    <dialog id="importDialog" class="dialog dialog--wide">
       <form id="importForm" method="dialog">
         <div class="dialog-head">
           <h2>증권사 잔고 파일 가져오기</h2>
@@ -1540,7 +1541,7 @@
     </dialog>
 
     <!-- 실제 배당금 엑셀 가져오기 다이얼로그 -->
-    <dialog id="dividendImportDialog" class="dialog" style="max-width:540px;width:95vw;">
+    <dialog id="dividendImportDialog" class="dialog dialog--standard">
       <form id="dividendImportForm" method="dialog">
         <div class="dialog-head">
           <h2>실제 배당금 파일 가져오기</h2>
@@ -1565,7 +1566,7 @@
         </div>
       </form>
     </dialog>
-    <dialog id="assetRecordDialog" class="dialog">
+    <dialog id="assetRecordDialog" class="dialog dialog--standard">
       <form id="assetRecordForm" method="dialog">
         <div class="dialog-head">
           <h2 id="assetRecordDialogTitle">주식기록 추가</h2>
@@ -1593,7 +1594,7 @@
     </dialog>
 
     <!-- 계좌 예수금 직접 입력/수정 다이얼로그 (원화 & 달러 통합) -->
-    <dialog id="accountCashDialog" class="dialog">
+    <dialog id="accountCashDialog" class="dialog dialog--compact">
       <form id="accountCashForm" method="dialog">
         <div class="dialog-head">
           <h2 id="accountCashDialogTitle">계좌 예수금 입력 / 수정</h2>
@@ -1616,7 +1617,7 @@
     </dialog>
 
     <!-- 증권사 및 계좌 정보 수정 다이얼로그 -->
-    <dialog id="accountEditDialog" class="dialog" style="max-width:560px;width:95vw;max-height:90vh;overflow-y:auto;">
+    <dialog id="accountEditDialog" class="dialog dialog--wide" style="max-height:90vh;overflow-y:auto;">
       <form id="accountEditForm" onsubmit="return false;">
         <input type="hidden" name="id" />
         <div class="dialog-head">
@@ -1738,7 +1739,7 @@
         </div>
       </form>
     </dialog>
-    <dialog id="accountAddDialog" class="dialog" style="max-width:560px;width:95vw;max-height:90vh;overflow-y:auto;">
+    <dialog id="accountAddDialog" class="dialog dialog--standard" style="max-height:90vh;overflow-y:auto;">
       <form id="accountAddForm" onsubmit="return false;">
         <div class="dialog-head">
           <h2>계좌 추가</h2>
@@ -1819,7 +1820,7 @@
     </dialog>
 
     <!-- 자유입출금 통장 등록/수정 다이얼로그 -->
-    <dialog id="bankAccountDialog" class="dialog">
+    <dialog id="bankAccountDialog" class="dialog dialog--standard">
       <form id="bankAccountForm" method="dialog">
         <div class="dialog-head">
           <h2 id="bankAccountDialogTitle">자유입출금 통장 추가</h2>
@@ -1892,7 +1893,7 @@
     </dialog>
 
     <!-- 예·적금 상품 등록/수정 다이얼로그 (실시간 이자 계산기 탑재) -->
-    <dialog id="savingAccountDialog" class="dialog" style="max-width:680px;width:95vw;">
+    <dialog id="savingAccountDialog" class="dialog dialog--standard">
       <form id="savingAccountForm" method="dialog">
         <div class="dialog-head">
           <h2 id="savingAccountDialogTitle">예·적금 상품 추가</h2>
@@ -2003,9 +2004,9 @@
       </form>
     </dialog>
 
-    <dialog id="savingContributionsDialog" class="dialog" aria-labelledby="savingContributionsTitle">
+    <dialog id="savingContributionsDialog" class="dialog dialog--standard" aria-labelledby="savingContributionsTitle">
       <div class="dialog-head"><h2 id="savingContributionsTitle">납입 내역</h2><button id="savingContributionsClose" type="button" class="close" aria-label="납입 내역 닫기">×</button></div>
-      <p>이미 납입한 금액을 기록합니다. 출금계좌는 이력 참조이며 통장 잔액은 변경되지 않습니다.</p>
+      <p class="dialog-description">이미 납입한 금액을 기록합니다. 출금계좌는 이력 참조이며 통장 잔액은 변경되지 않습니다.</p>
       <div id="savingContributionSummary" aria-label="납입 누적액 요약"></div>
       <form id="savingContributionForm">
         <label for="savingContributionDate">납입일<input id="savingContributionDate" name="date" type="date" required /></label>
@@ -2015,11 +2016,11 @@
         <div class="saving-contribution-actions"><button id="savingContributionSave" type="submit" class="button primary">납입 기록 저장</button><button id="savingContributionCancelEdit" type="button" class="button secondary" hidden>수정 취소</button></div>
       </form>
       <p id="savingContributionNotice" role="status" aria-live="polite"></p>
-      <h3>납입 이력</h3><div id="savingContributionHistory"></div>
+      <h3 class="dialog-subheading">납입 이력</h3><div id="savingContributionHistory"></div>
     </dialog>
 
     <!-- 보험/연금/공제 등록 및 수정 다이얼로그 -->
-    <dialog id="insuranceAccountDialog" class="dialog" style="max-width:640px;width:95vw;">
+    <dialog id="insuranceAccountDialog" class="dialog dialog--wide">
       <div class="dialog-head">
         <h2 id="insuranceAccountDialogTitle">보험 / 연금 / 공제 상품 추가</h2>
         <button value="cancel" class="close" aria-label="닫기">×</button>
@@ -2200,7 +2201,7 @@
     </dialog>
 
     <!-- 대출·마이너스통장 등록 및 수정 다이얼로그 -->
-    <dialog id="loanAccountDialog" class="dialog" style="max-width:640px;width:95vw;">
+    <dialog id="loanAccountDialog" class="dialog dialog--standard">
       <div class="dialog-head">
         <h2 id="loanAccountDialogTitle">대출 · 마이너스통장 추가</h2>
         <button value="cancel" class="close" aria-label="닫기">×</button>
@@ -2304,7 +2305,7 @@
     </dialog>
 
     <!-- 부동산 자산 등록/수정 다이얼로그 -->
-    <dialog id="realEstateDialog" class="dialog" style="max-width:680px;width:95vw;">
+    <dialog id="realEstateDialog" class="dialog dialog--wide">
       <form id="realEstateForm" method="dialog">
         <div class="dialog-head">
           <h2 id="realEstateDialogTitle">부동산 자산 추가</h2>
@@ -2435,7 +2436,7 @@
     </dialog>
 
     <!-- 부동산 매각 및 실현손익 기록 다이얼로그 -->
-    <dialog id="realEstateSellDialog" class="dialog" style="max-width:540px;width:95vw;">
+    <dialog id="realEstateSellDialog" class="dialog dialog--standard">
       <div class="dialog-head">
         <h2 id="reSellDialogTitle">🏢 부동산 매각 및 실현손익 기록</h2>
         <button value="cancel" class="close" aria-label="닫기">×</button>
@@ -2529,7 +2530,7 @@
   </footer>
 
   <!-- 가계부 단건 등록/수정 다이얼로그 -->
-  <dialog id="ledgerTxDialog" class="dialog" style="max-width:540px;width:95vw;">
+  <dialog id="ledgerTxDialog" class="dialog dialog--standard">
     <form id="ledgerTxForm" onsubmit="return false;">
       <div class="dialog-head">
         <h2 id="ledgerTxDialogTitle">수입 / 지출 내역 등록</h2>
@@ -2640,7 +2641,7 @@
   </dialog>
 
   <!-- 가계부 신용카드 관리 다이얼로그 -->
-  <dialog id="ledgerCardsDialog" class="dialog" style="max-width:680px;width:95vw;">
+  <dialog id="ledgerCardsDialog" class="dialog dialog--wide">
     <div class="dialog-head">
       <h2>💳 신용카드 등록 & 관리</h2>
       <button value="cancel" class="close" aria-label="닫기" onclick="this.closest('dialog')?.close()">×</button>
@@ -2649,7 +2650,7 @@
 
     <!-- 등록된 카드 목록 -->
     <div style="margin:14px 0;">
-      <h3 style="font-size:14px;font-weight:800;color:#f8fafc;margin:0 0 10px 0;">내 신용카드 목록 & 당월 청구 현황</h3>
+      <h3 style="color:#f8fafc;" class="dialog-subheading">내 신용카드 목록 & 당월 청구 현황</h3>
       <div id="ledgerCardsList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;max-height:280px;overflow-y:auto;">
         <!-- JS 동적 주입 -->
       </div>
@@ -2657,7 +2658,7 @@
 
     <!-- 신규 카드 등록 / 수정 폼 -->
     <div class="ledger-dialog-subbox" style="border-radius:10px;padding:14px;margin-top:12px;">
-      <h3 id="ledgerCardFormTitle" style="font-size:13.5px;font-weight:700;color:#38bdf8;margin:0 0 10px 0;">➕ 신규 카드 등록</h3>
+      <h3 id="ledgerCardFormTitle" style="color:#38bdf8;" class="dialog-subheading">➕ 신규 카드 등록</h3>
       <form id="ledgerCardForm" onsubmit="return false;">
         <div class="form-grid" style="grid-template-columns:repeat(2,1fr);">
           <label>카드사
@@ -2723,7 +2724,7 @@
   </dialog>
 
   <!-- 카드대금 결제 / 정산 다이얼로그 -->
-  <dialog id="ledgerCardPayDialog" class="dialog" style="max-width:480px;width:95vw;">
+  <dialog id="ledgerCardPayDialog" class="dialog dialog--compact">
     <form id="ledgerCardPayForm" onsubmit="return false;">
       <div class="dialog-head">
         <h2>💳 카드대금 결제 / 정산</h2>
@@ -2771,14 +2772,14 @@
   </dialog>
 
   <!-- 가계부 고정지출 관리 다이얼로그 -->
-  <dialog id="ledgerRecurringDialog" class="dialog" style="max-width:620px;width:95vw;">
+  <dialog id="ledgerRecurringDialog" class="dialog dialog--standard">
     <form id="ledgerRecurringForm" onsubmit="return false;">
       <div class="dialog-head">
         <h2>🛡️ 정기 고정지출 관리</h2>
         <button value="cancel" class="close" aria-label="닫기">×</button>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-        <p class="dialog-description" style="margin:0;">매월 정기적으로 나가는 공과금, 보험료, 구독료 등을 관리합니다.</p>
+        <p class="dialog-description">매월 정기적으로 나가는 공과금, 보험료, 구독료 등을 관리합니다.</p>
         <button id="triggerRecurringBtn" class="button compact secondary" type="button" onclick="triggerRecurringProcess()" title="지정일 도래 항목 즉시 출금 정산" style="font-size:11px;padding:3px 8px;border-color:#38bdf8;color:#38bdf8;">
           ⚡ 이번 달 자동이체 즉시 실행
         </button>
@@ -2788,7 +2789,7 @@
 
       <div class="ledger-dialog-subbox" style="border-radius:10px;padding:12px;margin-top:10px;">
         <input type="hidden" id="recEditId" value="" />
-        <h4 id="recurringFormTitle" style="margin:0 0 10px;font-size:13px;color:#c084fc;">➕ 새 고정지출 추가</h4>
+        <h4 id="recurringFormTitle" style="color:#c084fc;" class="dialog-subheading">➕ 새 고정지출 추가</h4>
         <div class="form-grid" style="grid-template-columns:repeat(2,1fr);margin:0;gap:8px;">
           <label>항목 이름
             <input id="recName" placeholder="예: 아파트 관리비, 인터넷 요금" required />
@@ -2856,7 +2857,7 @@
   </dialog>
 
   <!-- 가계부 엑셀/CSV 업로드 다이얼로그 -->
-  <dialog id="ledgerExcelDialog" class="dialog" style="max-width:580px;width:95vw;">
+  <dialog id="ledgerExcelDialog" class="dialog dialog--wide">
     <form id="ledgerExcelForm" onsubmit="return false;">
       <div class="dialog-head">
         <h2>📤 카드사 / 은행 거래내역 엑셀 가져오기</h2>
@@ -2922,7 +2923,7 @@
 
 
     <!-- 가족 구성원 관리 다이얼로그 -->
-    <dialog id="familyManagerDialog" class="dialog">
+    <dialog id="familyManagerDialog" class="dialog dialog--compact">
       <div class="dialog-head">
         <h2>가족 구성원 관리</h2>
         <button value="cancel" class="close" aria-label="닫기">×</button>
@@ -2939,7 +2940,7 @@
     </dialog>
 
     <!-- 종목 가격 & 거래량 인터랙티브 차트 모달 -->
-    <dialog id="stockChartDialog" class="dialog" style="max-width:760px;width:95vw;">
+    <dialog id="stockChartDialog" class="dialog dialog--xwide">
       <div class="dialog-head" style="flex-wrap:wrap;gap:8px;align-items:center;">
         <div>
           <h2 id="stockChartTitle" style="margin:0;font-size:18px;">종목 차트</h2>
@@ -2965,7 +2966,7 @@
     <datalist id="holdingNameList"></datalist>
 
     <!-- 실제 배당금 기록 추가/수정 다이얼로그 -->
-    <dialog id="dividendRecordDialog" class="dialog" style="max-width:620px;width:95vw;">
+    <dialog id="dividendRecordDialog" class="dialog dialog--standard">
       <div class="dialog-head">
         <h2 id="dividendDialogTitle">실제 배당금 추가</h2>
         <button value="cancel" class="close" aria-label="닫기">×</button>
@@ -3045,7 +3046,7 @@
     </dialog>
 
     <!-- 매도 실현손익 추가/수정 다이얼로그 -->
-    <dialog id="pnlRecordDialog" class="dialog" style="max-width:620px;width:95vw;">
+    <dialog id="pnlRecordDialog" class="dialog dialog--standard">
       <div class="dialog-head">
         <h2 id="pnlDialogTitle">매도 실현손익 추가</h2>
         <button value="cancel" class="close" aria-label="닫기">×</button>
@@ -3139,7 +3140,7 @@
     </dialog>
 
     <!-- 매도 실현손익 엑셀 가져오기 다이얼로그 -->
-    <dialog id="pnlImportDialog" class="dialog" style="max-width:540px;width:95vw;">
+    <dialog id="pnlImportDialog" class="dialog dialog--wide">
       <form id="pnlImportForm" method="dialog">
         <div class="dialog-head">
           <h2>매도 실현손익 파일 가져오기</h2>
@@ -3166,12 +3167,12 @@
     </dialog>
 
     <!-- 1) 최초 로그인/초기화 시 비밀번호 변경 강제 모달 -->
-    <dialog id="forcePasswordModal" class="dialog" style="position:fixed;inset:0;margin:auto;max-width:440px;width:92%;border:1px solid #7c65dc;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,0.4);z-index:99999;padding:24px;">
+    <dialog id="forcePasswordModal" class="dialog dialog--compact" style="position:fixed;inset:0;margin:auto;border:1px solid #7c65dc;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,0.4);z-index:99999;padding:24px;">
       <form id="forcePasswordForm" onsubmit="handleForcePasswordSubmit(event); return false;">
         <div class="dialog-head" style="margin-bottom:12px;">
           <h2 style="color:#c4b5fd;font-size:18px;display:flex;align-items:center;gap:8px;margin:0;">⚠️ 초기 비밀번호 변경 필수</h2>
         </div>
-        <p class="dialog-description" style="margin:0 0 16px;line-height:1.6;color:#c3cbea;font-size:13px;">
+        <p class="dialog-description">
           현재 <strong>초기 비밀번호 상태</strong>입니다.<br>
           계정 보호를 위해 <strong>새로 사용할 비밀번호(4자 이상)</strong>를 설정해 주세요. 변경 완료 후 바로 시스템에 접속됩니다.
         </p>
@@ -3192,11 +3193,11 @@
     </dialog>
 
     <!-- 2) 일반 사용자 비밀번호 변경 모달 -->
-    <dialog id="changePasswordModal" class="dialog" style="max-width:380px;">
+    <dialog id="changePasswordModal" class="dialog dialog--compact">
       <form id="changePasswordForm" method="dialog" onsubmit="handleChangePasswordSubmit(event)">
         <div class="dialog-head">
           <h2>🔑 비밀번호 변경</h2>
-          <button class="close" type="button" onclick="closeDialog('changePasswordModal')">×</button>
+          <button class="close" type="button" aria-label="닫기" onclick="closeDialog('changePasswordModal')">×</button>
         </div>
         <div style="margin:16px 0;display:flex;flex-direction:column;gap:12px;">
           <label>
@@ -3220,16 +3221,16 @@
     </dialog>
 
     <!-- 3) 관리자(Admin) 전용 사용자 관리 모달 -->
-    <dialog id="adminUsersModal" class="dialog" style="max-width:680px;width:95%;">
+    <dialog id="adminUsersModal" class="dialog dialog--wide">
       <div style="padding:22px;">
         <div class="dialog-head" style="margin-bottom:16px;">
           <h2 style="display:flex;align-items:center;gap:8px;">⚙️ 사용자 계정 관리 <span class="admin-desc" style="font-size:12px;font-weight:400;">(Admin)</span></h2>
-          <button class="close" type="button" onclick="closeDialog('adminUsersModal')">×</button>
+          <button class="close" type="button" aria-label="닫기" onclick="closeDialog('adminUsersModal')">×</button>
         </div>
         
         <!-- 신규 아이디 추가 영역 -->
         <div class="admin-box admin-create-box" style="border-radius:10px;padding:14px 16px;margin-bottom:20px;">
-          <h3 class="admin-box-title" style="margin:0 0 10px;font-size:13.5px;font-weight:700;">➕ 새 사용자 아이디 추가</h3>
+          <h3 class="admin-box-title dialog-subheading">➕ 새 사용자 아이디 추가</h3>
           <form id="adminCreateUserForm" onsubmit="handleAdminCreateUser(event)" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
             <label class="admin-form-label" style="flex:1;min-width:140px;">
               <span class="admin-label-text">아이디</span>
@@ -3245,7 +3246,7 @@
         </div>
 
         <!-- 사용자 목록 테이블 -->
-        <h3 class="admin-table-title" style="margin:0 0 10px;font-size:13.5px;font-weight:700;">📋 등록된 사용자 목록</h3>
+        <h3 class="admin-table-title dialog-subheading">📋 등록된 사용자 목록</h3>
         <div class="admin-table-wrap" style="overflow-x:auto;max-height:280px;border-radius:9px;">
           <table class="admin-user-table" style="width:100%;border-collapse:collapse;font-size:12.5px;text-align:left;">
             <thead>
