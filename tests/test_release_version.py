@@ -23,7 +23,7 @@ class ReleaseVersionTests(unittest.TestCase):
         css_matches = re.findall(r'href="/static/([^"]+\.css)\?v=([^"]+)"', html)
         self.assertTrue(css_matches)
         for asset, version in css_matches:
-            expected = "10.9m1" if asset == "wealth-layout.css" else "10.9h1" if asset == "wealth-overrides.css" else "1.3.0"
+            expected = "10.9o1" if asset == "wealth-ui-density.css" else "10.9m1" if asset == "wealth-layout.css" else "10.9h1" if asset == "wealth-overrides.css" else "1.3.0"
             self.assertEqual(version, expected)
 
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
