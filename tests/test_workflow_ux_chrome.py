@@ -97,7 +97,7 @@ def test_bucket_palette_filter_owner_and_totals(chrome_preview,width):
         no_overflow(evaluate,width)
     click(call,evaluate,'[data-bucket-filter="core"]')
     assert evaluate("document.querySelector('[data-bucket-filter=core]').getAttribute('aria-pressed')") == 'true'
-    assert evaluate("document.querySelector('.wealth-bucket-contents [role=status]').textContent") == '2건 · 합계 400원'
+    assert evaluate("document.querySelector('.wealth-bucket-contents [role=status]').textContent") == '1건 · 합계 300원'
     click(call,evaluate,'[data-bucket-filter="core"]')
     assert evaluate("document.querySelectorAll('.wealth-bucket-constituent').length") == 5
     click(call,evaluate,'[data-bucket-filter="growth"]')

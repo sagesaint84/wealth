@@ -2693,7 +2693,7 @@ function openIntegratedBankDialog() {
 
 // ── 4-2. 통합 계좌 카테고리 탭 (증권 / 은행 / 보험) ─────────────────────────
 let rawInsuranceAccounts = [];
-let currentAccountCategory = 'securities'; // 'securities' | 'banking' | 'insurance'
+let currentAccountCategory = window.WealthAssetCategoryState?.current() || 'securities';
 
 // 머니 로그는 캘린더, 실현손익, 배당·이자, 가계부, 공모주 패널을 공유하며 화면만 전환합니다.
 let currentIncomeTab = 'calendar';
@@ -2779,10 +2779,12 @@ const PAYMENT_STATUS_LABELS = {
 };
 
 function switchAccountCategory(category) {
+  category = window.WealthAssetCategoryState?.select(category) || category;
   currentAccountCategory = category;
   window.WealthAccountReorder?.setCategory(category);
   document.querySelectorAll('.account-cat-tab').forEach(tab => {
     tab.classList.toggle('active', tab.dataset.cat === category);
+    tab.setAttribute('aria-selected', String(tab.dataset.cat === category));
   });
 
   const accountsPanel = document.getElementById('accountsPanel');
@@ -2810,6 +2812,8 @@ function switchAccountCategory(category) {
   if (insActs) insActs.style.display = category === 'insurance' ? 'flex' : 'none';
   if (reActs) reActs.style.display = category === 'real_estate' ? 'flex' : 'none';
 }
+
+switchAccountCategory(currentAccountCategory);
 
 // Check URL query parameters for callback result notifications
 (() => {

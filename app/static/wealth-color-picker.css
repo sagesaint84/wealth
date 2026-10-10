@@ -1,0 +1,8 @@
+.wealth-color-picker { display:inline-flex; min-width:0; }
+.wealth-color-trigger { width:36px; height:36px; border:1px solid var(--line); border-radius:7px; background:var(--panel); display:grid; place-items:center; cursor:pointer; }
+.wealth-color-trigger::before { content:""; width:20px; height:20px; border-radius:5px; background:var(--chosen-color); }
+.wealth-color-palette { position:fixed; z-index:1200; width:208px; box-sizing:border-box; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--panel); box-shadow:0 8px 24px #0006; }
+.wealth-color-palette[hidden] { display:none; }
+.wealth-color-palette button { height:36px; border:2px solid transparent; border-radius:6px; background:var(--chosen-color); cursor:pointer; }
+.wealth-color-palette button[aria-pressed="true"] { outline:2px solid var(--text); outline-offset:1px; border-color:var(--panel); }
+.wealth-color-picker button:focus-visible { outline:2px solid var(--text); outline-offset:3px; }

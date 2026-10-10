@@ -16,7 +16,8 @@ def empty():
 
 
 def read_planning(username):
-    return deepcopy(portfolio.read_portfolio(username).get("settings", {}).get("wealth_planning", empty()))
+    data = portfolio.read_financial_json(portfolio._get_portfolio_file(username), default=portfolio.EMPTY_PORTFOLIO)
+    return deepcopy(data.get("settings", {}).get("wealth_planning", empty()))
 
 
 def finite(value, minimum=None):
@@ -295,6 +296,22 @@ def mutate(username, operation, payload):
                 raise PlanningConflict("오늘 같은 조회 범위의 기록이 있습니다. 교체 여부를 확인하세요.")
             state["history"] = [r for r in others if not (r["date"] == record["date"] and r["owner"] == owner)] + [record]
             state["history"].sort(key=lambda r: (r["date"], r["owner"]))
+        elif operation == "bucket-assignment":
+            field = {"holding": "holdings", "account": "accounts"}.get(payload.get("assignment_type"))
+            key = payload.get("target_id")
+            if field is None or not isinstance(key, str) or not any(
+                str(item.get("id")) == key for item in pf.get(field, []) if item.get("id")
+            ):
+                raise ValueError("분류할 계좌 또는 보유내역이 존재하지 않습니다.")
+            mode = payload.get("mode")
+            if mode == "inherit":
+                state[field].pop(key, None)
+            elif mode == "unclassified":
+                state[field][key] = ""
+            elif mode == "bucket" and any(b["id"] == payload.get("bucket_id") for b in state["buckets"]):
+                state[field][key] = payload["bucket_id"]
+            else:
+                raise ValueError("분류 방식 또는 버킷을 확인하세요.")
         elif operation == "buckets":
             buckets = payload.get("buckets", [])
             if not isinstance(buckets, list) or len(buckets) > 30:
@@ -303,10 +320,19 @@ def mutate(username, operation, payload):
             for item in buckets:
                 key, name = str(item.get("id") or ""), str(item.get("name") or "").strip()
                 target = finite(item.get("target", 0), 0)
-                if not key or len(key) > 100 or key in ids or not name or len(name) > 50 or name in names or target > 100:
+                if not key or key in {"__cash__", "__unclassified__", "__unallocated__", "__inherit__"} or len(key) > 100 or key in ids or not name or len(name) > 50 or name in names or target > 100:
                     raise ValueError("버킷 이름·ID·목표 비중을 확인하세요. 중복은 허용하지 않습니다.")
                 ids.add(key); names.add(name)
                 clean.append({"id": key, "name": name, "purpose": str(item.get("purpose") or "")[:200], "target": target})
+                if "color" in item:
+                    color = item["color"]
+                    if not isinstance(color, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+                        raise ValueError("버킷 색상은 #RRGGBB 형식으로 입력하세요.")
+                    clean[-1]["color"] = color.upper()
+                else:
+                    previous = next((b for b in state["buckets"] if b["id"] == key), {})
+                    if "color" in previous:
+                        clean[-1]["color"] = previous["color"]
             if sum(b["target"] for b in clean) > 100.000001:
                 raise ValueError("목표 비중 합계는 100%를 넘을 수 없습니다.")
             for field in ("accounts", "holdings"):

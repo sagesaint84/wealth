@@ -119,8 +119,8 @@
   const bucketPanel = document.createElement('article');
   bucketPanel.id = 'bucketPanel';
   bucketPanel.className = 'wealth-bucket-panel wealth-composition';
-  bucketPanel.innerHTML = `<h3>전략 버킷</h3><p class="wealth-help">증권 보유종목과 예수금을 목적별로 관리합니다. 계좌 기본 분류보다 보유내역별 예외가 우선하며, 같은 종목도 계좌별로 구분됩니다. 미분류도 전체 비중에 포함됩니다. 목표는 사용자 공통 설정이며 현재 비중은 선택한 가족 범위 기준입니다.</p><div id="wealthBucketSummary"></div>
-    <details id="wealthBucketEditor"><summary>버킷과 분류 관리</summary><form id="wealthBucketForm"><div class="wealth-bucket-presets"><strong>추천 버킷</strong><p class="wealth-help">필요한 항목만 선택하세요. 저장 전에는 실제 분류가 변경되지 않습니다.</p><div id="wealthBucketPresetButtons" class="wealth-bucket-preset-buttons"></div></div><div id="wealthBucketRows"></div><button id="wealthAddBucket" type="button" class="button secondary">+ 사용자 정의 버킷</button><p id="wealthBucketTargetStatus" class="wealth-bucket-target-status" role="status"></p><h4>계좌별 기본 버킷</h4><div id="wealthAccountAssignments"></div><h4>보유내역별 예외</h4><p class="wealth-help">동기화로 보유내역 ID가 바뀌면 기존 예외를 자동 추정하지 않습니다. 분류를 다시 확인하세요.</p><div id="wealthHoldingAssignments"></div><div class="wealth-editor-actions"><button type="submit" class="button primary">분류 저장</button><button type="button" id="wealthReloadPlanning" class="button secondary">다시 불러오기</button></div></form></details><p id="wealthBucketStatus" class="wealth-help" role="status"></p>`;
+  bucketPanel.innerHTML = `<h3>전략 버킷</h3><p class="wealth-help">계좌별 종목 기본 버킷을 적용하고, 구성 내역의 버킷 버튼에서 종목별 분류를 바로 변경하세요. 예수금은 항상 현금으로 분류됩니다. 같은 종목도 계좌별로 다르게 분류할 수 있습니다. 목표는 사용자 공통 설정이며 현재 비중은 선택한 가족 범위 기준입니다.</p><div id="wealthBucketSummary"></div>
+    <details id="wealthBucketEditor"><summary>버킷과 분류 관리</summary><form id="wealthBucketForm"><div class="wealth-bucket-presets"><strong>추천 버킷</strong><p class="wealth-help">필요한 항목만 선택하세요. 저장 전에는 실제 분류가 변경되지 않습니다.</p><div id="wealthBucketPresetButtons" class="wealth-bucket-preset-buttons"></div></div><div id="wealthBucketRows"></div><button id="wealthAddBucket" type="button" class="button secondary">+ 사용자 정의 버킷</button><p id="wealthBucketTargetStatus" class="wealth-bucket-target-status" role="status"></p><h4>계좌별 종목 기본 버킷</h4><p class="wealth-help">보유종목의 기본 분류입니다. 예수금은 항상 현금으로 분류됩니다.</p><div id="wealthAccountAssignments"></div><div class="wealth-editor-actions"><button type="submit" class="button primary">분류 저장</button><button type="button" id="wealthReloadPlanning" class="button secondary">다시 불러오기</button></div></form></details><p id="wealthBucketStatus" class="wealth-help" role="status"></p>`;
   invest.append(bucketPanel);
   const nav = document.createElement('div'); nav.className = 'wealth-invest-tabs';
   nav.setAttribute('aria-label','투자 화면 선택');
@@ -264,19 +264,24 @@
   function bucketColor(id) {
     if(id === '__unclassified__') return '#697386';
     if(id === '__unallocated__') return '#35415b';
+    if(id === '__cash__') return '#1D4ED8';
     if(id && typeof id === 'object') {
+      if(window.WealthColorPicker.valid(id.color)) return id.color.toUpperCase();
       if(id.id === '__unclassified__') return '#697386';
       if(id.id === '__unallocated__') return '#35415b';
       if(id.name && BUCKET_PRESET_COLORS[String(id.name).trim()]) return BUCKET_PRESET_COLORS[String(id.name).trim()];
       id = id.id || id.name || '';
     }
     const key = String(id || '').trim();
-    if(BUCKET_PRESET_COLORS[key]) return BUCKET_PRESET_COLORS[key];
     const item = state?.buckets?.find(b => String(b.id) === key);
+    if(window.WealthColorPicker.valid(item?.color)) return item.color.toUpperCase();
+    const selectedColor=[...document.querySelectorAll('.wealth-bucket-edit-row')].find(row=>row.dataset.id===key)?.querySelector('.wealth-color-picker')?.dataset.color;
+    if(window.WealthColorPicker.valid(selectedColor)) return selectedColor;
+    if(BUCKET_PRESET_COLORS[key]) return BUCKET_PRESET_COLORS[key];
     if(item && BUCKET_PRESET_COLORS[String(item.name || '').trim()]) {
       return BUCKET_PRESET_COLORS[String(item.name || '').trim()];
     }
-    const draftRow = typeof document !== 'undefined' && document.querySelector ? document.querySelector(`.wealth-bucket-edit-row[data-id="${key}"] [name="bucketName"]`) : null;
+    const draftRow = typeof document !== 'undefined' && document.querySelector ? [...document.querySelectorAll('.wealth-bucket-edit-row')].find(row=>row.dataset.id===key)?.querySelector('[name="bucketName"]') : null;
     if(draftRow && BUCKET_PRESET_COLORS[String(draftRow.value || '').trim()]) {
       return BUCKET_PRESET_COLORS[String(draftRow.value || '').trim()];
     }
@@ -308,14 +313,15 @@
     const currentPanel=total>0
       ? `<div class="wealth-bucket-chart-row"><div class="wealth-bucket-donut" data-bucket-chart="current" role="img" aria-label="현재 비중: ${current.map(item=>`${esc(item.name)} ${Number(item.percent).toFixed(1)}%`).join(', ')}" style="background:${donutGradient(current,'percent')}"><span>현재 합계</span><strong>100%</strong></div><div class="wealth-bucket-legend">${allocationLegend(current,'percent',true,'current')}</div></div>`
       : '<div class="wealth-bucket-empty"><strong>표시할 현재 증권 자산이 없습니다.</strong><span>선택한 가족 범위의 보유종목과 예수금을 확인하세요.</span></div>';
-    const cards=[...buckets,{id:'__unclassified__',name:'미분류',purpose:'버킷이 지정되지 않은 보유내역과 예수금',target:null,value:current.find(item=>item.id==='__unclassified__')?.value||0}];
+    const cards=[...buckets,...current.filter(b=>b.id==='__cash__').map(b=>({...b,purpose:'증권계좌 예수금 · 읽기 전용 분류',target:null})),{id:'__unclassified__',name:'미분류',purpose:'버킷이 지정되지 않은 보유종목',target:null,value:current.find(item=>item.id==='__unclassified__')?.value||0}];
     const summaryEl=document.getElementById('wealthBucketSummary');
     summaryEl.innerHTML = `<p class="wealth-help">${esc(portfolioView.owner)} · 증권 평가액과 예수금 ${won(total)} · 매매 주문은 실행하지 않습니다.</p><div class="wealth-bucket-comparison"><section><h4>목표 비중</h4><p>사용자 공통 전략 · 설정 합계 ${targetTotal.toFixed(1)}%</p>${targetPanel}</section><section><h4>현재 비중</h4><p>${esc(portfolioView.owner)} 범위 · 미분류 포함</p>${currentPanel}</section></div><div class="wealth-bucket-cards">${cards.map(b=>{const currentItem=current.find(item=>item.id===b.id),pct=currentItem?.percent||0,value=currentItem?.value||0;return `<button type="button" class="wealth-bucket-card" data-bucket-filter="${esc(b.id)}" aria-pressed="${selectedBucket===b.id}" style="--bucket-color:${bucketColor(b.id)}"><h4>${esc(b.name)}</h4><p>${esc(b.purpose)}</p><strong>${won(value)}</strong><p>현재 ${pct.toFixed(1)}%${b.target === null ? '' : ` / 목표 ${b.target}% · 차이 ${(pct-b.target).toFixed(1)}%p`}</p></button>`;}).join('')}</div>`;
     if (selectedBucket !== null && !cards.some(b => b.id === selectedBucket)) selectedBucket = null;
     const constituents = window.WealthPlanningModel.bucketConstituents(state, portfolioView);
     const visible = constituents.filter(row => selectedBucket === null || (row.bucket_id || '__unclassified__') === selectedBucket);
     const selectedName = cards.find(b => b.id === selectedBucket)?.name || '전체';
-    summaryEl.insertAdjacentHTML('beforeend', `<section class="wealth-bucket-contents" aria-label="버킷 구성 내역" style="--bucket-color:${selectedBucket ? bucketColor(selectedBucket) : '#697386'}"><h4>버킷 구성 내역 · ${esc(selectedName)}</h4><p role="status">${visible.length}건 · 합계 ${won(visible.reduce((sum,row)=>sum+row.value,0))}</p><div class="wealth-bucket-contents-list">${visible.map(row=>`<div class="wealth-bucket-constituent" data-bucket-id="${esc(row.bucket_id)}"><span class="wealth-bucket-account">${esc(row.broker)} / ${esc(row.account_name)}</span><strong class="wealth-bucket-holding">${esc(row.name)}</strong><span class="wealth-bucket-value">${won(row.value)}</span><small class="wealth-bucket-badge" style="--bucket-color:${bucketColor(row.bucket_id || '__unclassified__')}">${esc(row.bucket_name)}</small></div>`).join('') || '<p>표시할 구성내역이 없습니다.</p>'}</div></section>`);
+    summaryEl.insertAdjacentHTML('beforeend', `<section class="wealth-bucket-contents" aria-label="버킷 구성 내역" style="--bucket-color:${selectedBucket ? bucketColor(selectedBucket) : '#697386'}"><h4>버킷 구성 내역 · ${esc(selectedName)}</h4><p role="status">${visible.length}건 · 합계 ${won(visible.reduce((sum,row)=>sum+row.value,0))}</p><div class="wealth-bucket-contents-list">${visible.map(row=>`<div class="wealth-bucket-constituent" data-bucket-id="${esc(row.bucket_id)}"><span class="wealth-bucket-account">${esc(row.broker)} / ${esc(row.account_name)}</span><strong class="wealth-bucket-holding">${esc(row.name)}</strong><span class="wealth-bucket-value">${won(row.value)}</span>${row.kind==='holding'?`<button type="button" class="wealth-bucket-badge" data-assign-holding="${esc(row.holding_id)}" aria-label="${esc(row.name)} 버킷 변경" style="--bucket-color:${bucketColor(row.bucket_id || '__unclassified__')}">${esc(row.bucket_name)} ▾</button>`:`<small class="wealth-bucket-badge" aria-label="예수금은 현금 버킷으로 고정됩니다" style="--bucket-color:${bucketColor(row.bucket_id)}">${esc(row.bucket_name)}</small>`}</div>`).join('') || '<p>표시할 구성내역이 없습니다.</p>'}</div></section>`);
+    summaryEl.querySelectorAll('[data-assign-holding]').forEach(button=>button.addEventListener('click',()=>openAssignment(button)));
     summaryEl.querySelectorAll('[data-bucket-filter]').forEach(button=>button.addEventListener('click',()=>{
       const key=button.dataset.bucketFilter;
       selectedBucket=selectedBucket===key?null:key;
@@ -330,6 +336,9 @@
   function bucketRow(bucket) {
     const row=document.createElement('div'); row.className='wealth-bucket-edit-row'; row.dataset.id=bucket.id;
     row.innerHTML=`<label>이름<input name="bucketName" maxlength="50" required value="${esc(bucket.name)}"></label><label>목적<input name="purpose" maxlength="200" value="${esc(bucket.purpose)}"></label><label>목표 %<input name="target" type="number" min="0" max="100" step="0.1" value="${bucket.target}" required></label><button type="button" class="button secondary" data-remove-bucket>제거</button>`;
+    const colorLabel=document.createElement('label'); colorLabel.textContent='색상';
+    colorLabel.append(window.WealthColorPicker.create({value:bucketColor(bucket),label:`${bucket.name || '버킷'} 색상 선택`,onChange:()=>markDirty()}));
+    row.insertBefore(colorLabel,row.querySelector('[name="target"]').parentElement);
     return row;
   }
   function renderPresetButtons() {
@@ -367,21 +376,34 @@
     draftNotice.textContent='';
     document.getElementById('wealthBucketStatus').textContent='';
     document.getElementById('wealthAccountAssignments').replaceChildren();
-    document.getElementById('wealthHoldingAssignments').replaceChildren();
     const rows=document.getElementById('wealthBucketRows'); rows.replaceChildren(...state.buckets.map(bucketRow));
     renderPresetButtons();renderDraftTargetStatus();renderAssignments();
   }
-  function draftBuckets() { return [...document.querySelectorAll('.wealth-bucket-edit-row')].map(row=>({id:row.dataset.id,name:row.querySelector('[name="bucketName"]').value,purpose:row.querySelector('[name="purpose"]').value,target:Number(row.querySelector('[name="target"]').value)})); }
+  function draftBuckets() { return [...document.querySelectorAll('.wealth-bucket-edit-row')].map(row=>({id:row.dataset.id,name:row.querySelector('[name="bucketName"]').value,purpose:row.querySelector('[name="purpose"]').value,color:row.querySelector('.wealth-color-picker').dataset.color,target:Number(row.querySelector('[name="target"]').value)})); }
   function renderAssignments() {
-    const buckets=draftBuckets();
-    const options=(value,holding)=>`<option value="${holding?'__inherit__':''}">${holding?'계좌 기본값 사용':'미분류'}</option>${holding?'<option value="">명시적 미분류</option>':''}`+buckets.map(b=>`<option value="${esc(b.id)}"${b.id === value?' selected':''}>${esc(b.name || '이름 미입력')}</option>`).join('');
-    for(const [field,target] of [['accounts','wealthAccountAssignments'],['holdings','wealthHoldingAssignments']]) {
-      const holder=document.getElementById(target);
-      const previous=new Map([...holder.querySelectorAll('select')].map(s=>[s.dataset.id,s.value]));
-      const items=field === 'accounts' ? editorView.accounts : editorView.holdings.filter(h=>editorView.accounts.some(a=>a.id === h.account_id));
-      holder.innerHTML=items.map(item=>{const value=previous.has(String(item.id))?previous.get(String(item.id)):Object.hasOwn(state[field],item.id)?state[field][item.id]:field==='holdings'?'__inherit__':'';return `<label class="wealth-assignment">${esc(field==='holdings' ? `${item.account_name || item.account_id} · ${item.name}` : `${item.broker || ''} · ${item.name}`)}<select data-field="${field}" data-id="${esc(item.id)}">${options(value,field==='holdings')}</select></label>`;}).join('') || '<p class="wealth-help">선택한 가족 범위에 분류할 증권 내역이 없습니다.</p>';
-      holder.querySelectorAll('select').forEach(s=>{const value=previous.has(s.dataset.id)?previous.get(s.dataset.id):state[field][s.dataset.id]; if(value!==undefined && [...s.options].some(o=>o.value===value)) s.value=value;});
-    }
+    const buckets=draftBuckets(), holder=document.getElementById('wealthAccountAssignments');
+    const previous=new Map([...holder.querySelectorAll('select')].map(s=>[s.dataset.id,s.value]));
+    holder.innerHTML=editorView.accounts.map(item=>`<label class="wealth-assignment"><span>${esc(item.broker || '')} · ${esc(item.name)}</span><select data-field="accounts" data-id="${esc(item.id)}"><option value="">미분류</option>${buckets.map(b=>`<option value="${esc(b.id)}">${esc(b.name || '이름 미입력')}</option>`).join('')}</select></label>`).join('') || '<p class="wealth-help">선택한 가족 범위에 분류할 증권 내역이 없습니다.</p>';
+    holder.querySelectorAll('select').forEach(s=>{const value=previous.has(s.dataset.id)?previous.get(s.dataset.id):state.accounts[s.dataset.id]; if([...s.options].some(o=>o.value===value))s.value=value;});
+  }
+  function openAssignment(button) {
+    const status=document.getElementById('wealthBucketStatus');
+    if(dirty){status.textContent='저장하지 않은 버킷 설정이 있습니다. 먼저 저장하거나 다시 불러와 주세요.';return;}
+    const key=button.dataset.assignHolding;
+    const select=document.createElement('select'); select.className='wealth-holding-picker';
+    select.setAttribute('aria-label',button.getAttribute('aria-label'));
+    select.innerHTML='<option value="__inherit__">계좌 기본값 사용</option><option value="">명시적 미분류</option>'+state.buckets.map(b=>`<option value="${esc(b.id)}">${esc(b.name)}</option>`).join('');
+    select.value=Object.hasOwn(state.holdings,key)?state.holdings[key]:'__inherit__';
+    button.replaceWith(select); select.focus();
+    select.addEventListener('keydown',e=>{if(e.key==='Escape')renderBucketSummary();});
+    select.addEventListener('change',async()=>{
+      if(dirty){status.textContent='저장하지 않은 버킷 설정이 있습니다. 먼저 저장하거나 다시 불러와 주세요.';renderBucketSummary();return;}
+      select.disabled=true;
+      const value=select.value, payload={revision:state.revision,assignment_type:'holding',target_id:key,mode:value==='__inherit__'?'inherit':value===''?'unclassified':'bucket'};
+      if(payload.mode==='bucket')payload.bucket_id=value;
+      try {state=await request('/bucket-assignment',payload);renderBucketSummary();if(!dirty)renderEditor();status.textContent='종목 분류를 저장했습니다.';}
+      catch(error){status.textContent=error.message;renderBucketSummary();}
+    });
   }
   document.getElementById('wealthBucketForm').addEventListener('input',e=>{markDirty();renderDraftTargetStatus();if(e.target.name==='bucketName'){renderPresetButtons();renderAssignments();}});
   document.getElementById('wealthBucketForm').addEventListener('change',e=>{markDirty();renderDraftTargetStatus();if(e.target.name==='bucketName'){renderPresetButtons();renderAssignments();}});

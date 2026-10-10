@@ -37,4 +37,4 @@ def test_broker_import_modal_body_scrolls_without_hiding_header_footer() -> None
 def test_layout_stylesheet_uses_current_hotfix_cache_version() -> None:
     html = _index_html()
 
-    assert '/static/wealth-layout.css?v=10.9m1' in html
+    assert '/static/wealth-layout.css?v=10.9q' in html

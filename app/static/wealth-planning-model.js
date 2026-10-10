@@ -1,8 +1,15 @@
 /* Pure view calculations, shared by browser and dependency-free Node tests. */
 (function (root) {
   'use strict';
+  function cashBucket(state) {
+    return state.buckets.find(b => String(b.name || '').trim() === '현금')
+      || state.buckets.find(b => String(b.name || '').trim().toLowerCase() === 'cash')
+      || {id: '__cash__', name: '현금', color: '#1D4ED8'};
+  }
   function bucketConstituents(state, view) {
     const buckets = new Map(state.buckets.map(b => [b.id, b.name]));
+    const cash = cashBucket(state);
+    buckets.set(cash.id, cash.name);
     const rows = [];
     const amount = value => {
       const number = Number(value || 0);
@@ -21,7 +28,7 @@
       const usd = amount(a.cash_usd);
       const fx = Number(view.fxRates?.USD);
       if (usd && (!Number.isFinite(fx) || fx <= 0)) throw new Error('USD 환율을 확인할 수 없어 버킷 합계를 계산하지 않았습니다.');
-      add(state.accounts[a.id], amount(a.cash_krw) + (usd ? usd * fx : 0), a);
+      add(cash.id, amount(a.cash_krw) + (usd ? usd * fx : 0), a);
     });
     view.holdings.filter(h => accountsById.has(String(h.account_id))).forEach(h => {
       const id = Object.hasOwn(state.holdings, h.id) ? state.holdings[h.id] : state.accounts[h.account_id];
@@ -32,7 +39,7 @@
   function bucketTotals(state, view) {
     const totals = new Map(state.buckets.map(b => [b.id, 0]));
     totals.set('', 0);
-    bucketConstituents(state, view).forEach(row => totals.set(row.bucket_id, totals.get(row.bucket_id) + row.value));
+    bucketConstituents(state, view).forEach(row => totals.set(row.bucket_id, (totals.get(row.bucket_id) || 0) + row.value));
     return { totals, total: [...totals.values()].reduce((a, b) => a + b, 0) };
   }
   function bucketAllocationComparison(state, view) {
@@ -59,6 +66,10 @@
       percent: total > 0 ? bucket.value / total * 100 : 0,
     }));
     const unclassified = totals.get('') || 0;
+    if (cashBucket(state).id === '__cash__') {
+      const value = totals.get('__cash__') || 0;
+      current.push({id: '__cash__', name: '현금', value, percent: total > 0 ? value / total * 100 : 0});
+    }
     current.push({
       id: '__unclassified__',
       name: '미분류',
@@ -73,7 +84,7 @@
     const selected=records.find(r=>r.date===selectedDate) || records.at(-1) || null;
     return {records,selectedDate:selected?.date || '',canEdit:!!selected};
   }
-  const model = { bucketConstituents, bucketTotals, bucketAllocationComparison, historyView };
+  const model = { cashBucket, bucketConstituents, bucketTotals, bucketAllocationComparison, historyView };
   if (typeof module !== 'undefined' && module.exports) module.exports = model;
   else root.WealthPlanningModel = model;
 })(typeof window !== 'undefined' ? window : this);
