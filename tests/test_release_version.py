@@ -23,7 +23,7 @@ class ReleaseVersionTests(unittest.TestCase):
         css_matches = re.findall(r'href="/static/([^"]+\.css)\?v=([^"]+)"', html)
         self.assertTrue(css_matches)
         for asset, version in css_matches:
-            expected = "10.9o2" if asset == "wealth-dialog-system.css" else "10.9o1" if asset == "wealth-ui-density.css" else "10.9m1" if asset == "wealth-layout.css" else "10.9h1" if asset == "wealth-overrides.css" else "1.3.0"
+            expected = "10.9p" if asset == "wealth-savings-contributions.css" else "10.9o2" if asset == "wealth-dialog-system.css" else "10.9o1" if asset == "wealth-ui-density.css" else "10.9m1" if asset == "wealth-layout.css" else "10.9h1" if asset == "wealth-overrides.css" else "1.3.0"
             self.assertEqual(version, expected)
 
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
@@ -33,7 +33,7 @@ class ReleaseVersionTests(unittest.TestCase):
         invest_hotfix_assets = {"wealth-invest-tab-state.js", "wealth.js", "wealth-planning.js"}
         ui_detail_assets = {"wealth-layout.js", "wealth-settings-surface.js"}
         for asset, version in js_matches:
-            expected = "10.9o1" if asset == "wealth.js" else "10.9n1" if asset == "wealth-transaction-defaults.js" else "10.9m1" if asset in ui_detail_assets else "10.9k1" if asset in invest_hotfix_assets else "10.9h1" if asset in settings_assets else "10.7g1" if asset in hotfix_assets else "1.3.0"
+            expected = "10.9p" if asset == "wealth.js" else "10.9n1" if asset == "wealth-transaction-defaults.js" else "10.9m1" if asset in ui_detail_assets else "10.9k1" if asset in invest_hotfix_assets else "10.9h1" if asset in settings_assets else "10.7g1" if asset in hotfix_assets else "1.3.0"
             self.assertEqual(version, expected)
 
     def test_service_worker_cache_name(self):

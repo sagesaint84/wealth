@@ -39,6 +39,7 @@ _JOB_LABELS = {
     "ipo_refresh_evening": "IPO 시장 데이터 장후 갱신",
     "daily_close": "일일 마감",
     "toss_session_maintenance": "Toss WTS 세션 점검",
+    "savings_auto_contribution": "예·적금 자동납입 확인",
 }
 
 _NUMERIC_DETAIL_KEYS = {
@@ -47,6 +48,8 @@ _NUMERIC_DETAIL_KEYS = {
     "eligible_ipos",
     "all_applied_count",
     "hours_remaining",
+    "created_count",
+    "skipped_count",
 }
 _BOOLEAN_DETAIL_KEYS = {
     "stock_record_saved",
@@ -63,6 +66,7 @@ _TOKEN_DETAIL_KEYS = {
     "notification_dispatch_status",
 }
 _DETAIL_KEYS = {
+    "savings_auto_contribution": {"created_count", "skipped_count"},
     "ipo_refresh_morning": {"total_ipos", "status"},
     "ipo_refresh_evening": {"total_ipos", "status"},
     "ipo_reminder": {"notifications_sent_count", "eligible_ipos", "all_applied_count"},

@@ -11,7 +11,7 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
     def test_index_loads_what_if_assets_after_core_wealth_script(self):
         html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
         css_ref = '/static/wealth-financial-income-what-if.css?v=1.3.0'
-        core_js = '/static/wealth.js?v=10.9o1'
+        core_js = '/static/wealth.js?v=10.9p'
         what_if_js = '/static/wealth-financial-income-what-if.js?v=1.3.0'
         self.assertIn(css_ref, html)
         self.assertIn(core_js, html)

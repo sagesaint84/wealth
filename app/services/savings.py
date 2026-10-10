@@ -10,7 +10,7 @@ from datetime import date, datetime
 from typing import Any
 
 from app.services.portfolio import read_portfolio, write_portfolio
-from app.services.savings_contributions import contribution_state, SUPPORTED_TYPES
+from app.services.savings_contributions import apply_auto_contribution_settings, contribution_state, SUPPORTED_TYPES
 from app.services.tax_benefit import calculate_yellow_umbrella_benefit, get_total_tax_benefits
 
 
@@ -436,6 +436,9 @@ def delete_bank_account(acc_id: str, username: str | None = None) -> bool:
     data = read_portfolio(username)
     accounts = data.get("bank_accounts", [])
     before = len(accounts)
+    if any(s.get("auto_contribution_enabled") is True and s.get("withdraw_account_id") == acc_id
+           for s in data.get("savings_accounts", [])):
+        raise ValueError("자동납입 상품의 출금계좌는 자동납입을 해제하거나 계좌를 변경한 뒤 삭제해 주세요.")
     if any(
         str(loan.get("overdraft_bank_account_id") or "").strip() == acc_id
         for loan in data.get("loan_accounts", [])
@@ -497,6 +500,8 @@ def save_saving_account(payload: dict[str, Any], username: str | None = None) ->
         record["current_paid_amount"] = math.fsum([opening, history_total])
     if previous and "created_at" in previous:
         record["created_at"] = previous["created_at"]
+
+    apply_auto_contribution_settings(data, record, payload, previous)
 
     if existing_index is not None:
         savings[existing_index] = record
