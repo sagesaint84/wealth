@@ -38,14 +38,39 @@ class StaticPreview(PreviewHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        assets = getattr(self.server, "assets", None)
+        if path == "/" and assets is not None:
+            content = assets["index.html"].replace(
+                b'<body>', '<body><div style="padding:8px;text-align:center;background:#274c46;color:#fff;font-size:12px">가상 데이터 미리보기 · 실제 계좌와 연결되지 않음 · 저장 불가</div>'.encode())
+            self.send(content, "text/html; charset=utf-8")
+            return
         if path.startswith("/static/"):
             name = path.removeprefix("/static/")
             target = STATIC / name
-            if name == target.name and target.is_file():
+            content = (assets.get(name) if assets is not None else
+                       target.read_bytes() if name == target.name and target.is_file() else None)
+            if name == target.name and content is not None:
                 kind = "text/css" if name.endswith(".css") else "text/javascript" if name.endswith(".js") else "application/octet-stream"
-                self.send(target.read_bytes(), kind)
+                self.send(content, kind)
                 return
         super().do_GET()
+
+
+class StaticPreviewServer(ThreadingHTTPServer):
+    # Chrome bursts the full static bundle; Windows can refuse connections
+    # with the stdlib backlog of five. Match the established ReorderServer.
+    request_queue_size = 32
+
+
+def static_preview_server(handler=StaticPreview):
+    server = safe_preview_server(StaticPreviewServer, handler)
+    try:
+        # Snapshot before workers start, avoiding concurrent disk/AV reads.
+        server.assets = {path.name: path.read_bytes() for path in STATIC.iterdir() if path.is_file()}
+    except BaseException:
+        server.server_close()
+        raise
+    return server
 
 
 def test_realized_pnl_page_stays_within_eight_viewports():
@@ -53,7 +78,7 @@ def test_realized_pnl_page_stays_within_eight_viewports():
     chrome = _chrome_path()
     if chrome is None:
         pytest.skip("Chromium browser unavailable")
-    server = safe_preview_server(ThreadingHTTPServer, StaticPreview)
+    server = static_preview_server()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     process = None
