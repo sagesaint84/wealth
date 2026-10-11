@@ -1,13 +1,11 @@
-.wealth-color-settings { margin-top:18px; padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
-.wealth-color-settings > summary { font-size:14px; font-weight:700; cursor:pointer; }
-.wealth-color-settings a { color:var(--text); text-underline-offset:2px; }
-.wealth-color-settings details { margin-top:12px; }
-.wealth-color-settings details > summary { font-size:13px; font-weight:700; cursor:pointer; }
-.wealth-color-setting-rows { display:grid; gap:8px; margin-top:10px; }
-.wealth-color-setting-row { display:grid; grid-template-columns:minmax(0,1fr) 36px auto auto; align-items:center; gap:8px; min-width:0; }
-.wealth-color-setting-label { font-size:12px; overflow-wrap:anywhere; min-width:0; }
-.wealth-color-setting-row .button { padding:6px 8px; min-height:32px; }
-.classification-row[data-color-key] .classification-title strong::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; background:var(--classification-color); }
+.wealth-inline-color-control { box-sizing:border-box; width:36px; height:36px; min-width:36px; padding:0; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--text); cursor:pointer; display:inline-grid; place-items:center; vertical-align:middle; font:inherit; }
+button.wealth-inline-color-control::before { content:""; width:10px; height:10px; border-radius:50%; background:var(--chosen-color); box-shadow:0 0 0 1px color-mix(in srgb,var(--text) 25%,transparent); }
+.wealth-inline-color-control:hover { background:color-mix(in srgb,var(--text) 8%,transparent); border-color:var(--line); }
+.wealth-inline-color-control:focus-visible { outline:2px solid var(--text); outline-offset:2px; }
+.wealth-inline-color-control.wealth-inline-color-legend { width:auto; padding:0 6px; display:inline-flex; gap:5px; font-size:11px; }
+#homeAssetAllocationLegend > .wealth-inline-color-asset-legend { grid-template-columns:36px minmax(0,1fr) auto; align-items:center; gap:4px; }
+#homeAssetAllocationLegend > .wealth-inline-color-asset-legend::before,#wealthMixLegend .wealth-inline-color-label::before { display:none; }
+#wealthMixLegend .wealth-inline-color-label { overflow-wrap:anywhere; }
 .classification-row[data-color-key] .bar i { background:var(--classification-color); }
 .cal-badge[data-color-key] { background:color-mix(in srgb,var(--event-color) 18%,var(--panel)); color:var(--text); border-left:3px solid var(--event-color); }
 .cal-badge[data-color-key]:hover { background:color-mix(in srgb,var(--event-color) 28%,var(--panel)); }
@@ -16,5 +14,10 @@
 .calendar-legend-item[data-color-key] .calendar-legend-dot { background:var(--event-color); }
 .calendar-event-item[data-color-key]:not([data-color-key=""]) { border-left:3px solid var(--event-color); }
 .wealth-bucket-constituent[data-bucket-id] { border-left:3px solid var(--bucket-color); }
-/* Keep the final settings controls above the fixed mobile navigation. */
-@media (max-width:767px) { .wealth-color-settings { margin-bottom:96px; } }
+.wealth-visualization-editor > .wealth-color-trigger { position:fixed; left:-10000px; width:1px; height:1px; opacity:0; pointer-events:none; }
+.wealth-inline-color-heading { display:block; margin-bottom:10px; font-size:13px; overflow-wrap:anywhere; }
+.wealth-inline-color-footer { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+.wealth-inline-color-footer .button { min-height:36px; padding:6px 10px; font-size:12px; }
+.wealth-inline-color-status { display:block; font-size:11px; line-height:1.5; margin-top:8px; overflow-wrap:anywhere; }
+.wealth-inline-color-status:empty { display:none; }
+@media(max-width:767px) { .wealth-visualization-editor .wealth-color-palette { max-height:calc(100dvh - 104px); } }

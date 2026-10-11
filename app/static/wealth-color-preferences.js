@@ -53,59 +53,129 @@
   if(!host)return;
   host.WealthColorPreferences=api;
   const changed=()=>host.dispatchEvent(new CustomEvent('wealth:colors'));
+  let loaded=false, loading=null, active=null;
+  async function load() {
+    if(loading)return loading;
+    loading=(async()=>{
+      const response=await fetch('/api/color-preferences');
+      if(!response.ok)throw new Error('색상 설정을 불러오지 못했습니다. 다시 시도하세요.');
+      replace(await response.json());loaded=true;changed();
+    })();
+    try {await loading;} finally {loading=null;}
+  }
+  async function persist(group,key,color) {
+    if(!groups.includes(group)||!validKey(key)||(color!==null&&!picker().isValidHexColor(color)))throw new Error('색상이 유효하지 않습니다.');
+    const response=await fetch('/api/color-preferences',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({group,key,color:color===null?null:picker().normalizeHexColor(color)})});
+    const data=await response.json();
+    if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'색상을 저장하지 못했습니다.');
+    replace(data);drafts[group].delete(key);changed();
+  }
+  function openInlineEditor(anchor) {
+    if(active?.saving)return;
+    const {colorGroup:group,colorKey:key,colorLabel:label}=anchor.dataset;
+    const rect=anchor.getBoundingClientRect();
+    const scopeId=anchor.closest('[id]')?.id;
+    const findAnchor=()=>anchor.isConnected?anchor:[...(document.getElementById(scopeId)||document).querySelectorAll('[data-inline-color]')].find(n=>n.dataset.colorGroup===group&&n.dataset.colorKey===key);
+    active?.field.closeColorPicker();
+    const editor={group,key,anchor,saving:false,field:null};active=editor;
+    const field=picker().create({value:resolve(group,key),label:label+' 색상 변경',closeOnChange:false,canClose:()=>!editor.saving,
+      anchorRect:()=>findAnchor()?.getBoundingClientRect()||rect,bottomInset:innerWidth<768?88:0,
+      onChange:color=>{drafts[group].set(key,color);changed();},
+      onClose:focus=>{drafts[group].delete(key);if(active===editor)active=null;field.remove();changed();
+        queueMicrotask(()=>{if(!focus||active)return;bindControls();const target=findAnchor();
+          target?.focus({preventScroll:true});});}
+    });
+    editor.field=field;field.classList.add('wealth-visualization-editor');
+    field.ignoreOutsidePointer=target=>!!target.closest('[data-inline-color],.classification-row,.sector-legend-item');
+    field.dataset.colorGroup=group;field.dataset.colorKey=key;
+    const panel=field.querySelector('.wealth-color-palette');
+    const heading=document.createElement('strong');heading.className='wealth-inline-color-heading';heading.textContent=label+' 색상';panel.prepend(heading);
+    const footer=document.createElement('span');footer.className='wealth-inline-color-footer';
+    const status=document.createElement('span');status.className='wealth-inline-color-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+    const save=document.createElement('button');save.type='button';save.className='button secondary compact';save.dataset.colorSave='';save.textContent='저장';
+    const reset=document.createElement('button');reset.type='button';reset.className='button secondary compact';reset.dataset.colorReset='';reset.textContent='기본색 복원';
+    const cancel=document.createElement('button');cancel.type='button';cancel.className='button secondary compact';cancel.textContent='닫기';cancel.dataset.colorCancel='';
+    footer.append(save,reset,cancel);panel.append(footer,status);
+    const submit=async color=>{
+      if(editor.saving)return;
+      editor.saving=true;panel.inert=true;
+      try {await persist(group,key,color);editor.saving=false;field.closeColorPicker();}
+      catch(error){drafts[group].delete(key);changed();field.setColor(resolve(group,key));status.textContent=error.message+' 저장된 색상으로 돌아갔습니다.';}
+      finally {editor.saving=false;panel.inert=false;}
+    };
+    save.onclick=()=>submit(field.dataset.color);reset.onclick=()=>submit(null);cancel.onclick=()=>field.closeColorPicker();
+    document.body.append(field);
+    const trigger=field.querySelector('.wealth-color-trigger');trigger.click();trigger.tabIndex=-1;trigger.setAttribute('aria-hidden','true');
+    if(!loaded){save.disabled=true;reset.disabled=true;load().then(()=>{if(active!==editor)return;field.closeColorPicker();bindControls();const replacement=findAnchor();if(replacement)openInlineEditor(replacement);})
+      .catch(error=>{if(active!==editor)return;status.textContent=error.message;});}
+  }
+  function decorate(node,group,key,label) {
+    node.dataset.inlineColor='';node.dataset.colorGroup=group;node.dataset.colorKey=key;node.dataset.colorLabel=label;
+    node.classList.add('wealth-inline-color-control');node.setAttribute('aria-label',label+' 색상 변경');node.title=label+' 색상 변경';
+    node.setAttribute('aria-haspopup','dialog');node.style.setProperty('--chosen-color',resolve(group,key));
+    const expanded=active?.group===group&&active?.key===key;
+    node.setAttribute('aria-expanded',String(expanded));
+    const panel=expanded&&active.field?.querySelector('.wealth-color-palette');
+    if(panel)node.setAttribute('aria-controls',panel.id);else node.removeAttribute('aria-controls');
+  }
+  function marker(parent,group,key,label,before=null) {
+    let button=parent.querySelector(':scope > button[data-inline-color]');
+    if(!button){button=document.createElement('button');button.type='button';parent.insertBefore(button,before);}
+    decorate(button,group,key,label);return button;
+  }
+  function bindControls() {
+    document.querySelectorAll('#calendarPanel .calendar-legend-item[data-color-key]').forEach(node=>{
+      const key=node.dataset.colorKey,label=key==='dividend'?'배당·이자':calendar.find(row=>row[0]===key)?.[1];
+      if(!label)return;decorate(node,groups[0],key,label);node.setAttribute('role','button');node.tabIndex=0;node.classList.add('wealth-inline-color-legend');
+    });
+    document.querySelectorAll('#homeAssetAllocationLegend > [data-color-key]').forEach(row=>{
+      const item=catalog[groups[1]].get(row.dataset.colorKey);if(!item)return;
+      marker(row,groups[1],item.key,item.label,row.firstChild);row.classList.add('wealth-inline-color-asset-legend');
+    });
+    document.querySelectorAll('#wealthMixLegend > [data-color-key]').forEach(row=>{
+      const item=catalog[groups[1]].get(row.dataset.colorKey),name=row.firstElementChild?.firstElementChild;if(!item||!name)return;
+      marker(name,groups[1],item.key,item.label,name.firstChild);name.classList.add('wealth-inline-color-label');
+    });
+    document.querySelectorAll('.classification-row[data-color-key],.sector-legend-item[data-color-key]').forEach(row=>{
+      const item=catalog[groups[2]].get(row.dataset.colorKey);if(!item)return;
+      const name=row.querySelector('.classification-title strong')||row.querySelector('strong');if(!name)return;
+      row.querySelector('.sector-legend-color')?.remove();marker(name,groups[2],item.key,item.label,name.firstChild);
+      row.tabIndex=0;row.setAttribute('role','button');
+    });
+  }
+  api.load=load;api.persist=persist;api.openInlineEditor=openInlineEditor;
+  Object.defineProperty(api,'loaded',{get:()=>loaded});
   function mount() {
-    const page=document.querySelector('[data-wealth-page="settings"]'); if(!page)return;
-    const section=document.createElement('details');section.id='wealthColorSettings';section.className='wealth-color-settings';
-    section.innerHTML='<summary>그래프·캘린더 색상</summary><p class="wealth-help">색상 선택 후 저장하세요. 금액과 분류는 변경되지 않습니다.</p><p class="wealth-help" role="status" id="wealthColorStatus"></p><button type="button" class="button secondary compact" id="wealthColorRetry">색상 설정 다시 불러오기</button>';
-    page.append(section);
-    const status=section.querySelector('[role=status]');let loaded=false,loading=null,saving=false;
-    const fieldsets=new Map();
-    for(const [group,label] of [[groups[0],'캘린더 이벤트'],[groups[1],'자산군'],[groups[2],'주식 포트폴리오 분류']]) {
-      const details=document.createElement('details');details.dataset.colorGroup=group;
-      const summary=document.createElement('summary');summary.textContent=label;
-      const rows=document.createElement('div');rows.className='wealth-color-setting-rows';details.append(summary,rows);section.append(details);fieldsets.set(group,rows);
-    }
-    const strategy=document.createElement('p');strategy.className='wealth-help';strategy.innerHTML='전략 버킷 색상은 <a href="#invest">투자 화면의 전략 버킷</a>에서 설정합니다.';section.append(strategy);
-    for(const [key,label,color] of calendar) register(groups[0],{key,name:label},color);
-    function render() {
-      for(const group of groups) for(const item of api.entries(group)) {
-        const rows=fieldsets.get(group);let row=[...rows.children].find(r=>r.dataset.colorKey===item.key);
-        if(!row) {
-          row=document.createElement('div');row.className='wealth-color-setting-row';row.dataset.colorKey=item.key;
-          const label=document.createElement('span');label.className='wealth-color-setting-label';
-          const field=picker().create({value:resolve(group,item.key,item.defaultColor),label:item.label+' 색상 선택',onChange:color=>{drafts[group].set(item.key,color);status.textContent='선택한 색상을 저장하세요.';changed();}});
-          const save=document.createElement('button');save.type='button';save.className='button secondary compact';save.textContent='저장';save.dataset.colorSave='';save.setAttribute('aria-label',item.label+' 색상 저장');
-          const reset=document.createElement('button');reset.type='button';reset.className='button secondary compact';reset.textContent='기본색';reset.dataset.colorReset='';reset.setAttribute('aria-label',item.label+' 기본색 복원');
-          const persist=async color=>{
-            if(saving)return;
-            saving=true;section.querySelectorAll('.wealth-color-setting-row').forEach(r=>r.inert=true);
-            try {
-              const res=await fetch('/api/color-preferences',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({group,key:item.key,color})});
-              const data=await res.json();if(!res.ok)throw new Error(typeof data.detail==='string'?data.detail:'색상을 저장하지 못했습니다.');
-              replace(data);drafts[group].delete(item.key);row.remove();render();status.textContent='색상을 저장했습니다.';changed();
-            }catch(error){status.textContent=error.message;}finally{saving=false;section.querySelectorAll('.wealth-color-setting-row').forEach(r=>r.inert=false);}
-          };
-          save.onclick=()=>persist(field.dataset.color);reset.onclick=()=>persist(null);
-          row.append(label,field,save,reset);rows.append(row);
-        }
-        row.querySelector('.wealth-color-setting-label').textContent=item.label;
-        row.inert=saving;
-        row.querySelectorAll('button[data-color-save],button[data-color-reset]').forEach(b=>b.disabled=!loaded);
+    for(const [key,name,color] of calendar)register(groups[0],{key,name},color);
+    let queued=false;
+    const schedule=()=>{if(queued)return;queued=true;queueMicrotask(()=>{queued=false;bindControls();});};
+    new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true});
+    host.addEventListener('wealth:colors',schedule);
+    document.addEventListener('click',event=>{
+      const control=event.target.closest('[data-inline-color]');
+      if(!control){
+        const row=event.target.closest('.classification-row,.sector-legend-item'),editor=active;
+        if(editor&&row&&!editor.field.contains(event.target))queueMicrotask(()=>{
+          if(active!==editor||editor.saving)return;
+          const focused=document.activeElement,key=row.dataset.colorKey,selector=row.matches('.classification-row')?'.classification-row':'.sector-legend-item';
+          editor.field.closeColorPicker(false);
+          queueMicrotask(()=>{if(active)return;bindControls();const target=focused.isConnected?focused:[...document.querySelectorAll(selector)].find(n=>n.dataset.colorKey===key);target?.focus({preventScroll:true});});
+        });
+        return;
       }
-    }
-    async function load() {
-      if(loading)return loading;
-      loading=(async()=>{
-        try {const res=await fetch('/api/color-preferences');if(!res.ok)throw new Error('색상 설정을 불러오지 못했습니다. 다시 시도하세요.');replace(await res.json());loaded=true;status.textContent='';
-          fieldsets.forEach(rows=>rows.replaceChildren());render();changed();
-        }catch(error){status.textContent=error.message;loaded=false;render();}finally{loading=null;}
-      })();return loading;
-    }
-    section.querySelector('#wealthColorRetry').onclick=load;
-    host.addEventListener('wealth:color-catalog',()=>queueMicrotask(render));
-    host.addEventListener('wealth:portfolio',()=>{if(!loaded)load();});
-    host.addEventListener('wealth:view',event=>{if(event.detail==='settings' && !loaded)load();});
-    render();load();
+      event.preventDefault();event.stopImmediatePropagation();openInlineEditor(control);
+    },true);
+    document.addEventListener('keydown',event=>{
+      const control=event.target.closest('[data-inline-color]');
+      if(control&&['Enter',' '].includes(event.key)){event.preventDefault();event.stopImmediatePropagation();openInlineEditor(control);}
+      else if(event.target.matches('.classification-row[data-sector-filter]')&&['Enter',' '].includes(event.key)){
+        event.preventDefault();event.target.click();
+      }
+    },true);
+    const retry=()=>{if(!loaded)load().catch(()=>{});};
+    host.addEventListener('wealth:portfolio',retry);host.addEventListener('wealth:view',retry);
+    host.addEventListener('hashchange',()=>{if(active&&!active.saving)active.field.closeColorPicker(false);});
+    bindControls();retry();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
 })(typeof window==='undefined'?null:window);
