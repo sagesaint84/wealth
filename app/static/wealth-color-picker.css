@@ -14,7 +14,18 @@
 .wealth-color-sv { display:block; height:128px; position:relative; background:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,transparent),var(--hue-color); border-radius:6px; touch-action:none; cursor:crosshair; }
 .wealth-color-sv i { position:absolute; width:10px; height:10px; box-sizing:border-box; border:2px solid #fff; outline:1px solid #000; border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; }
 .wealth-color-picker .wealth-color-hue-label,.wealth-color-picker .wealth-color-hex-label { display:grid; gap:4px; font-size:11px; color:var(--muted); }
-.wealth-color-picker .wealth-color-hue { width:100%; min-width:0; height:22px; padding:0; accent-color:var(--text); }
+.wealth-color-picker .wealth-color-hue { --hue-spectrum:linear-gradient(to right,#f00 0%,#ff0 16.6667%,#0f0 33.3333%,#0ff 50%,#00f 66.6667%,#f0f 83.3333%,#f00 100%); appearance:none; width:100%; min-width:0; height:22px; padding:0; border:0; background:transparent; cursor:pointer; }
+.wealth-color-picker .wealth-color-hue::-webkit-slider-runnable-track { height:8px; border-radius:4px; background:var(--hue-spectrum); }
+.wealth-color-picker .wealth-color-hue::-moz-range-track { height:8px; border:0; border-radius:4px; background:var(--hue-spectrum); }
+.wealth-color-picker .wealth-color-hue::-webkit-slider-thumb { appearance:none; box-sizing:border-box; width:16px; height:16px; margin-top:-4px; border:2px solid #fff; border-radius:50%; background:#222; box-shadow:0 0 0 1px #000; }
+.wealth-color-picker .wealth-color-hue::-moz-range-thumb { box-sizing:border-box; width:16px; height:16px; border:2px solid #fff; border-radius:50%; background:#222; box-shadow:0 0 0 1px #000; }
+@media (forced-colors:active) {
+  .wealth-color-picker .wealth-color-hue { appearance:auto; accent-color:auto; }
+  .wealth-color-picker .wealth-color-hue::-webkit-slider-runnable-track { background:CanvasText; }
+  .wealth-color-picker .wealth-color-hue::-moz-range-track { background:CanvasText; }
+  .wealth-color-picker .wealth-color-hue::-webkit-slider-thumb { appearance:auto; background:Highlight; border-color:Canvas; box-shadow:none; }
+  .wealth-color-picker .wealth-color-hue::-moz-range-thumb { background:Highlight; border-color:Canvas; box-shadow:none; }
+}
 .wealth-color-picker .wealth-color-hex { box-sizing:border-box; width:100%; min-width:0; height:34px; font-size:13px; padding:6px 8px; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; }
 .wealth-color-current { display:flex; align-items:center; gap:8px; font-size:12px; }
 .wealth-color-preview { display:inline-block; width:20px; height:20px; flex:0 0 auto; border-radius:5px; background:var(--chosen-color); border:1px solid var(--line); }
