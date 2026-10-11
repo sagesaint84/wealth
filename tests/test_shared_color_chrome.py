@@ -20,6 +20,34 @@ def input_hex(evaluate, value):
 
 
 @pytest.mark.parametrize('theme', ['purple', 'white', 'oled'])
+def test_hue_spectrum_native_pointer_and_keyboard(chrome_preview, theme, tmp_path):
+    call, evaluate = prepare(chrome_preview, 1280)
+    evaluate(f"document.documentElement.dataset.theme='{theme}'")
+    open_picker(call, evaluate)
+    panel = '.wealth-bucket-edit-row[data-id=core] .wealth-color-palette'
+    hue = panel + ' .wealth-color-hue'
+    hex_input = panel + ' .wealth-color-hex'
+    assert 'linear-gradient(to right' in evaluate(f"getComputedStyle(document.querySelector('{hue}')).getPropertyValue('--hue-spectrum')")
+    assert evaluate(f"document.querySelector('{hue}').getAttribute('aria-label')") == '색상(Hue)'
+    click(call, evaluate, hue)
+    middle = int(evaluate(f"document.querySelector('{hue}').value"))
+    assert 179 <= middle <= 180
+    # Native range movement must keep the draft and SV hue synchronized, without saving.
+    for key, code, expected in [('Home', 36, 0), ('End', 35, 359), ('ArrowLeft', 37, 358), ('Home', 36, 0)]:
+        expected_hex = evaluate(f"(()=>{{const sv=WealthColorPicker.hexToHsv(document.querySelector('{hex_input}').value);return WealthColorPicker.hsvToHex({expected},sv.s,sv.v)}})()")
+        call('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': key, 'code': key, 'windowsVirtualKeyCode': code})
+        call('Input.dispatchKeyEvent', {'type': 'keyUp', 'key': key, 'code': key, 'windowsVirtualKeyCode': code})
+        assert int(evaluate(f"document.querySelector('{hue}').value")) == expected
+        assert evaluate(f"document.querySelector('{hex_input}').value") == expected_hex
+        assert evaluate(f"getComputedStyle(document.querySelector('{panel} .wealth-color-sv')).getPropertyValue('--hue-color').trim()") == evaluate(f"WealthColorPicker.hsvToHex({expected},1,1)")
+    assert evaluate('__qState.buckets[0].color || null') is None
+    no_overflow(evaluate, 1280)
+    bounds = evaluate(f"(()=>{{const r=document.querySelector('{hue}').getBoundingClientRect();return {{x:r.x,y:r.y,width:r.width,height:r.height}}}})()")
+    tmp_path.joinpath(f'hue-spectrum-{theme}.json').write_text(json.dumps(bounds), encoding='utf-8')
+    tmp_path.joinpath(f'hue-spectrum-{theme}.png').write_bytes(base64.b64decode(call('Page.captureScreenshot', {'format': 'png'})['data']))
+
+
+@pytest.mark.parametrize('theme', ['purple', 'white', 'oled'])
 def test_desktop_free_color_hex_validation_preview_save_reload(chrome_preview, theme, tmp_path):
     call, evaluate = prepare(chrome_preview, 1280)
     before = evaluate('JSON.stringify(__qView)')
