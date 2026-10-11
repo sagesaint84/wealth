@@ -34,6 +34,8 @@ class ReleaseVersionTests(unittest.TestCase):
         ui_detail_assets = {"wealth-layout.js", "wealth-settings-surface.js"}
         for asset, version in js_matches:
             expected = "10.9r3" if asset in {"wealth-color-preferences.js", "wealth-layout.js", "wealth.js", "wealth-calendar.js", "wealth-planning.js"} else "10.9r2" if asset == "wealth-color-picker.js" else "10.9q" if asset in {"wealth.js", "wealth-layout.js", "wealth-planning.js", "wealth-planning-model.js", "wealth-asset-category-state.js", "wealth-color-picker.js"} else "10.9p" if asset == "wealth.js" else "10.9n1" if asset == "wealth-transaction-defaults.js" else "10.9m1" if asset in ui_detail_assets else "10.9k1" if asset in invest_hotfix_assets else "10.9h1" if asset in settings_assets else "10.7g1" if asset in hotfix_assets else "1.3.0"
+            if asset == "wealth-calendar.js":
+                expected = "10.9r4"
             self.assertEqual(version, expected)
 
     def test_service_worker_cache_name(self):

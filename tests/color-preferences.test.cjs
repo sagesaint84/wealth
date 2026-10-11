@@ -1,6 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const colors = require('../app/static/wealth-color-preferences.js');
+
+test('calendar exposes seven preferences with no independent interest entry', () => {
+  assert.deepEqual(colors.calendar.map(([key])=>key),[
+    'ipo_subscription','ipo_listing','profit','loss','dividend','income','expense'
+  ]);
+  assert.equal(colors.calendar.find(([key])=>key==='dividend')[2],'#FFE082');
+  assert.equal(colors.calendar.some(([key])=>key==='interest'),false);
+});
 test('canonical IDs survive renaming, known aliases and dynamic categories', () => {
   assert.equal(colors.keyFor('asset_category_colors','현금·예수금'),'cash');
   assert.equal(colors.keyFor('stock_category_colors',{sector_id:'stable',name:'before'}),colors.keyFor('stock_category_colors',{sector_id:'stable',name:'after'}));

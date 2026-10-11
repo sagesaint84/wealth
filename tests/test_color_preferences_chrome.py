@@ -20,7 +20,7 @@ window.fetch=async function(url,options={}){
  }
  if(path==='/api/moneylog/calendar'){
   const month=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul'}).format(new Date()).slice(0,7);
-  return {ok:true,json:async()=>({events:['ipo_subscription','ipo_listing','realized_pnl','realized_pnl','dividend','ledger_income','ledger_expense'].map((type,i)=>({id:'c'+i,type,date:month+'-0'+(i+1),amount_krw:i===3?-100:100,title:'Synthetic',meta:{company_name:'합성',ipo_id:'c'+i}}))})};
+  return {ok:true,json:async()=>({events:['ipo_subscription','ipo_listing','realized_pnl','realized_pnl','dividend','ledger_income','ledger_expense','interest'].map((type,i)=>({id:'c'+i,type,date:month+'-0'+(type==='interest'?5:i+1),amount_krw:i===3?-100:100,title:'Synthetic',meta:{company_name:'합성',ipo_id:'c'+i}}))})};
  }
  return colorFetch.apply(this,arguments);
 };
@@ -58,6 +58,24 @@ def select_save(call, evaluate, group, key, color, width):
     assert evaluate(f'__colorData[{json.dumps(group)}][{json.dumps(key)}]') == color
 
 
+def assert_dividend_interest_colors(call, evaluate, color, refresh=True):
+    if refresh:
+        evaluate("location.hash='income'")
+        evaluate(FRAMES)
+        click(call, evaluate, '[data-income=calendar]')
+        evaluate('loadCalendar()')
+        wait_for(evaluate, "!!document.querySelector('.cal-badge.tone-interest')")
+        click(call, evaluate, '.cal-day-cell[data-date$="-05"]')
+    expected_rgb = 'rgb('+', '.join(str(int(color[i:i+2],16)) for i in (1,3,5))+')'
+    for selector in ('.cal-badge.tone-dividend', '.cal-badge.tone-interest',
+                     '.calendar-event-item[data-event-id=c4]', '.calendar-event-item[data-event-id=c7]'):
+        assert evaluate(f'document.querySelector({json.dumps(selector)}).dataset.colorKey') == 'dividend'
+        assert evaluate(f'getComputedStyle(document.querySelector({json.dumps(selector)})).getPropertyValue("--event-color").trim()') == color
+        assert evaluate(f'getComputedStyle(document.querySelector({json.dumps(selector)})).borderLeftColor') == expected_rgb
+    assert evaluate("getComputedStyle(document.querySelector('.calendar-legend-item[data-color-key=dividend]')).getPropertyValue('--event-color').trim()") == color
+    assert evaluate("!Object.hasOwn(__colorData.calendar_event_colors,'interest')")
+
+
 @pytest.mark.parametrize('width', [1280, 390])
 @pytest.mark.parametrize('theme', ['purple', 'white', 'oled'])
 def test_shared_preferences_render_round_trip_without_financial_changes(chrome_preview, width, theme, tmp_path):
@@ -67,12 +85,17 @@ def test_shared_preferences_render_round_trip_without_financial_changes(chrome_p
     evaluate(SETUP)
     evaluate('loadCalendar()')
     keys = ['ipo_subscription','ipo_listing','profit','loss','dividend','income','expense']
+    assert evaluate("Array.from(document.querySelectorAll('[data-color-group=calendar_event_colors] .wealth-color-setting-row'),e=>e.dataset.colorKey)") == keys
+    assert_dividend_interest_colors(call, evaluate, '#FFE082')
     palette = ['#FF5A5F','#FF9F1C','#FFD60A','#2ECF73','#22C7B8','#4D96FF','#FF5FA2']
     for key, color in zip(keys, palette):
         select_save(call, evaluate, 'calendar_event_colors', key, color, width)
         assert evaluate(f"getComputedStyle(document.querySelector('.calendar-legend-item[data-color-key={key}]')).getPropertyValue('--event-color').trim()") == color
         assert evaluate(f"getComputedStyle(document.querySelector('.cal-badge[data-color-key={key}]')).getPropertyValue('--event-color').trim()") == color
         assert evaluate(f"getComputedStyle(document.querySelector('.cal-badge[data-color-key={key}]')).borderLeftColor") == evaluate(f"(()=>{{const s=document.createElement('span');s.style.color='{color}';document.body.append(s);const c=getComputedStyle(s).color;s.remove();return c}})()")
+        if key == 'dividend':
+            assert_dividend_interest_colors(call, evaluate, color, refresh=False)
+    assert_dividend_interest_colors(call, evaluate, '#22C7B8')
     select_save(call, evaluate, 'asset_category_colors','real_estate','#22C7B8',width)
     assert '#22c7b8' in evaluate("document.getElementById('homeAssetAllocationDonut').style.background.toLowerCase()") or '34, 199, 184' in evaluate("document.getElementById('homeAssetAllocationDonut').style.background")
     for selector in ('#homeAssetAllocationLegend [data-color-key=real_estate]', '#wealthMixLegend [data-color-key=real_estate] span'):
@@ -106,6 +129,12 @@ def test_shared_preferences_render_round_trip_without_financial_changes(chrome_p
     wait_for(evaluate, f"window.__qLoad==={generation+1}&&document.readyState==='complete'&&!!window.WealthColorPreferences&&typeof dashboard!=='undefined'&&!!dashboard&&WealthColorPreferences.resolve('stock_category_colors','semiconductor')==='#FF5FA2'")
     evaluate(SETUP)
     assert evaluate("document.querySelector('circle[data-color-key=semiconductor]').getAttribute('stroke')") == '#FF5FA2'
+    assert_dividend_interest_colors(call, evaluate, '#22C7B8')
+    open_group(call,evaluate,'calendar_event_colors')
+    click(call,evaluate,'[data-color-group=calendar_event_colors] [data-color-key=dividend] [data-color-reset]')
+    wait_for(evaluate,"!Object.hasOwn(__colorData.calendar_event_colors,'dividend')")
+    assert_dividend_interest_colors(call, evaluate, '#FFE082', refresh=False)
+    assert_dividend_interest_colors(call, evaluate, '#FFE082')
     open_group(call,evaluate,'stock_category_colors')
     row='[data-color-group=stock_category_colors] [data-color-key=semiconductor]'
     click(call,evaluate,row+' [data-color-reset]')

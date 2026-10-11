@@ -30,7 +30,8 @@
     for(const [key,label,fallback] of preferences.calendar) {
       const tone='tone-'+key.replaceAll('_','-');
       const color=preferences.register('calendar_event_colors',{key,name:label},fallback);
-      document.querySelectorAll(`#calendarPanel .${tone},#calendarPanel [data-color-key="${key}"]`).forEach(node=>{
+      const interestAlias=key==='dividend'?',#calendarPanel .tone-interest':'';
+      document.querySelectorAll(`#calendarPanel .${tone},#calendarPanel [data-color-key="${key}"]${interestAlias}`).forEach(node=>{
         node.dataset.colorKey=key;node.style.setProperty('--event-color',color);
       });
     }
@@ -39,7 +40,7 @@
 
   function eventColorKey(ev) {
     if(ev.type==='realized_pnl')return ev.amount_krw>0?'profit':ev.amount_krw<0?'loss':'';
-    if(ev.type==='dividend')return 'dividend';
+    if(ev.type==='dividend'||ev.type==='interest')return 'dividend';
     if(ev.type==='ledger_income')return 'income';
     if(ev.type==='ledger_expense')return 'expense';
     if(ev.type?.startsWith('ipo_subscription'))return 'ipo_subscription';

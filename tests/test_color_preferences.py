@@ -44,7 +44,8 @@ def test_round_trip_reset_and_financial_bytes_semantics(users):
 @pytest.mark.parametrize('patch', [
     {'color':'red'}, {'color':'#123'}, {'color':'#12345678'}, {'color':float('nan')},
     {'key':'constructor'}, {'key':'bad key'}, {'group':'financial'},
-    {'group':'calendar_event_colors','key':'unknown'}, {'username':'bob'},
+    {'group':'calendar_event_colors','key':'unknown'},
+    {'group':'calendar_event_colors','key':'interest'}, {'username':'bob'},
 ])
 def test_invalid_patch_preserves_bytes(users, patch):
     before = (users('alice')/'portfolio.json').read_bytes()
@@ -93,5 +94,8 @@ def test_api_authentication_and_user_scope(users, monkeypatch):
         payload = {'group':'calendar_event_colors','key':'dividend','color':'#ff5fa2'}
         assert client.patch('/api/color-preferences', json=payload).status_code == 200
         assert client.get('/api/color-preferences').json()['calendar_event_colors']['dividend'] == '#FF5FA2'
+        before = (users('alice')/'portfolio.json').read_bytes()
+        assert client.patch('/api/color-preferences', json=dict(payload,key='interest')).status_code == 400
+        assert (users('alice')/'portfolio.json').read_bytes() == before
         assert colors.read_colors('bob') == colors.empty()
         assert client.patch('/api/color-preferences', json=dict(payload,username='bob')).status_code == 400
