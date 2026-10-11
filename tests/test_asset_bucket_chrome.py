@@ -146,34 +146,35 @@ def test_shared_color_picker_save_reload_rename_theme_and_density(chrome_preview
     evaluate(f"document.documentElement.dataset.theme='{theme}'")
     click(call, evaluate, '#wealthBucketEditor > summary')
     click(call, evaluate, '.wealth-bucket-edit-row[data-id=core] .wealth-color-trigger')
-    assert evaluate("document.querySelector('.wealth-color-palette:not([hidden]) [aria-pressed=true]').dataset.color") == '#A78BFA'
+    assert evaluate("document.querySelector('.wealth-color-palette:not([hidden]) .wealth-color-current').textContent") == '#A78BFA'
+    assert evaluate("document.querySelectorAll('.wealth-color-palette:not([hidden]) [aria-pressed=true]').length") == 0
     call('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'Escape', 'code': 'Escape', 'windowsVirtualKeyCode': 27})
     assert evaluate("document.querySelectorAll('.wealth-color-palette:not([hidden])').length") == 0
     click(call, evaluate, '.wealth-bucket-edit-row[data-id=core] .wealth-color-trigger')
     call('Input.dispatchKeyEvent', {'type': 'keyDown', 'key': 'ArrowRight', 'code': 'ArrowRight', 'windowsVirtualKeyCode': 39})
-    assert evaluate('document.activeElement.dataset.color') == '#FB7185'
+    assert evaluate('document.activeElement.dataset.color') == '#FF9F1C'
     click(call, evaluate, '#bucketPanel > h3')
     assert evaluate("document.querySelectorAll('.wealth-color-palette:not([hidden])').length") == 0
     click(call, evaluate, '.wealth-bucket-edit-row[data-id=core] .wealth-color-trigger')
-    click(call, evaluate, '.wealth-bucket-edit-row[data-id=core] .wealth-color-palette [data-color="#5FC5D9"]')
+    click(call, evaluate, '.wealth-bucket-edit-row[data-id=core] .wealth-color-palette [data-color="#22C7B8"]')
     click(call, evaluate, '#wealthBucketForm button[type=submit]')
-    wait_for(evaluate, "__qState.buckets[0].color==='#5FC5D9'")
+    wait_for(evaluate, "__qState.buckets[0].color==='#22C7B8'")
     for selector in ('[data-bucket-filter=core]', '.wealth-bucket-legend-row[data-bucket-key=core]', '[data-assign-holding=h1]'):
-        assert evaluate(f"getComputedStyle(document.querySelector({json.dumps(selector)})).getPropertyValue('--bucket-color').trim()") == '#5FC5D9'
-    assert '#5FC5D9'.lower() in evaluate("document.querySelector('.wealth-bucket-donut[data-bucket-chart=current]').style.background").lower() or '95, 197, 217' in evaluate("document.querySelector('.wealth-bucket-donut[data-bucket-chart=current]').style.background")
+        assert evaluate(f"getComputedStyle(document.querySelector({json.dumps(selector)})).getPropertyValue('--bucket-color').trim()") == '#22C7B8'
+    assert '#22C7B8'.lower() in evaluate("document.querySelector('.wealth-bucket-donut[data-bucket-chart=current]').style.background").lower() or '34, 199, 184' in evaluate("document.querySelector('.wealth-bucket-donut[data-bucket-chart=current]').style.background")
     evaluate("(()=>{const n=document.querySelector('[name=bucketName]');n.value='새 이름';n.dispatchEvent(new Event('input',{bubbles:true}))})()")
     click(call, evaluate, '#wealthBucketForm button[type=submit]')
     wait_for(evaluate, "__qState.buckets[0].name==='새 이름'")
-    assert evaluate('__qState.buckets[0].color') == '#5FC5D9'
+    assert evaluate('__qState.buckets[0].color') == '#22C7B8'
     click(call, evaluate, '.wealth-bucket-edit-row[data-id=cash] .wealth-color-trigger')
-    click(call, evaluate, '.wealth-bucket-edit-row[data-id=cash] .wealth-color-palette [data-color="#CF788B"]')
+    click(call, evaluate, '.wealth-bucket-edit-row[data-id=cash] .wealth-color-palette [data-color="#FF5FA2"]')
     click(call, evaluate, '#wealthBucketForm button[type=submit]')
-    wait_for(evaluate, "__qState.buckets[2].color==='#CF788B'")
-    assert evaluate("getComputedStyle(document.querySelector('[aria-label=\"예수금은 현금 버킷으로 고정됩니다\"]')).getPropertyValue('--bucket-color').trim()") == '#CF788B'
+    wait_for(evaluate, "__qState.buckets[2].color==='#FF5FA2'")
+    assert evaluate("getComputedStyle(document.querySelector('[aria-label=\"예수금은 현금 버킷으로 고정됩니다\"]')).getPropertyValue('--bucket-color').trim()") == '#FF5FA2'
     reload_page(call, evaluate)
     evaluate(f"document.documentElement.dataset.theme='{theme}';window.dispatchEvent(new CustomEvent('wealth:portfolio',{{detail:__qView}}))")
     click(call, evaluate, '#wealthBucketEditor > summary')
-    assert evaluate("document.querySelector('.wealth-bucket-edit-row[data-id=core] .wealth-color-picker').dataset.color") == '#5FC5D9'
+    assert evaluate("document.querySelector('.wealth-bucket-edit-row[data-id=core] .wealth-color-picker').dataset.color") == '#22C7B8'
     click(call, evaluate, '.wealth-bucket-edit-row[data-id=core] .wealth-color-trigger')
     no_overflow(evaluate, width)
     assert evaluate("(()=>{const r=document.querySelector('.wealth-color-palette:not([hidden])').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth})()")

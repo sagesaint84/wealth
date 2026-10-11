@@ -9,10 +9,20 @@ from tests.test_asset_bucket_chrome import prepare, reload_page, assignment
 from tests.test_workflow_ux_chrome import FRAMES, click, no_overflow
 
 
+PALETTE = ['#FF5A5F', '#FF9F1C', '#FFD60A', '#2ECF73', '#22C7B8', '#4D96FF', '#7C6CFF', '#FF5FA2']
+
+
 def open_picker(call, evaluate):
     if not evaluate("document.querySelector('#wealthBucketEditor').open"):
         click(call, evaluate, '#wealthBucketEditor > summary')
     click(call, evaluate, '.wealth-bucket-edit-row[data-id=core] .wealth-color-trigger')
+    swatches = evaluate("""[...document.querySelectorAll('.wealth-bucket-edit-row[data-id=core] .wealth-color-choices button')].map(b=>{
+      const r=b.getBoundingClientRect();return {color:b.dataset.color,x:r.x,y:r.y,width:r.width,height:r.height};})""")
+    assert [s['color'] for s in swatches] == PALETTE
+    assert len({s['x'] for s in swatches}) == 4
+    assert len({s['y'] for s in swatches}) == 2
+    assert all(s['width'] >= 40 and s['height'] == 36 for s in swatches)
+    assert evaluate("getComputedStyle(document.querySelector('.wealth-bucket-edit-row[data-id=core] .wealth-color-current')).display") != 'none'
 
 
 def input_hex(evaluate, value):
@@ -116,16 +126,21 @@ def test_mobile_palette_focus_escape_and_responsive_mode(chrome_preview, theme, 
     assert evaluate(f"document.querySelector('{panel}').dataset.mode") == 'palette'
     assert evaluate(f"getComputedStyle(document.querySelector('{panel} .wealth-color-advanced')).display") == 'none'
     call('Input.dispatchKeyEvent', {'type':'keyDown','key':'ArrowRight','code':'ArrowRight','windowsVirtualKeyCode':39})
-    assert evaluate('document.activeElement.dataset.color') == '#FB7185'
+    assert evaluate('document.activeElement.dataset.color') == '#FF9F1C'
     call('Input.dispatchKeyEvent', {'type':'keyDown','key':'Escape','code':'Escape','windowsVirtualKeyCode':27})
     assert evaluate('document.activeElement.classList.contains("wealth-color-trigger")')
     open_picker(call, evaluate)
-    click(call, evaluate, panel + ' [data-color="#5FC5D9"]')
+    click(call, evaluate, panel + ' [data-color="#22C7B8"]')
+    assert evaluate(f"document.querySelector('{panel} .wealth-color-hex').value") == '#22C7B8'
+    assert evaluate(f"document.querySelector('{panel} .wealth-color-current').textContent") == '#22C7B8'
+    assert evaluate(f"Number(document.querySelector('{panel} .wealth-color-hue').value)") == evaluate("Math.round(WealthColorPicker.hexToHsv('#22C7B8').h)")
     click(call, evaluate, '#wealthBucketForm button[type=submit]')
-    wait_for(evaluate, "__qState.buckets[0].color==='#5FC5D9'")
+    wait_for(evaluate, "__qState.buckets[0].color==='#22C7B8'")
     reload_page(call, evaluate)
     evaluate(f"document.documentElement.dataset.theme='{theme}'")
     open_picker(call, evaluate)
+    assert evaluate(f"document.querySelector('{panel} [aria-pressed=true]').dataset.color") == '#22C7B8'
+    assert evaluate(f"getComputedStyle(document.querySelector('{panel} [aria-pressed=true]')).outlineWidth") == '2px'
     no_overflow(evaluate, 390)
     assert evaluate(f"(()=>{{const r=document.querySelector('{panel}').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight}})()")
     tmp_path.joinpath(f'color-mobile-{theme}.png').write_bytes(base64.b64decode(call('Page.captureScreenshot', {'format':'png'})['data']))
