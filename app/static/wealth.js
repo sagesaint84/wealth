@@ -1541,12 +1541,12 @@ function renderAllocationDonut(items, emptyMsg = "투자자산 데이터가 없�
     const donutKey = `classification:${String(s.name || '')}`;
     const pct = total > 0 ? (s.market_value_krw / total) : 0;
     const dash = pct * circumference;
-    const color = SECTOR_COLORS[idx % SECTOR_COLORS.length];
+    const color = window.WealthColorPreferences.register('stock_category_colors',s,SECTOR_COLORS[idx % SECTOR_COLORS.length]);
     const el = `
       <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="${strokeWidth}"
         stroke-dasharray="${dash.toFixed(2)} ${(circumference - dash).toFixed(2)}"
         stroke-dashoffset="${(-offset).toFixed(2)}" stroke-linecap="round"
-        class="clickable-sector-slice" data-sector-filter="${html(s.name)}" data-donut-key="${html(donutKey)}" style="cursor:pointer;">
+        class="clickable-sector-slice" data-sector-filter="${html(s.name)}" data-color-key="${html(window.WealthColorPreferences.keyFor('stock_category_colors',s))}" data-donut-key="${html(donutKey)}" style="cursor:pointer;">
         <title>${s.name}: ${money(s.market_value_krw)} (${(pct * 100).toFixed(1)}%) - 클릭하여 종목 검색</title>
       </circle>
     `;
@@ -1556,9 +1556,9 @@ function renderAllocationDonut(items, emptyMsg = "투자자산 데이터가 없�
 
   const legendHtml = validItems.map((s, idx) => {
     const donutKey = `classification:${String(s.name || '')}`;
-    const color = SECTOR_COLORS[idx % SECTOR_COLORS.length];
+    const color = window.WealthColorPreferences.register('stock_category_colors',s,SECTOR_COLORS[idx % SECTOR_COLORS.length]);
     return `
-      <div class="sector-legend-item clickable-sector-item" data-sector-filter="${html(s.name)}" data-donut-key="${html(donutKey)}" tabindex="0" style="cursor:pointer;" title="${html(s.name)} 관련 종목 검색">
+      <div class="sector-legend-item clickable-sector-item" data-sector-filter="${html(s.name)}" data-color-key="${html(window.WealthColorPreferences.keyFor('stock_category_colors',s))}" data-donut-key="${html(donutKey)}" tabindex="0" style="cursor:pointer;" title="${html(s.name)} 관련 종목 검색">
         <span style="display:flex;align-items:center;gap:6px;">
           <i class="sector-legend-color" style="background:${color};"></i>
           <strong>${html(s.name)}</strong>
@@ -1630,8 +1630,8 @@ function renderClassifications(items) {
   if (STOCK_PORTFOLIO_MODE === 'sector') {
     const sectors = dashboard?.sector_classifications || rawDashboard?.sector_classifications || [];
     renderAllocationDonut(sectors, '섹터별 투자자산 데이터가 없습니다.');
-    list.innerHTML = sectors.length ? sectors.map((item) => `
-      <div class="classification-row clickable-sector-row" data-sector-filter="${html(item.name)}" style="cursor:pointer;" title="🔍 클릭하여 '${html(item.name)}' 보유종목 보기">
+    list.innerHTML = sectors.length ? sectors.map((item,index) => `
+      <div class="classification-row clickable-sector-row" data-sector-filter="${html(item.name)}" data-color-key="${html(window.WealthColorPreferences.keyFor('stock_category_colors',item))}" style="cursor:pointer;--classification-color:${window.WealthColorPreferences.register('stock_category_colors',item,SECTOR_COLORS[index % SECTOR_COLORS.length])};" title="🔍 클릭하여 '${html(item.name)}' 보유종목 보기">
         <div class="classification-title">
           <strong>${html(item.name)}</strong>
           <span>${number(item.holding_count, 0)}종목 · ${number(item.weight, 1)}%</span>
@@ -1646,7 +1646,7 @@ function renderClassifications(items) {
   } else {
     const classes = dashboard?.classifications || rawDashboard?.classifications || items || [];
     renderAllocationDonut(classes, '자산군별 투자자산 데이터가 없습니다.');
-    list.innerHTML = classes.length ? classes.map((item) => {
+    list.innerHTML = classes.length ? classes.map((item,index) => {
       let subLabel = `${number(item.holding_count, 0)}종목 · ${number(item.weight, 1)}%`;
       if (item.name === '부동산') {
         subLabel = `부동산 순에퀴티 · ${number(item.weight, 1)}%`;
@@ -1659,7 +1659,7 @@ function renderClassifications(items) {
       const showProfit = item.name !== '현금·예수금' && item.name !== '부동산' && item.name !== '보험';
 
       return `
-        <div class="classification-row clickable-sector-row" data-sector-filter="${html(item.name)}" style="cursor:pointer;" title="🔍 클릭하여 '${html(item.name)}' 상세 보기">
+        <div class="classification-row clickable-sector-row" data-sector-filter="${html(item.name)}" data-color-key="${html(window.WealthColorPreferences.keyFor('stock_category_colors',item))}" style="cursor:pointer;--classification-color:${window.WealthColorPreferences.register('stock_category_colors',item,SECTOR_COLORS[index % SECTOR_COLORS.length])};" title="🔍 클릭하여 '${html(item.name)}' 상세 보기">
           <div class="classification-title">
             <strong>${html(item.name)}</strong>
             <span>${subLabel}</span>
@@ -1674,6 +1674,8 @@ function renderClassifications(items) {
     }).join("") : '<div class="empty">자산을 불러오면 분류별 수익률을 표시합니다.</div>';
   }
 }
+
+window.addEventListener('wealth:colors',()=>{if(dashboard || rawDashboard)renderClassifications(dashboard?.classifications || rawDashboard?.classifications || []);});
 
 function isAccountTaxDeductible(account) {
   if (!account) return true;

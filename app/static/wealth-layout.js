@@ -235,7 +235,9 @@
     });
   };
   const investmentDetail = (value, share) => `${Number.isFinite(value) ? won(value) : '—'} (${share})`;
+  let lastAssetSummary = null;
   window.addEventListener('wealth:summary', ({ detail: s }) => {
+    lastAssetSummary = s;
     setText('wealthNetWorth', won(s.netWorth));
     setText('wealthAssetNetWorth', won(s.netWorth));
     setText('wealthAssetInvest', won(s.invest));
@@ -262,7 +264,7 @@
     setText('wealthOwnerLabel', s.owner === '모두' ? '전체 가족' : s.owner);
     setText('wealthHomeUpdated', s.updatedAt ? `자산 반영 ${new Date(s.updatedAt).toLocaleString('ko-KR')}` : '등록된 자산 기준 · 반영 시각 없음');
     const palette = ['#9b8afb','#61c9b2','#6ea6ec','#e7bc71','#c891bd','#5aa9cf','#ef7b8e','#8bbf74','#a9a1d6'];
-    const items = (s.classifications || []).filter(item => Number(item.market_value_krw || 0) > 0).map((item, index) => ({ ...item, color: palette[index % palette.length] }));
+    const items = (s.classifications || []).filter(item => Number(item.market_value_krw || 0) > 0).map((item, index) => ({ ...item, color: window.WealthColorPreferences.register('asset_category_colors',item,palette[index % palette.length]), colorKey: window.WealthColorPreferences.keyFor('asset_category_colors',item) }));
     const total = items.reduce((sum, item) => sum + Math.max(0, Number(item.market_value_krw || 0)), 0);
     const donut = document.getElementById('homeAssetAllocationDonut');
     const donutLegend = document.getElementById('homeAssetAllocationLegend');
@@ -274,7 +276,7 @@
     paintDonut(null);
     document.getElementById('homeAssetAllocationTotal').textContent = won(total);
     segments.forEach(item => {
-      const row = document.createElement('span'); row.style.setProperty('--mix-color', item.color); row.dataset.donutKey=item.key; row.tabIndex=0;
+      const row = document.createElement('span'); row.style.setProperty('--mix-color', item.color); row.dataset.donutKey=item.key; row.dataset.colorKey=item.colorKey; row.tabIndex=0;
       const name = document.createElement('span'); name.textContent = item.name;
       const weight = document.createElement('strong'); weight.textContent = `${Number(item.weight || 0).toFixed(1)}%`;
       row.append(name, weight); donutLegend.append(row);
@@ -286,7 +288,7 @@
     items.forEach(item => {
       const label = item.name; const value = Number(item.market_value_krw || 0); const color = item.color;
       const row = document.createElement('div');
-      const name = document.createElement('span'); name.textContent = label; name.style.setProperty('--mix-color', color);
+      const name = document.createElement('span'); name.textContent = label; name.style.setProperty('--mix-color', color); row.dataset.colorKey=item.colorKey;
       const amount = document.createElement('strong'); amount.textContent = won(value);
       let secondary = `${Number(item.holding_count || 0)}종목 · ${Number(item.weight || 0).toFixed(1)}%`;
       if (label === '부동산') secondary = `부동산 순자산 · ${Number(item.weight || 0).toFixed(1)}%`;
@@ -304,6 +306,7 @@
       row.append(title, values); legend.append(row);
     });
   });
+  window.addEventListener('wealth:colors', () => { if(lastAssetSummary) window.dispatchEvent(new CustomEvent('wealth:summary',{detail:lastAssetSummary})); });
 })();
 
 // Settings operational status is an optional UI module. It fails independently

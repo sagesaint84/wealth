@@ -24,6 +24,28 @@
   let userApplications = {};
   let familyMembers = ['아빠', '엄마', '자녀'];
 
+  function paintEventColors() {
+    const preferences=window.WealthColorPreferences;
+    if(!preferences)return;
+    for(const [key,label,fallback] of preferences.calendar) {
+      const tone='tone-'+key.replaceAll('_','-');
+      const color=preferences.register('calendar_event_colors',{key,name:label},fallback);
+      document.querySelectorAll(`#calendarPanel .${tone},#calendarPanel [data-color-key="${key}"]`).forEach(node=>{
+        node.dataset.colorKey=key;node.style.setProperty('--event-color',color);
+      });
+    }
+  }
+  window.addEventListener('wealth:colors',paintEventColors);
+
+  function eventColorKey(ev) {
+    if(ev.type==='realized_pnl')return ev.amount_krw>0?'profit':ev.amount_krw<0?'loss':'';
+    if(ev.type==='dividend')return 'dividend';
+    if(ev.type==='ledger_income')return 'income';
+    if(ev.type==='ledger_expense')return 'expense';
+    if(ev.type?.startsWith('ipo_subscription'))return 'ipo_subscription';
+    return ev.type==='ipo_listing'?'ipo_listing':'';
+  }
+
   function isDateInCurrentMonth(dateStr) {
     if (!dateStr || typeof dateStr !== 'string') return false;
     const parts = dateStr.split('-');
@@ -239,6 +261,7 @@
         <span class="calendar-legend-item tone-expense"><i class="calendar-legend-dot"></i>지출</span>
       </div>`;
     wrapper.innerHTML = html;
+    paintEventColors();
 
     wrapper.querySelectorAll('.cal-day-cell').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -370,7 +393,7 @@
       }
 
       itemsHtml += `
-        <li class="calendar-event-item" data-event-id="${escapeHtml(ev.id)}">
+        <li class="calendar-event-item" data-event-id="${escapeHtml(ev.id)}" data-color-key="${eventColorKey(ev)}" style="--event-color:${window.WealthColorPreferences?.resolve('calendar_event_colors',eventColorKey(ev)) || ''}">
           <div class="event-item-main">
             <span class="event-icon">${icon}</span>
             <div class="event-body">
