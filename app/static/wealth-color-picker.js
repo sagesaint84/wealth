@@ -1,8 +1,7 @@
 /* Shared opaque color model and picker. No surface-specific storage or financial writes. */
 (function (host) {
   'use strict';
-  const palette = ['#A78BFA','#FB7185','#7DD3FC','#E11D48','#BE123C','#8B5CF6','#60A5FA','#1D4ED8',
-    '#5FC5D9','#A8C95B','#7F78E8','#A886DB','#CF788B','#D19A66','#82966A','#5A9FE8'];
+  const palette = ['#FF5A5F','#FF9F1C','#FFD60A','#2ECF73','#22C7B8','#4D96FF','#7C6CFF','#FF5FA2'];
   const normalizeHexColor = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim()) ? value.trim().toUpperCase() : null;
   const isValidHexColor = value => normalizeHexColor(value) !== null;
   const getFallbackColor = (value, fallback = palette[0]) => normalizeHexColor(value) || normalizeHexColor(fallback) || palette[0];
@@ -40,13 +39,14 @@
     const advanced = document.createElement('span'); advanced.className = 'wealth-color-advanced';
     advanced.innerHTML = `<span class="wealth-color-sv" tabindex="0" role="slider" aria-label="채도와 밝기" aria-valuemin="0" aria-valuemax="100"><i></i></span>
       <label class="wealth-color-hue-label">색상(Hue)<input class="wealth-color-hue" type="range" min="0" max="359" step="1" aria-label="색상(Hue)"></label>
-      <span class="wealth-color-current"></span><label class="wealth-color-hex-label">HEX<input class="wealth-color-hex" type="text" maxlength="32" spellcheck="false" autocomplete="off" aria-label="HEX 색상" placeholder="#RRGGBB"></label>
+      <label class="wealth-color-hex-label">HEX<input class="wealth-color-hex" type="text" maxlength="32" spellcheck="false" autocomplete="off" aria-label="HEX 색상" placeholder="#RRGGBB"></label>
       <span class="wealth-color-error" role="status" aria-live="polite"></span><button type="button" class="wealth-color-apply">색상 적용</button>`;
     const choices = document.createElement('span'); choices.className = 'wealth-color-choices'; choices.setAttribute('aria-label','추천 색상');
-    panel.append(choices, advanced);
+    const current = document.createElement('span'); current.className = 'wealth-color-current';
+    panel.append(choices, current, advanced);
     const hexInput = advanced.querySelector('.wealth-color-hex'), hue = advanced.querySelector('.wealth-color-hue');
     const sv = advanced.querySelector('.wealth-color-sv'), marker = sv.querySelector('i'), apply = advanced.querySelector('.wealth-color-apply');
-    const error = advanced.querySelector('.wealth-color-error'), current = advanced.querySelector('.wealth-color-current');
+    const error = advanced.querySelector('.wealth-color-error');
     hexInput.setAttribute('aria-describedby', panel.id + '-error'); error.id = panel.id + '-error';
     const close = (focus = false) => { panel.hidden = true; button.setAttribute('aria-expanded','false'); if (focus) button.focus(); };
     const sync = () => {
@@ -71,8 +71,8 @@
       sv.style.setProperty('--hue-color',hsvToHex(hsv.h,1,1)); marker.style.left = hsv.s * 100 + '%'; marker.style.top = (1-hsv.v) * 100 + '%';
       sv.setAttribute('aria-valuenow',String(Math.round(hsv.s * 100))); sv.setAttribute('aria-valuetext',`채도 ${Math.round(hsv.s * 100)}%, 밝기 ${Math.round(hsv.v * 100)}%`);
     };
-    const commit = value => { const valid = normalizeHexColor(value); if (!valid) return; color = valid; sync(); close(true); onChange?.(color); };
-    [...new Set([color,...palette])].forEach(choice => {
+    const commit = value => { const valid = normalizeHexColor(value); if (!valid) return; updateDraft(valid); color = valid; sync(); close(true); onChange?.(color); };
+    palette.forEach(choice => {
       const swatch = document.createElement('button'); swatch.type = 'button'; swatch.dataset.color = choice;
       swatch.style.setProperty('--chosen-color',choice); swatch.setAttribute('aria-label',choice);
       swatch.addEventListener('click',() => commit(choice)); choices.append(swatch);

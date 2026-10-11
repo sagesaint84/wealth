@@ -5,8 +5,8 @@
 .wealth-color-palette { position:fixed; z-index:1200; width:208px; max-width:calc(100vw - 16px); max-height:calc(100vh - 16px); overflow:auto; box-sizing:border-box; display:block; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); box-shadow:0 8px 24px #0006; }
 .wealth-color-palette[data-mode="advanced"] { width:288px; }
 .wealth-color-palette[hidden] { display:none; }
-.wealth-color-choices { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
-.wealth-color-choices button { height:36px; border:2px solid transparent; border-radius:6px; background:var(--chosen-color); cursor:pointer; }
+.wealth-color-choices { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); grid-template-rows:repeat(2,36px); gap:6px; }
+.wealth-color-choices button { min-width:0; height:36px; padding:0; border:2px solid transparent; border-radius:6px; background:var(--chosen-color); cursor:pointer; }
 .wealth-color-choices button[aria-pressed="true"] { outline:2px solid var(--text); outline-offset:1px; border-color:var(--panel); }
 .wealth-color-picker button:focus-visible { outline:2px solid var(--text); outline-offset:3px; }
 .wealth-color-advanced { display:grid; grid-template-columns:1fr; gap:8px; margin-top:12px; border-top:1px solid var(--line); padding-top:12px; }
@@ -27,7 +27,7 @@
   .wealth-color-picker .wealth-color-hue::-moz-range-thumb { background:Highlight; border-color:Canvas; box-shadow:none; }
 }
 .wealth-color-picker .wealth-color-hex { box-sizing:border-box; width:100%; min-width:0; height:34px; font-size:13px; padding:6px 8px; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; }
-.wealth-color-current { display:flex; align-items:center; gap:8px; font-size:12px; }
+.wealth-color-current { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; }
 .wealth-color-preview { display:inline-block; width:20px; height:20px; flex:0 0 auto; border-radius:5px; background:var(--chosen-color); border:1px solid var(--line); }
 .wealth-color-error { font-size:11px; line-height:1.4; color:var(--muted); }
 .wealth-color-error:empty { display:none; }
