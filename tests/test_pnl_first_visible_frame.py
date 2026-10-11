@@ -5,14 +5,13 @@ import threading
 import time
 import urllib.request
 from contextlib import ExitStack
-from http.server import ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from tests.chrome_harness import chrome_session, safe_preview_server
+from tests.chrome_harness import chrome_session
 
-from tests.test_realized_pnl_viewport import StaticPreview, _chrome_path
+from tests.test_realized_pnl_viewport import StaticPreview, _chrome_path, static_preview_server
 
 
 VIEWPORTS = [(320, 568), (390, 844), (1024, 768), (1440, 900)]
@@ -50,7 +49,7 @@ def test_pnl_first_visible_frame_matches_settled_chart(width, height):
     chrome = _chrome_path()
     if chrome is None:
         pytest.skip("Chromium browser unavailable")
-    server = safe_preview_server(ThreadingHTTPServer, IncomePreview)
+    server = static_preview_server(IncomePreview)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     connection = None

@@ -1,8 +1,25 @@
 .wealth-color-picker { display:inline-flex; min-width:0; }
+.wealth-color-field { display:grid; gap:6px; min-width:0; font-size:12px; }
 .wealth-color-trigger { width:36px; height:36px; border:1px solid var(--line); border-radius:7px; background:var(--panel); display:grid; place-items:center; cursor:pointer; }
 .wealth-color-trigger::before { content:""; width:20px; height:20px; border-radius:5px; background:var(--chosen-color); }
-.wealth-color-palette { position:fixed; z-index:1200; width:208px; box-sizing:border-box; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--panel); box-shadow:0 8px 24px #0006; }
+.wealth-color-palette { position:fixed; z-index:1200; width:208px; max-width:calc(100vw - 16px); max-height:calc(100vh - 16px); overflow:auto; box-sizing:border-box; display:block; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); box-shadow:0 8px 24px #0006; }
+.wealth-color-palette[data-mode="advanced"] { width:288px; }
 .wealth-color-palette[hidden] { display:none; }
-.wealth-color-palette button { height:36px; border:2px solid transparent; border-radius:6px; background:var(--chosen-color); cursor:pointer; }
-.wealth-color-palette button[aria-pressed="true"] { outline:2px solid var(--text); outline-offset:1px; border-color:var(--panel); }
+.wealth-color-choices { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+.wealth-color-choices button { height:36px; border:2px solid transparent; border-radius:6px; background:var(--chosen-color); cursor:pointer; }
+.wealth-color-choices button[aria-pressed="true"] { outline:2px solid var(--text); outline-offset:1px; border-color:var(--panel); }
 .wealth-color-picker button:focus-visible { outline:2px solid var(--text); outline-offset:3px; }
+.wealth-color-advanced { display:grid; grid-template-columns:1fr; gap:8px; margin-top:12px; border-top:1px solid var(--line); padding-top:12px; }
+.wealth-color-advanced[hidden] { display:none; }
+.wealth-color-sv { display:block; height:128px; position:relative; background:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,transparent),var(--hue-color); border-radius:6px; touch-action:none; cursor:crosshair; }
+.wealth-color-sv i { position:absolute; width:10px; height:10px; box-sizing:border-box; border:2px solid #fff; outline:1px solid #000; border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; }
+.wealth-color-picker .wealth-color-hue-label,.wealth-color-picker .wealth-color-hex-label { display:grid; gap:4px; font-size:11px; color:var(--muted); }
+.wealth-color-picker .wealth-color-hue { width:100%; min-width:0; height:22px; padding:0; accent-color:var(--text); }
+.wealth-color-picker .wealth-color-hex { box-sizing:border-box; width:100%; min-width:0; height:34px; font-size:13px; padding:6px 8px; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; }
+.wealth-color-current { display:flex; align-items:center; gap:8px; font-size:12px; }
+.wealth-color-preview { display:inline-block; width:20px; height:20px; flex:0 0 auto; border-radius:5px; background:var(--chosen-color); border:1px solid var(--line); }
+.wealth-color-error { font-size:11px; line-height:1.4; color:var(--muted); }
+.wealth-color-error:empty { display:none; }
+.wealth-color-picker .wealth-color-apply { min-height:34px; font-size:12px; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; cursor:pointer; }
+.wealth-color-picker .wealth-color-apply:disabled { opacity:.5; cursor:not-allowed; }
+.wealth-color-picker input:focus-visible,.wealth-color-sv:focus-visible { outline:2px solid var(--text); outline-offset:2px; }

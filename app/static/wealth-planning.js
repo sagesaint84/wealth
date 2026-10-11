@@ -274,9 +274,9 @@
     }
     const key = String(id || '').trim();
     const item = state?.buckets?.find(b => String(b.id) === key);
-    if(window.WealthColorPicker.valid(item?.color)) return item.color.toUpperCase();
     const selectedColor=[...document.querySelectorAll('.wealth-bucket-edit-row')].find(row=>row.dataset.id===key)?.querySelector('.wealth-color-picker')?.dataset.color;
     if(window.WealthColorPicker.valid(selectedColor)) return selectedColor;
+    if(window.WealthColorPicker.valid(item?.color)) return window.WealthColorPicker.normalizeHexColor(item.color);
     if(BUCKET_PRESET_COLORS[key]) return BUCKET_PRESET_COLORS[key];
     if(item && BUCKET_PRESET_COLORS[String(item.name || '').trim()]) {
       return BUCKET_PRESET_COLORS[String(item.name || '').trim()];
@@ -336,8 +336,8 @@
   function bucketRow(bucket) {
     const row=document.createElement('div'); row.className='wealth-bucket-edit-row'; row.dataset.id=bucket.id;
     row.innerHTML=`<label>이름<input name="bucketName" maxlength="50" required value="${esc(bucket.name)}"></label><label>목적<input name="purpose" maxlength="200" value="${esc(bucket.purpose)}"></label><label>목표 %<input name="target" type="number" min="0" max="100" step="0.1" value="${bucket.target}" required></label><button type="button" class="button secondary" data-remove-bucket>제거</button>`;
-    const colorLabel=document.createElement('label'); colorLabel.textContent='색상';
-    colorLabel.append(window.WealthColorPicker.create({value:bucketColor(bucket),label:`${bucket.name || '버킷'} 색상 선택`,onChange:()=>markDirty()}));
+    const colorLabel=document.createElement('span'); colorLabel.className='wealth-color-field'; colorLabel.textContent='색상';
+    colorLabel.append(window.WealthColorPicker.create({value:bucketColor(bucket),label:`${bucket.name || '버킷'} 색상 선택`,onChange:()=>{markDirty();renderBucketSummary();}}));
     row.insertBefore(colorLabel,row.querySelector('[name="target"]').parentElement);
     return row;
   }
