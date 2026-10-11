@@ -5765,6 +5765,26 @@ async def get_planning(request: Request) -> dict:
     return read_planning(_require_authenticated_username(request))
 
 
+@app.get("/api/color-preferences")
+async def get_color_preferences(request: Request) -> dict:
+    from app.services.color_preferences import read_colors
+    username = _require_authenticated_username(request)
+    try:
+        return read_colors(username)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.patch("/api/color-preferences")
+async def patch_color_preferences(request: Request) -> dict:
+    from app.services.color_preferences import patch_color
+    username = _require_authenticated_username(request)
+    try:
+        return patch_color(username, await request.json())
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @app.post("/api/planning/{operation}")
 async def save_planning(operation: str, request: Request) -> dict:
     from app.services.planning import mutate, PlanningConflict

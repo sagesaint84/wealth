@@ -1,0 +1,20 @@
+.wealth-color-settings { margin-top:18px; padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+.wealth-color-settings > summary { font-size:14px; font-weight:700; cursor:pointer; }
+.wealth-color-settings a { color:var(--text); text-underline-offset:2px; }
+.wealth-color-settings details { margin-top:12px; }
+.wealth-color-settings details > summary { font-size:13px; font-weight:700; cursor:pointer; }
+.wealth-color-setting-rows { display:grid; gap:8px; margin-top:10px; }
+.wealth-color-setting-row { display:grid; grid-template-columns:minmax(0,1fr) 36px auto auto; align-items:center; gap:8px; min-width:0; }
+.wealth-color-setting-label { font-size:12px; overflow-wrap:anywhere; min-width:0; }
+.wealth-color-setting-row .button { padding:6px 8px; min-height:32px; }
+.classification-row[data-color-key] .classification-title strong::before { content:""; display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; background:var(--classification-color); }
+.classification-row[data-color-key] .bar i { background:var(--classification-color); }
+.cal-badge[data-color-key] { background:color-mix(in srgb,var(--event-color) 18%,var(--panel)); color:var(--text); border-left:3px solid var(--event-color); }
+.cal-badge[data-color-key]:hover { background:color-mix(in srgb,var(--event-color) 28%,var(--panel)); }
+.cal-day-cell.is-selected .cal-badge[data-color-key] { box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--event-color) 50%,transparent); }
+.calendar-legend-item[data-color-key] { color:var(--text); }
+.calendar-legend-item[data-color-key] .calendar-legend-dot { background:var(--event-color); }
+.calendar-event-item[data-color-key]:not([data-color-key=""]) { border-left:3px solid var(--event-color); }
+.wealth-bucket-constituent[data-bucket-id] { border-left:3px solid var(--bucket-color); }
+/* Keep the final settings controls above the fixed mobile navigation. */
+@media (max-width:767px) { .wealth-color-settings { margin-bottom:96px; } }
