@@ -101,7 +101,10 @@ def assert_dividend_interest_colors(call, evaluate, color, refresh=True):
         assert evaluate(f'document.querySelector({json.dumps(selector)}).dataset.colorKey') == 'dividend'
         assert evaluate(f'getComputedStyle(document.querySelector({json.dumps(selector)})).getPropertyValue("--event-color").trim()') == color
         assert evaluate(f'getComputedStyle(document.querySelector({json.dumps(selector)})).borderLeftColor') == expected_rgb
+        if selector.startswith('.cal-badge'):
+            assert evaluate(f'getComputedStyle(document.querySelector({json.dumps(selector)})).color') == expected_rgb
     assert evaluate("getComputedStyle(document.querySelector('.calendar-legend-item[data-color-key=dividend]')).getPropertyValue('--event-color').trim()") == color
+    assert evaluate("getComputedStyle(document.querySelector('.calendar-legend-item[data-color-key=dividend]')).color") == expected_rgb
     assert evaluate("!Object.hasOwn(__colorData.calendar_event_colors,'interest')")
 
 
@@ -125,6 +128,9 @@ def test_shared_preferences_render_round_trip_without_financial_changes(chrome_p
         assert evaluate(f"getComputedStyle(document.querySelector('.calendar-legend-item[data-color-key={key}]')).getPropertyValue('--event-color').trim()") == color
         assert evaluate(f"getComputedStyle(document.querySelector('.cal-badge[data-color-key={key}]')).getPropertyValue('--event-color').trim()") == color
         assert evaluate(f"getComputedStyle(document.querySelector('.cal-badge[data-color-key={key}]')).borderLeftColor") == evaluate(f"(()=>{{const s=document.createElement('span');s.style.color='{color}';document.body.append(s);const c=getComputedStyle(s).color;s.remove();return c}})()")
+        expected_rgb = 'rgb('+', '.join(str(int(color[i:i+2],16)) for i in (1,3,5))+')'
+        assert evaluate(f"getComputedStyle(document.querySelector('.cal-badge[data-color-key={key}]')).color") == expected_rgb
+        assert evaluate(f"getComputedStyle(document.querySelector('.calendar-legend-item[data-color-key={key}]')).color") == expected_rgb
         if key == 'dividend':
             assert_dividend_interest_colors(call, evaluate, color, refresh=False)
     assert_dividend_interest_colors(call, evaluate, '#22C7B8')
