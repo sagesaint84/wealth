@@ -31,6 +31,7 @@
   };
   const BUCKET_COLORS = ['#5FC5D9','#A8C95B','#7F78E8','#A886DB','#CF788B','#D19A66','#82966A','#5A9FE8'];
   let selectedBucket = null;
+  let inlineBucketColor = null, inlineBucketSaving = false;
   let state = null, summary = null, portfolioView = null, editorView = null, editorRevision = null, range = '1Y', dirty = false, syncBlocked = false;
   window.addEventListener('beforeunload', e => { if(dirty || editingRecord) { e.preventDefault(); e.returnValue = ''; } });
   const historyPanel = document.createElement('article');
@@ -265,6 +266,7 @@
     if(id === '__unclassified__') return '#697386';
     if(id === '__unallocated__') return '#35415b';
     if(id === '__cash__') return '#1D4ED8';
+    if(inlineBucketColor?.id===id)return inlineBucketColor.color;
     if(id && typeof id === 'object') {
       if(window.WealthColorPicker.valid(id.color)) return id.color.toUpperCase();
       if(id.id === '__unclassified__') return '#697386';
@@ -299,7 +301,42 @@
     return segments.length ? `conic-gradient(${segments.join(',')})` : 'var(--surface-2)';
   }
   function allocationLegend(items, valueField, showAmount=false, chartKey='') {
-    return items.map(item=>`<div class="wealth-bucket-legend-row" data-bucket-chart="${chartKey}" data-bucket-key="${esc(item.id)}" tabindex="0" style="--bucket-color:${bucketColor(item.id)}"><span>${esc(item.name)}</span><strong>${Number(item[valueField]||0).toFixed(1)}%</strong>${showAmount?`<small>${won(item.value)}</small>`:''}</div>`).join('');
+    return items.map(item=>{
+      const editable=state.buckets.some(b=>b.id===item.id)&&!['__cash__','__unclassified__','__unallocated__'].includes(item.id);
+      const control=editable?`<button type="button" class="wealth-inline-color-control" data-bucket-color="${esc(item.id)}" data-color-group="planning_bucket_colors" data-color-key="${esc(item.id)}" data-color-label="${esc(item.name)}" aria-label="${esc(item.name)} 색상 변경" aria-haspopup="dialog" style="--chosen-color:${bucketColor(item.id)}"></button>`:'';
+      return `<div class="wealth-bucket-legend-row${editable?' has-color-control':''}" data-bucket-chart="${chartKey}" data-bucket-key="${esc(item.id)}" tabindex="0" style="--bucket-color:${bucketColor(item.id)}">${control}<span>${esc(item.name)}</span><strong>${Number(item[valueField]||0).toFixed(1)}%</strong>${showAmount?`<small>${won(item.value)}</small>`:''}</div>`;
+    }).join('');
+  }
+  function openBucketColor(button) {
+    const status=document.getElementById('wealthBucketStatus'),id=button.dataset.bucketColor;
+    const blocked='저장하지 않은 버킷 설정이 있습니다. 먼저 저장하거나 다시 불러와 주세요.';
+    if(dirty){status.textContent=blocked;return;}
+    if(inlineBucketSaving||!state?.buckets.some(b=>b.id===id))return;
+    let persistedColor=bucketColor(id);
+    const clearPreview=()=>{inlineBucketColor=null;renderBucketSummary();};
+    window.WealthColorPreferences.openInlineEditor(button,{
+      getValue:()=>persistedColor,
+      onPreview:color=>{inlineBucketColor={id,color};renderBucketSummary();},
+      onCancel:clearPreview,
+      onSave:async color=>{
+        if(dirty)throw new Error(blocked);
+        if(!state.buckets.some(b=>b.id===id))throw new Error('이 버킷은 더 이상 존재하지 않습니다. 다시 불러와 주세요.');
+        if(!window.WealthColorPicker.valid(color))throw new Error('색상이 유효하지 않습니다.');
+        const payload={revision:state.revision,buckets:state.buckets.map(b=>b.id===id?{...b,color:window.WealthColorPicker.normalizeHexColor(color)}:{...b}),accounts:{...state.accounts},holdings:{...state.holdings}};
+        inlineBucketSaving=true;
+        const form=document.getElementById('wealthBucketForm'),summaryEl=document.getElementById('wealthBucketSummary');
+        form.inert=true;summaryEl.inert=true;
+        try {
+          state=await request('/buckets',payload);inlineBucketColor=null;renderEditor();renderBucketSummary();persistedColor=bucketColor(id);
+          status.textContent='버킷 색상을 저장했습니다. 분류와 실제 잔고는 변경하지 않았습니다.';
+        }catch(error){
+          inlineBucketColor=null;
+          try {state=await request('');if(!dirty)renderEditor();renderBucketSummary();persistedColor=bucketColor(id);}
+          catch(refreshError){status.textContent=error.message+' 최신 설정을 불러오지 못했습니다: '+refreshError.message;throw new Error(status.textContent);}
+          status.textContent=error.message;throw error;
+        }finally{inlineBucketSaving=false;form.inert=false;summaryEl.inert=false;}
+      }
+    });
   }
   function renderBucketSummary() {
     if(!state || !portfolioView) return;
@@ -322,6 +359,10 @@
     const selectedName = cards.find(b => b.id === selectedBucket)?.name || '전체';
     summaryEl.insertAdjacentHTML('beforeend', `<section class="wealth-bucket-contents" aria-label="버킷 구성 내역" style="--bucket-color:${selectedBucket ? bucketColor(selectedBucket) : '#697386'}"><h4>버킷 구성 내역 · ${esc(selectedName)}</h4><p role="status">${visible.length}건 · 합계 ${won(visible.reduce((sum,row)=>sum+row.value,0))}</p><div class="wealth-bucket-contents-list">${visible.map(row=>`<div class="wealth-bucket-constituent" data-bucket-id="${esc(row.bucket_id)}" style="--bucket-color:${bucketColor(row.bucket_id || '__unclassified__')}"><span class="wealth-bucket-account">${esc(row.broker)} / ${esc(row.account_name)}</span><strong class="wealth-bucket-holding">${esc(row.name)}</strong><span class="wealth-bucket-value">${won(row.value)}</span>${row.kind==='holding'?`<button type="button" class="wealth-bucket-badge" data-assign-holding="${esc(row.holding_id)}" aria-label="${esc(row.name)} 버킷 변경" style="--bucket-color:${bucketColor(row.bucket_id || '__unclassified__')}">${esc(row.bucket_name)} ▾</button>`:`<small class="wealth-bucket-badge" aria-label="예수금은 현금 버킷으로 고정됩니다" style="--bucket-color:${bucketColor(row.bucket_id)}">${esc(row.bucket_name)}</small>`}</div>`).join('') || '<p>표시할 구성내역이 없습니다.</p>'}</div></section>`);
     summaryEl.querySelectorAll('[data-assign-holding]').forEach(button=>button.addEventListener('click',()=>openAssignment(button)));
+    summaryEl.querySelectorAll('[data-bucket-color]').forEach(button=>{
+      button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();openBucketColor(button);});
+      button.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();openBucketColor(button);}});
+    });
     summaryEl.querySelectorAll('[data-bucket-filter]').forEach(button=>button.addEventListener('click',()=>{
       const key=button.dataset.bucketFilter;
       selectedBucket=selectedBucket===key?null:key;
@@ -412,7 +453,7 @@
   document.getElementById('wealthBucketRows').addEventListener('click',e=>{if(e.target.hasAttribute('data-remove-bucket')){e.target.closest('.wealth-bucket-edit-row').remove();markDirty();renderPresetButtons();renderDraftTargetStatus();renderAssignments();}});
   document.getElementById('wealthReloadPlanning').addEventListener('click',()=>{if(!dirty || confirm('저장하지 않은 분류 변경을 버리고 다시 불러올까요?'))load(true);});
   document.getElementById('wealthBucketForm').addEventListener('submit',async e=>{
-    e.preventDefault(); if(!state)return;
+    e.preventDefault(); if(!state||inlineBucketSaving)return;
     const button=e.submitter; button.disabled=true;
     const targetValidation=renderDraftTargetStatus();
     if(!targetValidation.valid){document.getElementById('wealthBucketStatus').textContent=targetValidation.message;button.disabled=false;return;}
