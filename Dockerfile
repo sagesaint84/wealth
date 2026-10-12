@@ -1,4 +1,24 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
+
+# Keep browser auth packages out of Wealth's application interpreter.
+ENV TOSSCTL_AUTH_HELPER_PYTHON=/opt/toss-auth/venv/bin/python \
+    TOSSCTL_AUTH_HELPER_DIR=/opt/toss-auth/helper \
+    TOSSCTL_AUTH_HELPER_BROWSER_CHANNEL=chromium \
+    TOSSCTL_AUTH_HELPER_QUIET=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/toss-auth/ms-playwright
+
+COPY ops/toss-auth/requirements.txt /opt/toss-auth/requirements.txt
+RUN python -m venv /opt/toss-auth/venv \
+    && /opt/toss-auth/venv/bin/python -m pip install --no-cache-dir --only-binary=:all: -r /opt/toss-auth/requirements.txt \
+    && /opt/toss-auth/venv/bin/python -m playwright install --with-deps --no-shell chromium \
+    && rm -rf /var/lib/apt/lists/*
+
+# This path is separate from the existing /opt/toss-wts/tossctl bind mount.
+COPY vendor/tossctl-auth-helper/ /opt/toss-auth/helper/
+COPY ops/toss-auth/browser_smoke.py /opt/toss-auth/browser_smoke.py
+# No Toss/server access, including Chromium background traffic. Fail the image
+# build if either native or emulated target architecture cannot launch Chromium.
+RUN --network=none /opt/toss-auth/venv/bin/python /opt/toss-auth/browser_smoke.py
 
 WORKDIR /app
 

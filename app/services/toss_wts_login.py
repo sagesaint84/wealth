@@ -30,18 +30,17 @@ Safety invariants
    - LOGIN START: acquired briefly (per-user).
      - Reject if active-op marker for THIS USER already exists.
      - TOCTOU-safe reauthenticate=False check INSIDE lock.
-     - Spawn Popen, write durable marker, then release.
+     - Linux reserves a durable marker before supervisor spawn, then commits metadata.
    - AUTH EXTEND: acquired and held for entire subprocess lifetime (per-user).
    - Different users never contend on the same lock.
-3. Process reaping: watcher daemon thread calls proc.wait() so child is never
-   a zombie.  _check_and_finalize() uses watcher registry (primary); falls
-   back to pid_alive() only for server-restart recovery.
+3. Linux completion requires the subreaper receipt and supervisor exit;
+   watcher/PID absence alone never proves that descendants exited.
 4. Terminate-then-cleanup: both cancel and timeout path call
-   _terminate_and_reap() and wait for confirmed exit BEFORE clearing the
+   _terminate_attempt() and wait for confirmed exit BEFORE clearing the
    active-op marker. If termination cannot be confirmed, the marker remains
    and a safe error is returned so other login/extend cannot start.
-5. Spawn failure rollback: if marker or meta write fails after Popen, the
-   spawned process is terminated+reaped, marker+artifacts are purged.
+5. Linux setup rollback requests supervisor cleanup using original identity;
+   unknown completion retains the durable reservation and private artifacts.
 6. Post-login verification: subprocess exit alone is NOT success.
    get_toss_session_status() active && valid must be confirmed.
 7. Re-auth protection: session active+valid → TossSessionAlreadyValidError
@@ -56,11 +55,14 @@ Safety invariants
 from __future__ import annotations
 
 import json
+import errno
+import hashlib
 import os
 import platform
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -84,6 +86,14 @@ STATUS_TIMEOUT = "timeout"
 
 LOGIN_ATTEMPT_MAX_SECONDS = 300
 _IS_WINDOWS = platform.system() == "Windows"
+_IS_LINUX = sys.platform == "linux"
+# With shell=False and no preexec_fn, CPython reports these fork/exec failures
+# before returning a Popen object (and reaps a failed exec child internally).
+# Unknown errno/exception paths deliberately do not release a reservation.
+_DEFINITE_SPAWN_FAILURE_ERRNOS = frozenset({
+    errno.ENOENT, errno.EACCES, errno.ENOEXEC, errno.ENOTDIR, errno.EAGAIN,
+    errno.ENOMEM, errno.EMFILE, errno.ENFILE, errno.ETXTBSY, errno.E2BIG,
+})
 
 # Termination wait limits (SIGTERM grace + SIGKILL hard)
 _SIGTERM_WAIT_SECONDS = 10.0
@@ -111,7 +121,8 @@ def _start_watcher(attempt_id: str, proc: subprocess.Popen) -> None:
         try:
             exit_code = proc.wait()
         except Exception:
-            exit_code = -1
+            # Failed wait is not proof that the process or its children exited.
+            return
         with _watcher_lock:
             # Tombstone-safe: only update if entry still exists.
             # _terminal_cleanup may have already popped it; do NOT re-create it,
@@ -253,10 +264,48 @@ def _kst_now(provider: Callable[[], datetime] | None = None) -> datetime:
 # ---------------------------------------------------------------------------
 
 def _cleanup_qr(attempt_id: str, username: str) -> None:
+    confirmation = _confirmation_path(attempt_id, username)
+    for path in (_qr_path(attempt_id, username), confirmation):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    for path in confirmation.parent.glob(confirmation.name + ".*.tmp"):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    from app.services.toss_wts_auth_process import receipt_path
+    receipt = receipt_path(confirmation.parent, attempt_id)
+    for path in [receipt, *receipt.parent.glob(receipt.name + ".*.tmp")]:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _confirmation_path(attempt_id: str, username: str) -> Path:
+    return _qr_path(attempt_id, username).with_suffix(".confirmation.json")
+
+
+def _read_confirmation(attempt_id: str, username: str) -> dict[str, str]:
+    """Called only after owner authorization; never put IPC contents in errors."""
     try:
-        _qr_path(attempt_id, username).unlink(missing_ok=True)
-    except OSError:
-        pass
+        path = _confirmation_path(attempt_id, username)
+        if path.is_symlink() or path.stat().st_size > 2048:
+            return {}
+        if not _IS_WINDOWS and path.stat().st_mode & 0o077:
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        letter, digest = data.get("answer_letter"), data.get("qr_sha256")
+        if not isinstance(letter, str) or not (1 <= len(letter) <= 8) or not letter.isalnum():
+            return {}
+        actual = hashlib.sha256(_qr_path(attempt_id, username).read_bytes()).hexdigest()
+        if digest != actual:
+            return {}
+        return {"answer_letter": letter, "qr_revision": actual}
+    except (OSError, ValueError, AttributeError, UnicodeError):
+        return {}
 
 
 def _terminal_cleanup(attempt_id: str, username: str, meta: dict[str, Any]) -> None:
@@ -264,7 +313,15 @@ def _terminal_cleanup(attempt_id: str, username: str, meta: dict[str, Any]) -> N
     and remove watcher registry entry (prevents memory accumulation).
     """
     from app.services.toss_wts_auth_guard import clear_active_op_marker
-    clear_active_op_marker(username, attempt_id)
+    if meta.get("_process_boundary") is not None and not _boundary_complete(meta):
+        meta.update(status=STATUS_PENDING, finished_at=None, error_code="AUTH_LOGIN_TERMINATION_PENDING")
+        _write_meta(attempt_id, username, meta)
+        return
+    cleared = clear_active_op_marker(username, attempt_id)
+    if meta.get("_process_boundary") is not None and cleared is False:
+        meta.update(status=STATUS_PENDING, finished_at=None, error_code="AUTH_LOGIN_TERMINATION_PENDING")
+        _write_meta(attempt_id, username, meta)
+        return
     _cleanup_qr(attempt_id, username)
     try:
         _write_meta(attempt_id, username, meta)
@@ -276,13 +333,25 @@ def _terminal_cleanup(attempt_id: str, username: str, meta: dict[str, Any]) -> N
 
 
 def _rollback_spawn(
-    attempt_id: str, username: str, proc: subprocess.Popen
+    attempt_id: str, username: str, proc: subprocess.Popen,
+    process_boundary: dict | None = None,
+    expected_start_time: str | None = None,
 ) -> None:
     """Terminate and reap an orphaned subprocess after setup failure.
 
     Called when Popen succeeded but marker/meta write failed.
     Uses proc object directly for ownership certainty (no PID lookup).
     """
+    if process_boundary is not None:
+        # Keep the pre-spawn reservation if proof is missing or setup failed.
+        from app.services.toss_wts_auth_process import signal_supervisor
+        # Setup failed before the normal watcher was installed; still reap
+        # the supervisor when it eventually completes its owned cleanup.
+        _start_watcher(attempt_id, proc)
+        signal_supervisor(proc.pid, expected_start_time, process_boundary["boot_id"])
+        return
+    if _IS_LINUX:
+        return  # Legacy ownership cannot safely address detached descendants.
     try:
         proc.terminate()
     except (OSError, ProcessLookupError):
@@ -335,6 +404,8 @@ def _terminate_and_reap(
     must be kept so that other login/extend operations remain blocked.
     """
     from app.services.toss_wts_auth_guard import pid_alive as _pa
+    if _IS_LINUX:
+        return False  # PID-only Linux attempts have no descendant-exit proof.
 
     def _process_gone() -> bool:
         reaped = _is_process_reaped(attempt_id)
@@ -360,8 +431,10 @@ def _terminate_and_reap(
     else:
         try:
             os.kill(pid, signal.SIGTERM)
-        except (OSError, ProcessLookupError):
-            return True  # Already dead
+        except ProcessLookupError:
+            return _process_gone()
+        except OSError:
+            return False  # Permission/other signal errors do not prove exit.
 
     # Grace period
     deadline = time.monotonic() + _SIGTERM_WAIT_SECONDS
@@ -376,8 +449,10 @@ def _terminate_and_reap(
     # SIGKILL escalation (POSIX only)
     try:
         os.kill(pid, signal.SIGKILL)
-    except (OSError, ProcessLookupError):
-        return True
+    except ProcessLookupError:
+        return _process_gone()
+    except OSError:
+        return False
 
     deadline = time.monotonic() + _SIGKILL_WAIT_SECONDS
     while time.monotonic() < deadline:
@@ -391,6 +466,34 @@ def _terminate_and_reap(
 # ---------------------------------------------------------------------------
 # Post-login verification (lazy import avoids circular dependency)
 # ---------------------------------------------------------------------------
+
+def _boundary_complete(meta: dict[str, Any]) -> bool:
+    from app.services.toss_wts_auth_guard import user_login_dir
+    from app.services.toss_wts_auth_process import boundary_complete
+    return boundary_complete(user_login_dir(meta["owner"]), meta["attempt_id"],
+                             meta["owner"], meta.get("_process_boundary"),
+                             meta.get("_pid"), meta.get("_pid_start_time"))
+
+
+def _terminate_attempt(meta: dict[str, Any]) -> bool:
+    boundary = meta.get("_process_boundary")
+    if boundary is None:
+        if _IS_LINUX:
+            return False
+        pid = meta.get("_pid")
+        return pid is None or _terminate_and_reap(meta["attempt_id"], pid, meta.get("_pid_start_time"))
+    if _boundary_complete(meta):
+        return True
+    from app.services.toss_wts_auth_process import signal_supervisor
+    if not signal_supervisor(meta.get("_pid") or 0, meta.get("_pid_start_time"), boundary.get("boot_id", "")):
+        return False
+    deadline = time.monotonic() + _SIGTERM_WAIT_SECONDS + _SIGKILL_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        if _boundary_complete(meta):
+            return True
+        time.sleep(0.1)
+    return False
+
 
 def _verify_post_login(settings: dict[str, Any], username: str) -> bool:
     """Return True iff get_toss_session_status() reports active && valid."""
@@ -411,10 +514,10 @@ def _check_and_finalize(
     settings: dict[str, Any],
     now_provider: Callable[[], datetime] | None = None,
 ) -> dict[str, Any]:
-    """If the background process has exited (per watcher), run post-login verification.
+    """Finalize only after the platform's required completion evidence.
 
-    Primary check: watcher registry (prevents zombie misdetection).
-    Fallback (server restart): pid_alive() — safe because init reaps orphans.
+    Linux requires private subreaper proof and supervisor exit, also on restart.
+    Windows keeps its existing watcher/mock path.
     ``username`` is taken from ``meta["owner"]``.
     """
     if meta.get("status") != STATUS_PENDING:
@@ -426,7 +529,18 @@ def _check_and_finalize(
 
     attempt_id = meta["attempt_id"]
     username = meta.get("owner", "")
-    reaped = _is_process_reaped(attempt_id)
+    boundary = meta.get("_process_boundary")
+    if boundary is not None:
+        if not _boundary_complete(meta):
+            if _is_process_reaped(attempt_id) is not False:
+                meta["error_code"] = "AUTH_LOGIN_TERMINATION_PENDING"
+            return meta
+        reaped = True
+    elif _IS_LINUX:
+        meta["error_code"] = "AUTH_LOGIN_TERMINATION_PENDING"
+        return meta
+    else:
+        reaped = _is_process_reaped(attempt_id)
 
     if reaped is False:
         return meta  # Watcher confirms still running
@@ -467,9 +581,7 @@ def _handle_timeout(
     pid = meta.get("_pid")
     pid_start = meta.get("_pid_start_time")
 
-    terminated = True
-    if pid is not None:
-        terminated = _terminate_and_reap(attempt_id, pid, pid_start)
+    terminated = _terminate_attempt(meta)
 
     if not terminated:
         # Cannot confirm termination — keep marker, return safe error
@@ -594,22 +706,56 @@ def start_toss_login(
                 "--link",
                 _AUTH_LOGIN_QR_FLAG, str(qr),
             ]
+            boundary = None
+            try:
+                if not _IS_WINDOWS:
+                    os.chmod(str(qr.parent), 0o700)
+                auth_env = os.environ.copy()
+                auth_env["TOSSCTL_AUTH_CONFIRMATION_FILE"] = str(_confirmation_path(attempt_id, username))
+                auth_env["TOSSCTL_AUTH_HELPER_QUIET"] = "1"
+                launch_argv = argv
+                if _IS_LINUX:
+                    from app.services.toss_wts_auth_process import BOUNDARY_KIND, boot_id, receipt_path
+                    boundary = {"kind": BOUNDARY_KIND, "token": uuid.uuid4().hex, "boot_id": boot_id()}
+                    # Reserve BEFORE spawn, protecting the server-crash window.
+                    write_active_op_marker(username, attempt_id, 0, started_at,
+                                           process_boundary=boundary)
+                    auth_env["TOSSCTL_AUTH_PROCESS_CONTEXT"] = json.dumps({
+                        **boundary, "attempt_id": attempt_id, "owner": username,
+                    })
+                    auth_env["TOSSCTL_AUTH_PROCESS_RECEIPT"] = str(receipt_path(qr.parent, attempt_id))
+                    launch_argv = [sys.executable, str(Path(__file__).with_name("toss_wts_auth_process.py")), *argv]
+            except OSError as exc:
+                # Preparation/marker I/O failure is not a confirmed spawn failure.
+                raise TossLoginError("AUTH_LOGIN_SPAWN_FAILED") from exc
+
             try:
                 proc = _popen(
-                    argv,
+                    launch_argv,
                     shell=False,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    env=auth_env,
                 )
             except OSError as exc:
-                raise TossLoginError("AUTH_LOGIN_SPAWN_FAILED") from exc
+                if boundary is not None and exc.errno in _DEFINITE_SPAWN_FAILURE_ERRNOS:
+                    from app.services.toss_wts_auth_guard import _release_unspawned_reservation_locked
+                    _release_unspawned_reservation_locked(
+                        username, attempt_id, token=boundary["token"], boot_id=boundary["boot_id"],
+                    )
+                # No raw executable/argv or exception message in the exposed error.
+                raise TossLoginError("AUTH_LOGIN_SPAWN_FAILED") from None
 
             # Write marker and meta BEFORE releasing lock.
             # Rollback spawned process if either write fails.
             pid_start_time = get_pid_start_time(proc.pid)
             try:
-                write_active_op_marker(username, attempt_id, proc.pid, started_at)
+                if boundary is None:
+                    write_active_op_marker(username, attempt_id, proc.pid, started_at)
+                else:
+                    write_active_op_marker(username, attempt_id, proc.pid, started_at,
+                                           process_boundary=boundary, process_start=pid_start_time)
                 meta: dict[str, Any] = {
                     "attempt_id": attempt_id,
                     "owner": username,
@@ -620,9 +766,15 @@ def start_toss_login(
                     "_pid": proc.pid,
                     "_pid_start_time": pid_start_time,
                 }
+                if boundary is not None:
+                    meta["_process_boundary"] = boundary
                 _write_meta(attempt_id, username, meta)
             except Exception as setup_exc:
-                _rollback_spawn(attempt_id, username, proc)
+                if boundary is None:
+                    _rollback_spawn(attempt_id, username, proc)
+                else:
+                    _rollback_spawn(attempt_id, username, proc, process_boundary=boundary,
+                                    expected_start_time=pid_start_time)
                 raise TossLoginError("AUTH_LOGIN_SETUP_FAILED") from setup_exc
 
             # Start watcher AFTER meta is successfully written
@@ -680,10 +832,14 @@ def get_login_attempt(
             except Exception:
                 pass
 
-    return _safe_public(meta)
+    public = _safe_public(meta)
+    if (meta.get("status") == STATUS_PENDING and meta.get("owner") == requesting_username
+            and not meta.get("error_code")):
+        public.update(_read_confirmation(attempt_id, requesting_username))
+    return public
 
 
-def get_login_qr(attempt_id: str, *, requesting_username: str) -> bytes | None:
+def get_login_qr(attempt_id: str, *, requesting_username: str, expected_revision: str | None = None) -> bytes | None:
     """Return QR PNG bytes iff the attempt is pending and QR file exists.
 
     Access control: only the owner can fetch their QR.
@@ -703,7 +859,10 @@ def get_login_qr(attempt_id: str, *, requesting_username: str) -> bytes | None:
     if not qr.exists() or qr.stat().st_size == 0:
         return None
     try:
-        return qr.read_bytes()
+        data = qr.read_bytes()
+        if expected_revision is not None and hashlib.sha256(data).hexdigest() != expected_revision:
+            return None
+        return data
     except OSError:
         return None
 
@@ -752,8 +911,8 @@ def cancel_login_attempt(
     pid_start = meta.get("_pid_start_time")
     username = meta.get("owner", requesting_username)
 
-    if pid is not None:
-        terminated = _terminate_and_reap(attempt_id, pid, pid_start)
+    if pid is not None or meta.get("_process_boundary") is not None or _IS_LINUX:
+        terminated = _terminate_attempt(meta)
         if not terminated:
             meta["error_code"] = "AUTH_LOGIN_CANCEL_TERMINATION_PENDING"
             try:

@@ -160,7 +160,26 @@ def test_toss_login_ui_elements_present():
 
 def test_toss_login_api_endpoints_in_js():
     assert "'/api/settings/toss-wts/login/start'" in JS
-    assert "`/api/settings/toss-wts/login/${_tossLoginAttemptId}`" in JS
+    # Scope the contract to polling: capture once, await that attempt's status,
+    # reject a stale response before using it, then request the same attempt's QR.
+    poll = JS.split("async function pollTossLogin() {", 1)[1].split(
+        "async function cancelTossLogin() {", 1
+    )[0]
+    lines = [line.strip() for line in poll.splitlines() if line.strip()]
+    capture = lines.index("const attemptId = _tossLoginAttemptId;")
+    request = lines.index(
+        "const result = await api(`/api/settings/toss-wts/login/${attemptId}`);"
+    )
+    guard = lines.index("if (_tossLoginAttemptId !== attemptId) return;")
+    status = lines.index("const status = result.status;")
+    pending = lines.index("if (status === 'pending') {")
+    qr = lines.index(
+        "qrImg.src = `/api/settings/toss-wts/login/${attemptId}/qr?t=${Date.now()}${revision}`;"
+    )
+    assert capture < request
+    assert guard == request + 1
+    assert status == guard + 1
+    assert status < pending < qr
     assert "`/api/settings/toss-wts/login/${_tossLoginAttemptId}/cancel`" in JS
     assert "startTossLogin" in JS
     assert "pollTossLogin" in JS

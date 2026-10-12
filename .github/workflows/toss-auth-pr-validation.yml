@@ -1,0 +1,137 @@
+name: Toss WTS native Linux PR validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'requirements.txt'
+      - 'app/main.py'
+      - 'app/services/toss_wts*.py'
+      - 'app/services/system_settings.py'
+      - 'app/static/wealth-settings*.js'
+      - 'app/static/index.html'
+      - 'vendor/tossctl-auth-helper/**'
+      - 'ops/toss-auth/**'
+      - 'tests/test_toss_wts*.py'
+      - 'tests/test_settings_frontend.py'
+      - 'tests/conftest.py'
+      - '.github/workflows/toss-auth-pr-validation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toss-auth-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  native-validation:
+    name: Toss auth native ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            machine: x86_64
+            python_arch: x64
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            machine: aarch64
+            python_arch: arm64
+            platform: linux/arm64
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONPATH: tests
+      PYTEST_ADDOPTS: ''
+      EXPECTED_MACHINE: ${{ matrix.machine }}
+      # No auth credentials, real sessions, browser debug output or artifact upload.
+
+    steps:
+      - name: Initialize synthetic runtime paths
+        run: |
+          printf 'WEALTH_DATA_DIR=%s/toss-auth-synthetic-data\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'PROCESS_TEST_REPORT=%s/toss-auth-process-tests.xml\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - name: Checkout PR merge revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up native Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          architecture: ${{ matrix.python_arch }}
+
+      - name: Require native Linux architecture
+        run: |
+          python - <<'PY'
+          import os
+          import platform
+          import sys
+          if sys.platform != "linux" or sys.version_info[:2] != (3, 11):
+              raise SystemExit("Linux Python 3.11 is required")
+          if platform.machine() != os.environ["EXPECTED_MACHINE"]:
+              raise SystemExit("Runner must use the requested native architecture")
+          print(f"Native Linux/Python 3.11: {platform.machine()}")
+          PY
+
+      - name: Install process-test dependencies
+        run: |
+          python -m pip install -r requirements.txt 'pytest>=9.0.3,<10'
+          install -d -m 700 "$WEALTH_DATA_DIR"
+
+      - name: Run mocked and real detached-child process tests
+        run: |
+          python -m pytest -q tests/test_toss_wts_auth_process.py \
+            --tb=short --junitxml="$PROCESS_TEST_REPORT" \
+            --basetemp="${RUNNER_TEMP}/toss-auth-pytest"
+
+      - name: Require both real Linux integration tests to pass without skipping
+        run: |
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          required = {
+              "test_detached_descendants_are_reaped_after_cli_exit",
+              "test_cancel_reaps_detached_descendants",
+          }
+          cases = list(ET.parse(os.environ["PROCESS_TEST_REPORT"]).iter("testcase"))
+          for name in sorted(required):
+              matches = [case for case in cases
+                         if case.get("classname", "").endswith(".LinuxSyntheticProcessTests")
+                         and case.get("name") == name]
+              if len(matches) != 1:
+                  raise SystemExit(f"Required Linux integration test missing/duplicated: {name}")
+              if any(matches[0].find(tag) is not None for tag in ("skipped", "failure", "error")):
+                  raise SystemExit(f"Required Linux integration test did not pass: {name}")
+              print(f"PASS (executed, not skipped): LinuxSyntheticProcessTests::{name}")
+          PY
+
+      # No QEMU: each runner builds only its own native platform.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build native image including network-disabled Chromium smoke
+        env:
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          LOCAL_IMAGE_TAG: wealth-toss-auth-pr:${{ matrix.arch }}
+        run: |
+          docker buildx build \
+            --platform "$BUILD_PLATFORM" \
+            --file Dockerfile \
+            --pull --no-cache --progress=plain \
+            --tag "$LOCAL_IMAGE_TAG" \
+            --load .
+
+      - name: Remove transient synthetic test report
+        if: always()
+        run: rm -f -- "$PROCESS_TEST_REPORT"

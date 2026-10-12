@@ -341,11 +341,31 @@
   // -----------------------------------------------------------------------
   let _tossLoginAttemptId = null;
   let _tossLoginPollTimer = null;
+  let _tossLoginPollBusy = false;
+  let _tossLoginQrTicket = 0;
+
+  function _tossConfirmation(value = '') {
+    let box = byId('settingsTossLoginConfirmation');
+    const area = byId('settingsTossLoginQrArea');
+    if (!box && area) {
+      box = document.createElement('p');
+      box.id = 'settingsTossLoginConfirmation';
+      box.setAttribute('role', 'status');
+      box.setAttribute('aria-live', 'polite');
+      area.appendChild(box);
+    }
+    if (box) {
+      box.textContent = value ? `휴대전화에서 선택할 확인 문자: ${value}` : '';
+      box.hidden = !value;
+    }
+  }
 
   function _tossLoginReset() {
     clearInterval(_tossLoginPollTimer);
     _tossLoginPollTimer = null;
     _tossLoginAttemptId = null;
+    _tossLoginQrTicket += 1;
+    _tossConfirmation();
     const qrArea = byId('settingsTossLoginQrArea');
     const startBtn = byId('settingsTossLoginStart');
     const cancelBtn = byId('settingsTossLoginCancel');
@@ -415,14 +435,30 @@
   }
 
   async function pollTossLogin() {
-    if (!_tossLoginAttemptId) return;
+    if (!_tossLoginAttemptId || _tossLoginPollBusy) return;
+    const attemptId = _tossLoginAttemptId;
+    _tossLoginPollBusy = true;
     const statusEl = byId('settingsTossLoginStatus');
     const qrImg = byId('settingsTossLoginQr');
     try {
-      const result = await api(`/api/settings/toss-wts/login/${_tossLoginAttemptId}`);
+      const result = await api(`/api/settings/toss-wts/login/${attemptId}`);
+      if (_tossLoginAttemptId !== attemptId) return;
       const status = result.status;
       if (status === 'pending') {
-        if (qrImg) qrImg.src = `/api/settings/toss-wts/login/${_tossLoginAttemptId}/qr?t=${Date.now()}`;
+        _tossConfirmation();
+        const ticket = ++_tossLoginQrTicket;
+        if (qrImg) {
+          qrImg.onload = () => {
+            if (_tossLoginAttemptId === attemptId && ticket === _tossLoginQrTicket && result.qr_revision) {
+              _tossConfirmation(result.answer_letter || '');
+            }
+          };
+          qrImg.onerror = () => {
+            if (ticket === _tossLoginQrTicket) _tossConfirmation();
+          };
+          const revision = result.qr_revision ? `&revision=${encodeURIComponent(result.qr_revision)}` : '';
+          qrImg.src = `/api/settings/toss-wts/login/${attemptId}/qr?t=${Date.now()}${revision}`;
+        }
         if (statusEl) statusEl.textContent = 'QR 코드를 Toss 앱으로 스캔해주세요.';
       } else if (status === 'success') {
         if (statusEl) statusEl.textContent = '\u2705 인증이 완료됐습니다. 세션 상태를 확인하세요.';
@@ -443,6 +479,10 @@
       }
     } catch (_) {
       // Poll errors are non-fatal; keep polling
+      _tossLoginQrTicket += 1;
+      _tossConfirmation();
+    } finally {
+      _tossLoginPollBusy = false;
     }
   }
 
@@ -451,11 +491,18 @@
     const cancelBtn = byId('settingsTossLoginCancel');
     try {
       busy(cancelBtn, true);
-      await api(`/api/settings/toss-wts/login/${_tossLoginAttemptId}/cancel`, { method: 'POST' });
-    } catch (_) {
-      // Ignore cancel errors — reset UI anyway
-    } finally {
+      const result = await api(`/api/settings/toss-wts/login/${_tossLoginAttemptId}/cancel`, { method: 'POST' });
+      if (result.status === 'pending') {
+        _tossLoginQrTicket += 1;
+        _tossConfirmation();
+        setError('settingsTossError', '인증 프로세스 종료를 확인하지 못했습니다. 종료 확인이 필요합니다.');
+        return;
+      }
       _tossLoginReset();
+    } catch (_) {
+      setError('settingsTossError', '인증 취소를 확인하지 못했습니다. 다시 확인해 주세요.');
+    } finally {
+      busy(cancelBtn, false);
     }
   }
 

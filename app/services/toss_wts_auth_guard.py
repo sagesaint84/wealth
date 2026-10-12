@@ -57,7 +57,7 @@ import platform
 import re
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Generator
@@ -238,7 +238,8 @@ def _windows_lock(
 # ---------------------------------------------------------------------------
 
 def write_active_op_marker(
-    username: str, attempt_id: str, pid: int, started_at: str
+    username: str, attempt_id: str, pid: int, started_at: str,
+    *, process_boundary: dict | None = None, process_start: str | None = None,
 ) -> None:
     """Write the durable active-auth-op.json marker (must be called under lock)."""
     path = _active_op_path(username)
@@ -246,36 +247,103 @@ def write_active_op_marker(
     data: dict[str, Any] = {
         "attempt_id": attempt_id,
         "pid": pid,
-        "pid_start_time": get_pid_start_time(pid),
+        "pid_start_time": process_start if process_boundary is not None else get_pid_start_time(pid),
         "started_at": started_at,
         "type": "login",
         "owner": username,
     }
+    if process_boundary is not None:
+        data["process_boundary"] = process_boundary
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        if not _IS_WINDOWS:
+            os.fchmod(stream.fileno(), 0o600)
+        stream.write(json.dumps(data, ensure_ascii=False))
+        stream.flush()
+        os.fsync(stream.fileno())
     tmp.replace(path)
 
 
-def clear_active_op_marker(username: str, attempt_id: str) -> None:
+def _release_unspawned_reservation_locked(
+    username: str, attempt_id: str, *, token: str, boot_id: str,
+) -> bool:
+    """Only for definite Popen failure, inside the caller's existing auth lock.
+
+    Never acquires the non-reentrant lock. This is not a general marker-clear
+    path and must never be called after a process object has been returned.
+    """
+    from app.services.toss_wts_auth_process import BOUNDARY_KIND
+    if (not isinstance(token, str) or not token or not isinstance(boot_id, str) or not boot_id
+            or not isinstance(attempt_id, str) or not attempt_id
+            or not _get_thread_lock(username).locked()):
+        return False
+    path = _active_op_path(username)
+    try:
+        if path.is_symlink():
+            return False
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return False
+        boundary = data.get("process_boundary")
+        if (data.get("owner") != username or data.get("attempt_id") != attempt_id
+                or data.get("type") != "login" or type(data.get("pid")) is not int
+                or data["pid"] != 0 or "pid_start_time" not in data
+                or data["pid_start_time"] is not None
+                or boundary != {"kind": BOUNDARY_KIND, "token": token, "boot_id": boot_id}):
+            return False
+        path.unlink()
+        return True
+    except (OSError, ValueError, TypeError):
+        return False  # Corrupt/unreadable/changed reservations remain fail-closed.
+
+
+def clear_active_op_marker(username: str, attempt_id: str) -> bool:
     """Remove the marker iff it belongs to ``attempt_id`` for ``username`` (idempotent)."""
     path = _active_op_path(username)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("attempt_id") == attempt_id:
+        managed = data.get("process_boundary") is not None
+        if not managed and not _IS_WINDOWS:
+            return False
+        # Re-read under the start/extend lock; never remove a newer attempt.
+        with (auth_operation_lock(username) if managed else nullcontext()):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if data.get("attempt_id") != attempt_id or data.get("owner", username) != username:
+                return False
+            boundary = data.get("process_boundary")
+            if boundary is not None:
+                from app.services.toss_wts_auth_process import boundary_complete
+                if not boundary_complete(user_login_dir(username), attempt_id, username,
+                                         boundary, data.get("pid"), data.get("pid_start_time")):
+                    return False
             path.unlink(missing_ok=True)
-    except (OSError, json.JSONDecodeError):
-        path.unlink(missing_ok=True)
+            return True
+    except FileNotFoundError:
+        return True
+    except (OSError, json.JSONDecodeError, AttributeError, TypeError, TossAuthOperationBusyError):
+        # An unreadable/corrupt marker is not evidence of safe completion.
+        return False
 
 
 def _get_active_op_data(username: str) -> dict[str, Any] | None:
     """Read the marker.  Returns None if absent or stale (process dead + old)."""
     path = _active_op_path(username)
-    if not path.exists():
-        return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         return None
+    except (OSError, json.JSONDecodeError):
+        return {"type": "uncertain", "owner": username}
+
+    if not isinstance(data, dict) or data.get("owner", username) != username:
+        return {"type": "uncertain", "owner": username}
+    if data.get("process_boundary") is not None:
+        # Managed receipts are consumed by login finalization, never by age.
+        return data
+    if not _IS_WINDOWS:
+        # Legacy Linux PID-only markers cannot prove orphaned children exited.
+        return data
 
     pid = data.get("pid")
     started_raw = data.get("started_at")
@@ -288,7 +356,7 @@ def _get_active_op_data(username: str) -> dict[str, Any] | None:
                 try:
                     path.unlink(missing_ok=True)
                 except OSError:
-                    pass
+                    return data
                 return None
         except (ValueError, TypeError):
             pass
@@ -315,7 +383,7 @@ def get_pid_start_time(pid: int) -> str | None:
     """
     try:
         stat_text = Path(f"/proc/{pid}/stat").read_text()
-        return stat_text.split()[21]
+        return stat_text.rpartition(")")[2].split()[19]
     except (OSError, IndexError):
         return None
 
@@ -328,8 +396,10 @@ def pid_alive(pid: int, expected_start_time: str | None = None) -> bool:
     """
     try:
         os.kill(pid, 0)
-    except (OSError, ProcessLookupError):
+    except ProcessLookupError:
         return False
+    except OSError:
+        return True  # EPERM/unknown must not permit a competing auth operation.
     if expected_start_time is not None:
         actual = get_pid_start_time(pid)
         if actual is not None and actual != expected_start_time:
