@@ -26,6 +26,23 @@ def is_spac_ipo(ipo: dict[str, Any]) -> bool:
     return "기업인수목적" in company_name or "스팩" in company_name
 
 
+def spac_name_key(ipo: dict[str, Any]) -> str:
+    """Source-neutral spelling key; callers must still validate offering identity."""
+    name = normalize_company_name(str(ipo.get("company_name") or ""))
+    if not is_spac_ipo(ipo):
+        return name
+    for korean, latin in (("케이비", "KB"), ("엔에이치", "NH"), ("아이비케이", "IBK")):
+        if name.startswith(korean):
+            name = latin + name[len(korean):]
+            break
+    name = re.sub(r"기업인수목적(?:회사)?", "스팩", name)
+    # KB제34호스팩 and KB스팩34호 describe the same numbered offering.
+    match = re.fullmatch(r"(.+?)(?:제)?(\d+)호스팩", name)
+    if match:
+        return f"{match[1]}스팩{match[2]}호"
+    return name
+
+
 def generate_ipo_id(
     company_name: str,
     stock_code: str | None = None,

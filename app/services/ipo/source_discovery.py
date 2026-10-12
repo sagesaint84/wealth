@@ -8,7 +8,7 @@ from time import perf_counter
 
 from app.services.ipo.dart_client import DartClient
 from app.services.ipo.dart_offering_schedule import build_dart_offering_schedule, select_dart_schedule_filing
-from app.services.ipo.identity import normalize_company_name
+from app.services.ipo.identity import is_spac_ipo, normalize_company_name, spac_name_key
 from app.services.ipo.kind_client import KindClient
 from app.services.ipo.metalogos_client import MetalogosIpoClient, metalogos_identity_matches
 from app.services.ipo.naver_client import NaverIpoClient
@@ -136,10 +136,23 @@ def _unique_name_match(item: dict[str, Any], existing: list[dict[str, Any]]) -> 
     incoming_name = normalize_company_name(str(item.get("company_name") or ""))
     if not incoming_name:
         return None
-    candidates = [
-        row for row in existing
-        if normalize_company_name(str(row.get("company_name") or "")) == incoming_name
-    ]
+    def same_name(row: dict[str, Any]) -> bool:
+        if normalize_company_name(str(row.get("company_name") or "")) == incoming_name:
+            return True
+        if not is_spac_ipo(item) or not is_spac_ipo(row):
+            return False
+        # Aliases alone are insufficient: require an exact, complete subscription period.
+        if not all(item.get(key) and item.get(key) == row.get(key)
+                   for key in ("subscription_start", "subscription_end")):
+            return False
+        if any(item.get(key) and row.get(key) and item[key] != row[key]
+               for key in ("stock_code", "payment_date")):
+            return False
+        if (item.get("final_offer_price") is not None and row.get("final_offer_price") is not None
+                and item["final_offer_price"] != row["final_offer_price"]):
+            return False
+        return spac_name_key(item) == spac_name_key(row)
+    candidates = [row for row in existing if same_name(row)]
     if len(candidates) != 1:
         return None
     target = candidates[0]
@@ -331,18 +344,24 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
     return target, False
 
 
-def _kind_items(kind: KindClient, *, target_date_str: str, start: date, end: date) -> list[dict[str, Any]]:
+def _kind_items(kind: KindClient, *, target_date_str: str, start: date, end: date,
+                snapshot: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
-    rows = kind.fetch_pubofr_schedule_items(
-        from_date=(start - timedelta(days=90)).isoformat(),
-        to_date=target.isoformat(),
-    )
+    if snapshot and snapshot.get("error"):
+        if str(snapshot["error"]).startswith("source_unavailable"):
+            raise ExternalNetworkDisabled("KIND schedule unavailable")
+        raise RuntimeError("KIND schedule read failed")
+    rows = (copy.deepcopy(snapshot["items"]) if snapshot and "items" in snapshot else
+            kind.fetch_pubofr_schedule_items(
+                from_date=(target - timedelta(days=365)).isoformat(),
+                to_date=target.isoformat()))
     relevant: list[dict[str, Any]] = []
     observed_at = datetime.now(KST).isoformat()
     for original in rows:
         if not isinstance(original, dict) or not _relevant_schedule(original, start, end):
             continue
         item = copy.deepcopy(original)
+        item.setdefault("listing_track", "spac" if is_spac_ipo(item) else "general")
         item.setdefault("sources", {})["kind"] = {
             "schedule_source": "pubofrprogcom",
             "filing_date": item.get("filing_date"),
@@ -541,13 +560,13 @@ def discover_and_merge_primary_sources(
     npay_client: NpayIpoClient | None = None,
     metalogos_client: MetalogosIpoClient | None = None,
     dart_client: DartClient | None = None,
+    kind_schedule_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Reconcile the main IPO discovery union into market.json.
 
     Canonical schedule priority:
-      DART/OpenDART + KIND > NAVER/Npay > Metalogos 160 > retained KIS fallback.
-    KIS remains in the base orchestrator for cross-check/fallback but can no
-    longer suppress discovery from the main sources.
+      DART/OpenDART + KIND > NAVER/Npay > Metalogos 160 > retained market snapshot.
+    Existing records and historical provenance survive provider failures.
     """
     start, end = _month_window(target_date_str)
     market = copy.deepcopy(read_market_store())
@@ -587,7 +606,8 @@ def discover_and_merge_primary_sources(
     with ThreadPoolExecutor(max_workers=3) as pool:
         reads = {
             "kind": pool.submit(timed_read, "kind", lambda: _kind_items(
-                kind, target_date_str=target_date_str, start=start, end=end)),
+                kind, target_date_str=target_date_str, start=start, end=end,
+                snapshot=kind_schedule_snapshot)),
             "npay": pool.submit(timed_read, "npay", lambda: npay.fetch_upcoming_ipos(
                 target_date_str=target_date_str)),
             "naver": pool.submit(timed_read, "naver", naver_read),

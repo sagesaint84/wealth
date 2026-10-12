@@ -2,13 +2,12 @@ import tempfile
 import unittest
 import httpx
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from app.services import portfolio
 from app.services.ipo import refresh_adapter
 from app.services.ipo.orchestrator import (
     _clear_spac_offer_bands,
-    _kind_search_names_for_kis,
     _resolve_missing_dart_corp_codes,
     refresh_ipo_market_enriched,
     run_ipo_daily_pipeline,
@@ -78,7 +77,7 @@ class IpoOrchestratorTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["dry_run"])
-        # KIND is still a live schedule fallback. Full KRX/NAVER history is explicit-only.
+        # KIND is the routine schedule source. Full KRX/NAVER history is explicit-only.
         self.assertIn("external_network_disabled", result["sources"]["kind"])
         self.assertEqual(result["sources"]["krx"], "not_requested (historical_sync_only)")
         self.assertEqual(result["sources"]["naver"], "not_requested (historical_sync_only)")
@@ -130,6 +129,7 @@ class IpoOrchestratorTests(unittest.TestCase):
             target_date_str="2026-09-18",
             market_only=False,
             user_side_effects=False,
+            kind_schedule_snapshot={},
         )
 
     def test_spac_identity_supports_canonical_and_legacy_records(self):
@@ -337,108 +337,7 @@ class IpoOrchestratorTests(unittest.TestCase):
         self.assertNotIn("DART_API_KEY", str(result))
 
 
-    def test_kind_spac_search_aliases_are_local_and_preserve_numbering(self):
-        kb_aliases = _kind_search_names_for_kis({
-            "company_name": "케이비제34호기업인수목적", "listing_track": "spac"
-        })
-        self.assertIn("KB제34호스팩", kb_aliases)
-
-        nh_aliases = _kind_search_names_for_kis({
-            "company_name": "엔에이치스팩34호", "listing_track": "spac"
-        })
-        self.assertIn("NH스팩34호", nh_aliases)
-
-    def test_kis_primary_schedule_syncs_spac_and_keeps_listing_as_evidence_only(self):
-        mock_kis = MagicMock()
-        mock_kis.configured = True
-        mock_kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=[
-            {
-                "company_name": "한국제17호기업인수목적",
-                "stock_code": "0200G0",
-                "listing_track": "spac",
-                "subscription_start": "2026-09-10",
-                "subscription_end": "2026-09-11",
-                "payment_date": "2026-09-15",
-                "refund_date": "2026-09-15",
-                "expected_listing_date": None,
-                "final_offer_price": 2000.0,
-                "lead_managers": ["한국투자증권"],
-                "sources": {"kis": {"schedule_source": "ksdinfo_pub_offer"}},
-            }
-        ])
-        mock_kis.fetch_listing_schedule = AsyncMock(return_value=[
-            {
-                "company_name": "한국제17호기업인수목적",
-                "stock_code": "0200G0",
-                "listing_date": "2026-09-23",
-                "stock_kind": "보통",
-                "issue_type": "통일교체",
-                "issue_stock_qty": 5000000.0,
-                "total_issue_stock_qty": 5000000.0,
-                "issue_price": 500.0,
-            },
-            {
-                "company_name": "한국제17호기업인수목적",
-                "stock_code": "0200G0",
-                "listing_date": "2026-09-23",
-                "stock_kind": "보통",
-                "issue_type": "유상증자",
-                "issue_stock_qty": 2000000.0,
-                "total_issue_stock_qty": 5000000.0,
-                "issue_price": 2000.0,
-            },
-            {
-                "company_name": "다른회사",
-                "stock_code": "0200G0",
-                "listing_date": "2026-09-24",
-                "issue_type": "유상증자",
-            },
-        ])
-        mock_kind = MagicMock()
-        mock_kind.fetch_pubofr_schedule_items.side_effect = lambda **kwargs: ([{
-            "company_name": "한국제17호스팩",
-            "filing_date": "2026-07-20",
-            "subscription_start": "2026-09-10",
-            "subscription_end": "2026-09-11",
-            "payment_date": "2026-09-15",
-            "final_offer_price": 2000.0,
-            "expected_listing_date": "2026-09-22",
-            "kind_bz_procs_no": "20260720001",
-        }] if kwargs.get("corp_name") in {"한국제17호", "한국제17호스팩"} else [])
-
-        result = run_ipo_daily_pipeline(
-            kis_client=mock_kis,
-            kind_client=mock_kind,
-            target_date_str="2026-09-18",
-            dry_run=True,
-        )
-
-        self.assertIn("sync_ok", result["sources"]["kis"])
-        self.assertEqual(result["sources"]["kind"], "fallback_not_used")
-        mock_kind.fetch_pubofr_schedule_items.assert_not_called()
-        mock_kis.fetch_ipo_subscription_schedule.assert_awaited_once_with("2026-09-01", "2026-10-31")
-        mock_kis.fetch_listing_schedule.assert_awaited_once_with("2026-09-01", "2026-10-31")
-
-        saved = read_market_store()
-        spac = next(it for it in saved["ipos"] if it.get("stock_code") == "0200G0")
-        self.assertEqual(spac["listing_track"], "spac")
-        self.assertEqual(spac["subscription_start"], "2026-09-10")
-        self.assertIsNone(spac.get("expected_listing_date"))
-        self.assertIsNone(spac.get("actual_listing_date"))
-        self.assertEqual(spac["sources"]["kis"]["schedule_source"], "ksdinfo_pub_offer")
-        self.assertNotIn("kind", spac.get("sources", {}))
-        self.assertEqual(len(spac["sources"]["kis"]["listing_events"]), 2)
-        self.assertEqual(
-            {event["issue_type"] for event in spac["sources"]["kis"]["listing_events"]},
-            {"통일교체", "유상증자"},
-        )
-
-    def test_kis_success_empty_uses_kind_fallback_with_filing_window_and_schedule_filter(self):
-        mock_kis = MagicMock()
-        mock_kis.configured = True
-        mock_kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=[])
-        mock_kis.fetch_listing_schedule = AsyncMock(return_value=[])
-
+    def test_kind_routine_schedule_uses_filing_window_and_schedule_filter(self):
         mock_kind = MagicMock()
         kind_items = [
             {
@@ -457,7 +356,7 @@ class IpoOrchestratorTests(unittest.TestCase):
 
         mock_kind.fetch_pubofr_schedule_items.return_value = kind_items
         result = run_ipo_daily_pipeline(
-            kis_client=mock_kis, kind_client=mock_kind,
+            kind_client=mock_kind,
             target_date_str="2026-09-18", dry_run=True,
         )
 
@@ -469,78 +368,6 @@ class IpoOrchestratorTests(unittest.TestCase):
         self.assertTrue(any(it.get("company_name") == "현재IPO" for it in saved["ipos"]))
         self.assertFalse(any(it.get("company_name") == "과거IPO" for it in saved["ipos"]))
 
-    def test_kis_nonblank_expected_listing_does_not_call_kind_enrichment(self):
-        mock_kis = MagicMock()
-        mock_kis.configured = True
-        mock_kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=[{
-            "company_name": "네오사피엔스",
-            "stock_code": "0161M0",
-            "listing_track": "general",
-            "subscription_start": "2026-09-10",
-            "subscription_end": "2026-09-11",
-            "payment_date": "2026-09-15",
-            "refund_date": "2026-09-15",
-            "expected_listing_date": "2026-09-21",
-            "final_offer_price": 10000.0,
-            "lead_managers": ["대신증권"],
-            "sources": {"kis": {"schedule_source": "ksdinfo_pub_offer"}},
-        }])
-        mock_kis.fetch_listing_schedule = AsyncMock(return_value=[])
-        mock_kind = MagicMock()
-
-        result = run_ipo_daily_pipeline(
-            kis_client=mock_kis, kind_client=mock_kind, target_date_str="2026-09-18", dry_run=True
-        )
-
-        self.assertEqual(result["sources"]["kind"], "fallback_not_used")
-        mock_kind.fetch_pubofr_schedule_items.assert_not_called()
-        saved = read_market_store()
-        ipo = next(it for it in saved["ipos"] if it.get("stock_code") == "0161M0")
-        self.assertEqual(ipo["expected_listing_date"], "2026-09-21")
-
-    def test_kind_enrichment_ambiguous_match_leaves_expected_listing_blank(self):
-        mock_kis = MagicMock()
-        mock_kis.configured = True
-        mock_kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=[{
-            "company_name": "브릴스",
-            "stock_code": "468670",
-            "listing_track": "general",
-            "subscription_start": "2026-09-17",
-            "subscription_end": "2026-09-18",
-            "payment_date": "2026-09-22",
-            "refund_date": "2026-09-22",
-            "expected_listing_date": None,
-            "final_offer_price": 19500.0,
-            "lead_managers": ["아이비케이투자증권"],
-            "sources": {"kis": {"schedule_source": "ksdinfo_pub_offer"}},
-        }])
-        mock_kis.fetch_listing_schedule = AsyncMock(return_value=[])
-        mock_kind = MagicMock()
-        mock_kind.fetch_pubofr_schedule_items.return_value = [
-            {
-                "company_name": "브릴스", "filing_date": "2026-07-13",
-                "subscription_start": "2026-09-17", "subscription_end": "2026-09-18",
-                "payment_date": "2026-09-22", "final_offer_price": 19500.0,
-                "expected_listing_date": "2026-10-01", "kind_bz_procs_no": "A",
-            },
-            {
-                "company_name": "브릴스", "filing_date": "2026-07-14",
-                "subscription_start": "2026-09-17", "subscription_end": "2026-09-18",
-                "payment_date": "2026-09-22", "final_offer_price": 19500.0,
-                "expected_listing_date": "2026-10-02", "kind_bz_procs_no": "B",
-            },
-        ]
-
-        result = run_ipo_daily_pipeline(
-            kis_client=mock_kis, kind_client=mock_kind, target_date_str="2026-09-18", dry_run=True
-        )
-
-        self.assertEqual(result["sources"]["kind"], "fallback_not_used")
-        mock_kind.fetch_pubofr_schedule_items.assert_not_called()
-        saved = read_market_store()
-        ipo = next(it for it in saved["ipos"] if it.get("stock_code") == "468670")
-        self.assertIsNone(ipo.get("expected_listing_date"))
-        self.assertNotIn("kind", ipo.get("sources", {}))
 
     def test_pipeline_dart_sync_ok_and_feature_preservation(self):
         import io, zipfile

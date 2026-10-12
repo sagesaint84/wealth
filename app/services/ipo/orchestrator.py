@@ -1,8 +1,8 @@
 """Wealth IPO Orchestrator Service.
 
 Coordinates:
-1. source availability check (KIS, KIND, DART, KRX)
-2. discovery/schedule source (KIS primary, KIND fallback)
+1. source availability check (KIND, DART, KRX)
+2. routine KIND schedule discovery
 3. DART structured/filing information
 4. DART parsed features
 5. Post-listing KRX actual data
@@ -19,7 +19,6 @@ Coordinates:
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
-import asyncio
 import copy
 from contextlib import contextmanager
 import logging
@@ -47,7 +46,6 @@ from app.services.ipo.kind_client import KindClient
 from app.services.ipo.identity import is_spac_ipo, normalize_company_name
 from app.services.ipo.krx_client import KrxClient, KrxClientError, KrxParserError
 from app.services.ipo.naver_client import NaverIpoClient, NaverIpoClientError
-from app.services.kis_openapi import KISOpenAPI, KISOpenAPIError
 from app.services.network_policy import ExternalNetworkDisabled
 from app.services.ipo.normalize import normalize_equity_registration_response
 from app.services.ipo.notifier import IpoTelegramNotifier
@@ -131,8 +129,8 @@ def _refresh_file_lock():
         _REFRESH_THREAD_LOCK.release()
 
 
-def _kis_schedule_window(target_date_str: str) -> tuple[str, str]:
-    """Return the current-month + next-month KIS schedule window."""
+def _schedule_window(target_date_str: str) -> tuple[str, str]:
+    """Return the current-month + next-month schedule window."""
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
     start = target.replace(day=1)
     if start.month == 12:
@@ -161,212 +159,6 @@ def _kind_item_relevant_to_schedule(item: dict[str, Any], from_date: str, to_dat
         if value and from_date <= value <= to_date:
             return True
     return False
-
-
-def _kind_search_names_for_kis(item: dict[str, Any]) -> list[str]:
-    """Return conservative KIND search aliases without changing global IPO identity rules."""
-    company_name = str(item.get("company_name") or "").strip()
-    if not company_name:
-        return []
-
-    aliases = [company_name]
-    is_spac = is_spac_ipo(item)
-    if not is_spac:
-        return aliases
-
-    def _latinize_prefix(value: str) -> str:
-        for korean, latin in (("케이비", "KB"), ("엔에이치", "NH"), ("아이비케이", "IBK")):
-            if value.startswith(korean):
-                return latin + value[len(korean):]
-        return value
-
-    if "기업인수목적" in company_name:
-        core = re.sub(r"기업인수목적(?:회사)?$", "", company_name).strip()
-        if core:
-            aliases.extend([core, f"{core}스팩"])
-            latin_core = _latinize_prefix(core)
-            if latin_core != core:
-                aliases.extend([latin_core, f"{latin_core}스팩"])
-    elif "스팩" in company_name:
-        prefix, suffix = company_name.split("스팩", 1)
-        latin_prefix = _latinize_prefix(prefix)
-        if latin_prefix != prefix:
-            aliases.append(f"{latin_prefix}스팩{suffix}")
-
-    return list(dict.fromkeys(alias for alias in aliases if alias))
-
-
-def _kind_candidate_matches_kis(kis_item: dict[str, Any], kind_item: dict[str, Any]) -> bool:
-    kis_start = str(kis_item.get("subscription_start") or "")[:10]
-    kis_end = str(kis_item.get("subscription_end") or "")[:10]
-    kind_start = str(kind_item.get("subscription_start") or "")[:10]
-    kind_end = str(kind_item.get("subscription_end") or "")[:10]
-    if not kis_start or not kis_end or kis_start != kind_start or kis_end != kind_end:
-        return False
-
-    kis_payment = str(kis_item.get("payment_date") or "")[:10]
-    kind_payment = str(kind_item.get("payment_date") or "")[:10]
-    if kis_payment and kind_payment and kis_payment != kind_payment:
-        return False
-
-    kis_price = kis_item.get("final_offer_price")
-    kind_price = kind_item.get("final_offer_price")
-    if kis_price is not None and kind_price is not None:
-        try:
-            if float(kis_price) != float(kind_price):
-                return False
-        except (TypeError, ValueError):
-            return False
-
-    kis_name = normalize_company_name(str(kis_item.get("company_name") or ""))
-    kind_name = normalize_company_name(str(kind_item.get("company_name") or ""))
-    if kis_name == kind_name:
-        return True
-
-    if kis_item.get("listing_track") != "spac":
-        return False
-
-    aliases = {normalize_company_name(name) for name in _kind_search_names_for_kis(kis_item)}
-    return bool(kind_name and kind_name in aliases)
-
-
-def _find_kind_match_for_kis(kis_item: dict[str, Any], kind_items: list[dict[str, Any]]) -> dict[str, Any] | None:
-    matched: list[dict[str, Any]] = []
-    seen: set[tuple[Any, ...]] = set()
-    for candidate in kind_items:
-        if not _kind_candidate_matches_kis(kis_item, candidate):
-            continue
-        key = (
-            candidate.get("company_name"),
-            candidate.get("filing_date"),
-            candidate.get("subscription_start"),
-            candidate.get("subscription_end"),
-            candidate.get("expected_listing_date"),
-            candidate.get("kind_bz_procs_no"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        matched.append(candidate)
-    return matched[0] if len(matched) == 1 else None
-
-
-def _enrich_kis_expected_listing_dates(
-    kind: KindClient,
-    subscription_items: list[dict[str, Any]],
-    *,
-    from_date: str,
-    to_date: str,
-) -> tuple[int, int]:
-    """Fill only blank KIS expected listing dates from one unambiguous KIND match.
-
-    Network/parser failures abort before mutating any KIS item so a partial KIND refresh
-    cannot leave a mixed source snapshot in memory. Zero/ambiguous matches are simply
-    left unresolved.
-    """
-    planned: list[tuple[dict[str, Any], dict[str, Any], str]] = []
-    unresolved = 0
-
-    for item in subscription_items:
-        if item.get("expected_listing_date"):
-            continue
-
-        candidates: list[dict[str, Any]] = []
-        for search_name in _kind_search_names_for_kis(item):
-            candidates.extend(
-                kind.fetch_pubofr_schedule_items(
-                    from_date=from_date,
-                    to_date=to_date,
-                    corp_name=search_name,
-                )
-            )
-
-        match = _find_kind_match_for_kis(item, candidates)
-        expected = str((match or {}).get("expected_listing_date") or "")[:10]
-        if not match or not expected:
-            unresolved += 1
-            continue
-        planned.append((item, match, expected))
-
-    observed_at = datetime.now(KST).isoformat()
-    for item, match, expected in planned:
-        item["expected_listing_date"] = expected
-        sources = item.setdefault("sources", {})
-        sources["kind"] = {
-            "schedule_source": "pubofrprogcom",
-            "match_method": "company_alias+subscription_period",
-            "matched_company_name": match.get("company_name"),
-            "filing_date": match.get("filing_date"),
-            "expected_listing_date": expected,
-            "kind_bz_procs_no": match.get("kind_bz_procs_no"),
-            "observed_at": observed_at,
-        }
-
-    return len(planned), unresolved
-
-
-def _enrich_kis_expected_listing_dates_from_naver(
-    subscription_items: list[dict[str, Any]], naver_items: list[dict[str, Any]]
-) -> tuple[int, int]:
-    """Fill blank KIS listing dates only from one exact NAVER stock-code match."""
-    by_code: dict[str, list[dict[str, Any]]] = {}
-    for item in naver_items:
-        code = str(item.get("stock_code") or "").strip()
-        if code:
-            by_code.setdefault(code, []).append(item)
-
-    planned: list[tuple[dict[str, Any], dict[str, Any], str]] = []
-    unresolved = 0
-    for item in subscription_items:
-        if item.get("expected_listing_date"):
-            continue
-        matches = by_code.get(str(item.get("stock_code") or "").strip(), [])
-        if len(matches) != 1:
-            unresolved += 1
-            continue
-        expected = str(matches[0].get("expected_listing_date") or "")[:10]
-        if not expected:
-            unresolved += 1
-            continue
-        planned.append((item, matches[0], expected))
-
-    observed_at = datetime.now(KST).isoformat()
-    for item, match, expected in planned:
-        item["expected_listing_date"] = expected
-        item.setdefault("sources", {})["naver_progress"] = {
-            "schedule_source": "ipo_progress",
-            "ipo_code": match.get("raw_ipo_code"),
-            "expected_listing_date": expected,
-            "observed_at": observed_at,
-        }
-    return len(planned), unresolved
-
-
-def _run_kis_schedule_fetch(kis: KISOpenAPI, from_date: str, to_date: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Run KIS async schedule calls from the synchronous daily pipeline."""
-    async def _fetch() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        subscriptions, listings = await asyncio.gather(
-            kis.fetch_ipo_subscription_schedule(from_date, to_date),
-            kis.fetch_listing_schedule(from_date, to_date),
-        )
-        return subscriptions, listings
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(_fetch())
-    raise RuntimeError("IPO daily pipeline cannot run KIS schedule fetch inside an active event loop")
-
-
-def _run_kis_stock_info_fetch(kis: KISOpenAPI, stock_codes: list[str]) -> dict[str, dict[str, Any]]:
-    """Run KIS async domestic stock info calls from synchronous pipeline."""
-    if not stock_codes:
-        return {}
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(kis.fetch_multiple_domestic_stock_info(stock_codes))
-    raise RuntimeError("IPO daily pipeline cannot run KIS stock info fetch inside an active event loop")
 
 
 def _resolve_missing_dart_corp_codes(
@@ -440,17 +232,18 @@ def run_ipo_daily_pipeline(
     target_date_str: str | None = None,
     dry_run: bool = False,
     username: str | None = None,
-    kis_client: KISOpenAPI | None = None,
     naver_client: NaverIpoClient | None = None,
     market_only: bool = False,
     user_side_effects: bool = True,
+    kind_schedule_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     with _refresh_file_lock():
         return _run_ipo_daily_pipeline(
             kind_client=kind_client, krx_client=krx_client, dart_client=dart_client,
             notifier=notifier, target_date_str=target_date_str, dry_run=dry_run,
-            username=username, kis_client=kis_client, naver_client=naver_client,
+            username=username, naver_client=naver_client,
             market_only=market_only, user_side_effects=user_side_effects,
+            kind_schedule_snapshot=kind_schedule_snapshot,
         )
 
 
@@ -458,8 +251,9 @@ def _run_ipo_daily_pipeline(
     kind_client: KindClient | None = None, krx_client: KrxClient | None = None,
     dart_client: DartClient | None = None, notifier: IpoTelegramNotifier | None = None,
     target_date_str: str | None = None, dry_run: bool = False, username: str | None = None,
-    kis_client: KISOpenAPI | None = None, naver_client: NaverIpoClient | None = None,
+    naver_client: NaverIpoClient | None = None,
     market_only: bool = False, user_side_effects: bool = True,
+    kind_schedule_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Runs the daily IPO refresh and notification pipeline."""
     if not target_date_str:
@@ -481,7 +275,6 @@ def _run_ipo_daily_pipeline(
     krx = krx_client or KrxClient()
     naver = naver_client or NaverIpoClient()
     dart = dart_client or DartClient(username=username)
-    kis = kis_client or (KISOpenAPI(username=username) if username else KISOpenAPI())
 
     # Check DART
     if not dart.is_configured():
@@ -489,9 +282,7 @@ def _run_ipo_daily_pipeline(
     else:
         sources_status["dart"] = "source_unavailable (implementation_blocker: live DART network disabled)"
 
-    # Check KIS/KIND
-    sources_status["kis"] = "source_unavailable (credentials_missing)" if not kis.configured else "pending"
-    sources_status["kind"] = "not_requested (market_only)" if market_only else "fallback_not_used"
+    sources_status["kind"] = "pending"
 
     # Full historical KRX/NAVER scans are intentionally excluded from
     # every routine refresh. They are available only through the explicit
@@ -499,105 +290,52 @@ def _run_ipo_daily_pipeline(
     sources_status["krx"] = "not_requested (historical_sync_only)"
     sources_status["naver"] = "not_requested (historical_sync_only)"
 
-    # 2. discovery/schedule source: KIS primary, KIND fallback
-    kis_sync_ok = False
+    # 2. KIND is the routine schedule source in both light and enriched refreshes.
     market_schedule_rows_synced = False
-    schedule_from, schedule_to = _kis_schedule_window(target_date_str)
-    if kis.configured:
-        try:
-            subscription_items, listing_items = _run_kis_schedule_fetch(kis, schedule_from, schedule_to)
-            kis_sync_ok = True
-            market_schedule_rows_synced = bool(subscription_items)
+    schedule_from, schedule_to = _schedule_window(target_date_str)
+    kind_snapshot: dict[str, Any] = {}
+    try:
+        kind_from, kind_to = _kind_filing_window(target_date_str)
+        parsed_items = kind.fetch_pubofr_schedule_items(from_date=kind_from, to_date=kind_to)
+        if not isinstance(parsed_items, list) or any(not isinstance(item, dict) for item in parsed_items):
+            raise ValueError("KIND schedule response must be a list of objects")
+        # Keep the unmodified provider snapshot for the adapter's wider discovery window.
+        kind_snapshot["items"] = copy.deepcopy(parsed_items)
+        items = [copy.deepcopy(item) for item in parsed_items
+                 if _kind_item_relevant_to_schedule(item, schedule_from, schedule_to)]
+        sources_status["kind"] = f"sync_ok (relevant={len(items)}, parsed={len(parsed_items)})"
+        observed_at = datetime.now(KST).isoformat()
+        schedule_market = copy.deepcopy(market)
+        touched_ids: set[str] = set()
+        # Share the discovery union's conservative identity reconciliation, including SPAC aliases.
+        from app.services.ipo.source_discovery import _apply_observation
+        for item in items:
+            item.setdefault("listing_track", "spac" if is_spac_ipo(item) else "general")
+            item.setdefault("sources", {})["kind"] = {
+                "schedule_source": "pubofrprogcom",
+                "filing_date": item.get("filing_date"),
+                "expected_listing_date": item.get("expected_listing_date"),
+                "kind_bz_procs_no": item.get("kind_bz_procs_no"),
+                "observed_at": observed_at,
+            }
+            merged, review_required = _apply_observation(schedule_market, item, source_name="kind")
+            if not review_required:
+                if merged.get("ipo_id"):
+                    touched_ids.add(str(merged["ipo_id"]))
+        market = schedule_market
+        market_schedule_rows_synced = bool(touched_ids)
+        if market_only:
+            market_only_touched_ids.update(touched_ids)
+    except ExternalNetworkDisabled:
+        sources_status["kind"] = "source_unavailable (external_network_disabled)"
+        kind_snapshot["error"] = sources_status["kind"]
+    except Exception as exc:
+        logger.warning("KIND sync error: %s", exc)
+        sources_status["kind"] = f"source_error ({type(exc).__name__})"
+        kind_snapshot["error"] = sources_status["kind"]
 
-            subscription_by_code: dict[str, dict[str, Any]] = {}
-            listing_events_by_code: dict[str, list[dict[str, Any]]] = {}
-            for item in subscription_items:
-                stock_code = str(item.get("stock_code") or "").strip()
-                if stock_code:
-                    subscription_by_code[stock_code] = item
-
-            matched_listing_events = 0
-            for listing in listing_items:
-                stock_code = str(listing.get("stock_code") or "").strip()
-                pub = subscription_by_code.get(stock_code)
-                if not pub:
-                    continue
-                if normalize_company_name(str(pub.get("company_name") or "")) != normalize_company_name(str(listing.get("company_name") or "")):
-                    continue
-                listing_events_by_code.setdefault(stock_code, []).append(listing)
-                matched_listing_events += 1
-
-            blank_listing_count = sum(1 for item in subscription_items if not item.get("expected_listing_date"))
-            if subscription_items and blank_listing_count:
-                try:
-                    naver_progress = naver.fetch_ipo_progress_items()
-                    enriched_count, unresolved_count = _enrich_kis_expected_listing_dates_from_naver(
-                        subscription_items, naver_progress
-                    )
-                    sources_status["naver_progress"] = (
-                        f"sync_ok (items={len(naver_progress)}, filled={enriched_count}, unresolved={unresolved_count})"
-                    )
-                except ExternalNetworkDisabled:
-                    sources_status["naver_progress"] = "source_unavailable (external_network_disabled)"
-                except Exception as e:
-                    logger.warning("NAVER expected-listing enrichment error: %s", e)
-                    sources_status["naver_progress"] = f"source_error ({e})"
-            else:
-                sources_status["naver_progress"] = "not_requested (kis_listing_dates_present)"
-
-            review_required_count = 0
-            for item in subscription_items:
-                stock_code = str(item.get("stock_code") or "").strip()
-                events = listing_events_by_code.get(stock_code, [])
-                if events:
-                    sources = item.setdefault("sources", {})
-                    kis_source = sources.setdefault("kis", {})
-                    kis_source["listing_events"] = events
-                merged_ipo, review_required = merge_ipo_record(market, item)
-                review_required_count += int(review_required)
-                if market_only and not review_required:
-                    touched_id = str(merged_ipo.get("ipo_id") or "").strip()
-                    if touched_id:
-                        market_only_touched_ids.add(touched_id)
-
-            sources_status["kis"] = (
-                f"sync_ok (subscriptions={len(subscription_items)}, "
-                f"listing_matches={matched_listing_events}, review_required={review_required_count})"
-            )
-        except KISOpenAPIError as e:
-            logger.warning("KIS IPO schedule sync error: %s", e)
-            sources_status["kis"] = f"source_error ({e})"
-        except Exception as e:
-            logger.warning("KIS IPO schedule sync error: %s", e)
-            sources_status["kis"] = f"source_error ({e})"
-
-    use_kind_fallback = not market_only and ((not kis_sync_ok) or (kis_sync_ok and not subscription_items))
-    if use_kind_fallback:
-        try:
-            kind_from, kind_to = _kind_filing_window(target_date_str)
-            parsed_items = kind.fetch_pubofr_schedule_items(from_date=kind_from, to_date=kind_to)
-            items = [
-                item for item in parsed_items
-                if _kind_item_relevant_to_schedule(item, schedule_from, schedule_to)
-            ]
-            market_schedule_rows_synced = bool(items)
-            sources_status["kind"] = f"sync_ok (relevant={len(items)}, parsed={len(parsed_items)})"
-            observed_at = datetime.now(KST).isoformat()
-            for item in items:
-                sources = item.setdefault("sources", {})
-                sources["kind"] = {
-                    "schedule_source": "pubofrprogcom",
-                    "filing_date": item.get("filing_date"),
-                    "expected_listing_date": item.get("expected_listing_date"),
-                    "kind_bz_procs_no": item.get("kind_bz_procs_no"),
-                    "observed_at": observed_at,
-                }
-                merge_ipo_record(market, item)
-        except ExternalNetworkDisabled:
-            sources_status["kind"] = "source_unavailable (external_network_disabled)"
-        except Exception as e:
-            logger.warning("KIND sync error: %s", e)
-            sources_status["kind"] = f"source_error ({e})"
+    if kind_schedule_snapshot is not None:
+        kind_schedule_snapshot.update(kind_snapshot)
 
     # 3 & 4. DART structured / filings & parsed features.  Interactive market
     # refreshes intentionally exclude this expensive enrichment and all user data.
@@ -889,7 +627,7 @@ def _run_ipo_daily_pipeline(
         )
 
     # 12. Atomic market save (only if we have market store)
-    # A failed or unexpectedly empty primary/fallback schedule refresh must not
+    # A failed or unexpectedly empty routine schedule refresh must not
     # touch an already-populated snapshot merely by updating its timestamp.
     if market_only and not market_schedule_rows_synced:
         return {
@@ -922,17 +660,20 @@ def _run_ipo_daily_pipeline(
     }
 
 
-def refresh_ipo_market(*, username: str | None = None, target_date_str: str | None = None) -> dict[str, Any]:
+def refresh_ipo_market(*, username: str | None = None, target_date_str: str | None = None,
+                       kind_schedule_snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     """Refresh only shared IPO market data; never notify or mutate applications."""
     return run_ipo_daily_pipeline(
         username=username,
         target_date_str=target_date_str,
         market_only=True,
+        kind_schedule_snapshot=kind_schedule_snapshot,
     )
 
 
 def refresh_ipo_market_enriched(
-    *, username: str | None = None, target_date_str: str | None = None
+    *, username: str | None = None, target_date_str: str | None = None,
+    kind_schedule_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Refresh and score the shared market store without user-domain effects.
 
@@ -945,4 +686,5 @@ def refresh_ipo_market_enriched(
         target_date_str=target_date_str,
         market_only=False,
         user_side_effects=False,
+        kind_schedule_snapshot=kind_schedule_snapshot,
     )

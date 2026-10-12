@@ -63,8 +63,8 @@ def test_interactive_refresh_runs_bounded_discovery_with_capped_score_recovery()
          patch.object(refresh_adapter, '_targeted_dart_enrichment', return_value=targeted) as deep, \
          patch.object(refresh_adapter._base, '_refresh_file_lock', return_value=nullcontext()):
         result = refresh_adapter.refresh_ipo_market(username='alice', target_date_str='2026-10-02')
-    base_refresh.assert_called_once_with(username='alice', target_date_str='2026-10-02')
-    discover.assert_called_once_with(username='alice', target_date_str='2026-10-02')
+    base_refresh.assert_called_once_with(username='alice', target_date_str='2026-10-02', kind_schedule_snapshot={})
+    discover.assert_called_once_with(username='alice', target_date_str='2026-10-02', kind_schedule_snapshot={})
     metalogos_ref.assert_called_once_with(target_date_str='2026-10-02', prefetched_rows=[])
     deep.assert_called_once_with(
         username='alice',

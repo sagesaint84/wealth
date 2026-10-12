@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from app.services.ipo.orchestrator import _run_ipo_daily_pipeline
 
@@ -24,17 +24,15 @@ def test_market_only_refresh_recalculates_only_touched_current_schedule_rows() -
     }
     market = {"schema_version": 1, "updated_at": "old", "ipos": [historical, current]}
 
-    kis = MagicMock()
-    kis.configured = True
-    kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=[{
+    kind = MagicMock()
+    kind.fetch_pubofr_schedule_items.return_value = [{
         "company_name": "진코스텍",
         "stock_code": "250030",
         "subscription_start": "2026-10-02",
         "subscription_end": "2026-10-06",
         "expected_listing_date": "2026-10-14",
         "lead_managers": ["하나증권"],
-    }])
-    kis.fetch_listing_schedule = AsyncMock(return_value=[])
+    }]
     dart = MagicMock(); dart.is_configured.return_value = False
     krx = MagicMock()
     naver = MagicMock()
@@ -43,7 +41,7 @@ def test_market_only_refresh_recalculates_only_touched_current_schedule_rows() -
          patch("app.services.ipo.orchestrator.write_market_store"), \
          patch("app.services.ipo.orchestrator.calculate_wealth_ipo_score", return_value={"total_score": 50}) as score:
         result = _run_ipo_daily_pipeline(
-            kis_client=kis,
+            kind_client=kind,
             dart_client=dart,
             krx_client=krx,
             naver_client=naver,

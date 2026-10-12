@@ -18,7 +18,7 @@ from app.services.ipo.store import merge_ipo_record, read_market_store, write_ma
 KST = timezone(timedelta(hours=9))
 _BASE_REFRESH_MARKET = _base.refresh_ipo_market
 _BASE_REFRESH_ENRICHED = _base.refresh_ipo_market_enriched
-_DISCOVERY_PRIORITY = "DART/KIND + NAVER/Npay > Metalogos160 > KIS fallback"
+_DISCOVERY_PRIORITY = "DART/KIND + NAVER/Npay > Metalogos160 > retained market"
 _MAIN_DISCOVERY_KEYS = ("dart_schedule", "kind_discovery", "naver_progress_discovery", "npay")
 _INTERACTIVE_SCORE_RECOVERY_LIMIT = 4
 _INTERACTIVE_SCORE_RECOVERY_MAX_AGE_DAYS = 14
@@ -290,7 +290,8 @@ def _record_metalogos_reference_status(
     )
 
 
-def _run_supplement_and_targeted(*, username: str | None, target_date_str: str) -> tuple[dict[str, Any], dict[str, Any]]:
+def _run_supplement_and_targeted(*, username: str | None, target_date_str: str,
+                                 kind_schedule_snapshot: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     supplement: dict[str, Any] = {}
     targeted: dict[str, Any] = {}
     try:
@@ -298,6 +299,7 @@ def _run_supplement_and_targeted(*, username: str | None, target_date_str: str) 
             supplement = discover_and_merge_primary_sources(
                 username=username,
                 target_date_str=target_date_str,
+                kind_schedule_snapshot=kind_schedule_snapshot,
             )
             reference = refresh_missing_metalogos_references(
                 target_date_str=target_date_str,
@@ -331,7 +333,7 @@ def _merge_refresh_result(
     output["discovery_priority"] = _DISCOVERY_PRIORITY
     output["total_ipos"] = supplement.get("total_ipos", output.get("total_ipos"))
     if base_status and base_status != "ok" and _main_discovery_succeeded(supplement):
-        # KIS/base preservation must not make the API fail when the preferred
+        # Base market preservation must not make the API fail when the preferred
         # discovery union successfully refreshed the shared market snapshot.
         output["base_refresh_status"] = base_status
         output["status"] = "ok"
@@ -349,7 +351,9 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
     """
     resolved_target = _target_date(target_date_str)
     total_started = perf_counter()
-    result = _BASE_REFRESH_MARKET(username=username, target_date_str=resolved_target)
+    kind_snapshot: dict[str, Any] = {}
+    result = _BASE_REFRESH_MARKET(username=username, target_date_str=resolved_target,
+                                  kind_schedule_snapshot=kind_snapshot)
     timings = {"base_refresh_ms": round((perf_counter() - total_started) * 1000, 3),
                "metalogos_reference_ms": 0.0, "targeted_dart_ms": 0.0}
     supplement: dict[str, Any] = {}
@@ -359,6 +363,7 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
             supplement = discover_and_merge_primary_sources(
                 username=username,
                 target_date_str=resolved_target,
+                kind_schedule_snapshot=kind_snapshot,
             )
             timings.update(supplement.get("timings", {}))
             stage_started = perf_counter()
@@ -396,15 +401,18 @@ def refresh_ipo_market_enriched(
 ) -> dict[str, Any]:
     """Scheduled full refresh with main-source discovery as the final schedule authority.
 
-    The proven base pipeline runs first (including KIS and full DART scoring).
+    The proven base pipeline runs first (routine KIND schedules and full DART scoring).
     DART/KIND + NAVER/Npay + 160 are then reconciled over that snapshot so a
-    successful-but-partial KIS response cannot overwrite the preferred schedule
+    successful-but-partial base response cannot overwrite the preferred schedule
     sources. Targeted DART runs once more for newly discovered current/future IPOs.
     """
     resolved_target = _target_date(target_date_str)
-    result = _BASE_REFRESH_ENRICHED(username=username, target_date_str=resolved_target)
+    kind_snapshot: dict[str, Any] = {}
+    result = _BASE_REFRESH_ENRICHED(username=username, target_date_str=resolved_target,
+                                    kind_schedule_snapshot=kind_snapshot)
     supplement, targeted = _run_supplement_and_targeted(
         username=username,
         target_date_str=resolved_target,
+        kind_schedule_snapshot=kind_snapshot,
     )
     return _merge_refresh_result(result, supplement, targeted)
