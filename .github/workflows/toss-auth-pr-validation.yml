@@ -50,13 +50,16 @@ jobs:
         shell: bash
     env:
       PYTHONPATH: tests
-      WEALTH_DATA_DIR: ${{ runner.temp }}/toss-auth-synthetic-data
       PYTEST_ADDOPTS: ''
       EXPECTED_MACHINE: ${{ matrix.machine }}
-      PROCESS_TEST_REPORT: ${{ runner.temp }}/toss-auth-process-tests.xml
       # No auth credentials, real sessions, browser debug output or artifact upload.
 
     steps:
+      - name: Initialize synthetic runtime paths
+        run: |
+          printf 'WEALTH_DATA_DIR=%s/toss-auth-synthetic-data\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'PROCESS_TEST_REPORT=%s/toss-auth-process-tests.xml\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Checkout PR merge revision
         uses: actions/checkout@v4
         with:
