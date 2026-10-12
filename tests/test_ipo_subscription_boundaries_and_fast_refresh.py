@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-from app.services.ipo.orchestrator import _run_kis_schedule_fetch, run_ipo_daily_pipeline
+from app.services.ipo.orchestrator import run_ipo_daily_pipeline
 from app.services.ipo.reminders import _run_reminders_locked
 from app.services.ipo.store import get_ipo_calendar_events
 
@@ -98,42 +98,9 @@ def test_subscription_reminders_only_run_on_boundary_days_with_phase_wording() -
     assert "청약 마감 시간이 가까워지고 있습니다" in last.messages[0]
 
 
-def test_kis_subscription_and_listing_schedule_requests_start_concurrently() -> None:
-    started: set[str] = set()
-    kis = MagicMock()
-
-    async def subscriptions(*_args):
-        started.add("subscriptions")
-        import asyncio
-        await asyncio.sleep(0)
-        assert "listings" in started
-        return []
-
-    async def listings(*_args):
-        started.add("listings")
-        import asyncio
-        await asyncio.sleep(0)
-        assert "subscriptions" in started
-        return []
-
-    kis.fetch_ipo_subscription_schedule.side_effect = subscriptions
-    kis.fetch_listing_schedule.side_effect = listings
-
-    assert _run_kis_schedule_fetch(kis, "2026-10-01", "2026-10-31") == ([], [])
-
-
 def test_routine_refresh_never_scans_full_historical_confirmation_sources() -> None:
-    kis = MagicMock()
-    kis.configured = True
-
-    async def subscriptions(*_args):
-        return [dict(IPO)]
-
-    async def listings(*_args):
-        return []
-
-    kis.fetch_ipo_subscription_schedule.side_effect = subscriptions
-    kis.fetch_listing_schedule.side_effect = listings
+    kind = MagicMock()
+    kind.fetch_pubofr_schedule_items.return_value = [dict(IPO)]
 
     krx = MagicMock()
     naver = MagicMock()
@@ -143,7 +110,7 @@ def test_routine_refresh_never_scans_full_historical_confirmation_sources() -> N
     with patch("app.services.ipo.orchestrator.read_market_store", return_value={"schema_version": 1, "ipos": []}), \
          patch("app.services.ipo.orchestrator.write_market_store"):
         result = run_ipo_daily_pipeline(
-            kis_client=kis,
+            kind_client=kind,
             krx_client=krx,
             naver_client=naver,
             dart_client=dart,

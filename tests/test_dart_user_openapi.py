@@ -238,14 +238,11 @@ class IpoPipelineDartResolutionTests(unittest.TestCase):
     def test_orchestrator_passes_automation_owner_to_dart_client(self, mock_write, mock_read):
         save_user_openapi_config("automation_owner", {"dart": {"api_key": "OWNER_DART_KEY"}})
 
-        mock_kis = MagicMock()
-        mock_kis.configured = False
         dart = MagicMock()
         dart.is_configured.return_value = False
         with patch("app.services.ipo.orchestrator.DartClient", return_value=dart) as client_class:
             result = _run_ipo_daily_pipeline(
                 username="automation_owner",
-                kis_client=mock_kis,
                 dry_run=True,
                 market_only=True,
             )
@@ -255,8 +252,6 @@ class IpoPipelineDartResolutionTests(unittest.TestCase):
     @patch("app.services.ipo.orchestrator.read_market_store", return_value={"schema_version": 1, "ipos": []})
     @patch("app.services.ipo.orchestrator.write_market_store")
     def test_orchestrator_graceful_when_dart_missing(self, mock_write, mock_read):
-        mock_kis = MagicMock()
-        mock_kis.configured = False
         mock_kind = MagicMock()
         mock_kind.fetch_pubofr_schedule_items.return_value = []
         mock_krx = MagicMock()
@@ -266,7 +261,6 @@ class IpoPipelineDartResolutionTests(unittest.TestCase):
         with patch.dict(os.environ, {"DART_API_KEY": ""}):
             result = _run_ipo_daily_pipeline(
                 username="owner_no_dart",
-                kis_client=mock_kis,
                 kind_client=mock_kind,
                 krx_client=mock_krx,
                 naver_client=mock_naver,

@@ -5,7 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -68,64 +68,35 @@ class IpoMarketRefreshTests(unittest.TestCase):
 
     def test_market_only_failure_preserves_existing_store(self):
         before = self.market_file.read_bytes()
-        broken_kis = MagicMock(); broken_kis.configured = True
-        broken_kis.fetch_ipo_subscription_schedule.side_effect = RuntimeError("provider down")
-        broken_kis.fetch_listing_schedule.side_effect = RuntimeError("provider down")
-        result = run_ipo_daily_pipeline(kis_client=broken_kis, target_date_str="2026-09-18", market_only=True)
+        broken_kind = MagicMock()
+        broken_kind.fetch_pubofr_schedule_items.side_effect = RuntimeError("provider down")
+        result = run_ipo_daily_pipeline(kind_client=broken_kind, target_date_str="2026-09-18", market_only=True)
         self.assertEqual(result["status"], "preserved")
-        self.assertIn("source_error", result["sources"]["kis"])
+        self.assertIn("source_error", result["sources"]["kind"])
         self.assertEqual(self.market_file.read_bytes(), before)
 
     def test_market_only_malformed_primary_response_preserves_existing_store(self):
         before = self.market_file.read_bytes()
-        malformed_kis = MagicMock(); malformed_kis.configured = True
-        malformed_kis.fetch_ipo_subscription_schedule = MagicMock()
-        async def malformed_subscriptions(*_args):
-            return None
-        async def empty_listings(*_args):
-            return []
-        malformed_kis.fetch_ipo_subscription_schedule.side_effect = malformed_subscriptions
-        malformed_kis.fetch_listing_schedule.side_effect = empty_listings
-        result = run_ipo_daily_pipeline(kis_client=malformed_kis, target_date_str="2026-09-18", market_only=True)
+        malformed_kind = MagicMock()
+        malformed_kind.fetch_pubofr_schedule_items.return_value = None
+        result = run_ipo_daily_pipeline(kind_client=malformed_kind, target_date_str="2026-09-18", market_only=True)
         self.assertEqual(result["status"], "preserved")
-        self.assertIn("source_error", result["sources"]["kis"])
+        self.assertIn("source_error", result["sources"]["kind"])
         self.assertEqual(self.market_file.read_bytes(), before)
 
-    def test_market_only_empty_primary_and_failed_fallback_preserve_existing_store(self):
-        before = self.market_file.read_bytes()
-        empty_kis = MagicMock(); empty_kis.configured = True
-        async def empty_schedule(*_args):
-            return []
-        empty_kis.fetch_ipo_subscription_schedule.side_effect = empty_schedule
-        empty_kis.fetch_listing_schedule.side_effect = empty_schedule
-        broken_kind = MagicMock()
-        result = run_ipo_daily_pipeline(
-            kis_client=empty_kis, kind_client=broken_kind,
-            target_date_str="2026-09-18", market_only=True,
-        )
-        self.assertEqual(result["status"], "preserved")
-        self.assertIn("sync_ok", result["sources"]["kis"])
-        self.assertEqual(result["sources"]["kind"], "not_requested (market_only)")
-        broken_kind.fetch_pubofr_schedule_items.assert_not_called()
-        self.assertEqual(self.market_file.read_bytes(), before)
 
     def test_empty_store_bootstraps_spac_from_primary_schedule(self):
         self.market_file.unlink()
-        kis = MagicMock(); kis.configured = True
-        async def subscriptions(*_args):
-            return [{
+        kind = MagicMock()
+        kind.fetch_pubofr_schedule_items.return_value = [{
                 "company_name": "신규스팩", "stock_code": "0123A0", "listing_track": "spac",
                 "subscription_start": "2026-09-20", "subscription_end": "2026-09-21",
                 "final_offer_price": 2000.0, "lead_managers": ["테스트증권"],
             }]
-        async def listings(*_args):
-            return []
-        kis.fetch_ipo_subscription_schedule.side_effect = subscriptions
-        kis.fetch_listing_schedule.side_effect = listings
         krx = MagicMock(); krx.fetch_listed_master.return_value = []
         naver = MagicMock(); naver.fetch_completed_listings.return_value = []
         result = run_ipo_daily_pipeline(
-            kis_client=kis, krx_client=krx, naver_client=naver,
+            kind_client=kind, krx_client=krx, naver_client=naver,
             target_date_str="2026-09-18", market_only=True,
         )
         saved = read_market_store()
@@ -135,13 +106,10 @@ class IpoMarketRefreshTests(unittest.TestCase):
 
     def test_empty_store_primary_failure_is_not_reported_as_success(self):
         self.market_file.unlink()
-        broken_kis = MagicMock(); broken_kis.configured = True
-        broken_kis.fetch_ipo_subscription_schedule.side_effect = RuntimeError("provider down")
-        broken_kis.fetch_listing_schedule.side_effect = RuntimeError("provider down")
         broken_kind = MagicMock()
         broken_kind.fetch_pubofr_schedule_items.side_effect = RuntimeError("KIND down")
         result = run_ipo_daily_pipeline(
-            kis_client=broken_kis, kind_client=broken_kind,
+            kind_client=broken_kind,
             target_date_str="2026-09-18", market_only=True,
         )
         self.assertEqual(result["status"], "preserved")
@@ -212,25 +180,21 @@ class IpoMarketRefreshTests(unittest.TestCase):
         self.assertEqual(self.portfolio_file.read_bytes(), before)
 
     def test_primary_success_with_secondary_failures_updates_market(self):
-        async def subscriptions(*_args):
-            return [{
+        schedule = [{
                 "company_name": "신규일정", "stock_code": "0123B0", "listing_track": "general",
                 "subscription_start": "2026-09-20", "subscription_end": "2026-09-21",
                 "final_offer_price": 2000.0, "lead_managers": ["테스트증권"],
             }]
-        async def listings(*_args):
-            return []
 
         for client_name, method_name in (("krx_client", "fetch_listed_master"), ("naver_client", "fetch_completed_listings")):
             with self.subTest(client=client_name):
-                kis = MagicMock(); kis.configured = True
-                kis.fetch_ipo_subscription_schedule.side_effect = subscriptions
-                kis.fetch_listing_schedule.side_effect = listings
+                kind = MagicMock()
+                kind.fetch_pubofr_schedule_items.return_value = schedule
                 client = MagicMock()
                 getattr(client, method_name).side_effect = RuntimeError("secondary source down")
                 kwargs = {client_name: client}
                 result = run_ipo_daily_pipeline(
-                    kis_client=kis, target_date_str="2026-09-18", market_only=True, **kwargs,
+                    kind_client=kind, target_date_str="2026-09-18", market_only=True, **kwargs,
                 )
                 self.assertEqual(result["status"], "ok")
                 self.assertEqual(
@@ -240,62 +204,23 @@ class IpoMarketRefreshTests(unittest.TestCase):
                 getattr(client, method_name).assert_not_called()
                 self.assertTrue(any(ipo.get("company_name") == "신규일정" for ipo in read_market_store()["ipos"]))
 
-    def test_naver_progress_enriches_only_blank_kis_listing_dates(self):
-        kis = MagicMock(); kis.configured = True
-        kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=[
-            {"company_name": "빅웨이브로보틱스", "stock_code": "111111", "expected_listing_date": None},
-            {"company_name": "브릴스", "stock_code": "468670", "expected_listing_date": "2026-09-30"},
-        ])
-        kis.fetch_listing_schedule = AsyncMock(return_value=[])
-        naver = MagicMock()
-        naver.fetch_ipo_progress_items.return_value = [
-            {"stock_code": "111111", "raw_ipo_code": "A111111", "expected_listing_date": "2026-09-29"},
-            {"stock_code": "468670", "raw_ipo_code": "A468670", "expected_listing_date": "2026-10-01"},
-        ]
-        naver.fetch_completed_listings.return_value = []
-        kind = MagicMock()
-        result = run_ipo_daily_pipeline(kis_client=kis, naver_client=naver, kind_client=kind, target_date_str="2026-09-18", market_only=True)
-        saved = {ipo["stock_code"]: ipo for ipo in read_market_store()["ipos"] if ipo.get("stock_code")}
-        self.assertEqual(saved["111111"]["expected_listing_date"], "2026-09-29")
-        self.assertEqual(saved["468670"]["expected_listing_date"], "2026-09-30")
-        self.assertIn("filled=1", result["sources"]["naver_progress"])
-        kind.fetch_pubofr_schedule_items.assert_not_called()
-
-    def test_naver_progress_failure_preserves_existing_expected_date(self):
-        self.market_file.write_text(json.dumps({"schema_version": 1, "ipos": [{"ipo_id": "existing", "company_name": "기존", "stock_code": "222222", "expected_listing_date": "2026-09-29"}]}), encoding="utf-8")
-        kis = MagicMock(); kis.configured = True
-        kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=[{"company_name": "기존", "stock_code": "222222", "expected_listing_date": None}])
-        kis.fetch_listing_schedule = AsyncMock(return_value=[])
-        naver = MagicMock(); naver.fetch_ipo_progress_items.side_effect = RuntimeError("NAVER down"); naver.fetch_completed_listings.return_value = []
-        run_ipo_daily_pipeline(kis_client=kis, naver_client=naver, target_date_str="2026-09-18", market_only=True)
-        self.assertEqual(read_market_store()["ipos"][0]["expected_listing_date"], "2026-09-29")
-
-    def test_blank_naver_progress_value_preserves_existing_expected_date(self):
-        self.market_file.write_text(json.dumps({"schema_version": 1, "ipos": [{"ipo_id": "existing", "company_name": "기존", "stock_code": "222222", "expected_listing_date": "2026-09-29"}]}), encoding="utf-8")
-        kis = MagicMock(); kis.configured = True
-        kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=[{"company_name": "기존", "stock_code": "222222", "expected_listing_date": None}])
-        kis.fetch_listing_schedule = AsyncMock(return_value=[])
-        naver = MagicMock(); naver.fetch_ipo_progress_items.return_value = []; naver.fetch_completed_listings.return_value = []
-        run_ipo_daily_pipeline(kis_client=kis, naver_client=naver, target_date_str="2026-09-18", market_only=True)
-        self.assertEqual(read_market_store()["ipos"][0]["expected_listing_date"], "2026-09-29")
 
     def test_progress_identity_mismatch_does_not_enrich_and_registry_retains_missing_records(self):
         self.market_file.write_text(json.dumps({"schema_version": 1, "ipos": [
             {"ipo_id": code, "company_name": code, "stock_code": code, "expected_listing_date": "2026-09-29"}
             for code in ("111111", "222222", "333333")
         ]}), encoding="utf-8")
-        kis = MagicMock(); kis.configured = True
+        kind = MagicMock()
         fresh = [
             {"company_name": code, "stock_code": code, "expected_listing_date": "2026-10-01"}
             for code in ("111111", "333333", "444444")
         ]
-        kis.fetch_ipo_subscription_schedule = AsyncMock(return_value=fresh)
-        kis.fetch_listing_schedule = AsyncMock(return_value=[])
+        kind.fetch_pubofr_schedule_items.return_value = fresh
         naver = MagicMock()
         naver.fetch_ipo_progress_items.return_value = [{"stock_code": "999999", "expected_listing_date": "2026-10-15"}]
         naver.fetch_completed_listings.return_value = []
         for _ in range(2):
-            run_ipo_daily_pipeline(kis_client=kis, naver_client=naver, target_date_str="2026-09-18", market_only=True)
+            run_ipo_daily_pipeline(kind_client=kind, naver_client=naver, target_date_str="2026-09-18", market_only=True)
         saved = read_market_store()["ipos"]
         self.assertEqual({item.get("stock_code") for item in saved if item.get("stock_code")}, {"111111", "222222", "333333", "444444"})
         self.assertEqual(len([item for item in saved if item.get("stock_code") == "444444"]), 1)

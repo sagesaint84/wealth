@@ -13,7 +13,7 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
 
         def base(**_kwargs):
             calls.append("base")
-            return {"status": "ok", "sources": {"kis": "sync_ok"}, "total_ipos": 10}
+            return {"status": "ok", "sources": {"kind": "sync_ok"}, "total_ipos": 10}
 
         def supplement(**_kwargs):
             calls.append("supplement")
@@ -34,10 +34,10 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
         self.assertEqual(result["targeted_dart"]["enriched"], 5)
         self.assertEqual(
             result["discovery_priority"],
-            "DART/KIND + NAVER/Npay > Metalogos160 > KIS fallback",
+            "DART/KIND + NAVER/Npay > Metalogos160 > retained market",
         )
 
-    def test_interactive_refresh_can_recover_from_preserved_kis_when_main_sources_sync(self):
+    def test_interactive_refresh_can_recover_from_retained_market_when_main_sources_sync(self):
         targeted_result = {
             "status": "ok",
             "mode": "score_recovery",
@@ -49,7 +49,7 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
         with patch.object(
             refresh_adapter,
             "_BASE_REFRESH_MARKET",
-            return_value={"status": "preserved", "sources": {"kis": "source_error"}, "total_ipos": 10},
+            return_value={"status": "preserved", "sources": {"kind": "source_error"}, "total_ipos": 10},
         ), patch.object(
             refresh_adapter,
             "discover_and_merge_primary_sources",
@@ -64,6 +64,9 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
             "_targeted_dart_enrichment",
             return_value=targeted_result,
         ) as targeted, patch.object(
+            refresh_adapter, "refresh_missing_metalogos_references",
+            return_value={"status": "ok", "matched": 0, "unmatched": 0},
+        ), patch.object(
             refresh_adapter._base,
             "_refresh_file_lock",
             return_value=nullcontext(),
@@ -88,7 +91,7 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
 
     def test_supplemental_160_alone_does_not_hide_main_source_failure(self):
         result = refresh_adapter._merge_refresh_result(
-            {"status": "preserved", "sources": {"kis": "source_error"}},
+            {"status": "preserved", "sources": {"kind": "source_error"}},
             {"statuses": {"metalogos160": "sync_ok (relevant=7)"}, "total_ipos": 17},
             {"status": "ok"},
         )
