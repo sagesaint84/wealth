@@ -1,0 +1,16 @@
+[project]
+name = "tossctl-auth-helper"
+version = "0.0.0"
+description = "Browser-assisted login helper for tossctl"
+requires-python = ">=3.11"
+dependencies = [
+  "playwright>=1.52,<2",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tossctl_auth_helper*"]

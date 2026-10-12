@@ -1050,7 +1050,7 @@ async def toss_wts_login_start_api(request: Request) -> dict:
         raise HTTPException(status_code=500, detail={"code":"AUTH_LOGIN_FAILED"})
 
 @app.get("/api/settings/toss-wts/login/{attempt_id}")
-async def toss_wts_login_status_api(request: Request, attempt_id: str) -> dict:
+async def toss_wts_login_status_api(request: Request, attempt_id: str) -> JSONResponse:
     """Poll the status of the current user's login attempt.
 
     Only the owner of the attempt can poll it.  Any other user receives 404.
@@ -1058,11 +1058,12 @@ async def toss_wts_login_status_api(request: Request, attempt_id: str) -> dict:
     username = get_current_username(request)
     from app.services.toss_wts_login import get_login_attempt, TossLoginNotFoundError
     try:
-        return await asyncio.to_thread(
+        data = await asyncio.to_thread(
             get_login_attempt, attempt_id, requesting_username=username
         )
+        return JSONResponse(data, headers={"Cache-Control": "no-store", "Pragma": "no-cache"})
     except TossLoginNotFoundError:
-        raise HTTPException(status_code=404, detail={"code":"ATTEMPT_NOT_FOUND"})
+        raise HTTPException(status_code=404, detail={"code":"ATTEMPT_NOT_FOUND"}, headers={"Cache-Control": "no-store"})
 
 @app.get("/api/settings/toss-wts/login/{attempt_id}/qr")
 async def toss_wts_login_qr_api(request: Request, attempt_id: str) -> Response:
@@ -1073,7 +1074,10 @@ async def toss_wts_login_qr_api(request: Request, attempt_id: str) -> Response:
     """
     username = get_current_username(request)
     from app.services.toss_wts_login import get_login_qr
-    data = await asyncio.to_thread(get_login_qr, attempt_id, requesting_username=username)
+    options = {"requesting_username": username}
+    if request.query_params.get("revision") is not None:
+        options["expected_revision"] = request.query_params["revision"]
+    data = await asyncio.to_thread(get_login_qr, attempt_id, **options)
     if data is None:
         raise HTTPException(status_code=404, detail={"code":"QR_NOT_AVAILABLE"})
     return Response(
