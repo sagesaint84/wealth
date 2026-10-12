@@ -23,7 +23,7 @@ class ReleaseVersionTests(unittest.TestCase):
         css_matches = re.findall(r'href="/static/([^"]+\.css)\?v=([^"]+)"', html)
         self.assertTrue(css_matches)
         for asset, version in css_matches:
-            expected = "10.9r3" if asset == "wealth-color-preferences.css" else "10.9r2" if asset == "wealth-color-picker.css" else "10.9q" if asset == "wealth-layout.css" else "10.9p" if asset == "wealth-savings-contributions.css" else "10.9o2" if asset == "wealth-dialog-system.css" else "10.9o1" if asset == "wealth-ui-density.css" else "10.9m1" if asset == "wealth-layout.css" else "10.9h1" if asset == "wealth-overrides.css" else "1.3.0"
+            expected = "10.9r5" if asset == "wealth-color-preferences.css" else "10.9r2" if asset == "wealth-color-picker.css" else "10.9q" if asset == "wealth-layout.css" else "10.9p" if asset == "wealth-savings-contributions.css" else "10.9o2" if asset == "wealth-dialog-system.css" else "10.9o1" if asset == "wealth-ui-density.css" else "10.9m1" if asset == "wealth-layout.css" else "10.9h1" if asset == "wealth-overrides.css" else "1.3.0"
             self.assertEqual(version, expected)
 
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
@@ -36,6 +36,8 @@ class ReleaseVersionTests(unittest.TestCase):
             expected = "10.9r3" if asset in {"wealth-color-preferences.js", "wealth-layout.js", "wealth.js", "wealth-calendar.js", "wealth-planning.js"} else "10.9r2" if asset == "wealth-color-picker.js" else "10.9q" if asset in {"wealth.js", "wealth-layout.js", "wealth-planning.js", "wealth-planning-model.js", "wealth-asset-category-state.js", "wealth-color-picker.js"} else "10.9p" if asset == "wealth.js" else "10.9n1" if asset == "wealth-transaction-defaults.js" else "10.9m1" if asset in ui_detail_assets else "10.9k1" if asset in invest_hotfix_assets else "10.9h1" if asset in settings_assets else "10.7g1" if asset in hotfix_assets else "1.3.0"
             if asset == "wealth-calendar.js":
                 expected = "10.9r4"
+            if asset in {"wealth-color-preferences.js", "wealth-color-picker.js"}:
+                expected = "10.9r5"
             self.assertEqual(version, expected)
 
     def test_service_worker_cache_name(self):

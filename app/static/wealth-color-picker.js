@@ -28,7 +28,7 @@
     preview.setAttribute('role', 'img'); preview.setAttribute('aria-label', `${label}: ${getFallbackColor(value)}`);
     return preview;
   }
-  function create({value, label = '색상 선택', onChange}) {
+  function create({value, label = '색상 선택', onChange, onClose, closeOnChange = true, canClose, anchorRect, bottomInset = 0}) {
     let color = getFallbackColor(value), hsv = hexToHsv(color), draft = color;
     const root = document.createElement('span'); root.className = 'wealth-color-picker';
     const button = document.createElement('button'); button.type = 'button'; button.className = 'wealth-color-trigger';
@@ -48,16 +48,17 @@
     const sv = advanced.querySelector('.wealth-color-sv'), marker = sv.querySelector('i'), apply = advanced.querySelector('.wealth-color-apply');
     const error = advanced.querySelector('.wealth-color-error');
     hexInput.setAttribute('aria-describedby', panel.id + '-error'); error.id = panel.id + '-error';
-    const close = (focus = false) => { panel.hidden = true; button.setAttribute('aria-expanded','false'); if (focus) button.focus(); };
+    const close = (focus = false) => { if(canClose && !canClose())return; const wasOpen = !panel.hidden; panel.hidden = true; button.setAttribute('aria-expanded','false'); if (focus) button.focus(); if (wasOpen) onClose?.(focus); };
+    root.closeColorPicker = (focus = true) => close(focus);
     const sync = () => {
       root.dataset.color = color; button.style.setProperty('--chosen-color',color); button.title = `${label}: ${color}`;
       choices.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed',String(b.dataset.color === color)));
     };
     const position = () => {
       if (panel.hidden) return;
-      const r = button.getBoundingClientRect(), p = panel.getBoundingClientRect();
+      const r = anchorRect?.() || button.getBoundingClientRect(), p = panel.getBoundingClientRect();
       panel.style.left = Math.max(8, Math.min(r.left, innerWidth - p.width - 8)) + 'px';
-      panel.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - p.height - 8)) + 'px';
+      panel.style.top = Math.max(8, Math.min(r.bottom + 4, innerHeight - bottomInset - p.height - 8)) + 'px';
     };
     root.repositionColorPicker = position;
     const updateDraft = (value, keepInput = false, hueHint = null) => {
@@ -71,7 +72,8 @@
       sv.style.setProperty('--hue-color',hsvToHex(hsv.h,1,1)); marker.style.left = hsv.s * 100 + '%'; marker.style.top = (1-hsv.v) * 100 + '%';
       sv.setAttribute('aria-valuenow',String(Math.round(hsv.s * 100))); sv.setAttribute('aria-valuetext',`채도 ${Math.round(hsv.s * 100)}%, 밝기 ${Math.round(hsv.v * 100)}%`);
     };
-    const commit = value => { const valid = normalizeHexColor(value); if (!valid) return; updateDraft(valid); color = valid; sync(); close(true); onChange?.(color); };
+    const commit = value => { const valid = normalizeHexColor(value); if (!valid) return; updateDraft(valid); color = valid; sync(); if (closeOnChange) close(true); onChange?.(color); };
+    root.setColor = value => { color = getFallbackColor(value); sync(); updateDraft(color); };
     palette.forEach(choice => {
       const swatch = document.createElement('button'); swatch.type = 'button'; swatch.dataset.color = choice;
       swatch.style.setProperty('--chosen-color',choice); swatch.setAttribute('aria-label',choice);
@@ -117,7 +119,7 @@
   if(typeof document !== 'undefined') {
     const closeAll = () => document.querySelectorAll('.wealth-color-trigger[aria-expanded="true"]').forEach(b => b.click());
     document.addEventListener('pointerdown',e => document.querySelectorAll('.wealth-color-picker').forEach(root => {
-      if(!root.contains(e.target) && root.querySelector('.wealth-color-trigger').getAttribute('aria-expanded')==='true') root.querySelector('.wealth-color-trigger').click();
+      if(!root.contains(e.target) && !root.ignoreOutsidePointer?.(e.target) && root.querySelector('.wealth-color-trigger').getAttribute('aria-expanded')==='true') root.querySelector('.wealth-color-trigger').click();
     }));
     window.addEventListener('resize',closeAll);
     window.addEventListener('scroll',e => {
