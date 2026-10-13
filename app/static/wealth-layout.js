@@ -10,9 +10,38 @@
   };
   // Kept small and data-only so the donut geometry can be regression-tested without a DOM.
   window.WealthDonutHitTest = donutKeyAtPointer;
+  // Presentation only. Never substitute legacy valuation fields for paid-in
+  // principal, nor combine period-based pensions with lump-sum/refund inputs.
+  window.WealthInsuranceReturnDisplay = (accounts, owner = '모두') => {
+    const items = (accounts || []).filter(item => owner === '모두' || (item.owner || '모두') === owner);
+    const limit = '기간·향후 추가 납입·세금 절감액 미반영. 연환산·IRR·확정 수익률이 아닙니다.';
+    const unavailable = reason => ({rate: null, description: `예상 단순수익률 미산정: ${reason}. ${limit}`});
+    if (!items.length) return unavailable('대상 상품 없음');
+    let paid = 0, expected = 0;
+    for (const item of items) {
+      if ((item.payout_type && item.payout_type !== 'lump_sum') ||
+          ['national_pension', 'irp'].includes(item.insurance_type) ||
+          Number(item.monthly_payout) > 0) {
+        return unavailable('연금형 상품 포함; 조회 시 환산된 총액은 원래 저장 총액의 근거로 사용하지 않음');
+      }
+      if (!Number.isFinite(item.total_paid_amount) || item.total_paid_amount <= 0 ||
+          !Number.isFinite(item.expected_amount) || item.expected_amount < 0 ||
+          (item.monthly_payout != null && (!Number.isFinite(item.monthly_payout) || item.monthly_payout < 0)) ||
+          (item.converted_total_asset != null &&
+            (!Number.isFinite(item.converted_total_asset) || item.converted_total_asset !== item.expected_amount))) {
+        return unavailable('일부 상품의 누적납입액·예상 수령액 근거 누락 또는 불일치');
+      }
+      paid += item.total_paid_amount;
+      expected += item.expected_amount;
+    }
+    const rate = (expected - paid) / paid * 100;
+    if (!Number.isFinite(paid) || !Number.isFinite(expected) || !Number.isFinite(rate)) return unavailable('비정상 합계');
+    return {rate, description: `예상 단순수익률: 일시금/해약환급금 입력액과 누적납입액 비교 (${items.length}개 상품 전체). ${limit}`};
+  };
   // Display policy only: keep authoritative weights/amounts/rates untouched.
-  window.WealthAssetReturnDisplay = (item, property = null) => {
-    if (['현금·예수금', '보험', '임차보증금'].includes(item.name)) return null;
+  window.WealthAssetReturnDisplay = (item, property = null, insurance = null) => {
+    if (item.name === '보험') return Number.isFinite(insurance?.rate) ? insurance.rate : null;
+    if (['현금·예수금', '임차보증금'].includes(item.name)) return null;
     const source = item.name === '부동산' ? property : {
       rate: item.return_rate, profit: item.profit_krw, cost: item.cost_value_krw,
     };
@@ -116,7 +145,7 @@
   assetCategoryTabs.innerHTML = `
     <button type="button" class="account-cat-tab active" data-cat="securities">📈 증권 (<span id="securitiesTabCount">0</span>)</button>
     <button type="button" class="account-cat-tab" data-cat="banking">🏦 은행 (<span id="bankingTabCount">0</span>)</button>
-    <button type="button" class="account-cat-tab" data-cat="insurance">🛡️ 보험 (<span id="insuranceTabCount">0</span>)</button>
+    <button type="button" class="account-cat-tab" data-cat="insurance">🛡️ 연금·보험 (<span id="insuranceTabCount">0</span>)</button>
     <button type="button" class="account-cat-tab" data-cat="real_estate">🏠 부동산 (<span id="realEstateTabCount">0</span>)</button>`;
   const assetPanels = {securities:'catPanelSecurities',banking:'catPanelBanking',insurance:'catPanelInsurance',real_estate:'catPanelRealEstate'};
   assetCategoryTabs.querySelectorAll('button').forEach(button => {
@@ -308,12 +337,15 @@
       const metric = document.createElement('b');
       const returnRate = window.WealthAssetReturnDisplay(item, {
         rate: s.propertyExpectedRate, profit: s.propertyExpected, cost: s.propertyPurchaseValue,
-      });
+      }, s.insuranceReturn);
       metric.textContent = returnRate === null ? '—' : pct(returnRate);
       metric.className = returnRate === null ? 'muted' : (returnRate >= 0 ? 'up' : 'down');
       metric.dataset.metric = 'return-rate';
-      metric.title = returnRate === null ? '수익률 미산정' : '수익률';
-      metric.setAttribute('aria-label', returnRate === null ? '수익률 미산정' : `수익률 ${metric.textContent}`);
+      const metricLabel = label === '보험'
+        ? `${returnRate === null ? '수익률 미산정' : `수익률 ${metric.textContent}`} · ${s.insuranceReturn?.description || '예상 단순수익률 미산정: 근거 없음'}`
+        : (returnRate === null ? '수익률 미산정' : `수익률 ${metric.textContent}`);
+      metric.title = metricLabel;
+      metric.setAttribute('aria-label', metricLabel);
       const title = document.createElement('div'); title.append(name, detail);
       const values = document.createElement('div'); values.append(amount, metric);
       row.append(title, values); legend.append(row);

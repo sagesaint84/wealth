@@ -55,7 +55,7 @@ def test_tax_cards_keep_titles_and_selection_on_one_line(chrome_preview, width, 
         no_overflow(evaluate, width)
 
 
-@pytest.mark.parametrize('width', [1280, 390])
+@pytest.mark.parametrize('width', [1280, 390, 320])
 def test_import_default_controls_keep_explicit_save_clear_and_no_overflow(chrome_preview, width):
     call, evaluate = prepare(chrome_preview, width)
     for workflow, selector, populate, route in (
@@ -74,6 +74,58 @@ def test_import_default_controls_keep_explicit_save_clear_and_no_overflow(chrome
         wait_for(evaluate, f"__defaults.imports.{workflow}==='toss-a'")
         assert evaluate(f"document.getElementById('{selector}DefaultNotice').textContent") == '기본계좌 지정됨'
         evaluate(FRAMES)
+        geometry = evaluate(f'''(()=>{{
+          const select=document.getElementById('{selector}'),control=select.parentElement;
+          const head=control.querySelector('.toss-wts-account-head');
+          const label=head.querySelector('label'),buttons=[...head.querySelectorAll('button')];
+          const r=control.getBoundingClientRect(),h=head.getBoundingClientRect(),s=select.getBoundingClientRect();
+          return {{inside:buttons.every(b=>{{const x=b.getBoundingClientRect();return x.left>=r.left-1&&x.right<=r.right+1&&x.top>=h.top-1&&x.bottom<=h.bottom+1;}}),
+            buttonsApart:buttons[0].getBoundingClientRect().right<=buttons[1].getBoundingClientRect().left+1,
+            singleHeader:buttons.every(b=>{{const x=b.getBoundingClientRect();return Math.abs(x.top+x.height/2-(h.top+h.height/2))<=1;}}),
+            noClipping:[head,...buttons].every(e=>e.scrollWidth<=e.clientWidth+1),
+            labelInside:label.getBoundingClientRect().right<=buttons[0].getBoundingClientRect().left+1,
+            secondRow:s.top>=h.bottom-1,fullWidth:Math.abs(s.width-r.width)<=1,
+            twoRows:Math.abs(s.bottom-r.bottom)<=1,
+            described:select.getAttribute('aria-describedby'),
+            status:document.getElementById('{selector}DefaultNotice').getAttribute('role')}};
+        }})()''')
+        assert geometry['inside'] and geometry['labelInside']
+        assert geometry['buttonsApart'] and geometry['singleHeader'] and geometry['noClipping']
+        assert geometry['secondRow'] and geometry['fullWidth'] and geometry['twoRows']
+        assert geometry['described'] == selector + 'DefaultNotice'
+        assert geometry['status'] == 'status'
+        evaluate(f"document.getElementById('{selector}').value='';document.getElementById('{selector}Remember').click()")
+        assert evaluate(f"document.getElementById('{selector}DefaultNotice').textContent") == '계좌를 먼저 선택해 주세요.'
+        assert evaluate(f"__defaults.imports.{workflow}") == 'toss-a'
+        evaluate(f"document.getElementById('{selector}').value='toss-a'")
+        evaluate(r'''window.__v201Fetch=window.fetch;window.fetch=(url,opts)=>
+          String(url).includes('/api/import-destination-defaults')&&opts?.method==='PUT'
+          ? Promise.resolve(new Response(JSON.stringify({detail:'합성 저장 실패'}),{status:400,headers:{'Content-Type':'application/json'}}))
+          : __v201Fetch(url,opts);''')
+        evaluate(f"document.getElementById('{selector}Remember').click()")
+        wait_for(evaluate, f"document.getElementById('{selector}DefaultNotice').textContent.includes('합성 저장 실패')")
+        assert evaluate(f"document.querySelector('label[for={selector}]').title.includes('합성 저장 실패')")
+        assert evaluate(f"__defaults.imports.{workflow}") == 'toss-a'
+        evaluate("window.fetch=__v201Fetch")
+        evaluate(f"__defaults.imports.{workflow}='deleted-account';document.getElementById('{selector}').value='';{populate}()")
+        wait_for(evaluate, f"document.getElementById('{selector}DefaultNotice').textContent.includes('저장된 기본값을 사용할 수 없습니다')")
+        assert evaluate(f"document.getElementById('{selector}').value") == ''
+        status_geometry = evaluate(f'''(()=>{{
+          const select=document.getElementById('{selector}'),control=select.parentElement;
+          const label=control.querySelector('label'),status=document.getElementById('{selector}DefaultNotice');
+          const before=control.getBoundingClientRect().height;
+          label.focus();
+          const r=control.getBoundingClientRect(),s=status.getBoundingClientRect();
+          return {{live:status.getAttribute('aria-live'),position:getComputedStyle(status).position,
+            visible:getComputedStyle(status).clipPath==='none'&&s.height>1,
+            inside:s.left>=r.left-1&&s.right<=r.right+1,
+            noExtraRow:Math.abs(r.height-before)<=1,
+            focus:document.activeElement===label}};
+        }})()''')
+        assert status_geometry['live'] == 'polite'
+        assert status_geometry['position'] == 'absolute'
+        assert status_geometry['visible'] and status_geometry['inside']
+        assert status_geometry['noExtraRow'] and status_geometry['focus']
         assert evaluate(f"(()=>{{const e=document.getElementById('{selector}').parentElement;return e.scrollWidth<=e.clientWidth+1;}})()")
         no_overflow(evaluate, width)
 
@@ -111,3 +163,39 @@ def test_asset_weights_and_return_rates_have_separate_meanings(chrome_preview, w
     evaluate("__v2Summary.propertyPurchaseValue=0;window.dispatchEvent(new CustomEvent('wealth:summary',{detail:__v2Summary}))")
     assert evaluate("[...document.querySelectorAll('#wealthMixLegend>div')].find(row=>row.querySelector('span').textContent==='부동산').querySelector('[data-metric=return-rate]').textContent") == '—'
     no_overflow(evaluate, width)
+
+
+@pytest.mark.parametrize('width', [1280, 390])
+@pytest.mark.parametrize('theme', ['purple', 'white', 'oled'])
+def test_insurance_expected_simple_return_preserves_home_amounts(chrome_preview, width, theme):
+    call, evaluate = prepare(chrome_preview, width)
+    evaluate(f"document.documentElement.dataset.theme={json.dumps(theme)};location.hash='home';window.dispatchEvent(new Event('hashchange'))")
+    baseline = dict(owner='아빠', netWorth=777, safe=888, insurance=120,
+                    classifications=[dict(name='보험', market_value_krw=120,
+                      cost_value_krw=120, profit_krw=0, return_rate=0, holding_count=1, weight=100)])
+    evaluate(f"window.__roiSummary={json.dumps(baseline)};window.__roiOriginal=JSON.stringify(__roiSummary)")
+    base = dict(owner='아빠', payout_type='lump_sum', total_paid_amount=100, expected_amount=120, converted_total_asset=120)
+    cases = [
+        ([base], '+20.00%', 'up'),
+        ([dict(base, expected_amount=80, converted_total_asset=80)], '-20.00%', 'down'),
+        ([dict(base, expected_amount=100, converted_total_asset=100)], '+0.00%', 'up'),
+        ([dict(base, total_paid_amount=0)], '—', 'muted'),
+        ([dict(base, expected_amount=None)], '—', 'muted'),
+        ([base, dict(base, total_paid_amount=0)], '—', 'muted'),
+        ([base, dict(base, owner='엄마', total_paid_amount=0)], '+20.00%', 'up'),
+        ([dict(base, payout_type='monthly_pension', monthly_payout=1, payout_duration_years=20,
+               expected_amount=240, converted_total_asset=240)], '—', 'muted'),
+    ]
+    for accounts, expected, color in cases:
+        evaluate(f"window.__roiAccounts={json.dumps(accounts)};__roiSummary.insuranceReturn=WealthInsuranceReturnDisplay(__roiAccounts,'아빠');window.dispatchEvent(new CustomEvent('wealth:summary',{{detail:__roiSummary}}))")
+        evaluate(FRAMES)
+        actual = evaluate("(()=>{const e=document.querySelector('#wealthMixLegend [data-metric=return-rate]');return {text:e.textContent,title:e.title,label:e.getAttribute('aria-label'),color:e.className};})()")
+        assert actual['text'] == expected
+        assert actual['color'] == color
+        assert '예상 단순수익률' in actual['title'] and '예상 단순수익률' in actual['label']
+        assert '향후 추가 납입' in actual['title']
+        assert evaluate("document.getElementById('homeAssetAllocationTotal').textContent") == '120원'
+        assert evaluate("document.getElementById('wealthAssetNetWorth').textContent") == '777원'
+        assert evaluate("document.querySelector('#wealthMixLegend small').textContent.includes('100.0%')")
+        assert evaluate("(()=>{const copy={...__roiSummary};delete copy.insuranceReturn;return JSON.stringify(copy)===__roiOriginal;})()")
+        no_overflow(evaluate, width)

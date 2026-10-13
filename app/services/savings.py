@@ -526,6 +526,55 @@ def delete_saving_account(saving_id: str, username: str | None = None) -> bool:
     return True
 
 
+def validate_national_pension_history(records: Any) -> list[dict[str, Any]]:
+    """Explicit actual annual payments; absent years are never inferred."""
+    if not isinstance(records, list):
+        raise ValueError("국민연금 납부 이력은 목록이어야 합니다.")
+    result, years = [], set()
+    for row in records:
+        if not isinstance(row, dict):
+            raise ValueError("국민연금 납부 이력 형식이 올바르지 않습니다.")
+        year = str(row.get("year", "")).strip()
+        if len(year) != 4 or not year.isascii() or not year.isdigit() or not 1988 <= int(year) <= date.today().year:
+            raise ValueError("납부 연도는 1988년부터 당해연도까지 입력하세요.")
+        if year in years:
+            raise ValueError("동일 연도의 납부 이력은 한 건만 입력하세요.")
+        raw_amount = row.get("deposit")
+        if isinstance(raw_amount, bool) or raw_amount is None or raw_amount == "":
+            raise ValueError("실제 납부액을 입력하세요. 납부 없음은 0원으로 기록합니다.")
+        try:
+            amount = float(raw_amount)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("납부액은 0 이상의 유효한 금액이어야 합니다.") from exc
+        if not math.isfinite(amount) or amount < 0:
+            raise ValueError("납부액은 0 이상의 유효한 금액이어야 합니다.")
+        years.add(year)
+        result.append({"year": year, "deposit": amount})
+    if not math.isfinite(sum(row["deposit"] for row in result)):
+        raise ValueError("납부액 합계가 유효하지 않습니다.")
+    return result
+
+
+@financial_rmw('portfolio.json')
+def save_national_pension_history(ins_id: str, records: Any, username: str | None = None,
+                                  *, expected_history: Any = None) -> dict[str, Any]:
+    data = read_portfolio(username)
+    item = next((item for item in data.get("insurance_accounts", []) if item.get("id") == ins_id), None)
+    if item is None:
+        raise LookupError("보험/연금 상품을 찾을 수 없습니다.")
+    if item.get("insurance_type") != "national_pension":
+        raise ValueError("국민연금 상품에서만 납부 이력을 변경할 수 있습니다.")
+    if expected_history is not None and expected_history != item.get("yearly_contributions", []):
+        raise NationalPensionHistoryConflict("납부 이력이 변경됐습니다. 다시 열어 확인하세요.")
+    item["yearly_contributions"] = validate_national_pension_history(records)
+    write_portfolio(data, username)
+    return deepcopy(item)
+
+
+class NationalPensionHistoryConflict(ValueError):
+    pass
+
+
 @financial_rmw('portfolio.json')
 def save_insurance_account(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
     """보험/연금/공제 계좌를 생성하거나 수정합니다."""
@@ -569,7 +618,8 @@ def save_insurance_account(payload: dict[str, Any], username: str | None = None)
     }
 
     if "yearly_contributions" in payload:
-        record["yearly_contributions"] = payload.get("yearly_contributions") or []
+        record["yearly_contributions"] = (validate_national_pension_history(payload["yearly_contributions"])
+            if record["insurance_type"] == "national_pension" else payload.get("yearly_contributions") or [])
     elif existing_index is not None and "yearly_contributions" in insurances[existing_index]:
         record["yearly_contributions"] = insurances[existing_index]["yearly_contributions"]
 

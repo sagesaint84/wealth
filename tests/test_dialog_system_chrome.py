@@ -13,7 +13,7 @@ SIZES = {
     'compact': 'accountCashDialog ledgerCardPayDialog familyManagerDialog forcePasswordModal changePasswordModal'.split(),
     'wide': 'ipoHistoricalImportDialog accountImportDialog importDialog accountEditDialog insuranceAccountDialog realEstateDialog ledgerCardsDialog ledgerExcelDialog pnlImportDialog adminUsersModal'.split(),
     'xwide': ['stockChartDialog'],
-    'standard': 'holdingDialog dividendImportDialog assetRecordDialog accountAddDialog bankAccountDialog savingAccountDialog savingContributionsDialog loanAccountDialog realEstateSellDialog ledgerTxDialog ledgerRecurringDialog dividendRecordDialog pnlRecordDialog ipoManualSaleDialog wealth-history-dialog'.split(),
+    'standard': 'holdingDialog dividendImportDialog assetRecordDialog accountAddDialog bankAccountDialog savingAccountDialog savingContributionsDialog nationalPensionHistoryDialog loanAccountDialog realEstateSellDialog ledgerTxDialog ledgerRecurringDialog dividendRecordDialog pnlRecordDialog ipoManualSaleDialog wealth-history-dialog'.split(),
 }
 WIDTHS = {'compact': 500, 'standard': 620, 'wide': 760, 'xwide': 900}
 GUARD = r'''
@@ -80,7 +80,7 @@ def test_all_dialog_roles_geometry_and_readonly_lifecycle(chrome_preview, width,
     call, evaluate = start(chrome_preview, width, BOOT + GUARD)
     call('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 844 if width == 390 else 900,
          'deviceScaleFactor': 1, 'mobile': width == 390})
-    wait_for(evaluate, "document.querySelectorAll('dialog').length===31&&!!window.WealthSavingsContributions")
+    wait_for(evaluate, "document.querySelectorAll('dialog').length===32&&!!window.WealthSavingsContributions")
     # Authentication's existing price-refresh POST is synthetic in GUARD. Measure
     # dialog actions separately from that initial page bootstrap request.
     evaluate('window.bootstrapMutations=__dialogProbe.mutations.splice(0)')

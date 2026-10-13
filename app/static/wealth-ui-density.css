@@ -27,32 +27,120 @@
 .tax-card .tax-card-selected { line-height: 1.4; }
 .tax-card .tax-card-heading > span:not(.tax-card-selected) { flex-shrink: 0; }
 .tax-card .tax-card-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.toss-wts-controls .toss-wts-account-control {
+  position: relative;
+  max-width: 100%;
+  flex: 1 0 280px;
+  min-width: 0;
+}
+.toss-wts-account-control .toss-wts-account-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 4px;
+  min-width: 0;
+}
+.toss-wts-account-head > label { white-space: nowrap; margin: 0; flex: 0 0 auto; }
+.toss-wts-account-head > label:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
+.toss-wts-account-control > select { display: block; width: 100%; max-width: 100%; min-width: 0; }
 .toss-wts-account-control .import-default-controls {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: 4px;
   min-width: 0;
+  flex: 0 0 auto;
 }
 .toss-wts-account-control .import-default-controls .button {
   white-space: nowrap;
   flex-shrink: 0;
-  font-size: 11.5px;
-  padding: 4px 8px;
-  min-height: 32px;
+  /* Override only this component's global .button.compact !important scale. */
+  font-size: 11px !important;
+  padding: 4px 6px !important;
+  height: 32px !important;
+  min-height: 32px !important;
 }
 .toss-wts-account-control .import-default-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.toss-wts-account-control:is(:hover, :focus-within) .import-default-status:not(:empty) {
+  left: 0;
+  top: 100%;
+  z-index: 5;
+  width: 100%;
+  height: auto;
+  box-sizing: border-box;
+  clip-path: none;
+  overflow: visible;
   font-size: 11px;
   line-height: 1.5;
   padding: 2px 6px;
   border-radius: 6px;
   color: var(--muted);
-  background: color-mix(in srgb, var(--muted) 10%, transparent);
+  background: var(--panel, #1e293b);
+  border: 1px solid var(--line);
   min-width: 0;
   max-width: 100%;
   overflow-wrap: anywhere;
 }
 .toss-wts-account-control .import-default-status:empty { display: none; }
+@media (max-width: 760px) {
+  .toss-wts-controls .toss-wts-account-control { flex: initial; width: 100%; }
+}
+@media (max-width: 360px) {
+  /* Nested card/control padding reduces usable width well below 320px.
+     Reserve the label's actual width, then give both actions the remainder. */
+  .toss-wts-card .toss-wts-controls { padding-inline: 6px; min-width: 0; }
+  .toss-wts-account-control .toss-wts-account-head {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    column-gap: 2px;
+    width: 100%;
+    min-width: 0;
+  }
+  .toss-wts-controls .toss-wts-account-head > label {
+    font-size: 10px;
+    min-width: 0;
+    letter-spacing: 0;
+  }
+  .toss-wts-account-control .import-default-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 2px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .toss-wts-account-control .import-default-controls .button {
+    font-size: 10px !important;
+    padding: 4px 2px !important;
+    letter-spacing: 0;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+.np-history { margin-top: 12px; font-size: 12px; min-width: 0; }
+.np-history summary { cursor: pointer; font-weight: 700; }
+.np-history p { line-height: 1.6; overflow-wrap: anywhere; }
+.np-history-list { max-height: 260px; overflow-y: auto; margin-top: 10px; }
+.np-history-line { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; }
+.np-history-line > span { min-width: 0; overflow-wrap: anywhere; }
+#nationalPensionYearlyList { max-height: 50vh; overflow-y: auto; margin: 14px 0; }
+#nationalPensionHistoryDialog .np-history-edit-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr) auto; gap: 8px; align-items: end; margin-bottom: 12px; }
+#nationalPensionHistoryDialog .np-history-edit-row input { width: 100%; min-width: 0; }
+@media (max-width: 480px) {
+  .wealth-layout #assetCategoryTabs { flex-wrap: wrap; overflow-x: visible; }
+  .wealth-layout #assetCategoryTabs > button { padding: 8px; font-size: 11px; white-space: nowrap; }
+  #nationalPensionHistoryDialog .np-history-edit-row { grid-template-columns: minmax(0,1fr) minmax(0,2fr); }
+  #nationalPensionHistoryDialog .np-history-edit-row button { grid-column: 1 / -1; justify-self: end; }
+}
 
 /* Phase 1: four surface-scoped fixes; global dialog sizing stays unchanged. */
 #savingContributionsDialog > p {

@@ -69,7 +69,8 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
         self.assertNotIn('id="wealthMix"', self.layout)
         self.assertNotIn("부동산 순자산 ·", self.layout)
         self.assertIn("metric.dataset.metric = 'return-rate'", self.layout)
-        self.assertIn("['현금·예수금', '보험', '임차보증금'].includes(item.name)", self.layout)
+        self.assertIn("['현금·예수금', '임차보증금'].includes(item.name)", self.layout)
+        self.assertIn("if (item.name === '보험') return Number.isFinite(insurance?.rate) ? insurance.rate : null", self.layout)
         self.assertIn("metric.textContent = returnRate === null ? '—' : pct(returnRate)", self.layout)
 
     def test_home_detail_projection_does_not_change_stock_mode(self):

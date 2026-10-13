@@ -78,12 +78,19 @@
     try { importDefaults = (await api('/api/import-destination-defaults')).defaults || {}; }
     catch (_) { /* Failed preference load must never invent a destination. */ }
   }
+  function importNotice(select, message, notify = false, error = false) {
+    const status = document.getElementById(`${select.id}DefaultNotice`);
+    if (status) status.textContent = message;
+    select.setAttribute('aria-describedby', `${select.id}DefaultNotice`);
+    const label = select.parentElement.querySelector('label');
+    if (label) label.title = message;
+    if (notify && typeof toast === 'function') toast(message, error);
+  }
   function importSelection(select, workflow, current, accounts) {
     const eligible = accounts.filter(a => currentOwner === '모두' || !currentOwner || [currentOwner, '모두'].includes(a.owner || '모두'));
     const preferred = current || importDefaults[workflow] || '';
     select.value = eligible.some(a => String(a.id) === preferred) ? preferred : '';
-    const message = document.getElementById(`${select.id}DefaultNotice`);
-    if (message) message.textContent = preferred && !select.value ? '저장된 기본값을 사용할 수 없습니다. 직접 선택해 주세요.' : (select.value === importDefaults[workflow] && select.value ? '기본 목적 계좌' : '');
+    importNotice(select, preferred && !select.value ? '저장된 기본값을 사용할 수 없습니다. 직접 선택해 주세요.' : (select.value === importDefaults[workflow] && select.value ? '기본 목적 계좌' : ''));
   }
   async function restoreImportSelection(select, workflow, accounts) {
     await loadImports();
@@ -91,13 +98,12 @@
   }
   async function saveImport(workflow, selectId, clear) {
     const select = document.getElementById(selectId);
-    const message = document.getElementById(`${selectId}DefaultNotice`);
-    if (!clear && !select.value) { message.textContent = '계좌를 먼저 선택해 주세요.'; return; }
+    if (!clear && !select.value) { importNotice(select, '계좌를 먼저 선택해 주세요.', true, true); return; }
     try {
       importDefaults = (await api('/api/import-destination-defaults', {method: 'PUT', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({workflow, account_id: clear ? '' : select.value, owner: currentOwner || '모두'})})).defaults;
-      message.textContent = clear ? '기본계좌 해제됨' : '기본계좌 지정됨';
-    } catch (error) { message.textContent = error.message; }
+      importNotice(select, clear ? '기본계좌 해제됨' : '기본계좌 지정됨', true);
+    } catch (error) { importNotice(select, error.message, true, true); }
   }
   document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('ledgerDefaultSave')?.addEventListener('click', () => save());

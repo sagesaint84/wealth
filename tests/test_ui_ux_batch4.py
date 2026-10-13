@@ -208,7 +208,7 @@ process.stdout.write(JSON.stringify(out));
             self.assertIn(tab, self.layout_js)
 
         # Comprehensive Assets tabs (already present)
-        asset_tabs = ["📈 증권", "🏦 은행", "🛡️ 보험", "🏠 부동산"]
+        asset_tabs = ["📈 증권", "🏦 은행", "🛡️ 연금·보험", "🏠 부동산"]
         for tab in asset_tabs:
             self.assertIn(tab, self.layout_js)
 

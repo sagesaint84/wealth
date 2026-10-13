@@ -1466,6 +1466,7 @@ function renderSummary(data) {
     realized: combinedRealizedKrw, safe: totalSafeAssets,
     stock: totalStockVal, property: totalREInvestEquity,
     deposits: totalTenantDepositVal, insurance: insuranceTotal,
+    insuranceReturn: window.WealthInsuranceReturnDisplay?.(data.insurance_accounts || rawInsuranceAccounts || [], o),
     realizedTrade: totalRealizedKrw, dividendInterest: totalActualDivKrw,
     realizedYear: combinedYearRealizedKrw, realizedMonth: combinedMonthRealizedKrw,
     dayProfit: Number((data.day_change || {}).day_profit_krw || 0),
@@ -2831,6 +2832,93 @@ switchAccountCategory(currentAccountCategory);
   }
 })();
 
+function nationalPensionHistoryMarkup(ins) {
+  const records = Array.isArray(ins.yearly_contributions) ? ins.yearly_contributions : [];
+  const malformed = (ins.yearly_contributions != null && !Array.isArray(ins.yearly_contributions)) ||
+    records.some(row => !row || !/^\d{4}$/.test(String(row.year)) || Number(row.year) < 1988 || Number(row.year) > new Date().getFullYear() || !Number.isFinite(row.deposit) || row.deposit < 0) ||
+    new Set(records.map(row => String(row.year))).size !== records.length;
+  if (malformed) return '<p class="np-history">등록 납부 이력 형식을 확인해 주세요. 합계는 산정하지 않았습니다.</p>';
+  const byYear = new Map(records.map(row => [String(row.year), row.deposit]));
+  const currentYear = new Date().getFullYear();
+  const firstYear = Math.min(2013, ...records.map(row => Number(row.year)).filter(year => year >= 1988 && year <= currentYear));
+  const total = records.reduce((sum, row) => sum + (Number.isFinite(row.deposit) && row.deposit >= 0 ? row.deposit : 0), 0);
+  const paid = Number(ins.total_paid_amount);
+  const difference = Number.isFinite(paid) ? total - paid : null;
+  const rows = [];
+  for (let year = currentYear; year >= firstYear; year--) {
+    const amount = byYear.get(String(year));
+    const text = !byYear.has(String(year)) ? '미확인' : amount === 0 ? '납부 없음 (0원)' : `₩${number(amount, 0)}`;
+    rows.push(`<div class="np-history-line"><span>${year}년</span><span>${text}</span></div>`);
+  }
+  return `<details class="np-history"><summary>연도별 실제 납부 이력 · ${records.length}건</summary>
+    <p>입력 이력 합계 ₩${number(total, 0)} · 기존 누적납입액 ₩${number(ins.total_paid_amount || 0, 0)}</p>
+    <p>${difference === null ? '기존 누적납입액 확인 필요' : difference === 0 ? '기존 누적납입액과 일치' : `입력 이력과 누적납입액 차이 ₩${number(difference, 0)} (자동 변경 없음)`}</p>
+    <p>미확인은 미입력 연도입니다. 첫해·당해연도 금액은 확인한 부분 납부액 그대로 기록합니다.</p>
+    <button type="button" class="button secondary compact" data-national-history-id="${html(ins.id)}">납부 이력 편집</button>
+    <div class="np-history-list">${rows.join('')}</div></details>`;
+}
+
+let nationalPensionHistoryItem = null;
+let nationalPensionHistoryOriginal = [];
+let nationalPensionRowCounter = 0;
+let nationalPensionHistorySaving = false;
+function addNationalPensionHistoryRow(record = {}) {
+  const list = document.getElementById('nationalPensionYearlyList');
+  const id = ++nationalPensionRowCounter;
+  const row = document.createElement('div'); row.className = 'np-history-edit-row';
+  row.innerHTML = `<label for="npYear${id}">연도<input id="npYear${id}" data-np-year type="number" min="1988" max="${new Date().getFullYear()}" step="1" placeholder="2013"></label>
+    <label for="npAmount${id}">실제 납부액<input id="npAmount${id}" data-np-amount type="number" min="0" step="any" data-korean-currency placeholder="미확인: 비워 두기"></label>
+    <button type="button" class="button secondary compact" aria-label="납부 이력 행 삭제">삭제</button>`;
+  row.querySelector('[data-np-year]').value = record.year ?? '';
+  row.querySelector('[data-np-amount]').value = record.deposit ?? '';
+  row.querySelector('button').onclick = () => { if (confirm('이 연도의 납부 이력을 삭제할까요? 저장 전까지 실제 기록은 유지됩니다.')) row.remove(); };
+  list.append(row);
+  refreshDialogKoreanHints(document.getElementById('nationalPensionHistoryDialog'));
+}
+function openNationalPensionHistory(ins) {
+  if (nationalPensionHistorySaving) { toast('납부 이력 저장이 진행 중입니다. 잠시 후 다시 열어 주세요.'); return; }
+  nationalPensionHistoryItem = ins;
+  nationalPensionHistoryOriginal = structuredClone(ins.yearly_contributions || []);
+  nationalPensionRowCounter = 0;
+  document.getElementById('nationalPensionYearlyList').replaceChildren();
+  nationalPensionHistoryOriginal.forEach(addNationalPensionHistoryRow);
+  document.getElementById('nationalPensionHistoryNotice').textContent = `기존 누적납입액 ₩${number(ins.total_paid_amount || 0, 0)}는 이력 저장으로 변경되지 않습니다. 연금 개시일은 납부 종료일로 사용하지 않습니다.`;
+  document.getElementById('nationalPensionHistoryDialog').showModal();
+}
+function readNationalPensionHistoryRows() {
+  const result = [], years = new Set(), currentYear = new Date().getFullYear();
+  document.querySelectorAll('#nationalPensionYearlyList .np-history-edit-row').forEach(row => {
+    const year = row.querySelector('[data-np-year]').value.trim();
+    const raw = row.querySelector('[data-np-amount]').value.trim();
+    if (!year && !raw) return;
+    const amount = Number(raw);
+    if (!/^\d{4}$/.test(year) || Number(year) < 1988 || Number(year) > currentYear || years.has(year)) throw new Error('1988년부터 당해연도까지 중복 없는 연도를 입력하세요.');
+    if (!raw || !Number.isFinite(amount) || amount < 0) throw new Error('실제 납부액을 입력하세요. 납부 없음은 0원, 미확인은 행을 추가하지 않습니다.');
+    years.add(year); result.push({year, deposit: amount});
+  });
+  return result;
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('addNationalPensionYear')?.addEventListener('click', () => addNationalPensionHistoryRow());
+  document.getElementById('nationalPensionHistoryForm')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (nationalPensionHistorySaving) return;
+    const item = nationalPensionHistoryItem;
+    const notice = document.getElementById('nationalPensionHistoryNotice');
+    const button = event.target.querySelector('[type=submit]');
+    try {
+      const records = readNationalPensionHistoryRows(); button.disabled = true; nationalPensionHistorySaving = true;
+      const result = await api(`/api/insurance-accounts/${encodeURIComponent(item.id)}/yearly-contributions`, {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({yearly_contributions:records, expected_history:nationalPensionHistoryOriginal})});
+      // Apply only history; enriched valuation and the owner's original totals stay unchanged.
+      item.yearly_contributions = result.insurance.yearly_contributions;
+      renderInsuranceWithOwner(currentOwner);
+      closeDialog('nationalPensionHistoryDialog'); toast('국민연금 납부 이력이 저장되었습니다.');
+    } catch (error) { notice.textContent = error.message; toast(error.message, true); }
+    finally { button.disabled = false; nationalPensionHistorySaving = false; }
+  });
+});
+
 function renderInsurance(insuranceList, owner = '모두') {
   rawInsuranceAccounts = insuranceList || [];
   renderInsuranceWithOwner(owner);
@@ -3008,7 +3096,9 @@ function renderInsuranceWithOwner(owner = '모두') {
     const statusKey = ins.payment_status || 'paying';
     const statusLabel = PAYMENT_STATUS_LABELS[statusKey] || '납입중';
 
-    const periodText = (ins.start_date || ins.maturity_date)
+    const periodText = typeKey === 'national_pension'
+      ? `가입 ${ins.start_date || '미지정'} · 연금개시 예정 ${ins.maturity_date || '미지정'}`
+      : (ins.start_date || ins.maturity_date)
       ? `${ins.start_date || '가입'} ~ ${ins.maturity_date || '만기'}`
       : '기간 미지정';
 
@@ -3112,6 +3202,7 @@ function renderInsuranceWithOwner(owner = '모두') {
         </div>
 
         ${yuTaxBox}
+        ${typeKey === 'national_pension' ? nationalPensionHistoryMarkup(ins) : ''}
 
         ${(ins.payout_type === 'monthly_pension' || (Number(ins.monthly_payout) || 0) > 0) ? `
           <div class="saving-interest-box" style="margin-top:10px;background:rgba(56,189,248,0.06);border-color:rgba(56,189,248,0.35);">
@@ -6668,6 +6759,12 @@ document.addEventListener('click', async (e) => {
     return;
   }
 
+  const historyButton = e.target.closest('[data-national-history-id]');
+  if (historyButton) {
+    const item = rawInsuranceAccounts.find(item => item.id === historyButton.dataset.nationalHistoryId && item.insurance_type === 'national_pension');
+    if (item) openNationalPensionHistory(item);
+    return;
+  }
   // 보험/연금 수정
   const insEditBtn = e.target.closest('[data-insurance-edit-id]');
   if (insEditBtn) {

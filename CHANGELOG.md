@@ -1,5 +1,14 @@
 # Wealth 변경 이력
 
+## Wealth v2.0.1 — Toss Account Layout and Insurance Display — 2026-10-13
+
+상태: 구현 및 합성 테스트 코드 작성. 이번 패치의 테스트·commit·배포는 미실행.
+
+- Toss 실현손익·배당이자 가져오기의 귀속 계좌를 헤더(라벨·지정·해제)와 전체 폭 select의 2행으로 구성. 상태 live region과 오류 알림은 유지하고 상시 추가 행은 제거.
+- HOME 보험에 누적납입액과 일시금/해약환급금 입력액의 예상 단순수익률 표시. 기간·향후 납입·세금 절감액을 반영하지 않으며 연환산·IRR·확정 수익률이 아님.
+- 연금형 또는 근거 부족 상품이 포함된 보험 합계는 미산정 유지. 기존 자산 금액·비중·순자산·저장 구조는 변경하지 않음. 상세 기준은 [표시 정책](docs/v2-wts-insurance-roi.md) 참고.
+- 앱·HTML·service-worker cache와 실제 변경한 정적 리소스만 2.0.1로 갱신.
+
 ## Wealth v2.0.0 — UI Finish and ARM64 Toss Authentication — 2026-10-13
 
 상태: 사용자 확인 Windows 전체 pytest 3,568 passed / 5 skipped / 0 failed, 798 subtests passed, 신규 Chrome UI 테스트 14 passed. 27개 파일 commit·push 및 PR #142 생성 완료 (`d847dc5f3127c50842bbaa704e890a5db12e6e30`). GitHub Actions 결과, merge, GHCR 게시 및 Oracle 운영 배포 상태는 별도 검증이 필요하다.

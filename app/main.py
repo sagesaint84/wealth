@@ -251,7 +251,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.0.1"
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -5160,8 +5160,30 @@ async def save_insurance_account_endpoint(request: Request) -> dict:
     from app.services.savings import save_insurance_account
     username = get_current_username(request)
     body = await request.json()
-    record = save_insurance_account(body, username=username)
+    try:
+        record = save_insurance_account(body, username=username)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return {"message": "보험/연금 상품이 저장되었습니다.", "insurance": record}
+
+
+@app.put("/api/insurance-accounts/{ins_id}/yearly-contributions")
+async def save_national_pension_history_endpoint(ins_id: str, request: Request) -> dict:
+    from app.services.savings import save_national_pension_history, NationalPensionHistoryConflict
+    username = get_current_username(request)
+    body = await request.json()
+    if not isinstance(body, dict) or not isinstance(body.get("expected_history"), list):
+        raise HTTPException(400, "기존 납부 이력을 확인한 뒤 저장하세요.")
+    try:
+        item = save_national_pension_history(ins_id, body.get("yearly_contributions"), username,
+                                            expected_history=body.get("expected_history"))
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except NationalPensionHistoryConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"insurance": item, "message": "국민연금 납부 이력이 저장되었습니다."}
 
 @app.delete("/api/insurance-accounts/{ins_id}")
 async def delete_insurance_account_endpoint(ins_id: str, request: Request) -> dict:

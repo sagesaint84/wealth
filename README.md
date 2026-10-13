@@ -1,6 +1,6 @@
 # Wealth
 
-Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 앱 버전은 **Wealth v2.0.0**입니다.
+Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 앱 버전은 **Wealth v2.0.1**입니다. v2.0.1은 구현 단계이며 테스트·배포는 아직 확인하지 않았습니다. 계좌 선택 2행 UI와 보험 예상 단순수익률의 산정 한계는 [v2.0.1 표시 정책](docs/v2-wts-insurance-roi.md)을 참고하세요.
 
 v2.0.0은 사용자 확인 Windows 전체 pytest **3,568 passed / 5 skipped / 0 failed**, **798 subtests passed**, 신규 Chrome UI 테스트 **14 passed**를 기록했습니다. 27개 파일의 commit·push와 PR #142 생성이 완료됐습니다. GitHub Actions 결과, merge, GHCR 게시 및 Oracle 운영 배포 상태는 별도 검증이 필요합니다.
 
@@ -91,7 +91,7 @@ Write-Host "PYTEST_EXIT=$testExit"
 
 관련 기능을 바꿀 때는 해당 테스트를 먼저 실행하고, Python 변경은 `py_compile`, JavaScript 변경은 `node --check`, 최종 변경은 `git diff --check`로 확인합니다.
 
-v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 앱 버전·service-worker cache는 `2.0.0`이며 static asset의 `?v=`는 파일별 cache revision입니다. 이번에 바꾸지 않은 파일의 과거 revision은 의도적으로 유지합니다.
+v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 앱 버전·service-worker cache는 `2.0.1`이며 static asset의 `?v=`는 파일별 cache revision입니다. 이번에 바꾸지 않은 파일의 과거 revision은 의도적으로 유지합니다.
 
 ## 프로젝트 문서
 

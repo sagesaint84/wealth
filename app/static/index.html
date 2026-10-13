@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Wealth" />
     <meta name="application-name" content="Wealth" />
-    <meta name="application-version" content="2.0.0" />
+    <meta name="application-version" content="2.0.1" />
     <script src="/static/wealth-invest-tab-state.js?v=10.9k1"></script>
     <script src="/static/wealth-asset-category-state.js?v=10.9q"></script>
     <link rel="manifest" href="/manifest.json" />
@@ -27,7 +27,7 @@
     <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-family-financial-income-risk.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-family-financial-income-allocation.css?v=1.3.0" />
-    <link rel="stylesheet" href="/static/wealth-ui-density.css?v=2.0.0" />
+    <link rel="stylesheet" href="/static/wealth-ui-density.css?v=2.0.1" />
     <link rel="stylesheet" href="/static/wealth-dialog-system.css?v=10.9o2" />
   </head>
   <body>
@@ -730,9 +730,9 @@
                 </select>
               </div>
               <div class="toss-wts-control-item toss-wts-account-control">
-                <label for="wtsDestinationAccount">귀속 Wealth 계좌</label>
-                <select id="wtsDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌"><option value="">토스증권 계좌를 선택하세요</option></select>
-                <div class="import-default-controls"><button id="wtsDestinationAccountRemember" type="button" class="button secondary compact">기본계좌로 지정</button><button id="wtsDestinationAccountClear" type="button" class="button secondary compact" aria-label="실현손익 가져오기 기본계좌 해제">해제</button><small id="wtsDestinationAccountDefaultNotice" class="import-default-status" role="status"></small></div>
+                <div class="toss-wts-account-head"><label for="wtsDestinationAccount" tabindex="0" aria-describedby="wtsDestinationAccountDefaultNotice">귀속 Wealth 계좌</label><div class="import-default-controls"><button id="wtsDestinationAccountRemember" type="button" class="button secondary compact" aria-describedby="wtsDestinationAccountDefaultNotice">기본계좌로 지정</button><button id="wtsDestinationAccountClear" type="button" class="button secondary compact" aria-label="실현손익 가져오기 기본계좌 해제" aria-describedby="wtsDestinationAccountDefaultNotice">해제</button></div></div>
+                <select id="wtsDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌" aria-describedby="wtsDestinationAccountDefaultNotice"><option value="">토스증권 계좌를 선택하세요</option></select>
+                <small id="wtsDestinationAccountDefaultNotice" class="import-default-status" role="status" aria-live="polite"></small>
               </div>
               <div id="tossWtsImportBar" class="toss-wts-control-action toss-wts-import-actions">
                 <button type="button" id="btnFetchTossWtsFeed" class="button primary compact toss-wts-fetch-btn">WTS 조회</button>
@@ -1212,9 +1212,9 @@
                 <input type="date" id="tossWtsIncomeToDate" class="toss-wts-input" aria-label="WTS 배당 이자 조회 종료일">
               </div>
               <div class="toss-wts-control-item toss-wts-account-control">
-                <label for="wtsIncomeDestinationAccount">귀속 Wealth 계좌</label>
-                <select id="wtsIncomeDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌"><option value="">토스증권 계좌를 선택하세요</option></select>
-                <div class="import-default-controls"><button id="wtsIncomeDestinationAccountRemember" type="button" class="button secondary compact">기본계좌로 지정</button><button id="wtsIncomeDestinationAccountClear" type="button" class="button secondary compact" aria-label="배당·이자 가져오기 기본계좌 해제">해제</button><small id="wtsIncomeDestinationAccountDefaultNotice" class="import-default-status" role="status"></small></div>
+                <div class="toss-wts-account-head"><label for="wtsIncomeDestinationAccount" tabindex="0" aria-describedby="wtsIncomeDestinationAccountDefaultNotice">귀속 Wealth 계좌</label><div class="import-default-controls"><button id="wtsIncomeDestinationAccountRemember" type="button" class="button secondary compact" aria-describedby="wtsIncomeDestinationAccountDefaultNotice">기본계좌로 지정</button><button id="wtsIncomeDestinationAccountClear" type="button" class="button secondary compact" aria-label="배당·이자 가져오기 기본계좌 해제" aria-describedby="wtsIncomeDestinationAccountDefaultNotice">해제</button></div></div>
+                <select id="wtsIncomeDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌" aria-describedby="wtsIncomeDestinationAccountDefaultNotice"><option value="">토스증권 계좌를 선택하세요</option></select>
+                <small id="wtsIncomeDestinationAccountDefaultNotice" class="import-default-status" role="status" aria-live="polite"></small>
               </div>
               <div id="tossWtsIncomeImportBar" class="toss-wts-control-action toss-wts-import-actions">
                 <button type="button" id="btnFetchTossWtsIncome" class="button primary compact toss-wts-fetch-btn">배당·이자 조회</button>
@@ -2211,6 +2211,17 @@
       </form>
     </dialog>
 
+    <dialog id="nationalPensionHistoryDialog" class="dialog dialog--standard" aria-labelledby="nationalPensionHistoryTitle">
+      <div class="dialog-head"><h2 id="nationalPensionHistoryTitle">국민연금 연도별 실제 납부 이력</h2><button class="close" value="cancel" aria-label="닫기">×</button></div>
+      <form id="nationalPensionHistoryForm">
+        <p class="dialog-description">공단에서 확인한 실제 연간 보험료만 입력하세요. 0원은 납부 없음, 미입력 연도는 미확인입니다. 미래 보험료와 수익률은 계산하지 않습니다.</p>
+        <button id="addNationalPensionYear" class="button secondary compact" type="button">+ 연도 추가</button>
+        <div id="nationalPensionYearlyList"></div>
+        <p id="nationalPensionHistoryNotice" class="dialog-description" role="status" aria-live="polite"></p>
+        <div class="dialog-actions"><button type="button" class="button secondary" value="cancel">취소</button><button type="submit" class="button primary">이력 저장</button></div>
+      </form>
+    </dialog>
+
     <!-- 대출·마이너스통장 등록 및 수정 다이얼로그 -->
     <dialog id="loanAccountDialog" class="dialog dialog--standard">
       <div class="dialog-head">
@@ -2536,7 +2547,7 @@
     </div>
     <div style="text-align:center;">
       <p id="updatedAt" class="muted" style="margin:0;font-size:12px;opacity:0.75;">데이터를 불러오는 중입니다.</p>
-      <p id="appVersionDisplay" class="muted" style="margin:4px 0 0;font-size:12px;opacity:0.65;">앱 버전 v2.0.0</p>
+      <p id="appVersionDisplay" class="muted" style="margin:4px 0 0;font-size:12px;opacity:0.65;">앱 버전 v2.0.1</p>
     </div>
   </footer>
 
@@ -3287,11 +3298,11 @@
     <script src="/static/wealth-color-picker.js?v=10.9r5"></script>
     <script src="/static/wealth-color-preferences.js?v=10.9r6"></script>
     <script src="/static/wealth-settings-surface.js?v=10.9m1"></script>
-    <script src="/static/wealth-layout.js?v=2.0.0"></script>
+    <script src="/static/wealth-layout.js?v=2.0.1"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
-    <script src="/static/wealth.js?v=2.0.0"></script>
+    <script src="/static/wealth.js?v=2.0.1"></script>
     <script src="/static/wealth-savings-contributions.js?v=1.3.0"></script>
-    <script src="/static/wealth-transaction-defaults.js?v=2.0.0"></script>
+    <script src="/static/wealth-transaction-defaults.js?v=2.0.1"></script>
     <script src="/static/wealth-dividend-source.js?v=1.3.0"></script>
     <script src="/static/wealth-money-input.js?v=1.3.0"></script>
     <script src="/static/wealth-financial-income-what-if.js?v=1.3.0"></script>
