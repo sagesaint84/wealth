@@ -3,8 +3,12 @@
 기준 main: 55e3dcb68b85881d3c233f5de8d1f80bd2e0e2d6.
 Branch: codex/v2-ui-cleanup. 작성일: 2026-10-13.
 
-상태: 구현 및 테스트 코드 작성만 완료. 이 branch의 pytest/Node/Chrome/syntax
-검증은 실행하지 않았으며 commit·push·PR·merge·배포도 하지 않았다.
+상태: v2.0.0 구현 완료. 사용자 확인 Windows 전체 pytest는
+**3,568 passed / 5 skipped / 0 failed**, **798 subtests passed**이며,
+신규 Chrome UI 테스트는 **14 passed**다. 27개 파일 commit·push 및 PR #142
+생성이 완료됐다. HEAD: `d847dc5f3127c50842bbaa704e890a5db12e6e30`.
+GitHub Actions 결과, merge, GHCR 게시 및 Oracle 운영 배포 상태는 별도
+검증이 필요하다. 이 문서 갱신에서는 테스트나 Git 게시 작업을 실행하지 않았다.
 
 ## 표시 변경
 
@@ -77,8 +81,9 @@ timeseries fallback, scheduler, 금융 서비스는 삭제·수정하지 않았�
 ## 사용자 실행용 검증
 
 실제 data/.env/credentials 및 금융 파일이 없는, **이번 변경을 포함한**
-synthetic source copy에서 실행한다. 아래 명령은 작성만 했으며 Codex가
-실행하지 않았다. Node와 기존 native Chrome test prerequisites가 필요하다.
+synthetic source copy에서 실행한다. 아래 명령은 재검증용으로 유지하며,
+이번 문서 갱신에서는 실행하지 않았다. Node와 기존 native Chrome test
+prerequisites가 필요하다.
 
 PowerShell:
 
@@ -113,7 +118,7 @@ frontend tests에서 실행된다. Chrome matrix는 1280/390과 purple/white/OLE
 title/badge 한 줄, 내부/page overflow, 기본계좌 명시적 지정/해제, 기존
 비중·총액 불변과 미산정 수익률을 검증한다. 기존 assertion은 제거·완화하지 않았다.
 
-사용자가 보고한 최신 main full green과 이 branch 검증은 별개다.
+위 Windows 결과는 사용자가 보고한 이 branch의 검증 결과다.
 새 실패를 과거 baseline으로 자동 분류하지 말고 exact node/signature를
-확인한다. 검증 전 responsive 성공·release gate PASS·실제 ARM64 QR 성공을
-주장하지 않는다.
+확인한다. Windows 검증 통과는 GitHub Actions·Linux/ARM64 Docker 검증이나
+실제 ARM64 QR 인증 및 운영 배포 성공을 뜻하지 않으며 각각 별도 확인한다.

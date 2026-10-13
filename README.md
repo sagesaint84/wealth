@@ -1,6 +1,8 @@
 # Wealth
 
-Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 앱 버전은 **Wealth v2.0.0**입니다. 이 작업 트리의 v2.0.0 반영은 사용자 검증·릴리즈 전 상태이며 배포 완료를 뜻하지 않습니다.
+Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 앱 버전은 **Wealth v2.0.0**입니다.
+
+v2.0.0은 사용자 확인 Windows 전체 pytest **3,568 passed / 5 skipped / 0 failed**, **798 subtests passed**, 신규 Chrome UI 테스트 **14 passed**를 기록했습니다. 27개 파일의 commit·push와 PR #142 생성이 완료됐습니다. GitHub Actions 결과, merge, GHCR 게시 및 Oracle 운영 배포 상태는 별도 검증이 필요합니다.
 
 ## 주요 기능
 

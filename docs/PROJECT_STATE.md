@@ -4,11 +4,13 @@
 > 새 대화, 새 작업 세션, 새 개발자가 시작할 때 가장 먼저 이 문서를 읽습니다.
 > 세부 계획은 `docs/ROADMAP.md`, 비밀값·환경설정 원칙은 `docs/SECURITY_AND_CONFIG.md`를 참조합니다.
 
-마지막 갱신: 2026-10-13 (main `55e3dcb` 기준, v2.0.0 작업 트리 반영)
+마지막 갱신: 2026-10-13 (기준 main `55e3dcb`, v2.0.0 PR #142 / HEAD `d847dc5`)
 
 ## 1. 현재 개발 상태
 
-현재 main은 Toss WTS ARM64 인증 런타임 PR #141까지 반영됐다. `codex/v2-ui-cleanup`에서 v2.0.0 표시, 절세계좌/가져오기 UI와 자산 구성 표시를 정리 중이며 아직 검증·commit·배포 전이다. 다음 기능은 미정이며 후보와 보류 항목은 `docs/ROADMAP.md`에 둔다.
+기준 main `55e3dcb`에는 Toss WTS ARM64 인증 런타임 PR #141까지 반영됐다. `codex/v2-ui-cleanup`의 v2.0.0 표시, 절세계좌/가져오기 UI와 자산 구성 표시 정리는 구현을 완료했으며, 27개 파일 commit·push 및 PR #142 생성이 완료됐다. HEAD는 `d847dc5f3127c50842bbaa704e890a5db12e6e30`이다. 다음 기능은 미정이며 후보와 보류 항목은 `docs/ROADMAP.md`에 둔다.
+
+사용자 확인 Windows 검증: 전체 pytest **3,568 passed / 5 skipped / 0 failed**, **798 subtests passed**; 신규 Chrome UI 테스트 **14 passed**. GitHub Actions 결과, merge, GHCR 게시 및 Oracle 운영 배포 상태는 별도 검증이 필요하며 Windows 결과로 완료를 판단하지 않는다.
 
 ### 현재 제품/운영 기준
 

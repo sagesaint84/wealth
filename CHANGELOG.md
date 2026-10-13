@@ -2,7 +2,7 @@
 
 ## Wealth v2.0.0 — UI Finish and ARM64 Toss Authentication — 2026-10-13
 
-상태: 작업 트리 반영 / 사용자 검증·릴리즈 전. 이 항목은 운영 배포 완료를 의미하지 않는다.
+상태: 사용자 확인 Windows 전체 pytest 3,568 passed / 5 skipped / 0 failed, 798 subtests passed, 신규 Chrome UI 테스트 14 passed. 27개 파일 commit·push 및 PR #142 생성 완료 (`d847dc5f3127c50842bbaa704e890a5db12e6e30`). GitHub Actions 결과, merge, GHCR 게시 및 Oracle 운영 배포 상태는 별도 검증이 필요하다.
 
 - 절세계좌 카드 제목·선택 badge와 종목/계좌 수를 한 줄 중심으로 정리하고 긴 실제 계좌명은 tooltip으로 보존.
 - 실현손익·배당·이자 가져오기의 귀속 Wealth 계좌는 유지하면서 기본계좌 지정/해제 버튼과 상태를 compact하게 배치.
