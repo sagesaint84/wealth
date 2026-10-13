@@ -1,12 +1,13 @@
 # Wealth
 
-Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 앱 버전은 **Wealth v2.0.0**입니다.
+Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 앱 버전은 **Wealth v2.0.1**입니다. PR #143 기준 HEAD `acfe0a7`은 사용자 확인 전체 pytest **3,596 passed / 5 skipped / 0 failed**, **798 subtests passed**, Chrome UI **30 passed**, AMD64/ARM64 PR CI 성공 상태입니다. 이번 후속 국민연금 상세 분석·보험 부분 집계 변경은 아직 실행 검증하지 않았습니다. [계좌 UI·보험 표시 정책](docs/v2-wts-insurance-roi.md), [국민연금 분석 기준과 한계](docs/national-pension-analysis.md)를 참고하세요.
 
-v2.0.0은 사용자 확인 Windows 전체 pytest **3,568 passed / 5 skipped / 0 failed**, **798 subtests passed**, 신규 Chrome UI 테스트 **14 passed**를 기록했습니다. 27개 파일의 commit·push와 PR #142 생성이 완료됐습니다. GitHub Actions 결과, merge, GHCR 게시 및 Oracle 운영 배포 상태는 별도 검증이 필요합니다.
+v2.0.0은 사용자 확인 Windows 전체 pytest **3,568 passed / 5 skipped / 0 failed**, **798 subtests passed**, 신규 Chrome UI 테스트 **14 passed**를 기록했습니다. PR #142 main 병합과 Oracle ARM64 운영 배포·HTTP 검증도 사용자 확인으로 완료됐습니다. PR #143 후속 코드의 merge·게시·배포 완료를 뜻하지 않습니다.
 
 ## 주요 기능
 
 - **자산과 계좌**: 증권·은행·예적금·보험·부동산·대출을 모아 순자산과 자산 구성을 표시합니다. 계좌별 보유종목과 평가금액을 관리합니다.
+- **국민연금 상세 분석**: 실제 연간 납부 이력과 가입유형·본인/사업장 부담액·세금 정보를 분리 관리합니다. 확인한 과세표준·공제 인정액의 누진 산출세액 감소분과 사용자 가정의 수령 나이별 현금흐름·IRR을 제공합니다. 미확인 개인 비용, 미등록 세율 연도, 복수 해 가능성 및 세후 근거 부족은 미산정으로 표시합니다.
 - **주식 투자**: 포트폴리오, 히트맵, 주식기록, 전략 버킷, 절세계좌 보유종목, 전체 보유종목을 조회합니다. ISA·IRP·연금저축 등 절세계좌의 소유자와 계좌 선택을 반영합니다.
 - **머니로그**: 통합 캘린더, 실현손익, 배당·이자, 가계부, 공모주 일정과 가족별 청약 상태를 관리합니다.
 - **세금과 배당**: 금융소득 전망·What-if, 알려진 세금 후 배당 현금흐름, 월별 목표와 계산 근거를 표시합니다. 불완전한 근거는 확정값으로 채우지 않습니다.
@@ -91,7 +92,7 @@ Write-Host "PYTEST_EXIT=$testExit"
 
 관련 기능을 바꿀 때는 해당 테스트를 먼저 실행하고, Python 변경은 `py_compile`, JavaScript 변경은 `node --check`, 최종 변경은 `git diff --check`로 확인합니다.
 
-v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 앱 버전·service-worker cache는 `2.0.0`이며 static asset의 `?v=`는 파일별 cache revision입니다. 이번에 바꾸지 않은 파일의 과거 revision은 의도적으로 유지합니다.
+v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 앱 버전·service-worker cache는 `2.0.1`이며 static asset의 `?v=`는 파일별 cache revision입니다. 이번에 바꾸지 않은 파일의 과거 revision은 의도적으로 유지합니다.
 
 ## 프로젝트 문서
 

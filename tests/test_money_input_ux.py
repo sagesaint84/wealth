@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 
 
@@ -12,11 +13,44 @@ MONEY_JS = ROOT / "app" / "static" / "wealth-money-input.js"
 class MoneyInputUxStaticTests(unittest.TestCase):
     def test_index_loads_money_input_module_after_core_wealth_js(self):
         html = INDEX.read_text(encoding="utf-8")
-        core = '/static/wealth.js?v=2.0.0'
+
+        class AssetParser(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.versions = []
+                self.revisions = []
+                self.scripts = []
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if tag == 'meta' and attributes.get('name') == 'application-version':
+                    self.versions.append(attributes.get('content'))
+                if tag == 'meta' and attributes.get('name') == 'application-assets-revision':
+                    self.revisions.append(attributes.get('content'))
+                if tag == 'script' and attributes.get('src'):
+                    self.scripts.append(attributes['src'])
+
+        assets = AssetParser()
+        assets.feed(html)
+        self.assertEqual(len(assets.versions), 1)
+        version = assets.versions[0]
+        self.assertIsInstance(version, str)
+        self.assertRegex(version, r'^\d+\.\d+\.\d+$')
+        # Core follows the app version; unchanged money-input keeps its own
+        # cache revision. Parse actual tags so comments cannot satisfy order.
+        self.assertEqual(len(assets.revisions), 1)
+        revision = assets.revisions[0]
+        self.assertTrue(revision.startswith(version + '-'))
+        core = f'/static/wealth.js?v={revision}'
         money = '/static/wealth-money-input.js?v=1.3.0'
         self.assertIn(core, html)
         self.assertIn(money, html)
         self.assertLess(html.index(core), html.index(money))
+        self.assertEqual(assets.scripts.count(core), 1)
+        self.assertEqual(assets.scripts.count(money), 1)
+        self.assertLess(assets.scripts.index(core), assets.scripts.index(money))
+        self.assertTrue((ROOT / 'app/static/wealth.js').is_file())
+        self.assertTrue(MONEY_JS.is_file())
 
     def test_money_module_preserves_native_number_inputs(self):
         js = MONEY_JS.read_text(encoding="utf-8")

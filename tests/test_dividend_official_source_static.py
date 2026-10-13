@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from html.parser import HTMLParser
 import unittest
 
 
@@ -10,11 +11,40 @@ ROOT = Path(__file__).resolve().parents[1]
 class DividendOfficialSourceStaticTests(unittest.TestCase):
     def test_index_loads_source_ui_after_core_wealth_js(self):
         html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
-        core = '/static/wealth.js?v=2.0.0'
+        class AssetParser(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.versions, self.scripts = [], []
+                self.revisions = []
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if tag == 'meta' and attributes.get('name') == 'application-version':
+                    self.versions.append(attributes.get('content'))
+                if tag == 'meta' and attributes.get('name') == 'application-assets-revision':
+                    self.revisions.append(attributes.get('content'))
+                if tag == 'script' and attributes.get('src'):
+                    self.scripts.append(attributes['src'])
+
+        assets = AssetParser()
+        assets.feed(html)
+        self.assertEqual(len(assets.versions), 1)
+        version = assets.versions[0]
+        self.assertIsInstance(version, str)
+        self.assertRegex(version, r'^\d+\.\d+\.\d+$')
+        self.assertEqual(len(assets.revisions), 1)
+        revision = assets.revisions[0]
+        self.assertTrue(revision.startswith(version + '-'))
+        core = f'/static/wealth.js?v={revision}'
         source = '/static/wealth-dividend-source.js?v=1.3.0'
         self.assertIn(core, html)
         self.assertIn(source, html)
         self.assertLess(html.index(core), html.index(source))
+        for script in (core, source):
+            self.assertEqual(assets.scripts.count(script), 1)
+            self.assertEqual(sum(src.split('?', 1)[0] == script.split('?', 1)[0] for src in assets.scripts), 1)
+            self.assertTrue((ROOT / 'app/static' / script.split('?', 1)[0].rsplit('/', 1)[1]).is_file())
+        self.assertLess(assets.scripts.index(core), assets.scripts.index(source))
 
     def test_source_ui_mentions_official_and_fallback_states(self):
         js = (ROOT / "app" / "static" / "wealth-dividend-source.js").read_text(

@@ -68,7 +68,7 @@ class TestUIUXBatch6(unittest.TestCase):
         for tab in ("📈 실현손익", "💰 배당·이자", "🧾 가계부"):
             self.assertIn(tab, self.layout_js)
         # Comprehensive Assets tabs
-        for tab in ("📈 증권", "🏦 은행", "🛡️ 보험", "🏠 부동산"):
+        for tab in ("📈 증권", "🏦 은행", "🛡️ 연금·보험", "🏠 부동산"):
             self.assertIn(tab, self.layout_js)
 
     # ── 2. Net Worth History Chart No-Scroll Polish ─────────────────────────────

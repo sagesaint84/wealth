@@ -1,5 +1,16 @@
 # Wealth 변경 이력
 
+## Wealth v2.0.1 — Toss Account Layout and Insurance Display — 2026-10-13
+
+기준 HEAD `acfe0a7d397ace4d7f5cc645336942b07e2de10b`: 사용자 확인 전체 pytest 3,596 passed / 5 skipped / 0 failed, subtests 798 passed, Chrome UI 30 passed 및 AMD64/ARM64 PR CI 성공. 아래 후속 국민연금 상세 분석·보험 부분 집계는 미커밋 구현이며 테스트·syntax·빌드 검증을 실행하지 않았다. PR #143 merge·게시·배포 완료를 주장하지 않는다.
+
+- Toss 실현손익·배당이자 가져오기의 귀속 계좌를 헤더(라벨·지정·해제)와 전체 폭 select의 2행으로 구성. 상태 live region과 오류 알림은 유지하고 상시 추가 행은 제거.
+- HOME 보험에 누적납입액과 일시금/해약환급금 입력액의 예상 단순수익률 표시. 기간·향후 납입·세금 절감액을 반영하지 않으며 연환산·IRR·확정 수익률이 아님.
+- 후속 수정: 보험 예상 단순수익률은 유효한 일시금형 상품만 부분 집계하고 산정 수/전체 수를 화면에 표시. 연금형·근거 부족은 제외하며 대상이 없으면 미산정. 기준 HEAD의 전체 미산정 정책을 보완한다. 기존 자산 금액·비중·순자산은 변경하지 않음.
+- 후속 구현: 국민연금 선택 메타데이터에 기간별 가입유형, 본인·사업장 부담액, 과세연도별 확인값 및 수령 가정을 분리 저장. revision·납부 이력 충돌 검사와 기존 납부액 보존을 유지.
+- 후속 구현: 공식 등록 세율 연도의 누진 산출세액 차이와 날짜별 연환산 IRR 분석. 미래 보험료는 명시적 입력만 사용하고 현재가치/명목 기준·날짜 근사·미산정 사유를 표시. 미등록 연도·모호한 IRR·세후 근거 부족은 자동 산정하지 않음. [분석 계약](docs/national-pension-analysis.md) 참고.
+- 앱·HTML·service-worker cache와 실제 변경한 정적 리소스만 2.0.1로 갱신.
+
 ## Wealth v2.0.0 — UI Finish and ARM64 Toss Authentication — 2026-10-13
 
 상태: 사용자 확인 Windows 전체 pytest 3,568 passed / 5 skipped / 0 failed, 798 subtests passed, 신규 Chrome UI 테스트 14 passed. 27개 파일 commit·push 및 PR #142 생성 완료 (`d847dc5f3127c50842bbaa704e890a5db12e6e30`). GitHub Actions 결과, merge, GHCR 게시 및 Oracle 운영 배포 상태는 별도 검증이 필요하다.

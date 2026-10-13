@@ -1,0 +1,22 @@
+/* Isolated to pension detail and the HOME insurance scope label. */
+.insurance-roi-scope { font-size: 10px; line-height: 1.5; color: var(--muted); max-width: 180px; overflow-wrap: anywhere; }
+.wealth-asset-breakdown .insurance-roi-scope { margin-left: 0; text-align: right; }
+#npAnalysisPanel { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--line); min-width: 0; }
+#npAnalysisFields { border: 0; padding: 0; margin: 0; min-width: 0; }
+#npAnalysisPanel details { margin: 12px 0; min-width: 0; }
+#npAnalysisPanel summary { cursor: pointer; font-size: 14px; font-weight: 700; padding: 8px 0; }
+#npAnalysisPanel p { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+#npAnalysisPanel .np-analysis-row, #npAnalysis-scenario { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+#npAnalysisPanel label { min-width: 0; overflow-wrap: anywhere; }
+#npAnalysisPanel input:not([type=checkbox]), #npAnalysisPanel select { min-width: 0; width: 100%; box-sizing: border-box; }
+#npAnalysisPanel input[type=checkbox] { width: 18px; height: 18px; }
+#npAnalysisPanel .np-analysis-row > button { justify-self: start; }
+#npAnalysisPanel .np-analysis-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0; }
+#npAnalysisPanel .np-analysis-result { padding: 10px; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+#npAnalysisPanel .np-analysis-result h4 { font-size: 14px; margin: 0; }
+#npAnalysisPanel a { color: var(--purple); overflow-wrap: anywhere; }
+@media(max-width:480px) {
+  #npAnalysisPanel .np-analysis-row, #npAnalysis-scenario { grid-template-columns: minmax(0,1fr); }
+  #npAnalysisPanel .np-analysis-actions > button { min-width: 0; }
+  .insurance-roi-scope { max-width: 130px; }
+}
