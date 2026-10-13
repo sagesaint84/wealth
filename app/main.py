@@ -5194,6 +5194,57 @@ async def delete_insurance_account_endpoint(ins_id: str, request: Request) -> di
         raise HTTPException(404, "보험/연금 상품을 찾을 수 없습니다.")
     return {"message": "보험/연금 상품이 삭제되었습니다."}
 
+
+@app.get("/api/insurance-accounts/{ins_id}/national-pension-analysis")
+async def get_national_pension_analysis_endpoint(ins_id: str, request: Request) -> dict:
+    from app.services.national_pension import view
+    try:
+        return view(ins_id, get_current_username(request))
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+async def _national_pension_analysis_action(ins_id: str, request: Request, *, reset: bool = False, calculate_only: bool = False) -> dict:
+    from app.services import national_pension
+    username = get_current_username(request)
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(400, "분석 입력은 객체여야 합니다.")
+    try:
+        if calculate_only:
+            if not isinstance(body.get("expected_history"), list):
+                raise ValueError("현재 납부 이력을 확인한 뒤 계산하세요.")
+            revision = national_pension.integer(body.get("revision"), 0, 2**53 - 1)
+            return national_pension.calculate(ins_id, body.get("analysis"), username, revision=revision,
+                                             expected_history=body["expected_history"])
+        if not isinstance(body.get("expected_history"), list):
+            raise ValueError("현재 납부 이력을 확인한 뒤 저장하세요.")
+        return national_pension.save(ins_id, {} if reset else body.get("analysis"), body.get("revision"), username,
+                                     expected_history=body["expected_history"])
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except national_pension.PensionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.put("/api/insurance-accounts/{ins_id}/national-pension-analysis")
+async def save_national_pension_analysis_endpoint(ins_id: str, request: Request) -> dict:
+    return await _national_pension_analysis_action(ins_id, request)
+
+
+@app.delete("/api/insurance-accounts/{ins_id}/national-pension-analysis")
+async def reset_national_pension_analysis_endpoint(ins_id: str, request: Request) -> dict:
+    return await _national_pension_analysis_action(ins_id, request, reset=True)
+
+
+@app.post("/api/insurance-accounts/{ins_id}/national-pension-analysis/calculate")
+async def calculate_national_pension_analysis_endpoint(ins_id: str, request: Request) -> dict:
+    return await _national_pension_analysis_action(ins_id, request, calculate_only=True)
+
 @app.post("/api/loan-accounts")
 async def save_loan_account_endpoint(request: Request) -> dict:
     from app.services.savings import OverdraftValidationError, save_loan_account

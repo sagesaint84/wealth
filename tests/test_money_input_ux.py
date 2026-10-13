@@ -18,12 +18,15 @@ class MoneyInputUxStaticTests(unittest.TestCase):
             def __init__(self):
                 super().__init__()
                 self.versions = []
+                self.revisions = []
                 self.scripts = []
 
             def handle_starttag(self, tag, attrs):
                 attributes = dict(attrs)
                 if tag == 'meta' and attributes.get('name') == 'application-version':
                     self.versions.append(attributes.get('content'))
+                if tag == 'meta' and attributes.get('name') == 'application-assets-revision':
+                    self.revisions.append(attributes.get('content'))
                 if tag == 'script' and attributes.get('src'):
                     self.scripts.append(attributes['src'])
 
@@ -35,7 +38,10 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         self.assertRegex(version, r'^\d+\.\d+\.\d+$')
         # Core follows the app version; unchanged money-input keeps its own
         # cache revision. Parse actual tags so comments cannot satisfy order.
-        core = f'/static/wealth.js?v={version}'
+        self.assertEqual(len(assets.revisions), 1)
+        revision = assets.revisions[0]
+        self.assertTrue(revision.startswith(version + '-'))
+        core = f'/static/wealth.js?v={revision}'
         money = '/static/wealth-money-input.js?v=1.3.0'
         self.assertIn(core, html)
         self.assertIn(money, html)

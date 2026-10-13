@@ -15,28 +15,32 @@
   window.WealthInsuranceReturnDisplay = (accounts, owner = '모두') => {
     const items = (accounts || []).filter(item => owner === '모두' || (item.owner || '모두') === owner);
     const limit = '기간·향후 추가 납입·세금 절감액 미반영. 연환산·IRR·확정 수익률이 아닙니다.';
-    const unavailable = reason => ({rate: null, description: `예상 단순수익률 미산정: ${reason}. ${limit}`});
+    let included = 0;
+    const scope = () => `${!included ? '산정 가능 상품 없음' : included === items.length ? '전체 상품 기준' : '일부 상품 기준'} · ${included}/${items.length}개 상품 산정`;
+    const unavailable = reason => ({rate: null, included, total: items.length, scope: scope(), description: `예상 단순수익률 미산정: ${reason}. ${limit}`});
     if (!items.length) return unavailable('대상 상품 없음');
     let paid = 0, expected = 0;
     for (const item of items) {
       if ((item.payout_type && item.payout_type !== 'lump_sum') ||
           ['national_pension', 'irp'].includes(item.insurance_type) ||
           Number(item.monthly_payout) > 0) {
-        return unavailable('연금형 상품 포함; 조회 시 환산된 총액은 원래 저장 총액의 근거로 사용하지 않음');
+        continue; // National pension/IRP/monthly pensions have a separate analysis.
       }
       if (!Number.isFinite(item.total_paid_amount) || item.total_paid_amount <= 0 ||
           !Number.isFinite(item.expected_amount) || item.expected_amount < 0 ||
           (item.monthly_payout != null && (!Number.isFinite(item.monthly_payout) || item.monthly_payout < 0)) ||
           (item.converted_total_asset != null &&
             (!Number.isFinite(item.converted_total_asset) || item.converted_total_asset !== item.expected_amount))) {
-        return unavailable('일부 상품의 누적납입액·예상 수령액 근거 누락 또는 불일치');
+        continue;
       }
       paid += item.total_paid_amount;
       expected += item.expected_amount;
+      included += 1;
     }
+    if (!included) return unavailable('연금형 또는 누적납입액·예상 수령액 근거 누락/불일치 상품만 존재');
     const rate = (expected - paid) / paid * 100;
     if (!Number.isFinite(paid) || !Number.isFinite(expected) || !Number.isFinite(rate)) return unavailable('비정상 합계');
-    return {rate, description: `예상 단순수익률: 일시금/해약환급금 입력액과 누적납입액 비교 (${items.length}개 상품 전체). ${limit}`};
+    return {rate, included, total: items.length, scope: scope(), description: `예상 단순수익률: 일시금/해약환급금 입력액과 누적납입액 비교. ${scope()}. ${limit}`};
   };
   // Display policy only: keep authoritative weights/amounts/rates untouched.
   window.WealthAssetReturnDisplay = (item, property = null, insurance = null) => {
@@ -339,6 +343,7 @@
         rate: s.propertyExpectedRate, profit: s.propertyExpected, cost: s.propertyPurchaseValue,
       }, s.insuranceReturn);
       metric.textContent = returnRate === null ? '—' : pct(returnRate);
+      if (label === '보험' && returnRate === 0) metric.textContent = '0.00%';
       metric.className = returnRate === null ? 'muted' : (returnRate >= 0 ? 'up' : 'down');
       metric.dataset.metric = 'return-rate';
       const metricLabel = label === '보험'
@@ -348,6 +353,13 @@
       metric.setAttribute('aria-label', metricLabel);
       const title = document.createElement('div'); title.append(name, detail);
       const values = document.createElement('div'); values.append(amount, metric);
+      if (label === '보험' && s.insuranceReturn) {
+        const scopeLabel = document.createElement('small');
+        scopeLabel.dataset.insuranceRoiScope = '';
+        scopeLabel.textContent = s.insuranceReturn.scope;
+        scopeLabel.className = 'insurance-roi-scope';
+        values.append(scopeLabel);
+      }
       row.append(title, values); legend.append(row);
     });
   });

@@ -15,11 +15,14 @@ class DividendOfficialSourceStaticTests(unittest.TestCase):
             def __init__(self):
                 super().__init__()
                 self.versions, self.scripts = [], []
+                self.revisions = []
 
             def handle_starttag(self, tag, attrs):
                 attributes = dict(attrs)
                 if tag == 'meta' and attributes.get('name') == 'application-version':
                     self.versions.append(attributes.get('content'))
+                if tag == 'meta' and attributes.get('name') == 'application-assets-revision':
+                    self.revisions.append(attributes.get('content'))
                 if tag == 'script' and attributes.get('src'):
                     self.scripts.append(attributes['src'])
 
@@ -29,7 +32,10 @@ class DividendOfficialSourceStaticTests(unittest.TestCase):
         version = assets.versions[0]
         self.assertIsInstance(version, str)
         self.assertRegex(version, r'^\d+\.\d+\.\d+$')
-        core = f'/static/wealth.js?v={version}'
+        self.assertEqual(len(assets.revisions), 1)
+        revision = assets.revisions[0]
+        self.assertTrue(revision.startswith(version + '-'))
+        core = f'/static/wealth.js?v={revision}'
         source = '/static/wealth-dividend-source.js?v=1.3.0'
         self.assertIn(core, html)
         self.assertIn(source, html)

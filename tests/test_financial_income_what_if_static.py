@@ -15,11 +15,14 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
             def __init__(self):
                 super().__init__()
                 self.versions, self.scripts, self.stylesheets = [], [], []
+                self.revisions = []
 
             def handle_starttag(self, tag, attrs):
                 attributes = dict(attrs)
                 if tag == 'meta' and attributes.get('name') == 'application-version':
                     self.versions.append(attributes.get('content'))
+                if tag == 'meta' and attributes.get('name') == 'application-assets-revision':
+                    self.revisions.append(attributes.get('content'))
                 if tag == 'script' and attributes.get('src'):
                     self.scripts.append(attributes['src'])
                 if tag == 'link' and attributes.get('rel') == 'stylesheet':
@@ -32,7 +35,10 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
         self.assertIsInstance(version, str)
         self.assertRegex(version, r'^\d+\.\d+\.\d+$')
         css_ref = '/static/wealth-financial-income-what-if.css?v=1.3.0'
-        core_js = f'/static/wealth.js?v={version}'
+        self.assertEqual(len(assets.revisions), 1)
+        revision = assets.revisions[0]
+        self.assertTrue(revision.startswith(version + '-'))
+        core_js = f'/static/wealth.js?v={revision}'
         what_if_js = '/static/wealth-financial-income-what-if.js?v=1.3.0'
         self.assertIn(css_ref, html)
         self.assertIn(core_js, html)

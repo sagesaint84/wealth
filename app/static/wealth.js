@@ -2884,6 +2884,7 @@ function openNationalPensionHistory(ins) {
   nationalPensionHistoryOriginal.forEach(addNationalPensionHistoryRow);
   document.getElementById('nationalPensionHistoryNotice').textContent = `기존 누적납입액 ₩${number(ins.total_paid_amount || 0, 0)}는 이력 저장으로 변경되지 않습니다. 연금 개시일은 납부 종료일로 사용하지 않습니다.`;
   document.getElementById('nationalPensionHistoryDialog').showModal();
+  window.WealthNationalPension?.open(ins);
 }
 function readNationalPensionHistoryRows() {
   const result = [], years = new Set(), currentYear = new Date().getFullYear();

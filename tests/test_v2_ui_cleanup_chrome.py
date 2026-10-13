@@ -165,7 +165,7 @@ def test_asset_weights_and_return_rates_have_separate_meanings(chrome_preview, w
     no_overflow(evaluate, width)
 
 
-@pytest.mark.parametrize('width', [1280, 390])
+@pytest.mark.parametrize('width', [1280, 390, 320])
 @pytest.mark.parametrize('theme', ['purple', 'white', 'oled'])
 def test_insurance_expected_simple_return_preserves_home_amounts(chrome_preview, width, theme):
     call, evaluate = prepare(chrome_preview, width)
@@ -178,10 +178,11 @@ def test_insurance_expected_simple_return_preserves_home_amounts(chrome_preview,
     cases = [
         ([base], '+20.00%', 'up'),
         ([dict(base, expected_amount=80, converted_total_asset=80)], '-20.00%', 'down'),
-        ([dict(base, expected_amount=100, converted_total_asset=100)], '+0.00%', 'up'),
+        ([dict(base, expected_amount=100, converted_total_asset=100)], '0.00%', 'up'),
         ([dict(base, total_paid_amount=0)], '—', 'muted'),
         ([dict(base, expected_amount=None)], '—', 'muted'),
-        ([base, dict(base, total_paid_amount=0)], '—', 'muted'),
+        ([base, dict(base, total_paid_amount=0)], '+20.00%', 'up'),
+        ([base, dict(base, insurance_type='national_pension', payout_type='monthly_pension')], '+20.00%', 'up'),
         ([base, dict(base, owner='엄마', total_paid_amount=0)], '+20.00%', 'up'),
         ([dict(base, payout_type='monthly_pension', monthly_payout=1, payout_duration_years=20,
                expected_amount=240, converted_total_asset=240)], '—', 'muted'),
@@ -194,6 +195,11 @@ def test_insurance_expected_simple_return_preserves_home_amounts(chrome_preview,
         assert actual['color'] == color
         assert '예상 단순수익률' in actual['title'] and '예상 단순수익률' in actual['label']
         assert '향후 추가 납입' in actual['title']
+        scope = evaluate("document.querySelector('[data-insurance-roi-scope]').textContent")
+        assert '개 상품 산정' in scope
+        if len(accounts) == 2 and accounts[1]['owner'] == '아빠':
+            assert scope == '일부 상품 기준 · 1/2개 상품 산정'
+        assert evaluate("document.querySelector('[data-insurance-roi-scope]').getBoundingClientRect().height>0")
         assert evaluate("document.getElementById('homeAssetAllocationTotal').textContent") == '120원'
         assert evaluate("document.getElementById('wealthAssetNetWorth').textContent") == '777원'
         assert evaluate("document.querySelector('#wealthMixLegend small').textContent.includes('100.0%')")

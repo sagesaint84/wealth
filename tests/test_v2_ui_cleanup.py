@@ -134,7 +134,10 @@ assert.equal(roi([{accumulated_paid_amount:100,expected_amount:120}]).rate, null
 const missing = {...base,owner:'엄마',total_paid_amount:0};
 assert.equal(roi([base,missing], '아빠').rate, 20);
 assert.equal(roi([base,missing], '엄마').rate, null);
-assert.equal(roi([base,missing], '모두').rate, null);
+assert.equal(roi([base,missing], '모두').rate, 20);
+assert.equal(roi([base,missing], '모두').included, 1);
+assert.equal(roi([base,missing], '모두').total, 2);
+assert.match(roi([base,missing], '모두').scope, /일부 상품 기준 · 1\/2개 상품 산정/);
 assert.equal(roi([base], '엄마').rate, null);
 assert.equal(roi([base,{...base,total_paid_amount:300,expected_amount:300,converted_total_asset:300}]).rate, 5);
 const pension = {...base,payout_type:'monthly_pension',monthly_payout:1,payout_duration_years:20,
@@ -143,7 +146,9 @@ for (const item of [pension,{...pension,converted_total_asset:999},
   {...base,insurance_type:'national_pension'}, {...base,insurance_type:'irp'},
   {...base,monthly_payout:1}]) {
   assert.equal(roi([item]).rate, null);
-  assert.equal(roi([base,item]).rate, null);
+  assert.equal(roi([base,item]).rate, 20);
+  assert.equal(roi([base,item]).included, 1);
+  assert.equal(roi([base,item]).total, 2);
 }
 const inputs = [base,missing,pension]; const before = JSON.stringify(inputs);
 roi(inputs); assert.equal(JSON.stringify(inputs), before);

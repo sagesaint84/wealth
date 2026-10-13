@@ -17,6 +17,7 @@ class ReleaseVersionTests(unittest.TestCase):
     def test_index_html_version_metadata_and_cache_busting(self):
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         self.assertIn('<meta name="application-version" content="2.0.1" />', html)
+        self.assertIn('<meta name="application-assets-revision" content="2.0.1-r143.1" />', html)
         self.assertIn('id="appVersionDisplay"', html)
         self.assertIn("앱 버전 v2.0.1", html)
 
@@ -30,6 +31,7 @@ class ReleaseVersionTests(unittest.TestCase):
                 "wealth-savings-contributions.css": "10.9p",
                 "wealth-dialog-system.css": "10.9o2",
                 "wealth-ui-density.css": "2.0.1",
+                "wealth-national-pension.css": "2.0.1-r143.1",
                 "wealth-overrides.css": "10.9h1",
             }.get(asset, "1.3.0")
             self.assertEqual(version, expected)
@@ -37,7 +39,8 @@ class ReleaseVersionTests(unittest.TestCase):
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
         versions = {
-            "wealth.js": "2.0.1", "wealth-layout.js": "2.0.1",
+            "wealth.js": "2.0.1-r143.1", "wealth-layout.js": "2.0.1-r143.1",
+            "wealth-national-pension.js": "2.0.1-r143.1",
             "wealth-transaction-defaults.js": "2.0.1",
             "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "10.9r6",
             "wealth-calendar.js": "10.9r4", "wealth-color-picker.js": "10.9r5",

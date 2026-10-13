@@ -622,6 +622,10 @@ def save_insurance_account(payload: dict[str, Any], username: str | None = None)
             if record["insurance_type"] == "national_pension" else payload.get("yearly_contributions") or [])
     elif existing_index is not None and "yearly_contributions" in insurances[existing_index]:
         record["yearly_contributions"] = insurances[existing_index]["yearly_contributions"]
+    # Dedicated analysis service owns optional metadata and its revision.
+    # General product edits cannot replace it with a stale client snapshot.
+    if existing_index is not None and "national_pension_analysis" in insurances[existing_index]:
+        record["national_pension_analysis"] = deepcopy(insurances[existing_index]["national_pension_analysis"])
 
     if existing_index is not None:
         insurances[existing_index] = record
