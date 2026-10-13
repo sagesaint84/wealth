@@ -19,8 +19,12 @@ Desktop includes recommended swatches, a two-axis saturation/value plane, Hue ra
 
 Mobile exposes only recommended swatches plus the current custom color, preserving desktop colors without forcing dense controls. The panel is clamped to the viewport and can scroll locally on short screens.
 
-## First consumer: strategy buckets
+## Current consumers and persistence
 
-`wealth-planning.js` retains semantic legacy/preset/hash fallbacks, account/holding assignment and cash-bucket rules. Confirmed picker colors preview on cards, legends, charts and assignment badges; only the existing explicit bucket Save persists planning metadata. Backend strict HEX validation remains in `planning.mutate`.
+`wealth-planning.js` retains semantic legacy/preset/hash fallbacks, account/holding assignment and cash-bucket rules. Bucket editor and target/current legend controls reuse the picker. Inline Save uses the existing planning mutation/revision path; dirty drafts block an inline save and conflict failures restore persisted colors. Cash classification remains fixed independently of editable cash-bucket colors. System-only unclassified/unallocated entries retain their fallbacks.
 
-Future consumers should pass their own semantic fallback and label, use returned HEX for accents/series/dots, and own their existing save flow. Calendar, portfolio and chart-wide migrations are outside this change. Do not use custom colors for primary body text or introduce alpha into stored values.
+`wealth-color-preferences.js` owns visualization preference load/resolve/register and PATCH persistence, while editing occurs at calendar legends and asset/stock markers. There is no central settings color list. Overrides live in `portfolio.json.settings.visualization_colors` under `calendar_event_colors`, `asset_category_colors` and `stock_category_colors`; strategy colors remain in `bucket.color`.
+
+Calendar has seven keys: `ipo_subscription`, `ipo_listing`, `profit`, `loss`, `dividend`, `income`, `expense`. Interest is a display alias for `dividend`, not a separate saved key. Calendar grid pills and legend labels use the selected event color; detail body text keeps its theme color. Asset/stock donuts, legends, markers and bars resolve the same category key; color-marker clicks remain separate from row filtering. Draft changes do not PATCH until Save; reset removes the visualization override with `color=null`.
+
+The fixed eight recommended colors are `#FF5A5F`, `#FF9F1C`, `#FFD60A`, `#2ECF73`, `#22C7B8`, `#4D96FF`, `#7C6CFF`, `#FF5FA2`, laid out as two rows of four. Desktop keeps SV/Hue spectrum/HEX; mobile keeps the compact palette. Do not introduce alpha into stored values.

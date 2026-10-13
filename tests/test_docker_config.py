@@ -9,7 +9,7 @@ import os
 
 os.environ.setdefault("WEALTH_ENV", "test")
 from app import main
-from app.services import asset_records, historical_fx, portfolio
+from app.services import asset_records, historical_fx, portfolio, user_manager
 from app.services.test_safety import TestSafetyError
 
 
@@ -39,13 +39,32 @@ class DockerConfigurationTests(unittest.TestCase):
                 self.assertEqual(__import__("os").environ["DASHBOARD_SECRET_KEY"], "runtime-value")
 
     def test_production_data_writers_are_blocked_in_test_mode(self):
-        with self.assertRaises(TestSafetyError):
-            portfolio.write_portfolio({}, username="sagesaint")
-        with self.assertRaises(TestSafetyError):
-            asset_records.write_asset_records({}, username="sagesaint")
+        # The real safety guard runs; mkdir is a tripwire, not a safety mock.
+        # No production directory is read, created or removed by this test.
+        with patch.object(Path, "mkdir", side_effect=AssertionError("unexpected directory creation")) as mkdir:
+            with self.assertRaises(TestSafetyError):
+                portfolio.write_portfolio({}, username="sagesaint")
+            with self.assertRaises(TestSafetyError):
+                asset_records.write_asset_records({}, username="sagesaint")
+            mkdir.assert_not_called()
         with patch.object(historical_fx, "FX_CACHE_FILE", Path(__file__).resolve().parents[1] / "data" / "historical_fx_cache.json"):
             with self.assertRaises(TestSafetyError):
                 historical_fx.save_cached_fx({"synthetic": 1.0})
+
+    def test_denied_user_directory_creation_has_no_side_effects(self):
+        with tempfile.TemporaryDirectory(prefix="wealth-denied-user-") as temp:
+            production = Path(temp) / "production"
+            with patch.dict(os.environ, {"WEALTH_ENV": "test", "WEALTH_PRODUCTION_DATA_DIR": str(production)}), \
+                 patch.object(user_manager, "USERS_DIR", production / "users"):
+                with self.assertRaises(TestSafetyError):
+                    user_manager.get_user_data_dir("synthetic")
+            self.assertFalse(production.exists())
+            self.assertEqual(list(Path(temp).iterdir()), [])
+            # The new check must still permit explicitly isolated test users.
+            with patch.object(user_manager, "USERS_DIR", Path(temp) / "synthetic-users"):
+                created = user_manager.get_user_data_dir("synthetic")
+            self.assertEqual(created, Path(temp) / "synthetic-users" / "synthetic")
+            self.assertTrue(created.is_dir())
 
     def test_synthetic_writer_path_is_allowed(self):
         with tempfile.TemporaryDirectory(prefix="wealth-writer-") as temp:

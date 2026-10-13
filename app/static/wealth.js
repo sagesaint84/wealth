@@ -249,17 +249,6 @@ function classifyHolding(h) {
   }
 }
 
-const ASSET_CLASS_ORDER = {
-  '부동산': 1,
-  '국내주식': 2,
-  '국내ETF': 3,
-  '국내상장해외ETF': 4,
-  '해외ETF': 5,
-  '해외주식': 6,
-  '현금·예수금': 7,
-  '보험': 8,
-};
-
 function computeFilteredClassifications(holdings, accounts, fxRates, owner = '모두', rawData = null) {
   const usdKrw = (fxRates || {})['USD'] || 1385;
   const groups = {};
@@ -1472,6 +1461,7 @@ function renderSummary(data) {
     owner: o, netWorth, debt: totalAllDebt, cash: totalAllCash,
     invest: totalInvestAssets, expected: totalExpectedProfit, expectedRate: combinedReturnRate,
     propertyExpected: totalREProfit, propertyExpectedRate: realEstateReturnRate,
+    propertyPurchaseValue: totalREPurchaseVal,
     stockExpected: Number(s.profit_krw) || 0, stockExpectedRate: Number(s.return_rate) || 0,
     realized: combinedRealizedKrw, safe: totalSafeAssets,
     stock: totalStockVal, property: totalREInvestEquity,
@@ -1647,16 +1637,16 @@ function renderClassifications(items) {
     const classes = dashboard?.classifications || rawDashboard?.classifications || items || [];
     renderAllocationDonut(classes, '자산군별 투자자산 데이터가 없습니다.');
     list.innerHTML = classes.length ? classes.map((item,index) => {
-      let subLabel = `${number(item.holding_count, 0)}종목 · ${number(item.weight, 1)}%`;
+      let subLabel = `${number(item.holding_count, 0)}종목 · 비중 ${number(item.weight, 1)}%`;
       if (item.name === '부동산') {
-        subLabel = `부동산 순에퀴티 · ${number(item.weight, 1)}%`;
+        subLabel = `부동산 평가액 · 비중 ${number(item.weight, 1)}%`;
       } else if (item.name === '현금·예수금') {
-        subLabel = `은행 예수금 포함 · ${number(item.weight, 1)}%`;
+        subLabel = `은행·예적금 포함 · 비중 ${number(item.weight, 1)}%`;
       } else if (item.name === '보험') {
-        subLabel = `예상 수령액/해약환급금 · ${number(item.weight, 1)}%`;
+        subLabel = `보험 평가 기준액 · 비중 ${number(item.weight, 1)}%`;
       }
 
-      const showProfit = item.name !== '현금·예수금' && item.name !== '부동산' && item.name !== '보험';
+      const returnRate = window.WealthAssetReturnDisplay?.(item) ?? null;
 
       return `
         <div class="classification-row clickable-sector-row" data-sector-filter="${html(item.name)}" data-color-key="${html(window.WealthColorPreferences.keyFor('stock_category_colors',item))}" style="cursor:pointer;--classification-color:${window.WealthColorPreferences.register('stock_category_colors',item,SECTOR_COLORS[index % SECTOR_COLORS.length])};" title="🔍 클릭하여 '${html(item.name)}' 상세 보기">
@@ -1666,7 +1656,7 @@ function renderClassifications(items) {
           </div>
           <div class="classification-value">
             <span>${money(item.market_value_krw)}</span>
-            ${showProfit ? `<b class="${signClass(item.profit_krw)}">${item.return_rate >= 0 ? "+" : ""}${number(item.return_rate, 2)}%</b>` : `<span style="font-size:11.5px;color:#94a3b8;font-weight:600;">${number(item.weight, 1)}%</span>`}
+            ${returnRate !== null ? `<b data-metric="return-rate" title="수익률" class="${signClass(item.profit_krw)}">${returnRate >= 0 ? "+" : ""}${number(returnRate, 2)}%</b>` : '<span data-metric="return-rate" class="muted" title="수익률 미산정" aria-label="수익률 미산정">—</span>'}
           </div>
           <div class="bar"><i style="width:${Math.min(item.weight, 100)}%"></i></div>
         </div>
@@ -5821,14 +5811,14 @@ function renderTaxAccountHoldings(owner = currentOwner) {
   const isAllActive = currentTaxAccountFilter === 'all';
   const allCardHtml = `
     <div class="tax-card record-row ${isAllActive ? 'active-tax-card' : ''}" data-tax-filter="all">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-        <div style="display:flex;align-items:center;gap:7px;">
+      <div class="tax-card-head" style="margin-bottom:6px;">
+        <div class="tax-card-heading">
           <span style="font-size:16px;">🌿</span>
           <strong class="tax-card-title" style="font-size:13.5px;font-weight:700;">절세계좌 전체</strong>
-          ${isAllActive ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#8b5cf6;color:#fff;font-weight:800;">선택됨</span>' : ''}
+          ${isAllActive ? '<span class="tax-card-selected" style="font-size:10px;padding:2px 6px;border-radius:4px;background:#8b5cf6;color:#fff;font-weight:800;">선택</span>' : ''}
         </div>
-        <span style="font-size:11px;color:#94a3b8;background:rgba(255,255,255,0.06);padding:2px 7px;border-radius:4px;">
-          ${taxHoldings.length}개 종목 · ${taxAccounts.length}개 계좌
+        <span class="tax-card-count" style="font-size:11px;color:#94a3b8;background:rgba(255,255,255,0.06);padding:2px 7px;border-radius:4px;">
+          ${taxHoldings.length}종목 · ${taxAccounts.length}계좌
         </span>
       </div>
 
@@ -5868,14 +5858,14 @@ function renderTaxAccountHoldings(owner = currentOwner) {
   const isIsaActive = currentTaxAccountFilter === 'isa';
   const isaCardHtml = `
     <div class="tax-card record-row ${isIsaActive ? 'active-tax-card' : ''}" data-tax-filter="isa">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-        <div style="display:flex;align-items:center;gap:6px;">
+      <div class="tax-card-head" style="margin-bottom:5px;">
+        <div class="tax-card-heading">
           <span style="font-size:15px;">🔄</span>
           <strong class="tax-card-title" style="font-size:13px;font-weight:700;">중개형 ISA</strong>
-          ${isIsaActive ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#38bdf8;color:#0f172a;font-weight:800;">선택됨</span>' : ''}
+          ${isIsaActive ? '<span class="tax-card-selected" style="font-size:10px;padding:2px 6px;border-radius:4px;background:#38bdf8;color:#0f172a;font-weight:800;">선택</span>' : ''}
         </div>
-        <span style="font-size:11px;color:#38bdf8;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px;font-weight:600;">
-          ${isaHoldings.length}개 종목 (${isaAccounts.length}개 계좌)
+        <span class="tax-card-count" style="font-size:11px;color:#38bdf8;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px;font-weight:600;">
+          ${isaHoldings.length}종목 · ${isaAccounts.length}계좌
         </span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
@@ -5902,14 +5892,14 @@ function renderTaxAccountHoldings(owner = currentOwner) {
   const isIrpActive = currentTaxAccountFilter === 'irp';
   const irpCardHtml = `
     <div class="tax-card record-row ${isIrpActive ? 'active-tax-card' : ''}" data-tax-filter="irp">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-        <div style="display:flex;align-items:center;gap:6px;">
+      <div class="tax-card-head" style="margin-bottom:5px;">
+        <div class="tax-card-heading">
           <span style="font-size:15px;">🛡️</span>
           <strong class="tax-card-title" style="font-size:13px;font-weight:700;">개인형 IRP</strong>
-          ${isIrpActive ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#a78bfa;color:#0f172a;font-weight:800;">선택됨</span>' : ''}
+          ${isIrpActive ? '<span class="tax-card-selected" style="font-size:10px;padding:2px 6px;border-radius:4px;background:#a78bfa;color:#0f172a;font-weight:800;">선택</span>' : ''}
         </div>
-        <span style="font-size:11px;color:#c4b5fd;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px;font-weight:600;">
-          ${irpHoldings.length}개 종목 (${irpAccounts.length}개 계좌)
+        <span class="tax-card-count" style="font-size:11px;color:#c4b5fd;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px;font-weight:600;">
+          ${irpHoldings.length}종목 · ${irpAccounts.length}계좌
         </span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
@@ -5936,14 +5926,14 @@ function renderTaxAccountHoldings(owner = currentOwner) {
   const isPensionActive = currentTaxAccountFilter === 'pension_savings';
   const pensionCardHtml = `
     <div class="tax-card record-row ${isPensionActive ? 'active-tax-card' : ''}" data-tax-filter="pension_savings">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-        <div style="display:flex;align-items:center;gap:6px;">
+      <div class="tax-card-head" style="margin-bottom:5px;">
+        <div class="tax-card-heading">
           <span style="font-size:15px;">💎</span>
           <strong class="tax-card-title" style="font-size:13px;font-weight:700;">연금저축</strong>
-          ${isPensionActive ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#34d399;color:#0f172a;font-weight:800;">선택됨</span>' : ''}
+          ${isPensionActive ? '<span class="tax-card-selected" style="font-size:10px;padding:2px 6px;border-radius:4px;background:#34d399;color:#0f172a;font-weight:800;">선택</span>' : ''}
         </div>
-        <span style="font-size:11px;color:#34d399;background:rgba(52,211,153,0.15);padding:2px 6px;border-radius:4px;font-weight:600;">
-          ${pensionHoldings.length}개 종목 (${pensionAccounts.length}개 계좌)
+        <span class="tax-card-count" style="font-size:11px;color:#34d399;background:rgba(52,211,153,0.15);padding:2px 6px;border-radius:4px;font-weight:600;">
+          ${pensionHoldings.length}종목 · ${pensionAccounts.length}계좌
         </span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
@@ -6020,12 +6010,12 @@ function renderTaxAccountHoldings(owner = currentOwner) {
 
     return `
       <div class="tax-card record-row ${isAcctActive ? 'active-tax-card' : ''}" data-tax-filter="acc_${acct.id}" style="padding:9px 12px !important;margin-bottom:6px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div style="display:flex;align-items:center;gap:6px;">
-            <strong class="tax-card-title" style="font-size:12.5px;">${html(acct.name)}</strong>
-            ${isAcctActive ? '<span style="font-size:9.5px;padding:1px 5px;border-radius:3px;background:#a78bfa;color:#0f172a;font-weight:800;">선택됨</span>' : ''}
+        <div class="tax-card-head">
+          <div class="tax-card-heading">
+            <strong class="tax-card-title" title="${html(acct.name)}" style="font-size:12.5px;">${html(acct.name)}</strong>
+            ${isAcctActive ? '<span class="tax-card-selected" style="font-size:9.5px;padding:1px 5px;border-radius:3px;background:#a78bfa;color:#0f172a;font-weight:800;">선택</span>' : ''}
           </div>
-          <div style="display:flex;align-items:center;gap:6px;">
+          <div class="tax-card-actions">
             ${typeBadge}
             <button class="account-action-button" data-account-edit-id="${acct.id}" title="계좌 정보 및 예수금 수정" type="button" style="padding:1px 5px;font-size:11px;line-height:1;border-radius:4px;cursor:pointer;">✎</button>
           </div>

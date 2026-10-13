@@ -62,11 +62,15 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
 
     def test_home_allocation_keeps_legacy_asset_details(self):
         for label in (
-            "부동산 순자산", "은행 예수금 포함", "예상 수령액/해약환급금",
+            "부동산 평가액", "은행 예수금 포함", "예적금 포함", "예상 수령액/해약환급금",
             "holding_count", "return_rate", "market_value_krw",
         ):
             self.assertIn(label, self.layout)
         self.assertNotIn('id="wealthMix"', self.layout)
+        self.assertNotIn("부동산 순자산 ·", self.layout)
+        self.assertIn("metric.dataset.metric = 'return-rate'", self.layout)
+        self.assertIn("['현금·예수금', '보험', '임차보증금'].includes(item.name)", self.layout)
+        self.assertIn("metric.textContent = returnRate === null ? '—' : pct(returnRate)", self.layout)
 
     def test_home_detail_projection_does_not_change_stock_mode(self):
         self.assertIn("const STOCK_PORTFOLIO_MODE = 'sector'", self.js)

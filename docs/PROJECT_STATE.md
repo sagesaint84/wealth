@@ -4,11 +4,25 @@
 > 새 대화, 새 작업 세션, 새 개발자가 시작할 때 가장 먼저 이 문서를 읽습니다.
 > 세부 계획은 `docs/ROADMAP.md`, 비밀값·환경설정 원칙은 `docs/SECURITY_AND_CONFIG.md`를 참조합니다.
 
-마지막 갱신: 2026-10-06 (main `faefa4d` 기준)
+마지막 갱신: 2026-10-13 (기준 main `55e3dcb`, v2.0.0 PR #142 / HEAD `d847dc5`)
 
 ## 1. 현재 개발 상태
 
-현재 **진행 중인 기능 phase는 없다**. PR #90까지 main에 반영됐으며, 다음 기능은 미정이다. 현재는 maintenance와 제품 우선순위 결정 단계다. 후보와 보류 항목은 `docs/ROADMAP.md`에 둔다.
+기준 main `55e3dcb`에는 Toss WTS ARM64 인증 런타임 PR #141까지 반영됐다. `codex/v2-ui-cleanup`의 v2.0.0 표시, 절세계좌/가져오기 UI와 자산 구성 표시 정리는 구현을 완료했으며, 27개 파일 commit·push 및 PR #142 생성이 완료됐다. HEAD는 `d847dc5f3127c50842bbaa704e890a5db12e6e30`이다. 다음 기능은 미정이며 후보와 보류 항목은 `docs/ROADMAP.md`에 둔다.
+
+사용자 확인 Windows 검증: 전체 pytest **3,568 passed / 5 skipped / 0 failed**, **798 subtests passed**; 신규 Chrome UI 테스트 **14 passed**. GitHub Actions 결과, merge, GHCR 게시 및 Oracle 운영 배포 상태는 별도 검증이 필요하며 Windows 결과로 완료를 판단하지 않는다.
+
+### 현재 제품/운영 기준
+
+- UI는 dialog sizing/hierarchy, 모바일 density, 자산/투자 탭 복원과 공용 8색 picker 및 직접 색상 편집을 사용한다.
+- 가져오기 기본계좌와 가계부 defaults·은행이자 mirror는 기존 사용자별 저장 계약을 유지한다.
+- 예적금 납입 이력과 금융 JSON atomicity는 별도 서비스의 계약이며 이번 UI 정리에서 변경하지 않는다.
+- IPO는 DART/OpenDART·KIND·NAVER/Npay·Metalogos 160과 기존 시장 기록을 사용한다. KIS는 일반 broker 기능에만 남으며 IPO credential/token 요청에는 쓰이지 않는다.
+- Docker Toss QR 인증은 별도 venv의 Playwright/Chromium과 공식 v0.50.3 vendor helper를 사용한다. 사용자별 세션·비공개 확인 문자·Linux subreaper guard 제약은 [인증 런타임 문서](../ops/toss-auth/README.md)를 따른다.
+- 관련 main PR에는 네이티브 AMD64/ARM64 프로세스 통합 테스트와 Docker build smoke가 추가됐다. workflow 존재와 실제 실행 성공은 구분한다.
+- v2 UI 표시 정책·cleanup 근거·사용자 검증 명령은 [v2 UI 마감 기록](v2-ui-cleanup.md)을 참고한다.
+
+아래 10.5~10.6 기록과 운영 확인 수치는 당시의 역사이며 현재 branch 검증 결과를 뜻하지 않는다.
 
 Phase 10.5G는 기존 forecast 및 알려진 세금 후 계산을 재사용해 선택 연도 12개월 배당 현금흐름과 사용자 월배당 목표 비교를 제공하도록 완료됐다.
 
