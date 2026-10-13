@@ -11,6 +11,12 @@ class KftcOpenBankingAccountsTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        # Configuration uses the shared resolver independently of storage.
+        self.patch_users_root = patch(
+            "app.services.user_manager.USERS_DIR", Path(self.tmp.name) / "users",
+        )
+        self.patch_users_root.start()
+        self.addCleanup(self.patch_users_root.stop)
         self.patch_user_dir = patch(
             "app.services.kftc_openbanking_storage.get_user_data_dir",
             return_value=Path(self.tmp.name),

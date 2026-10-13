@@ -356,7 +356,10 @@ class ActionV2EngineTests(unittest.TestCase):
 
         with patch("app.services.ipo.actions.read_market_store_read_only", return_value=market), \
              patch("app.services.ipo.actions.get_user_applications", return_value=apps), \
-             patch("app.services.ipo.actions.update_user_application", side_effect=fake_update):
+             patch("app.services.ipo.actions.update_user_application", side_effect=fake_update), \
+             patch("app.services.ipo.application_confirmation.read_market_store_read_only", return_value=market), \
+             patch("app.services.settings.get_effective_settings", return_value={}), \
+             patch("app.services.user_manager.USERS_DIR", Path(self.tmp_dir.name) / "users"):
             action_res = create_web_action(
                 username="alice",
                 action_type=ACTION_TYPE_MARK_IPO_APPLIED,

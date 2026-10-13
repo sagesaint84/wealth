@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.services.financial_json import (FINANCIAL_FILENAMES, financial_locks,
     read_financial_json, write_financial_json)
+from app.services.test_safety import assert_write_allowed
 
 import hashlib
 import json
@@ -80,6 +81,9 @@ def get_user_data_dir(username: str | None = None) -> Path:
     """특정 사용자의 격리된 데이터 디렉터리 경로를 반환하고, 없으면 생성합니다."""
     safe_username = (username or "sagesaint").strip()
     user_dir = USERS_DIR / safe_username
+    # Directory creation is a write too: deny it before touching production
+    # storage in test mode, not only when a later financial file is written.
+    assert_write_allowed(user_dir)
     user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir
 

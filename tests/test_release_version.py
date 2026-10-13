@@ -11,46 +11,53 @@ STATIC_DIR = ROOT / "app" / "static"
 class ReleaseVersionTests(unittest.TestCase):
     def test_fastapi_app_version(self):
         main = _import_main_without_loading_real_env()
-        self.assertEqual(getattr(main, "APP_VERSION", None), "1.3.0")
-        self.assertEqual(main.app.version, "1.3.0")
+        self.assertEqual(getattr(main, "APP_VERSION", None), "2.0.0")
+        self.assertEqual(main.app.version, "2.0.0")
 
     def test_index_html_version_metadata_and_cache_busting(self):
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-        self.assertIn('<meta name="application-version" content="1.3.0" />', html)
+        self.assertIn('<meta name="application-version" content="2.0.0" />', html)
         self.assertIn('id="appVersionDisplay"', html)
-        self.assertIn("v1.3.0", html)
+        self.assertIn("앱 버전 v2.0.0", html)
 
         css_matches = re.findall(r'href="/static/([^"]+\.css)\?v=([^"]+)"', html)
         self.assertTrue(css_matches)
         for asset, version in css_matches:
-            expected = "10.9r6" if asset == "wealth-color-preferences.css" else "10.9r2" if asset == "wealth-color-picker.css" else "10.9q" if asset == "wealth-layout.css" else "10.9p" if asset == "wealth-savings-contributions.css" else "10.9o2" if asset == "wealth-dialog-system.css" else "10.9o1" if asset == "wealth-ui-density.css" else "10.9m1" if asset == "wealth-layout.css" else "10.9h1" if asset == "wealth-overrides.css" else "1.3.0"
+            expected = {
+                "wealth-color-preferences.css": "10.9r6",
+                "wealth-color-picker.css": "10.9r2",
+                "wealth-layout.css": "10.9q",
+                "wealth-savings-contributions.css": "10.9p",
+                "wealth-dialog-system.css": "10.9o2",
+                "wealth-ui-density.css": "2.0.0",
+                "wealth-overrides.css": "10.9h1",
+            }.get(asset, "1.3.0")
             self.assertEqual(version, expected)
 
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
-        hotfix_assets = {"wealth-family-financial-income-allocation.js", "wealth-planning-model.js"}
-        settings_assets = {"wealth-settings-surface.js", "wealth-settings.js", "wealth-layout.js", "wealth.js"}
-        invest_hotfix_assets = {"wealth-invest-tab-state.js", "wealth.js", "wealth-planning.js"}
-        ui_detail_assets = {"wealth-layout.js", "wealth-settings-surface.js"}
+        versions = {
+            "wealth.js": "2.0.0", "wealth-layout.js": "2.0.0",
+            "wealth-transaction-defaults.js": "2.0.0",
+            "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "10.9r6",
+            "wealth-calendar.js": "10.9r4", "wealth-color-picker.js": "10.9r5",
+            "wealth-planning-model.js": "10.9q", "wealth-asset-category-state.js": "10.9q",
+            "wealth-settings-surface.js": "10.9m1", "wealth-invest-tab-state.js": "10.9k1",
+            "wealth-settings.js": "10.9h1", "wealth-family-financial-income-allocation.js": "10.7g1",
+        }
         for asset, version in js_matches:
-            expected = "10.9r3" if asset in {"wealth-color-preferences.js", "wealth-layout.js", "wealth.js", "wealth-calendar.js", "wealth-planning.js"} else "10.9r2" if asset == "wealth-color-picker.js" else "10.9q" if asset in {"wealth.js", "wealth-layout.js", "wealth-planning.js", "wealth-planning-model.js", "wealth-asset-category-state.js", "wealth-color-picker.js"} else "10.9p" if asset == "wealth.js" else "10.9n1" if asset == "wealth-transaction-defaults.js" else "10.9m1" if asset in ui_detail_assets else "10.9k1" if asset in invest_hotfix_assets else "10.9h1" if asset in settings_assets else "10.7g1" if asset in hotfix_assets else "1.3.0"
-            if asset == "wealth-calendar.js":
-                expected = "10.9r4"
-            if asset == "wealth-color-picker.js":
-                expected = "10.9r5"
-            if asset in {"wealth-color-preferences.js", "wealth-planning.js"}:
-                expected = "10.9r6"
-            self.assertEqual(version, expected)
+            self.assertEqual(version, versions.get(asset, "1.3.0"))
 
     def test_service_worker_cache_name(self):
         sw = (STATIC_DIR / "sw.js").read_text(encoding="utf-8")
-        self.assertIn('const CACHE_NAME = "wealth-cache-v1.3.0";', sw)
+        self.assertIn('const CACHE_NAME = "wealth-cache-v2.0.0";', sw)
 
     def test_documentation_version_sync(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("**Wealth v1.3.0**", readme)
+        self.assertIn("**Wealth v2.0.0**", readme)
 
         changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn("## Wealth v2.0.0 — UI Finish and ARM64 Toss Authentication — 2026-10-13", changelog)
         self.assertIn("## Wealth v1.3.0 \u2014 MoneyLog Calendar and Multi-Source IPO Integration \u2014 2026-09-19", changelog)
         self.assertIn("## Wealth v1.2.7 \u2014 Docker Build Security Hardening \u2014 2026-09-18", changelog)
         self.assertIn("## Wealth v1.2.6 \u2014 All-Owner Snapshot Coordination and Daily Close Automation \u2014 2026-09-18", changelog)

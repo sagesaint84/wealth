@@ -10,6 +10,16 @@
   };
   // Kept small and data-only so the donut geometry can be regression-tested without a DOM.
   window.WealthDonutHitTest = donutKeyAtPointer;
+  // Display policy only: keep authoritative weights/amounts/rates untouched.
+  window.WealthAssetReturnDisplay = (item, property = null) => {
+    if (['현금·예수금', '보험', '임차보증금'].includes(item.name)) return null;
+    const source = item.name === '부동산' ? property : {
+      rate: item.return_rate, profit: item.profit_krw, cost: item.cost_value_krw,
+    };
+    if (!source || !Number.isFinite(source.rate) || !Number.isFinite(source.profit)
+        || !Number.isFinite(source.cost) || source.cost <= 0) return null;
+    return source.rate;
+  };
   const root = document.getElementById('userAssetDashboardWrapper');
   if (!root) return;
   const views = {
@@ -290,17 +300,20 @@
       const row = document.createElement('div');
       const name = document.createElement('span'); name.textContent = label; name.style.setProperty('--mix-color', color); row.dataset.colorKey=item.colorKey;
       const amount = document.createElement('strong'); amount.textContent = won(value);
-      let secondary = `${Number(item.holding_count || 0)}종목 · ${Number(item.weight || 0).toFixed(1)}%`;
-      if (label === '부동산') secondary = `부동산 순자산 · ${Number(item.weight || 0).toFixed(1)}%`;
-      else if (label === '현금·예수금') secondary = `은행 예수금 포함 · ${Number(item.weight || 0).toFixed(1)}%`;
-      else if (label === '보험') secondary = `예상 수령액/해약환급금 · ${Number(item.weight || 0).toFixed(1)}%`;
+      let secondary = `${Number(item.holding_count || 0)}종목 · 비중 ${Number(item.weight || 0).toFixed(1)}%`;
+      if (label === '부동산') secondary = `부동산 평가액 · 비중 ${Number(item.weight || 0).toFixed(1)}%`;
+      else if (label === '현금·예수금') secondary = `은행 예수금 포함 · 예적금 포함 · 비중 ${Number(item.weight || 0).toFixed(1)}%`;
+      else if (label === '보험') secondary = `예상 수령액/해약환급금 등 · 비중 ${Number(item.weight || 0).toFixed(1)}%`;
       const detail = document.createElement('small'); detail.textContent = secondary;
       const metric = document.createElement('b');
-      const showReturn = !['현금·예수금','보험'].includes(label);
-      const returnRate = label === '부동산' ? s.propertyExpectedRate : item.return_rate;
-      const returnAmount = label === '부동산' ? s.propertyExpected : item.profit_krw;
-      metric.textContent = showReturn ? pct(returnRate) : `${Number(item.weight || 0).toFixed(1)}%`;
-      metric.className = showReturn ? (Number(returnAmount || 0) >= 0 ? 'up' : 'down') : '';
+      const returnRate = window.WealthAssetReturnDisplay(item, {
+        rate: s.propertyExpectedRate, profit: s.propertyExpected, cost: s.propertyPurchaseValue,
+      });
+      metric.textContent = returnRate === null ? '—' : pct(returnRate);
+      metric.className = returnRate === null ? 'muted' : (returnRate >= 0 ? 'up' : 'down');
+      metric.dataset.metric = 'return-rate';
+      metric.title = returnRate === null ? '수익률 미산정' : '수익률';
+      metric.setAttribute('aria-label', returnRate === null ? '수익률 미산정' : `수익률 ${metric.textContent}`);
       const title = document.createElement('div'); title.append(name, detail);
       const values = document.createElement('div'); values.append(amount, metric);
       row.append(title, values); legend.append(row);

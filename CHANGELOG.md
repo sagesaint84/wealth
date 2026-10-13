@@ -1,5 +1,18 @@
 # Wealth 변경 이력
 
+## Wealth v2.0.0 — UI Finish and ARM64 Toss Authentication — 2026-10-13
+
+상태: 작업 트리 반영 / 사용자 검증·릴리즈 전. 이 항목은 운영 배포 완료를 의미하지 않는다.
+
+- 절세계좌 카드 제목·선택 badge와 종목/계좌 수를 한 줄 중심으로 정리하고 긴 실제 계좌명은 tooltip으로 보존.
+- 실현손익·배당·이자 가져오기의 귀속 Wealth 계좌는 유지하면서 기본계좌 지정/해제 버튼과 상태를 compact하게 배치.
+- 전체 자산 구성의 좌측 비중과 우측 수익률을 구분. 현금·보험·임차보증금 및 매입근거가 없는 수익률은 `—`로 표시하고 기존 금액·집계·정렬·계산은 유지.
+- 앱/metadata/service-worker cache를 v2.0.0으로 갱신하고 변경된 static assets만 cache revision 갱신.
+- 이미 main에 반영된 Toss WTS AMD64/ARM64 Playwright/Chromium 런타임, owner 전용 QR 확인 문자, Linux process guard 및 PR 사전 검증 workflow를 현재 운영 문서에 연결.
+- 미참조 `ASSET_CLASS_ORDER` 상수와 release-version 테스트의 가려진 중복 분기를 정리. 역사 CHANGELOG·audit·fallback·vendor/license·운영 문서는 보존.
+
+아래 과거 릴리즈의 source/운영 설명은 당시 상태다. 현재 IPO는 KIS API를 사용하지 않으며 최신 기준은 README와 PROJECT_STATE를 따른다.
+
 ## Wealth v1.3.0 — MoneyLog Calendar and Multi-Source IPO Integration — 2026-09-19
 
 - **머니 로그 통합 캘린더 (MoneyLog Calendar)**:

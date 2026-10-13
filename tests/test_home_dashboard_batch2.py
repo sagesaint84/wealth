@@ -28,10 +28,18 @@ class HomeDashboardBatch2Tests(unittest.TestCase):
         self.assertIn("totalExpectedProfit = (Number(s.profit_krw) || 0) + totalREProfit", self.main)
 
     def test_real_estate_allocation_wording_and_return_are_distinct(self):
-        self.assertIn("부동산 순자산 ·", self.layout)
+        # Classification is current_price × ownership, before debt deduction.
+        # Net worth is a separate summary value, not this row's amount.
+        self.assertIn("부동산 평가액 · 비중", self.layout)
+        self.assertNotIn("부동산 순자산 ·", self.layout)
         self.assertNotIn("부동산 순에퀴티 ·", self.layout)
-        self.assertIn("label === '부동산' ? s.propertyExpectedRate : item.return_rate", self.layout)
-        self.assertIn("label === '부동산' ? s.propertyExpected : item.profit_krw", self.layout)
+        self.assertIn("window.WealthAssetReturnDisplay(item, {", self.layout)
+        self.assertIn("rate: s.propertyExpectedRate, profit: s.propertyExpected, cost: s.propertyPurchaseValue", self.layout)
+        self.assertIn("rate: item.return_rate, profit: item.profit_krw, cost: item.cost_value_krw", self.layout)
+        self.assertIn("metric.textContent = returnRate === null ? '—' : pct(returnRate)", self.layout)
+        self.assertIn("propertyExpected: totalREProfit, propertyExpectedRate: realEstateReturnRate", self.main)
+        self.assertIn("propertyPurchaseValue: totalREPurchaseVal", self.main)
+        self.assertIn("const netWorth = (totalInvestAssets + totalSafeAssets) - totalAllDebt", self.main)
 
     def test_history_keeps_summary_and_uses_desktop_chart_list_split(self):
         for label in ("기간 시작", "최근 기록", "최저 / 최고", "기간 증감"):

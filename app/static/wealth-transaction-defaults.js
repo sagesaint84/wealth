@@ -96,7 +96,7 @@
     try {
       importDefaults = (await api('/api/import-destination-defaults', {method: 'PUT', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({workflow, account_id: clear ? '' : select.value, owner: currentOwner || '모두'})})).defaults;
-      message.textContent = clear ? '기본 목적 계좌를 해제했습니다.' : '이 계좌를 기본값으로 기억합니다.';
+      message.textContent = clear ? '기본계좌 해제됨' : '기본계좌 지정됨';
     } catch (error) { message.textContent = error.message; }
   }
   document.addEventListener('DOMContentLoaded', () => {

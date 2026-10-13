@@ -46,6 +46,8 @@ def public_sources(tmp_path):
     metalogos = MagicMock()
     metalogos.fetch_company_items.return_value = []
     with ExitStack() as stack:
+        # Manual refresh also resolves the user's portfolio for IPO display.
+        stack.enter_context(patch("app.services.user_manager.USERS_DIR", tmp_path / "users"))
         for target, value in (
             ("app.services.ipo.store.get_market_file", market_file),
             ("app.services.ipo.store.get_ipo_data_dir", tmp_path),

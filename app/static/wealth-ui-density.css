@@ -1,3 +1,59 @@
+/* v2 finish: compact tax-card headers and explicit import-default actions. */
+.tax-card .tax-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.tax-card .tax-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tax-card .tax-card-title {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tax-card :is(.tax-card-selected, .tax-card-count) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.tax-card .tax-card-selected { line-height: 1.4; }
+.tax-card .tax-card-heading > span:not(.tax-card-selected) { flex-shrink: 0; }
+.tax-card .tax-card-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.toss-wts-account-control .import-default-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.toss-wts-account-control .import-default-controls .button {
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  padding: 4px 8px;
+  min-height: 32px;
+}
+.toss-wts-account-control .import-default-status {
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 10%, transparent);
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.toss-wts-account-control .import-default-status:empty { display: none; }
+
 /* Phase 1: four surface-scoped fixes; global dialog sizing stays unchanged. */
 #savingContributionsDialog > p {
   font-size: 12px;
