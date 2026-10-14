@@ -6,7 +6,9 @@
 - 실제 납부액, 사업장 고지액, 미납액, 기간별 총액을 구분. 여러 해 기간을 임의 배분하지 않고 본인 부담액·소득공제 인정액을 추정하지 않음.
 - 자산 세금 탭을 상태 복구·독립 패널과 연결하고 국민연금 분석 진입·기본 정보 초안 보호를 보완.
 - 앱·서비스워커·변경된 정적 파일만 2.0.2로 갱신. 미변경 Toss UI·색상·금융 계산 유지.
-- 코드·테스트 작성 단계이며 v2.0.2 테스트·syntax·Docker 빌드·배포 미실행. 양식별 인식률 및 ARM64 CPU/메모리·이미지 크기 별도 검증 필요. [가져오기 계약](docs/national-pension-import.md).
+- 사용자 확인 Windows 전체 pytest 3,699 passed / 5 skipped / 0 failed / 5 warnings, 798 subtests passed. Python·JavaScript 문법 검사 PASS.
+- GitHub Actions [run 38493482329, attempt #8](https://github.com/sagesaint84/wealth/actions/runs/38493482329/attempts/8) Success: native amd64/arm64 Docker 빌드, network-disabled Chromium smoke, Poppler/Tesseract kor/eng/osd 및 합성 한국어 PNG/PDF·production worker smoke 성공. 실제 개인 문서 사용 없음.
+- 2026-10-14 기준 PR #144는 Draft/main 반영 전. Oracle ARM64 v2.0.2 실운영 검증·배포는 미실행이며 사용자 보고 기준 운영 v2.0.1 유지. 양식별 인식률, 실제 개인정보 문서 정확성, 운영 CPU/메모리·이미지 크기는 별도 검토 필요. [가져오기 계약](docs/national-pension-import.md).
 
 ## Wealth v2.0.1 — Toss Account Layout and Insurance Display — 2026-10-13
 

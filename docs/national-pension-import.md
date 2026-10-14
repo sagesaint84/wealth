@@ -1,6 +1,12 @@
 # 국민연금 자료 가져오기 — v2.0.2
 
-기준 fe0af51640c60ac6919a71186093040b6a8c5b88. 코드·합성 테스트 작성 단계이며 실행 검증·빌드·운영 접근은 수행하지 않았다.
+기준 main fe0af51640c60ac6919a71186093040b6a8c5b88, 개발 HEAD 1fe0c9dc8dfa894b1c0c6d83799bd498e4ef307a. 2026-10-14 기준 PR #144는 Draft/main 반영 전이다.
+
+사용자 확인 Windows 전체 pytest 3,699 passed / 5 skipped / 0 failed / 5 warnings,
+798 subtests passed 및 Python·JavaScript 문법 PASS. [Actions run 38493482329, attempt #8](https://github.com/sagesaint84/wealth/actions/runs/38493482329/attempts/8)
+Success에서 native amd64/arm64 Docker 빌드, network-disabled Chromium, Poppler/Tesseract
+kor/eng/osd, 합성 한국어 PNG·스캔 PDF OCR과 production document worker smoke가 성공했다.
+실제 개인 국민연금 문서는 사용하지 않았다. Codex의 이번 문서 정리는 실행 검증을 하지 않았다.
 
 ## 오프라인 처리
 
@@ -12,7 +18,7 @@ Poppler pdfinfo/pdftotext의 layout 추출을 우선하며 글자가 부족한 �
 
 Docker에 Debian Bookworm poppler-utils, tesseract-ocr 및 kor/eng/osd 자료,
 Pillow 12.3.0을 설치한다. amd64/arm64 배포판 패키지를 사용하고 외부 OCR·런타임 다운로드는 없다.
-실제 두 아키텍처 빌드 및 이미지 용량 증가량은 아직 검증·측정하지 않았다.
+두 아키텍처의 네이티브 CI 빌드와 합성 OCR 실행은 성공했다. 이미지 용량 증가량은 측정하지 않았다.
 설치 근거: [Tesseract 공식 설치·언어 자료 안내](https://tesseract-ocr.github.io/tessdoc/Installation.html),
 [Pillow 12.3.0 배포·Python 및 플랫폼 정보](https://pypi.org/project/Pillow/12.3.0/).
 worker 동시 2개, Linux 주소공간 512MiB·CPU 60초·파일 20MiB, 전체 75초와 개별 도구 timeout을 적용한다.
@@ -55,6 +61,11 @@ monthly_premium/maturity_date/expected_amount/converted_total_asset/분석·IRR 
 기존 상품 편집도 import metadata를 보존한다. 분석 reset은 가져오기 자료나 실제 이력을 지우지 않는다.
 
 ## 화면과 검증
+
+CI smoke는 합성 문구의 한국어 인식, Poppler 변환, 실제 worker의 허용 필드 추출·ISO 날짜 JSON·
+사람 검토 필요 상태를 확인한다. 실제 사용자 자료의 preview/apply를 실행한 검증은 아니다.
+양식별 인식률, 개인정보 문서 처리 정확성, Oracle ARM64의 CPU/메모리·지연·이미지 크기는
+미검증이다. v2.0.2 운영 검증·배포는 미실행이며 사용자 보고 기준 운영 v2.0.1 유지다.
 
 카드 이력/분석/가져오기는 기존 단일 dialog를 사용한다. 상품 편집 초안이 있으면 분석 이동을 막는다.
 미등록 상품 API 요청은 없다. 미저장 이력·분석이 있으면 가져오기 적용을 막는다.

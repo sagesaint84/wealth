@@ -4,13 +4,17 @@ v2.0.2: 국민연금 카드에서 분석 및 PDF·사진 검토로 직접 이동
 [오프라인 자료 가져오기 계약](national-pension-import.md)을 참고한다. 문서의 공단 총액·고지액은
 개인 부담액·공제 인정액·IRR 지출로 자동 변환하지 않으며 기존 분석 가정과 세율은 유지한다.
 
-브랜치 codex/v2-wts-insurance-roi, 후속 작업 기준 HEAD
+아래는 PR #143 구현 당시 기록이다. 당시 브랜치 codex/v2-wts-insurance-roi, 후속 작업 기준 HEAD
 acfe0a7d397ace4d7f5cc645336942b07e2de10b.
 사용자가 확인한 **기준 HEAD** 결과는 전체 pytest 3,596 passed / 5 skipped /
 0 failed, subtests 798 passed, Chrome UI 30 passed 및 AMD64/ARM64 PR CI 성공이다.
-아래 후속 구현은 코드·테스트·문서 작성과 정적 검토만 수행했으며 실행 검증하지 않았다.
-앱 버전은 2.0.1이고 변경 JS·신규 리소스만 2.0.1-r143.1 cache revision을 사용한다.
-기존 Toss·money-input·서비스워커 revision과 기능은 유지한다.
+당시 후속 구현은 코드·테스트·문서 작성과 정적 검토만 수행했으며 실행 검증하지 않았다.
+당시 앱 버전은 2.0.1이고 변경 JS·신규 리소스만 2.0.1-r143.1 cache revision을 사용했다.
+현재 PR #144 개발 소스는 v2.0.2다. 사용자 확인 Windows 전체 pytest 3,699 passed /
+5 skipped / 0 failed / 5 warnings, 798 subtests passed 및 Python·JS 문법 PASS,
+Actions run 38493482329 attempt #8의 native amd64/arm64 CI 성공을 기록한다.
+실제 개인 문서·Oracle v2.0.2 운영 검증은 미실행이며 최신 범위는
+[가져오기 문서](national-pension-import.md)를 따른다. 기존 분석·Toss·money-input 기능은 유지한다.
 
 ## 저장과 하위 호환
 

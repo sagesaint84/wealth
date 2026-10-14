@@ -22,5 +22,14 @@ fixtures are not uploaded as artifacts.
 
 This is an environment/decoder smoke, not approval to deploy, and does not
 replace the synthetic import API, validation, ownership and RMW regression tests.
-These additions have not been executed by Codex; both native CI jobs must be
-run and reviewed separately.
+Confirmed on 2026-10-14: [Actions run 38493482329, attempt #8](https://github.com/sagesaint84/wealth/actions/runs/38493482329/attempts/8)
+succeeded on both native amd64 and arm64 jobs, including image build,
+network-disabled Chromium smoke, Poppler, kor/eng/osd language data, synthetic
+Korean PNG/PDF OCR and the production document worker smoke. No real personal
+pension documents were used. Codex did not rerun these checks for this documentation update.
+
+PR #144 remains Draft/unmerged as checked on that date. Oracle ARM64 v2.0.2
+deployment and live verification have not been performed; production remains
+v2.0.1 according to the user. Document-format recognition rates, real personal
+document accuracy, production CPU/memory and image-size measurements are not
+established by this CI success.

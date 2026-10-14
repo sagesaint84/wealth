@@ -3,11 +3,13 @@
 > 현재 작업 상태는 `docs/PROJECT_STATE.md`를 먼저 읽습니다.
 > 이 문서는 앞으로 진행할 기능의 우선순위와 완료 기준을 기록합니다.
 
-마지막 갱신: 2026-10-13 (main `55e3dcb` 기준)
+마지막 갱신: 2026-10-14 (v2.0.2 PR #144 기준)
 
 ## 1. 완료된 제품 영역
 
-현재 v2.0.0 UI 마감·문서 정리는 사용자 검증 전 작업 트리 상태다. 다음 기능은 미정이며 아래 완료 내역은 새 phase 착수 지시가 아니다. 최신 UI·Toss ARM64 운영 기준은 `PROJECT_STATE.md`와 `v2-ui-cleanup.md`에 둔다. 아래 phase 기록은 당시의 완료 내역을 보존한다.
+v2.0.2 국민연금 PDF·사진 가져오기, 세금 탭 복원 및 모바일 부동산 UI 구현과 합성 검증은 완료됐다. Windows 전체 pytest 3,699 passed / 5 skipped / 0 failed / 5 warnings, 798 subtests passed 및 Python·JS 문법 PASS를 사용자에게 확인받았다. Actions run 38493482329 attempt #8의 native amd64/arm64 Docker·Chromium·OCR·document worker smoke도 성공했다.
+
+PR #144는 2026-10-14 기준 Draft/main 반영 전이며 Oracle ARM64 v2.0.2 실운영 검증·배포는 미완료다. 사용자 보고 기준 운영 v2.0.1 유지. 실제 문서 양식별 정확성 및 운영 자원·이미지 크기 측정은 완료 항목에 포함하지 않는다. 다음 기능은 미정이며 신규 기능 계획을 추가하지 않는다. 최신 상태는 `PROJECT_STATE.md`, 아래 phase 기록은 당시 완료 내역이다.
 
 ### Phase 10.5C — 배당 자산관리 의사결정
 

@@ -4,9 +4,15 @@
 > 새 대화, 새 작업 세션, 새 개발자가 시작할 때 가장 먼저 이 문서를 읽습니다.
 > 세부 계획은 `docs/ROADMAP.md`, 비밀값·환경설정 원칙은 `docs/SECURITY_AND_CONFIG.md`를 참조합니다.
 
-마지막 갱신: 2026-10-13 (기준 main `55e3dcb`, v2.0.0 PR #142 / HEAD `d847dc5`)
+마지막 갱신: 2026-10-14 (v2.0.2 개발 HEAD `1fe0c9dc8dfa894b1c0c6d83799bd498e4ef307a`)
 
 ## 1. 현재 개발 상태
+
+현재 개발 브랜치는 `codex/v201-pension-tax-tab-hotfix`, 기준 main은 `fe0af51640c60ac6919a71186093040b6a8c5b88`이다. [PR #144](https://github.com/sagesaint84/wealth/pull/144)는 2026-10-14 조회 기준 Draft이며 main 반영 전이다. 개발 소스의 APP_VERSION·HTML·service-worker cache는 2.0.2, layout CSS revision은 2.0.2-r5다. 사용자 보고 기준 main에는 v2.0.1이 반영됐고 Oracle ARM64 운영도 v2.0.1을 유지한다. v2.0.2 운영 검증·배포는 미실행이다.
+
+v2.0.2 사용자 확인 Windows 검증: 전체 pytest **3,699 passed / 5 skipped / 0 failed / 5 warnings**, **798 subtests passed**, Python·JavaScript 문법 **PASS**. [Actions run 38493482329, attempt #8](https://github.com/sagesaint84/wealth/actions/runs/38493482329/attempts/8)은 Success이며 Toss auth native amd64/arm64 모두 성공했다. 네이티브 Docker 빌드·network-disabled Chromium·Poppler/Tesseract kor/eng/osd·합성 한국어 OCR·production document worker smoke를 검증했다. 실제 개인 국민연금 문서를 사용하지 않았고 실제 양식 인식률·Oracle 자원 사용량·이미지 크기 측정은 완료하지 않았다. 이 문서 정리에서는 실행 검증을 반복하지 않았다.
+
+### 이전 v2.0.0 작업 당시 기록 (현재 상태 아님)
 
 기준 main `55e3dcb`에는 Toss WTS ARM64 인증 런타임 PR #141까지 반영됐다. `codex/v2-ui-cleanup`의 v2.0.0 표시, 절세계좌/가져오기 UI와 자산 구성 표시 정리는 구현을 완료했으며, 27개 파일 commit·push 및 PR #142 생성이 완료됐다. HEAD는 `d847dc5f3127c50842bbaa704e890a5db12e6e30`이다. 다음 기능은 미정이며 후보와 보류 항목은 `docs/ROADMAP.md`에 둔다.
 
@@ -19,7 +25,7 @@
 - 예적금 납입 이력과 금융 JSON atomicity는 별도 서비스의 계약이며 이번 UI 정리에서 변경하지 않는다.
 - IPO는 DART/OpenDART·KIND·NAVER/Npay·Metalogos 160과 기존 시장 기록을 사용한다. KIS는 일반 broker 기능에만 남으며 IPO credential/token 요청에는 쓰이지 않는다.
 - Docker Toss QR 인증은 별도 venv의 Playwright/Chromium과 공식 v0.50.3 vendor helper를 사용한다. 사용자별 세션·비공개 확인 문자·Linux subreaper guard 제약은 [인증 런타임 문서](../ops/toss-auth/README.md)를 따른다.
-- 관련 main PR에는 네이티브 AMD64/ARM64 프로세스 통합 테스트와 Docker build smoke가 추가됐다. workflow 존재와 실제 실행 성공은 구분한다.
+- 관련 main PR에는 네이티브 AMD64/ARM64 프로세스 통합 테스트와 Docker build smoke가 추가됐다. PR #144의 양쪽 native CI 성공은 위 검증 기록을 따르며 운영 성공과 구분한다.
 - v2 UI 표시 정책·cleanup 근거·사용자 검증 명령은 [v2 UI 마감 기록](v2-ui-cleanup.md)을 참고한다.
 
 아래 10.5~10.6 기록과 운영 확인 수치는 당시의 역사이며 현재 branch 검증 결과를 뜻하지 않는다.
