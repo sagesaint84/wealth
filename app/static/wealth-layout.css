@@ -1872,3 +1872,113 @@ body.wealth-layout {
 .wealth-workspace[data-active-view="settings"] .wealth-owner-bar { display:none; }
 .settings-surface .settings-group-title { margin:12px 0 0; }
 [data-theme="white"] .settings-surface .openapi-broker-card > div:first-child > span { color:#334155!important; }
+
+/* Narrow asset cards: content must not set a wider page minimum. */
+@media (max-width:480px) {
+  #catPanelRealEstate .saving-card-header {
+    flex-direction:column;
+    align-items:stretch;
+    min-width:0;
+  }
+  #catPanelRealEstate .saving-card-title-group {
+    min-width:0;
+    max-width:100%;
+    overflow-wrap:anywhere;
+  }
+  #catPanelRealEstate .saving-card-actions {
+    min-width:0;
+    max-width:100%;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+  }
+  #catPanelRealEstate .saving-card-actions :is(.account-action-button,.mini-delete-button),
+  #catPanelRealEstate .saving-card-actions .wealth-row-more > summary {
+    min-width:44px;
+    min-height:44px;
+    flex-shrink:0;
+    box-sizing:border-box;
+  }
+  #catPanelRealEstate .saving-card-actions .wealth-row-more {
+    max-width:100%;
+    flex-wrap:wrap;
+    flex-shrink:0;
+  }
+  #catPanelRealEstate .saving-card-details {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    min-width:0;
+    max-width:100%;
+  }
+  #catPanelRealEstate .saving-detail-row {
+    min-width:0;
+    max-width:100%;
+    flex-wrap:wrap;
+    gap:4px 8px;
+  }
+  #catPanelRealEstate :is(.saving-detail-label,.saving-detail-val) {
+    min-width:0;
+    max-width:100%;
+    flex-shrink:1;
+    white-space:normal;
+    word-break:normal;
+    overflow-wrap:anywhere;
+  }
+  #catPanelRealEstate .saving-detail-val { margin-left:auto; }
+  .wealth-layout #accountsPanel > .account-panel-head-row > .panel-head {
+    min-width:0;
+    max-width:100%;
+  }
+  .wealth-layout #accountsPanel .toolbar {
+    min-width:0;
+    max-width:100%;
+    flex:1 1 100%;
+    flex-wrap:wrap;
+  }
+  #accountsPanel :is(#securitiesActions,#bankingActions,#insuranceActions,#realEstateActions) {
+    min-width:0;
+    max-width:100%;
+    flex-wrap:wrap;
+  }
+  #accountsPanel .toolbar .button.compact,
+  #catPanelRealEstate .saving-card-details .button.compact {
+    min-width:0;
+    max-width:100%;
+    white-space:normal !important;
+    height:auto !important;
+    line-height:1.4 !important;
+    padding:6px 10px !important;
+    overflow-wrap:anywhere;
+  }
+}
+@media (max-width:360px) {
+  #catPanelRealEstate .saving-card-details { grid-template-columns:minmax(0,1fr); }
+}
+
+/* Real-estate form owns its layout; no global dialog geometry changes. */
+#realEstateForm, #realEstateForm .form-grid, #realEstateForm .form-grid > *,
+#realEstateForm .re-price-controls, #realEstateForm .re-ownership-section,
+#realEstateForm #rePreviewBox > * { min-width:0; }
+#realEstateForm .re-form-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+#realEstateForm :is(input:not([type=checkbox]):not([type=hidden]),select) {
+  min-width:0;
+  max-width:100%;
+  width:100%;
+  box-sizing:border-box;
+}
+#realEstateForm .re-price-controls { display:flex; gap:6px; align-items:center; }
+#realEstateForm #reCurrentPrice { flex:1 1 0; }
+#realEstateForm #reFetchKbBtn { flex:0 0 auto; max-width:100%; }
+#realEstateForm input[type=checkbox] { width:auto; flex-shrink:0; }
+#realEstateForm :is(label,small,#rePreviewBox) { overflow-wrap:anywhere; }
+#realEstateForm .dialog-actions { min-width:0; flex-wrap:wrap; }
+@media(max-width:480px) {
+  #realEstateForm .re-form-grid { grid-template-columns:minmax(0,1fr); }
+  #realEstateForm .re-price-controls { flex-wrap:wrap; }
+  #realEstateForm #reCurrentPrice { flex-basis:100%; }
+  #realEstateForm #reFetchKbBtn { margin-left:auto; }
+  #realEstateForm .re-ownership-head,
+  #realEstateForm #reJointOwnershipWrap > div,
+  #realEstateForm .re-joint-row { flex-wrap:wrap; gap:8px; min-width:0; }
+  #realEstateForm .re-joint-owner-select { flex-basis:100% !important; }
+  #realEstateForm :is(#rePreviewBox,.re-ownership-section) > * { max-width:100%; }
+  #realEstateForm .dialog-actions > button { max-width:100%; min-width:0; }
+}

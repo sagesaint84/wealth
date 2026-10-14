@@ -26,15 +26,31 @@ class DockerConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="wealth-config-") as temp:
             root = Path(temp)
             (root / ".env").mkdir()
-            with patch.object(main, "ROOT_DIR", root):
+            original_root = main.ROOT_DIR
+            original_disabled = os.environ.get("WEALTH_DISABLE_ENV_FILE")
+            with patch.object(main, "ROOT_DIR", root), patch.dict(os.environ, {"WEALTH_DISABLE_ENV_FILE": ""}, clear=False):
                 with self.assertRaisesRegex(RuntimeError, r"\.env must be a regular file"):
                     main.load_env_file()
+            self.assertIs(main.ROOT_DIR, original_root)
+            self.assertEqual(os.environ.get("WEALTH_DISABLE_ENV_FILE"), original_disabled)
+
+    def test_disabled_env_loading_returns_without_any_file_access(self):
+        with tempfile.TemporaryDirectory(prefix="wealth-config-disabled-") as temp:
+            root = Path(temp)
+            with patch.object(main, "ROOT_DIR", root), patch.dict(os.environ, {"WEALTH_DISABLE_ENV_FILE": "1"}, clear=False):
+                with patch.object(Path, "exists", side_effect=AssertionError("disabled loader accessed a path")) as exists, \
+                     patch.object(Path, "is_file", side_effect=AssertionError("disabled loader inspected a file")) as is_file, \
+                     patch.object(Path, "read_text", side_effect=AssertionError("disabled loader read a file")) as read_text:
+                    main.load_env_file()
+                    exists.assert_not_called()
+                    is_file.assert_not_called()
+                    read_text.assert_not_called()
 
     def test_regular_env_does_not_override_runtime_environment(self):
         with tempfile.TemporaryDirectory(prefix="wealth-config-") as temp:
             root = Path(temp)
             (root / ".env").write_text("DASHBOARD_SECRET_KEY=file-value\n", encoding="utf-8")
-            with patch.object(main, "ROOT_DIR", root), patch.dict("os.environ", {"DASHBOARD_SECRET_KEY": "runtime-value"}, clear=False):
+            with patch.object(main, "ROOT_DIR", root), patch.dict("os.environ", {"DASHBOARD_SECRET_KEY": "runtime-value", "WEALTH_DISABLE_ENV_FILE": ""}, clear=False):
                 main.load_env_file()
                 self.assertEqual(__import__("os").environ["DASHBOARD_SECRET_KEY"], "runtime-value")
 

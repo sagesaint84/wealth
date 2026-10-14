@@ -1,5 +1,9 @@
 # PR #143 국민연금 상세 분석 계약
 
+v2.0.2: 국민연금 카드에서 분석 및 PDF·사진 검토로 직접 이동할 수 있다.
+[오프라인 자료 가져오기 계약](national-pension-import.md)을 참고한다. 문서의 공단 총액·고지액은
+개인 부담액·공제 인정액·IRR 지출로 자동 변환하지 않으며 기존 분석 가정과 세율은 유지한다.
+
 브랜치 codex/v2-wts-insurance-roi, 후속 작업 기준 HEAD
 acfe0a7d397ace4d7f5cc645336942b07e2de10b.
 사용자가 확인한 **기준 HEAD** 결과는 전체 pytest 3,596 passed / 5 skipped /

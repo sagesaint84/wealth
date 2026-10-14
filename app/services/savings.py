@@ -626,6 +626,8 @@ def save_insurance_account(payload: dict[str, Any], username: str | None = None)
     # General product edits cannot replace it with a stale client snapshot.
     if existing_index is not None and "national_pension_analysis" in insurances[existing_index]:
         record["national_pension_analysis"] = deepcopy(insurances[existing_index]["national_pension_analysis"])
+    if existing_index is not None and "national_pension_import" in insurances[existing_index]:
+        record["national_pension_import"] = deepcopy(insurances[existing_index]["national_pension_import"])
 
     if existing_index is not None:
         insurances[existing_index] = record

@@ -5,7 +5,7 @@
   const membershipOptions = {unknown:'미확인',workplace:'사업장가입자',regional:'지역가입자',voluntary:'임의가입자',continued:'임의계속가입자'};
   const roleOptions = {unknown:'미확인',employee:'근로자',sole_proprietor:'개인사업장 사용자',corporate_representative:'법인 대표'};
   const incomeOptions = {unknown:'미확인',employment:'근로소득',business:'사업소득',mixed:'혼합',other:'기타'};
-  let state = null, item = null, generation = 0, serial = 0, busy = false;
+  let state = null, item = null, generation = 0, serial = 0, busy = false, dirty = false;
   const root = () => document.getElementById('npAnalysisPanel');
   const fieldset = () => document.getElementById('npAnalysisFields');
   const notice = message => { document.getElementById('npAnalysisNotice').textContent = message; };
@@ -55,7 +55,7 @@
       field(box,'date','납부일','date',value.date);field(box,'amount','예상 본인 부담액','money',value.amount);
     }
     const remove=element('button','행 삭제','button secondary compact');remove.type='button';remove.setAttribute('aria-label',`${kind==='membership_periods'?'가입유형':kind==='tax_years'?'세금 정보':'부담액/일정'} 행 삭제`);
-    remove.onclick=()=>{if(confirm('이 행을 삭제할까요? 저장 전까지 원본은 유지됩니다.'))box.remove();};box.append(remove);container.append(box);
+    remove.onclick=()=>{if(confirm('이 행을 삭제할까요? 저장 전까지 원본은 유지됩니다.')){box.remove();dirty=true;}};box.append(remove);container.append(box);
     if(window.refreshDialogKoreanHints)window.refreshDialogKoreanHints(document.getElementById('nationalPensionHistoryDialog'));
   }
   function readRows(kind) {
@@ -99,6 +99,7 @@
     field(box,'include_tax_savings','신고에서 확인한 실제 절세액 반영 IRR 별도 표시','checkbox',scenario.include_tax_savings);
     field(box,'schedule_enabled','사용자 지정 납부 일정 사용(빈 일정은 미래 납부 0원 가정)','checkbox',scenario.future_schedule!=null);
     document.getElementById('npAnalysisResults').replaceChildren();
+    dirty=false;
   }
   async function open(currentItem) {
     item=currentItem;state=null;busy=true;const token=++generation;
@@ -156,7 +157,9 @@
     finally{if(token===generation){busy=false;fieldset().disabled=false;}}
   }
   document.addEventListener('DOMContentLoaded',()=>{
-    document.querySelectorAll('[data-np-add]').forEach(button=>button.addEventListener('click',()=>row(button.dataset.npAdd)));
+    document.querySelectorAll('[data-np-add]').forEach(button=>button.addEventListener('click',()=>{row(button.dataset.npAdd);dirty=true;}));
+    fieldset()?.addEventListener('input',()=>{dirty=true;});
+    fieldset()?.addEventListener('change',()=>{dirty=true;});
     document.querySelectorAll('[data-np-action]').forEach(button=>button.addEventListener('click',()=>{
       if(busy)return;
       const kind=button.dataset.npAction;
@@ -181,5 +184,5 @@
     },true);
     dialog?.addEventListener('close',()=>{generation++;busy=false;state=null;});
   });
-  window.WealthNationalPension={open};
+  window.WealthNationalPension={open,hasDraft:()=>busy||dirty};
 })();

@@ -1,6 +1,6 @@
 # Wealth
 
-Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 앱 버전은 **Wealth v2.0.1**입니다. PR #143 기준 HEAD `acfe0a7`은 사용자 확인 전체 pytest **3,596 passed / 5 skipped / 0 failed**, **798 subtests passed**, Chrome UI **30 passed**, AMD64/ARM64 PR CI 성공 상태입니다. 이번 후속 국민연금 상세 분석·보험 부분 집계 변경은 아직 실행 검증하지 않았습니다. [계좌 UI·보험 표시 정책](docs/v2-wts-insurance-roi.md), [국민연금 분석 기준과 한계](docs/national-pension-analysis.md)를 참고하세요.
+Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 소스 버전은 **Wealth v2.0.2**입니다. 사용자 확인으로 PR #143은 병합됐고 v2.0.1은 Oracle ARM64에서 운영 중입니다. 기존 PR 검증 결과는 전체 pytest **3,596 passed / 5 skipped / 0 failed**, **798 subtests passed**, Chrome UI **30 passed**, AMD64/ARM64 PR CI 성공이며 이번 v2.0.2 변경에 대한 검증 결과가 아닙니다. [계좌 UI·보험 표시 정책](docs/v2-wts-insurance-roi.md), [국민연금 분석 기준과 한계](docs/national-pension-analysis.md), [국민연금 자료 가져오기](docs/national-pension-import.md)를 참고하세요.
 
 v2.0.0은 사용자 확인 Windows 전체 pytest **3,568 passed / 5 skipped / 0 failed**, **798 subtests passed**, 신규 Chrome UI 테스트 **14 passed**를 기록했습니다. PR #142 main 병합과 Oracle ARM64 운영 배포·HTTP 검증도 사용자 확인으로 완료됐습니다. PR #143 후속 코드의 merge·게시·배포 완료를 뜻하지 않습니다.
 

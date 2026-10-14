@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const key = 'wealth_asset_category';
-  const categories = ['securities', 'banking', 'insurance', 'real_estate'];
+  const categories = ['securities', 'banking', 'insurance', 'real_estate', 'tax'];
   const valid = value => categories.includes(value) ? value : 'securities';
   let category = 'securities';
   try { category = valid(sessionStorage.getItem(key)); } catch (_) { /* Storage optional. */ }

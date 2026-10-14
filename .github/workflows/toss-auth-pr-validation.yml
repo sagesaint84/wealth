@@ -14,6 +14,10 @@ on:
       - 'app/static/index.html'
       - 'vendor/tossctl-auth-helper/**'
       - 'ops/toss-auth/**'
+      - 'ops/pension-ocr/**'
+      - 'app/services/national_pension*.py'
+      - 'tests/test_national_pension*.py'
+      - 'tests/test_pension_import*.py'
       - 'tests/test_toss_wts*.py'
       - 'tests/test_settings_frontend.py'
       - 'tests/conftest.py'
@@ -59,6 +63,7 @@ jobs:
         run: |
           printf 'WEALTH_DATA_DIR=%s/toss-auth-synthetic-data\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'PROCESS_TEST_REPORT=%s/toss-auth-process-tests.xml\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'OCR_FIXTURE_DIR=%s/wealth-synthetic-ocr\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
 
       - name: Checkout PR merge revision
         uses: actions/checkout@v4
@@ -117,6 +122,16 @@ jobs:
           PY
 
       # No QEMU: each runner builds only its own native platform.
+      - name: Generate public synthetic Korean OCR fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-nanum
+          python ops/pension-ocr/generate_fixtures.py \
+            --font /usr/share/fonts/truetype/nanum/NanumGothic.ttf \
+            --output "$OCR_FIXTURE_DIR"
+          chmod 755 "$OCR_FIXTURE_DIR"
+          chmod 644 "$OCR_FIXTURE_DIR/synthetic.png" "$OCR_FIXTURE_DIR/synthetic.pdf"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -131,6 +146,29 @@ jobs:
             --pull --no-cache --progress=plain \
             --tag "$LOCAL_IMAGE_TAG" \
             --load .
+
+      - name: Run offline OCR smoke in the same native image
+        env:
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          LOCAL_IMAGE_TAG: wealth-toss-auth-pr:${{ matrix.arch }}
+        run: |
+          test "$(uname -m)" = "$EXPECTED_MACHINE"
+          IMAGE_PLATFORM="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$LOCAL_IMAGE_TAG")"
+          test "$IMAGE_PLATFORM" = "$BUILD_PLATFORM"
+          docker run --rm \
+            --platform "$BUILD_PLATFORM" \
+            --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --user 65534:65534 \
+            --tmpfs /tmp:rw,noexec,nosuid,size=256m,mode=1777 \
+            --mount "type=bind,src=$OCR_FIXTURE_DIR,dst=/fixtures,readonly" \
+            --env WEALTH_ENV=test --env WEALTH_DISABLE_ENV_FILE=1 \
+            --env WEALTH_DATA_DIR=/tmp/wealth-synthetic-data \
+            --env DATA_DIR=/tmp/wealth-synthetic-data \
+            --env PYTHONDONTWRITEBYTECODE=1 --env OMP_THREAD_LIMIT=1 \
+            --entrypoint python \
+            "$LOCAL_IMAGE_TAG" /app/ops/pension-ocr/smoke.py \
+            --expected-machine "$EXPECTED_MACHINE"
 
       - name: Remove transient synthetic test report
         if: always()
