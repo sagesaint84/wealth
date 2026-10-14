@@ -4,16 +4,15 @@
 > 새 대화, 새 작업 세션, 새 개발자가 시작할 때 가장 먼저 이 문서를 읽습니다.
 > 세부 계획은 `docs/ROADMAP.md`, 비밀값·환경설정 원칙은 `docs/SECURITY_AND_CONFIG.md`를 참조합니다.
 
-현재 감사 기준: 배당 모드 후속 브랜치 HEAD `c35060b3e61cebac3d17f43fa0df8039a7ab03e3` (미커밋 변경 10개 파일)
+현재 운영 기준: Wealth v2.0.2, main `d98336aea7514cea205ef82ed184398015bff5f9` (PR #145 Squash Merge 및 Oracle ARM64 배포·운영 브라우저 확인 완료; 2026-10-14).
 
 ## 1. 현재 개발 상태
 
-### 배당 실제/예상 모드 후속 수정 — 사용자 전체 검증 통과, 미커밋
+### 배당 실제/예상 모드 후속 수정 — PR #145 운영 배포 및 브라우저 검증 완료
 
-`codex/v202-dividend-mode-fix`는 작업 시작 시 최신 origin/main
-`c35060b3e61cebac3d17f43fa0df8039a7ab03e3`와 HEAD가 일치하고 작업 트리가 clean이었다.
-사용자 보고 기준 PR #144는 main 머지 및 v2.0.2 운영 배포 완료다. 아래 PR #144 Draft/
-운영 v2.0.1 설명은 당시 기록이다. 이번 배당 수정은 개발 브랜치의 10개 파일 미커밋 상태다.
+개발 이력: `codex/v202-dividend-mode-fix`는 기준 main `c35060b3e61cebac3d17f43fa0df8039a7ab03e3`에서 시작했다. 변경 파일 10개의 Commit `11b25f21adc16a3fddefe60c3774db5a882811b2`를 [PR #145](https://github.com/sagesaint84/wealth/pull/145)로 Squash Merge하여 현 main `d98336aea7514cea205ef82ed184398015bff5f9`에 반영했다. 사용자가 로컬 main Fast-forward·작업 브랜치 로컬/원격 삭제를 확인했다. PR #144의 Draft·운영 v2.0.1 설명은 과거 시점의 이력이다.
+
+PR #145 [GitHub Actions](https://github.com/sagesaint84/wealth/actions/runs/38535666859)는 native amd64/arm64 두 Job 모두 Success. Oracle ARM64의 배포 이미지 `ghcr.io/sagesaint84/wealth:d98336a`에서 정확한 Git revision, 아키텍처, 정적 asset revision, 데이터/Toss 마운트 및 HTTP 307을 확인하고 rollback-before-pr145 태그를 보존했다. 사용자 보고로 실제/예상 배당·자산 세금 Workspace 운영 화면 정상도 확인했다. APP_VERSION은 2.0.2를 유지한다.
 
 사용자 직접 확인한 현재 검증 결과:
 
@@ -25,8 +24,7 @@
 
 전체 pytest 초기 8건 실패는 로컬 Python에 Pillow가 없었던 환경 문제다.
 requirements.txt에 지정된 Pillow==12.3.0 설치 후 해당 8건과 전체 pytest가 통과했으며
-소스 코드 결함으로 분류하지 않는다. 이번 수정의 CI·PR·Merge·Deploy 및 운영 브라우저
-수동 검증은 미실행이다. Codex는 이번 감사에서 테스트를 재실행하지 않았다.
+소스 코드 결함으로 분류하지 않는다. PR #145의 CI·Merge·Deploy·운영 브라우저 점검은 위 기록대로 완료됐다. Codex는 최종 코드 감사에서 테스트를 재실행하지 않았다.
 이전 집중 결과 33 passed / 6 failed (174.53초)는 보완 전 이력이며 현재 실패 상태가 아니다.
 
 정적 리뷰에서 오래된 요청의 finally가 새 요청의 버튼을 활성화하는 경합을 확인하여
@@ -41,7 +39,7 @@ requirements.txt에 지정된 Pillow==12.3.0 설치 후 해당 8건과 전체 py
 기존 세금 패널 하나에 assetTaxInformation(상품 정보), taxWorkspaceHeader,
 taxWorkspaceBody(What-if·가족 위험·가상 배분)를 분리한다. 정보 renderer는 자기 영역만
 갱신하고 분석 패널 노드·입력 초안은 유지한다. 위 사용자 테스트가 보완 후 통과했으며
-새로운 CI·운영 성공을 주장하지 않는다.
+운영 성공 범위는 상단의 CI·컨테이너·브라우저 검증 결과를 따른다.
 
 실제 배당 모드는 입금 기록·수령액·기존 차트·가져오기·편집을 유지한다.
 배당 화면의 추가 배당 What-if/세금 대시보드는 예상 모드에서만 표시한다.
@@ -58,7 +56,7 @@ Chrome 회귀 코드는 기존 파일에 320/390/1280px 초기 실제 진입, �
 캐시 정적 감사: HTML 참조·asset metadata·정적 테스트의 revision은 일치한다.
 서비스워커는 JS/CSS를 캐시 대상에서 제외하고 HTML을 network-first로 제공한다.
 온라인 새 문서 로드는 새 revision URL을 사용하지만 이미 열린 탭·오프라인 HTML은 이전
-참조를 유지할 수 있다. 운영 브라우저에서 실제 새 리소스 사용 여부의 수동 확인은 미실행이다.
+참조를 유지할 수 있다. 운영 브라우저에서 해당 모드·탭 표시 정상은 확인했으나 모든 클라이언트의 오프라인 HTML과 캐시 경로까지 검증한 것은 아니다.
 
 감액배당·비과세 계산은 구현하지 않는다. 기존 `dividend_official_sources.py`의
 OpenDART 목록·문서 조회와 `dividend_confirmed_disclosures.py`의 확정 현금배당 파싱은
