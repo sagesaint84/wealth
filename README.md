@@ -1,8 +1,12 @@
 # Wealth
 
-Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 앱 버전은 **Wealth v2.0.1**입니다. PR #143 기준 HEAD `acfe0a7`은 사용자 확인 전체 pytest **3,596 passed / 5 skipped / 0 failed**, **798 subtests passed**, Chrome UI **30 passed**, AMD64/ARM64 PR CI 성공 상태입니다. 이번 후속 국민연금 상세 분석·보험 부분 집계 변경은 아직 실행 검증하지 않았습니다. [계좌 UI·보험 표시 정책](docs/v2-wts-insurance-roi.md), [국민연금 분석 기준과 한계](docs/national-pension-analysis.md)를 참고하세요.
+Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 개발 소스 버전은 **Wealth v2.0.2**입니다. 2026-10-14 확인 기준 [PR #144](https://github.com/sagesaint84/wealth/pull/144)는 Draft이며 main 반영 전입니다. 사용자 보고 기준 PR #143은 병합됐고 v2.0.1은 Oracle ARM64에서 운영 중입니다. v2.0.2의 Oracle 실운영 검증·배포는 미실행입니다. [계좌 UI·보험 표시 정책](docs/v2-wts-insurance-roi.md), [국민연금 분석 기준과 한계](docs/national-pension-analysis.md), [국민연금 자료 가져오기](docs/national-pension-import.md)를 참고하세요.
 
-v2.0.0은 사용자 확인 Windows 전체 pytest **3,568 passed / 5 skipped / 0 failed**, **798 subtests passed**, 신규 Chrome UI 테스트 **14 passed**를 기록했습니다. PR #142 main 병합과 Oracle ARM64 운영 배포·HTTP 검증도 사용자 확인으로 완료됐습니다. PR #143 후속 코드의 merge·게시·배포 완료를 뜻하지 않습니다.
+v2.0.2 검증: 사용자 확인 Windows 전체 pytest **3,699 passed / 5 skipped / 0 failed / 5 warnings**, **798 subtests passed**, Python·JavaScript 문법 검사 **PASS**. [GitHub Actions run 38493482329, attempt #8](https://github.com/sagesaint84/wealth/actions/runs/38493482329/attempts/8)은 **Success**이며 native amd64/arm64 두 job에서 Docker 빌드, network-disabled Chromium smoke, Poppler/Tesseract kor/eng/osd, 합성 한국어 PNG/PDF OCR 및 production document worker smoke가 성공했습니다. 실제 개인 국민연금 문서는 사용하지 않았으며 CI 성공은 운영 배포·인식률 검증 완료를 뜻하지 않습니다.
+
+v2.0.1의 기존 PR 검증 기록은 전체 pytest **3,596 passed / 5 skipped / 0 failed**, **798 subtests passed**, Chrome UI **30 passed**, AMD64/ARM64 PR CI 성공입니다. v2.0.2 결과와 구분합니다.
+
+v2.0.0은 사용자 확인 Windows 전체 pytest **3,568 passed / 5 skipped / 0 failed**, **798 subtests passed**, 신규 Chrome UI 테스트 **14 passed**를 기록했습니다. PR #142 main 병합과 Oracle ARM64 운영 배포·HTTP 검증도 사용자 확인으로 완료됐습니다. 이 수치는 당시 v2.0.0 검증 기록입니다.
 
 ## 주요 기능
 
@@ -92,7 +96,7 @@ Write-Host "PYTEST_EXIT=$testExit"
 
 관련 기능을 바꿀 때는 해당 테스트를 먼저 실행하고, Python 변경은 `py_compile`, JavaScript 변경은 `node --check`, 최종 변경은 `git diff --check`로 확인합니다.
 
-v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 앱 버전·service-worker cache는 `2.0.1`이며 static asset의 `?v=`는 파일별 cache revision입니다. 이번에 바꾸지 않은 파일의 과거 revision은 의도적으로 유지합니다.
+v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 현재 개발 소스의 앱 버전·service-worker cache는 `2.0.2`이며 static asset의 `?v=`는 파일별 cache revision입니다. layout CSS는 `2.0.2-r5`이고 바꾸지 않은 파일의 과거 revision은 의도적으로 유지합니다. 운영 버전은 사용자 보고 기준 `2.0.1`입니다.
 
 ## 프로젝트 문서
 

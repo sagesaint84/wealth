@@ -57,7 +57,7 @@ def assignment(call, evaluate, value):
 def reload_page(call, evaluate):
     generation = evaluate('__qLoad')
     call('Page.reload', {})
-    wait_for(evaluate, f"window.__qLoad==={generation + 1}&&document.readyState==='complete'&&!!window.WealthSettings&&!!document.querySelector('[data-bucket-filter=core]')")
+    wait_for(evaluate, f"window.__qLoad==={generation + 1}&&document.readyState==='complete'&&typeof window.WealthAssetCategoryState?.current==='function'&&!!window.WealthSettings&&!!document.querySelector('[data-bucket-filter=core]')")
     evaluate(FRAMES)
 
 
@@ -67,7 +67,8 @@ def test_asset_categories_restore_all_tabs_toolbar_and_first_paint(chrome_previe
     evaluate("location.hash='assets'")
     evaluate(FRAMES)
     ids = {'securities': ('Securities', 'securities'), 'banking': ('Banking', 'banking'),
-           'insurance': ('Insurance', 'insurance'), 'real_estate': ('RealEstate', 'realEstate')}
+           'insurance': ('Insurance', 'insurance'), 'real_estate': ('RealEstate', 'realEstate'),
+           'tax': ('Tax', None)}
     assert evaluate("[...document.querySelectorAll('#assetCategoryTabs [role=tab]')].map(b=>b.dataset.cat)") == list(ids)
     for category, (panel, toolbar) in ids.items():
         click(call, evaluate, f'[data-cat="{category}"]')
@@ -77,7 +78,15 @@ def test_asset_categories_restore_all_tabs_toolbar_and_first_paint(chrome_previe
         assert evaluate('WealthAssetCategoryState.current()') == category
         assert evaluate(f"document.querySelector('[data-cat={category}]').getAttribute('aria-selected')") == 'true'
         assert evaluate(f"getComputedStyle(document.getElementById('catPanel{panel}')).display") == 'block'
-        assert evaluate(f"getComputedStyle(document.getElementById('{toolbar}Actions')).display") == 'flex'
+        if toolbar is not None:
+            assert evaluate(f"getComputedStyle(document.getElementById('{toolbar}Actions')).display") == 'flex'
+        else:
+            assert evaluate("document.getElementById('catPanelTax').getAttribute('role')") == 'tabpanel'
+            assert evaluate("document.querySelector('[data-cat=tax]').getAttribute('aria-controls')") == 'catPanelTax'
+            for actions in ('securitiesActions','bankingActions','insuranceActions','realEstateActions'):
+                assert evaluate(f"getComputedStyle(document.getElementById('{actions}')).display") == 'none'
+            assert evaluate("getComputedStyle(document.getElementById('catPanelSecurities')).display") == 'none'
+        assert evaluate("document.querySelectorAll('#assetCategoryTabs [aria-selected=true]').length") == 1
         assert evaluate('__qPaint') == []
         no_overflow(evaluate, width)
     evaluate("sessionStorage.setItem('wealth_asset_category','deleted-category')")

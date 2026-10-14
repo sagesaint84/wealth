@@ -22,6 +22,12 @@ RUN --network=none /opt/toss-auth/venv/bin/python /opt/toss-auth/browser_smoke.p
 
 WORKDIR /app
 
+# Offline pension PDF/image import; Debian packages support native amd64/arm64.
+# No remote OCR or runtime downloads. Language data are included at build time.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-kor tesseract-ocr-eng tesseract-ocr-osd \
+    && rm -rf /var/lib/apt/lists/*
+
 # 의존성만 먼저 복사해서 캐시를 최대한 활용
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

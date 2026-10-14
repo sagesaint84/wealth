@@ -150,8 +150,11 @@
     <button type="button" class="account-cat-tab active" data-cat="securities">📈 증권 (<span id="securitiesTabCount">0</span>)</button>
     <button type="button" class="account-cat-tab" data-cat="banking">🏦 은행 (<span id="bankingTabCount">0</span>)</button>
     <button type="button" class="account-cat-tab" data-cat="insurance">🛡️ 연금·보험 (<span id="insuranceTabCount">0</span>)</button>
-    <button type="button" class="account-cat-tab" data-cat="real_estate">🏠 부동산 (<span id="realEstateTabCount">0</span>)</button>`;
-  const assetPanels = {securities:'catPanelSecurities',banking:'catPanelBanking',insurance:'catPanelInsurance',real_estate:'catPanelRealEstate'};
+    <button type="button" class="account-cat-tab" data-cat="real_estate">🏠 부동산 (<span id="realEstateTabCount">0</span>)</button>
+    <button type="button" class="account-cat-tab" data-cat="tax">🧾 세금</button>`;
+  const assetPanels = {securities:'catPanelSecurities',banking:'catPanelBanking',insurance:'catPanelInsurance',real_estate:'catPanelRealEstate',tax:'catPanelTax'};
+  const taxPanel=document.createElement('section');taxPanel.id='catPanelTax';taxPanel.setAttribute('role','tabpanel');
+  taxPanel.setAttribute('aria-label','세금 정보');document.getElementById('accountsPanel').append(taxPanel);
   assetCategoryTabs.querySelectorAll('button').forEach(button => {
     const active = button.dataset.cat === (window.WealthAssetCategoryState?.current() || 'securities');
     button.setAttribute('role','tab'); button.setAttribute('aria-controls',assetPanels[button.dataset.cat]);

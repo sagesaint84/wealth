@@ -2789,11 +2789,14 @@ function switchAccountCategory(category) {
   const bnkPanel = document.getElementById('catPanelBanking');
   const insPanel = document.getElementById('catPanelInsurance');
   const rePanel = document.getElementById('catPanelRealEstate');
+  const taxPanel = document.getElementById('catPanelTax');
 
   if (secPanel) secPanel.style.display = category === 'securities' ? 'block' : 'none';
   if (bnkPanel) bnkPanel.style.display = category === 'banking' ? 'block' : 'none';
   if (insPanel) insPanel.style.display = category === 'insurance' ? 'block' : 'none';
   if (rePanel) rePanel.style.display = category === 'real_estate' ? 'block' : 'none';
+  if (taxPanel) taxPanel.style.display = category === 'tax' ? 'block' : 'none';
+  if (category === 'tax') renderAssetTaxInformation();
 
   const secActs = document.getElementById('securitiesActions');
   const bnkActs = document.getElementById('bankingActions');
@@ -2807,6 +2810,36 @@ function switchAccountCategory(category) {
 }
 
 switchAccountCategory(currentAccountCategory);
+
+function renderAssetTaxInformation() {
+  const panel=document.getElementById('catPanelTax');if(!panel)return;
+  panel.replaceChildren();
+  const intro=document.createElement('p');intro.className='dialog-description';
+  intro.textContent='소득공제와 세액공제는 서로 다른 제도입니다. 확인된 입력과 기존 계산 화면을 구분하여 확인하세요. 이 화면은 세금을 새로 계산하지 않습니다.';panel.append(intro);
+  const accounts=(rawDashboard?.accounts||[]).filter(item=>isTaxAdvantagedAccount(item));
+  const insurances=rawInsuranceAccounts.filter(item=>['national_pension','yellow_umbrella','pension','irp'].includes(item.insurance_type));
+  [...insurances,...accounts].filter(item=>currentOwner==='모두'||(item.owner||'모두')===currentOwner).forEach(item=>{
+    const card=document.createElement('article');card.className='np-tax-card';
+    const title=document.createElement('h3');title.textContent=item.product_name||item.name||'연금 상품';card.append(title);
+    const text=document.createElement('p');
+    const national=item.insurance_type==='national_pension', umbrella=item.insurance_type==='yellow_umbrella';
+    text.textContent=national?'국민연금: 연금보험료 소득공제. 실제 본인 인정액과 해당 연도 과세표준이 필요합니다.':umbrella?'노란우산: 소득공제. 기존 소유자별 공제 한도·세금 계산을 유지합니다.':'연금저축·IRP: 세액공제. 국민연금 소득공제와 합산하지 않습니다. ISA는 별도 비과세·분리과세 제도입니다.';card.append(text);
+    if(!national){
+      const note=document.createElement('p');
+      note.textContent=`공제 설정: ${item.tax_deductible===false?'비공제':item.tax_deductible===true?'공제 대상 설정':'확인 필요'} · 연간 납입 참고값 ${item.annual_deposit==null?'미확인':number(item.annual_deposit,0)+'원'}`;card.append(note);
+      (item.yearly_contributions||[]).forEach(row=>{const line=document.createElement('p');line.textContent=`${row.year}년 납부액 ${row.deposit==null?'미확인':number(row.deposit,0)+'원'} · ${row.is_deductible===false?'비공제':'개별 인정 한도·신고 자료 확인 필요'}`;card.append(line);});
+    }
+    if(national){
+      const button=document.createElement('button');button.type='button';button.className='button secondary compact';
+      button.dataset.nationalAnalysisId=item.id;button.textContent='가입유형·세금·수익 분석';card.append(button);
+      (item.national_pension_analysis?.tax_years||[]).forEach(row=>{
+        const note=document.createElement('p');note.textContent=`${row.year}년 · 인정 공제액 ${row.allowed_deduction==null?'미확인':number(row.allowed_deduction,0)+'원'} · ${row.source==='tax_return'&&row.verified?'신고 자료 확인':'신고 확인 미완료'}`;card.append(note);
+      });
+    }
+    panel.append(card);
+  });
+  if(!panel.querySelector('article')){const empty=document.createElement('p');empty.textContent='등록된 연금·공제 상품이 없습니다.';panel.append(empty);}
+}
 
 // Check URL query parameters for callback result notifications
 (() => {
@@ -2850,11 +2883,14 @@ function nationalPensionHistoryMarkup(ins) {
     const text = !byYear.has(String(year)) ? '미확인' : amount === 0 ? '납부 없음 (0원)' : `₩${number(amount, 0)}`;
     rows.push(`<div class="np-history-line"><span>${year}년</span><span>${text}</span></div>`);
   }
-  return `<details class="np-history"><summary>연도별 실제 납부 이력 · ${records.length}건</summary>
+  return `<div class="np-card-actions">
+    <button type="button" class="button secondary compact" data-national-history-id="${html(ins.id)}">납부 이력 편집</button>
+    <button type="button" class="button secondary compact" data-national-analysis-id="${html(ins.id)}">가입유형·세금·수익 분석</button>
+    <button type="button" class="button secondary compact" data-national-import-id="${html(ins.id)}">📄 국민연금 자료 가져오기 · PDF·사진</button>
+    </div><details class="np-history"><summary>연도별 실제 납부 이력 · ${records.length}건</summary>
     <p>입력 이력 합계 ₩${number(total, 0)} · 기존 누적납입액 ₩${number(ins.total_paid_amount || 0, 0)}</p>
     <p>${difference === null ? '기존 누적납입액 확인 필요' : difference === 0 ? '기존 누적납입액과 일치' : `입력 이력과 누적납입액 차이 ₩${number(difference, 0)} (자동 변경 없음)`}</p>
     <p>미확인은 미입력 연도입니다. 첫해·당해연도 금액은 확인한 부분 납부액 그대로 기록합니다.</p>
-    <button type="button" class="button secondary compact" data-national-history-id="${html(ins.id)}">납부 이력 편집</button>
     <div class="np-history-list">${rows.join('')}</div></details>`;
 }
 
@@ -2876,6 +2912,7 @@ function addNationalPensionHistoryRow(record = {}) {
   refreshDialogKoreanHints(document.getElementById('nationalPensionHistoryDialog'));
 }
 function openNationalPensionHistory(ins) {
+  if (!ins?.id) { toast('상품을 먼저 저장해 주세요.'); return; }
   if (nationalPensionHistorySaving) { toast('납부 이력 저장이 진행 중입니다. 잠시 후 다시 열어 주세요.'); return; }
   nationalPensionHistoryItem = ins;
   nationalPensionHistoryOriginal = structuredClone(ins.yearly_contributions || []);
@@ -2926,6 +2963,7 @@ function renderInsurance(insuranceList, owner = '모두') {
 }
 
 function renderInsuranceWithOwner(owner = '모두') {
+  if(currentAccountCategory==='tax')renderAssetTaxInformation();
   const o = owner || currentOwner || '모두';
   const filtered = o === '모두' 
     ? rawInsuranceAccounts 
@@ -3377,6 +3415,17 @@ function openInsuranceAccountDialog(item = null) {
   updateYellowUmbrellaFields();
   updatePensionPayoutFields();
   renderYuYearlyFormRows(form);
+  dialog.querySelector('[data-np-edit-entry]')?.remove();
+  if(item?.id&&item.insurance_type==='national_pension'){
+    const initial=JSON.stringify([...new FormData(form).entries()]);
+    const entry=document.createElement('button');entry.type='button';entry.className='button secondary compact';
+    entry.dataset.npEditEntry='';entry.textContent='가입유형·세금·수익 분석 / 자료 가져오기';
+    entry.onclick=()=>{
+      if(JSON.stringify([...new FormData(form).entries()])!==initial){toast('수정 중인 기본 정보를 먼저 저장하거나 취소해 주세요.',true);return;}
+      closeDialog('insuranceAccountDialog');openNationalPensionHistory(item);
+    };
+    form.append(entry);
+  }
   refreshDialogKoreanHints(dialog);
   dialog.showModal();
 }
@@ -6761,6 +6810,14 @@ document.addEventListener('click', async (e) => {
   }
 
   const historyButton = e.target.closest('[data-national-history-id]');
+  const analysisButton=e.target.closest('[data-national-analysis-id]');
+  const importButton=e.target.closest('[data-national-import-id]');
+  if(analysisButton||importButton){
+    const id=analysisButton?.dataset.nationalAnalysisId||importButton.dataset.nationalImportId;
+    const item=rawInsuranceAccounts.find(row=>row.id===id&&row.insurance_type==='national_pension');
+    if(item){openNationalPensionHistory(item);if(importButton)window.WealthPensionImport?.open(item);else document.getElementById('npAnalysisPanel')?.scrollIntoView({block:'start'});}
+    return;
+  }
   if (historyButton) {
     const item = rawInsuranceAccounts.find(item => item.id === historyButton.dataset.nationalHistoryId && item.insurance_type === 'national_pension');
     if (item) openNationalPensionHistory(item);

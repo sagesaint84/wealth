@@ -251,7 +251,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-APP_VERSION = "2.0.1"
+APP_VERSION = "2.0.2"
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -5244,6 +5244,35 @@ async def reset_national_pension_analysis_endpoint(ins_id: str, request: Request
 @app.post("/api/insurance-accounts/{ins_id}/national-pension-analysis/calculate")
 async def calculate_national_pension_analysis_endpoint(ins_id: str, request: Request) -> dict:
     return await _national_pension_analysis_action(ins_id, request, calculate_only=True)
+
+@app.post("/api/insurance-accounts/{ins_id}/national-pension-import/preview")
+async def preview_national_pension_document(ins_id: str, request: Request, document_type: str = Query('auto')) -> dict:
+    from app.services import national_pension as np, national_pension_import as importer
+    from starlette.concurrency import run_in_threadpool
+    username=get_current_username(request)
+    try:
+        # Check ownership before decoding any uploaded content. Raw body, no unbounded multipart spooling.
+        _,data=np.read_state(username);np.find_item(data,ins_id)
+        chunks=[];size=0
+        async for chunk in request.stream():
+            size+=len(chunk)
+            if size>importer.MAX_BYTES: raise HTTPException(413,'파일은 10MB 이하로 선택해 주세요.')
+            chunks.append(chunk)
+        return await run_in_threadpool(importer.preview,ins_id,username,b''.join(chunks),
+                                      request.headers.get('content-type','').split(';')[0],document_type)
+    except LookupError as exc: raise HTTPException(404,'국민연금 상품을 찾을 수 없습니다.') from exc
+    except ValueError as exc: raise HTTPException(400,str(exc)) from exc
+
+
+@app.post("/api/insurance-accounts/{ins_id}/national-pension-import/apply")
+async def apply_national_pension_document(ins_id: str, request: Request) -> dict:
+    from app.services import national_pension as np, national_pension_import as importer
+    try:
+        return importer.apply(ins_id,get_current_username(request),await request.json())
+    except LookupError as exc: raise HTTPException(404,'국민연금 상품을 찾을 수 없습니다.') from exc
+    except np.PensionConflict as exc: raise HTTPException(409,str(exc)) from exc
+    except ValueError as exc: raise HTTPException(400,str(exc)) from exc
+
 
 @app.post("/api/loan-accounts")
 async def save_loan_account_endpoint(request: Request) -> dict:

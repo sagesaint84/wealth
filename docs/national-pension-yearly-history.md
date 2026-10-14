@@ -2,8 +2,11 @@
 
 기존 v2.0.1 납부 이력 구현은 PR #143 기준 HEAD acfe0a7에서 사용자 확인 전체
 pytest 3,596 passed / 5 skipped / 0 failed, subtests 798 passed, Chrome UI 30 passed
-및 AMD64/ARM64 CI 성공 상태다. [후속 상세 분석](national-pension-analysis.md)은
-별도 미커밋 구현이며 이번 변경의 테스트는 아직 실행하지 않았다.
+및 AMD64/ARM64 CI 성공을 기록했다. 당시 [후속 상세 분석](national-pension-analysis.md)은
+별도 미커밋 구현·검증 전 상태였다. 현재 v2.0.2 PR #144에서는 사용자 확인 Windows
+전체 pytest 3,699 passed / 5 skipped / 0 failed / 5 warnings, 798 subtests passed,
+Python·JS 문법 PASS와 Actions run 38493482329 attempt #8 native amd64/arm64 CI 성공을
+기록한다. PR은 2026-10-14 기준 Draft/main 반영 전이며 v2.0.2 운영 검증·배포는 미실행이다.
 종합 자산 탭의 표시 이름은 연금·보험이다. category key와 count는 유지한다.
 
 국민연금 카드의 연도별 실제 납부 이력을 펼쳐 납부 이력 편집을 연다.
@@ -34,5 +37,5 @@ is_deductible, 절세율 또는 노란우산 세금 계산을 적용하지 않�
 별도 선택 메타데이터와 표시용 현금흐름으로 제공하며 기존 실제 납부 이력·
 금융 금액·Toss 2행 UI를 유지한다.
 
-기존 합성 서비스·1280/390/320 Chrome 결과와 후속 검증 미실행 상태는 위에서
-구분한다. 후속 구현에서 실제 데이터·인증정보·운영 서버 접근은 하지 않았다.
+기존 기준 HEAD 검증 기록과 현재 v2.0.2 검증 결과는 위에서 구분한다.
+합성 검증에 실제 데이터·인증정보·운영 서버를 사용하지 않았다.

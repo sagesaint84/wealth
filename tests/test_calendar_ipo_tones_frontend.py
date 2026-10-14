@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from tests.test_toss_wts_import_modal_scroll import assert_current_layout_stylesheet
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TONES_JS = ROOT / "app" / "static" / "wealth-calendar-ipo-tones.js"
@@ -40,7 +42,7 @@ class CalendarIpoToneFrontendTests(unittest.TestCase):
 
     def test_final_tones_are_in_first_paint_stylesheet(self) -> None:
         self.assertNotIn("wealthCalendarIpoTonesScript", self.loader_js)
-        self.assertIn('/static/wealth-layout.css?v=10.9q', self.index_html)
+        assert_current_layout_stylesheet(self.index_html)
         self.assertIn('/static/wealth-family-financial-income-allocation.js?v=10.7g1', self.index_html)
         self.assertIn(".cal-badge.tone-ipo-subscription", self.layout_css)
         self.assertIn(".calendar-legend-item.tone-ipo-subscription", self.layout_css)

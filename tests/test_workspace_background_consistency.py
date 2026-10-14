@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +18,11 @@ def test_workspace_radial_background_is_anchored_to_viewport() -> None:
 
     marker = "/* Workspace background consistency across long tabs */"
     assert marker in layout_css
-    block = layout_css[layout_css.index(marker):]
+    following = layout_css[layout_css.index(marker) + len(marker):]
+    declaration = re.match(r'\s*([^{}]+)\{([^{}]*)\}', following)
+    assert declaration is not None, 'Workspace marker must be followed by a CSS declaration'
+    assert declaration.group(1).strip() == 'body.wealth-layout'
+    block = declaration.group(0)
 
     assert "body.wealth-layout" in block
     assert "background-attachment: fixed;" in block
