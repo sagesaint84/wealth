@@ -39,7 +39,7 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
         revision = assets.revisions[0]
         self.assertTrue(revision.startswith(version + '-'))
         core_js = f'/static/wealth.js?v={revision}'
-        what_if_js = '/static/wealth-financial-income-what-if.js?v=1.3.0'
+        what_if_js = '/static/wealth-financial-income-what-if.js?v=2.0.2-r6'
         self.assertIn(css_ref, html)
         self.assertIn(core_js, html)
         self.assertIn(what_if_js, html)
@@ -71,6 +71,14 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
         self.assertIn("scenarioState.at_or_above === true", js)
         self.assertIn("2천만원 도달 · 초과 아님", js)
         self.assertIn("2천만원 초과", js)
+
+    def test_completion_and_observers_have_scoped_ownership(self):
+        js = (ROOT / 'app/static/wealth-financial-income-what-if.js').read_text(encoding='utf-8')
+        self.assertIn('if (revision === simulationRevision && owner === currentOwnerValue()) button.disabled = false;', js)
+        self.assertIn('owner !== visibilityOwner', js)
+        self.assertNotIn('.observe(document.body', js)
+        self.assertIn("attributeFilter: ['class']", js)
+        self.assertIn("window.addEventListener('wealth:view', syncVisibility)", js)
 
     def test_watch_threshold_state_is_server_driven(self):
         js = (ROOT / "app" / "static" / "wealth-financial-income-what-if.js").read_text(

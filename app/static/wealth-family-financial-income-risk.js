@@ -5,7 +5,6 @@
   let loading = false;
   let loadedOnce = false;
   let relayoutQueued = false;
-  let whatIfSpoofSnapshot = null;
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -52,17 +51,24 @@
       panel.id = 'catPanelTax';
       panel.className = 'cat-panel';
       panel.style.cssText = 'display:none;margin-top:12px;';
-      panel.innerHTML = `
-        <div style="margin-bottom:14px;padding:12px 14px;border:1px solid rgba(99,102,241,.24);border-radius:10px;background:rgba(15,23,42,.35);">
+      realEstatePanel.insertAdjacentElement('afterend', panel);
+    }
+    if (!panel.querySelector('#taxWorkspaceHeader')) {
+      panel.insertAdjacentHTML('beforeend', `
+        <div id="taxWorkspaceHeader" style="margin-bottom:14px;padding:12px 14px;border:1px solid rgba(99,102,241,.24);border-radius:10px;background:rgba(15,23,42,.35);">
           <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:#7dd3fc;">TAX & FINANCIAL INCOME</div>
           <div style="margin-top:3px;font-size:15px;font-weight:800;color:#e2e8f0;">세금 · 금융소득 관리</div>
           <div style="margin-top:4px;font-size:11.5px;line-height:1.55;color:#94a3b8;">매일 입출금되는 머니로그와 분리해 금융소득 기준, 가족별 screening, 가상 배분과 배당 세금 What-if를 한곳에서 확인합니다.</div>
         </div>
-        <div id="taxWorkspaceBody"></div>
-      `;
-      realEstatePanel.insertAdjacentElement('afterend', panel);
+      `);
     }
-    return panel.querySelector('#taxWorkspaceBody');
+    let body = panel.querySelector('#taxWorkspaceBody');
+    if (!body) {
+      body = document.createElement('div');
+      body.id = 'taxWorkspaceBody';
+      panel.appendChild(body);
+    }
+    return body;
   }
 
   function correctDividendCards() {
@@ -89,37 +95,15 @@
     if (!body) return;
     const risk = document.getElementById('familyFinancialIncomeRiskPanel');
     const allocation = document.getElementById('familyFinancialIncomeAllocationPanel');
-    const whatIf = document.getElementById('financialIncomeWhatIfPanel');
-    [risk, allocation, whatIf].forEach(panel => {
+    [risk, allocation].forEach(panel => {
       if (panel && panel.parentElement !== body) body.appendChild(panel);
     });
-  }
-
-  function restoreWhatIfDividendMode() {
-    if (!whatIfSpoofSnapshot) return;
-    whatIfSpoofSnapshot.forEach(({tab, active}) => tab.classList.toggle('active', active));
-    whatIfSpoofSnapshot = null;
-  }
-
-  function beginWhatIfEstimatedModeSpoof() {
-    if (!taxWorkspaceActive() || whatIfSpoofSnapshot) return;
-    const tabs = Array.from(document.querySelectorAll('#dividendModeTabs .heatmap-tab'));
-    const estimated = tabs.find(tab => tab.dataset?.divMode === 'estimated');
-    if (!estimated || estimated.classList.contains('active')) return;
-    whatIfSpoofSnapshot = tabs.map(tab => ({tab, active: tab.classList.contains('active')}));
-    tabs.forEach(tab => tab.classList.remove('active'));
-    estimated.classList.add('active');
-    window.setTimeout(restoreWhatIfDividendMode, 0);
+    window.WealthFinancialIncomeWhatIf?.syncVisibility();
   }
 
   function refreshWhatIfForTaxWorkspace() {
     if (!taxWorkspaceActive()) return;
-    const panel = document.getElementById('financialIncomeWhatIfPanel');
-    const form = document.getElementById('financialIncomeWhatIfForm');
-    if (!panel || !form) return;
-    panel.style.display = 'block';
-    beginWhatIfEstimatedModeSpoof();
-    form.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}));
+    window.WealthFinancialIncomeWhatIf?.runSimulation();
   }
 
   function scheduleRelayout() {
@@ -131,10 +115,7 @@
       relocateTaxTools();
       const taxPanel = document.getElementById('catPanelTax');
       if (taxPanel) taxPanel.style.display = taxWorkspaceActive() ? 'block' : 'none';
-      if (taxWorkspaceActive()) {
-        const whatIf = document.getElementById('financialIncomeWhatIfPanel');
-        if (whatIf) whatIf.style.display = 'block';
-      }
+      window.WealthFinancialIncomeWhatIf?.syncVisibility();
     });
   }
 
@@ -311,22 +292,6 @@
       }, 0);
     }
   });
-
-  document.addEventListener('click', event => {
-    if (event.target?.closest?.('#financialIncomeWhatIfPanel') && taxWorkspaceActive()) {
-      beginWhatIfEstimatedModeSpoof();
-    }
-  }, true);
-  document.addEventListener('change', event => {
-    if (event.target?.closest?.('#financialIncomeWhatIfPanel') && taxWorkspaceActive()) {
-      beginWhatIfEstimatedModeSpoof();
-    }
-  }, true);
-  document.addEventListener('submit', event => {
-    if (event.target?.closest?.('#financialIncomeWhatIfPanel') && taxWorkspaceActive()) {
-      beginWhatIfEstimatedModeSpoof();
-    }
-  }, true);
 
   window.WealthTaxWorkspace = {
     isActive: taxWorkspaceActive,

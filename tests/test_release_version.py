@@ -17,7 +17,7 @@ class ReleaseVersionTests(unittest.TestCase):
     def test_index_html_version_metadata_and_cache_busting(self):
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         self.assertIn('<meta name="application-version" content="2.0.2" />', html)
-        self.assertIn('<meta name="application-assets-revision" content="2.0.2-r1" />', html)
+        self.assertIn('<meta name="application-assets-revision" content="2.0.2-r7" />', html)
         self.assertIn('id="appVersionDisplay"', html)
         self.assertIn("앱 버전 v2.0.2", html)
 
@@ -39,7 +39,9 @@ class ReleaseVersionTests(unittest.TestCase):
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
         versions = {
-            "wealth.js": "2.0.2-r1", "wealth-layout.js": "2.0.2",
+            "wealth-financial-income-what-if.js": "2.0.2-r6",
+            "wealth-family-financial-income-risk.js": "2.0.2-r7",
+            "wealth.js": "2.0.2-r7", "wealth-layout.js": "2.0.2",
             "wealth-national-pension.js": "2.0.2", "wealth-pension-import.js": "2.0.2",
             "wealth-transaction-defaults.js": "2.0.1",
             "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "10.9r6",

@@ -2813,9 +2813,15 @@ switchAccountCategory(currentAccountCategory);
 
 function renderAssetTaxInformation() {
   const panel=document.getElementById('catPanelTax');if(!panel)return;
-  panel.replaceChildren();
+  let information=panel.querySelector('#assetTaxInformation');
+  if(!information){
+    information=document.createElement('div');information.id='assetTaxInformation';
+    panel.prepend(information);
+  }
+  // This renderer owns product information only, not the independent tax tools.
+  information.replaceChildren();
   const intro=document.createElement('p');intro.className='dialog-description';
-  intro.textContent='소득공제와 세액공제는 서로 다른 제도입니다. 확인된 입력과 기존 계산 화면을 구분하여 확인하세요. 이 화면은 세금을 새로 계산하지 않습니다.';panel.append(intro);
+  intro.textContent='소득공제와 세액공제는 서로 다른 제도입니다. 확인된 입력과 기존 계산 화면을 구분하여 확인하세요. 이 화면은 세금을 새로 계산하지 않습니다.';information.append(intro);
   const accounts=(rawDashboard?.accounts||[]).filter(item=>isTaxAdvantagedAccount(item));
   const insurances=rawInsuranceAccounts.filter(item=>['national_pension','yellow_umbrella','pension','irp'].includes(item.insurance_type));
   [...insurances,...accounts].filter(item=>currentOwner==='모두'||(item.owner||'모두')===currentOwner).forEach(item=>{
@@ -2836,9 +2842,9 @@ function renderAssetTaxInformation() {
         const note=document.createElement('p');note.textContent=`${row.year}년 · 인정 공제액 ${row.allowed_deduction==null?'미확인':number(row.allowed_deduction,0)+'원'} · ${row.source==='tax_return'&&row.verified?'신고 자료 확인':'신고 확인 미완료'}`;card.append(note);
       });
     }
-    panel.append(card);
+    information.append(card);
   });
-  if(!panel.querySelector('article')){const empty=document.createElement('p');empty.textContent='등록된 연금·공제 상품이 없습니다.';panel.append(empty);}
+  if(!information.querySelector('article')){const empty=document.createElement('p');empty.textContent='등록된 연금·공제 상품이 없습니다.';information.append(empty);}
 }
 
 // Check URL query parameters for callback result notifications
