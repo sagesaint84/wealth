@@ -2,13 +2,19 @@
 
 ## Wealth v2.0.2 — Offline Pension Document Import and Tax Navigation — 2026-10-14
 
+- 사용자 보고 기준 PR #144는 main 머지 및 v2.0.2 운영 배포 완료. 아래 PR #144 Draft·운영 v2.0.1 설명은 2026-10-14 당시 이력이며 현재 운영 상태가 아니다.
+- 배당 실제/예상 모드 후속 수정의 현재 상태: `codex/v202-dividend-mode-fix`, 기준 HEAD `c35060b3e61cebac3d17f43fa0df8039a7ab03e3` 위 10개 파일 미커밋 변경. 사용자 재검증에서 실패했던 Chrome 6개는 6 PASS / 0 FAIL / 0 SKIP, 집중 pytest는 40 PASS / 0 FAIL / 0 SKIP. Windows 전체 pytest는 **3,707 passed / 5 skipped / 0 failed / 5 warnings**, **798 subtests passed**, 1182.80초. 격리 소스·Python/JS 문법·git diff --check PASS, 테스트 임시 소스 정리 완료.
+- 전체 pytest 초기 8건은 로컬 Python 환경의 Pillow 부재로 실패했으며 requirements.txt의 Pillow==12.3.0 설치 후 해당 테스트와 전체 suite가 통과했다. 소스 결함으로 분류하지 않는다. 이번 후속 수정의 CI·PR·Merge·Deploy와 운영 브라우저 수동 검증은 미실행이며, Codex는 감사 중 테스트를 반복하지 않았다. 감액배당·비과세 계산은 미구현.
+- 과거 후속 검증 이력: 33 passed / 6 failed (174.53초), Python·JS syntax/Isolation/git diff --check PASS. 세금 workspace 이동 실패 6건은 기존 catPanelTax에도 workspace를 생성하고 상품 정보 갱신을 assetTaxInformation 내부로 제한하여 보완했다. 이후 재검증 성공은 위 현재 기록을 따른다. 분석 패널·초안·요청 방어 유지. wealth.js/family-risk JS 및 core metadata revision은 2.0.2-r7, What-if JS는 2.0.2-r6 유지.
+- 후속 정적 리뷰 보완: 오래된 What-if 요청의 finally가 새 계산 버튼을 활성화하지 않도록 요청·Owner 검사를 적용. 모드/Owner 변경 시 진행 상태를 초기화하고 What-if의 전체 body Observer를 탭 선택 감시와 기존 wealth:view 이벤트로 축소. 합성 Chrome 응답 순서·Owner·세금 탭 왕복 회귀 코드 추가. 사용자 검증 결과는 위 기록을 따른다.
+- 최초 후속 배당 모드 보정 (작성 당시 미커밋·실행 검증 전): 실제 배당 화면에서 What-if를 숨기고 예상 모드에서 표시한다. 세금 workspace의 기존 도구는 유지하되 예상 탭을 임시 조작하던 경로를 제거하고 하나의 표시 제어를 사용한다. 당시 앱 버전은 2.0.2, What-if·family-risk JS는 2.0.2-r6이었다. 현재 후속 검증·revision은 위 기록을 따른다. 아래 기존 성공 결과는 이 후속 변경의 검증 결과가 아니다.
 - 국민연금 카드·납부 이력에서 PDF/PNG/JPG를 서버 내부 Poppler/Tesseract로 분석하고 선택 항목을 검토·수정한 뒤 적용. 원문·개인식별정보 저장 및 외부 OCR 전송 없음.
 - 실제 납부액, 사업장 고지액, 미납액, 기간별 총액을 구분. 여러 해 기간을 임의 배분하지 않고 본인 부담액·소득공제 인정액을 추정하지 않음.
 - 자산 세금 탭을 상태 복구·독립 패널과 연결하고 국민연금 분석 진입·기본 정보 초안 보호를 보완.
 - 앱·서비스워커·변경된 정적 파일만 2.0.2로 갱신. 미변경 Toss UI·색상·금융 계산 유지.
 - 사용자 확인 Windows 전체 pytest 3,699 passed / 5 skipped / 0 failed / 5 warnings, 798 subtests passed. Python·JavaScript 문법 검사 PASS.
 - GitHub Actions [run 38493482329, attempt #8](https://github.com/sagesaint84/wealth/actions/runs/38493482329/attempts/8) Success: native amd64/arm64 Docker 빌드, network-disabled Chromium smoke, Poppler/Tesseract kor/eng/osd 및 합성 한국어 PNG/PDF·production worker smoke 성공. 실제 개인 문서 사용 없음.
-- 2026-10-14 기준 PR #144는 Draft/main 반영 전. Oracle ARM64 v2.0.2 실운영 검증·배포는 미실행이며 사용자 보고 기준 운영 v2.0.1 유지. 양식별 인식률, 실제 개인정보 문서 정확성, 운영 CPU/메모리·이미지 크기는 별도 검토 필요. [가져오기 계약](docs/national-pension-import.md).
+- 당시 이력 (2026-10-14 PR 검증 시점): PR #144는 Draft/main 반영 전이었고 Oracle ARM64 v2.0.2 실운영 검증·배포 전, 운영 v2.0.1 유지 상태였다. 이후 사용자 보고로 PR #144 머지·v2.0.2 운영 배포 완료를 확인했다. 양식별 인식률, 실제 개인정보 문서 정확성, 운영 CPU/메모리·이미지 크기 측정 완료를 뜻하지 않는다. [가져오기 계약](docs/national-pension-import.md).
 
 ## Wealth v2.0.1 — Toss Account Layout and Insurance Display — 2026-10-13
 

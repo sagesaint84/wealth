@@ -3,6 +3,9 @@
 
   const API_PATH = '/api/dividends/financial-income-what-if';
   const DIVIDEND_PRESETS = [1e6, 5e6, 10e6];
+  let visibilityContext = '';
+  let simulationRevision = 0;
+  let visibilityOwner = '';
 
   function money(value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) return '확인 불가';
@@ -25,6 +28,9 @@
   }
 
   function estimatedModeActive() {
+    try {
+      if (typeof currentDividendMode === 'string') return currentDividendMode === 'estimated';
+    } catch (_) { /* Core initialization has not completed yet. */ }
     const active = document.querySelector('#dividendModeTabs .heatmap-tab.active');
     return active?.dataset?.divMode === 'estimated';
   }
@@ -59,7 +65,7 @@
 
   function panelMarkup() {
     return `
-      <section id="financialIncomeWhatIfPanel" class="fi-what-if-panel" aria-label="배당 세금 대시보드">
+      <section id="financialIncomeWhatIfPanel" class="fi-what-if-panel" aria-label="배당 세금 대시보드" hidden>
         <div class="fi-what-if-head">
           <div>
             <span class="fi-what-if-kicker">DIVIDEND TAX DASHBOARD</span>
@@ -275,7 +281,7 @@
     document.getElementById('fiWhatIfInvestmentEnabled')?.addEventListener('change', syncInvestmentFields);
     document.getElementById('fiWhatIfAssetType')?.addEventListener('change', syncInvestmentFields);
     document.getElementById('fiWhatIfAfterTaxAssetType')?.addEventListener('change', () => {
-      if (estimatedModeActive()) runSimulation();
+      runSimulation();
     });
     document.getElementById('financialIncomeWhatIfForm')?.addEventListener('submit', event => {
       event.preventDefault();
@@ -314,7 +320,29 @@
   function syncVisibility() {
     const panel = document.getElementById('financialIncomeWhatIfPanel');
     if (!panel) return;
-    panel.style.display = estimatedModeActive() ? 'block' : 'none';
+    const taxBody = document.getElementById('taxWorkspaceBody');
+    const accounts = document.getElementById('accountsPanel');
+    const taxActive = Boolean(taxBody && accounts?.getClientRects().length &&
+      window.WealthTaxWorkspace?.isActive?.());
+    const summary = document.querySelector('#dividendPanel .dividend-summary-cards');
+    if (taxActive && panel.parentElement !== taxBody) taxBody.appendChild(panel);
+    else if (!taxActive && summary && panel.parentElement !== summary.parentElement) {
+      summary.insertAdjacentElement('afterend', panel);
+    }
+    const context = taxActive ? 'tax' : (estimatedModeActive() ? 'estimated' : 'actual');
+    const owner = currentOwnerValue();
+    if (context !== visibilityContext || owner !== visibilityOwner) {
+      visibilityContext = context;
+      visibilityOwner = owner;
+      simulationRevision++;
+      const button = document.getElementById('fiWhatIfRun');
+      const status = document.getElementById('fiWhatIfStatus');
+      if (button) button.disabled = false;
+      if (status) { status.textContent = ''; status.className = 'fi-what-if-status'; }
+    }
+    const visible = context !== 'actual';
+    panel.hidden = !visible;
+    panel.style.display = visible ? 'block' : 'none';
   }
 
   function buildHighDividendScenario() {
@@ -426,10 +454,14 @@
     const status = document.getElementById('fiWhatIfStatus');
     const button = document.getElementById('fiWhatIfRun');
     const result = document.getElementById('financialIncomeWhatIfResult');
-    if (!status || !button || !result || !estimatedModeActive()) return;
+    syncVisibility();
+    if (!status || !button || !result || visibilityContext === 'actual') return;
+    const revision = ++simulationRevision;
+    const owner = currentOwnerValue();
 
     const payload = buildPayload();
     if (!validatePayload(payload)) {
+      button.disabled = false;
       status.textContent = '0 이상의 숫자만 입력하세요.';
       status.className = 'fi-what-if-status error';
       return;
@@ -446,6 +478,8 @@
         body: JSON.stringify(payload),
       });
       const data = await response.json().catch(() => ({}));
+      syncVisibility();
+      if (revision !== simulationRevision || owner !== currentOwnerValue()) return;
       if (!response.ok) {
         const code = data?.detail?.code || `HTTP_${response.status}`;
         throw new Error(code);
@@ -454,11 +488,14 @@
       status.textContent = '계산 완료';
       status.className = 'fi-what-if-status success';
     } catch (error) {
+      syncVisibility();
+      if (revision !== simulationRevision || owner !== currentOwnerValue()) return;
       result.innerHTML = `<div class="fi-what-if-error">계산하지 못했습니다. <code>${escapeHtml(error?.message || 'UNKNOWN')}</code></div>`;
       status.textContent = '계산 실패';
       status.className = 'fi-what-if-status error';
     } finally {
-      button.disabled = false;
+      syncVisibility();
+      if (revision === simulationRevision && owner === currentOwnerValue()) button.disabled = false;
     }
   }
 
@@ -670,6 +707,7 @@
     document.addEventListener('click', event => {
       const modeTab = event.target.closest?.('#dividendModeTabs .heatmap-tab');
       if (modeTab) {
+        syncVisibility();
         window.setTimeout(() => {
           syncVisibility();
           if (estimatedModeActive()) runSimulation();
@@ -677,14 +715,27 @@
         return;
       }
       const ownerTab = event.target.closest?.('.family-tabs .family-tab');
-      if (ownerTab && estimatedModeActive()) window.setTimeout(() => runSimulation(), 0);
+      if (ownerTab) {
+        syncVisibility();
+        if (estimatedModeActive()) window.setTimeout(() => runSimulation(), 0);
+      }
     });
   }
 
   function init() {
     mountPanel();
     attachGlobalListeners();
+    // Observe only mode/category selection, never panel moves or result markup.
+    const observer = new MutationObserver(syncVisibility);
+    const modeTabs = document.getElementById('dividendModeTabs');
+    const categoryTabs = document.querySelector('.account-cat-tab')?.parentElement;
+    for (const tabs of [modeTabs, categoryTabs]) {
+      if (tabs) observer.observe(tabs, {subtree: true, attributes: true, attributeFilter: ['class']});
+    }
+    window.addEventListener('wealth:view', syncVisibility);
   }
+
+  window.WealthFinancialIncomeWhatIf = { syncVisibility, runSimulation };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init, { once: true });

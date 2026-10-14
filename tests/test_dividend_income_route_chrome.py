@@ -162,6 +162,170 @@ def chrome_preview(request):
         server.server_close()
 
 
+@pytest.mark.parametrize('width,height', [(320, 568), (390, 844), (1280, 900)])
+def test_dividend_mode_dashboard_visibility_and_tax_restore(chrome_preview, width, height):
+    call, evaluate, port = chrome_preview
+    call('Emulation.setDeviceMetricsOverride', {'width': width, 'height': height,
+         'screenWidth': width, 'screenHeight': height, 'deviceScaleFactor': 1,
+         'mobile': width <= 430})
+    call('Page.navigate', {'url': f'http://127.0.0.1:{port}/#dividend'})
+    ready = "document.readyState==='complete' && !!window.WealthFinancialIncomeWhatIf && !!document.getElementById('financialIncomeWhatIfPanel')"
+    wait_for(evaluate, ready)
+
+    def state():
+        return evaluate("""(() => {
+          const panel=document.getElementById('financialIncomeWhatIfPanel');
+          return {mode:currentDividendMode,
+            tab:document.querySelector('#dividendModeTabs .active')?.dataset.divMode,
+            hidden:panel.hidden,display:getComputedStyle(panel).display,
+            inDividend:!!panel.closest('#dividendPanel'),
+            count:document.querySelectorAll('#financialIncomeWhatIfPanel').length,
+            overflow:document.documentElement.scrollWidth>innerWidth,
+            importVisible:!!document.getElementById('importDividendBtn')?.getClientRects().length};
+        })()""")
+
+    def assert_actual():
+        wait_for(evaluate, "document.getElementById('financialIncomeWhatIfPanel').hidden")
+        value = state()
+        assert value['mode'] == value['tab'] == 'actual', value
+        assert value['hidden'] and value['display'] == 'none', value
+        assert value['inDividend'] and value['count'] == 1, value
+        assert value['importVisible'] and not value['overflow'], value
+
+    assert_actual()
+    for _ in range(3):
+        evaluate("document.querySelector('#dividendModeTabs [data-div-mode=estimated]').click()")
+        wait_for(evaluate, "!document.getElementById('financialIncomeWhatIfPanel').hidden")
+        value = state()
+        assert value['mode'] == value['tab'] == 'estimated', value
+        assert value['inDividend'] and value['count'] == 1 and not value['overflow'], value
+        evaluate("document.querySelector('#dividendModeTabs [data-div-mode=actual]').click()")
+        assert_actual()
+    evaluate("location.hash='#assets'")
+    wait_for(evaluate, "!document.querySelector('[data-wealth-page=assets]').hidden")
+    evaluate("document.querySelector('.account-cat-tab[data-cat=tax]').click()")
+    wait_for(evaluate, "!!document.getElementById('financialIncomeWhatIfPanel').closest('#taxWorkspaceBody') && !document.getElementById('financialIncomeWhatIfPanel').hidden")
+    preserved = evaluate("""(() => {
+      const workspace=document.getElementById('taxWorkspaceBody');
+      const picker=document.getElementById('financialIncomeWhatIfPanel');
+      const risk=document.getElementById('familyFinancialIncomeRiskPanel');
+      const allocation=document.getElementById('familyFinancialIncomeAllocationPanel');
+      const input=document.getElementById('fiWhatIfExtraDividend'); input.value='123456';
+      const originalDashboard=rawDashboard, originalInsurance=rawInsuranceAccounts, owner=currentOwner;
+      let result;
+      try {
+        rawDashboard={accounts:[
+          {id:'synthetic-irr',name:'합성 IRP',account_type:'irp',owner:'모두'},
+          {id:'synthetic-pension',name:'합성 연금저축',account_type:'pension_savings',owner:'모두'}]};
+        rawInsuranceAccounts=[{id:'synthetic-national',product_name:'합성 국민연금',insurance_type:'national_pension',owner:'모두'}];
+        currentOwner='모두'; renderAssetTaxInformation(); renderAssetTaxInformation();
+        WealthTaxWorkspace.ensure(); WealthTaxWorkspace.ensure();
+        const information=document.getElementById('assetTaxInformation');
+        result={workspaceSame:workspace===document.getElementById('taxWorkspaceBody'),
+          pickerSame:picker===document.getElementById('financialIncomeWhatIfPanel'),
+          draft:input.value, riskSame:!!risk&&risk===document.getElementById('familyFinancialIncomeRiskPanel'),
+          allocationSame:!!allocation&&allocation===document.getElementById('familyFinancialIncomeAllocationPanel'),
+          workspaceCount:document.querySelectorAll('#taxWorkspaceBody').length,
+          panelCount:document.querySelectorAll('#catPanelTax').length,
+          informationCount:document.querySelectorAll('#assetTaxInformation').length,
+          cards:[...information.querySelectorAll('.np-tax-card h3')].map(node=>node.textContent)};
+      } finally {rawDashboard=originalDashboard;rawInsuranceAccounts=originalInsurance;currentOwner=owner;renderAssetTaxInformation();}
+      return result;
+    })()""")
+    assert preserved['workspaceSame'] and preserved['pickerSame'], preserved
+    assert preserved['riskSame'] and preserved['allocationSame'], preserved
+    assert preserved['draft'] == '123456', preserved
+    assert preserved['workspaceCount'] == preserved['panelCount'] == preserved['informationCount'] == 1, preserved
+    assert set(preserved['cards']) == {'합성 국민연금', '합성 IRP', '합성 연금저축'}, preserved
+    assert evaluate("currentDividendMode==='actual' && document.querySelector('#dividendModeTabs .active').dataset.divMode==='actual'")
+    evaluate("location.hash='#dividend'")
+    wait_for(evaluate, "!document.querySelector('[data-wealth-page=income]').hidden")
+    assert_actual()
+    previous = evaluate('performance.timeOrigin')
+    call('Page.reload', {'ignoreCache': False})
+    wait_for(evaluate, f'performance.timeOrigin>{previous} && ({ready})')
+    assert_actual()
+    call('Emulation.setDeviceMetricsOverride', {'width': 1280, 'height': 900,
+         'screenWidth': 1280, 'screenHeight': 900, 'deviceScaleFactor': 1, 'mobile': False})
+    assert_actual()
+
+
+@pytest.mark.parametrize('width,height', [(320, 568), (390, 844), (1280, 900)])
+def test_what_if_stale_requests_cannot_change_result_status_or_button(chrome_preview, width, height):
+    call, evaluate, port = chrome_preview
+    call('Emulation.setDeviceMetricsOverride', {'width': width, 'height': height,
+         'screenWidth': width, 'screenHeight': height, 'deviceScaleFactor': 1,
+         'mobile': width <= 430})
+    call('Page.navigate', {'url': f'http://127.0.0.1:{port}/#dividend'})
+    wait_for(evaluate, "document.readyState==='complete' && !!window.WealthFinancialIncomeWhatIf")
+    result = evaluate("""(async () => {
+      const frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      const click=mode=>document.querySelector('#dividendModeTabs [data-div-mode='+mode+']').click();
+      click('estimated'); await frame();
+      const originalFetch=window.fetch, originalOwner=currentOwner;
+      const pending=[];
+      window.fetch=(url, options)=>{
+        if(String(url)!=='/api/dividends/financial-income-what-if') return originalFetch(url, options);
+        return new Promise(resolve=>pending.push({resolve, payload:JSON.parse(options.body)}));
+      };
+      const snapshot=()=>({html:document.getElementById('financialIncomeWhatIfResult').innerHTML,
+        status:document.getElementById('fiWhatIfStatus').textContent,
+        disabled:document.getElementById('fiWhatIfRun').disabled});
+      const start=()=>{
+        const task=WealthFinancialIncomeWhatIf.runSimulation();
+        const request=pending.at(-1);
+        return {task,request};
+      };
+      const finish=async(job, amount)=>{
+        job.request.resolve(new Response(JSON.stringify({what_if:{
+          baseline_projected_gross_screening_income_krw:amount}}),{
+          status:200,headers:{'Content-Type':'application/json'}}));
+        await job.task; await frame();
+      };
+      const checks=[];
+      const unchanged=(before)=>JSON.stringify(before)===JSON.stringify(snapshot());
+      try {
+        // A completing while B is pending must not enable B's button.
+        const a=start(), b=start(), before=snapshot();
+        await finish(a,111);
+        checks.push({name:'old completion while B pending',pass:unchanged(before)&&snapshot().disabled});
+        await finish(b,222);
+        checks.push({name:'B completion',pass:!snapshot().disabled&&snapshot().status==='계산 완료'});
+        // Reverse response order: B first, then A.
+        const lateA=start(), earlyB=start();
+        await finish(earlyB,333); const completed=snapshot();
+        await finish(lateA,444);
+        checks.push({name:'late A after B',pass:unchanged(completed)});
+        const modeA=start(); click('actual'); await frame(); const actual=snapshot();
+        await finish(modeA,555);
+        checks.push({name:'actual mode invalidation',pass:unchanged(actual)&&document.getElementById('financialIncomeWhatIfPanel').hidden});
+        click('estimated'); await frame();
+        const ownerA=start(); currentOwner='synthetic-new-owner';
+        WealthFinancialIncomeWhatIf.syncVisibility(); const ownerB=start();
+        const ownerPending=snapshot(); await finish(ownerA,666);
+        checks.push({name:'Owner invalidation',pass:unchanged(ownerPending)&&snapshot().disabled&&ownerB.request.payload.owner==='synthetic-new-owner'});
+        await finish(ownerB,777);
+        const taxA=start(); location.hash='#assets'; await frame();
+        document.querySelector('.account-cat-tab[data-cat=tax]').click(); await frame();
+        checks.push({name:'tax context',pass:!!document.getElementById('financialIncomeWhatIfPanel').closest('#taxWorkspaceBody')});
+        const workspace=document.getElementById('taxWorkspaceBody'), panel=document.getElementById('financialIncomeWhatIfPanel');
+        renderAssetTaxInformation();
+        checks.push({name:'tax render preserves workspace and request',pass:workspace===document.getElementById('taxWorkspaceBody')&&panel===document.getElementById('financialIncomeWhatIfPanel')&&document.querySelectorAll('#taxWorkspaceBody').length===1&&document.querySelectorAll('#catPanelTax').length===1});
+        location.hash='#dividend'; await frame(); const returned=start(), returning=snapshot();
+        await finish(taxA,888);
+        checks.push({name:'tax visit invalidates old request',pass:unchanged(returning)&&snapshot().disabled});
+        await finish(returned,999);
+        checks.push({name:'single panel after return',pass:document.querySelectorAll('#financialIncomeWhatIfPanel').length===1&&!!document.getElementById('financialIncomeWhatIfPanel').closest('#dividendPanel')});
+        const unrelated=document.createElement('div'); document.body.append(unrelated);
+        unrelated.className='synthetic-unrelated'; unrelated.hidden=true;
+        await frame(); unrelated.remove();
+        checks.push({name:'unrelated DOM preserves state',pass:!snapshot().disabled&&snapshot().status==='계산 완료'});
+        return checks;
+      } finally { window.fetch=originalFetch; currentOwner=originalOwner; }
+    })()""")
+    assert result and all(check['pass'] for check in result), result
+
+
 def wait_for(evaluate, expression, timeout=20):
     for _ in range(int(timeout * 10)):
         try:
