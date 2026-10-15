@@ -1,5 +1,13 @@
 # Wealth 변경 이력
 
+## Wealth v2.0.2 — PR #147 TXT/TSV evidence hotfix — 2026-10-15
+
+- `e30190d`의 [native run 38710555716](https://github.com/sagesaint84/wealth/actions/runs/38710555716)은 두 플랫폼 모두 은행 PNG 거래처명에서 실패했다. 같은 OCR의 TXT가 정상이고 TSV가 음절별 단어인 합성 입력 4건을 추가해 기존 조합 경로의 실패를 수정 전에 재현했다. 로컬 실제 Tesseract가 없는 Windows의 mock 재현이며, GitHub 원문을 로그로 수집하지 않는다.
+- 기존 제한적 행 재인식 1회에서 `--psm 7 txt tsv`를 함께 생성한다. TXT 문장을 거래처 후보로 보존하고 TSV는 좌표·신뢰도 근거로 사용한다. 비공백 문자 비교는 일치 검증에만 쓰며, TSV 공백을 제거한 문자열을 후보로 만들지 않는다. 정상 다중 단어 공백을 유지하고 빈/복수 행·숫자/금액·불명 특수문자·서로 다른 문자 근거는 거부한다.
+- 금액은 TXT/TSV 양쪽의 엄격한 숫자·부호 해석과 기존 전체 페이지 근거의 충돌 검사를 모두 통과해야 한다. 금액 추측·쉼표 복원·부호 보정은 추가하지 않았다. 합성 금액과 모든 smoke exact-value 단언, 국민연금 파서 및 공통 decoder는 변경하지 않았다.
+- private TXT/TSV 파일 각각 20KB·UTF-8·필수 TSV 열을 검사하고 symlink를 따라가지 않는다. POSIX 파일 권한은 0600이며 crop과 두 출력은 성공/실패/timeout 모두 정리한다. 기존 문서당 8회·누적 12초·회당 3초·전체 55초·외부 75초 및 CPU/메모리/동시 실행 제한은 유지한다. 원문/preview JSON을 로그에 출력하지 않는다.
+- 최종 격리 집중 **308 passed / 0 failed / 0 skipped / 2 warnings**, 148.53초(기존 278 + 신규 30), Python syntax·git diff --check PASS. 테스트 임시 경로 제거 확인. 실제 native 결과는 새 커밋의 Actions로 별도 확인한다. APP_VERSION 2.0.2 및 정적 revision 유지, JS/UI·저장/API·O2·공모주 OCR·운영 배포는 변경하지 않는다. 로컬 실제 OCR·Docker·전체 pytest는 미실행이다. Draft PR #147 유지, Merge/Deploy 미실행.
+
 ## Wealth v2.0.2 — PR #147 bounded line OCR — 2026-10-15
 
 - 1차 보정 [run 38706993038](https://github.com/sagesaint84/wealth/actions/runs/38706993038)은 AMD64/ARM64 모두 빌드·Chromium·국민연금 OCR, 은행 PNG 유형/검토 상태/2행 조건 이후 거래처명 exact assertion에서 실패했다. 금액·잔액 및 나머지 3개 가계부 입력은 검증 완료로 간주하지 않는다.

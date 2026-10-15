@@ -1,5 +1,31 @@
 # Native offline pension and ledger OCR smoke
 
+TXT/TSV hotfix (2026-10-15): run 38710555716 still failed bank PNG party names
+on both platforms. Four synthetic tests first reproduced correct TXT evidence
+being lost when TSV syllable tokens were joined with invented spaces. This is
+mock reproduction on Windows, not a claim of actual local Tesseract execution.
+
+Each existing bounded PSM 7 call now creates TXT and TSV in ONE invocation:
+`tesseract INPUT OUTPUT_BASE -l kor+eng --psm 7 txt tsv`. The TXT sentence supplies
+candidate text; TSV supplies confidence and coordinates. Non-whitespace character
+equality is a validation only, never a way to construct a party name. Normal
+multi-word TXT spaces are retained. Empty/multiline, numeric/amount, unknown-symbol
+or contradictory party evidence is rejected. Numeric readings must pass BOTH
+TXT and TSV strict signatures and the existing source/sign conflict checks.
+
+Both private outputs are independently capped at 20KB, decoded strictly as UTF-8,
+and checked for required TSV columns; symlinks are rejected. Files are 0600 and
+crop/TXT/TSV are removed on success, missing/corrupt output and partial timeout.
+Existing 8-call/12s/3s/55s/75s and CPU/memory/concurrency limits are unchanged.
+Pension, the common decoder, fixtures and every exact smoke assertion are unchanged.
+The new native run must verify all four ledger cases; older snapshots below are
+historical. No OCR text/preview JSON, financial storage, O2 or IPO OCR is added.
+
+Final local isolated regression: **308 passed / 0 failed / 0 skipped / 2 warnings**,
+148.53s (278 existing + 30 new cases), Python syntax/diff PASS, owned test
+directories removed. JS is unchanged. Actual local OCR/Docker/full pytest were
+not run; this commit's AMD64/ARM64 Actions must establish native OCR results.
+
 Second hotfix (2026-10-15): run 38706993038 failed exact party recognition in
 bank PNG on both platforms, after image/Chromium/pension OCR and ledger type,
 review-state and two-row checks. No amount/balance or later ledger document

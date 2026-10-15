@@ -8,6 +8,29 @@
 
 ## 1. 현재 개발 상태
 
+### PR #147 TXT/TSV evidence hotfix — 2026-10-15
+
+기준 feature `e30190d`, Draft/Open PR #147의 native run 38710555716은 두 플랫폼 모두
+은행 PNG 거래처명에서 실패했다. 기존 278 PASS는 로컬 회귀이며 native 전체 성공이 아니다.
+같은 PSM 7 출력의 정상 TXT와 음절별 TSV를 합성해 기존 경로의 실패 4건을 먼저 재현했다.
+현재 PC에는 실제 Tesseract/Docker가 없어 실제 native 결과는 새 커밋의 Actions로 확인한다.
+
+최소 보정은 가계부의 기존 한 행 재인식만 대상으로 한다. 한 번의 Tesseract 실행에서 TXT/TSV를
+동시에 만들고, TXT 문장을 보존하며 TSV로 위치·신뢰도를 검증한다. 비공백 문자열은 문자 일치
+비교에만 사용하고 후보 문자열을 만드는 데 쓰지 않는다. 정상 단어 공백은 유지하고, 빈/복수 행·
+금액/숫자·불명 특수문자·서로 모순되는 근거는 미확인이다. 금액은 TXT/TSV 양쪽 strict 해석과
+기존 전체 페이지 금액/부호 근거가 충돌하지 않아야 한다. 항상 review_required·Owner/계좌 미추정이다.
+
+각 출력은 private 디렉터리의 0600 파일이며 20KB/UTF-8/TSV 열을 검사하고 symlink를 거부한다.
+crop/TXT/TSV는 finally에서 제거하며 부분 생성 후 도구 오류/timeout도 정리한다.
+8회/12초/3초/55초/75초 및 CPU·메모리·동시 실행 상한은 유지한다.
+국민연금 파서·공통 decoder·합성 fixture·smoke 기대값·금융 API/저장·JS는 변경하지 않는다.
+APP_VERSION 2.0.2, 원본 감액배당 worktree 및 운영 이미지 d98336a는 유지한다.
+최종 격리 집중 **308 passed / 0 failed / 0 skipped / 2 warnings**, 148.53초(기존 278 + 신규 30),
+Python syntax·git diff --check PASS, 테스트 임시 경로 제거 확인. JS는 미변경이다.
+Native 정확도는 새 커밋의 실제 Actions 결과로 구분한다.
+전체 pytest·O2 저장·공모주 OCR·Merge·Deploy는 진행하지 않는다.
+
 ### PR #147 bounded line OCR 2차 보정 — 2026-10-15
 
 Draft/Open PR #147의 `61f8740` native run 38706993038은 두 플랫폼 모두 은행 PNG 거래처명

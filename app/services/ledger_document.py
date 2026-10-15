@@ -144,6 +144,20 @@ def tsv_size(text):
         return None
 
 
+def read_line_output(path):
+    """Bounded private output from the just-completed OCR; never log content."""
+    if path.is_symlink() or not path.is_file():
+        raise ValueError('Line OCR output missing or invalid')
+    if path.stat().st_size > 20_000:
+        raise ValueError('Line OCR output limit')
+    os.chmod(path, 0o600)
+    with path.open('rb') as stream:
+        data = stream.read(20_001)
+    if len(data) > 20_000:
+        raise ValueError('Line OCR output limit')
+    return data.decode('utf-8', errors='strict')
+
+
 class LineRecognizer:
     """Ledger-only, bounded pixel re-reading. Never repairs OCR strings."""
     MAX_CALLS = 8
@@ -211,21 +225,31 @@ class LineRecognizer:
                 if self.calls >= self.MAX_CALLS or remaining <= 0:
                     raise ValueError('Line OCR budget exceeded')
                 crop_path = image_path.parent / ('line-' + str(self.calls) + '.png')
+                output_base = crop_path.with_suffix('')
+                txt_path = Path(str(output_base) + '.txt')
+                tsv_path = Path(str(output_base) + '.tsv')
                 started = time.monotonic()
                 try:
                     image.crop(crop_box).save(crop_path)
                     os.chmod(crop_path, 0o600)
                     self.calls += 1
-                    output = run(['tesseract', str(crop_path), 'stdout', '-l', 'kor+eng',
-                                  '--psm', '7', 'tsv'], min(3, remaining))
-                    if len(output) > 20_000:
-                        raise ValueError('Line OCR output limit')
-                    candidates = lines_for_page({'method':'ocr_tsv', 'text':output.decode('utf-8')})
+                    # One OCR invocation, two renderers: TXT preserves the
+                    # engine's spaces; TSV supplies word geometry/confidence.
+                    run(['tesseract', str(crop_path), str(output_base), '-l', 'kor+eng',
+                         '--psm', '7', 'txt', 'tsv'], min(3, remaining))
+                    txt = read_line_output(txt_path).strip()
+                    tsv = read_line_output(tsv_path)
+                    required = {'level','page_num','block_num','par_num','line_num','word_num',
+                                'left','top','width','height','conf','text'}
+                    if not required <= set(csv.DictReader(io.StringIO(tsv), delimiter='\t').fieldnames or []):
+                        raise ValueError('Line OCR output format')
+                    candidates = lines_for_page({'method':'ocr_tsv', 'text':tsv})
                     crop_size = (crop_box[2]-crop_box[0], crop_box[3]-crop_box[1])
-                    output_size_matches = tsv_size(output.decode('utf-8')) == crop_size
+                    output_size_matches = tsv_size(tsv) == crop_size
                 finally:
                     self.elapsed += time.monotonic() - started
-                    crop_path.unlink(missing_ok=True)
+                    for output_path in (crop_path, txt_path, tsv_path):
+                        output_path.unlink(missing_ok=True)
                 # A single-line crop may not become a second transaction or a
                 # differently labelled balance. Unclear/conflicting reads keep
                 # the original evidence but invalidate its candidate value.
@@ -235,8 +259,13 @@ class LineRecognizer:
                                    if len(candidates) == 1 else ['ocr_line_conflict'])
                 valid = (output_size_matches and len(candidates) == 1
                          and candidates[0]['confidence'] is not None
-                         and candidates[0]['confidence'] >= 90 and not candidate_risks)
-                replacement = candidates[0]['text'] if valid else ''
+                         and candidates[0]['confidence'] >= 90 and not candidate_risks
+                         and bool(txt) and len(txt.splitlines()) == 1 and txt.isprintable())
+                if valid:
+                    # Whitespace-free forms are ONLY compared as evidence.
+                    # Neither form is used to construct the candidate string.
+                    valid = re.sub(r'\s+', '', txt) == re.sub(r'\s+', '', candidates[0]['text'])
+                replacement = txt if valid else ''
                 if numeric and valid:
                     previous, current = numeric_signature(content), numeric_signature(replacement)
                     old_sign = re.search(r'[+\-−]', content)
@@ -247,13 +276,15 @@ class LineRecognizer:
                     # a merchant/approval/cancellation label cannot be swapped.
                     context_matches = (old_context == new_context if previous else
                         not new_context or ('잔액' in content and new_context in {'잔액','거래 후 잔액'}))
-                    valid = (current is not None and (previous is None or previous == current)
+                    valid = (current is not None and numeric_signature(candidates[0]['text']) == current
+                             and (previous is None or previous == current)
                              and bool('잔액' in content) == bool('잔액' in replacement)
                              and (old_sign.group() if old_sign else None) == (new_sign.group() if new_sign else None)
                              and context_matches and not any(label in replacement for label in SUMMARY_LABELS))
                 elif party and valid:
-                    valid = (not SPLIT_HANGUL.search(replacement) and not re.search(r'[\d?…□]', replacement)
-                             and not MONEY.search(replacement) and len(replacement) <= 100)
+                    valid = (re.fullmatch(r"[가-힣A-Za-z][가-힣A-Za-z ·().&'/-]*", replacement) is not None
+                             and not SPLIT_HANGUL.search(replacement) and len(replacement) <= 100
+                             and not any(label in replacement for label in SUMMARY_LABELS))
                 if valid:
                     line['text'] = replacement
                     line['confidence'] = candidates[0]['confidence']

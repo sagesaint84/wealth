@@ -361,13 +361,115 @@ def positioned_tsv(lines, confidence=95):
     return '\n'.join(records)
 
 
-def crop_tsv(args, text, confidence=95):
+def crop_tsv(args, text, confidence=95, txt=None):
     from PIL import Image
     with Image.open(args[1]) as image:
         width, height = image.size
     header = positioned_tsv([]).splitlines()[0]
-    return (header + f'\n1\t1\t0\t0\t0\t0\t0\t0\t{width}\t{height}\t-1\t\n'
-            + f'5\t1\t1\t1\t1\t1\t8\t8\t{width-16}\t{height-16}\t{confidence}\t{text}').encode()
+    rows = [header, f'1\t1\t0\t0\t0\t0\t0\t0\t{width}\t{height}\t-1\t']
+    lines = text.splitlines() or ['']
+    line_height = (height-16)//len(lines)
+    for index,line in enumerate(lines,1):
+        # Actual word-level TSV: split Korean syllables stay separate records.
+        words=line.split() or ['']; step=(width-16)//len(words)
+        for number,word in enumerate(words,1):
+            rows.append(f'5\t1\t1\t1\t{index}\t{number}\t{8+(number-1)*step}\t{8+(index-1)*line_height}\t{step-2}\t{line_height-2}\t{confidence}\t{word}')
+    data='\n'.join(rows).encode()
+    assert args[-4:]==['--psm','7','txt','tsv'] and args[2]!='stdout'
+    base=Path(args[2])
+    assert base.parent==Path(args[1]).parent and base.name.startswith('line-')
+    Path(str(base)+'.txt').write_text((text if txt is None else txt)+'\n',encoding='utf-8')
+    Path(str(base)+'.tsv').write_bytes(data)
+    return b''
+
+
+@pytest.mark.parametrize('party', ['가상입금처','가상출금처'])
+def test_same_ocr_txt_preserves_party_while_tsv_has_syllable_words(tmp_path,party):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    fragmented=' '.join(party)
+    source=positioned_tsv([fragmented])
+    assert parser.lines_for_page(page(source,method='ocr_tsv'))[0]['text']==fragmented
+    def run(args,timeout):
+        return crop_tsv(args,fragmented,txt=party)
+    lines=parser.LineRecognizer().refine(source,image,run)
+    assert lines[0]['text']==party and not parser.unsafe_line(lines[0])
+    assert not list(tmp_path.glob('line-*'))
+
+
+@pytest.mark.parametrize('txt,tsv_text', [
+    ('합성 마트 본점','합 성 마 트 본 점'),
+    ('가상 카페','가 상 카 페'),
+])
+def test_txt_spaces_are_engine_evidence_not_tsv_joining(tmp_path,txt,tsv_text):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    lines=parser.LineRecognizer().refine(positioned_tsv([tsv_text]),image,
+        lambda args,timeout:crop_tsv(args,tsv_text,txt=txt))
+    assert lines[0]['text']==txt and not parser.unsafe_line(lines[0])
+
+
+@pytest.mark.parametrize('txt,tsv_text', [
+    ('','가 상 입 금 처'), ('가상입금처\n가상출금처','가 상 입 금 처'),
+    ('가상출금처','가 상 입 금 처'), ('가상123카페','가상123카페'),
+    ('+1000 원','+1000 원'), ('가상?카페','가상?카페'), ('가상□카페','가상□카페'),
+    ('가상�카페','가상�카페'), ('가상\x00카페','가상\x00카페'),
+    ('가상\t카페','가상 카페'), ('가 상 입 금 처','가 상 입 금 처'),
+    ('총 사용금액','총 사용금액'),
+])
+def test_unclear_or_contradictory_txt_is_not_a_party(tmp_path,capsys,txt,tsv_text):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    original='가 상 입 금 처'
+    lines=parser.LineRecognizer().refine(positioned_tsv([original]),image,
+        lambda args,timeout:crop_tsv(args,tsv_text,txt=txt))
+    assert lines[0]['text']==original and 'ocr_line_conflict' in lines[0]['reasons']
+    assert parser.unsafe_line(lines[0]) and not list(tmp_path.glob('line-*'))
+    assert capsys.readouterr()==('', '')
+
+
+@pytest.mark.parametrize('txt,tsv_text', [('+1001 원','+1000 원'),
+    ('-1000 원','+1000 원'), ('+1,000 원','+1, 000 원'), ('+1000 원','+1,000 원')])
+def test_txt_tsv_numeric_conflict_stays_unknown(tmp_path,txt,tsv_text):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    original='+1000 원'
+    lines=parser.LineRecognizer().refine(positioned_tsv([original]),image,
+        lambda args,timeout:crop_tsv(args,tsv_text,txt=txt))
+    assert lines[0]['text']==original and 'ocr_line_conflict' in lines[0]['reasons']
+    assert parser.unsafe_line(lines[0])
+
+
+@pytest.mark.parametrize('fault', ['missing-txt','missing-tsv','invalid-txt','invalid-tsv',
+    'invalid-header','large-txt','large-tsv','partial-timeout','partial-tool-error'])
+def test_paired_ocr_file_failures_are_bounded_private_and_cleaned(tmp_path,capsys,fault):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    def run(args,timeout):
+        crop_tsv(args,'가 상 입 금 처',txt='가상입금처')
+        txt=Path(args[2]+'.txt');tsv=Path(args[2]+'.tsv')
+        if fault=='missing-txt':txt.unlink()
+        elif fault=='missing-tsv':tsv.unlink()
+        elif fault=='invalid-txt':txt.write_bytes(b'\xff')
+        elif fault=='invalid-tsv':tsv.write_bytes(b'\xff')
+        elif fault=='invalid-header':tsv.write_text('wrong\tcolumns\n',encoding='utf-8')
+        elif fault=='large-txt':txt.write_bytes(b'x'*20_001)
+        elif fault=='large-tsv':tsv.write_bytes(b'x'*20_001)
+        elif fault=='partial-timeout':raise subprocess.TimeoutExpired(args,timeout)
+        else:raise subprocess.CalledProcessError(1,args)
+        return b''
+    with pytest.raises((ValueError,subprocess.SubprocessError)):
+        parser.LineRecognizer().refine(positioned_tsv(['가 상 입 금 처']),image,run)
+    assert not list(tmp_path.glob('line-*')) and capsys.readouterr()==('', '')
+
+
+def test_line_output_reader_private_permissions_and_no_symlink_following(tmp_path):
+    output=tmp_path/'synthetic.txt';output.write_bytes('가상 카페'.encode())
+    assert parser.read_line_output(output)=='가상 카페'
+    if os.name=='posix':assert output.stat().st_mode & 0o777==0o600
+    link=Mock();link.is_symlink.return_value=True
+    with pytest.raises(ValueError,match='missing or invalid'):parser.read_line_output(link)
+    link.is_file.assert_not_called();link.open.assert_not_called()
 
 
 def test_bounded_line_ocr_reproduces_split_syllables_and_uses_image_regions(tmp_path):
@@ -380,7 +482,8 @@ def test_bounded_line_ocr_reproduces_split_syllables_and_uses_image_regions(tmp_
     outputs = iter(['가상입금처', '+1,234,567 원', '거래 후 잔액 11,234,567 원'])
     calls = []
     def run(args, timeout):
-        assert args[-3:] == ['--psm', '7', 'tsv'] and 0 < timeout <= 3
+        assert args[-4:] == ['--psm', '7', 'txt', 'tsv'] and 0 < timeout <= 3
+        assert args[2] != 'stdout'
         crop = Path(args[1]); calls.append(crop)
         with Image.open(crop) as frame:
             assert 40 < frame.width < 1800 and 40 < frame.height < 100
@@ -484,8 +587,11 @@ def test_line_ocr_limits_and_failures_clean_crops(tmp_path,monkeypatch,failure):
     recognizer=parser.LineRecognizer()
     def run(args,timeout):
         if failure=='timeout':raise subprocess.TimeoutExpired(args,timeout)
-        if failure=='too-large':return b'x'*20_001
-        return positioned_tsv(['unexpected','two lines']).encode()
+        if failure=='too-large':
+            crop_tsv(args,'+1000 원')
+            Path(args[2]+'.tsv').write_bytes(b'x'*20_001)
+            return b''
+        return crop_tsv(args,'unexpected\ntwo lines')
     if failure=='elapsed':recognizer.elapsed=12
     if failure=='multiline':
         lines=recognizer.refine(positioned_tsv(['+1000 원']),image,run)
@@ -493,7 +599,7 @@ def test_line_ocr_limits_and_failures_clean_crops(tmp_path,monkeypatch,failure):
     else:
         with pytest.raises((subprocess.TimeoutExpired,ValueError)):
             recognizer.refine(positioned_tsv(['+1000 원']),image,run)
-    assert not list(tmp_path.glob('line-*.png'))
+    assert not list(tmp_path.glob('line-*'))
 
 
 def test_shared_decoder_refines_each_pdf_page_before_pixels_are_replaced(tmp_path):
