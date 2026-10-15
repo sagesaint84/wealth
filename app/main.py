@@ -6989,6 +6989,33 @@ async def download_sample_ledger_transactions():
     )
 
 
+@app.post('/api/ledger/document-import/preview')
+async def preview_ledger_document(request: Request, document_type: str = Query('auto')) -> JSONResponse:
+    from app.services import ledger_document_import as importer
+    from starlette.concurrency import run_in_threadpool
+    get_current_username(request)  # Authentication before consuming any file bytes.
+    headers = {'Cache-Control': 'no-store'}
+    # Read-free same-origin check: do not resolve settings/user data paths for preview.
+    origin = request.headers.get('origin') or request.headers.get('referer')
+    try:
+        parts = urlsplit(origin or '')
+        if (parts.scheme, parts.netloc) != (request.url.scheme, request.url.netloc):
+            raise HTTPException(403, '동일 사이트에서 파일을 선택해 주세요.', headers=headers)
+        if document_type not in {'auto', 'bank_transactions', 'card_transactions'}:
+            raise HTTPException(400, '자료 종류를 확인해 주세요.', headers=headers)
+        chunks = []; size = 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > importer.MAX_BYTES:
+                raise HTTPException(413, '파일은 10MiB 이하로 선택해 주세요.', headers=headers)
+            chunks.append(chunk)
+        result = await run_in_threadpool(importer.preview, b''.join(chunks),
+            request.headers.get('content-type', '').split(';')[0], document_type)
+        return JSONResponse(result, headers=headers)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc), headers=headers) from None
+
+
 @app.post("/api/ledger/import-file")
 async def upload_ledger_file(
     request: Request,

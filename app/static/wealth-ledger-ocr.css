@@ -1,0 +1,17 @@
+#ledgerOcrPanel { margin: 12px 0; min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+#ledgerOcrPanel summary { cursor: pointer; font-size: 12px; font-weight: 700; }
+#ledgerOcrPanel p, #ledgerOcrStatus { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; color: var(--muted); }
+.ledger-ocr-controls { display: grid; grid-template-columns: minmax(0,1fr); gap: 10px; margin: 12px 0; }
+.ledger-ocr-controls label { font-size: 11px; min-width: 0; }
+#ledgerOcrFile, #ledgerOcrType { display: block; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; margin-top: 5px; }
+.ledger-ocr-row { border-top: 1px solid var(--border); padding: 12px 0; min-width: 0; }
+.ledger-ocr-row h4 { font-size: 14px; margin: 0 0 8px; overflow-wrap: anywhere; }
+.ledger-ocr-row dl { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr); gap: 6px 10px; font-size: 12px; margin: 0; }
+.ledger-ocr-row dt, .ledger-ocr-row dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+/* Keep the existing ledger import entry reachable at small phone widths. */
+@media (max-width: 360px) {
+  #ledgerSectionPanel .ledger-head-left { min-width: 0; }
+  #ledgerSectionPanel .ledger-head-left > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  #ledgerSectionPanel .ledger-month-control { flex-wrap: wrap; }
+  #ledgerSectionPanel #ledgerFamilyTabs { flex-wrap: wrap; }
+}

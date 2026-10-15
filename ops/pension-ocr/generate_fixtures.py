@@ -5,6 +5,53 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 
+BANK_LINES = (
+    '은행 입출금 거래내역',
+    '현재 잔액 11,000,000원',
+    '10월 14일',
+    '가상입금처',
+    '09:10',
+    '+1,234,567원',
+    '거래 후 잔액 11,234,567원',
+    '10월 13일',
+    '가상출금처',
+    '10:20',
+    '-234,567원',
+    '거래 후 잔액 11,000,000원',
+)
+CARD_LINES = (
+    '카드 이용내역',
+    '총 사용금액 35,801원',
+    '10월 14일',
+    '가상카페',
+    '승인금액 12,345원',
+    '10월 13일',
+    '가상서점',
+    '승인금액 23,456원',
+)
+
+
+def generate_ledger_fixtures(output, font):
+    """Fictional screens, with generous margins and no date/year inference."""
+    for name, lines, background, foreground, suffix in (
+        ('bank', BANK_LINES, '#111827', 'white', 'png'),
+        ('card', CARD_LINES, 'white', '#111827', 'jpg'),
+    ):
+        image = Image.new('RGB', (1800, 200 + len(lines)*132), background)
+        draw = ImageDraw.Draw(image)
+        for index, line in enumerate(lines):
+            box = draw.textbbox((0, 0), line, font=font)
+            if box[2]-box[0] > 1600 or box[3]-box[1] > 110:
+                raise SystemExit('Synthetic ledger text does not fit the fixture')
+            draw.text((100, 100+index*132), line, font=font, fill=foreground)
+        image.save(output / (name+'.'+suffix), quality=95, subsampling=0)
+        # Image-only PDF: the native smoke must check that no text layer exists.
+        image.save(output / (name+'.pdf'), 'PDF', resolution=150.0, quality=95)
+        for extension in (suffix, 'pdf'):
+            # Public synthetic fixtures only. The container uses UID 65534.
+            (output / (name+'.'+extension)).chmod(0o644)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, required=True)
@@ -33,6 +80,8 @@ def main():
     # rather than an embedded text layer that would bypass OCR.
     image.save(args.output / 'synthetic.pdf', 'PDF', resolution=150.0)
     print('Created public synthetic PNG and scanned PDF')
+    generate_ledger_fixtures(args.output, font)
+    print('Created public synthetic bank/card images and scanned PDFs')
 
 
 if __name__ == '__main__':

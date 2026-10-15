@@ -1,5 +1,37 @@
 # Wealth 변경 이력
 
+## Wealth v2.0.2 — Phase O1.2 Native Ledger OCR Smoke 준비 — 2026-10-15
+
+- PR 제출 전 보안 검토에서 화면 예시와 겹칠 수 있는 값을 제거하고 공개 fixture·파서/Chrome 테스트·문서의 금액을 명백한 가상 숫자 패턴으로 통일했다. 정확한 기대값 검증은 그대로 유지하며 이 변경은 OCR 오류를 수용하기 위한 조정이 아니다. 운영 이미지는 기존 `ghcr.io/sagesaint84/wealth:d98336a`이며 이번 OCR 변경의 Merge/배포는 별도다.
+- 가상 값 교체 후 최종 재검증: **221 passed / 0 failed / 0 skipped / 2 warnings**, 141.84초. Python 문법·Node 문법·git diff --check PASS, 격리 테스트 임시 디렉터리 정리 확인. 아래 155.94초 결과는 최초 O1.2 구현 시점의 기록이다.
+- 기존 `ops/pension-ocr` 생성기와 smoke를 확장했다. 공개 Nanum 폰트/Pillow로 가상 은행 PNG(다크), 카드 JPEG(화이트), 각각의 스캔 PDF를 CI 임시 경로에 생성한다. 은행 입금 +1,234,567원·출금 -234,567원, 거래 후 잔액, 상단 잔액과 카드 승인 12,345원·23,456원 및 사용합계 35,801원을 구분한다. 실제 사용자 문서·계좌는 사용하지 않는다.
+- 기존 국민연금 합성 PNG/PDF 생성과 한글 인식·실제 worker·금액/날짜/검토 상태 단언을 유지했다. 그 뒤 가계부 preview coordinator → 실제 document worker → 공통 추출/파서의 네 가지 입력 경로를 실행하도록 추가했다. 스캔 PDF의 문자층 부재, 정확한 두 거래행, 원문 기준 금액·방향·잔액·가상 거래처·부분 날짜, 연도 null, 검토 상태와 Owner/계좌 null을 검사한다. 잘못된 OCR 금액을 기대값으로 대체하지 않는다.
+- private 입력 cleanup, 합성 금융 JSON의 byte 불변 및 추가 사용자/금융 경로 미생성을 검사하고 고정 PASS/FAIL만 출력한다. 기존 native amd64/arm64 워크플로의 동일 이미지와 `--network none --read-only --cap-drop ALL --security-opt no-new-privileges`·비특권 실행·read-only fixture 마운트를 재사용한다. 기존 ops 경로 trigger가 있어 workflow/Dockerfile/패키지는 변경하지 않았다.
+- 로컬 집중 pytest **221 passed / 0 failed / 0 skipped / 2 warnings**, 155.94초. 기존 O1.1 **178 PASS** 유지, 신규 smoke 계약/합성 테스트 **43 PASS**. 공개 시스템 폰트와 실제 OCR은 CI 검증 대상이며, 로컬 생성 테스트는 Pillow 내장 대체 폰트와 mock을 사용한다. 이번 테스트가 만든 두 임시 부모 디렉터리는 자동 정리를 확인했고 이전에 정책 차단된 두 경로는 사용하거나 삭제 재시도하지 않았다.
+- PR 제출 직전 기록: 실제 Tesseract/Poppler OCR 통합 및 native AMD64/ARM64 CI는 **PENDING**이다. 로컬 Tesseract 부재로 네이티브 OCR 성공을 주장하지 않는다. 전체 pytest와 로컬 Docker build는 실행하지 않았다. APP_VERSION 2.0.2 및 기존 정적 자산 revision을 유지하며 저장 기능과 공모주 OCR은 추가하지 않았다. 아래 PR #145/#146 운영 이력은 기존 v2.0.2의 기록이며 이번 OCR 변경은 PR 검증 대상·운영 미배포다. 제출 후 최종 CI 결과는 해당 Draft PR/Actions를 따른다.
+
+## Wealth v2.0.2 — Phase O1.1 가계부 OCR 인식 안전성 — 2026-10-15
+
+- 동일 `wealth-ocr` worktree와 `codex/v202-ledger-ipo-ocr-import` 브랜치에서 O1의 15개 미커밋 파일을 보존하며 보완했다. 신규 파일·브랜치는 만들지 않았고 저장 기능·공모주 OCR·금융 계산·국민연금 도메인 계약은 변경하지 않았다.
+- `10월 14일` 등은 날짜 구분행으로 처리하고 `transaction_date_parts={year:null,month:10,day:14}`, `transaction_date=null`, `review_reasons`의 `year_missing`을 반환한다. 촬영일·발급일·조회일·시스템 연도를 거래 연도로 쓰지 않는다. 명시된 거래 연도 또는 조회 기간 안에서 월·일의 연도가 유일할 때만 완성 날짜를 제공한다. 연말 경계·페이지 경계·기간 충돌은 보수적으로 처리한다.
+- 무표시 추가 금액을 잔액이라고 확정하거나 두 번째 거래로 생성하지 않는다. 새 거래처가 나온 뒤의 잔액을 이전 거래에 연결하지 않고, 숫자 토큰 전체를 검증하여 잘린/비정상 토큰의 정상 숫자 접미부를 사용하지 않는다. 같은 날짜·거래처·금액의 복수 후보는 모두 유지한다.
+- OCR TSV의 이미지 폭 320px 미만, 단어 높이 12px 미만, 이미지 가장자리 접촉, 낮은 신뢰도를 검토 사유로 추가한다. 불명확한 금액·거래처는 null이며 유형 선택만으로 불명확한 문서를 은행/카드로 확정하지 않는다. 이 임계값은 보수적인 제외 기준이며 통과가 정확도 보증은 아니다. 스캔 PDF의 원본 해상도·모든 잘림/누락 탐지는 보장하지 않는다.
+- 실제 실행: **178 passed / 0 failed / 0 skipped / 2 warnings** (130.83초). 기존 O1 **122 PASS** 유지, 신규 **56 PASS**(파서·안전성 47, Chrome 9). 국민연금 document/import/API와 기존 Chrome 9, CSV/Excel·IPO 신청/배정 회귀를 포함한다. 신규 Chrome은 320/390/1280px × Purple/White/OLED에서 연도 미확인·이체 후보·금액/잔액 표시와 overflow 방지를 확인했다.
+- 금융 writer·금융 경로 생성 함수 미호출, 합성 ledger/portfolio 파일 byte 불변 및 preview 사용자 디렉터리 생성 0을 추가 검증했다. 실제 스크린샷은 사용하지 않았고 Tesseract 부재로 OCR 출력은 mock이다. 실제 OCR·네이티브 AMD64/ARM64 smoke 확장은 설계만 검토했으며 workflow/Docker/기존 smoke는 변경하지 않았다. 전체 pytest·CI·Commit·Push·PR·Merge·Deploy 미실행.
+- APP_VERSION 2.0.2 유지. 변경한 가계부 OCR JS만 `2.0.2-o1.1`, 미변경 OCR CSS는 `2.0.2-o1`을 유지한다. 아래 O1 기록은 최초 구현/검증 시점이다.
+
+## Wealth v2.0.2 — Phase O1 가계부 문서 읽기 전용 미리보기 — 2026-10-15
+
+- 기준 main `d7e06de24bc48e728b89adec09fa75da697d22e5`에서 독립 worktree `wealth-ocr`, 브랜치 `codex/v202-ledger-ipo-ocr-import`에 구현한 미커밋 개발 상태다. 기존 PR #145/#146 운영 완료 이력과 구분하며 이번 변경의 CI·Commit·Push·PR·Merge·Deploy는 미실행이다.
+- 기존 가계부 가져오기 창에 PNG/JPEG/PDF 읽기 전용 미리보기를 추가했다. 인증·동일 출처를 확인하는 `POST /api/ledger/document-import/preview`는 거래 후보와 검토 사유만 반환하고 `Cache-Control: no-store`를 사용한다. 금융 JSON, 잔액, 사용자 디렉터리를 생성·변경하지 않으며 저장/적용 API와 공모주 OCR은 구현하지 않았다.
+- 국민연금의 Poppler/Pillow/Tesseract 추출 부분을 공통 계층으로 분리했다. 국민연금 전용 `parse_text()`와 기존 판정 기준은 유지하고 가계부는 날짜·금액 단서로 텍스트층 사용 여부를 결정한다. OCR의 TSV 좌표·신뢰도, 은행 입출금 부호와 거래 후 잔액, 카드 승인·취소·환불 후보를 분리한다. 상단 합계는 제외하고 모든 결과는 검토 필요 상태이며 Owner·계좌는 미확인이다.
+- 초기 파서는 연도가 포함된 날짜와 `원` 단위 금액을 중심으로 지원한다. 연도 생략, 복잡한 표/통화, 잘린 숫자, 흐린 문서, 기관별 양식을 정확히 인식한다고 보장하지 않는다. 숫자·부호가 불명확하면 추정하지 않으며 중복 후보도 삭제·저장하지 않는다. 기존 기록과의 중복 대조·행 수정·명시적 저장은 O2 설계 대상이다.
+- 10MiB·8페이지·1,600만 픽셀 한도, 암호화 PDF/다중 프레임 거부, 비공개 임시 파일 및 제한 시간을 적용한다. 동시 실행 2개 예산은 국민연금과 가계부가 **한 웹 프로세스 안에서** 공유한다. 다중 웹 worker 전체 예산과 자식 프로세스 합산 메모리는 보장하지 않는다. Linux 시간초과는 해당 worker의 프로세스 그룹을 종료하지만 Windows는 직접 자식 종료만 보장한다. 창 닫기는 결과 표시를 무효화하며 서버 작업은 완료 또는 제한 시간에 정리된다.
+- 실행 확인: 격리된 합성 경로의 집중 pytest **102 passed / 0 failed / 0 skipped** (국민연금 document/import/API, CSV/Excel 중복 방지, IPO 신청·배정, release 계약 포함), 신규 가계부 Chrome **11 passed / 0 failed / 0 skipped**. 320/390/1280px × Purple/White/OLED 미리보기 및 닫은 뒤 지연 응답 차단을 확인했다. 320px 기존 가계부 헤더만 줄 배치를 보완했으며 페이지 overflow 숨김은 추가하지 않았다.
+- 기존 국민연금 가져오기 Chrome 회귀도 **9 passed / 0 failed / 0 skipped**. 이번 집중 실행 합계는 **122 passed / 0 failed / 0 skipped**이며 실제 OCR 엔진의 인식 검증과 구분한다.
+- Python 문법, 신규 JS의 `node --check`, `git diff --check` PASS. 원래 감액배당 worktree의 4개 파일 SHA256이 작업 전후 모두 동일함을 확인했다.
+- 로컬 Tesseract가 없어 OCR 출력은 mock/합성 fixture로 검증했다. 실제 이미지 인식률, Linux/ARM64 새 worker 실행, 운영 자원 사용량과 배포는 미검증이다. 실제 금융 자료는 사용하지 않았고 전체 pytest는 실행하지 않았다. 기존 운영 이미지의 OCR 성공 이력은 이번 새 가계부 파서의 실동작 성공을 뜻하지 않는다. 앱 버전은 2.0.2, 새 JS/CSS만 `2.0.2-o1` revision을 사용한다.
+
 ## Wealth v2.0.2 — Offline Pension Document Import and Tax Navigation — 2026-10-14
 
 - 2026-10-14 운영 완료: PR #144의 v2.0.2 배포에 이어 [PR #145](https://github.com/sagesaint84/wealth/pull/145)를 Squash Merge(`d98336aea7514cea205ef82ed184398015bff5f9`)했다. Oracle ARM64에서 이미지 `ghcr.io/sagesaint84/wealth:d98336a`의 revision·아키텍처·정적 자산·데이터/Toss 마운트·HTTP 307을 검증했으며 기존 rollback 이미지를 보존했다. 사용자 확인으로 실제/예상 배당 및 세금 탭 운영 화면도 정상이다. 아래 PR #144 Draft·v2.0.1 운영 설명은 당시 이력이다.

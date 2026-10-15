@@ -9,18 +9,18 @@ import signal
 import subprocess
 import sys
 import tempfile
-import threading
 from copy import deepcopy
 from pathlib import Path
 
 from app.services import national_pension as np
 from app.services.financial_json import financial_rmw, write_financial_json
 from app.services.savings import validate_national_pension_history
+from app.services.document_extraction import DECODE_SLOTS
 
 MAX_BYTES = 10 * 1024 * 1024
 MAX_PAGES = 8
 MAX_PIXELS = 16_000_000
-_slots = threading.BoundedSemaphore(2)
+_slots = DECODE_SLOTS
 FIELDS = {
     'total_paid_amount': '실제 납부 보험료 총액', 'paid_months': '실제 납부 월수',
     'unpaid_amount': '미납 보험료', 'unpaid_months': '미납 월수',
