@@ -3,13 +3,15 @@ import csv
 import io
 import json
 import math
+import os
 import re
 import sys
+import time
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from app.services.document_extraction import extract_pages, set_worker_limits
+from app.services.document_extraction import command, extract_pages, set_worker_limits
 
 DATE = re.compile(r'(?<!\d)(20\d{2})[./-](\d{1,2})[./-](\d{1,2})(?!\d)')
 KOREAN_DATE = re.compile(r'(?<!\d)(20\d{2})년\s*(\d{1,2})월\s*(\d{1,2})일')
@@ -19,6 +21,9 @@ TIME = re.compile(r'(?<!\d)([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?(?!\d)')
 # Capture malformed numeric tokens WHOLE instead of accepting a valid suffix.
 MONEY = re.compile(r'([^\s가-힣]+(?:[ \t]+[^\s가-힣]+)*)[ \t]*원')
 MAX_ROWS = 200
+SUMMARY_LABELS = ('현재 잔액', '현재잔액', '총 잔액', '총잔액', '사용합계',
+    '사용 합계', '이용합계', '이용 합계', '총 이용', '총이용', '총 사용', '총사용', '합계금액', '합계 금액')
+SPLIT_HANGUL = re.compile(r'(?<![가-힣])[가-힣](?:[ \t]+[가-힣]){2,}(?![가-힣])')
 REASONS = {
     'year_missing': '거래 연도가 없습니다. 촬영일이나 현재 연도로 채우지 않습니다.',
     'date_invalid': '날짜를 확인해 주세요.',
@@ -37,6 +42,7 @@ REASONS = {
     'card_classification_unconfirmed': '카드 승인·취소·환불·대금 납부는 저장 단계에서 구분해야 합니다.',
     'transfer_not_income_expense': '이체를 수입·지출로 확정하지 않습니다.',
     'transaction_type_ambiguous': '취소·환불 등 거래 종류의 의미를 확인해 주세요.',
+    'ocr_line_conflict': '행 재인식 결과가 충돌하거나 불명확합니다. 원본을 확인해 주세요.',
 }
 
 
@@ -59,6 +65,8 @@ def amount(value):
 
 
 def lines_for_page(page):
+    if page['method'] == 'ocr_tsv' and 'ocr_lines' in page:
+        return page['ocr_lines']
     if page['method'] != 'ocr_tsv':
         return [{'text': line.strip(), 'confidence': None, 'bbox': None, 'reasons': []}
                 for line in page['text'].splitlines() if line.strip()]
@@ -118,6 +126,140 @@ def unsafe_line(line):
     if line['confidence'] is not None and line['confidence'] < 80:
         reasons.append('ocr_low_confidence')
     return [reason for reason in reasons if reason != 'ocr_geometry_missing']
+
+
+def numeric_signature(text):
+    matches = list(MONEY.finditer(text))
+    if len(matches) != 1:
+        return None
+    value, direction = amount(matches[0][1])
+    return (value, direction) if value is not None else None
+
+
+def tsv_size(text):
+    pages = [row for row in csv.DictReader(io.StringIO(text), delimiter='\t') if row.get('level') == '1']
+    try:
+        return (int(pages[0]['width']), int(pages[0]['height'])) if len(pages) == 1 else None
+    except (KeyError, ValueError):
+        return None
+
+
+class LineRecognizer:
+    """Ledger-only, bounded pixel re-reading. Never repairs OCR strings."""
+    MAX_CALLS = 8
+    MAX_SECONDS = 12
+
+    def __init__(self):
+        self.calls = 0
+        self.elapsed = 0.0
+
+    def refine(self, text, image_path, run):
+        from PIL import Image
+        lines = lines_for_page({'method': 'ocr_tsv', 'text': text})
+        with Image.open(image_path) as image:
+            width, height = image.size
+            if width < 320 or width*height > 16_000_000 or tsv_size(text) != image.size:
+                for line in lines:
+                    line['reasons'].append('ocr_line_conflict')
+                return lines
+            for index, line in enumerate(lines):
+                content = line['text']
+                if any(label in content for label in SUMMARY_LABELS):
+                    continue
+                # Combined date/time-and-amount rows retain the established
+                # parser path. Their punctuation is not a damaged money sign.
+                if date_marker(content, None) is not None or TIME.search(content):
+                    continue
+                numeric = MONEY.search(content) is not None or re.fullmatch(r'[+\-−]?[\d, .]+', content) is not None
+                following = lines[index+1:index+3]
+                amount_follows = bool(following) and (MONEY.search(following[0]['text']) is not None or
+                    (TIME.fullmatch(following[0]['text']) and len(following) == 2 and
+                     MONEY.search(following[1]['text']) is not None))
+                party = bool(SPLIT_HANGUL.search(content)) or bool(
+                    amount_follows and not numeric and re.search(r'[가-힣]', content)
+                    and date_marker(content, None) is None and not TIME.search(content)
+                    and not re.search(r'계좌번호|카드번호|예금주|고객명|거래내역|입출금|카드\s*(?:이용|사용)|조회|거래\s*연도', content))
+                if not numeric and not party:
+                    continue
+                if numeric and (len(list(MONEY.finditer(content))) > 1 or
+                                len(re.findall(r'[+\-−]', content)) > 1 or '−' in content):
+                    line['reasons'].append('ocr_line_conflict')
+                    continue
+                box = line['bbox']
+                # Geometry must be present, unclipped, and isolated from every
+                # other TSV line; low resolution/invalid word geometry cannot
+                # be rescued by running another recognizer.
+                if (not box or line['reasons'] or line['confidence'] is None
+                        or line['confidence'] < 30):
+                    line['reasons'].append('ocr_line_conflict')
+                    continue
+                x, y, w, h = box
+                if (not 0 < w <= 3000 or not 12 <= h <= 220 or x < 10 or y < 10 or x+w+10 >= width
+                        or y+h+10 >= height):
+                    line['reasons'].append('ocr_line_conflict')
+                    continue
+                crop_box = (x-8, y-8, x+w+8, y+h+8)
+                overlaps = [other for n, other in enumerate(lines) if other['bbox'] and index != n and
+                            other['bbox'][0] < crop_box[2] and other['bbox'][0]+other['bbox'][2] > crop_box[0] and
+                            other['bbox'][1] < crop_box[3] and other['bbox'][1]+other['bbox'][3] > crop_box[1]]
+                if overlaps:
+                    line['reasons'].append('ocr_line_conflict')
+                    for other in overlaps:
+                        other['reasons'].append('ocr_line_conflict')
+                    continue
+                remaining = self.MAX_SECONDS - self.elapsed
+                if self.calls >= self.MAX_CALLS or remaining <= 0:
+                    raise ValueError('Line OCR budget exceeded')
+                crop_path = image_path.parent / ('line-' + str(self.calls) + '.png')
+                started = time.monotonic()
+                try:
+                    image.crop(crop_box).save(crop_path)
+                    os.chmod(crop_path, 0o600)
+                    self.calls += 1
+                    output = run(['tesseract', str(crop_path), 'stdout', '-l', 'kor+eng',
+                                  '--psm', '7', 'tsv'], min(3, remaining))
+                    if len(output) > 20_000:
+                        raise ValueError('Line OCR output limit')
+                    candidates = lines_for_page({'method':'ocr_tsv', 'text':output.decode('utf-8')})
+                    crop_size = (crop_box[2]-crop_box[0], crop_box[3]-crop_box[1])
+                    output_size_matches = tsv_size(output.decode('utf-8')) == crop_size
+                finally:
+                    self.elapsed += time.monotonic() - started
+                    crop_path.unlink(missing_ok=True)
+                # A single-line crop may not become a second transaction or a
+                # differently labelled balance. Unclear/conflicting reads keep
+                # the original evidence but invalidate its candidate value.
+                # The crop is intentionally narrow. Original-page resolution
+                # was checked above; cropped width is not original resolution.
+                candidate_risks = ([r for r in candidates[0]['reasons'] if r != 'image_low_resolution']
+                                   if len(candidates) == 1 else ['ocr_line_conflict'])
+                valid = (output_size_matches and len(candidates) == 1
+                         and candidates[0]['confidence'] is not None
+                         and candidates[0]['confidence'] >= 90 and not candidate_risks)
+                replacement = candidates[0]['text'] if valid else ''
+                if numeric and valid:
+                    previous, current = numeric_signature(content), numeric_signature(replacement)
+                    old_sign = re.search(r'[+\-−]', content)
+                    new_sign = re.search(r'[+\-−]', replacement)
+                    old_context = MONEY.sub('', content).strip()
+                    new_context = MONEY.sub('', replacement).strip()
+                    # Only amount tokens may differ after a fresh pixel read;
+                    # a merchant/approval/cancellation label cannot be swapped.
+                    context_matches = (old_context == new_context if previous else
+                        not new_context or ('잔액' in content and new_context in {'잔액','거래 후 잔액'}))
+                    valid = (current is not None and (previous is None or previous == current)
+                             and bool('잔액' in content) == bool('잔액' in replacement)
+                             and (old_sign.group() if old_sign else None) == (new_sign.group() if new_sign else None)
+                             and context_matches and not any(label in replacement for label in SUMMARY_LABELS))
+                elif party and valid:
+                    valid = (not SPLIT_HANGUL.search(replacement) and not re.search(r'[\d?…□]', replacement)
+                             and not MONEY.search(replacement) and len(replacement) <= 100)
+                if valid:
+                    line['text'] = replacement
+                    line['confidence'] = candidates[0]['confidence']
+                else:
+                    line['reasons'].append('ocr_line_conflict')
+        return lines
 
 
 def period_for_page(lines):
@@ -231,8 +373,7 @@ def parse_pages(pages, document_type='auto'):
             risk = unsafe_line(line)
             if len(text) > 500:
                 warnings.append('긴 설명 행은 거래로 해석하지 않았습니다.'); party = None; continue
-            if any(label in text for label in ('현재 잔액', '현재잔액', '총 잔액', '총잔액', '사용합계',
-                    '사용 합계', '이용합계', '이용 합계', '총 이용', '총이용', '총 사용', '총사용', '합계금액', '합계 금액')):
+            if any(label in text for label in SUMMARY_LABELS):
                 continue
             if any(label in text for label in ('계좌번호', '카드번호', '예금주', '고객명')):
                 continue
@@ -268,7 +409,7 @@ def parse_pages(pages, document_type='auto'):
                     warnings.append('금액이 불명확한 행이 있습니다.')
                 elif day is None and not clock and not any(label in text for label in ('거래내역', '입출금', '카드 이용', '카드 사용')):
                     # Do not join OCR-separated syllables into an invented merchant.
-                    split_hangul = re.search(r'(?<![가-힣])[가-힣](?:[ \t]+[가-힣]){2,}(?![가-힣])', text)
+                    split_hangul = SPLIT_HANGUL.search(text)
                     party = safe_label(text) if not risk and not re.search(r'[?…□]', text) and not split_hangul else None
                     party_reasons = risk + (['party_unverified'] if party is None else [])
                 continue
@@ -331,7 +472,15 @@ def parse_pages(pages, document_type='auto'):
 
 
 def extract(path, kind, document_type):
-    return parse_pages(extract_pages(path, kind, needs_ocr=needs_ocr, tsv=True), document_type)
+    deadline = time.monotonic() + 55
+    def bounded_run(args, timeout=12):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError('Document OCR budget exceeded')
+        return command(args, min(timeout, remaining))
+    recognizer = LineRecognizer()
+    return parse_pages(extract_pages(path, kind, run=bounded_run, needs_ocr=needs_ocr,
+                                    tsv=True, refine_tsv=recognizer.refine), document_type)
 
 
 if __name__ == '__main__':

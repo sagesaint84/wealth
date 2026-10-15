@@ -8,6 +8,31 @@
 
 ## 1. 현재 개발 상태
 
+### PR #147 bounded line OCR 2차 보정 — 2026-10-15
+
+Draft/Open PR #147의 `61f8740` native run 38706993038은 두 플랫폼 모두 은행 PNG 거래처명
+정확 일치에서 실패했다. 은행 유형/2행 조건 및 기존 국민연금 worker는 통과했으나
+금액·잔액·은행 PDF·카드 JPG/PDF는 완료로 간주하지 않는다. 아래 245 PASS는 로컬 회귀 이력이다.
+
+가계부에서만 원본 페이지 TSV의 좌표와 동일한 정규화/방향 보정 이미지의 단일 행을 PSM 7로
+재인식한다. 공통 decoder에는 페이지별 opt-in hook만 추가하며 국민연금은 사용하지 않는다.
+이미지/TSV 크기 일치, 폭 320px 이상, 최대 16M pixels, bbox/글자 높이/잘림/다른 행과 겹침을
+확인한다. 원본 confidence 30 미만은 재시도하지 않고, 재인식 confidence 90 미만·다중 행·숫자/부호
+충돌은 미확인이다. 정상 단어 공백을 문자열 치환으로 합치지 않으며, 날짜/시간이 포함된 복합 행은
+기존 파싱 경로를 유지한다. 합계·잔액·거래처·금액의 역할을 서로 바꾸지 않는다.
+
+문서 전체 최대 8회/재인식 누적 12초/1회 3초/출력 20KB, 도구 실행 전체 기한 55초다.
+외부 75초 회수·CPU 60초·512MiB·동시 슬롯 2개는 유지하고, 초과/timeout 시 저장 없이 실패한다.
+페이지 교체 전에 좌표를 적용해 다른 PDF 페이지를 재사용하지 않으며 crop은 0600으로 생성/제거한다.
+새로운 금융 writer·사용자 데이터 경로는 없고, 전부 review_required·Owner/계좌 미추정이다.
+
+기존 합성 입력과 모든 exact-value 단언은 유지한다. 최종 격리 집중 **278 passed / 0 failed /
+0 skipped / 2 warnings**, 134.14초(기존 245 + 신규 33), Python syntax·git diff --check PASS.
+생성한 테스트 임시 경로 제거 확인. JS는 미변경이다. Native CI 결과는 이 커밋의 실제 Actions로
+별도 확인하며 Windows의 실제 Tesseract·로컬 Docker·전체 pytest는 미실행이다.
+APP_VERSION 2.0.2 및 운영 이미지 d98336a는 유지한다. 원본 감액배당 worktree는 변경하지 않으며
+O2 저장·공모주 OCR·Merge·운영 배포는 진행하지 않는다.
+
 ### PR #147 Native OCR hotfix — 2026-10-15
 
 현재 `wealth-ocr` / `codex/v202-ledger-ipo-ocr-import`의 Draft PR #147은 미병합·운영 미배포다.

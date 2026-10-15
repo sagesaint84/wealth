@@ -28,7 +28,7 @@ def detect_file(data, mime):
     return kind
 
 
-def extract_pages(path, kind, *, run=command, needs_ocr, tsv=False):
+def extract_pages(path, kind, *, run=command, needs_ocr, tsv=False, refine_tsv=None):
     """Decode to bounded transient text pages; caller chooses its own text policy.
 
     command injection preserves the pension worker's existing mock contract.
@@ -63,10 +63,18 @@ def extract_pages(path, kind, *, run=command, needs_ocr, tsv=False):
         output = run(args, 20)
         if len(output) > 200_000:
             raise ValueError('Text limit')
-        return output.decode('utf-8')
+        text = output.decode('utf-8')
+        # Opt-in only. Run while this exact oriented/scaled page still exists;
+        # no later page can overwrite the pixels referenced by its TSV boxes.
+        lines = refine_tsv(text, prepared, run) if tsv and refine_tsv else None
+        return text, lines
 
     if kind != 'pdf':
-        return [{'page': 1, 'text': ocr(path), 'method': 'ocr_tsv' if tsv else 'ocr'}]
+        text, lines = ocr(path)
+        page = {'page': 1, 'text': text, 'method': 'ocr_tsv' if tsv else 'ocr'}
+        if lines is not None:
+            page['ocr_lines'] = lines
+        return [page]
     info = run(['pdfinfo', str(path)]).decode('utf-8', errors='replace')
     pages = re.search(r'^Pages:\s*(\d+)', info, re.M)
     if not pages or not 1 <= int(pages[1]) <= MAX_PAGES or re.search(r'^Encrypted:\s*yes', info, re.M):
@@ -81,15 +89,19 @@ def extract_pages(path, kind, *, run=command, needs_ocr, tsv=False):
             raise ValueError('Text limit')
         text = output.read_text(encoding='utf-8')
         method = 'text'
+        lines = None
         if needs_ocr(text):
             prefix = directory / 'page'
             run(['pdftoppm', '-f', str(page), '-l', str(page), '-singlefile', '-scale-to', '3200', '-png', str(path), str(prefix)])
             image = directory / 'page.png'; os.chmod(image, 0o600)
-            text = ocr(image); method = 'ocr_tsv' if tsv else 'ocr'
+            text, lines = ocr(image); method = 'ocr_tsv' if tsv else 'ocr'
         total_text += len(text)
         if total_text > 200_000:
             raise ValueError('Text limit')
-        result.append({'page': page, 'text': text, 'method': method})
+        item = {'page': page, 'text': text, 'method': method}
+        if lines is not None:
+            item['ocr_lines'] = lines
+        result.append(item)
     return result
 
 

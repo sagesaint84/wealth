@@ -1,5 +1,13 @@
 # Wealth 변경 이력
 
+## Wealth v2.0.2 — PR #147 bounded line OCR — 2026-10-15
+
+- 1차 보정 [run 38706993038](https://github.com/sagesaint84/wealth/actions/runs/38706993038)은 AMD64/ARM64 모두 빌드·Chromium·국민연금 OCR, 은행 PNG 유형/검토 상태/2행 조건 이후 거래처명 exact assertion에서 실패했다. 금액·잔액 및 나머지 3개 가계부 입력은 검증 완료로 간주하지 않는다.
+- 전체 페이지 TSV를 유지하면서 가계부에서만 선택적으로 동일한 방향/크기의 페이지 이미지에 대한 행 영역 재인식을 추가했다. 페이지 크기와 TSV 크기 일치, 해상도, 글자 높이, bbox 경계·잘림·인접 행 겹침, 원본 confidence를 검사한 뒤 PSM 7 TSV를 읽는다. 재인식 confidence 90 미만 또는 위치 불명확·복수 행 결과는 미확인이다. 한글 공백을 합쳐 이름을 만들거나 숫자를 보정하지 않는다.
+- 이미 유효한 두 금액/방향이 다르거나 부호가 손상·충돌하면 기존 근거를 남기고 후보 값을 미확인 처리한다. 잔액/합계·다른 거래행으로 금액을 옮기지 않는다. 재인식 결과도 항상 review_required, 연도·Owner·계좌 미추정이다. 합성 fixture와 smoke의 모든 정확한 기대값은 변경하지 않았다.
+- 문서 전체 재인식은 최대 8회, 누적 12초, 1회 최대 3초/출력 20KB다. 전체 decoder 도구 실행은 55초 기한 내에 제한하며 기존 외부 75초 timeout/process-group cleanup, Linux CPU 60초·메모리 512MiB 및 동시 슬롯 2개는 유지한다. 범위·시간 초과는 저장 없이 실패한다. private 0600 crop은 성공·실패/timeout 모두 제거한다.
+- 공통 decoder는 페이지 이미지가 다음 페이지로 교체되기 전에 호출하는 opt-in hook만 추가했다. 국민연금은 이 hook을 사용하지 않아 기존 OCR·문자층 및 반환 계약을 유지한다. APP_VERSION 2.0.2, 정적 자산 revision, 금융 저장/계산은 변경하지 않는다. 최종 격리 집중 **278 passed / 0 failed / 0 skipped / 2 warnings**, 134.14초(기존 245 + 신규 33), Python syntax·git diff --check PASS. 생성한 테스트 임시 경로 제거 확인. JS 미변경이며 실제 Windows OCR·로컬 Docker·전체 pytest는 미실행이다. 새 native 성공 여부는 이 커밋의 Actions 결과로 별도 확인한다. O2 저장·공모주 OCR·Merge·Deploy는 추가하지 않는다.
+
 ## Wealth v2.0.2 — PR #147 Native OCR spacing hotfix — 2026-10-15
 
 - Draft PR #147의 기존 [run 38705054241](https://github.com/sagesaint84/wealth/actions/runs/38705054241)은 native AMD64/ARM64 이미지 빌드·Chromium·국민연금 PNG/PDF worker까지 성공했으나 첫 은행 PNG의 문서 유형/검토 상태 단언에서 실패했다. coordinator가 검토 상태를 검사하므로 정상 반환 후 실패는 기대 문서 유형 불일치다. 기존 로그에는 원문이 없어 컨테이너의 정확한 OCR 문자열은 확인되지 않았다.

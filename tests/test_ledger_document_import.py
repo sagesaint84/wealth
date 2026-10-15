@@ -348,6 +348,250 @@ def geometry_tsv(text, *, width=800, height=1800, glyph_height=25, clipped_line=
     return '\n'.join(records)
 
 
+def positioned_tsv(lines, confidence=95):
+    """Public synthetic TSV with disjoint, page-local line and word bounds."""
+    records = ['level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
+               '1\t1\t0\t0\t0\t0\t0\t0\t1800\t2000\t-1\t']
+    for number, text in enumerate(lines, 1):
+        x = 100
+        for word_number, word in enumerate(text.split(), 1):
+            width = max(25, len(word)*25)
+            records.append(f'5\t1\t1\t1\t{number}\t{word_number}\t{x}\t{100+number*100}\t{width}\t40\t{confidence}\t{word}')
+            x += width + 12
+    return '\n'.join(records)
+
+
+def crop_tsv(args, text, confidence=95):
+    from PIL import Image
+    with Image.open(args[1]) as image:
+        width, height = image.size
+    header = positioned_tsv([]).splitlines()[0]
+    return (header + f'\n1\t1\t0\t0\t0\t0\t0\t0\t{width}\t{height}\t-1\t\n'
+            + f'5\t1\t1\t1\t1\t1\t8\t8\t{width-16}\t{height-16}\t{confidence}\t{text}').encode()
+
+
+def test_bounded_line_ocr_reproduces_split_syllables_and_uses_image_regions(tmp_path):
+    from PIL import Image
+    image = tmp_path/'prepared.png'; Image.new('L', (1800,2000), 'white').save(image)
+    text = positioned_tsv(['은행 입출금 거래내역', '현재 잔액 11,000,000 원', '10 월 14 일',
+                           '가 상 입 금 처', '+1,234,567 원', '거래 후 잔액 11,234,567 원'])
+    original = parser.parse_pages([page(text, method='ocr_tsv')])['rows'][0]
+    assert original['counterparty'] is None and 'party_unverified' in original['review_reasons']
+    outputs = iter(['가상입금처', '+1,234,567 원', '거래 후 잔액 11,234,567 원'])
+    calls = []
+    def run(args, timeout):
+        assert args[-3:] == ['--psm', '7', 'tsv'] and 0 < timeout <= 3
+        crop = Path(args[1]); calls.append(crop)
+        with Image.open(crop) as frame:
+            assert 40 < frame.width < 1800 and 40 < frame.height < 100
+        return crop_tsv(args,next(outputs))
+    refined = parser.LineRecognizer().refine(text, image, run)
+    result = parser.parse_pages([{**page(text,method='ocr_tsv'), 'ocr_lines':refined}])
+    row = result['rows'][0]
+    assert (row['counterparty'],row['amount'],row['direction'],row['balance_after']) == ('가상입금처','1234567','inflow','11234567')
+    assert row['transaction_date_parts'] == {'year':None,'month':10,'day':14}
+    assert row['review_status']=='review_required' and row['owner'] is None and row['account_id'] is None
+    assert len(calls)==3 and all(not crop.exists() for crop in calls)
+
+
+@pytest.mark.parametrize('old,new', [('+1,234,567 원','+1,234,568 원'),
+    ('-234,567 원','+234,567 원'), ('234,567 원','-234,567 원'),
+    ('거래 후 잔액 11,000,000 원','거래 후 잔액 11,000,001 원')])
+def test_line_numeric_disagreement_never_selects_convenient_reading(tmp_path,old,new):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    text=positioned_tsv([old])
+    lines=parser.LineRecognizer().refine(text,image,lambda args,timeout:crop_tsv(args,new))
+    assert 'ocr_line_conflict' in lines[0]['reasons']
+    assert parser.unsafe_line(lines[0])
+    assert lines[0]['text']==old  # No changed digit/sign replaces the original evidence.
+
+
+def test_line_recognition_preserves_normal_word_spaces(tmp_path):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    text=positioned_tsv(['은행 입출금', '10월 14일', '합성 마트 본점', '+1000 원'])
+    calls=[]
+    outputs=iter(['합성 마트 본점','+1000 원'])
+    def run(args,timeout):
+        calls.append(args);return crop_tsv(args,next(outputs))
+    lines=parser.LineRecognizer().refine(text,image,run)
+    assert lines[2]['text']=='합성 마트 본점' and len(calls)==2
+
+
+@pytest.mark.parametrize('new', ['-234, 5672 원', '−234,567 원', '++234,567 원'])
+def test_line_rereading_never_repairs_damaged_numeric_output(tmp_path,new):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    lines=parser.LineRecognizer().refine(positioned_tsv(['-234,567 원']),image,
+        lambda args,timeout:crop_tsv(args,new))
+    assert parser.unsafe_line(lines[0]) and lines[0]['text']=='-234,567 원'
+
+
+def test_line_rereading_accepts_new_valid_pixels_only_when_old_number_is_invalid(tmp_path):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    lines=parser.LineRecognizer().refine(positioned_tsv(['-234, 5672']),image,
+        lambda args,timeout:crop_tsv(args,'-234,567 원'))
+    assert lines[0]['text']=='-234,567 원' and not parser.unsafe_line(lines[0])
+
+
+def test_low_confidence_single_line_output_remains_unknown(tmp_path):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    lines=parser.LineRecognizer().refine(positioned_tsv(['가 상 입 금 처']),image,
+        lambda args,timeout:crop_tsv(args,'가상입금처',confidence=35))
+    assert lines[0]['text']=='가 상 입 금 처' and parser.unsafe_line(lines[0])
+
+
+def test_line_budget_is_document_wide_across_pages(tmp_path):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    recognizer=parser.LineRecognizer(); calls=[]
+    def run(args,timeout):
+        calls.append(args);return crop_tsv(args,'+1000 원')
+    for _ in range(8):recognizer.refine(positioned_tsv(['+1000 원']),image,run)
+    with pytest.raises(ValueError,match='budget'):recognizer.refine(positioned_tsv(['+1000 원']),image,run)
+    assert len(calls)==8 and not list(tmp_path.glob('line-*.png'))
+
+
+@pytest.mark.parametrize('fault', ['missing-size','wrong-size','clipped','negative','overlap','tiny','low-confidence'])
+def test_unreliable_source_regions_never_trigger_ocr(tmp_path,fault):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    text=positioned_tsv(['가 상 입 금 처'])
+    records=text.splitlines()
+    if fault=='missing-size':records.pop(1)
+    elif fault=='wrong-size':records[1]=records[1].replace('1800','900')
+    elif fault=='overlap':
+        fields=records[2].split('\t');fields[4]='2';records.append('\t'.join(fields))
+    else:
+        fields=records[2].split('\t')
+        if fault=='clipped':fields[6]='1'
+        elif fault=='negative':fields[6]='-1'
+        elif fault=='tiny':fields[9]='6'
+        else:fields[10]='20'
+        records[2]='\t'.join(fields)
+    lines=parser.LineRecognizer().refine('\n'.join(records),image,
+        lambda *args:pytest.fail('Unreliable geometry must not be cropped'))
+    assert all(parser.unsafe_line(line) for line in lines)
+
+
+@pytest.mark.parametrize('failure', ['timeout','too-large','elapsed','multiline'])
+def test_line_ocr_limits_and_failures_clean_crops(tmp_path,monkeypatch,failure):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    recognizer=parser.LineRecognizer()
+    def run(args,timeout):
+        if failure=='timeout':raise subprocess.TimeoutExpired(args,timeout)
+        if failure=='too-large':return b'x'*20_001
+        return positioned_tsv(['unexpected','two lines']).encode()
+    if failure=='elapsed':recognizer.elapsed=12
+    if failure=='multiline':
+        lines=recognizer.refine(positioned_tsv(['+1000 원']),image,run)
+        assert parser.unsafe_line(lines[0])
+    else:
+        with pytest.raises((subprocess.TimeoutExpired,ValueError)):
+            recognizer.refine(positioned_tsv(['+1000 원']),image,run)
+    assert not list(tmp_path.glob('line-*.png'))
+
+
+def test_shared_decoder_refines_each_pdf_page_before_pixels_are_replaced(tmp_path):
+    from PIL import Image
+    path=tmp_path/'synthetic.pdf';path.write_bytes(b'%PDF-synthetic')
+    seen=[]
+    def run(args,timeout=12):
+        if args[0]=='pdfinfo':return b'Pages: 2\nEncrypted: no\n'
+        if args[0]=='pdftotext':Path(args[-1]).write_text('');return b''
+        if args[0]=='pdftoppm':
+            number=int(args[args.index('-f')+1]);Image.new('L',(800,600),0 if number==1 else 255).save(args[-1]+'.png');return b''
+        if args[-1]=='0':raise subprocess.CalledProcessError(1,args)
+        return positioned_tsv(['synthetic']).encode()
+    def refine(text,prepared,runner):
+        with Image.open(prepared) as image:seen.append(image.getpixel((0,0)))
+        return [{'text':'page-'+str(len(seen)), 'confidence':95,'bbox':[10,10,40,20],'reasons':[]}]
+    pages=engine.extract_pages(path,'pdf',run=run,needs_ocr=parser.needs_ocr,tsv=True,refine_tsv=refine)
+    assert seen==[0,255] and [p['ocr_lines'][0]['text'] for p in pages]==['page-1','page-2']
+    assert [p['page'] for p in pages]==[1,2]
+    plain=engine.extract_pages(path,'pdf',run=run,needs_ocr=parser.needs_ocr)
+    assert all(set(p)=={'page','text','method'} and p['method']=='ocr' for p in plain)
+
+
+def test_document_deadline_does_not_extend_outer_timeout(monkeypatch,tmp_path):
+    clock=iter([0,56])
+    monkeypatch.setattr(parser.time,'monotonic',lambda:next(clock))
+    monkeypatch.setattr(parser,'command',lambda *args:pytest.fail('Expired document must not run another tool'))
+    def extract(*args,**kwargs):kwargs['run'](['tesseract'],20)
+    monkeypatch.setattr(parser,'extract_pages',extract)
+    with pytest.raises(ValueError,match='Document OCR budget'):parser.extract(tmp_path/'x.png','png','auto')
+
+
+def test_separate_parties_amounts_and_balances_stay_in_their_own_regions(tmp_path):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    content=['은행 입출금 거래내역', '현재 잔액 11,000,000 원', '10월 14일',
+             '가 상 입 금 처', '+1,234,567 원', '거래 후 잔액 11,234,567 원',
+             '10월 13일', '가 상 출 금 처', '-234,567 원', '거래 후 잔액 11,000,000 원']
+    text=positioned_tsv(content)
+    outputs=iter(['가상입금처','+1,234,567 원','거래 후 잔액 11,234,567 원',
+                  '가상출금처','-234,567 원','거래 후 잔액 11,000,000 원'])
+    positions=[]
+    def run(args,timeout):
+        positions.append(args[1]);return crop_tsv(args,next(outputs))
+    refined=parser.LineRecognizer().refine(text,image,run)
+    rows=parser.parse_pages([{**page(text,method='ocr_tsv'),'ocr_lines':refined}])['rows']
+    assert len(rows)==2 and len(positions)==6
+    assert [(r['counterparty'],r['amount'],r['direction'],r['balance_after']) for r in rows]==[
+        ('가상입금처','1234567','inflow','11234567'),('가상출금처','234567','outflow','11000000')]
+    assert all(r['review_status']=='review_required' and r['owner'] is None and r['account_id'] is None for r in rows)
+
+
+def test_balance_conflict_is_null_in_final_preview_not_a_second_transaction(tmp_path):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    text=positioned_tsv(['은행 입출금 거래내역','10월 14일','합성 상점','+1000 원','거래 후 잔액 9000 원'])
+    outputs=iter(['합성 상점','+1000 원','거래 후 잔액 9001 원'])
+    refined=parser.LineRecognizer().refine(text,image,lambda args,timeout:crop_tsv(args,next(outputs)))
+    rows=parser.parse_pages([{**page(text,method='ocr_tsv'),'ocr_lines':refined}])['rows']
+    assert len(rows)==1 and rows[0]['amount']=='1000' and rows[0]['balance_after'] is None
+    assert 'balance_ambiguous' in rows[0]['review_reasons']
+
+
+@pytest.mark.parametrize('text',['+1000 원 -2000 원','++234,567 원','+-234,567 원','−234,567 원'])
+def test_multiple_amounts_or_damaged_source_signs_are_never_resolved_by_rereading(tmp_path,text):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    lines=parser.LineRecognizer().refine(positioned_tsv([text]),image,
+        lambda *args:pytest.fail('Ambiguous source numbers/signs must stay unknown'))
+    assert 'ocr_line_conflict' in lines[0]['reasons']
+
+
+def test_ledger_extract_uses_opt_in_hook_and_remaining_deadline(monkeypatch,tmp_path):
+    times=iter([10,20])
+    monkeypatch.setattr(parser.time,'monotonic',lambda:next(times))
+    calls=[]
+    monkeypatch.setattr(parser,'command',lambda args,timeout:calls.append(timeout) or b'bounded')
+    def extract(path,kind,**kwargs):
+        assert kwargs['tsv'] is True and callable(kwargs['refine_tsv'])
+        assert kwargs['run'](['tesseract'],60)==b'bounded'
+        return [page(BANK)]
+    monkeypatch.setattr(parser,'extract_pages',extract)
+    result=parser.extract(tmp_path/'synthetic.png','png','auto')
+    assert calls==[45] and len(result['rows'])==2
+
+
+def test_existing_inline_date_amount_is_preserved_without_line_rereading(tmp_path):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    text=positioned_tsv(['은행 입출금 거래내역','2026-10-14 +1000 원'])
+    before=parser.parse_pages([page(text,method='ocr_tsv')])
+    refined=parser.LineRecognizer().refine(text,image,
+        lambda *args:pytest.fail('Date punctuation is not a damaged amount sign'))
+    after=parser.parse_pages([{**page(text,method='ocr_tsv'),'ocr_lines':refined}])
+    assert after==before and after['rows'][0]['transaction_date']=='2026-10-14'
+    assert after['rows'][0]['amount']=='1000'
+
+
 def test_o11_month_day_separators_do_not_become_merchants_or_invent_year():
     rows = parser.parse_pages([page(partial_bank())])['rows']
     assert len(rows) == 2

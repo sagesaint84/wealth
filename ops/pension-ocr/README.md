@@ -1,5 +1,35 @@
 # Native offline pension and ledger OCR smoke
 
+Second hotfix (2026-10-15): run 38706993038 failed exact party recognition in
+bank PNG on both platforms, after image/Chromium/pension OCR and ledger type,
+review-state and two-row checks. No amount/balance or later ledger document
+completion is inferred from that run.
+
+The ledger worker now opts into bounded line OCR after the full-page TSV. The
+common decoder invokes it on that exact oriented/scaled page before replacing
+its pixels for the next PDF page. Pension does not opt in. No fixture values or
+smoke assertions change. Crops are source pixels, never synthesized text.
+Page/TSV sizes must match; source width >=320px, <=16M pixels, glyph height >=12,
+unclipped disjoint line bounds (<=3000x220px) and source confidence >=30 are
+required. A single fresh PSM 7 TSV line needs confidence >=90 and valid geometry.
+Actual normal word spaces are preserved; no global Hangul space removal occurs.
+Conflicting valid numbers/signs, damaged signs, multiple amounts or unclear
+results invalidate the candidate rather than selecting a convenient value.
+
+Limits are document-wide: at most 8 line calls, cumulative 12s, max 3s/call and
+20KB output/call; all decoder commands share a 55s deadline. Exceeding a limit
+fails closed. Existing 75s coordinator group timeout, CPU 60s, memory 512MiB
+and concurrency 2 remain. Crop files are 0600 and unlinked in finally, including
+tool errors/timeouts. Public responses still contain only reviewed candidates;
+raw page/crop text and source paths are not logged. No financial storage is added.
+Local tests are mock/pixel-geometry tests; real native accuracy requires the new
+commit's CI. The previous snapshots below are historical.
+
+Final local isolated regression: **278 passed / 0 failed / 0 skipped / 2 warnings**,
+134.14s (245 existing + 33 new cases). Python syntax/diff checks passed and owned
+test directories were removed. JS is unchanged. This is not real local OCR;
+the new commit's native CI remains the authority for all four exact ledger cases.
+
 PR #147 hotfix status (2026-10-15): [run 38705054241](https://github.com/sagesaint84/wealth/actions/runs/38705054241)
 failed on both native platforms in the first bank PNG type assertion, after
 successful image/Chromium and pension PNG/PDF worker checks. The coordinator
