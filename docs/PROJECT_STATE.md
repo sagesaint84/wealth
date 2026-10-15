@@ -8,6 +8,30 @@
 
 ## 1. 현재 개발 상태
 
+### PR #147 Native party diagnostic only — 2026-10-15
+
+기준 feature `883b4cf`, Draft/Open PR #147의 run 38715245006은 AMD64/ARM64 모두
+은행 PNG 거래처명에서 실패했다. 이번 단계는 원인 확인용이며 파서·알고리즘·fixture·금액·
+기존 exact assertion을 변경하지 않는다. Tesseract 5.3/5.5 버전 차이를 원인으로 단정하지 않는다.
+
+ops smoke만 공개 `/fixtures/bank.png`의 실패 시 별도 private subprocess에서 실제 처리 경로를
+한 번 재실행하고, 실제 소스 AST에 연결한 읽기 전용 실행 추적으로 첫째/둘째 거래처를 구분한다.
+원래 preview와 진단 재실행 결과는 분리한다. 원래 후보/음절 분리, 신뢰도 구간, bbox 검사·겹침,
+PSM 7 호출과 TXT/TSV 생성·검사·문자 비교·채택·실행된 거부 분기를 관측한다.
+확인하지 못한 단계는 unknown이며, 출처·좌표·원문·이름·금액·전체 JSON은 출력하지 않는다.
+출력은 허용된 boolean/고정 코드/호출 횟수/신뢰도 구간과 검증한 실행 버전에 한정한다.
+
+운영 함수·콜백을 교체하지 않으며 production preview 반환 계약과 API를 변경하지 않는다.
+새 운영 모듈·금융 writer는 없고, 국민연금 OCR은 유지한다. 합성 입력만 별도 그룹에서 실행해
+75초 timeout 시 회수하고 private 파일을 정리한다. 로컬 mock 추적 검증과 실제 native 결과는
+구분하며, 기존 단언이 실패하면 CI는 계속 실패한다. 이후 알고리즘 수정은 자동 진행하지 않는다.
+APP_VERSION 2.0.2 유지. 전체 pytest·O2·공모주 OCR·Merge·Deploy는 범위 밖이다.
+
+진단 코드 최종 격리 집중 **329 passed / 0 failed / 0 skipped / 2 warnings**, 173.58초
+(기존 308 + 신규 21), Python syntax·git diff --check PASS, 생성한 테스트 임시 경로 제거 확인.
+로컬에서는 mock 도구 출력으로 실제 분기 추적을 검증했으며 실제 Tesseract는 실행하지 않았다.
+새 native Actions는 원인 확인용이고 기존 거래처 단언이 실패하면 NATIVE_OCR_CI=FAIL이다.
+
 ### PR #147 TXT/TSV evidence hotfix — 2026-10-15
 
 기준 feature `e30190d`, Draft/Open PR #147의 native run 38710555716은 두 플랫폼 모두

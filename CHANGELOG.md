@@ -1,5 +1,12 @@
 # Wealth 변경 이력
 
+## Wealth v2.0.2 — PR #147 Native party diagnostic only — 2026-10-15
+
+- `883b4cf`의 [run 38715245006](https://github.com/sagesaint84/wealth/actions/runs/38715245006)은 두 플랫폼 모두 기존 국민연금 OCR 이후 은행 PNG 거래처명 단언에서 실패했다. 이번 변경은 진단 전용이며 운영 파서·인식 알고리즘·합성 fixture·금액/부호/거래처 exact-value 단언은 변경하지 않는다.
+- 공개 `/fixtures/bank.png`의 거래처 불일치에서만 별도 private subprocess로 실제 decoder/LineRecognizer/파서를 한 번 재실행한다. `sys.settrace`와 실제 소스의 AST 앵커로 실행된 분기와 지역값을 읽으며 함수·콜백·입력·반환 계약을 바꾸지 않는다. 관측하지 못한 검사는 unknown으로 남긴다. 기존 preview 결과와 진단 재실행 결과를 별도 boolean으로 표시해 서로 다른 실행을 혼동하지 않는다.
+- 첫째/둘째 행의 후보·음절 분리·신뢰도 구간·위치/겹침·재인식 호출·출력 생성·검사/채택·거부 분기를 허용된 코드/boolean/횟수만으로 기록한다. 원문·거래처명·금액·계좌·bbox 좌표·preview JSON은 로그에 출력하지 않으며 알 수 없는 진단 필드는 로깅 전에 거부한다. Tesseract 실행 버전은 검증한 숫자 버전만 출력한다.
+- 운영 API에는 진단 모드가 없다. probe는 기존 자원 제한과 75초 별도 프로세스 그룹 회수, private 입력 cleanup을 사용하며 금융 writer를 추가하지 않는다. 최종 격리 집중 **329 passed / 0 failed / 0 skipped / 2 warnings**, 173.58초(기존 308 + 신규 21), Python syntax·git diff --check PASS. 생성한 테스트 임시 경로 제거 확인. 로컬 mock 추적과 실제 native 진단을 구분하며 native 결과는 새 Actions를 따른다. APP_VERSION 2.0.2 유지, 전체 pytest·O2·공모주 OCR·Merge·Deploy 미실행.
+
 ## Wealth v2.0.2 — PR #147 TXT/TSV evidence hotfix — 2026-10-15
 
 - `e30190d`의 [native run 38710555716](https://github.com/sagesaint84/wealth/actions/runs/38710555716)은 두 플랫폼 모두 은행 PNG 거래처명에서 실패했다. 같은 OCR의 TXT가 정상이고 TSV가 음절별 단어인 합성 입력 4건을 추가해 기존 조합 경로의 실패를 수정 전에 재현했다. 로컬 실제 Tesseract가 없는 Windows의 mock 재현이며, GitHub 원문을 로그로 수집하지 않는다.

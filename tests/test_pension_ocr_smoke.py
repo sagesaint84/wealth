@@ -266,3 +266,197 @@ def test_command_failure_never_logs_raw_decoder_output(smoke,monkeypatch,capsys)
     monkeypatch.setattr(smoke.subprocess,'run',run)
     with pytest.raises(RuntimeError) as error:smoke.command(['tesseract','private-file-name'])
     assert 'private' not in str(error.value) and capsys.readouterr()==('', '')
+
+
+def trace_bank_parties(smoke,tmp_path,*,bad_row=None,low_source=False,low_reread=False,conflict=False,low_amount=False):
+    """Actual production branches with MOCK tool outputs; NOT real native OCR."""
+    from PIL import Image
+    from app.services import ledger_document as ledger
+    from tests.test_ledger_document_import import positioned_tsv,crop_tsv,page
+    image=tmp_path/'prepared.png';Image.new('L',(1800,2000),'white').save(image)
+    source=positioned_tsv(['은행 입출금 거래내역','10월 14일','가 상 입 금 처','09:10',
+        '+1,234,567 원','거래 후 잔액 11,234,567 원','10월 13일','가 상 출 금 처','10:20',
+        '-234,567 원','거래 후 잔액 11,000,000 원'])
+    if low_source or low_amount:
+        records=source.splitlines()
+        for index,record in enumerate(records):
+            fields=record.split('\t')
+            if fields[0]=='5' and fields[4]==('5' if low_amount else '3'):
+                fields[10]='20';records[index]='\t'.join(fields)
+        source='\n'.join(records)
+    outputs=[('가상입금처','가 상 입 금 처'),('+1,234,567 원','+1,234,567 원'),
+        ('거래 후 잔액 11,234,567 원','거래 후 잔액 11,234,567 원'),
+        ('가상출금처','가 상 출 금 처'),('-234,567 원','-234,567 원'),
+        ('거래 후 잔액 11,000,000 원','거래 후 잔액 11,000,000 원')]
+    if low_source:outputs.pop(0)
+    if low_amount:outputs.pop(1)
+    if bad_row is not None:
+        at=0 if bad_row==1 else 3
+        outputs[at]=('다른합성거래처',outputs[at][1]) if conflict else ('가 상 입 금 처',outputs[at][1])
+    outputs=iter(outputs);calls=[]
+    def run(args,timeout):
+        txt,tsv=next(outputs);calls.append(args)
+        return crop_tsv(args,tsv,txt=txt,confidence=45 if low_reread and len(calls)==1 else 95)
+    observer=smoke.PartyObserver(ledger)
+    def execute():
+        refined=ledger.LineRecognizer().refine(source,image,run)
+        return ledger.parse_pages([{**page(source,method='ocr_tsv'),'ocr_lines':refined}])
+    result=observer.observe(execute)
+    return result,smoke.party_report(result,observer),observer
+
+
+@pytest.mark.parametrize('bad_row',[1,2])
+def test_party_diagnostic_distinguishes_first_and_second_failure(smoke,tmp_path,capsys,bad_row):
+    result,rows,observer=trace_bank_parties(smoke,tmp_path,bad_row=bad_row,conflict=True)
+    assert observer.supported and len(observer.rows)==2
+    for index,row in enumerate(rows,1):
+        assert row['original_candidate_exists'] is True and row['original_split'] is True
+        assert row['refine_called'] is True and row['refine_calls']==1
+        assert row['txt_created'] is True and row['tsv_created'] is True
+        assert row['output_checks_ok'] is True and row['bbox_valid'] is True and row['overlap'] is False
+        assert row['txt_tsv_equal'] is (index!=bad_row)
+        if index!=bad_row:
+            assert row['txt_split'] is False and row['reread_tsv_split'] is True
+            assert row['txt_tsv_spacing_differs'] is True
+        assert row['accepted'] is (index!=bad_row)
+        assert row['final_party_null'] is (index==bad_row) and row['final_party_exact'] is (index!=bad_row)
+        assert row['reject_code']==('txt_tsv_guard' if index==bad_row else 'accepted')
+        assert row['review_reasons_allowed'] is True
+    smoke.emit_party_report(rows,result)
+    output=capsys.readouterr()
+    assert 'row=1' in output.out and 'row=2' in output.out and not output.err
+    for forbidden in ('가상입금처','가상출금처','다른합성거래처','1234567','11234567','bbox=['):
+        assert forbidden not in output.out
+
+
+def test_party_diagnostic_records_actual_source_quality_rejection(smoke,tmp_path):
+    _,rows,_=trace_bank_parties(smoke,tmp_path,low_source=True)
+    first,second=rows
+    assert first['original_confidence_bucket']=='under30'
+    assert first['source_quality_ok'] is False and first['reject_code']=='source_quality_guard'
+    assert first['refine_called'] is False and first['refine_calls']==0
+    assert first['txt_created'] is None and first['tsv_created'] is None
+    assert first['bbox_valid'] is None and first['overlap'] is None
+    assert first['final_party_null'] is True and second['accepted'] is True
+
+
+def test_party_diagnostic_records_actual_low_reread_confidence(smoke,tmp_path):
+    _,rows,_=trace_bank_parties(smoke,tmp_path,low_reread=True)
+    first=rows[0]
+    assert first['refine_called'] is True and first['reread_confidence_bucket']=='30to79'
+    assert first['reject_code']=='reread_initial_guard' and first['accepted'] is False
+    assert first['txt_tsv_equal'] is None and first['party_format_ok'] is None
+
+
+def test_party_diagnostic_distinguishes_character_guard_from_evidence_conflict(smoke,tmp_path):
+    _,rows,_=trace_bank_parties(smoke,tmp_path,bad_row=1)
+    first=rows[0]
+    assert first['txt_tsv_equal'] is True and first['party_format_ok'] is False
+    assert first['txt_split'] is True and first['reject_code']=='party_format_guard'
+
+
+def test_party_diagnostic_preserves_accepted_candidate_and_trace_state(smoke,tmp_path):
+    previous=sys.gettrace()
+    result,rows,_=trace_bank_parties(smoke,tmp_path)
+    assert sys.gettrace() is previous
+    assert all(row['accepted'] is True and row['final_party_exact'] is True for row in rows)
+    assert all(row['party_format_ok'] is True and row['reread_confidence_bucket']=='90plus' for row in rows)
+    smoke.validate_ledger_result(result,'bank_transactions')
+
+
+def test_unsupported_party_trace_is_unknown_not_invented(smoke,tmp_path):
+    result,_,observer=trace_bank_parties(smoke,tmp_path)
+    observer.supported=False
+    rows=smoke.party_report(result,observer)
+    assert all(row['observer_supported'] is False and row['refine_called'] is None and
+               row['refine_calls'] is None and row['reject_code']=='unknown' for row in rows)
+    assert all(row['final_party_exact'] is True for row in rows)
+
+
+@pytest.mark.parametrize('bad_row',[1,2])
+def test_party_failure_triggers_both_row_diagnostics_without_weakening_assertion(smoke,tmp_path,monkeypatch,bad_row):
+    from app.services import ledger_document_import as importer
+    (tmp_path/'bank.png').write_bytes(b'synthetic-input')
+    result=expected_result('bank_transactions');result['rows'][bad_row-1]['counterparty']=None
+    calls=[]
+    monkeypatch.setattr(importer,'preview',lambda *args:result)
+    monkeypatch.setattr(smoke,'diagnose_bank_parties',lambda source,preview:calls.append((source,preview)))
+    with pytest.raises(RuntimeError,match='Synthetic Korean ledger party extraction failed'):
+        smoke.run_ledger_case(tmp_path,'bank.png','png','bank_transactions')
+    assert len(calls)==1 and calls[0][0]==tmp_path/'bank.png' and calls[0][1] is result
+
+
+@pytest.mark.parametrize('field,value',[('raw_text','private-document'),('reject_code','private-data'),
+    ('original_confidence_bucket','private-data'),('refine_called',1),('refine_calls',1000)])
+def test_party_diagnostic_rejects_unallowlisted_output_before_logging(smoke,capsys,field,value):
+    rows=[smoke.empty_party_evidence(),smoke.empty_party_evidence()];rows[1][field]=value
+    with pytest.raises(RuntimeError):smoke.emit_party_report(rows,expected_result('bank_transactions'))
+    assert capsys.readouterr()==('', '')
+
+
+def test_party_diagnostic_rejects_nonfixture_input_without_reading_it(smoke,tmp_path,monkeypatch):
+    monkeypatch.setattr(smoke.sys,'platform','linux')
+    monkeypatch.setattr(smoke.subprocess,'Popen',lambda *args,**kwargs:pytest.fail('Non-CI documents may not be probed'))
+    with pytest.raises(RuntimeError,match='input denied'):
+        smoke.diagnose_bank_parties(tmp_path/'bank.png',expected_result('bank_transactions'))
+
+
+def test_adopted_party_can_be_nullified_by_actual_downstream_parser(smoke,tmp_path):
+    _,rows,_=trace_bank_parties(smoke,tmp_path,low_amount=True)
+    assert rows[0]['accepted'] is True and rows[0]['reject_code']=='accepted'
+    assert rows[0]['final_party_null'] is True and rows[0]['final_party_exact'] is False
+    assert rows[1]['accepted'] is True and rows[1]['final_party_exact'] is True
+
+
+def test_observer_reports_executed_overlap_guard_without_coordinates(smoke,tmp_path):
+    from PIL import Image
+    from app.services import ledger_document as ledger
+    from tests.test_ledger_document_import import positioned_tsv
+    image=tmp_path/'prepared.png';Image.new('L',(1800,2000),'white').save(image)
+    records=positioned_tsv(['가 상 입 금 처','+1000 원']).splitlines()
+    for index,record in enumerate(records):
+        fields=record.split('\t')
+        if fields[0]=='5' and fields[4]=='2':fields[7]='200';records[index]='\t'.join(fields)
+    observer=smoke.PartyObserver(ledger)
+    lines=observer.observe(lambda:ledger.LineRecognizer().refine('\n'.join(records),image,
+        lambda *args:pytest.fail('Overlapping regions may not invoke OCR')))
+    row=observer.records[id(lines[0])]
+    assert observer.supported and row['bbox_valid'] is True and row['overlap'] is True
+    assert row['refine_called'] is False and row['reject_code']=='overlap_guard'
+
+
+@pytest.mark.parametrize('failure',['none','timeout','bad-schema','bad-return'])
+def test_party_probe_subprocess_scope_is_private_bounded_and_cleaned(smoke,tmp_path,monkeypatch,capsys,failure):
+    source=tmp_path/'bank.png';source.write_bytes(b'public-synthetic-only')
+    monkeypatch.setattr(smoke.sys,'platform','linux')
+    monkeypatch.setattr(smoke,'CI_BANK_FIXTURE',source.resolve())
+    locations=[];kills=[]
+    class Process:
+        pid=987654;returncode=0
+        def __init__(self,args,**kwargs):
+            assert args[-2]=='--party-probe' and kwargs['start_new_session'] is True
+            assert kwargs['stderr'] is subprocess.DEVNULL
+            self.input=Path(args[-1]);locations.append(self.input.parent)
+            assert self.input.read_bytes()==b'public-synthetic-only'
+            self.waits=0
+            if failure=='bad-return':self.returncode=1
+        def communicate(self,timeout=None):
+            self.waits+=1
+            if self.waits==1:
+                assert timeout==75
+                if failure=='timeout':raise subprocess.TimeoutExpired('synthetic-probe',75)
+            rows=[smoke.empty_party_evidence(),smoke.empty_party_evidence()]
+            if failure=='bad-schema':rows[1]['raw_text']='private-data'
+            return json.dumps(rows).encode(),None
+    monkeypatch.setattr(smoke.subprocess,'Popen',Process)
+    monkeypatch.setattr(smoke.signal,'SIGKILL',9,raising=False)
+    monkeypatch.setattr(smoke.os,'killpg',lambda pid,sig:kills.append((pid,sig)),raising=False)
+    if failure=='none':
+        smoke.diagnose_bank_parties(source,expected_result('bank_transactions'))
+        assert 'row=1' in capsys.readouterr().out
+    else:
+        with pytest.raises(RuntimeError):smoke.diagnose_bank_parties(source,expected_result('bank_transactions'))
+        assert capsys.readouterr()==('', '')
+    assert locations and all(not path.exists() for path in locations)
+    assert kills==([(987654,9)] if failure=='timeout' else [])
+    assert source.read_bytes()==b'public-synthetic-only'

@@ -1,5 +1,33 @@
 # Native offline pension and ledger OCR smoke
 
+Diagnostic-only follow-up (2026-10-15): run 38715245006 failed party equality on
+both platforms. No parser/algorithm/fixture or exact assertion changes are made.
+On bank PNG party mismatch only, the CLI replays the REAL decoder/refiner/parser
+in a separate bounded process. `sys.settrace` reads actual executed branches and
+locals anchored to the current source AST; it does not replace production code
+or callbacks. Unsupported/unreached observations are unknown, never invented.
+
+The parent accepts only the public read-only `/fixtures/bank.png`, copies it to
+private storage, and reaps the process group on timeout before cleanup. The
+internal ops probe is not an application API mode. Its stdout contains only an
+allowlisted diagnostic schema; source text, party names, money, account IDs,
+pixel coordinates and preview JSON are never printed. Both rows are reported
+independently, even if the first party assertion fails. Source confidence and
+re-read confidence are buckets; rejection codes correspond to executed guards.
+TXT/TSV split/equality/spacing flags refer to observed strings, not reconstructed
+names. Preview-party flags and replay-party flags distinguish the two executions.
+
+The original exact assertions still run and still fail if incorrect. This CI
+run is diagnostic evidence, NOT native OCR acceptance. The tool's numeric version
+is reported separately; a version difference is not presumed to be the cause.
+Local tests use mock tool outputs through real production branches and are not
+native OCR. Pension, finance persistence, O2 and IPO OCR are unchanged.
+
+Final isolated regression: **329 passed / 0 failed / 0 skipped / 2 warnings**,
+173.58s (308 existing + 21 diagnostic tests). Python syntax/diff PASS and owned
+test directories removed. Actual native diagnostics are reported from the new
+Actions run; this local result is not Tesseract recognition evidence.
+
 TXT/TSV hotfix (2026-10-15): run 38710555716 still failed bank PNG party names
 on both platforms. Four synthetic tests first reproduced correct TXT evidence
 being lost when TSV syllable tokens were joined with invented spaces. This is
