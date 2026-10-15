@@ -1,0 +1,14 @@
+{
+  "distribution": "RapidAI/RapidOCR v3.9.2",
+  "license": "Apache-2.0; upstream model provenance PaddleOCR (Apache-2.0)",
+  "license_sources": [
+    "https://github.com/RapidAI/RapidOCR/blob/v3.9.2/LICENSE",
+    "https://github.com/PaddlePaddle/PaddleOCR/blob/main/LICENSE"
+  ],
+  "orientation": "PP-OCRv4 mobile 0/180 classifier enabled; not arbitrary-angle deskew",
+  "models": [
+    {"name": "ch_PP-OCRv5_det_mobile.onnx", "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae", "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx"},
+    {"name": "korean_PP-OCRv5_rec_mobile.onnx", "sha256": "cd6e2ea50f6943ca7271eb8c56a877a5a90720b7047fe9c41a2e541a25773c9b", "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/rec/korean_PP-OCRv5_rec_mobile.onnx"},
+    {"name": "ch_ppocr_mobile_v2.0_cls_mobile.onnx", "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c", "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_mobile.onnx"}
+  ]
+}

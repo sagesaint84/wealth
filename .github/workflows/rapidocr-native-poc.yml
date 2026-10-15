@@ -1,0 +1,88 @@
+name: RapidOCR Native Linux PoC
+
+on:
+  pull_request:
+    branches: [codex/v202-ledger-ipo-ocr-import]
+    paths:
+      - '.github/workflows/rapidocr-native-poc.yml'
+      - 'ops/rapidocr-poc/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rapidocr-poc-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  native-poc:
+    name: RapidOCR native ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            machine: x86_64
+            python_arch: x64
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            machine: aarch64
+            python_arch: arm64
+            platform: linux/arm64
+    defaults:
+      run:
+        shell: bash
+    env:
+      EXPECTED_MACHINE: ${{ matrix.machine }}
+      BUILD_PLATFORM: ${{ matrix.platform }}
+      LOCAL_IMAGE: wealth-rapidocr-poc:${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          architecture: ${{ matrix.python_arch }}
+      - name: Require native Linux Python
+        run: |
+          test "$(uname -m)" = "$EXPECTED_MACHINE"
+          python - <<'PY'
+          import os, platform, sys
+          assert sys.platform == 'linux' and sys.version_info[:2] == (3, 11)
+          assert platform.machine() == os.environ['EXPECTED_MACHINE']
+          PY
+      - uses: docker/setup-buildx-action@v3
+      - name: Build isolated experiment image (no publish)
+        run: |
+          docker buildx build --platform "$BUILD_PLATFORM" \
+            -f ops/rapidocr-poc/Dockerfile --tag "$LOCAL_IMAGE" --load .
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$LOCAL_IMAGE")" = "$BUILD_PLATFORM"
+      - name: Prepare pinned models and public fixtures
+        run: |
+          install -d -m 755 "$RUNNER_TEMP/rapidocr-poc"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$RUNNER_TEMP/rapidocr-poc,dst=/out" \
+            --entrypoint python "$LOCAL_IMAGE" \
+            /app/ops/rapidocr-poc/prepare.py --output /out/bundle
+      - name: Run independent offline memory and document checks
+        run: |
+          python ops/rapidocr-poc/run.py --machine "$EXPECTED_MACHINE" \
+            --image "$LOCAL_IMAGE" --bundle "$RUNNER_TEMP/rapidocr-poc/bundle"
+      - name: Clean only this job's synthetic bundle
+        if: always()
+        run: |
+          python - <<'PY'
+          import os, pathlib, shutil
+          root = pathlib.Path(os.environ['RUNNER_TEMP']).resolve()
+          target = root / 'rapidocr-poc'
+          assert target.parent == root and target.name == 'rapidocr-poc'
+          if target.exists():
+              assert not target.is_symlink()
+              shutil.rmtree(target)
+          PY
