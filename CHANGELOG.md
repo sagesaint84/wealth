@@ -1,5 +1,13 @@
 # Wealth 변경 이력
 
+## Wealth v2.0.2 — PR #147 Native OCR spacing hotfix — 2026-10-15
+
+- Draft PR #147의 기존 [run 38705054241](https://github.com/sagesaint84/wealth/actions/runs/38705054241)은 native AMD64/ARM64 이미지 빌드·Chromium·국민연금 PNG/PDF worker까지 성공했으나 첫 은행 PNG의 문서 유형/검토 상태 단언에서 실패했다. coordinator가 검토 상태를 검사하므로 정상 반환 후 실패는 기대 문서 유형 불일치다. 기존 로그에는 원문이 없어 컨테이너의 정확한 OCR 문자열은 확인되지 않았다.
+- 합성 TSV의 `10 월 14 일` 등 3개 입력에서 날짜 근거 누락 → unknown 유형을 재현했다. 월·일 단위 앞뒤의 수평 공백만 허용하며 연도 null, 불가능한 날짜·관련 없는 문장 거부, 문서 종류의 독립적 근거를 유지한다. 음절별로 분리된 거래처는 합쳐 복원하지 않고 미확인으로 남긴다. 손상된 숫자·부호는 보정하지 않는다.
+- 공개 합성 은행/카드 화면만 NanumGothic Bold 80px 및 거래금액과 원 단위 사이 공백으로 조정했다. 모든 숫자·거래처·정확한 기대값은 유지한다. 기존 국민연금 생성기/도메인 파서, 공통 decoder, API·금융 저장·JS는 변경하지 않았다.
+- smoke의 문서 유형과 상태 오류를 분리하고, 유형 실패 때 제한된 subprocess에서 날짜·금액·은행/카드 헤더·TSV 행 근거를 참/거짓만 출력한다. 원문 OCR 및 preview JSON을 로그에 남기지 않는다. 기존 exact-value/cleanup/금융 파일 불변 단언과 네트워크 차단은 유지한다.
+- hotfix 최종 격리 집중 검증: **245 passed / 0 failed / 0 skipped / 2 warnings**, 137.58초. 기존 221건과 신규 24건(날짜·거래처·금액·분류·비공개 진단)을 포함하며 Python syntax 및 git diff --check PASS. 임시 테스트 디렉터리 자동 제거를 확인했다. JS 미변경으로 Node 재검사는 생략했다. 새 native CI는 이 커밋의 실제 실행 결과로 별도 확인한다. 로컬 실제 Tesseract·Docker 및 전체 pytest는 미실행. APP_VERSION 2.0.2, 기존 자산 revision 유지. O2 저장·공모주 OCR 미구현, PR은 Draft이며 Merge/Deploy는 실행하지 않는다.
+
 ## Wealth v2.0.2 — Phase O1.2 Native Ledger OCR Smoke 준비 — 2026-10-15
 
 - PR 제출 전 보안 검토에서 화면 예시와 겹칠 수 있는 값을 제거하고 공개 fixture·파서/Chrome 테스트·문서의 금액을 명백한 가상 숫자 패턴으로 통일했다. 정확한 기대값 검증은 그대로 유지하며 이 변경은 OCR 오류를 수용하기 위한 조정이 아니다. 운영 이미지는 기존 `ghcr.io/sagesaint84/wealth:d98336a`이며 이번 OCR 변경의 Merge/배포는 별도다.

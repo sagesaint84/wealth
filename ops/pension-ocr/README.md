@@ -1,5 +1,32 @@
 # Native offline pension and ledger OCR smoke
 
+PR #147 hotfix status (2026-10-15): [run 38705054241](https://github.com/sagesaint84/wealth/actions/runs/38705054241)
+failed on both native platforms in the first bank PNG type assertion, after
+successful image/Chromium and pension PNG/PDF worker checks. The coordinator
+already validates `review_required`; the combined error did not identify the
+type's structural cause. No original OCR text was logged, so the complete native
+cause is not established by those logs.
+
+Synthetic TSV reproduces the date gate failing for `10 월 14 일`. The parser now
+accepts horizontal unit spacing without inferring a year, and leaves syllable-split
+parties unverified. Numeric/sign repair remains forbidden. Ledger fixtures alone
+use the public NanumGothic Bold face at 80px, with whitespace between transaction
+amounts and their currency unit; numbers, exact expectations and party names are
+unchanged. The pension fixture retains its original font/layout.
+
+Type and review-state failures are separate. On a type mismatch only, a bounded
+real decoder subprocess reports allowlisted Boolean date/money/header/TSV-line
+evidence. It never logs OCR text or preview JSON. All exact assertions remain.
+The new commit's native run must pass all four ledger inputs before claiming
+native ledger OCR success. Local Windows tests are not actual OCR execution.
+No storage/IPO OCR or deployment is introduced. The following O1.2 pre-PR snapshot
+is historical; see the new run for the final hotfix result.
+
+Hotfix local isolated regression: **245 passed, 0 failed, 0 skipped, 2 warnings**
+(137.58s), preserving the 221 existing checks and adding 24 cases. Python syntax
+and diff checks passed; owned test directories were removed. JS is unchanged.
+This is not native OCR evidence; the new commit's AMD64/ARM64 checks are separate.
+
 O1.2 development status (2026-10-15): the bank/card smoke below is implemented,
 but actual native **amd64 and arm64 execution is PENDING**. Local Windows contract
 tests use synthetic inputs and mock tool/preview responses; Tesseract is absent.
@@ -30,7 +57,7 @@ Public ledger values use deliberately fictional digit patterns and are not
 copied from a user's screenshot. Exact expectations were updated together;
 they still reject every wrong digit or sign instead of accepting OCR mistakes.
 
-New images have 1800px width, 64px font and generous margins/line spacing. New
+Ledger images have 1800px width, 80px bold font and generous margins/line spacing. New
 fixture files are explicitly mode 0644 so the existing non-root container can
 read the read-only mount. Nothing is generated or committed in the repository.
 The existing generator command and workflow already include `ops/pension-ocr/**`

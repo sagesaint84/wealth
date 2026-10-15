@@ -8,6 +8,28 @@
 
 ## 1. 현재 개발 상태
 
+### PR #147 Native OCR hotfix — 2026-10-15
+
+현재 `wealth-ocr` / `codex/v202-ledger-ipo-ocr-import`의 Draft PR #147은 미병합·운영 미배포다.
+기존 feature commit `b55e1f4d09b14880012a83ab88ab14c47e8afcf9`의
+[native CI](https://github.com/sagesaint84/wealth/actions/runs/38705054241)는 두 플랫폼 모두
+이미지 빌드·Chromium·국민연금 PNG/PDF OCR 이후 은행 PNG 문서 유형 단언에서 실패했다.
+이전 PENDING과 221 PASS 기록은 제출 직전 로컬 이력이며 native 가계부 성공을 뜻하지 않는다.
+
+공백이 들어간 합성 날짜 TSV 3건의 unknown 분류와 음절 분리 거래처의 무검증 채택 1건을
+수정 전 재현했다. 월/일 앞뒤 수평 공백만 허용하고 거래처 음절은 합쳐 복원하지 않는다.
+합성 화면은 Bold 80px/금액-단위 간격으로 개선하되 금액과 정확한 기대값을 바꾸지 않는다.
+유형 실패 때에만 실제 decoder의 Boolean 구조 근거를 출력하며 원문·preview JSON은 출력하지 않는다.
+기존 CI의 전체 OCR 문자열은 확인되지 않아 과거 실패의 모든 원인을 공백으로 단정하지 않는다.
+이번 수정 후 실제 은행 PNG/PDF·카드 JPG/PDF 성공 여부는 새 native CI로 확인해야 한다.
+
+hotfix 최종 격리 집중 검증은 **245 passed / 0 failed / 0 skipped / 2 warnings**, 137.58초다.
+기존 221건과 신규 24건을 포함하고 Python syntax·git diff --check PASS, 테스트 임시 경로 제거 확인.
+JS 미변경으로 Node 재검사는 생략했다. 새 native CI 결과는 이 커밋의 실제 Actions를 따른다.
+로컬 실제 Tesseract·Docker·전체 pytest는 미실행이며,
+국민연금 도메인·금융 계산·저장 API·공통 decoder·APP_VERSION 2.0.2는 유지한다.
+감액배당 원본 worktree는 변경하지 않는다. O2 저장·공모주 OCR·Merge·Deploy는 범위 밖이다.
+
 ### Phase O1.2 — OCR Draft PR 검증 준비 (운영 미배포, native CI PENDING)
 
 `wealth-ocr` / `codex/v202-ledger-ipo-ocr-import`, 기준 main

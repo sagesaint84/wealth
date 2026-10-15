@@ -11,12 +11,12 @@ BANK_LINES = (
     '10월 14일',
     '가상입금처',
     '09:10',
-    '+1,234,567원',
+    '+1,234,567 원',
     '거래 후 잔액 11,234,567원',
     '10월 13일',
     '가상출금처',
     '10:20',
-    '-234,567원',
+    '-234,567 원',
     '거래 후 잔액 11,000,000원',
 )
 CARD_LINES = (
@@ -24,10 +24,10 @@ CARD_LINES = (
     '총 사용금액 35,801원',
     '10월 14일',
     '가상카페',
-    '승인금액 12,345원',
+    '승인금액 12,345 원',
     '10월 13일',
     '가상서점',
-    '승인금액 23,456원',
+    '승인금액 23,456 원',
 )
 
 
@@ -80,7 +80,13 @@ def main():
     # rather than an embedded text layer that would bypass OCR.
     image.save(args.output / 'synthetic.pdf', 'PDF', resolution=150.0)
     print('Created public synthetic PNG and scanned PDF')
-    generate_ledger_fixtures(args.output, font)
+    # Same public font family, heavier/larger ledger glyphs to reduce OCR
+    # syllable segmentation and confusion between the final digit and 원.
+    # Fail if the CI's public font package lacks the required face.
+    ledger_face = args.font.with_name(args.font.stem + 'Bold' + args.font.suffix)
+    if not ledger_face.is_file():
+        raise SystemExit('Required public Korean bold font is missing')
+    generate_ledger_fixtures(args.output, ImageFont.truetype(str(ledger_face), 80))
     print('Created public synthetic bank/card images and scanned PDFs')
 
 

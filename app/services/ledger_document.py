@@ -13,7 +13,7 @@ from app.services.document_extraction import extract_pages, set_worker_limits
 
 DATE = re.compile(r'(?<!\d)(20\d{2})[./-](\d{1,2})[./-](\d{1,2})(?!\d)')
 KOREAN_DATE = re.compile(r'(?<!\d)(20\d{2})년\s*(\d{1,2})월\s*(\d{1,2})일')
-MONTH_DAY = re.compile(r'^\s*(\d{1,2})월\s*(\d{1,2})일(?:\s*\(?[월화수목금토일](?:요일)?\)?)?\s*$')
+MONTH_DAY = re.compile(r'^\s*(\d{1,2})[ \t]*월[ \t]*(\d{1,2})[ \t]*일(?:[ \t]*\(?[월화수목금토일](?:요일)?\)?)?[ \t]*$')
 METADATA_DATE = re.compile(r'^(?:발급|발행|작성|출력|촬영|조회)\s*(?:일자|일|날짜|연도)(?:\s|[:：]|$)')
 TIME = re.compile(r'(?<!\d)([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?(?!\d)')
 # Capture malformed numeric tokens WHOLE instead of accepting a valid suffix.
@@ -192,18 +192,28 @@ def safe_label(text):
     return text.strip()[:100]
 
 
+def classification_evidence(pages):
+    """Boolean-only structural evidence, also usable by synthetic smoke diagnostics."""
+    lines = [line for page in pages for line in lines_for_page(page)]
+    return {
+        'date': any(date_marker(line['text'], None) is not None for line in lines),
+        'money': any(MONEY.search(line['text']) is not None for line in lines),
+        'bank_header': any(re.match(r'^(?:은행\s*)?입출금(?:\s|$)|^은행\s*거래내역', line['text']) is not None
+                           for line in lines),
+        'card_header': any(re.match(r'^(?:신용|체크)?카드\s*(?:이용|사용|승인)(?:내역|\s|$)', line['text']) is not None
+                           for line in lines),
+        'tsv_lines': any(page['method'] == 'ocr_tsv' and bool(lines_for_page(page)) for page in pages),
+    }
+
+
 def parse_pages(pages, document_type='auto'):
     if document_type not in {'auto', 'bank_transactions', 'card_transactions'}:
         raise ValueError('자료 종류를 확인해 주세요.')
     decoded = [(page, lines_for_page(page)) for page in pages]
-    all_lines = [line for _, lines in decoded for line in lines]
     # A user-selected type cannot turn an unrelated/ambiguous document into transactions.
-    has_date = any(date_marker(line['text'], None) is not None for line in all_lines)
-    has_money = any(MONEY.search(line['text']) for line in all_lines)
-    bank = has_date and has_money and any(re.match(r'^(?:은행\s*)?입출금(?:\s|$)|^은행\s*거래내역', line['text'])
-                                             for line in all_lines)
-    card = has_date and has_money and any(re.match(r'^(?:신용|체크)?카드\s*(?:이용|사용|승인)(?:내역|\s|$)', line['text'])
-                                             for line in all_lines)
+    evidence = classification_evidence(pages)
+    bank = evidence['date'] and evidence['money'] and evidence['bank_header']
+    card = evidence['date'] and evidence['money'] and evidence['card_header']
     detected = 'bank_transactions' if bank and not card else 'card_transactions' if card and not bank else 'unknown'
     kind = detected if document_type == 'auto' else document_type
     if detected == 'unknown' or kind != detected:
@@ -257,7 +267,9 @@ def parse_pages(pages, document_type='auto'):
                 if '원' in text and any(label in text for label in ('금액', '승인', '입금', '출금')):
                     warnings.append('금액이 불명확한 행이 있습니다.')
                 elif day is None and not clock and not any(label in text for label in ('거래내역', '입출금', '카드 이용', '카드 사용')):
-                    party = safe_label(text) if not risk and not re.search(r'[?…□]', text) else None
+                    # Do not join OCR-separated syllables into an invented merchant.
+                    split_hangul = re.search(r'(?<![가-힣])[가-힣](?:[ \t]+[가-힣]){2,}(?![가-힣])', text)
+                    party = safe_label(text) if not risk and not re.search(r'[?…□]', text) and not split_hangul else None
                     party_reasons = risk + (['party_unverified'] if party is None else [])
                 continue
             value, direction = amount(money[0][1]) if len(money) == 1 else (None, 'unknown')

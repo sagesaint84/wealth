@@ -92,6 +92,7 @@ def test_generator_preserves_pension_and_creates_only_transient_synthetic_images
     font=ImageFont.load_default(size=64)
     monkeypatch.setattr(generator.ImageFont,'truetype',lambda *args,**kwargs:font)
     font_marker=tmp_path/'public-font-marker';font_marker.write_bytes(b'synthetic-marker')
+    (tmp_path/'public-font-markerBold').write_bytes(b'synthetic-bold-marker')
     output=tmp_path/'fixtures'
     monkeypatch.setattr(sys,'argv',['generate_fixtures','--font',str(font_marker),'--output',str(output)])
     generator.main()
@@ -104,7 +105,7 @@ def test_generator_preserves_pension_and_creates_only_transient_synthetic_images
     for name in ('synthetic.pdf','bank.pdf','card.pdf'):
         data=(output/name).read_bytes()
         assert data.startswith(b'%PDF-') and b'/Subtype /Image' in data
-    assert '+1,234,567원' in generator.BANK_LINES and '-234,567원' in generator.BANK_LINES
+    assert '+1,234,567 원' in generator.BANK_LINES and '-234,567 원' in generator.BANK_LINES
     assert '총 사용금액 35,801원' in generator.CARD_LINES
     if os.name=='posix':
         assert all((output/name).stat().st_mode & 0o777 == 0o644 for name in ('bank.png','bank.pdf','card.jpg','card.pdf'))
@@ -220,6 +221,43 @@ def test_wrong_native_architecture_fails_before_tool_execution(smoke,monkeypatch
     monkeypatch.setattr(smoke.platform,'machine',lambda:'x86_64')
     monkeypatch.setattr(smoke,'command',lambda *args:pytest.fail('Wrong architecture must fail first'))
     with pytest.raises(RuntimeError,match='architecture'):smoke.main()
+
+
+def test_type_and_status_failures_are_independent_fixed_diagnostics(smoke):
+    result = expected_result('bank_transactions')
+    result['document_type'] = 'unknown'
+    with pytest.raises(RuntimeError, match=r'Ledger document type failed \(unknown=True\)'):
+        smoke.validate_ledger_result(result, 'bank_transactions')
+    result['document_type'] = 'bank_transactions'
+    result['status'] = 'confirmed'
+    with pytest.raises(RuntimeError, match='Ledger review status failed'):
+        smoke.validate_ledger_result(result, 'bank_transactions')
+
+
+def test_failure_probe_logs_only_allowlisted_booleans(smoke,monkeypatch,tmp_path,capsys):
+    evidence = {'date': False, 'money': True, 'bank_header': True,
+                'card_header': False, 'tsv_lines': True}
+    calls = []
+    def command(args, timeout=30):
+        calls.append((args, timeout))
+        return json.dumps(evidence)
+    monkeypatch.setattr(smoke, 'command', command)
+    smoke.diagnose_ledger_evidence(tmp_path/'synthetic.png', 'png')
+    assert calls[0][0][:2] == [sys.executable, '-c'] and calls[0][1] == 75
+    assert 'set_worker_limits()' in calls[0][0][2]
+    assert 'tsv=True' in calls[0][0][2]
+    assert calls[0][0][-2:] == [str(tmp_path/'synthetic.png'), 'png']
+    assert capsys.readouterr() == ('DIAG: ledger date=False money=True bank_header=True card_header=False tsv_lines=True\n', '')
+
+
+@pytest.mark.parametrize('extra', [{'raw_text':'private-document'}, {'date':'private-value'}])
+def test_failure_probe_rejects_raw_or_nonboolean_diagnostics(smoke,monkeypatch,tmp_path,capsys,extra):
+    evidence = {'date': False, 'money': True, 'bank_header': True, 'card_header': False, 'tsv_lines': True}
+    evidence.update(extra)
+    monkeypatch.setattr(smoke, 'command', lambda *args, **kwargs: json.dumps(evidence))
+    with pytest.raises(RuntimeError, match='Ledger diagnostic contract failed'):
+        smoke.diagnose_ledger_evidence(tmp_path/'synthetic.png', 'png')
+    assert capsys.readouterr() == ('', '')
 
 
 def test_command_failure_never_logs_raw_decoder_output(smoke,monkeypatch,capsys):

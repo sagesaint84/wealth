@@ -36,8 +36,9 @@ def validate_ledger_result(result, document_type):
     require(isinstance(result, dict) and
             set(result) == {'document_type', 'status', 'rows', 'warnings'},
             'Ledger preview response contract failed')
-    require(result['document_type'] == document_type and result['status'] == 'review_required',
-            'Ledger document type/review status failed')
+    require(result['document_type'] == document_type,
+            'Ledger document type failed (unknown=' + str(result['document_type'] == 'unknown') + ')')
+    require(result['status'] == 'review_required', 'Ledger review status failed')
     require(isinstance(result['rows'], list) and len(result['rows']) == 2,
             'Ledger must contain exactly two transactions, excluding headers/totals')
     expected = (
@@ -73,6 +74,23 @@ def validate_ledger_result(result, document_type):
         if document_type == 'card_transactions':
             require(row.get('transaction_type_candidate') == 'card_approval_candidate' and
                     row.get('payment_method_candidate') == 'card', 'Card approval candidate contract failed')
+
+
+def diagnose_ledger_evidence(target, kind):
+    """Only the disposable PUBLIC synthetic smoke; never print OCR/preview text."""
+    probe = '''import json, sys
+from pathlib import Path
+from app.services.document_extraction import extract_pages, set_worker_limits
+from app.services.ledger_document import classification_evidence, needs_ocr
+set_worker_limits()
+pages = extract_pages(Path(sys.argv[1]), sys.argv[2], needs_ocr=needs_ocr, tsv=True)
+print(json.dumps(classification_evidence(pages)))
+'''
+    evidence = json.loads(command([sys.executable, '-c', probe, str(target), kind], timeout=75))
+    keys = ('date', 'money', 'bank_header', 'card_header', 'tsv_lines')
+    require(isinstance(evidence, dict) and set(evidence) == set(keys) and
+            all(type(evidence[key]) is bool for key in keys), 'Ledger diagnostic contract failed')
+    print('DIAG: ledger ' + ' '.join(key + '=' + str(evidence[key]) for key in keys))
 
 
 def run_ledger_case(fixtures, name, kind, document_type):
@@ -113,6 +131,8 @@ def run_ledger_case(fixtures, name, kind, document_type):
             tempfile.tempdir = str(inputs)
             mime = {'png': 'image/png', 'jpeg': 'image/jpeg', 'pdf': 'application/pdf'}[kind]
             result = preview(target.read_bytes(), mime, document_type)
+            if isinstance(result, dict) and result.get('document_type') != document_type:
+                diagnose_ledger_evidence(target, kind)
             validate_ledger_result(result, document_type)
             require(not list(inputs.iterdir()), 'Ledger worker private inputs were not cleaned up')
             require(set(data.iterdir()) == set(sentinels), 'Ledger created unexpected financial/user paths')

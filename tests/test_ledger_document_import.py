@@ -63,6 +63,66 @@ def test_bank_headers_signs_balance_and_no_owner_inference():
     assert '현재 잔액' not in json.dumps(result, ensure_ascii=False)
 
 
+@pytest.mark.parametrize('marker', ['10 월 14 일', '10월 14 일', '10 월 14일'])
+def test_native_ocr_unit_spacing_keeps_year_unknown(marker):
+    text = f'은행 입출금 거래내역\n현재 잔액 11,000,000 원\n{marker}\n합성거래처\n+1,234,567 원\n거래 후 잔액 11,234,567 원'
+    result = parser.parse_pages([page(tsv(text), method='ocr_tsv')])
+    assert result['document_type'] == 'bank_transactions'
+    assert result['status'] == 'review_required' and len(result['rows']) == 1
+    row = result['rows'][0]
+    assert row['transaction_date'] is None
+    assert row['transaction_date_parts'] == {'year': None, 'month': 10, 'day': 14}
+    assert (row['amount'], row['direction'], row['balance_after']) == ('1234567', 'inflow', '11234567')
+    assert row['owner'] is None and row['account_id'] is None
+    assert 'year_missing' in row['review_reasons']
+    assert not parser.needs_ocr(text)
+
+
+def test_native_ocr_split_hangul_party_is_not_reconstructed():
+    text = '은행 입출금 거래내역\n10월 14일\n가 상 입 금 처\n+1,234,567 원'
+    row = parser.parse_pages([page(tsv(text), method='ocr_tsv')])['rows'][0]
+    assert row['counterparty'] is None
+    assert 'party_unverified' in row['review_reasons']
+    assert row['review_status'] == 'review_required'
+    assert row['owner'] is None and row['account_id'] is None
+
+
+@pytest.mark.parametrize('marker', ['10 월 32 일', '13 월 14 일', '2 월 30 일',
+    '합계 10 월 14 일', '10 월 14 일 기준금액', '110 월 14 일'])
+def test_spaced_date_does_not_authorize_unrelated_or_impossible_document(marker):
+    result = parser.parse_pages([page(f'은행 입출금 거래내역\n{marker}\n합성거래처\n+1,234,567 원')])
+    if result['rows']:
+        row = result['rows'][0]
+        assert row['transaction_date'] is None
+        assert row['transaction_date_parts'] == {'year': None, 'month': None, 'day': None}
+        assert 'date_invalid' in row['review_reasons']
+    else:
+        assert result['document_type'] == 'unknown'
+
+
+@pytest.mark.parametrize('token', ['-234, 5672원', '-234, 5672', '++1,234,567 원',
+    '+-1,234,567 원', '−234,567 원', '1,234,567 원'])
+def test_native_damaged_digits_and_unverified_sign_never_become_signed_cashflow(token):
+    result = parser.parse_pages([page(f'은행 입출금 거래내역\n10월 14일\n합성거래처\n{token}')])
+    assert all(row['direction'] == 'unknown' for row in result['rows'])
+    if token != '1,234,567 원':
+        assert all(row['amount'] is None for row in result['rows'])
+
+
+@pytest.mark.parametrize('kind', ['auto', 'bank_transactions', 'card_transactions'])
+def test_native_spaced_date_alone_cannot_promote_unrelated_document(kind):
+    result = parser.parse_pages([page('자료 요약\n10 월 14 일\n+1,234,567 원')], kind)
+    assert result['document_type'] == 'unknown' and result['rows'] == []
+
+
+def test_native_structural_evidence_explains_date_gate_without_raw_text():
+    pages = [page(tsv('은행 입출금 거래내역\n10 월 14 일\n합성거래처\n+1,234,567 원'), method='ocr_tsv')]
+    evidence = parser.classification_evidence(pages)
+    assert evidence == {'date': True, 'money': True, 'bank_header': True,
+                        'card_header': False, 'tsv_lines': True}
+    assert all(type(value) is bool for value in evidence.values())
+
+
 def test_card_total_excluded_and_cancellation_remains_candidate():
     result = parser.parse_pages([page(CARD)])
     assert len(result['rows']) == 2
