@@ -1,5 +1,21 @@
 # Native offline pension and ledger OCR smoke
 
+## Synthetic CI Chromium launcher — 2026-10-16 (unverified)
+
+User-reported Actions run `38908552179` had **426 passed / 30 errors** on each
+native runner; all 30 browser cases failed startup with `No usable sandbox`.
+The existing install block now verifies Playwright's actual executable and writes
+an executable wrapper only to CI `RUNNER_TEMP/chrome`, first on the test step's
+PATH. The existing harness checks `chrome` first. The wrapper uses `exec` with
+`--no-sandbox` and forwards all arguments and the browser's exit status.
+This exception applies only to these disposable synthetic loopback CI tests.
+All four regression modules and the 30 real browser cases remain; startup
+errors, skips, failures and errors still fail CI. The harness, production browser,
+Dockerfile, container restrictions, mandatory pension OCR and accuracy reporting
+are unchanged. APP_VERSION remains 2.0.2. Tests and CI were **NOT RUN** after
+this fix; neither native platform is confirmed passing. No commit, push, merge
+or deployment was performed. Earlier results below remain historical evidence.
+
 ## Current CI contract — 2026-10-16
 
 Ledger **safety/functionality** gates are separate from **recognition accuracy**.

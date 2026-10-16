@@ -1,5 +1,11 @@
 # Wealth 변경 이력
 
+## Wealth v2.0.2 — PR #147 synthetic CI Chromium 실행 환경 보정 — 2026-10-16
+
+- 사용자 제공 Actions run `38908552179` 결과는 AMD64/ARM64 각각 **426 passed / 30 errors**이며, 30건은 모두 Chromium 시작 시 `No usable sandbox` 오류다. 이 실패 기록을 통과로 바꾸지 않는다.
+- 기존 Chromium 설치 구간에서 Playwright의 실제 실행 파일을 확인하고, CI의 임시 `RUNNER_TEMP/chrome` wrapper가 해당 파일을 `exec`하도록 변경했다. `--no-sandbox`는 이 일회성 synthetic loopback 테스트에만 적용하며 실행 실패의 종료 코드는 그대로 전달한다. 기존 네 회귀 모듈과 skip/failure/error 차단은 유지한다.
+- `tests/chrome_harness.py`, Dockerfile·운영 Chromium·컨테이너 제한·국민연금 필수 검사·정확도 진단·금융 저장·OCR·AccountInfo는 변경하지 않는다. APP_VERSION 2.0.2와 정적 revision을 유지한다. 이번 수정 후 테스트·CI는 미실행이며 성공 여부는 미검증이다. 커밋·푸시·병합·배포는 수행하지 않았다.
+
 ## Wealth v2.0.2 — PR #147 Native CI 안전성·정확도 결과 분리 — 2026-10-16 (개발 변경 — 작성 당시 운영 미배포)
 
 - 기존 `validate_ledger_result()`의 합성 원문 정확값 검사와 `EXACT` 필드별 진단을 유지한다. 가계부 후보의 응답 형식·검토 필요 상태·소유자/계좌/연도 미확정을 먼저 검사하고, 금융 sentinel byte 불변 및 임시 입력/작업 폴더 정리까지 통과한 경우에만 인식값 불일치를 `ACCURACY MISMATCH`로 보고한다. 정확값 일치는 `ACCURACY MATCH`이며, 안전성 PASS와 별도로 출력한다. 문서 종류 미확인은 경고가 있는 빈 후보 목록의 검토 상태일 때만 수동 입력 대상으로 허용한다. 미확인/누락 값과 정확값 불일치를 인식 성공이나 정확도 PASS로 바꾸지 않는다.

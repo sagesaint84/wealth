@@ -8,6 +8,20 @@
 
 ## 1. 현재 개발 상태
 
+### PR #147 Chromium CI 시작 오류 보정 — 2026-10-16 (미검증)
+
+기준 브랜치 `codex/v202-ledger-ipo-ocr-import`, 커밋
+`410289e362c9b114c07a6d2ab8e09b38c877102e`. 사용자 제공 Actions `38908552179`는
+AMD64/ARM64 각각 **426 passed / 30 errors**이며 30건 모두 Chromium의 `No usable sandbox` 시작 오류다.
+기존 설치 구간에서 Playwright 실행 파일을 확인하고 CI 임시 `RUNNER_TEMP/chrome` wrapper로 호출한다.
+기존 harness가 먼저 찾는 `chrome` 이름으로 노출하며 `exec`로 인수와 종료 코드를 전달한다.
+`--no-sandbox`는 해당 synthetic loopback 테스트 환경에만 적용한다. 실제 브라우저 테스트 30건과
+기존 네 회귀 모듈을 유지하며 시작 오류·skip·failure·error는 계속 CI를 차단한다.
+운영 Chromium·Dockerfile·네트워크/비특권 컨테이너 제한·국민연금 필수 검사·정확도 진단 및 금융/OCR/
+AccountInfo 코드는 변경하지 않는다. APP_VERSION 2.0.2와 정적 revision을 유지한다.
+이번 수정 후 테스트·CI는 미실행으로 양쪽 runner 성공 여부는 미검증이다. 커밋·푸시·병합·배포는
+수행하지 않았다. 아래 CI 분리 및 실패 이력은 이전 단계 기록이다.
+
 ### PR #147 마지막 CI 정리 — 안전성 필수 / 정확도 별도 진단 — 2026-10-16
 
 APP_VERSION **2.0.2**, `wealth-ocr` / `codex/v202-ledger-ipo-ocr-import`, 기준 커밋

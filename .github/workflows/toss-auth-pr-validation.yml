@@ -104,7 +104,22 @@ jobs:
       - name: Require ledger safety and user-confirmed manual import regressions
         run: |
           python -m playwright install --with-deps chromium
-          ln -s "$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')" "$RUNNER_TEMP/chromium"
+          python - <<'PY'
+          import os
+          import shlex
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as playwright:
+              executable = Path(playwright.chromium.executable_path).resolve(strict=True)
+          if not executable.is_file() or not os.access(executable, os.X_OK):
+              raise SystemExit('Installed CI Chromium executable is unavailable')
+          # The existing harness checks chrome first. Only this temporary CI
+          # wrapper disables Chromium's sandbox for synthetic loopback tests.
+          wrapper = Path(os.environ['RUNNER_TEMP']) / 'chrome'
+          wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(str(executable))
+                             + ' --no-sandbox "$@"\n', encoding='utf-8')
+          wrapper.chmod(0o700)
+          PY
           export PATH="$RUNNER_TEMP:$PATH"
           python -m pytest -q \
             tests/test_pension_ocr_smoke.py \
