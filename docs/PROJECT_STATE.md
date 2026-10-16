@@ -4,15 +4,31 @@
 > 새 대화, 새 작업 세션, 새 개발자가 시작할 때 가장 먼저 이 문서를 읽습니다.
 > 세부 계획은 `docs/ROADMAP.md`, 비밀값·환경설정 원칙은 `docs/SECURITY_AND_CONFIG.md`를 참조합니다.
 
+## 작업 시작 전 필수 원칙 — 버전·테스트·문서 동기화
+
+이후 Codex 작업은 이 문서 상단의 원칙과 현재 운영/개발 상태를 먼저 확인한다. 기능 추가·기능 변경·사용자에게 보이는 UI/UX 변경에는 다음 항목을 반드시 적용한다.
+
+1. 변경 규모에 맞게 앱 버전을 갱신한다: 버그 수정·UI 개선은 PATCH, 하위 호환 기능 추가는 MINOR, 호환성을 깨는 변경은 MAJOR.
+2. 실제 앱 버전·HTML 앱 버전 메타/화면 표시·서비스워커 캐시 버전을 동기화한다.
+3. 수정한 JS/CSS의 캐시 revision과 HTML·동적 loader 참조를 함께 갱신한다.
+4. 변경하지 않은 자산 revision은 유지한다. core JS와 연결된 `application-assets-revision`도 앱 버전과 독립적인 파일 revision이다.
+5. 버전 검증 테스트 기대값을 함께 갱신하고 실제 회귀를 확인한다.
+6. 관련 MD의 현재 상태·작업 이력·검증 결과를 갱신하되 과거 릴리스 이력은 보존한다.
+7. 개발 완료·미검증·미병합·미배포를 정확히 구분하고, 기존 결과를 새 테스트/CI 실행 결과로 표현하지 않는다.
+8. 죽은 코드·미사용 CSS·임시/더미 파일·불필요한 fixture를 남기지 않는다. 임시 경로 삭제가 정책에 차단되면 우회하지 않고 정확한 경로와 미완료 상태를 보고한다.
+9. 브랜치·worktree 정리는 병합 및 운영 배포 검증 후 진행한다.
+10. 작업 종료 전 코드·테스트·문서 버전 불일치, 변경 범위 및 임시 경로 정리 상태를 확인한다.
+
 현재 운영 기준: Wealth v2.0.2, main `113c663023586dd8a217d15ac9ca9bd3cfd47648` (사용자 제공 확인: PR #147 Squash Merge·CI 완료, Oracle 배포 및 서비스 안정성 검사 PASS; 2026-10-17). 아래 과거 PR #147 실패·미검증·미배포 기록은 각 단계 당시 이력이다.
 
 ## 1. 현재 개발 상태
 
-### AccountInfo PDF 반응형 미리보기 — 2026-10-17 (운영 미배포)
+### v2.0.3 AccountInfo PDF 반응형 미리보기 — 2026-10-17 (개발 완료·미병합·운영 미배포)
 
 `wealth-ocr`의 깨끗한 기존 OCR 브랜치 HEAD `cb6f87b13d774a101157a7a3d6a0ef7febb3492f`와
 `origin/main`의 운영 커밋 일치를 확인한 뒤, 같은 worktree에서
 `codex/v202-accountinfo-pdf-responsive-preview`를 `origin/main` 기반으로 생성했다.
+UI 구현 커밋은 `ebd66452e185ddbf3e0d2a7cc6d6a290790c6dc7`이며 이번 버전·문서 동기화는 그 후속 변경이다.
 원본 wealth와 감액배당 작업은 변경하지 않는다.
 
 - PDF 미리보기의 7열 테이블을 계좌 카드로 바꾼다. 320/390/768px는 1열,
@@ -23,9 +39,19 @@
 - 증권 PDF 잔액은 편집 불가능한 원본 참고값이며 신규 예수금 0원 정책을 유지한다.
   은행 원본 참고값과 신규 등록 잔액 입력은 분리하며, 미확인 0원/실제 0원·편집·최종 확인·
   중복/소유자 충돌 방지를 유지한다. parser·Owner·마스킹·금융 API·계산은 변경하지 않는다.
-- APP_VERSION은 2.0.2다. 변경한 importer·loader·dialog CSS revision만 `2.0.2-ai1`로 갱신하고
-  관련 테스트 기대값을 함께 갱신한다. 새 UI는 운영 미배포이며 커밋·푸시·PR 생성·병합·배포는 하지 않는다.
-- 최종 격리 집중 검증: Chrome UI·AccountInfo frontend·release version·money-input 네 모듈
+- APP_VERSION·HTML 메타/하단 표시·서비스워커 캐시는 **2.0.3**, importer·loader·dialog CSS revision은
+  `2.0.3-ai1`로 정리한다. 미변경 core JS와 연결된 `application-assets-revision`은 `2.0.2-r7`을
+  유지한다. 관련 테스트도 앱 버전과 파일 revision을 구분한다. 새 UI는 개발 완료·미병합·운영 미배포이며
+  전체 CI·배포 검증은 미완료다. 이번 작업에서 커밋·푸시·PR 생성·병합·배포는 하지 않는다.
+- **이번 v2.0.3 동기화 후 실제 재검증**: 기존 AccountInfo/UI/버전 네 모듈 **82 passed**, 164.96초.
+  추가 서비스워커 runtime·배당 source/What-if 자산 revision 회귀 세 모듈 **47 passed**, 8.19초.
+  합계 **129 PASS / 0 FAIL / 0 SKIP**. Python 7개 파일은 bytecode 생성 없이 문법 확인,
+  JavaScript 3개 파일은 `node --check`, 최종 `git diff --check` PASS다.
+  앱·HTML·서비스워커 일치와 미변경 자산/AccountInfo 소스 보존을 정적 대조했다.
+  저장소의 `2.0.2` 검색 결과 중 운영·과거 릴리스/PR 검증 스냅샷·미변경 자산 revision은 보존한다.
+  전체 pytest·전체 CI·배포는 이번 검증에 포함하지 않는다. 원본 wealth는 수정하지 않았고 실제
+  금융 데이터·`.env`는 열거나 수정하지 않았다. 테스트는 별도 시스템 임시 경로의 합성 데이터만 사용했다.
+- UI 구현 당시 격리 집중 검증: Chrome UI·AccountInfo frontend·release version·money-input 네 모듈
   **82 passed / 0 failed / 0 skipped**, 162.76초. 실제 Chromium에서 가상 36계좌의
   320/390/768/911/1280px × purple/white/oled × 은행/증권 30개 조합을 확인했다.
   금액/상품명 전체 가시성·단일 스크롤·가로 overflow 부재·선택/비활성·키보드/버튼 접근성과
@@ -33,8 +59,9 @@
   PDF.js 의존성만 합성 대체했으며 실제 사용자 PDF·금융 데이터는 사용하지 않았다.
   변경 JS 2개 Node 문법 검사·`git diff --check` PASS. parser·중복·Owner·마스킹·금융 API/payload
   생성 함수는 기준 소스와 동일함을 정적 대조했다. 전체 pytest·Native CI·운영 검증은 미실행이다.
-- 정리 상태: 저장소 내 신규 fixture/더미 파일은 없다. 시스템 임시 부모 경로는 삭제 요청이
-  자동 승인 정책에 차단되어 남아 있다. 이 정리 미완료 상태를 테스트 성공과 구분한다.
+- 정리 상태: 저장소 내 신규 fixture/더미 파일은 없다. 이전 UI 검증과 이번 버전 재검증의 시스템
+  임시 부모 경로는 삭제 요청이 자동 승인 정책에 차단되어 남아 있다. 우회하지 않았으며 정확한 경로는
+  작업 종료 보고에 기재한다. 이 정리 미완료 상태를 테스트 성공과 구분한다.
 
 ### 이전 PR #147 개발·검증 기록
 

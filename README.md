@@ -1,8 +1,10 @@
 # Wealth
 
-Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 개발 소스 버전은 **Wealth v2.0.2**입니다. 2026-10-14 확인 기준 [PR #144](https://github.com/sagesaint84/wealth/pull/144)는 Draft이며 main 반영 전입니다. 사용자 보고 기준 PR #143은 병합됐고 v2.0.1은 Oracle ARM64에서 운영 중입니다. v2.0.2의 Oracle 실운영 검증·배포는 미실행입니다. [계좌 UI·보험 표시 정책](docs/v2-wts-insurance-roi.md), [국민연금 분석 기준과 한계](docs/national-pension-analysis.md), [국민연금 자료 가져오기](docs/national-pension-import.md)를 참고하세요.
+Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 개발 소스 버전은 **Wealth v2.0.3**입니다. 사용자 확인 기준 현재 Oracle 운영은 **v2.0.2 / main `113c663023586dd8a217d15ac9ca9bd3cfd47648`**이며, PR #147의 CI·Squash Merge·Oracle 배포 및 서비스 안정성 검사는 완료됐습니다. [계좌 UI·보험 표시 정책](docs/v2-wts-insurance-roi.md), [국민연금 분석 기준과 한계](docs/national-pension-analysis.md), [국민연금 자료 가져오기](docs/national-pension-import.md)를 참고하세요.
 
-v2.0.2 검증: 사용자 확인 Windows 전체 pytest **3,699 passed / 5 skipped / 0 failed / 5 warnings**, **798 subtests passed**, Python·JavaScript 문법 검사 **PASS**. [GitHub Actions run 38493482329, attempt #8](https://github.com/sagesaint84/wealth/actions/runs/38493482329/attempts/8)은 **Success**이며 native amd64/arm64 두 job에서 Docker 빌드, network-disabled Chromium smoke, Poppler/Tesseract kor/eng/osd, 합성 한국어 PNG/PDF OCR 및 production document worker smoke가 성공했습니다. 실제 개인 국민연금 문서는 사용하지 않았으며 CI 성공은 운영 배포·인식률 검증 완료를 뜻하지 않습니다.
+v2.0.3 AccountInfo 반응형 카드 UI는 `codex/v202-accountinfo-pdf-responsive-preview`의 구현 커밋 `ebd66452e185ddbf3e0d2a7cc6d6a290790c6dc7`에서 개발 완료됐고, 기존 로컬 집중 검증은 **82 PASS**입니다. 이번 버전·문서 동기화는 해당 커밋의 후속 변경이며 기존 **82개 재검증 PASS + 추가 버전·캐시 회귀 47 PASS**를 확인했습니다. 새 UI는 **미병합·운영 미배포**이며 전체 CI·배포 검증은 미완료입니다. 마스킹된 카드와 은행 신규 잔액 편집을 제공하고, 증권 PDF 잔액을 예수금에 반영하지 않으며 parser·중복·Owner·금융 저장 정책을 유지합니다. 작업 시작 시 [필수 버전·문서 동기화 원칙 및 검증 상세](docs/PROJECT_STATE.md)를 먼저 확인합니다.
+
+과거 v2.0.2 검증 기록: 사용자 확인 Windows 전체 pytest **3,699 passed / 5 skipped / 0 failed / 5 warnings**, **798 subtests passed**, Python·JavaScript 문법 검사 **PASS**. [GitHub Actions run 38493482329, attempt #8](https://github.com/sagesaint84/wealth/actions/runs/38493482329/attempts/8)은 **Success**이며 native amd64/arm64 두 job에서 Docker 빌드, network-disabled Chromium smoke, Poppler/Tesseract kor/eng/osd, 합성 한국어 PNG/PDF OCR 및 production document worker smoke가 성공했습니다. 실제 개인 국민연금 문서는 사용하지 않았으며 CI 성공은 운영 배포·인식률 검증 완료를 뜻하지 않습니다.
 
 v2.0.1의 기존 PR 검증 기록은 전체 pytest **3,596 passed / 5 skipped / 0 failed**, **798 subtests passed**, Chrome UI **30 passed**, AMD64/ARM64 PR CI 성공입니다. v2.0.2 결과와 구분합니다.
 
@@ -96,7 +98,7 @@ Write-Host "PYTEST_EXIT=$testExit"
 
 관련 기능을 바꿀 때는 해당 테스트를 먼저 실행하고, Python 변경은 `py_compile`, JavaScript 변경은 `node --check`, 최종 변경은 `git diff --check`로 확인합니다.
 
-v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 현재 개발 소스의 앱 버전·service-worker cache는 `2.0.2`이며 static asset의 `?v=`는 파일별 cache revision입니다. layout CSS는 `2.0.2-r5`이고 바꾸지 않은 파일의 과거 revision은 의도적으로 유지합니다. 운영 버전은 사용자 보고 기준 `2.0.1`입니다.
+v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 현재 개발 소스의 앱 버전·service-worker cache는 `2.0.3`이며 static asset의 `?v=`는 파일별 cache revision입니다. AccountInfo importer·money-input loader·dialog CSS는 `2.0.3-ai1`이고, 미변경 core JS와 연결된 `application-assets-revision`은 `2.0.2-r7`, layout CSS는 `2.0.2-r5`를 유지합니다. Oracle 운영은 사용자 확인 기준 v2.0.2 / `113c663`이며 새 UI 배포와 구분합니다.
 
 ## 프로젝트 문서
 

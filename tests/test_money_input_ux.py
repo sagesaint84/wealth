@@ -40,9 +40,10 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         # Parse actual tags so comments cannot satisfy order.
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
-        self.assertTrue(revision.startswith(version + '-'))
+        # Core asset revision is independent of the app release version.
+        self.assertEqual(revision, '2.0.2-r7')
         core = f'/static/wealth.js?v={revision}'
-        money = '/static/wealth-money-input.js?v=2.0.2-ai1'
+        money = '/static/wealth-money-input.js?v=2.0.3-ai1'
         self.assertIn(core, html)
         self.assertIn(money, html)
         self.assertLess(html.index(core), html.index(money))

@@ -3,13 +3,17 @@
 > 현재 작업 상태는 `docs/PROJECT_STATE.md`를 먼저 읽습니다.
 > 이 문서는 앞으로 진행할 기능의 우선순위와 완료 기준을 기록합니다.
 
-마지막 갱신: 2026-10-14 (v2.0.2 PR #144 기준)
+마지막 갱신: 2026-10-17 (운영 v2.0.2 / v2.0.3 AccountInfo UI 개발 상태)
 
 ## 1. 완료된 제품 영역
 
 v2.0.2 국민연금 PDF·사진 가져오기, 세금 탭 복원 및 모바일 부동산 UI 구현과 합성 검증은 완료됐다. Windows 전체 pytest 3,699 passed / 5 skipped / 0 failed / 5 warnings, 798 subtests passed 및 Python·JS 문법 PASS를 사용자에게 확인받았다. Actions run 38493482329 attempt #8의 native amd64/arm64 Docker·Chromium·OCR·document worker smoke도 성공했다.
 
-PR #144는 2026-10-14 기준 Draft/main 반영 전이며 Oracle ARM64 v2.0.2 실운영 검증·배포는 미완료다. 사용자 보고 기준 운영 v2.0.1 유지. 실제 문서 양식별 정확성 및 운영 자원·이미지 크기 측정은 완료 항목에 포함하지 않는다. 다음 기능은 미정이며 신규 기능 계획을 추가하지 않는다. 최신 상태는 `PROJECT_STATE.md`, 아래 phase 기록은 당시 완료 내역이다.
+당시 PR #144의 Draft·운영 미배포 상태는 과거 기록이며, 현재는 사용자 확인 기준 PR #147 CI·Squash Merge·Oracle 배포 및 서비스 안정성 검사까지 완료됐다. Oracle 운영은 v2.0.2 / main `113c663023586dd8a217d15ac9ca9bd3cfd47648`이다. 실제 문서 양식별 정확성 및 운영 자원·이미지 크기 측정은 완료 항목에 포함하지 않는다. 최신 상태와 필수 버전·MD 동기화 원칙은 `PROJECT_STATE.md`, 아래 phase 기록은 당시 완료 내역을 따른다.
+
+### v2.0.3 — AccountInfo 반응형 미리보기
+
+상태: **개발 완료·미병합·운영 미배포**. `codex/v202-accountinfo-pdf-responsive-preview`, 구현 커밋 `ebd66452e185ddbf3e0d2a7cc6d6a290790c6dc7`. 기존 로컬 집중 82 PASS이며 전체 CI·배포 검증은 미완료다. 36개 합성 계좌의 반응형 카드·단일 스크롤·잔액 전체 표시를 검증했다. parser·중복·Owner·마스킹·금융 저장·증권 예수금 정책은 유지한다. 이후 진행 후보는 새로 추가하지 않는다.
 
 ### Phase 10.5C — 배당 자산관리 의사결정
 

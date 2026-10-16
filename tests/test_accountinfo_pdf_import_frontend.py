@@ -16,7 +16,7 @@ class AccountInfoPdfImportFrontendTests(unittest.TestCase):
         cls.money_js = MONEY_JS.read_text(encoding="utf-8")
 
     def test_loader_and_pdf_accept_are_wired_without_replacing_csv_import(self) -> None:
-        self.assertIn("/static/wealth-accountinfo-import.js?v=2.0.2-ai1", self.money_js)
+        self.assertIn("/static/wealth-accountinfo-import.js?v=2.0.3-ai1", self.money_js)
         self.assertIn(".csv,.xlsx,.xlsm,.pdf,application/pdf", self.js)
         self.assertIn("if (!isPdfFile(file)) return;", self.js)
         self.assertIn("event.stopImmediatePropagation()", self.js)
