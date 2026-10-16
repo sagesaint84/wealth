@@ -10,6 +10,7 @@ import math
 import os
 import uuid
 from copy import deepcopy
+from decimal import Decimal
 from datetime import datetime, date
 from pathlib import Path
 from typing import Any
@@ -1314,3 +1315,192 @@ def import_ledger_from_file_bytes(
             write_ledger(ledger_data, username=username)
 
     return imported_count
+
+# User-confirmed document drafts. The decoder remains a read-only dependency;
+# these operations deliberately never call account/card/interest mutations.
+class DocumentImportConflict(ValueError):
+    pass
+
+
+def _document_user_path(username: str, filename: str = 'ledger.json') -> Path:
+    from app.services import user_manager
+    if (not isinstance(username, str) or not username or username in {'.', '..'}
+            or username != username.strip() or any(char in username for char in '/\\\x00<>:"|?*')
+            or username.endswith('.')):
+        raise ValueError('사용자를 확인해 주세요.')
+    root = Path(user_manager.USERS_DIR)
+    parent = root / username
+    path = parent / filename
+    if root.is_symlink() or parent.is_symlink() or path.is_symlink():
+        raise FinancialStorageError('DOCUMENT_STORAGE_UNAVAILABLE')
+    return path
+
+
+def _document_state(username: str) -> tuple[dict, list[str], str]:
+    import hashlib
+    # No get_user_data_dir / ensure / lock here: review must not create paths.
+    data = read_financial_json(_document_user_path(username), default=deepcopy(default_ledger_data()))
+    if (not isinstance(data.get('transactions'), list)
+            or not all(isinstance(row, dict) for row in data['transactions'])):
+        raise FinancialStorageError('DOCUMENT_STORAGE_UNAVAILABLE')
+    for transaction in data['transactions']:
+        if 'amount' in transaction:
+            value = transaction['amount']
+            try:
+                if isinstance(value, bool) or not isinstance(value, (str, int, float)) or value == '':
+                    raise ValueError()
+                canonical_number(value)
+            except ValueError:
+                raise FinancialStorageError('DOCUMENT_STORAGE_UNAVAILABLE') from None
+    portfolio = read_financial_json(_document_user_path(username, 'portfolio.json'), default={'settings': {}})
+    owners = portfolio.get('settings', {}).get('family_members', ['아빠', '엄마', '자녀'])
+    if not isinstance(owners, list) or not all(isinstance(owner, str) and owner for owner in owners):
+        raise FinancialStorageError('DOCUMENT_STORAGE_UNAVAILABLE')
+    owners = list(dict.fromkeys([*owners, '모두']))
+    categories = data.get('categories', DEFAULT_CATEGORIES)
+    if (not isinstance(categories, dict) or any(not isinstance(categories.get(kind), list)
+            or not categories[kind] or not all(isinstance(value, str) and value for value in categories[kind])
+            for kind in ('income', 'expense', 'transfer'))):
+        raise FinancialStorageError('DOCUMENT_STORAGE_UNAVAILABLE')
+    revision = hashlib.sha256(json.dumps([data, owners], ensure_ascii=False, sort_keys=True,
+        separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+    return data, owners, revision
+
+
+def document_import_options(username: str) -> dict:
+    data, owners, revision = _document_state(username)
+    return {'owners': owners, 'categories': data.get('categories', DEFAULT_CATEGORIES), 'revision': revision}
+
+
+def _validate_document_rows(rows, data: dict, owners: list[str]) -> list[dict]:
+    import re
+    from decimal import InvalidOperation
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 200:
+        raise ValueError('선택한 거래는 1~200개여야 합니다.')
+    allowed = {'date', 'amount', 'type', 'owner', 'category', 'merchant', 'transaction_time',
+               'memo', 'direction', 'source_kind', 'special_confirmed', 'duplicate_confirmed'}
+    result = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) - allowed:
+            raise ValueError('허용되지 않은 거래 항목입니다.')
+        day = row.get('date')
+        if not isinstance(day, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', day):
+            raise ValueError('연도를 포함한 거래일을 입력해 주세요.')
+        try:
+            date.fromisoformat(day)
+            raw = row.get('amount')
+            if isinstance(raw, bool) or not isinstance(raw, (str, int, float)):
+                raise ValueError()
+            amount = Decimal(str(raw))
+            if (not amount.is_finite() or amount <= 0 or amount > Decimal('9007199254740991')
+                    or Decimal(str(float(amount))) != amount):
+                raise ValueError()
+        except (ValueError, InvalidOperation, OverflowError):
+            raise ValueError('금액은 유한한 양수로 입력해 주세요.') from None
+        kind, owner, category = row.get('type'), row.get('owner'), row.get('category')
+        if (not isinstance(kind, str) or kind not in {'income', 'expense', 'transfer'}
+                or not isinstance(owner, str) or not owner
+                or owner not in owners):
+            raise ValueError('거래 종류와 소유자를 직접 선택해 주세요.')
+        if (not isinstance(category, str) or not category
+                or category not in data.get('categories', DEFAULT_CATEGORIES)[kind]):
+            raise ValueError('거래 종류에 맞는 분류를 선택해 주세요.')
+        direction = row.get('direction')
+        if not isinstance(direction, str) or direction not in {'inflow', 'outflow'} or (kind == 'income' and direction != 'inflow') or (kind == 'expense' and direction != 'outflow'):
+            raise ValueError('입출금과 거래 종류를 확인해 주세요.')
+        source_kind = row.get('source_kind', 'unknown')
+        if not isinstance(source_kind, str) or source_kind not in {'unknown', 'normal', 'bank_transfer', 'card_approval_candidate', 'card_cancellation', 'refund', 'card_bill'}:
+            raise ValueError('거래 성격을 확인해 주세요.')
+        if source_kind == 'bank_transfer' and kind != 'transfer':
+            raise ValueError('이체는 이체 종류로 확인해 주세요.')
+        for flag in ('special_confirmed', 'duplicate_confirmed'):
+            if flag in row and type(row[flag]) is not bool:
+                raise ValueError('확인 여부를 확인해 주세요.')
+        if source_kind in {'card_cancellation', 'refund'} and row.get('special_confirmed') is not True:
+            raise ValueError('취소·환불의 반영 방법을 먼저 확인해 주세요.')
+        normalized = {'date': day, 'amount': canonical_number(amount), 'type': kind, 'owner': owner,
+            'category': category, 'direction': direction, 'source_kind': source_kind,
+            'special_confirmed': row.get('special_confirmed', False),
+            'duplicate_confirmed': row.get('duplicate_confirmed', False)}
+        for field, limit in (('merchant', 200), ('transaction_time', 5), ('memo', 1000)):
+            value = row.get(field, '')
+            if not isinstance(value, str) or len(value) > limit or any(ord(c) < 32 for c in value):
+                raise ValueError('선택 입력 항목을 확인해 주세요.')
+            normalized[field] = value.strip()
+        clock = normalized['transaction_time']
+        if clock and not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', clock):
+            raise ValueError('시간은 HH:MM으로 입력해 주세요.')
+        result.append(normalized)
+    return result
+
+
+def _document_duplicate_flags(rows: list[dict], existing: list[dict]) -> list[bool]:
+    # Optional OCR labels/time may have been corrected, so they cannot disprove
+    # a matching economic core. Warn, never delete legitimate identical purchases.
+    def core(row):
+        try:
+            return tuple(canonical_text(row.get(key)) for key in ('date', 'type', 'owner')) + (canonical_number(row.get('amount')),)
+        except ValueError:
+            return None
+    flags = []
+    prior = list(existing)
+    for row in rows:
+        same = [old for old in prior if core(old) == core(row)]
+        flags.append(bool(same))
+        prior.append(row)
+    return flags
+
+
+def _document_digest(rows: list[dict]) -> str:
+    return build_file_import_fingerprint('ledger-document-request', {'rows': rows})
+
+
+def review_document_transactions(rows, username: str) -> dict:
+    data, owners, revision = _document_state(username)
+    normalized = _validate_document_rows(rows, data, owners)
+    duplicates = _document_duplicate_flags(normalized, data['transactions'])
+    digest = _document_digest(normalized)
+    token = build_file_import_fingerprint('ledger-document-review',
+        {'username': username, 'revision': revision, 'digest': digest, 'duplicates': duplicates})
+    return {'revision': revision, 'review_token': token, 'duplicates': duplicates, 'count': len(normalized),
+            'total': canonical_number(sum((Decimal(row['amount']) for row in normalized), Decimal(0)))}
+
+
+def commit_document_transactions(payload: dict, username: str) -> dict:
+    _document_user_path(username)  # Validate before lock helpers can create a directory.
+    return _commit_document_transactions(payload, username)
+
+
+@financial_rmw('ledger.json', 'portfolio.json')
+def _commit_document_transactions(payload: dict, username: str) -> dict:
+    required = {'rows', 'revision', 'review_token', 'confirmed'}
+    # Older cached clients may still send a request_id; it grants no retry or
+    # write permission. A stale revision always requires another human review.
+    if not isinstance(payload, dict) or not required <= set(payload) or set(payload) - required - {'request_id'}:
+        raise ValueError('저장 요청을 확인해 주세요.')
+    if payload['confirmed'] is not True:
+        raise ValueError('최종 확인 후 저장해 주세요.')
+    data, owners, revision = _document_state(username)
+    rows = _validate_document_rows(payload['rows'], data, owners)
+    review = review_document_transactions(rows, username)
+    if payload['revision'] != revision or payload['review_token'] != review['review_token']:
+        raise DocumentImportConflict('가계부 또는 검토 내용이 변경됐습니다. 중복 검토를 다시 해 주세요.')
+    if any(flag and not row['duplicate_confirmed'] for flag, row in zip(review['duplicates'], rows)):
+        raise DocumentImportConflict('중복 후보를 확인한 뒤 별도 거래인 행만 다시 검토해 주세요.')
+    transactions = []
+    for row in rows:
+        tx = {'id': str(uuid.uuid4()), 'date': row['date'], 'amount': float(row['amount']),
+            'type': row['type'], 'owner': row['owner'], 'category': row['category'],
+            'merchant': row['merchant'], 'memo': row['memo'], 'transaction_time': row['transaction_time'],
+            'pay_method': '', 'account_id': '', 'account_name': '', 'card_id': '', 'card_name': '',
+            'is_card_payment': False, 'is_settled': True, 'is_recurring': False,
+            'source': 'document_review', 'document_direction': row['direction'],
+            'document_kind': row['source_kind'], 'created_at': datetime.now().isoformat(),
+            'applied_delta': 0.0, 'balance_delta_version': BALANCE_DELTA_VERSION}
+        tx[FILE_IMPORT_FINGERPRINT_FIELD] = build_file_import_fingerprint('ledger-document-row', row)
+        transactions.append(tx)
+    data['transactions'].extend(transactions)
+    # Existing legacy metadata is left intact; new imports create no receipts.
+    # A single atomic replacement stores all explicitly confirmed rows.
+    write_ledger(data, username=username)
+    return {'count': len(transactions), 'transaction_ids': [tx['id'] for tx in transactions]}

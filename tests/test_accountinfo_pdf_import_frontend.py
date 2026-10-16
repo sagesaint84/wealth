@@ -16,7 +16,7 @@ class AccountInfoPdfImportFrontendTests(unittest.TestCase):
         cls.money_js = MONEY_JS.read_text(encoding="utf-8")
 
     def test_loader_and_pdf_accept_are_wired_without_replacing_csv_import(self) -> None:
-        self.assertIn("/static/wealth-accountinfo-import.js?v=10.6a", self.money_js)
+        self.assertIn("/static/wealth-accountinfo-import.js?v=2.0.2-review2", self.money_js)
         self.assertIn(".csv,.xlsx,.xlsm,.pdf,application/pdf", self.js)
         self.assertIn("if (!isPdfFile(file)) return;", self.js)
         self.assertIn("event.stopImmediatePropagation()", self.js)
@@ -47,8 +47,12 @@ class AccountInfoPdfImportFrontendTests(unittest.TestCase):
 
     def test_bank_balance_is_imported_only_to_bank_account_endpoint(self) -> None:
         self.assertIn("jsonFetch('/api/bank-accounts'", self.js)
-        self.assertIn("balance: Number(row.reported_balance_krw || 0)", self.js)
-        self.assertIn("청약·적금·외화 상품은 확인 필요", self.js)
+        self.assertIn("balance: Number(row.import_balance_krw)", self.js)
+        self.assertIn("balanceInput.addEventListener('input'", self.js)
+        self.assertIn("0원(미확인)", self.js)
+        self.assertIn("기존 계좌 잔액은 변경하지 않습니다", self.js)
+        self.assertIn("Number.isFinite(Number(value))", self.js)
+        self.assertIn("청약·적금·외화 상품", self.js)
         self.assertIn("REVIEW_BANK_PRODUCT", self.js)
 
     def test_duplicate_detection_uses_institution_and_normalized_account_number(self) -> None:

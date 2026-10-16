@@ -5,9 +5,6 @@
 .ledger-ocr-controls label { font-size: 11px; min-width: 0; }
 #ledgerOcrFile, #ledgerOcrType { display: block; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; margin-top: 5px; }
 .ledger-ocr-row { border-top: 1px solid var(--border); padding: 12px 0; min-width: 0; }
-.ledger-ocr-row h4 { font-size: 14px; margin: 0 0 8px; overflow-wrap: anywhere; }
-.ledger-ocr-row dl { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.4fr); gap: 6px 10px; font-size: 12px; margin: 0; }
-.ledger-ocr-row dt, .ledger-ocr-row dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 /* Keep the existing ledger import entry reachable at small phone widths. */
 @media (max-width: 360px) {
   #ledgerSectionPanel .ledger-head-left { min-width: 0; }
@@ -15,3 +12,13 @@
   #ledgerSectionPanel .ledger-month-control { flex-wrap: wrap; }
   #ledgerSectionPanel #ledgerFamilyTabs { flex-wrap: wrap; }
 }
+
+.ledger-ocr-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:10px 0; }
+.ledger-ocr-fields label { min-width:0; font-size:12px; overflow-wrap:anywhere; }
+.ledger-ocr-fields input, .ledger-ocr-fields select { display:block; width:100%; min-width:0; max-width:100%; box-sizing:border-box; padding:9px 6px; margin-top:5px; }
+#ledgerOcrPanel button { max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+#ledgerOcrPanel label { overflow-wrap:anywhere; }
+#ledgerOcrPanel input[type="checkbox"] { margin-right:6px; }
+#ledgerOcrConfirmation { margin:12px 0; padding:10px; border:1px solid var(--border); border-radius:8px; }
+#ledgerOcrPanel :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+@media (max-width:430px) { .ledger-ocr-fields { grid-template-columns:minmax(0,1fr); } }

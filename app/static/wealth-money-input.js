@@ -316,7 +316,7 @@
   const load = () => {
     if (document.querySelector('script[data-accountinfo-import]')) return;
     const script = document.createElement('script');
-    script.src = '/static/wealth-accountinfo-import.js?v=10.6a';
+    script.src = '/static/wealth-accountinfo-import.js?v=2.0.2-review2';
     script.defer = true;
     script.dataset.accountinfoImport = 'true';
     document.head.appendChild(script);

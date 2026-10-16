@@ -16,7 +16,7 @@
     <script src="/static/wealth-invest-tab-state.js?v=10.9k1"></script>
     <script src="/static/wealth-asset-category-state.js?v=2.0.2"></script>
     <link rel="manifest" href="/manifest.json" />
-    <link rel="stylesheet" href="/static/wealth-ledger-ocr.css?v=2.0.2-o1" />
+    <link rel="stylesheet" href="/static/wealth-ledger-ocr.css?v=2.0.2-review1" />
     <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
     <link rel="stylesheet" href="/static/wealth.css?v=1.3.0" />
@@ -2939,17 +2939,28 @@
         <div id="ledgerSelectedFileName" style="margin-top:10px;font-size:12px;color:#38bdf8;font-weight:600;display:none;"></div>
       </div>
 
-      <!-- 읽기 전용 문서 OCR 미리보기: 기존 저장 흐름과 분리 -->
+      <!-- 문서 분석은 읽기 전용; 확인한 선택 행만 별도 저장 -->
       <details id="ledgerOcrPanel">
-        <summary>이미지/PDF 가져오기 · 읽기 전용</summary>
-        <p>현재는 읽기 전용 미리보기입니다. 거래·계좌·카드 잔액을 저장하거나 변경하지 않습니다. 인식 결과는 원문과 확인해 주세요.</p>
+        <summary>이미지/PDF 가져오기 · 수정 후 확인</summary>
+        <p>OCR 분석은 읽기 전용입니다. 읽지 못한 값은 직접 입력하고 선택한 거래만 최종 확인 후 추가하세요. 계좌·카드·배당 잔액과 원거래는 변경하지 않습니다.</p>
         <div class="ledger-ocr-controls">
           <label>자료 종류<select id="ledgerOcrType"><option value="auto">자동 확인</option><option value="bank_transactions">은행 입출금</option><option value="card_transactions">카드 이용내역</option></select></label>
           <label>PNG/JPG/PDF · 최대 10MiB<input id="ledgerOcrFile" type="file" accept="image/png,image/jpeg,application/pdf,.png,.jpg,.jpeg,.pdf" /></label>
           <button id="ledgerOcrAnalyze" type="button" class="button secondary compact">OCR 미리보기</button>
         </div>
         <p id="ledgerOcrStatus" role="status" aria-live="polite"></p>
+        <div class="ledger-ocr-controls">
+          <button id="ledgerOcrAdd" type="button" class="button secondary compact">수동 행 추가</button>
+          <button id="ledgerOcrOptions" type="button" class="button secondary compact">소유자·분류 다시 불러오기</button>
+          <button id="ledgerOcrCheck" type="button" class="button secondary compact">선택 행 중복 검토</button>
+        </div>
+        <p id="ledgerOcrSummary" role="status" aria-live="polite"></p>
         <div id="ledgerOcrReview" aria-label="거래 후보 검토"></div>
+        <div id="ledgerOcrConfirmation" hidden>
+          <p id="ledgerOcrTotal"></p>
+          <label><input id="ledgerOcrConfirmed" type="checkbox" />선택한 거래·금액·중복 여부를 확인했으며 가계부 기록으로 추가합니다.</label>
+        </div>
+        <button id="ledgerOcrSave" type="button" class="button primary compact" disabled>확인한 거래 추가</button>
       </details>
 
       <!-- 2. 간편 텍스트 붙여넣기 (접기/펼치기) -->
@@ -3330,13 +3341,13 @@
     <script src="/static/wealth-layout.js?v=2.0.2"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
     <script src="/static/wealth.js?v=2.0.2-r7"></script>
-    <script src="/static/wealth-ledger-ocr.js?v=2.0.2-o1.1"></script>
+    <script src="/static/wealth-ledger-ocr.js?v=2.0.2-review2"></script>
     <script src="/static/wealth-national-pension.js?v=2.0.2"></script>
     <script src="/static/wealth-pension-import.js?v=2.0.2"></script>
     <script src="/static/wealth-savings-contributions.js?v=1.3.0"></script>
     <script src="/static/wealth-transaction-defaults.js?v=2.0.1"></script>
     <script src="/static/wealth-dividend-source.js?v=1.3.0"></script>
-    <script src="/static/wealth-money-input.js?v=1.3.0"></script>
+    <script src="/static/wealth-money-input.js?v=2.0.2-review2"></script>
     <script src="/static/wealth-financial-income-what-if.js?v=2.0.2-r6"></script>
     <script src="/static/wealth-family-financial-income-risk.js?v=2.0.2-r7"></script>
     <script src="/static/wealth-family-financial-income-allocation.js?v=10.7g1"></script>

@@ -7016,6 +7016,60 @@ async def preview_ledger_document(request: Request, document_type: str = Query('
         raise HTTPException(400, str(exc), headers=headers) from None
 
 
+def _ledger_document_owner(request: Request) -> str:
+    username = get_current_username(request)
+    origin = request.headers.get('origin') or request.headers.get('referer')
+    parts = urlsplit(origin or '')
+    if (parts.scheme, parts.netloc) != (request.url.scheme, request.url.netloc):
+        raise HTTPException(403, '동일 사이트에서 검토해 주세요.', headers={'Cache-Control': 'no-store'})
+    return username
+
+
+@app.get('/api/ledger/document-import/options')
+async def ledger_document_options(request: Request) -> JSONResponse:
+    from app.services.ledger import document_import_options
+    from app.services.financial_json import FinancialStorageError
+    from starlette.concurrency import run_in_threadpool
+    username = _ledger_document_owner(request)
+    try:
+        result = await run_in_threadpool(document_import_options, username)
+        return JSONResponse(result, headers={'Cache-Control': 'no-store'})
+    except (FinancialStorageError, OSError):
+        raise HTTPException(503, '가계부를 안전하게 읽지 못했습니다. 저장하지 않았습니다.', headers={'Cache-Control': 'no-store'}) from None
+
+
+@app.post('/api/ledger/document-import/review')
+@app.post('/api/ledger/document-import/commit')
+async def ledger_document_review_or_commit(request: Request) -> JSONResponse:
+    from app.services.ledger import review_document_transactions, commit_document_transactions, DocumentImportConflict
+    from app.services.financial_json import FinancialStorageError
+    from starlette.concurrency import run_in_threadpool
+    username = _ledger_document_owner(request)
+    chunks = []; size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > 200000:
+            raise HTTPException(413, '검토할 거래가 너무 많습니다.', headers={'Cache-Control': 'no-store'})
+        chunks.append(chunk)
+    try:
+        body = json.loads(b''.join(chunks))
+        if not isinstance(body, dict):
+            raise ValueError()
+        if request.url.path.endswith('/commit'):
+            result = await run_in_threadpool(commit_document_transactions, body, username)
+        else:
+            if set(body) != {'rows'}:
+                raise ValueError()
+            result = await run_in_threadpool(review_document_transactions, body['rows'], username)
+        return JSONResponse(result, headers={'Cache-Control': 'no-store'})
+    except DocumentImportConflict as exc:
+        raise HTTPException(409, str(exc), headers={'Cache-Control': 'no-store'}) from None
+    except (FinancialStorageError, OSError):
+        raise HTTPException(503, '가계부 저장소를 확인하지 못했습니다. 결과를 확인한 뒤 재시도해 주세요.', headers={'Cache-Control': 'no-store'}) from None
+    except (ValueError, TypeError, UnicodeError):
+        raise HTTPException(400, '날짜·금액·종류·소유자·분류와 확인 항목을 검토해 주세요.', headers={'Cache-Control': 'no-store'}) from None
+
+
 @app.post("/api/ledger/import-file")
 async def upload_ledger_file(
     request: Request,

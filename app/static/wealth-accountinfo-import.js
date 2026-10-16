@@ -140,8 +140,11 @@
     const status = tokens.find((token) => token === '활동성' || token === '비활동성') || '';
     const joined = tokens.join(' ');
     const balanceMatches = [...joined.matchAll(/([0-9][0-9,]*)\s*원/g)];
-    const lastBalance = balanceMatches.length ? balanceMatches[balanceMatches.length - 1][1] : '0';
-    const balanceKrw = Number(lastBalance.replace(/,/g, '')) || 0;
+    const lastBalance = balanceMatches.length ? balanceMatches[balanceMatches.length - 1][1] : '';
+    const numericBalance = /^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(lastBalance)
+      ? Number(lastBalance.replace(/,/g, '')) : NaN;
+    const balanceKrw = Number.isFinite(numericBalance) && numericBalance >= 0 && numericBalance <= Number.MAX_SAFE_INTEGER
+      ? numericBalance : null;
 
     return {
       source_row: Number(raw.source_row || 0),
@@ -203,7 +206,7 @@
       const accountNo = digits(row.account_no);
       const duplicate = pool.find((item) => item.account_no && item.account_no === accountNo && item.institution === institution);
       const ownerConflict = Boolean(duplicate && duplicate.owner && duplicate.owner !== owner);
-      const review = needsReview(kind, row);
+      const review = needsReview(kind, row) || row.reported_balance_krw == null;
       const duplicateSameOwner = Boolean(duplicate && !ownerConflict);
       const inactive = row.status === '비활동성';
       let importStatus = 'new';
@@ -216,6 +219,7 @@
         preview_index: index,
         kind,
         suggested_type: kind === 'brokerage' ? suggestedBrokerType(row.product) : 'bank_account',
+        import_balance_krw: String(row.reported_balance_krw ?? 0),
         import_status: importStatus,
         default_selected: importStatus === 'new',
       };
@@ -387,7 +391,7 @@
     note.style.cssText = 'margin-bottom:8px;padding:7px 9px;border-radius:8px;background:rgba(30,41,59,.48);font-size:10.8px;color:#cbd5e1;line-height:1.5;';
     note.textContent = kind === 'brokerage'
       ? 'AccountInfo의 증권계좌 잔액은 예수금으로 간주하지 않습니다. 가져온 증권계좌의 KRW/USD 예수금은 0원으로 시작하며 PDF 잔액은 저장하지 않습니다.'
-      : '은행 PDF의 잔액은 일반 은행계좌 잔액으로 저장합니다. 청약·적금·외화 상품은 확인 필요로 기본 선택하지 않으므로 상품 성격을 확인한 뒤 선택하세요.';
+      : '신규 은행계좌의 잔액을 직접 수정할 수 있습니다. 0원(미확인) 행은 기본 선택하지 않습니다. 해당 행을 선택하면 신규 잔액 0원으로 등록하는 데 동의하는 것입니다. 기존 계좌 잔액은 변경하지 않습니다. 청약·적금·외화 상품도 성격을 먼저 확인하세요.';
     host.appendChild(note);
 
     const table = document.createElement('table');
@@ -417,7 +421,18 @@
       values.forEach((value) => {
         const td = document.createElement('td'); td.style.padding = '7px 6px'; td.textContent = value; tr.appendChild(td);
       });
-      const bal = document.createElement('td'); bal.style.cssText = 'padding:7px 6px;text-align:right;white-space:nowrap;'; bal.textContent = money(row.reported_balance_krw); tr.appendChild(bal);
+      const bal = document.createElement('td'); bal.style.cssText = 'padding:7px 6px;text-align:right;';
+      const balanceInput = document.createElement('input');
+      balanceInput.type = 'text';balanceInput.inputMode = 'decimal';balanceInput.value = row.import_balance_krw;
+      balanceInput.style.cssText = 'width:130px;max-width:100%;box-sizing:border-box;';
+      balanceInput.setAttribute('aria-label', `계좌 ${row.preview_index + 1} ${kind === 'brokerage' ? 'PDF 참고 잔액' : '신규 은행계좌 잔액'}`);
+      balanceInput.disabled = disabled;
+      balanceInput.addEventListener('input', () => {row.import_balance_krw = balanceInput.value;});
+      bal.appendChild(balanceInput);
+      const balanceNote = document.createElement('div');
+      balanceNote.textContent = row.reported_balance_krw == null ? '0원(미확인) · 직접 수정 가능' : `PDF ${money(row.reported_balance_krw)}`;
+      if(kind === 'brokerage')balanceNote.textContent += ' · 참고용, 예수금 반영 안 함';
+      bal.appendChild(balanceNote);tr.appendChild(bal);
       const st = document.createElement('td'); st.style.cssText = `padding:7px 6px;color:${color};font-weight:700;white-space:nowrap;`; st.textContent = label; tr.appendChild(st);
       body.appendChild(tr);
     });
@@ -468,7 +483,7 @@
           account_name: row.product || row.branch || 'AccountInfo 계좌',
           account_number: row.account_no,
           owner,
-          balance: Number(row.reported_balance_krw || 0),
+          balance: Number(row.import_balance_krw),
           limit_amount: 0,
           interest_rate: 0,
           maturity_date: '',
@@ -485,12 +500,23 @@
     if (!previewState) return;
     const rows = selectedRows();
     if (!rows.length) throw new Error('추가할 계좌를 하나 이상 선택해 주세요.');
+    if(documentKind(rows) !== 'brokerage') {
+      for(const row of rows) {
+        const value = text(row.import_balance_krw).replace(/,/g, '');
+        if(!/^\d+(?:\.\d+)?$/.test(value) || !Number.isFinite(Number(value)) || Number(value) > Number.MAX_SAFE_INTEGER)
+          throw new Error('선택한 신규 은행계좌의 잔액을 0 이상의 숫자로 입력해 주세요.');
+        row.import_balance_krw = value;
+      }
+    }
 
     const freshExisting = await loadExistingAccounts();
     const refreshed = decorateRows(previewState.parsed, previewState.owner, freshExisting);
-    const selectedSourceRows = new Set(rows.map((row) => row.source_row));
-    const safeRows = refreshed.filter((row) => selectedSourceRows.has(row.source_row) && !['duplicate','owner_conflict'].includes(row.import_status));
+    const selectedByIndex = new Map(rows.map((row) => [row.preview_index, row]));
+    const safeRows = refreshed.filter((row) => selectedByIndex.has(row.preview_index) && !['duplicate','owner_conflict'].includes(row.import_status))
+      .map((row) => ({...row, import_balance_krw: selectedByIndex.get(row.preview_index).import_balance_krw}));
     if (!safeRows.length) throw new Error('선택한 계좌가 모두 이미 등록되었거나 소유자 충돌 상태입니다.');
+    if(!window.confirm(`신규 계좌 ${safeRows.length}개를 추가할까요? ${documentKind(safeRows) === 'brokerage' ? 'PDF 잔액은 예수금에 반영하지 않습니다.' : '선택한 0원 잔액도 그대로 등록합니다.'} 기존 계좌 잔액은 변경하지 않습니다.`))
+      throw new Error('추가를 취소했습니다. 입력한 미리보기는 유지됩니다.');
 
     let result;
     if (documentKind(safeRows) === 'brokerage') {
