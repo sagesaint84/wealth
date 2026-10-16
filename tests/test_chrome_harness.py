@@ -2,6 +2,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
+import errno
 import subprocess
 
 import pytest
@@ -144,6 +145,67 @@ def test_cleanup_lock_deadline(monkeypatch):
     clock = Clock()
     with pytest.raises(RuntimeError, match='cleanup timeout.*synthetic-profile'):
         harness.cleanup_profile('synthetic-profile', timeout=0.3, clock=clock, sleep=clock.sleep)
+
+
+def test_cleanup_transient_nonempty(monkeypatch):
+    remove = Mock(side_effect=[OSError(errno.ENOTEMPTY, 'directory not empty'), None])
+    monkeypatch.setattr(harness.shutil, 'rmtree', remove)
+    clock = Clock()
+    harness.cleanup_profile('synthetic-profile', clock=clock, sleep=clock.sleep)
+    assert remove.call_count == 2 and clock.now == 0.2
+
+
+def test_cleanup_child_missing_retries_while_root_remains(monkeypatch, tmp_path):
+    profile = tmp_path / 'profile'
+    profile.mkdir()
+    original_remove = harness.shutil.rmtree
+    def remove_attempt(path):
+        if remove.call_count == 1:
+            raise FileNotFoundError(errno.ENOENT, 'child disappeared')
+        original_remove(path)
+    remove = Mock(side_effect=remove_attempt)
+    monkeypatch.setattr(harness.shutil, 'rmtree', remove)
+    clock = Clock()
+    # The real root exists during ENOENT; do not treat the first attempt as success.
+    harness.cleanup_profile(profile, clock=clock, sleep=clock.sleep)
+    assert remove.call_count == 2 and clock.now == 0.2 and not profile.exists()
+
+
+def test_cleanup_missing_root_is_confirmed_without_retry(monkeypatch, tmp_path):
+    profile = tmp_path / 'profile'
+    profile.mkdir()
+    def remove(path):
+        path.rmdir()
+        raise FileNotFoundError(errno.ENOENT, 'concurrent removal')
+    remover = Mock(side_effect=remove)
+    monkeypatch.setattr(harness.shutil, 'rmtree', remover)
+    clock = Clock()
+    harness.cleanup_profile(profile, clock=clock, sleep=clock.sleep)
+    assert not profile.exists() and clock.now == 0
+    remover.assert_called_once_with(profile)
+
+
+@pytest.mark.parametrize('error', [OSError(errno.ENOTEMPTY, 'directory not empty'),
+                                 FileNotFoundError(errno.ENOENT, 'child disappeared')])
+def test_cleanup_race_deadline_fails_with_root_remaining(monkeypatch, tmp_path, error):
+    remove = Mock(side_effect=error)
+    monkeypatch.setattr(harness.shutil, 'rmtree', remove)
+    clock = Clock()
+    with pytest.raises(RuntimeError, match='cleanup timeout') as failure:
+        harness.cleanup_profile(tmp_path, timeout=0.3, clock=clock, sleep=clock.sleep)
+    assert failure.value.__cause__ is error
+    assert tmp_path.is_dir() and clock.now == 0.3 and remove.call_count == 3
+
+
+def test_cleanup_unexpected_oserror_propagates(monkeypatch):
+    error = OSError(errno.EIO, 'unexpected I/O failure')
+    remove = Mock(side_effect=error)
+    monkeypatch.setattr(harness.shutil, 'rmtree', remove)
+    clock = Clock()
+    with pytest.raises(OSError) as failure:
+        harness.cleanup_profile('synthetic-profile', clock=clock, sleep=clock.sleep)
+    assert failure.value is error and clock.now == 0
+    remove.assert_called_once()
 
 
 def test_session_stops_before_cleanup(monkeypatch, tmp_path):

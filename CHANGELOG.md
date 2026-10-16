@@ -1,5 +1,11 @@
 # Wealth 변경 이력
 
+## Wealth v2.0.2 — PR #147 Chromium 프로필 teardown 경합 보정 — 2026-10-16
+
+- 사용자 제공 Actions `38910472439`는 AMD64 **456 passed / 3 errors**, ARM64 **456 passed / 15 errors**다. 기능 테스트 통과 후 Chromium 프로필 삭제에서 `ENOTEMPTY` 및 하위 파일 `ENOENT` 경합이 발생했다. 기존 `cleanup_profile()`은 `PermissionError`만 재시도했다.
+- 해당 함수에서 일시적 `ENOTEMPTY`·`ENOENT`도 기존 4초 제한과 재시도 간격으로 처리한다. `ENOENT`는 `lstat`으로 프로필 루트 소멸을 확인한 경우만 성공하며, 루트가 남으면 재시도하고 기한 초과 시 실패한다. 예상하지 못한 `OSError`와 Chrome 종료 실패·실행 중 프로필 보호 정책은 유지한다.
+- 결정적 단위 테스트를 추가하고 기존 cleanup 테스트는 보존했다. workflow·운영 설정·기능/UI 테스트·금융 저장·OCR·APP_VERSION 2.0.2는 변경하지 않았다. 이번 수정 후 테스트·CI는 미실행으로 수정 결과는 미검증이며, 커밋·푸시·병합·배포는 수행하지 않았다.
+
 ## Wealth v2.0.2 — PR #147 synthetic CI Chromium 실행 환경 보정 — 2026-10-16
 
 - 사용자 제공 Actions run `38908552179` 결과는 AMD64/ARM64 각각 **426 passed / 30 errors**이며, 30건은 모두 Chromium 시작 시 `No usable sandbox` 오류다. 이 실패 기록을 통과로 바꾸지 않는다.

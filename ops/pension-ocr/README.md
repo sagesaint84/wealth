@@ -1,5 +1,19 @@
 # Native offline pension and ledger OCR smoke
 
+## Chromium profile teardown races — 2026-10-16 (unverified)
+
+User-reported Actions `38910472439`: AMD64 **456 passed / 3 errors**, ARM64
+**456 passed / 15 errors**. Functional tests passed; profile teardown hit Linux
+`ENOTEMPTY` and disappearing-child `ENOENT` races. `cleanup_profile()` previously
+retried only `PermissionError`. It now retries those two races within the same
+4-second deadline and interval. ENOENT succeeds only when `lstat` confirms the
+profile root is gone; a remaining root is retried and deadline expiry fails.
+Unexpected OSErrors propagate. Chrome stop failures and running-profile protection
+are unchanged. Deterministic unit cases were added; existing cleanup tests remain.
+Workflow, production settings, feature/UI tests, finance/OCR logic and APP_VERSION
+2.0.2 are unchanged. Tests and CI were **NOT RUN** after this fix. No commit, push,
+merge or deployment was performed; the fix remains unverified.
+
 ## Synthetic CI Chromium launcher — 2026-10-16 (unverified)
 
 User-reported Actions run `38908552179` had **426 passed / 30 errors** on each

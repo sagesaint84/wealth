@@ -8,6 +8,18 @@
 
 ## 1. 현재 개발 상태
 
+### PR #147 Chromium teardown 경합 보정 — 2026-10-16 (미검증)
+
+기준 HEAD `e5369022f242d44c14b5cf441d7bc77ba85cb1ba`. 사용자 제공 Actions `38910472439`는
+AMD64 **456 passed / 3 errors**, ARM64 **456 passed / 15 errors**로, 기능 테스트는 통과했으나
+Chromium 프로필 삭제 중 `ENOTEMPTY`·하위 파일 `ENOENT` 경합으로 teardown이 실패했다.
+`cleanup_profile()`만 최소 수정하여 기존 `PermissionError`와 함께 두 경합을 기존 제한 시간 안에서
+재시도한다. `ENOENT`는 프로필 루트가 실제 소멸했는지 `lstat`으로 확인하고, 남아 있으면 재시도한다.
+기한 초과는 실패이며 예상하지 못한 `OSError`는 전파한다. Chrome 종료 및 실행 중 프로필 보호는 유지한다.
+결정적 단위 테스트를 추가하고 기존 cleanup 테스트는 보존했다. workflow·운영 설정·기능/UI 테스트·
+금융 저장·OCR·APP_VERSION 2.0.2는 변경하지 않았다. 이번 수정 후 테스트·CI는 미실행이며 성공 여부는
+미검증이다. 커밋·푸시·병합·배포는 수행하지 않았다. 아래 실패·검증 기록은 이전 단계 이력이다.
+
 ### PR #147 Chromium CI 시작 오류 보정 — 2026-10-16 (미검증)
 
 기준 브랜치 `codex/v202-ledger-ipo-ocr-import`, 커밋
