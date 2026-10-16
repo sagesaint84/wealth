@@ -8,6 +8,33 @@
 
 ## 1. 현재 개발 상태
 
+### PR #147 마지막 CI 정리 — 안전성 필수 / 정확도 별도 진단 — 2026-10-16
+
+APP_VERSION **2.0.2**, `wealth-ocr` / `codex/v202-ledger-ipo-ocr-import`, 기준 커밋
+`a1365a921726c840a74657b28d9d3fb0a26f077a`의 후속 개발 변경이다. 작성 당시 운영 미배포다.
+O2 사용자 확인형 가계부 가져오기는 유지하며, OCR 정확도 개선 없이 CI 판정만 분리한다.
+
+- **안전성 필수 gate**: production preview/worker 정상 실행, 엄격한 응답 형식, 루트·각 후보의
+  `review_required`, 공개 fixture에 없는 연도·소유자·계좌의 미확정, 금융 sentinel byte 불변,
+  추가 금융/사용자 경로 미생성, 임시 입력 및 작업 폴더 정리. worker 오류·잘못된 JSON·자원 제한이나
+  보안 정책 위반·정리 실패는 계속 CI 실패다. 기존 국민연금 worker·PNG/PDF 정확값 검사도 필수다.
+- **정확도 진단**: 기존 `validate_ledger_result()`를 변경하지 않고 실행하며 기존 `EXACT` 필드별
+  결과도 유지한다. 위 안전 gate를 통과한 편집 가능한 후보의 인식값·거래처·행 수 등의 불일치는
+  `ACCURACY MISMATCH`, 정확값 일치는 `ACCURACY MATCH`로 안전성 PASS와 구분한다.
+  문서 종류 `unknown`은 경고가 있고 후보가 비어 있는 검토 상태일 때만 수동 입력 대상으로 허용한다.
+  네 입력의 불일치 수를 요약하되 정확도 실패를 PASS로 표현하지 않는다. 기존 진단 실행의 오류도
+  무시하지 않으며, 새 OCR 알고리즘·재인식 방식·진단 시스템은 추가하지 않는다.
+- **기능 회귀 gate**: 기존 smoke·worker/자원 제한·확정 저장·Chrome 검토 흐름 테스트 네 모듈을
+  native PR workflow에 연결한다. 모듈 누락·skip·failure·error는 실패다. 사용자 확인 없는 저장 거부,
+  수동 행 추가·미확인 문서의 수동 입력, 실패 시 초안 유지·중복 확인·응답 유실 후 재검토를 유지한다.
+  기존 비루트·네트워크 차단·읽기 전용 컨테이너 정책도 유지한다.
+- **범위**: ops smoke·관련 테스트·기존 workflow·문서만 수정한다. 금융 저장·OCR 알고리즘·기대값·
+  AccountInfo·APP_VERSION·정적 revision은 변경하지 않는다. 폐기한 RapidOCR 개발은 재개하지 않는다.
+- **검증 상태**: 이번 CI 분리 변경 후 테스트·문법 검사·Native CI는 미실행이다. 아래 사용자 제공
+  110 PASS 및 이전 검증/실패 수치는 이 변경 이전 이력이며 이번 CI 성공을 뜻하지 않는다.
+  실제 양쪽 native runner 통과·배포 가능 여부는 실행 결과 확인이 필요하다. 커밋·푸시·병합·배포는
+  이번 작업에서 수행하지 않았다.
+
 ### PR #147 O2 사용자 확인형 OCR 저장 — 2026-10-16 (개발 변경 — 작성 당시 운영 미배포)
 
 APP_VERSION **2.0.2**. `wealth-ocr` / `codex/v202-ledger-ipo-ocr-import`, 기준 HEAD

@@ -50,6 +50,104 @@ def test_validator_accepts_only_exact_synthetic_contract(smoke,kind):
     smoke.validate_ledger_result(expected_result(kind),kind)
 
 
+@pytest.mark.parametrize('change', ['party', 'amount', 'wrong-amount', 'direction', 'balance', 'time',
+                                  'date', 'missing-date', 'missing-rows', 'unknown-type', 'card-kind', 'extra-row'])
+def test_manual_review_safety_allows_only_editable_accuracy_mismatches(smoke,change):
+    kind='card_transactions' if change=='card-kind' else 'bank_transactions'
+    result=expected_result(kind);row=result['rows'][0]
+    if change=='party':row['counterparty']=None
+    elif change=='amount':row['amount']=None
+    elif change=='wrong-amount':row['amount']='91234567'
+    elif change=='direction':row['direction']='unknown'
+    elif change=='balance':row['balance_after']=None
+    elif change=='time':row['transaction_time']=None
+    elif change=='date':row['transaction_date_parts']['day']=12
+    elif change=='missing-date':
+        row['transaction_date_parts']={'year':None,'month':None,'day':None}
+        row['review_reasons']=['date_missing']
+    elif change=='card-kind':row['transaction_type_candidate']='refund'
+    elif change=='extra-row':result['rows'].append({**copy.deepcopy(row),'row_id':'preview-3'})
+    else:
+        result['rows']=[];result['warnings']=['수동 입력 필요']
+        if change=='unknown-type':result['document_type']='unknown'
+    smoke.validate_ledger_review_safety(result)
+    with pytest.raises(smoke.SmokeCheckError):smoke.validate_ledger_result(result,kind)
+
+
+@pytest.mark.parametrize('change', ['bad-root', 'root-extra', 'bad-type', 'root-status', 'bad-rows', 'too-many',
+    'root-warnings', 'empty-unexplained', 'unknown-with-rows', 'row-shape', 'row-extra', 'row-status',
+    'owner', 'account', 'year', 'full-date', 'missing-year-key', 'missing-review', 'bad-reason',
+    'row-warnings', 'duplicate-id', 'amount-type', 'amount-nan', 'bad-time', 'bad-direction',
+    'bad-kind', 'payment-method', 'no-location', 'text-location', 'bad-bbox', 'bad-day'])
+def test_manual_review_safety_never_downgrades_schema_or_confirmation_failures(smoke,change,capsys):
+    result=expected_result('bank_transactions');row=result['rows'][0]
+    if change=='bad-root':result=None
+    elif change=='root-extra':result['saved']=True
+    elif change=='bad-type':result['document_type']='untrusted'
+    elif change=='root-status':result['status']='confirmed'
+    elif change=='bad-rows':result['rows']={}
+    elif change=='too-many':result['rows']*=101
+    elif change=='root-warnings':result['warnings']='private'
+    elif change=='empty-unexplained':result['rows']=[]
+    elif change=='unknown-with-rows':result['document_type']='unknown'
+    elif change=='row-shape':result['rows'][0]=None
+    elif change=='row-extra':row['saved']=True
+    elif change=='row-status':row['review_status']='confirmed'
+    elif change=='owner':row['owner']='private-owner'
+    elif change=='account':row['account_id']='private-account'
+    elif change=='year':row['transaction_date_parts']['year']=2026
+    elif change=='full-date':row['transaction_date']='2026-10-14'
+    elif change=='missing-year-key':del row['transaction_date_parts']['year']
+    elif change=='missing-review':row['review_reasons']=[]
+    elif change=='bad-reason':row['review_reasons'].append('private')
+    elif change=='row-warnings':row['warnings']={}
+    elif change=='duplicate-id':result['rows'][1]['row_id']=row['row_id']
+    elif change=='amount-type':row['amount']=12345
+    elif change=='amount-nan':row['amount']='NaN'
+    elif change=='bad-time':row['transaction_time']='25:99'
+    elif change=='bad-direction':row['direction']='confirmed'
+    elif change=='bad-kind':row['transaction_type_candidate']='confirmed'
+    elif change=='payment-method':row['payment_method_candidate']='private'
+    elif change=='no-location':row['source_location']=None
+    elif change=='text-location':row['source_location']['method']='text'
+    elif change=='bad-bbox':row['source_location']['bbox']=[0,0,0,1]
+    elif change=='bad-day':row['transaction_date_parts']['day']=32
+    with pytest.raises(smoke.SmokeSafetyError) as error:smoke.validate_ledger_review_safety(result)
+    assert 'private' not in str(error.value) and capsys.readouterr()==('', '')
+
+
+def test_safe_unknown_document_case_reports_mismatch_after_cleanup(smoke,tmp_path,monkeypatch,capsys):
+    from app.services import ledger_document_import as importer
+    (tmp_path/'card.jpg').write_bytes(b'synthetic')
+    locations=[]
+    def preview(*args):
+        locations.append(Path(tempfile.gettempdir()).parent)
+        return {'document_type':'unknown','status':'review_required','rows':[],
+                'warnings':['종류를 확인하거나 수동 입력해 주세요.']}
+    monkeypatch.setattr(importer,'preview',preview)
+    monkeypatch.setattr(smoke,'diagnose_ledger_evidence',lambda *args:None)
+    assert smoke.run_ledger_case(tmp_path,'card.jpg','jpeg','card_transactions') is False
+    assert locations and all(not path.exists() for path in locations)
+    output=capsys.readouterr().out
+    assert 'manual review safety' in output and 'ACCURACY MISMATCH: card.jpg' in output
+    assert 'ACCURACY MATCH:' not in output
+
+
+def test_invalid_response_stops_before_accuracy_and_keeps_financial_cleanup(smoke,tmp_path,monkeypatch,capsys):
+    from app.services import ledger_document_import as importer
+    (tmp_path/'card.jpg').write_bytes(b'synthetic')
+    locations=[]
+    def preview(*args):
+        locations.append(Path(tempfile.gettempdir()).parent)
+        result=expected_result('card_transactions');result['rows'][0]['owner']='private'
+        return result
+    monkeypatch.setattr(importer,'preview',preview)
+    monkeypatch.setattr(smoke,'validate_ledger_result',lambda *args:pytest.fail('Safety must run first'))
+    with pytest.raises(smoke.SmokeSafetyError):smoke.run_ledger_case(tmp_path,'card.jpg','jpeg','card_transactions')
+    assert locations and all(not path.exists() for path in locations)
+    assert capsys.readouterr()==('', '')
+
+
 @pytest.mark.parametrize('field,value', [
     ('amount','91234567'), ('amount',1234567), ('amount',None), ('direction','unknown'),
     ('balance_after','11000000'), ('transaction_date','2026-10-14'),
@@ -149,7 +247,7 @@ def test_case_uses_real_coordinator_contract_and_cleans_private_copies(smoke,tmp
     assert '가상입금처' not in out.out and 'synthetic-input' not in out.out
 
 
-@pytest.mark.parametrize('failure', ['wrong-amount','worker-failure','financial-write','user-dir','leaked-input'])
+@pytest.mark.parametrize('failure', ['worker-failure','financial-write','user-dir','leaked-input'])
 def test_case_fails_closed_and_restores_scope_on_all_failures(smoke,tmp_path,monkeypatch,failure,capsys):
     from app.services import ledger_document_import as importer
     (tmp_path/'bank.png').write_bytes(b'synthetic-input')
@@ -158,8 +256,7 @@ def test_case_fails_closed_and_restores_scope_on_all_failures(smoke,tmp_path,mon
         locations.append(Path(tempfile.gettempdir()).parent)
         if failure=='worker-failure':raise ValueError('fixed-safe-worker-error')
         result=expected_result('bank_transactions')
-        if failure=='wrong-amount':result['rows'][0]['amount']='112000000'
-        elif failure=='financial-write':(Path(os.environ['WEALTH_DATA_DIR'])/'ledger.json').write_bytes(b'changed')
+        if failure=='financial-write':(Path(os.environ['WEALTH_DATA_DIR'])/'ledger.json').write_bytes(b'changed')
         elif failure=='user-dir':(Path(os.environ['WEALTH_DATA_DIR'])/'users').mkdir()
         elif failure=='leaked-input':(Path(tempfile.gettempdir())/'orphan.png').write_bytes(b'synthetic')
         return result
@@ -201,7 +298,7 @@ def test_existing_native_workflow_and_production_pension_checks_are_preserved(sm
     monkeypatch.setattr(smoke.sys,'platform','linux')
     monkeypatch.setattr(smoke.platform,'machine',lambda:'aarch64')
     monkeypatch.setattr(smoke.shutil,'which',lambda tool:'/synthetic/'+tool)
-    monkeypatch.setattr(smoke,'run_ledger_case',lambda *args:ledger.append(args[1:]))
+    monkeypatch.setattr(smoke,'run_ledger_case',lambda *args:ledger.append(args[1:]) or True)
     monkeypatch.setattr(sys,'argv',['smoke','--fixtures',str(tmp_path),'--expected-machine','aarch64'])
     smoke.main()
     assert len([call for call in calls if '-m' in call and 'app.services.national_pension_document' in call])==2
@@ -213,6 +310,11 @@ def test_existing_native_workflow_and_production_pension_checks_are_preserved(sm
     for flag in ('--network none --read-only','--cap-drop ALL --security-opt no-new-privileges',
                  '--user 65534:65534','readonly','ubuntu-24.04-arm','ubuntu-24.04'):
         assert flag in workflow
+    for module in ('test_pension_ocr_smoke', 'test_ledger_document_import',
+                   'test_ledger_document_save', 'test_ledger_document_chrome'):
+        assert 'tests/'+module+'.py' in workflow
+    assert "for tag in ('skipped', 'failure', 'error')" in workflow
+    assert 'continue-on-error' not in workflow
 
 
 def test_wrong_native_architecture_fails_before_tool_execution(smoke,monkeypatch):
@@ -396,15 +498,17 @@ def test_focused_probe_rejects_nonfixture_before_any_file_read(smoke,tmp_path,mo
         smoke.diagnose_ledger_rejections(tmp_path/'private.png')
 
 
-def test_focused_failure_runs_before_original_exact_assertion_is_reraised(smoke,tmp_path,monkeypatch,capsys):
+def test_focused_failure_preserves_exact_mismatch_as_diagnostic(smoke,tmp_path,monkeypatch,capsys):
     from app.services import ledger_document_import as importer
     (tmp_path/'card.jpg').write_bytes(b'synthetic-only')
     result=expected_result('card_transactions');result['rows'][0]['amount']=None
     monkeypatch.setattr(importer,'preview',lambda *args:result)
     calls=[];monkeypatch.setattr(smoke,'diagnose_ledger_rejections',lambda path:calls.append(path.name))
     monkeypatch.setattr(smoke,'is_public_ledger_fixture',lambda path:True)
-    with pytest.raises(RuntimeError):smoke.run_ledger_case(tmp_path,'card.jpg','jpeg','card_transactions')
-    assert calls==['card.jpg'] and 'PASS:' not in capsys.readouterr().out
+    assert smoke.run_ledger_case(tmp_path,'card.jpg','jpeg','card_transactions') is False
+    output=capsys.readouterr().out
+    assert calls==['card.jpg'] and 'ACCURACY MISMATCH:' in output
+    assert 'ACCURACY MATCH:' not in output and 'exact values' not in output
 
 
 @pytest.mark.parametrize('fault',['none','timeout','bad-schema'])
@@ -444,7 +548,8 @@ def test_focused_subprocess_is_bounded_private_and_cleaned(smoke,tmp_path,monkey
     assert kills==([(987654,9)] if fault=='timeout' else [])
 
 
-def test_smoke_collects_all_four_failures_and_still_fails(smoke,tmp_path,monkeypatch,capsys):
+@pytest.mark.parametrize('outcome', ['worker-failure', 'accuracy-mismatch'])
+def test_smoke_separates_fatal_worker_failures_from_accuracy(smoke,tmp_path,monkeypatch,capsys,outcome):
     for name in ('synthetic.png','synthetic.pdf'):(tmp_path/name).write_bytes(b'public-only')
     pension={'document_type':'history','detected_type':'history','fields':[
         {'key':key,'value':value,'status':'OCR 확인 필요'} for key,value in
@@ -461,13 +566,21 @@ def test_smoke_collects_all_four_failures_and_still_fails(smoke,tmp_path,monkeyp
     monkeypatch.setattr(smoke.shutil,'which',lambda tool:'/synthetic/'+tool)
     calls=[]
     def failed(fixtures,name,kind,document_type):
-        calls.append(name);raise smoke.LedgerOCRError('private exception must not be logged')
+        calls.append(name)
+        if outcome=='worker-failure':raise smoke.LedgerOCRError('private exception must not be logged')
+        return False
     monkeypatch.setattr(smoke,'run_ledger_case',failed)
     monkeypatch.setattr(sys,'argv',['smoke','--fixtures',str(tmp_path),'--expected-machine','aarch64'])
-    with pytest.raises(RuntimeError,match='exact-value checks failed'):smoke.main()
+    if outcome=='worker-failure':
+        with pytest.raises(RuntimeError,match='worker checks failed'):smoke.main()
+    else:smoke.main()
     assert calls==['bank.png','bank.pdf','card.jpg','card.pdf']
     output=capsys.readouterr().out
-    assert output.count('FAIL: synthetic ledger exact-value check')==4 and 'private exception' not in output
+    assert 'private exception' not in output
+    if outcome=='worker-failure':assert output.count('FAIL: synthetic ledger worker check')==4
+    else:
+        assert 'mismatched_inputs=4/4 (diagnostic only; manual review safety passed)' in output
+        assert 'FAIL:' not in output
 
 
 @pytest.mark.parametrize('bad_row',[1,2])
@@ -539,15 +652,16 @@ def test_unsupported_party_trace_is_unknown_not_invented(smoke,tmp_path):
 
 
 @pytest.mark.parametrize('bad_row',[1,2])
-def test_party_failure_triggers_both_row_diagnostics_without_weakening_assertion(smoke,tmp_path,monkeypatch,bad_row):
+def test_party_failure_keeps_diagnostics_and_strict_validator(smoke,tmp_path,monkeypatch,bad_row):
     from app.services import ledger_document_import as importer
     (tmp_path/'bank.png').write_bytes(b'synthetic-input')
     result=expected_result('bank_transactions');result['rows'][bad_row-1]['counterparty']=None
     calls=[]
     monkeypatch.setattr(importer,'preview',lambda *args:result)
     monkeypatch.setattr(smoke,'diagnose_bank_parties',lambda source,preview:calls.append((source,preview)))
-    with pytest.raises(RuntimeError,match='Synthetic Korean ledger party extraction failed'):
-        smoke.run_ledger_case(tmp_path,'bank.png','png','bank_transactions')
+    with pytest.raises(smoke.SmokeCheckError,match='Synthetic Korean ledger party extraction failed'):
+        smoke.validate_ledger_result(result,'bank_transactions')
+    assert smoke.run_ledger_case(tmp_path,'bank.png','png','bank_transactions') is False
     assert len(calls)==1 and calls[0][0]==tmp_path/'bank.png' and calls[0][1] is result
 
 
@@ -645,7 +759,8 @@ def test_safety_always_inspected_before_ocr_failure(smoke,tmp_path,monkeypatch,c
         return result
     monkeypatch.setattr(importer,'preview',preview)
     error=smoke.SmokeSafetyError if damage!='none' else LookupError if ocr=='unexpected' else smoke.LedgerOCRError
-    if damage=='none' and ocr=='pass':smoke.run_ledger_case(tmp_path,'card.jpg','jpeg','card_transactions')
+    if damage=='none' and ocr in ('pass','wrong'):
+        assert smoke.run_ledger_case(tmp_path,'card.jpg','jpeg','card_transactions') is (ocr=='pass')
     else:
         with pytest.raises(error):smoke.run_ledger_case(tmp_path,'card.jpg','jpeg','card_transactions')
     assert locations and all(not path.exists() for path in locations)

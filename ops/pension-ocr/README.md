@@ -1,6 +1,47 @@
 # Native offline pension and ledger OCR smoke
 
-## Focused recovery — 2026-10-16, local uncommitted work
+## Current CI contract — 2026-10-16
+
+Ledger **safety/functionality** gates are separate from **recognition accuracy**.
+`validate_ledger_result()` and the existing per-field `EXACT` reports retain
+their original fictional source expectations. They are not replaced with OCR
+output, deleted or made unconditionally successful.
+
+Before an accuracy mismatch can be non-blocking, the real preview coordinator
+must return a valid review response: the root and every candidate require human
+review, these yearless public fixtures retain null year/full date/owner/account,
+rows have the expected schema and image-OCR provenance, and unknown document
+types have no rows and an explicit warning for manual input. Malformed or
+confirmed responses fail. Financial sentinels must remain byte-identical, no
+extra financial/user paths may appear, and input/workspace cleanup must finish.
+Only after those checks finish does the case print its safety PASS and separate
+`ACCURACY MATCH` or `ACCURACY MISMATCH`. The final accuracy summary counts
+mismatched inputs; it does not label a mismatch as PASS. Empty/missing candidates,
+unknown document type, missing party or wrong recognized values are diagnostic
+only when this manual-review contract is safe. This is not recognition acceptance.
+
+Worker errors/nonzero exits, invalid JSON/schema, inferred year/owner/account,
+unconfirmed writes, financial changes, cleanup/process failures, resource/security
+violations and all mandatory pension OCR checks remain blocking. Existing bounded
+diagnostic replays remain available; their execution/schema errors are fatal,
+not swallowed as unavailable diagnostics. Production limits and the container's
+network-disabled, read-only, non-root and capability restrictions are unchanged.
+
+The existing native PR workflow now requires `test_pension_ocr_smoke.py`,
+`test_ledger_document_import.py`, `test_ledger_document_save.py` and
+`test_ledger_document_chrome.py` on both runners. A native Playwright Chromium
+is installed for the existing loopback Chrome harness; missing/skipped modules
+or any skip/failure/error fail this regression gate. These tests cover worker
+limits/cleanup, manual fallback, explicit confirmation, duplicate review and
+uncertain-save behavior. No production finance writer, UI, parser, fixture,
+APP_VERSION (2.0.2) or static revision changes are part of this CI separation.
+RapidOCR development remains discontinued.
+
+Tests, syntax checks and native CI were **NOT RUN** for this change. No commit,
+push, merge or deployment was performed. The following results and failure
+policies describe earlier stages; they are preserved as historical evidence.
+
+## Historical focused recovery — 2026-10-16, local uncommitted work
 
 Only an isolated **party** candidate may expand its 8px crop to 12px. The
 expanded rectangle must stay inside the page and avoid every other TSV line;
