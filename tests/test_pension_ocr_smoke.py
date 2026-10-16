@@ -754,3 +754,162 @@ def test_probe_fatal_exit_codes_propagate_safety(smoke,tmp_path,monkeypatch,caps
         else:smoke.diagnose_ledger_rejections(source)
     assert locations and all(not path.exists() for path in locations)
     assert capsys.readouterr()==('', '')
+
+@pytest.mark.parametrize('fault',['none','neighbor','page-edge','source-clipped','reread-clipped','low-confidence'])
+def test_isolation_observes_actual_party_expansion_branch(smoke,tmp_path,fault,capsys):
+    from PIL import Image
+    from app.services import ledger_document as ledger
+    from tests.test_ledger_document_import import positioned_tsv,crop_tsv
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    records=positioned_tsv([]).splitlines()[:2]
+    left=10 if fault=='page-edge' else 1 if fault=='source-clipped' else 100
+    records.append(f'5\t1\t1\t1\t1\t1\t{left}\t200\t300\t40\t95\t가 상 입 금 처')
+    if fault=='neighbor':records.append('5\t1\t1\t1\t2\t1\t100\t250\t300\t40\t95\t10:20')
+    calls=[]
+    def run(args,timeout):
+        calls.append(args)
+        crop_tsv(args,'가 상 입 금 처',txt='가상입금처',confidence=89 if fault=='low-confidence' else 95)
+        if fault=='reread-clipped':
+            path=Path(args[2]+'.tsv');lines=path.read_text(encoding='utf-8').splitlines()
+            fields=lines[2].split('\t');fields[6]='1';lines[2]='\t'.join(fields)
+            path.write_text('\n'.join(lines),encoding='utf-8')
+        return b''
+    observer=smoke.FocusObserver(ledger)
+    observer.observe(lambda:ledger.LineRecognizer().refine('\n'.join(records),image,run))
+    rows=smoke.focus_report(observer,'bank_transactions')
+    row=next(row for row in rows if row['kind']=='bank_party')
+    assert observer.supported
+    if fault=='source-clipped':
+        assert not calls and row['expanded_inside_page'] is None and row['expanded_crop_used'] is None
+        assert row['reread_confidence_ok'] is None and row['party_format_ok'] is None
+    else:
+        assert calls and row['expanded_inside_page']==(fault!='page-edge')
+        assert row['expanded_neighbor_overlap']==(fault=='neighbor')
+        assert row['expanded_crop_used']==(fault not in ('neighbor','page-edge'))
+        assert row['reread_row_clipped']==(fault=='reread-clipped')
+        assert row['reread_confidence_ok']==(fault!='low-confidence')
+        assert row['accepted']==(fault not in ('reread-clipped','low-confidence'))
+        if fault in ('reread-clipped','low-confidence'):
+            assert row['txt_tsv_equal'] is None and row['party_format_ok'] is None
+    smoke.emit_focus_report(rows,'bank.png')
+    output=capsys.readouterr().out
+    assert all(private not in output for private in ('가상입금처',str(tmp_path),'300','200'))
+    assert not list(tmp_path.glob('line-*'))
+
+
+@pytest.mark.parametrize('old,new,space,units,tokens,action,party',[
+    ('승인 금액','승인금액',True,False,False,False,None),
+    ('승인 원','승인 KRW',False,True,False,False,None),
+    ('승인:','승인/',False,True,False,False,None),
+    ('승인금액','이용금액',False,False,True,True,None),
+    ('승인','취소',False,False,True,True,None),
+    ('취소','환불',False,False,True,True,None),
+    ('가맹점:가상카페','가맹점:가상서점',False,False,True,False,True),
+    ('거래처:가상카페','거래처:가상카페',False,False,False,False,False),
+    (None,'승인',None,None,None,None,None),
+])
+def test_isolation_context_differences_are_diagnostic_only(smoke,old,new,space,units,tokens,action,party):
+    report=smoke.context_difference_checks(old,new)
+    assert tuple(report.values())==(space,units,tokens,action,party)
+
+
+def test_isolation_context_observed_from_real_numeric_guard(smoke,tmp_path):
+    from PIL import Image
+    from app.services import ledger_document as ledger
+    from tests.test_ledger_document_import import positioned_tsv,crop_tsv
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    original=positioned_tsv(['승인금액 12,345 원'])
+    observer=smoke.FocusObserver(ledger)
+    lines=observer.observe(lambda:ledger.LineRecognizer().refine(original,image,
+        lambda args,timeout:crop_tsv(args,'승인 12,345 원')))
+    report=smoke.focus_report(observer,'card_transactions')[0]
+    assert report['context_nonnumeric_tokens_differ'] is True
+    assert report['context_action_differ'] is False and report['context_whitespace_only'] is False
+    assert report['context_party_related_tokens_differ'] is None
+    assert report['numeric_values_equal'] is True and report['numeric_sign_equal'] is True
+    assert report['numeric_context_equal'] is False and report['accepted'] is False
+    assert report['reject_code']=='numeric_guard' and lines[0]['text']=='승인금액 12,345 원'
+
+
+@pytest.mark.parametrize('kind',['bank_transactions','card_transactions'])
+def test_isolation_exact_fields_independent_of_first_strict_failure(smoke,kind):
+    result=expected_result(kind)
+    assert all(all(value is True for value in row.values()) for row in smoke.exact_ledger_report(result,kind))
+    key='counterparty' if kind=='bank_transactions' else 'merchant'
+    result['rows'][0][key]=None
+    result['rows'][1]['amount']=None
+    report=smoke.exact_ledger_report(result,kind)
+    assert report[0]['party'] is False and report[0]['amount'] is True
+    assert report[1]['party'] is True and report[1]['amount'] is False
+    assert report[0]['summary_excluded'] is None
+    assert all(row['year_null'] and row['owner_null'] and row['review_required'] for row in report)
+    with pytest.raises(smoke.SmokeCheckError):smoke.validate_ledger_result(result,kind)
+
+
+@pytest.mark.parametrize('field,key,value',[
+    ('direction','direction','outflow'),('balance','balance_after',None),
+    ('time','transaction_time',None),('owner_null','owner','synthetic-owner'),
+    ('review_required','review_status','confirmed'),
+])
+def test_isolation_exact_field_failure_does_not_mask_other_fields(smoke,field,key,value):
+    result=expected_result('bank_transactions');result['rows'][0][key]=value
+    report=smoke.exact_ledger_report(result,'bank_transactions')
+    assert report[0][field] is False and all(v is True for v in report[1].values())
+
+
+def test_isolation_exact_unknown_missing_dates_and_summary(smoke):
+    assert all(all(value is None for value in row.values()) for row in smoke.exact_ledger_report(None,'bank_transactions'))
+    result=expected_result('bank_transactions')
+    result['rows'][0]['transaction_date_parts']={'year':2026,'month':11,'day':14}
+    result['rows'][0]['counterparty']='총 잔액'
+    result['rows'].append(dict(result['rows'][0]))
+    report=smoke.exact_ledger_report(result,'bank_transactions')
+    assert report[0]['month_day'] is False and report[0]['year_null'] is False
+    assert report[0]['row_count'] is False and report[0]['summary_excluded'] is False
+    result['rows']=[]
+    report=smoke.exact_ledger_report(result,'bank_transactions')
+    assert all(row['row_count'] is False and row['party'] is False and row['owner_null'] is False for row in report)
+
+
+def test_isolation_exact_log_denies_private_inputs_and_never_prints_values(smoke,tmp_path,monkeypatch,capsys):
+    source=tmp_path/'bank.png'
+    with pytest.raises(smoke.SmokeCheckError):smoke.emit_exact_report(expected_result('bank_transactions'),source,'bank_transactions')
+    assert capsys.readouterr()==('', '')
+    monkeypatch.setattr(smoke,'is_public_ledger_fixture',lambda path:True)
+    result=expected_result('bank_transactions');result['raw_text']='private-payload'
+    smoke.emit_exact_report(result,source,'bank_transactions')
+    output=capsys.readouterr().out
+    assert output.count('EXACT bank.png row=')==2
+    assert all(value not in output for value in ('가상','1234567',str(tmp_path),'private-payload','[100'))
+
+@pytest.mark.parametrize('name,kind',[
+    ('bank.png','bank_transactions'),('bank.pdf','bank_transactions'),
+    ('card.jpg','card_transactions'),('card.pdf','card_transactions')])
+def test_isolation_exact_reports_each_public_format(smoke,tmp_path,monkeypatch,capsys,name,kind):
+    monkeypatch.setattr(smoke,'is_public_ledger_fixture',lambda path:True)
+    smoke.emit_exact_report(expected_result(kind),tmp_path/name,kind)
+    output=capsys.readouterr().out
+    assert output.count('EXACT '+name+' row=')==2
+    assert '=false' not in output and '=unknown' not in output
+    assert all(field+'=true' in output for field in smoke.EXACT_FIELDS)
+
+
+def test_isolation_unsupported_observation_does_not_invent_checks(smoke,tmp_path):
+    _,_,observer=trace_focused_numeric(smoke,tmp_path,card=True)
+    observer.supported=False
+    rows=smoke.focus_report(observer,'bank_transactions')
+    party=next(row for row in rows if row['kind']=='bank_party')
+    assert all(party[key] is None for key in ('expanded_crop_used','expanded_inside_page',
+        'expanded_neighbor_overlap','reread_row_clipped','reread_text_too_small',
+        'reread_other_risks','txt_printable','output_geometry_ok','reread_confidence_ok',
+        'txt_tsv_equal','party_format_ok','accepted'))
+
+@pytest.mark.parametrize('old,new',[
+    ('가맹점:강원상점','가맹점:가상학원'),
+    ('가맹점:승인카페','가맹점:취소서점')])
+def test_isolation_merchant_syllables_are_not_currency_or_action_labels(smoke,old,new):
+    report=smoke.context_difference_checks(old,new)
+    assert report['context_units_symbols_differ'] is False
+    assert report['context_action_differ'] is False
+    assert report['context_nonnumeric_tokens_differ'] is True
+    assert report['context_party_related_tokens_differ'] is True

@@ -430,15 +430,39 @@ def diagnose_bank_parties(source, preview):
 
 FOCUS_BOOL_FIELDS = ('source_quality_ok','bbox_valid','overlap','refine_called',
     'output_checks_ok','output_geometry_ok','txt_nonempty','txt_one_line','tsv_one_line',
-    'txt_tsv_equal','accepted','expanded_crop_used','reread_confidence_ok',
+    'txt_tsv_equal','party_format_ok','accepted','expanded_crop_used','reread_confidence_ok',
     'reread_row_clipped','reread_text_too_small','reread_other_risks','txt_printable',
     'old_numeric_valid','new_numeric_valid','numeric_values_equal',
     'numeric_sign_equal','numeric_context_equal','numeric_tsv_equal',
-    'parser_row_seen','document_type_matches')
-FOCUS_KINDS = {'bank_amount','bank_balance','card_row'}
+    'parser_row_seen','document_type_matches','expanded_inside_page','expanded_neighbor_overlap',
+    'context_whitespace_only','context_units_symbols_differ','context_nonnumeric_tokens_differ',
+    'context_action_differ','context_party_related_tokens_differ')
+FOCUS_KINDS = {'bank_amount','bank_balance','bank_party','card_row'}
 CI_LEDGER_INPUTS = {'bank.png':('png','bank_transactions'),
     'bank.pdf':('pdf','bank_transactions'),'card.jpg':('jpeg','card_transactions'),
     'card.pdf':('pdf','card_transactions')}
+
+
+def context_difference_checks(old, new):
+    """Diagnostic comparisons only; never return repaired parser input.
+
+    Explicit merchant labels are required to classify merchant context. An
+    unlabelled residual is not assumed to be a merchant or an action.
+    """
+    keys=('context_whitespace_only','context_units_symbols_differ',
+          'context_nonnumeric_tokens_differ','context_action_differ',
+          'context_party_related_tokens_differ')
+    if not isinstance(old,str) or not isinstance(new,str):return dict.fromkeys(keys)
+    compact=lambda value:re.sub(r'\s+','',value)
+    unit=r'(?<![가-힣A-Za-z])(?:KRW|USD|원)(?![가-힣A-Za-z])'
+    units=lambda value:re.findall(unit+r'|[^\w\s가-힣]',value)
+    tokens=lambda value:re.sub(r'[^가-힣A-Za-z]','',re.sub(unit,'',value))
+    actions=lambda value:re.findall(r'(?<![가-힣A-Za-z])(?:카드\s*)?(승인|취소|환불)(?=금액|내역|$|[^가-힣A-Za-z])',value)
+    party=lambda value:re.findall(r'(?:가맹점|거래처|상호)[:：]?(.+)',compact(value))
+    left,right=party(old),party(new)
+    return dict(zip(keys,(old!=new and compact(old)==compact(new),
+        units(old)!=units(new),tokens(old)!=tokens(new),actions(old)!=actions(new),
+        left!=right if left or right else None)))
 
 
 class FocusObserver(PartyObserver):
@@ -450,6 +474,16 @@ class FocusObserver(PartyObserver):
     def __init__(self, ledger):
         super().__init__(ledger)
         self.amount_rows=[]
+
+    def _anchors(self, function, refine):
+        super()._anchors(function,refine)
+        if not refine:return
+        source,start=inspect.getsourcelines(function)
+        for node in ast.walk(ast.parse(textwrap.dedent(''.join(source)))):
+            if isinstance(node,ast.If):
+                used={n.id for n in ast.walk(node.test) if isinstance(n,ast.Name)}
+                if used=={'inside_page','expanded_overlap'}:
+                    self._add(function,start,node,'expanded_decision')
 
     def _trace(self, frame, event, arg):
         result=super()._trace(frame,event,arg)
@@ -476,6 +510,14 @@ class FocusObserver(PartyObserver):
         detail=record.setdefault('_detail',dict.fromkeys(FOCUS_BOOL_FIELDS))
         if 'role' in tags:
             record['_numeric']=bool(values.get('numeric'))
+            record['_party']=bool(values.get('party'))
+        if 'expanded_decision' in tags:
+            detail['expanded_inside_page']=values.get('inside_page')
+            detail['expanded_neighbor_overlap']=values.get('expanded_overlap')
+        if 'overlap' in tags:
+            crop,box=values.get('crop_box'),values.get('box')
+            if crop is not None and box is not None:
+                detail['expanded_crop_used']=crop==(box[0]-12,box[1]-12,box[0]+box[2]+12,box[1]+box[3]+12)
         if 'initial' in tags:
             candidates=values.get('candidates',[]);txt=values.get('txt')
             one=len(candidates)==1
@@ -493,6 +535,7 @@ class FocusObserver(PartyObserver):
             previous,current=values.get('previous'),values.get('current')
             old_sign,new_sign=values.get('old_sign'),values.get('new_sign')
             candidates=values.get('candidates',[])
+            detail.update(context_difference_checks(values.get('old_context'),values.get('new_context')))
             detail.update(old_numeric_valid=previous is not None,new_numeric_valid=current is not None,
                 numeric_values_equal=previous==current if previous is not None and current is not None else None,
                 numeric_sign_equal=(old_sign.group() if old_sign else None)==(new_sign.group() if new_sign else None),
@@ -510,6 +553,8 @@ def focus_report(observer, document_type, result=None):
         selected=[('bank_amount' if document_type=='bank_transactions' else 'card_row',record)
                   for record in observer.records.values() if record.get('_numeric') and not record.get('_balance')][:6]
     if document_type=='bank_transactions':
+        parties=[record for record in observer.records.values() if record.get('_party') and not record.get('_numeric')][:2]
+        selected += [('bank_party',record) for record in (parties or [None,None])]
         selected += [('bank_balance',record) for record in observer.records.values() if record.get('_balance')][:4]
     report=[]
     for position,(kind,record) in enumerate(selected,1):
@@ -531,7 +576,7 @@ def focus_report(observer, document_type, result=None):
 
 
 def emit_focus_report(rows, name):
-    require(name in CI_LEDGER_INPUTS and isinstance(rows,list) and 0<len(rows)<=10,'Focused diagnostic schema failed')
+    require(name in CI_LEDGER_INPUTS and isinstance(rows,list) and 0<len(rows)<=12,'Focused diagnostic schema failed')
     keys=set(FOCUS_BOOL_FIELDS)|{'kind','position','source_line','refine_calls',
         'original_confidence_bucket','reread_confidence_bucket','reject_code','source_reason_code'}
     # Validate ALL rows before emitting any output, including unexpected keys.
@@ -542,7 +587,7 @@ def emit_focus_report(rows, name):
                 row['source_reason_code'] in PARTY_SOURCE_REASONS and
                 row['original_confidence_bucket'] in PARTY_BUCKETS and row['reread_confidence_bucket'] in PARTY_BUCKETS,
                 'Focused diagnostic code failed')
-        for key,limit in [('position',10),('source_line',10000),('refine_calls',8)]:
+        for key,limit in [('position',12),('source_line',10000),('refine_calls',8)]:
             require(row[key] is None or type(row[key]) is int and 0<=row[key]<=limit,'Focused diagnostic count failed')
     for row in rows:
         safe=lambda v:'unknown' if v is None else str(v).lower() if type(v) is bool else str(v)
@@ -594,6 +639,63 @@ def diagnose_ledger_rejections(source):
     emit_focus_report(rows,source.name)
 
 
+EXACT_FIELDS=('document_type','row_count','party','amount','direction','balance',
+              'time','month_day','year_null','owner_null','review_required','summary_excluded')
+
+
+def exact_ledger_report(result, document_type):
+    """Independent per-field diagnostics of the fixed public fixture contract.
+
+    Missing expected rows fail; no preview response is UNKNOWN. Summary
+    Exclusion is proved only by the two known fixture identities/dates/amounts;
+    explicit summary labels disprove it. Ambiguous rows remain UNKNOWN.
+    """
+    reports=[dict.fromkeys(EXACT_FIELDS) for _ in range(2)]
+    if not isinstance(result,dict):return reports
+    rows=result.get('rows')
+    expected=((('가상입금처','1234567','inflow','11234567','09:10'),
+               ('가상출금처','234567','outflow','11000000','10:20'))
+              if document_type=='bank_transactions' else
+              (('가상카페','12345','unknown',None,None),('가상서점','23456','unknown',None,None)))
+    label='counterparty' if document_type=='bank_transactions' else 'merchant'
+    for index,(report,values) in enumerate(zip(reports,expected)):
+        report.update(document_type=result.get('document_type')==document_type,
+                      row_count=isinstance(rows,list) and len(rows)==2)
+        if not isinstance(rows,list):continue
+        row=rows[index] if index<len(rows) and isinstance(rows[index],dict) else {}
+        party,amount,direction,balance,clock=values
+        parts=row.get('transaction_date_parts')
+        report.update(party=row.get(label)==party,amount=row.get('amount')==amount,
+            direction=row.get('direction')==direction,
+            balance='balance_after' in row and row['balance_after']==balance,
+            time='transaction_time' in row and row['transaction_time']==clock,
+            month_day=isinstance(parts,dict) and parts.get('month')==10 and parts.get('day')==14-index,
+            year_null=isinstance(parts,dict) and 'year' in parts and parts['year'] is None
+                and 'transaction_date' in row and row['transaction_date'] is None,
+            owner_null='owner' in row and row['owner'] is None and 'account_id' in row and row['account_id'] is None,
+            review_required=result.get('status')=='review_required' and row.get('review_status')=='review_required'
+                and isinstance(row.get('review_reasons'),list) and 'year_missing' in row['review_reasons'])
+    summary=(isinstance(rows,list) and len(rows)==2 and
+             all(all(report[key] is True for key in ('party','amount','month_day')) for report in reports))
+    if not summary:
+        from app.services.ledger_document import SUMMARY_LABELS
+        explicit_summary=isinstance(rows,list) and any(isinstance(row,dict) and isinstance(row.get(label),str)
+            and any(token in row[label] for token in SUMMARY_LABELS) for row in rows)
+        summary=False if explicit_summary else None
+    for report in reports:report['summary_excluded']=summary
+    return reports
+
+
+def emit_exact_report(result, source, document_type):
+    require(is_public_ledger_fixture(source),'Exact diagnostic input denied')
+    reports=exact_ledger_report(result,document_type)
+    require(all(set(row)==set(EXACT_FIELDS) and all(value is None or type(value) is bool
+        for value in row.values()) for row in reports),'Exact diagnostic schema failed')
+    for number,row in enumerate(reports,1):
+        print('EXACT '+source.name+' row='+str(number)+' '+' '.join(
+            key+'='+('unknown' if value is None else str(value).lower()) for key,value in row.items()))
+
+
 def run_ledger_case(fixtures, name, kind, document_type):
     # Exercise the real preview coordinator AND the production worker. It owns
     # its process group timeout and private input cleanup; no finance API runs.
@@ -635,6 +737,7 @@ def run_ledger_case(fixtures, name, kind, document_type):
                 result = preview(target.read_bytes(), mime, document_type)
             except (ValueError, subprocess.TimeoutExpired):
                 raise LedgerOCRError('Ledger OCR worker failed') from None
+            if is_public_ledger_fixture(source):emit_exact_report(result,source,document_type)
             if isinstance(result, dict) and result.get('document_type') != document_type:
                 diagnose_ledger_evidence(target, kind)
             if name=='bank.png' and document_type=='bank_transactions' and isinstance(result,dict):
