@@ -1,5 +1,48 @@
 # Native offline pension and ledger OCR smoke
 
+## Focused recovery — 2026-10-16, local uncommitted work
+
+Only an isolated **party** candidate may expand its 8px crop to 12px. The
+expanded rectangle must stay inside the page and avoid every other TSV line;
+otherwise the original 8px policy applies. Original-page clipping, candidate
+clipping, confidence 90, TXT/TSV equality, numeric/sign/date guards and all
+resource limits remain unchanged. Numeric crops still use 8px.
+
+Local Windows Tesseract 5.3.0 confirms both bank parties are adopted by the
+refiner. This does not mean the full ledger passes: the first amount remains
+below confidence 90; balances exhibit candidate clipping or sub-90 confidence.
+Card JPG can fail classification before parser rows exist. These are distinct
+from the corrected party crop and have not been relaxed or automatically fixed.
+
+The next, separately authorized native run collects fixed-code diagnostics for
+bank amount rows, balance candidates and card source/parser rows. An ops-only
+AST observer reads the real executed guards. It reports confidence buckets,
+boolean source/candidate evidence, numeric/sign/context equality and source
+line ordinals. Classification failure still allows diagnosis of visited source
+candidates, explicitly marked `parser_row_seen=false`. Missing evidence is
+unknown, not an invented reason. No coordinates, names, amounts, raw text or
+preview JSON leave the probe.
+
+Only the four canonical public `/fixtures` ledger inputs may trigger this
+replay; the private probe copy must hash-match its canonical public input.
+The probe is Linux/test-only, bounded to 75s with normal production resource
+limits and private cleanup, and is not an API feature. All four ledger cases
+are attempted even after an exact-value failure; any failure still fails the
+smoke. Exact expectations, pension checks, financial sentinels and the existing
+workflow are preserved. `ops/pension-ocr/**` already triggers native AMD64/ARM64
+CI, so no workflow edit is needed.
+
+Final local isolated unit/regression: **299 passed / 0 failed / 0 skipped**,
+one expected Pillow DecompressionBombWarning from the existing pixel-limit
+test (not suppressed). Python syntax, import isolation, allowed-file scope and
+diff checks passed. Existing test functions/assertions remain unchanged; this
+six-file unit selection is not a rerun of the entire historical 329-test set.
+Windows real Tesseract checks and mocked unit checks are separate evidence,
+neither establishes Linux acceptance. **Native CI / Commit / Push / Merge / Deploy NOT_RUN** for
+this focused recovery. APP_VERSION stays 2.0.2. PR #148 is untouched.
+
+## Historical diagnostics
+
 Diagnostic-only follow-up (2026-10-15): run 38715245006 failed party equality on
 both platforms. No parser/algorithm/fixture or exact assertion changes are made.
 On bank PNG party mismatch only, the CLI replays the REAL decoder/refiner/parser

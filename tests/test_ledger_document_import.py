@@ -383,6 +383,90 @@ def crop_tsv(args, text, confidence=95, txt=None):
     return b''
 
 
+@pytest.mark.parametrize('party,top,glyph_height', [('가상입금처',9,110),('가상출금처',13,77)])
+def test_party_crop_extra_margin_preserves_real_53_boundary_evidence(tmp_path,party,top,glyph_height):
+    """Mock geometry reproduces Windows 5.3.0 TSV; not a native OCR claim."""
+    from PIL import Image
+    header=positioned_tsv([]).splitlines()[0]
+    old_crop_tsv='\n'.join([header,'1\t1\t0\t0\t0\t0\t0\t0\t380\t119\t-1\t',
+        f'5\t1\t1\t1\t1\t1\t8\t{top}\t368\t{glyph_height}\t91.22\t'+ ' '.join(party)])
+    old=parser.lines_for_page(page(old_crop_tsv,method='ocr_tsv'))[0]
+    assert ('row_clipped' in old['reasons']) == (party=='가상입금처')
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    source='\n'.join([header,'1\t1\t0\t0\t0\t0\t0\t0\t1800\t2000\t-1\t',
+        '5\t1\t1\t1\t1\t1\t103\t491\t364\t103\t95\t'+' '.join(party)])
+    outputs=[]
+    def run(args,timeout):
+        assert 0<timeout<=3
+        with Image.open(args[1]) as frame:assert frame.size==(388,127)
+        target=Path(args[2]);outputs.extend([Path(args[1]),Path(str(target)+'.txt'),Path(str(target)+'.tsv')])
+        Path(str(target)+'.txt').write_text(party+'\n',encoding='utf-8')
+        Path(str(target)+'.tsv').write_text(old_crop_tsv.replace('\t380\t119\t','\t388\t127\t')
+            .replace(f'\t8\t{top}\t368\t',f'\t12\t{top+4}\t368\t'),encoding='utf-8')
+        return b''
+    refined=parser.LineRecognizer().refine(source,image,run)
+    assert refined[0]['text']==party and not refined[0]['reasons']
+    assert outputs and all(not path.exists() for path in outputs)
+
+
+@pytest.mark.parametrize('fault',['expanded-neighbor','expanded-page-edge'])
+def test_party_unsafe_expansion_falls_back_to_original_eight_pixels(tmp_path,fault):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    records=positioned_tsv(['가 상 입 금 처']).splitlines()
+    # One word record makes the source bbox deterministic, without text repair.
+    records=records[:2]+['5\t1\t1\t1\t1\t1\t100\t200\t300\t40\t95\t가 상 입 금 처']
+    if fault=='expanded-page-edge':records[2]=records[2].replace('\t100\t200\t','\t10\t200\t')
+    else:records.append('5\t1\t1\t1\t2\t1\t100\t250\t300\t40\t95\t10:20')
+    observed=[]
+    def run(args,timeout):
+        with Image.open(args[1]) as frame:observed.append(frame.size)
+        return crop_tsv(args,'가 상 입 금 처',txt='가상입금처')
+    lines=parser.LineRecognizer().refine('\n'.join(records),image,run)
+    assert observed==[(316,56)] and lines[0]['text']=='가상입금처'
+    assert not list(tmp_path.glob('line-*'))
+
+
+@pytest.mark.parametrize('fault',['original-cut','low-resolution','candidate-cut','confidence-89','txt-tsv-conflict'])
+def test_party_expansion_does_not_bypass_existing_evidence_guards(tmp_path,fault):
+    from PIL import Image
+    width=221 if fault=='low-resolution' else 1800
+    image=tmp_path/'page.png';Image.new('L',(width,2000),'white').save(image)
+    records=positioned_tsv(['가 상 입 금 처']).splitlines()
+    if fault=='low-resolution':records[1]=records[1].replace('1800','221')
+    if fault=='original-cut':
+        fields=records[2].split('\t');fields[6]='1';records[2]='\t'.join(fields)
+    calls=[]
+    def run(args,timeout):
+        calls.append(args)
+        assert fault not in ('original-cut','low-resolution')
+        crop_tsv(args,'가 상 입 금 처',confidence=89 if fault=='confidence-89' else 95,
+                 txt='다른가상문구' if fault=='txt-tsv-conflict' else '가상입금처')
+        if fault=='candidate-cut':
+            target=Path(args[2]+'.tsv');data=target.read_text(encoding='utf-8').splitlines()
+            fields=data[2].split('\t');fields[6]='1';data[2]='\t'.join(fields)
+            target.write_text('\n'.join(data),encoding='utf-8')
+        return b''
+    lines=parser.LineRecognizer().refine('\n'.join(records),image,run)
+    assert parser.unsafe_line(lines[0]) and lines[0]['text']=='가 상 입 금 처'
+    assert bool(calls)==(fault not in ('original-cut','low-resolution'))
+    assert not list(tmp_path.glob('line-*'))
+
+
+@pytest.mark.parametrize('old,new',[('-234,567 원','+234,567 원'),
+    ('+1,234,567 원','+1,234,568 원'),('거래 후 잔액 11,000,000 원','거래 후 잔액 11,000,001 원')])
+def test_numeric_crop_stays_eight_pixels_and_rejects_conflicts(tmp_path,old,new):
+    from PIL import Image
+    image=tmp_path/'page.png';Image.new('L',(1800,2000),'white').save(image)
+    text=positioned_tsv([old]);box=parser.lines_for_page(page(text,method='ocr_tsv'))[0]['bbox']
+    def run(args,timeout):
+        with Image.open(args[1]) as frame:assert frame.size==(box[2]+16,box[3]+16)
+        return crop_tsv(args,new)
+    lines=parser.LineRecognizer().refine(text,image,run)
+    assert lines[0]['text']==old and parser.unsafe_line(lines[0])
+    assert not list(tmp_path.glob('line-*'))
+
+
 @pytest.mark.parametrize('party', ['가상입금처','가상출금처'])
 def test_same_ocr_txt_preserves_party_while_tsv_has_syllable_words(tmp_path,party):
     from PIL import Image

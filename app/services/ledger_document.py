@@ -213,6 +213,19 @@ class LineRecognizer:
                     line['reasons'].append('ocr_line_conflict')
                     continue
                 crop_box = (x-8, y-8, x+w+8, y+h+8)
+                if party and not numeric:
+                    expanded = (x-12, y-12, x+w+12, y+h+12)
+                    inside_page = (expanded[0] >= 0 and expanded[1] >= 0
+                                   and expanded[2] <= width and expanded[3] <= height)
+                    expanded_overlap = any(n != index and other['bbox']
+                        and other['bbox'][0] < expanded[2] and other['bbox'][0]+other['bbox'][2] > expanded[0]
+                        and other['bbox'][1] < expanded[3] and other['bbox'][1]+other['bbox'][3] > expanded[1]
+                        for n, other in enumerate(lines))
+                    # Only isolated party pixels get extra renderer margin.
+                    # Never pad outside the page or weaken clipping checks;
+                    # unsafe expansion retains the original 8px policy.
+                    if inside_page and not expanded_overlap:
+                        crop_box = expanded
                 overlaps = [other for n, other in enumerate(lines) if other['bbox'] and index != n and
                             other['bbox'][0] < crop_box[2] and other['bbox'][0]+other['bbox'][2] > crop_box[0] and
                             other['bbox'][1] < crop_box[3] and other['bbox'][1]+other['bbox'][3] > crop_box[1]]

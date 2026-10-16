@@ -1,6 +1,8 @@
 """Offline native-image OCR smoke. Never loads a portfolio or saves an import."""
 import argparse
+from contextlib import contextmanager
 import ast
+import hashlib
 import inspect
 import json
 import os
@@ -20,13 +22,61 @@ def command(args, timeout=30):
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             timeout=timeout, check=False)
     if result.returncode:
-        raise RuntimeError('Required offline command failed: ' + Path(args[0]).name)
+        raise SmokeCheckError('Required offline command failed: ' + Path(args[0]).name)
     return result.stdout.decode('utf-8', errors='strict')
+
+
+class SmokeCheckError(RuntimeError):
+    """An explicit failed smoke assertion, rather than an unknown exception."""
 
 
 def require(condition, message):
     if not condition:
-        raise RuntimeError(message)
+        raise SmokeCheckError(message)
+
+
+class SmokeSafetyError(RuntimeError):
+    """Integrity or cleanup cannot be proved; never continue to another input."""
+
+
+class LedgerOCRError(RuntimeError):
+    """Expected OCR/validation failure after safety checks have completed."""
+
+
+@contextmanager
+def ledger_workspace(prefix='wealth-ledger-smoke-'):
+    manager = tempfile.TemporaryDirectory(prefix=prefix)
+    directory = manager.__enter__()
+    try:
+        yield directory
+    finally:
+        try:
+            manager.__exit__(None, None, None)
+            if Path(directory).exists() or Path(directory).is_symlink():
+                raise SmokeSafetyError('Ledger workspace cleanup failed')
+        except Exception:
+            raise SmokeSafetyError('Ledger workspace cleanup failed') from None
+
+
+def check_ledger_integrity(data, inputs, sentinels):
+    # Inspect without repairing/deleting evidence. Inspect both independent
+    # boundaries even if one fails; never disclose exception/path contents.
+    failed = False
+    try:
+        if data.is_symlink() or not data.is_dir():
+            failed = True
+        else:
+            failed |= set(data.iterdir()) != set(sentinels)
+            failed |= any(path.is_symlink() or not path.is_file() or path.read_bytes() != content
+                          for path, content in sentinels.items())
+    except Exception:
+        failed = True
+    try:
+        failed |= inputs.is_symlink() or not inputs.is_dir() or bool(list(inputs.iterdir()))
+    except Exception:
+        failed = True
+    if failed:
+        raise SmokeSafetyError('Ledger integrity or worker cleanup failed')
 
 
 def recognize(path):
@@ -206,9 +256,9 @@ class PartyObserver:
 
     def trace(self, frame, event, arg):
         try:return self._trace(frame,event,arg)
+        except SmokeSafetyError:raise
         except Exception:
-            self.supported = False
-            return None
+            raise SmokeSafetyError('Diagnostic observation failed') from None
 
     def _trace(self, frame, event, arg):
         parent = frame.f_back
@@ -350,7 +400,8 @@ def party_probe(path):
     ledger.set_worker_limits()
     observer=PartyObserver(ledger)
     try:result=observer.observe(lambda:ledger.extract(path,'png','bank_transactions'))
-    except Exception:result=None  # No exception text or local variables in output.
+    except SmokeSafetyError:raise
+    except (ValueError, SmokeCheckError, subprocess.TimeoutExpired):result=None  # No exception text or local variables in output.
     return party_report(result,observer)
 
 
@@ -359,7 +410,7 @@ def diagnose_bank_parties(source, preview):
     # user-selected/API document. It does not modify production code or output.
     require(sys.platform=='linux' and not source.is_symlink() and
             source.resolve()==CI_BANK_FIXTURE, 'Party diagnostic input denied')
-    with tempfile.TemporaryDirectory(prefix='wealth-party-probe-') as directory:
+    with ledger_workspace(prefix='wealth-party-probe-') as directory:
         work=Path(directory);os.chmod(work,0o700)
         target=work/'bank.png';shutil.copyfile(source,target);os.chmod(target,0o600)
         process=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--party-probe',str(target)],
@@ -369,11 +420,178 @@ def diagnose_bank_parties(source, preview):
             try:os.killpg(process.pid,signal.SIGKILL)
             except ProcessLookupError:pass
             process.communicate()
-            raise RuntimeError('Party diagnostic timeout') from None
+            raise SmokeCheckError('Party diagnostic timeout') from None
+        if process.returncode in (2, 3):raise SmokeSafetyError('Diagnostic safety or execution check failed')
         require(process.returncode==0 and len(output)<=20_000,'Party diagnostic subprocess failed')
         rows=json.loads(output)
     require(not work.exists(),'Party diagnostic cleanup failed')
     emit_party_report(rows,preview)
+
+
+FOCUS_BOOL_FIELDS = ('source_quality_ok','bbox_valid','overlap','refine_called',
+    'output_checks_ok','output_geometry_ok','txt_nonempty','txt_one_line','tsv_one_line',
+    'txt_tsv_equal','accepted','expanded_crop_used','reread_confidence_ok',
+    'reread_row_clipped','reread_text_too_small','reread_other_risks','txt_printable',
+    'old_numeric_valid','new_numeric_valid','numeric_values_equal',
+    'numeric_sign_equal','numeric_context_equal','numeric_tsv_equal',
+    'parser_row_seen','document_type_matches')
+FOCUS_KINDS = {'bank_amount','bank_balance','card_row'}
+CI_LEDGER_INPUTS = {'bank.png':('png','bank_transactions'),
+    'bank.pdf':('pdf','bank_transactions'),'card.jpg':('jpeg','card_transactions'),
+    'card.pdf':('pdf','card_transactions')}
+
+
+class FocusObserver(PartyObserver):
+    """Synthetic smoke only: observe the same guards for amounts/balances/cards.
+
+    Raw frame text/coordinates stay private. No production callback is replaced.
+    The existing party diagnostic schema is deliberately unchanged.
+    """
+    def __init__(self, ledger):
+        super().__init__(ledger)
+        self.amount_rows=[]
+
+    def _trace(self, frame, event, arg):
+        result=super()._trace(frame,event,arg)
+        if event!='line' or frame.f_code not in (self.refine,self.parse):return result
+        values=frame.f_locals
+        tags=self.anchors.get((frame.f_code,frame.f_lineno),[])
+        if 'prepare' in tags:
+            for number,line in enumerate(values.get('lines',[]),1):
+                record=self.records.get(id(line))
+                if record is not None:
+                    record.setdefault('_source_line',number)
+                    # Comparison/classification only, never parser text repair.
+                    compact=re.sub(r'\s+','',line['text'])
+                    record.setdefault('_balance',compact.startswith(('거래후잔액','잔액')))
+                    record.setdefault('_detail',dict.fromkeys(FOCUS_BOOL_FIELDS))
+        if frame.f_code==self.parse:
+            if 'row' in tags:
+                row=values.get('row')
+                if isinstance(row,dict) and not any(item[0] is row for item in self.amount_rows):
+                    self.amount_rows.append((row,self.records.get(id(values.get('line')))))
+            return result
+        record=self.active.get(id(frame))
+        if record is None:return result
+        detail=record.setdefault('_detail',dict.fromkeys(FOCUS_BOOL_FIELDS))
+        if 'role' in tags:
+            record['_numeric']=bool(values.get('numeric'))
+        if 'initial' in tags:
+            candidates=values.get('candidates',[]);txt=values.get('txt')
+            one=len(candidates)==1
+            reasons=set(values.get('candidate_risks',[]))
+            detail.update(reread_confidence_ok=(candidates[0]['confidence'] is not None
+                and candidates[0]['confidence']>=90) if one else None,
+                reread_row_clipped='row_clipped' in reasons,
+                reread_text_too_small='text_too_small' in reasons,
+                reread_other_risks=bool(reasons-{'row_clipped','text_too_small'}),
+                txt_printable=txt.isprintable() if isinstance(txt,str) else None)
+            crop=values.get('crop_box');box=values.get('box')
+            if crop is not None and box is not None:
+                detail['expanded_crop_used']=crop[0]==box[0]-12 and crop[1]==box[1]-12
+        if 'numeric_check' in tags:
+            previous,current=values.get('previous'),values.get('current')
+            old_sign,new_sign=values.get('old_sign'),values.get('new_sign')
+            candidates=values.get('candidates',[])
+            detail.update(old_numeric_valid=previous is not None,new_numeric_valid=current is not None,
+                numeric_values_equal=previous==current if previous is not None and current is not None else None,
+                numeric_sign_equal=(old_sign.group() if old_sign else None)==(new_sign.group() if new_sign else None),
+                numeric_context_equal=values.get('context_matches'),
+                numeric_tsv_equal=self.ledger.numeric_signature(candidates[0]['text'])==current if len(candidates)==1 and current is not None else None)
+        return result
+
+
+def focus_report(observer, document_type, result=None):
+    selected=[('bank_amount' if document_type=='bank_transactions' else 'card_row',record)
+              for _,record in observer.amount_rows[:6]]
+    if not selected:
+        # Classification can fail before any parser row exists. Still report
+        # the actually visited numeric source guards, not invented rows.
+        selected=[('bank_amount' if document_type=='bank_transactions' else 'card_row',record)
+                  for record in observer.records.values() if record.get('_numeric') and not record.get('_balance')][:6]
+    if document_type=='bank_transactions':
+        selected += [('bank_balance',record) for record in observer.records.values() if record.get('_balance')][:4]
+    report=[]
+    for position,(kind,record) in enumerate(selected,1):
+        values={**dict.fromkeys(FOCUS_BOOL_FIELDS),'kind':kind,'position':position,'source_line':None,
+                'refine_calls':None,'original_confidence_bucket':'unknown',
+                'reread_confidence_bucket':'unknown','reject_code':'unknown','source_reason_code':'unknown'}
+        if observer.supported and record is not None:
+            values.update({key:record.get(key) for key in FOCUS_BOOL_FIELDS if key in record})
+            values.update({key:value for key,value in record.get('_detail',{}).items() if value is not None})
+            values.update(source_line=record.get('_source_line'),refine_calls=record.get('refine_calls'),
+                original_confidence_bucket=record.get('original_confidence_bucket','unknown'),
+                reread_confidence_bucket=record.get('reread_confidence_bucket','unknown'),
+                reject_code=record.get('reject_code','unknown'),
+                source_reason_code=record.get('source_reason_code','unknown'))
+            values['parser_row_seen']=any(item is record for _,item in observer.amount_rows)
+        values['document_type_matches']=result.get('document_type')==document_type if isinstance(result,dict) else None
+        report.append(values)
+    return report
+
+
+def emit_focus_report(rows, name):
+    require(name in CI_LEDGER_INPUTS and isinstance(rows,list) and 0<len(rows)<=10,'Focused diagnostic schema failed')
+    keys=set(FOCUS_BOOL_FIELDS)|{'kind','position','source_line','refine_calls',
+        'original_confidence_bucket','reread_confidence_bucket','reject_code','source_reason_code'}
+    # Validate ALL rows before emitting any output, including unexpected keys.
+    for row in rows:
+        require(isinstance(row,dict) and set(row)==keys,'Focused diagnostic schema failed')
+        require(all(row[k] is None or type(row[k]) is bool for k in FOCUS_BOOL_FIELDS),'Focused diagnostic boolean failed')
+        require(row['kind'] in FOCUS_KINDS and row['reject_code'] in PARTY_REJECTS and
+                row['source_reason_code'] in PARTY_SOURCE_REASONS and
+                row['original_confidence_bucket'] in PARTY_BUCKETS and row['reread_confidence_bucket'] in PARTY_BUCKETS,
+                'Focused diagnostic code failed')
+        for key,limit in [('position',10),('source_line',10000),('refine_calls',8)]:
+            require(row[key] is None or type(row[key]) is int and 0<=row[key]<=limit,'Focused diagnostic count failed')
+    for row in rows:
+        safe=lambda v:'unknown' if v is None else str(v).lower() if type(v) is bool else str(v)
+        print('DIAG '+name+' '+' '.join(key+'='+safe(value) for key,value in row.items()))
+
+
+def focus_probe(path):
+    root=str(Path(__file__).resolve().parents[2])
+    if root not in sys.path:sys.path.insert(0,root)
+    from app.services import ledger_document as ledger
+    require(sys.platform=='linux' and os.environ.get('WEALTH_ENV')=='test' and
+        path.name in CI_LEDGER_INPUTS and path.parent.name.startswith('wealth-focus-probe-'),
+        'Focused diagnostic input denied')
+    public=Path('/fixtures')/path.name
+    require(not path.is_symlink() and not public.is_symlink() and
+        hashlib.sha256(path.read_bytes()).digest()==hashlib.sha256(public.read_bytes()).digest(),
+        'Focused diagnostic input denied')
+    ledger.set_worker_limits()
+    kind,document_type=CI_LEDGER_INPUTS[path.name]
+    observer=FocusObserver(ledger)
+    try:result=observer.observe(lambda:ledger.extract(path,kind,document_type))
+    except SmokeSafetyError:raise
+    except (ValueError, SmokeCheckError, subprocess.TimeoutExpired):result=None  # No exception text or raw frames in report.
+    return focus_report(observer,document_type,result)
+
+
+def is_public_ledger_fixture(source):
+    return (sys.platform=='linux' and source.name in CI_LEDGER_INPUTS and not source.is_symlink()
+            and source.resolve()==Path('/fixtures')/source.name)
+
+
+def diagnose_ledger_rejections(source):
+    require(is_public_ledger_fixture(source),'Focused diagnostic input denied')
+    with ledger_workspace(prefix='wealth-focus-probe-') as directory:
+        work=Path(directory);os.chmod(work,0o700)
+        target=work/source.name;shutil.copyfile(source,target);os.chmod(target,0o600)
+        process=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--focus-probe',str(target)],
+            stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
+        try:output,_=process.communicate(timeout=75)
+        except subprocess.TimeoutExpired:
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            process.communicate()
+            raise SmokeCheckError('Focused diagnostic timeout') from None
+        if process.returncode in (2, 3):raise SmokeSafetyError('Diagnostic safety or execution check failed')
+        require(process.returncode==0 and len(output)<=40000,'Focused diagnostic subprocess failed')
+        try:rows=json.loads(output)
+        except (ValueError,UnicodeError):raise SmokeCheckError('Focused diagnostic output failed') from None
+    emit_focus_report(rows,source.name)
 
 
 def run_ledger_case(fixtures, name, kind, document_type):
@@ -387,7 +605,7 @@ def run_ledger_case(fixtures, name, kind, document_type):
     keys = ('WEALTH_ENV', 'WEALTH_DISABLE_ENV_FILE', 'WEALTH_DATA_DIR', 'DATA_DIR', 'TMPDIR')
     saved_env = {key: os.environ.get(key) for key in keys}
     saved_tempdir = tempfile.tempdir
-    with tempfile.TemporaryDirectory(prefix='wealth-ledger-smoke-') as directory:
+    with ledger_workspace() as directory:
         work = Path(directory)
         os.chmod(work, 0o700)
         data = work / 'synthetic-data'; data.mkdir(mode=0o700)
@@ -413,7 +631,10 @@ def run_ledger_case(fixtures, name, kind, document_type):
             # directories so their disappearance is observable without mocks.
             tempfile.tempdir = str(inputs)
             mime = {'png': 'image/png', 'jpeg': 'image/jpeg', 'pdf': 'application/pdf'}[kind]
-            result = preview(target.read_bytes(), mime, document_type)
+            try:
+                result = preview(target.read_bytes(), mime, document_type)
+            except (ValueError, subprocess.TimeoutExpired):
+                raise LedgerOCRError('Ledger OCR worker failed') from None
             if isinstance(result, dict) and result.get('document_type') != document_type:
                 diagnose_ledger_evidence(target, kind)
             if name=='bank.png' and document_type=='bank_transactions' and isinstance(result,dict):
@@ -421,20 +642,27 @@ def run_ledger_case(fixtures, name, kind, document_type):
                 if isinstance(rows,list) and any(index>=len(rows) or not isinstance(rows[index],dict) or
                     rows[index].get('counterparty')!=expected for index,expected in enumerate(('가상입금처','가상출금처'))):
                     try:diagnose_bank_parties(source,result)
-                    except Exception:print('DIAG bank.png probe_status=unavailable')
-            validate_ledger_result(result, document_type)
-            require(not list(inputs.iterdir()), 'Ledger worker private inputs were not cleaned up')
-            require(set(data.iterdir()) == set(sentinels), 'Ledger created unexpected financial/user paths')
-            require(all(not path.is_symlink() and path.read_bytes() == content
-                        for path, content in sentinels.items()), 'Ledger changed synthetic financial files')
+                    except SmokeSafetyError:raise
+                    except (SmokeCheckError, ValueError, subprocess.TimeoutExpired):print('DIAG bank.png probe_status=unavailable')
+            try:validate_ledger_result(result, document_type)
+            except SmokeSafetyError:raise
+            except SmokeCheckError as validation_error:
+                if is_public_ledger_fixture(source):
+                    try:diagnose_ledger_rejections(source)
+                    except SmokeSafetyError:raise
+                    except (SmokeCheckError, ValueError, subprocess.TimeoutExpired):print('DIAG '+name+' focus_probe_status=unavailable')
+                raise LedgerOCRError(str(validation_error)) from None
         finally:
-            tempfile.tempdir = saved_tempdir
-            for key, value in saved_env.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
-    require(not work.exists(), 'Ledger smoke temporary copies were not cleaned up')
+            # Restore process scope even when integrity inspection itself fails.
+            try:
+                check_ledger_integrity(data, inputs, sentinels)
+            finally:
+                tempfile.tempdir = saved_tempdir
+                for key, value in saved_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
     print('PASS: synthetic ledger OCR, exact values, review, no writes and cleanup ('
           + document_type + ', ' + kind + ')')
 
@@ -493,24 +721,35 @@ def main():
                         'OCR result must still require human review')
             print('PASS: production document worker, strict JSON and review contract (' + kind + ')')
 
+    ledger_failures=[]
     for name, kind, document_type in (
         ('bank.png', 'png', 'bank_transactions'),
         ('bank.pdf', 'pdf', 'bank_transactions'),
         ('card.jpg', 'jpeg', 'card_transactions'),
         ('card.pdf', 'pdf', 'card_transactions'),
     ):
-        run_ledger_case(args.fixtures, name, kind, document_type)
+        try:run_ledger_case(args.fixtures, name, kind, document_type)
+        except LedgerOCRError:
+            ledger_failures.append(name)
+            print('FAIL: synthetic ledger exact-value check ('+name+')')
+    require(not ledger_failures,'Ledger OCR smoke exact-value checks failed')
 
 
 if __name__ == '__main__':
     try:
         if len(sys.argv)==3 and sys.argv[1]=='--party-probe':
             print(json.dumps(party_probe(Path(sys.argv[2])),allow_nan=False))
+        elif len(sys.argv)==3 and sys.argv[1]=='--focus-probe':
+            print(json.dumps(focus_probe(Path(sys.argv[2])),allow_nan=False))
         else:main()
+    except SmokeSafetyError:
+        print('FAIL: OCR smoke safety check failed', file=sys.stderr)
+        sys.exit(2)
     except Exception as exc:
         # Only fixed diagnostic messages; subprocess stdout/stderr remain private.
-        if isinstance(exc, RuntimeError):
+        if isinstance(exc, (SmokeCheckError, LedgerOCRError)):
             print('FAIL: ' + str(exc), file=sys.stderr)
         else:
             print('FAIL: offline OCR smoke could not complete', file=sys.stderr)
+            sys.exit(3)
         sys.exit(1)
