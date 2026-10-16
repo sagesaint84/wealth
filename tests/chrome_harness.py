@@ -78,12 +78,23 @@ def stop_chrome(process):
 
 
 def cleanup_profile(path, *, timeout=4, clock=time.monotonic, sleep=time.sleep):
+    import errno
+
     deadline = clock() + timeout
     while True:
         try:
             shutil.rmtree(path)
             return
-        except PermissionError as error:
+        except OSError as error:
+            if not isinstance(error, PermissionError) and error.errno not in (errno.ENOTEMPTY, errno.ENOENT):
+                raise
+            if error.errno == errno.ENOENT:
+                # A disappearing child does not prove the profile root is gone.
+                # lstat also keeps a remaining dangling symlink from looking absent.
+                try:
+                    Path(path).lstat()
+                except FileNotFoundError:
+                    return
             remaining = deadline - clock()
             if remaining <= 0:
                 raise RuntimeError(f'Chrome profile cleanup timeout: profile={path}; last={error}') from error

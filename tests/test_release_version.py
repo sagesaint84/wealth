@@ -25,6 +25,7 @@ class ReleaseVersionTests(unittest.TestCase):
         self.assertTrue(css_matches)
         for asset, version in css_matches:
             expected = {
+                'wealth-ledger-ocr.css': '2.0.2-review1',
                 "wealth-color-preferences.css": "10.9r6",
                 "wealth-color-picker.css": "10.9r2",
                 "wealth-layout.css": "2.0.2-r5",
@@ -39,6 +40,8 @@ class ReleaseVersionTests(unittest.TestCase):
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
         versions = {
+            'wealth-ledger-ocr.js': '2.0.2-review2',
+            'wealth-money-input.js': '2.0.2-review2',
             "wealth-financial-income-what-if.js": "2.0.2-r6",
             "wealth-family-financial-income-risk.js": "2.0.2-r7",
             "wealth.js": "2.0.2-r7", "wealth-layout.js": "2.0.2",

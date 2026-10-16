@@ -36,13 +36,13 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         version = assets.versions[0]
         self.assertIsInstance(version, str)
         self.assertRegex(version, r'^\d+\.\d+\.\d+$')
-        # Core follows the app version; unchanged money-input keeps its own
-        # cache revision. Parse actual tags so comments cannot satisfy order.
+        # Core and the changed import loader have independent cache revisions.
+        # Parse actual tags so comments cannot satisfy order.
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
         self.assertTrue(revision.startswith(version + '-'))
         core = f'/static/wealth.js?v={revision}'
-        money = '/static/wealth-money-input.js?v=1.3.0'
+        money = '/static/wealth-money-input.js?v=2.0.2-review2'
         self.assertIn(core, html)
         self.assertIn(money, html)
         self.assertLess(html.index(core), html.index(money))

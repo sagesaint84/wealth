@@ -18,47 +18,12 @@ def encode_result(result):
 
 
 def extract(path,kind,document_type):
-    from PIL import Image, ImageOps
-    from app.services.national_pension_import import MAX_PAGES, MAX_PIXELS, parse_text
-    Image.MAX_IMAGE_PIXELS=MAX_PIXELS
-    directory=path.parent
-
-    def ocr(image_path):
-        with Image.open(image_path) as image:
-            if image.format not in {'PNG','JPEG'} or image.width*image.height>MAX_PIXELS or getattr(image,'n_frames',1)!=1:
-                raise ValueError('Image limit')
-            image=ImageOps.exif_transpose(image).convert('L')
-            image.thumbnail((3200,3200))
-            image=ImageOps.autocontrast(image)
-            prepared=directory/'prepared.png';image.save(prepared);os.chmod(prepared,0o600)
-        # Orientation detection is optional (short documents can lack enough text).
-        try:
-            orientation=command(['tesseract',str(prepared),'stdout','-l','osd','--psm','0'],5).decode('utf-8')
-            rotation=re.search(r'Rotate:\s*(90|180|270)',orientation)
-            if rotation:
-                with Image.open(prepared) as image: image.rotate(-int(rotation[1]),expand=True).save(directory/'rotated.png')
-                prepared=directory/'rotated.png';os.chmod(prepared,0o600)
-        except subprocess.CalledProcessError: pass
-        # PSM 6 performs line finding/limited skew handling. Severe perspective skew requires manual correction.
-        return command(['tesseract',str(prepared),'stdout','-l','kor+eng','--psm','6'],20).decode('utf-8')
-
-    if kind!='pdf': return parse_text(ocr(path),ocr=True,document_type=document_type)
-    info=command(['pdfinfo',str(path)]).decode('utf-8',errors='replace')
-    pages=re.search(r'^Pages:\s*(\d+)',info,re.M)
-    if not pages or not 1<=int(pages[1])<=MAX_PAGES or re.search(r'^Encrypted:\s*yes',info,re.M): raise ValueError('PDF limit')
-    parts=[];used_ocr=False
-    for page in range(1,int(pages[1])+1):
-        output=directory/'page.txt'
-        command(['pdftotext','-f',str(page),'-l',str(page),'-layout','-enc','UTF-8',str(path),str(output)])
-        os.chmod(output,0o600)
-        if output.stat().st_size>200_000: raise ValueError('Text limit')
-        text=output.read_text(encoding='utf-8')
-        if len(re.findall(r'[가-힣]',text))<20:
-            prefix=directory/'page'
-            command(['pdftoppm','-f',str(page),'-l',str(page),'-singlefile','-scale-to','3200','-png',str(path),str(prefix)])
-            image=directory/'page.png';os.chmod(image,0o600);text=ocr(image);used_ocr=True
-        parts.append(text)
-    return parse_text('\n'.join(parts),ocr=used_ocr,document_type=document_type)
+    from app.services.document_extraction import extract_pages
+    from app.services.national_pension_import import parse_text
+    pages = extract_pages(path,kind,run=command,
+                          needs_ocr=lambda text: len(re.findall(r'[가-힣]',text))<20)
+    return parse_text('\n'.join(page['text'] for page in pages),
+                      ocr=any(page['method']=='ocr' for page in pages),document_type=document_type)
 
 
 if __name__=='__main__':

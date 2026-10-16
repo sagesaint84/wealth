@@ -16,8 +16,12 @@ on:
       - 'ops/toss-auth/**'
       - 'ops/pension-ocr/**'
       - 'app/services/national_pension*.py'
+      - 'app/services/ledger*.py'
+      - 'app/static/wealth-ledger-ocr.*'
       - 'tests/test_national_pension*.py'
       - 'tests/test_pension_import*.py'
+      - 'tests/test_pension_ocr_smoke.py'
+      - 'tests/test_ledger_document*.py'
       - 'tests/test_toss_wts*.py'
       - 'tests/test_settings_frontend.py'
       - 'tests/conftest.py'
@@ -56,6 +60,8 @@ jobs:
       PYTHONPATH: tests
       PYTEST_ADDOPTS: ''
       EXPECTED_MACHINE: ${{ matrix.machine }}
+      WEALTH_ENV: test
+      WEALTH_DISABLE_ENV_FILE: '1'
       # No auth credentials, real sessions, browser debug output or artifact upload.
 
     steps:
@@ -63,6 +69,7 @@ jobs:
         run: |
           printf 'WEALTH_DATA_DIR=%s/toss-auth-synthetic-data\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'PROCESS_TEST_REPORT=%s/toss-auth-process-tests.xml\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'LEDGER_TEST_REPORT=%s/ledger-safety-tests.xml\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'OCR_FIXTURE_DIR=%s/wealth-synthetic-ocr\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
 
       - name: Checkout PR merge revision
@@ -89,10 +96,50 @@ jobs:
           print(f"Native Linux/Python 3.11: {platform.machine()}")
           PY
 
-      - name: Install process-test dependencies
+      - name: Install regression-test dependencies
         run: |
-          python -m pip install -r requirements.txt 'pytest>=9.0.3,<10'
+          python -m pip install -r requirements.txt 'pytest>=9.0.3,<10' playwright websocket-client
           install -d -m 700 "$WEALTH_DATA_DIR"
+
+      - name: Require ledger safety and user-confirmed manual import regressions
+        run: |
+          python -m playwright install --with-deps chromium
+          python - <<'PY'
+          import os
+          import shlex
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as playwright:
+              executable = Path(playwright.chromium.executable_path).resolve(strict=True)
+          if not executable.is_file() or not os.access(executable, os.X_OK):
+              raise SystemExit('Installed CI Chromium executable is unavailable')
+          # The existing harness checks chrome first. Only this temporary CI
+          # wrapper disables Chromium's sandbox for synthetic loopback tests.
+          wrapper = Path(os.environ['RUNNER_TEMP']) / 'chrome'
+          wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(str(executable))
+                             + ' --no-sandbox "$@"\n', encoding='utf-8')
+          wrapper.chmod(0o700)
+          PY
+          export PATH="$RUNNER_TEMP:$PATH"
+          python -m pytest -q \
+            tests/test_pension_ocr_smoke.py \
+            tests/test_ledger_document_import.py \
+            tests/test_ledger_document_save.py \
+            tests/test_ledger_document_chrome.py \
+            --tb=short --junitxml="$LEDGER_TEST_REPORT" \
+            --basetemp="${RUNNER_TEMP}/ledger-safety-pytest"
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          cases = list(ET.parse(os.environ['LEDGER_TEST_REPORT']).iter('testcase'))
+          for module in ('test_pension_ocr_smoke', 'test_ledger_document_import',
+                         'test_ledger_document_save', 'test_ledger_document_chrome'):
+              selected = [case for case in cases if case.get('classname', '').endswith(module)]
+              if not selected or any(case.find(tag) is not None for case in selected
+                                     for tag in ('skipped', 'failure', 'error')):
+                  raise SystemExit('Required ledger regression missing, skipped or failed: ' + module)
+          print('PASS: ledger safety, manual fallback and explicit confirmation regressions (no skips)')
+          PY
 
       - name: Run mocked and real detached-child process tests
         run: |
@@ -172,4 +219,4 @@ jobs:
 
       - name: Remove transient synthetic test report
         if: always()
-        run: rm -f -- "$PROCESS_TEST_REPORT"
+        run: rm -f -- "$PROCESS_TEST_REPORT" "$LEDGER_TEST_REPORT"
