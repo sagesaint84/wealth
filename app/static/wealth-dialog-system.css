@@ -72,3 +72,118 @@ dialog.dialog :is(#ledgerCardsList, #ledgerRecurringList) .empty > p {
   margin: 0 !important;
   flex-wrap: wrap;
 }
+
+/* Only AccountInfo PDF mode owns a single preview scroller; CSV/XLSX stays unchanged. */
+#accountImportDialog.accountinfo-pdf-mode {
+  --dialog-width: 1120px;
+  height: min(960px, calc(100dvh - 24px));
+  max-height: calc(100dvh - 24px) !important;
+  overflow: visible !important;
+}
+#accountImportDialog.accountinfo-pdf-mode #accountImportForm {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 16px;
+  gap: 10px;
+}
+#accountImportDialog.accountinfo-pdf-mode #accountImportForm > * {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  margin-block: 0 !important;
+}
+#accountImportDialog.accountinfo-pdf-mode #accountInfoPdfPreview:not([hidden]) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 4px;
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-cards {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-selection {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-selection input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--purple);
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-identity {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-account-number {
+  color: var(--muted);
+  font-size: 12px;
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-details {
+  display: grid;
+  gap: 5px;
+  margin: 14px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-details dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-details dd { margin: 0 0 5px; }
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-reference {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-reference-amount {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-balance-editor { color: var(--text); }
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-balance-editor input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text);
+  background: var(--panel);
+}
+#accountImportDialog.accountinfo-pdf-mode :is(.accountinfo-note, .accountinfo-privacy, .accountinfo-balance-help) {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+#accountImportDialog.accountinfo-pdf-mode .accountinfo-summary p { margin: 6px 0; font-size: 12px; }
+#accountImportDialog.accountinfo-pdf-mode .dialog-actions { flex-wrap: wrap; }
+#accountImportDialog.accountinfo-pdf-mode input:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 2px;
+}
+@media (min-width: 800px) {
+  #accountImportDialog.accountinfo-pdf-mode .accountinfo-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

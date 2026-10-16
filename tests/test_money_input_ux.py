@@ -42,7 +42,7 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         revision = assets.revisions[0]
         self.assertTrue(revision.startswith(version + '-'))
         core = f'/static/wealth.js?v={revision}'
-        money = '/static/wealth-money-input.js?v=2.0.2-review2'
+        money = '/static/wealth-money-input.js?v=2.0.2-ai1'
         self.assertIn(core, html)
         self.assertIn(money, html)
         self.assertLess(html.index(core), html.index(money))

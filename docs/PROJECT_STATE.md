@@ -4,9 +4,41 @@
 > 새 대화, 새 작업 세션, 새 개발자가 시작할 때 가장 먼저 이 문서를 읽습니다.
 > 세부 계획은 `docs/ROADMAP.md`, 비밀값·환경설정 원칙은 `docs/SECURITY_AND_CONFIG.md`를 참조합니다.
 
-현재 운영 기준: Wealth v2.0.2, main `d98336aea7514cea205ef82ed184398015bff5f9` (PR #145 Squash Merge 및 Oracle ARM64 배포·운영 브라우저 확인 완료; 2026-10-14).
+현재 운영 기준: Wealth v2.0.2, main `113c663023586dd8a217d15ac9ca9bd3cfd47648` (사용자 제공 확인: PR #147 Squash Merge·CI 완료, Oracle 배포 및 서비스 안정성 검사 PASS; 2026-10-17). 아래 과거 PR #147 실패·미검증·미배포 기록은 각 단계 당시 이력이다.
 
 ## 1. 현재 개발 상태
+
+### AccountInfo PDF 반응형 미리보기 — 2026-10-17 (운영 미배포)
+
+`wealth-ocr`의 깨끗한 기존 OCR 브랜치 HEAD `cb6f87b13d774a101157a7a3d6a0ef7febb3492f`와
+`origin/main`의 운영 커밋 일치를 확인한 뒤, 같은 worktree에서
+`codex/v202-accountinfo-pdf-responsive-preview`를 `origin/main` 기반으로 생성했다.
+원본 wealth와 감액배당 작업은 변경하지 않는다.
+
+- PDF 미리보기의 7열 테이블을 계좌 카드로 바꾼다. 320/390/768px는 1열,
+  911/1280px는 2열이며 긴 상품명과 PDF 잔액을 잘림·말줄임 없이 표시한다.
+- PDF 전용 selector와 모드 상태로 dialog 폭/높이를 제한하고 미리보기 한 곳만 스크롤한다.
+  제목·파일/소유자 선택·취소/추가 버튼과 키보드·label 접근성을 유지한다.
+  CSV/XLSX로 전환하거나 닫을 때 PDF 전용 상태를 해제하고 기존 안내·폭·동작을 복원한다.
+- 증권 PDF 잔액은 편집 불가능한 원본 참고값이며 신규 예수금 0원 정책을 유지한다.
+  은행 원본 참고값과 신규 등록 잔액 입력은 분리하며, 미확인 0원/실제 0원·편집·최종 확인·
+  중복/소유자 충돌 방지를 유지한다. parser·Owner·마스킹·금융 API·계산은 변경하지 않는다.
+- APP_VERSION은 2.0.2다. 변경한 importer·loader·dialog CSS revision만 `2.0.2-ai1`로 갱신하고
+  관련 테스트 기대값을 함께 갱신한다. 새 UI는 운영 미배포이며 커밋·푸시·PR 생성·병합·배포는 하지 않는다.
+- 최종 격리 집중 검증: Chrome UI·AccountInfo frontend·release version·money-input 네 모듈
+  **82 passed / 0 failed / 0 skipped**, 162.76초. 실제 Chromium에서 가상 36계좌의
+  320/390/768/911/1280px × purple/white/oled × 은행/증권 30개 조합을 확인했다.
+  금액/상품명 전체 가시성·단일 스크롤·가로 overflow 부재·선택/비활성·키보드/버튼 접근성과
+  은행 잔액 편집/0원 등록·증권 예수금 0원 payload·취소 무저장·CSV/XLSX 복원을 검증했다.
+  PDF.js 의존성만 합성 대체했으며 실제 사용자 PDF·금융 데이터는 사용하지 않았다.
+  변경 JS 2개 Node 문법 검사·`git diff --check` PASS. parser·중복·Owner·마스킹·금융 API/payload
+  생성 함수는 기준 소스와 동일함을 정적 대조했다. 전체 pytest·Native CI·운영 검증은 미실행이다.
+- 정리 상태: 저장소 내 신규 fixture/더미 파일은 없다. 시스템 임시 부모 경로는 삭제 요청이
+  자동 승인 정책에 차단되어 남아 있다. 이 정리 미완료 상태를 테스트 성공과 구분한다.
+
+### 이전 PR #147 개발·검증 기록
+
+다음은 병합·운영 배포 전 단계별 기록이다. 현재 운영 상태와 새 UI 개발 상태는 위 항목을 따른다.
 
 ### PR #147 Chromium teardown 경합 보정 — 2026-10-16 (미검증)
 

@@ -16,7 +16,7 @@ class AccountInfoPdfImportFrontendTests(unittest.TestCase):
         cls.money_js = MONEY_JS.read_text(encoding="utf-8")
 
     def test_loader_and_pdf_accept_are_wired_without_replacing_csv_import(self) -> None:
-        self.assertIn("/static/wealth-accountinfo-import.js?v=2.0.2-review2", self.money_js)
+        self.assertIn("/static/wealth-accountinfo-import.js?v=2.0.2-ai1", self.money_js)
         self.assertIn(".csv,.xlsx,.xlsm,.pdf,application/pdf", self.js)
         self.assertIn("if (!isPdfFile(file)) return;", self.js)
         self.assertIn("event.stopImmediatePropagation()", self.js)
@@ -68,6 +68,18 @@ class AccountInfoPdfImportFrontendTests(unittest.TestCase):
         self.assertIn("REVIEW_BROKER_PRODUCT", self.js)
         self.assertIn("퇴직연금", self.js)
         self.assertIn("금현물", self.js)
+
+    def test_pdf_preview_uses_scoped_cards_and_bank_only_balance_editor(self) -> None:
+        css = (ROOT / 'app/static/wealth-dialog-system.css').read_text(encoding='utf-8')
+        self.assertIn("element('article', 'accountinfo-card')", self.js)
+        self.assertIn("if (kind === 'bank')", self.js)
+        self.assertIn("'PDF 원본 참고 잔액'", self.js)
+        self.assertIn("'참고용 · 예수금 반영 안 함 · 신규 예수금 0원'", self.js)
+        self.assertNotIn("min-width:850px", self.js)
+        self.assertNotIn("max-height:58vh", self.js)
+        self.assertNotIn("dialog.style.maxWidth", self.js)
+        self.assertIn('#accountImportDialog.accountinfo-pdf-mode #accountInfoPdfPreview:not([hidden])', css)
+        self.assertIn("dialog.addEventListener('close'", self.js)
 
     def test_sensitive_example_account_numbers_are_not_committed(self) -> None:
         # Uploaded AccountInfo documents are format references only. Raw personal

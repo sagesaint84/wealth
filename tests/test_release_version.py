@@ -30,7 +30,7 @@ class ReleaseVersionTests(unittest.TestCase):
                 "wealth-color-picker.css": "10.9r2",
                 "wealth-layout.css": "2.0.2-r5",
                 "wealth-savings-contributions.css": "10.9p",
-                "wealth-dialog-system.css": "10.9o2",
+                "wealth-dialog-system.css": "2.0.2-ai1",
                 "wealth-ui-density.css": "2.0.1",
                 "wealth-national-pension.css": "2.0.2-r2",
                 "wealth-overrides.css": "10.9h1",
@@ -41,7 +41,7 @@ class ReleaseVersionTests(unittest.TestCase):
         self.assertTrue(js_matches)
         versions = {
             'wealth-ledger-ocr.js': '2.0.2-review2',
-            'wealth-money-input.js': '2.0.2-review2',
+            'wealth-money-input.js': '2.0.2-ai1',
             "wealth-financial-income-what-if.js": "2.0.2-r6",
             "wealth-family-financial-income-risk.js": "2.0.2-r7",
             "wealth.js": "2.0.2-r7", "wealth-layout.js": "2.0.2",

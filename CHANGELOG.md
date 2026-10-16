@@ -1,5 +1,14 @@
 # Wealth 변경 이력
 
+## Wealth v2.0.2 — AccountInfo PDF 반응형 계좌 미리보기 — 2026-10-17 (개발 변경 — 운영 미배포)
+
+- PR #147의 CI 및 Squash Merge는 완료됐고, 운영 main은 `113c663023586dd8a217d15ac9ca9bd3cfd47648`이다. CI·Oracle 배포 및 서비스 안정성 검사 PASS는 사용자 제공 운영 확인 결과이며, 아래 PR #147 단계별 실패·미검증 기록은 당시 이력으로 보존한다.
+- AccountInfo PDF의 7열·최소 폭 850px 테이블을 마스킹된 계좌 카드 목록으로 바꾼다. 모바일은 1열, 충분히 넓은 화면은 2열이며 긴 상품명과 참고 잔액을 줄바꿈해 표시한다. PDF 전용 dialog 폭과 높이를 적용하고 제목·소유자/파일 선택·하단 버튼을 유지하면서 미리보기 한 곳만 세로 스크롤한다. CSV/XLSX 모드의 기존 크기·안내·저장 흐름은 유지한다.
+- 증권 PDF 원본 잔액은 읽기 전용 참고값으로 표시하며 예수금에 반영하지 않는다. 은행은 PDF 원본 참고 잔액과 신규 등록 잔액 입력을 분리하며, 미확인 0원과 실제 0원 표시·직접 편집·사용자 확인·중복/소유자 충돌 차단을 유지한다. PDF parser·금융 API·계산·마스킹 정책은 변경하지 않는다.
+- APP_VERSION 2.0.2 유지. 변경한 dialog CSS·AccountInfo importer·money-input loader의 캐시 revision만 `2.0.2-ai1`로 갱신한다. 이번 UI 변경은 운영 미배포이며 커밋·푸시·PR 생성·병합·배포는 수행하지 않는다.
+- 격리된 합성 데이터 검증: `test_ledger_document_chrome.py`, `test_accountinfo_pdf_import_frontend.py`, `test_release_version.py`, `test_money_input_ux.py` **82 passed / 0 failed / 0 skipped**, 162.76초. 가상 36계좌로 5개 너비 × 3개 테마 × 은행/증권 30개 실제 Chromium DOM 조합을 검사하고, 잔액/상품명 전체 표시·가로 overflow 부재·단일 세로 스크롤·선택/비활성·키보드/버튼 접근·은행 편집/0원 payload·증권 예수금 0원·CSV/XLSX 복원을 확인했다. PDF.js만 합성 의존성으로 대체했으며 개인 PDF·금융 데이터는 사용하지 않았다. 변경 JS 2개 Node 문법 검사 및 `git diff --check` PASS. 전체 pytest·Native CI·운영 배포 검증은 이번 작업에서 실행하지 않았다.
+- 저장소 내 새 fixture/더미 파일은 없다. 검증용 시스템 임시 부모 경로 삭제는 실행 환경의 자동 승인 정책에 차단되어 정리 미완료 상태다. 테스트 PASS와 임시 부모 경로 정리 상태를 구분한다.
+
 ## Wealth v2.0.2 — PR #147 Chromium 프로필 teardown 경합 보정 — 2026-10-16
 
 - 사용자 제공 Actions `38910472439`는 AMD64 **456 passed / 3 errors**, ARM64 **456 passed / 15 errors**다. 기능 테스트 통과 후 Chromium 프로필 삭제에서 `ENOTEMPTY` 및 하위 파일 `ENOENT` 경합이 발생했다. 기존 `cleanup_profile()`은 `PermissionError`만 재시도했다.

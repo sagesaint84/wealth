@@ -304,3 +304,148 @@ def test_accountinfo_unknown_zero_duplicate_and_brokerage_cash_contract(chrome_p
         noBrokerBalance:!csv.includes('777777'),zeroCash:csv.includes(',0,0,미적용,')};
     })()""")
     assert all(result.values()),result
+
+
+
+def open_accountinfo_preview(chrome_preview, width, theme, kind='bank'):
+    call, evaluate, port = chrome_preview
+    height = {320:568,390:844,768:1024,911:700,1280:900}[width]
+    call('Emulation.setDeviceMetricsOverride', {'width':width,'height':height,'deviceScaleFactor':1,'mobile':width<600})
+    source = (Path(__file__).resolve().parents[1]/'app/static/wealth-accountinfo-import.js').read_text(encoding='utf-8')
+    # Mock only the PDF.js dependency; actual PDF signature/token parser, selection,
+    # preview renderer and save/cancel handlers run against synthetic browser Files.
+    assert source.count('import(PDFJS_URL)') == 1
+    source = source.replace('import(PDFJS_URL)', 'Promise.resolve(window.__accountInfoPdfJs)')
+    bootstrap = r"""
+    window.__aiKind=KIND;
+    window.__aiAccounts=Array.from({length:36},(_,i)=>String(880000000000+i));
+    window.__aiItems=[{str:'조회기준일: 2026-10-17',transform:[1,0,0,1,100,0]}];
+    for(let i=0;i<36;i++){
+      const institution=__aiKind==='brokerage'?'합성증권':'합성은행';
+      const product=(i===5?(__aiKind==='brokerage'?'퇴직연금':'주택청약'):'가상입출금')+' · 긴 합성 계좌 상품명 '+('상품설명'.repeat(12));
+      const tokens=[institution,__aiAccounts[i],product,'2020-01-01',i===4?'비활동성':'활동성'];
+      if(i!==0)tokens.push(i===1?'0원':i===6?'9,007,199,254,740,991원':'123,456,789원');
+      __aiItems.push({str:String(i+1),transform:[1,0,0,1,30,0]},...tokens.map(str=>({str,transform:[1,0,0,1,100,0]})));
+    }
+    window.__accountInfoPdfJs={GlobalWorkerOptions:{},getDocument:()=>({promise:Promise.resolve({numPages:1,getPage:async()=>({getTextContent:async()=>({items:__aiItems})})})})};
+    const descriptor=Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype,'src');
+    Object.defineProperty(HTMLScriptElement.prototype,'src',{...descriptor,set(value){if(String(value).includes('/wealth-accountinfo-import.js')){this.textContent=SCRIPT_SOURCE;}else{descriptor.set.call(this,value);}}});
+    window.__aiCalls=[];window.__aiConfirmations=[];window.__aiAccept=false;
+    window.alert=()=>{};window.confirm=message=>{__aiConfirmations.push(message);return __aiAccept;};
+    const nativeFetch=window.fetch;
+    window.fetch=async(url,options={})=>{
+      const path=new URL(String(url),location.href).pathname;
+      const answer=payload=>({ok:true,headers:{get:()=> 'application/json'},json:async()=>payload});
+      const existing=[2,3].map(i=>({broker:'합성증권',bank_name:'합성은행',account_no:__aiAccounts[i],account_number:__aiAccounts[i],owner:i===2?'아빠':'엄마'}));
+      if(path==='/api/accounts')return answer({accounts:__aiKind==='brokerage'?existing:[]});
+      if(path==='/api/savings')return answer({bank_accounts:__aiKind==='bank'?existing:[]});
+      if(options.method==='POST' && ['/api/import-accounts','/api/bank-accounts'].includes(path)){
+        __aiCalls.push({path,body:typeof options.body==='string'?JSON.parse(options.body):await options.body.get('file').text(),filename:typeof options.body==='string'?null:options.body.get('file').name});
+        // Fail after capturing the synthetic payload to avoid navigation/reload.
+        return {ok:false,headers:{get:()=> 'application/json'},json:async()=>({detail:'합성 저장 응답'})};
+      }
+      return nativeFetch(url,options);
+    };
+    """.replace('KIND',json.dumps(kind)).replace('SCRIPT_SOURCE',json.dumps(source))
+    call('Page.addScriptToEvaluateOnNewDocument', {'source':bootstrap})
+    call('Page.navigate', {'url':f'http://127.0.0.1:{port}/#assets'})
+    wait_for(evaluate,"document.readyState==='complete' && !!window.WealthAccountInfoImport && !!document.getElementById('accountInfoImportOwner')")
+    evaluate('document.documentElement.dataset.theme='+json.dumps(theme))
+    evaluate("""(()=>{
+      window.__aiCsvWidth=getComputedStyle(document.getElementById('accountImportDialog')).getPropertyValue('--dialog-width');
+      document.getElementById('accountImportBtn').click();
+      const transfer=new DataTransfer();transfer.items.add(new File(['%PDF-synthetic-only'],'synthetic-accountinfo.pdf',{type:'application/pdf'}));
+      const input=document.getElementById('accountImportFile');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+      document.getElementById('accountInfoImportOwner').value='아빠';
+      document.getElementById('accountImportForm').requestSubmit();
+    })()""")
+    wait_for(evaluate,"document.querySelectorAll('.accountinfo-card').length===36 && !document.querySelector('#accountImportForm button[type=submit]').disabled")
+    return evaluate, height
+
+
+@pytest.mark.parametrize('width',[320,390,768,911,1280])
+@pytest.mark.parametrize('theme',['purple','white','oled'])
+@pytest.mark.parametrize('kind',['bank','brokerage'])
+def test_accountinfo_36_cards_responsive_visibility_and_selection(chrome_preview,width,theme,kind):
+    evaluate,height=open_accountinfo_preview(chrome_preview,width,theme,kind)
+    result=evaluate(r"""(()=>{
+      const dialog=document.getElementById('accountImportDialog'),form=document.getElementById('accountImportForm'),preview=document.getElementById('accountInfoPdfPreview');
+      const cards=[...preview.querySelectorAll('.accountinfo-card')],checks=cards.map(card=>card.querySelector('input[type=checkbox]'));
+      const r=dialog.getBoundingClientRect();
+      const inViewport=element=>{const b=element.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth&&b.top>=0&&b.bottom<=innerHeight;};
+      const amounts=cards.every(card=>{
+        const amount=card.querySelector('.accountinfo-reference-amount'),style=getComputedStyle(amount),range=document.createRange();range.selectNodeContents(amount);
+        const b=card.getBoundingClientRect();
+        return style.textOverflow!=='ellipsis' && style.whiteSpace!=='nowrap' && [...range.getClientRects()].every(rect=>rect.left>=b.left&&rect.right<=b.right&&rect.bottom<=b.bottom);
+      });
+      const editors=[...preview.querySelectorAll('.accountinfo-balance-editor input')];
+      const canvas=document.createElement('canvas'),context=canvas.getContext('2d');
+      const editorValuesFit=editors.every(input=>{const style=getComputedStyle(input);context.font=style.font;return context.measureText(input.value).width<=input.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);});
+      const productsFit=cards.every(card=>[...card.querySelectorAll('dd')].every(value=>{const range=document.createRange();range.selectNodeContents(value);const b=card.getBoundingClientRect();return [...range.getClientRects()].every(rect=>rect.left>=b.left&&rect.right<=b.right&&rect.bottom<=b.bottom);}));
+      const scrollers=[dialog,...dialog.querySelectorAll('*')].filter(node=>node.scrollHeight>node.clientHeight+1&&['auto','scroll'].includes(getComputedStyle(node).overflowY));
+      const controls=[dialog.querySelector('h2'),document.getElementById('accountImportFile'),document.getElementById('accountInfoImportOwner'),...dialog.querySelectorAll('.dialog-actions button')];
+      const hit=element=>{const b=element.getBoundingClientRect(),top=document.elementFromPoint(b.left+b.width/2,b.top+b.height/2);return top===element||element.contains(top);};
+      return {count:cards.length,page:document.documentElement.scrollWidth,dialog:inViewport(dialog),formFits:form.scrollHeight<=form.clientHeight+1,
+        previewScroll:preview.scrollHeight>preview.clientHeight,scrollers:scrollers.map(node=>node.id),layout:[...form.children].map(node=>({tag:node.tagName,id:node.id,height:node.getBoundingClientRect().height,top:node.getBoundingClientRect().top,bottom:node.getBoundingClientRect().bottom})),formSize:[form.clientHeight,form.scrollHeight],
+        cardsFit:cards.every(card=>card.scrollWidth<=card.clientWidth+1),amounts,editorValuesFit,productsFit,
+        maxAmount:cards[6].querySelector('.accountinfo-reference-amount').textContent==='₩9,007,199,254,740,991',
+        unknown:cards[0].querySelector('.accountinfo-reference-amount').textContent==='0원(미확인)',
+        zero:cards[1].querySelector('.accountinfo-reference-amount').textContent==='₩0',
+        selection:!checks[0].checked&&checks[1].checked&&checks[2].disabled&&checks[3].disabled&&!checks[4].checked&&!checks[5].checked,
+        labels:checks.every(check=>!!check.closest('label')),controls:controls.every(inViewport)&&[...dialog.querySelectorAll('.dialog-actions button')].every(hit),
+        rawHidden:__aiAccounts.every(number=>!dialog.outerHTML.includes(number))&&!dialog.outerHTML.includes('%PDF-synthetic-only'),
+        noBrokerEditor:__aiKind!=='brokerage'||!preview.querySelector('input[type=text]'),
+        referenceOnly:__aiKind!=='brokerage'||preview.textContent.includes('참고용 · 예수금 반영 안 함'),
+        columns:getComputedStyle(preview.querySelector('.accountinfo-cards')).gridTemplateColumns.split(' ').length,
+        requests:__aiCalls.length};
+    })()""")
+    assert result['count']==36 and result['page']<=width and result['requests']==0,result
+    assert result['scrollers']==['accountInfoPdfPreview'],result
+    assert result['columns']==(2 if width>=800 else 1),result
+    for key in ('dialog','formFits','previewScroll','cardsFit','amounts','editorValuesFit','productsFit','maxAmount','unknown','zero','selection','labels','controls','rawHidden','noBrokerEditor','referenceOnly'):
+        assert result[key],json.dumps([key,result,width,height,theme,kind],ensure_ascii=False)
+    evaluate("document.querySelector('.accountinfo-selection input:not(:disabled)').focus()")
+    chrome_preview[0]('Input.dispatchKeyEvent',{'type':'keyDown','key':'Tab','code':'Tab','windowsVirtualKeyCode':9})
+    assert evaluate("document.activeElement!==document.querySelector('.accountinfo-selection input') && document.getElementById('accountImportDialog').contains(document.activeElement)")
+    evaluate("document.querySelector('#accountImportDialog .dialog-actions button[value=cancel]').click()")
+    wait_for(evaluate,"!document.getElementById('accountImportDialog').open && !document.getElementById('accountImportDialog').classList.contains('accountinfo-pdf-mode')")
+    assert evaluate("!document.getElementById('accountInfoPdfPreview').children.length")
+
+
+@pytest.mark.parametrize('kind',['bank','brokerage'])
+def test_accountinfo_card_confirmed_payload_and_csv_restore(chrome_preview,kind):
+    evaluate,_=open_accountinfo_preview(chrome_preview,390,'white',kind)
+    evaluate("document.querySelectorAll('#accountInfoPdfPreview input[type=checkbox]').forEach(input=>input.checked=false);document.querySelector('[data-account-info-index=\"0\"]').checked=true;document.getElementById('accountImportForm').requestSubmit()")
+    wait_for(evaluate,"__aiConfirmations.length===1 && !document.querySelector('#accountImportForm button[type=submit]').disabled")
+    assert evaluate("__aiCalls.length===0 && document.getElementById('accountImportDialog').open")
+    if kind=='bank':
+        evaluate("document.querySelector('.accountinfo-balance-editor input').value='4321';document.querySelector('.accountinfo-balance-editor input').dispatchEvent(new Event('input',{bubbles:true}))")
+    evaluate("__aiAccept=true;document.getElementById('accountImportForm').requestSubmit()")
+    wait_for(evaluate,"__aiCalls.length===1 && !document.querySelector('#accountImportForm button[type=submit]').disabled")
+    payload=evaluate('__aiCalls[0]')
+    if kind=='bank':
+        assert payload['path']=='/api/bank-accounts' and payload['body']['balance']==4321
+        # The same explicitly selected unknown row may still be registered at 0.
+        evaluate("document.querySelector('.accountinfo-balance-editor input').value='0';document.querySelector('.accountinfo-balance-editor input').dispatchEvent(new Event('input',{bubbles:true}));document.getElementById('accountImportForm').requestSubmit()")
+        wait_for(evaluate,'__aiCalls.length===2')
+        assert evaluate('__aiCalls[1].body.balance===0')
+    else:
+        assert payload['path']=='/api/import-accounts'
+        assert ',0,0,미적용,' in payload['body'] and '123456789' not in payload['body']
+    wait_for(evaluate,"!document.querySelector('#accountImportForm button[type=submit]').disabled")
+    evaluate("document.querySelector('#accountImportDialog .dialog-actions button[value=cancel]').click()")
+    wait_for(evaluate,"!document.getElementById('accountImportDialog').open")
+    for extension in ('csv','xlsx'):
+        evaluate("""(()=>{
+          const transfer=new DataTransfer();transfer.items.add(new File(['synthetic-csv-xlsx-only'],'synthetic.'+EXT));
+          const input=document.getElementById('accountImportFile');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+          document.getElementById('accountImportBtn').click();
+        })()""".replace('EXT',json.dumps(extension)))
+        assert evaluate("!document.getElementById('accountImportDialog').classList.contains('accountinfo-pdf-mode') && getComputedStyle(document.getElementById('accountImportDialog')).getPropertyValue('--dialog-width')===__aiCsvWidth && document.getElementById('accountInfoPdfPreview').hidden && getComputedStyle(document.getElementById('accountInfoOwnerLabel')).display==='none' && document.querySelector('#accountImportDialog h2').textContent==='증권계좌 파일 가져오기'")
+        count=evaluate('__aiCalls.length')
+        evaluate("document.getElementById('accountImportForm').requestSubmit()")
+        wait_for(evaluate,f'__aiCalls.length==={count+1}')
+        assert evaluate('__aiCalls.at(-1).filename')=='synthetic.'+extension
+        assert evaluate('__aiCalls.at(-1).path')=='/api/import-accounts'
+        evaluate("document.querySelector('#accountImportDialog .dialog-actions button[value=cancel]').click()")
+        wait_for(evaluate,"!document.getElementById('accountImportDialog').open")
