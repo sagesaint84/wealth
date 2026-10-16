@@ -346,7 +346,7 @@
     if (!host) {
       host = document.createElement('div');
       host.id = 'accountInfoPdfPreview';
-      host.style.cssText = 'display:none;margin-top:12px;max-height:58vh;overflow:auto;border:1px solid rgba(148,163,184,.18);border-radius:10px;padding:10px;background:rgba(15,23,42,.35);';
+      host.hidden = true;
       const actions = form.querySelector('.dialog-actions');
       form.insertBefore(host, actions || null);
     }
@@ -355,95 +355,92 @@
 
   function clearPreview() {
     const host = document.getElementById('accountInfoPdfPreview');
-    if (host) { host.style.display = 'none'; host.replaceChildren(); }
+    if (host) { host.hidden = true; host.replaceChildren(); }
     const submit = document.querySelector('#accountImportForm button[type="submit"]');
     if (submit) submit.textContent = '가져오기';
   }
 
   function statusLabel(status) {
     return {
-      new: ['신규', '#6ee7b7'],
-      inactive: ['비활동성 · 선택', '#94a3b8'],
-      review: ['확인 필요', '#fbbf24'],
-      duplicate: ['이미 등록됨', '#94a3b8'],
-      owner_conflict: ['다른 소유자와 충돌', '#fb7185'],
-    }[status] || ['확인 필요', '#fbbf24'];
+      new: '신규',
+      inactive: '비활동성 · 선택',
+      review: '확인 필요',
+      duplicate: '이미 등록됨',
+      owner_conflict: '다른 소유자와 충돌',
+    }[status] || '확인 필요';
   }
 
   function renderPreview(parsed, rows, owner, file) {
     const form = document.getElementById('accountImportForm');
     const host = ensurePreviewHost(form);
-    const dialog = document.getElementById('accountImportDialog');
-    if (dialog) dialog.style.maxWidth = '1120px';
-    host.style.display = 'block';
+    document.getElementById('accountImportDialog').classList.add('accountinfo-pdf-mode');
+    host.hidden = false;
     host.replaceChildren();
-
+    const element = (tag, className, value) => {
+      const item = document.createElement(tag);
+      item.className = className;
+      if (value != null) item.textContent = value;
+      return item;
+    };
     const kind = documentKind(rows);
-    const title = document.createElement('div');
-    title.style.cssText = 'display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;';
     const newCount = rows.filter((row) => row.import_status === 'new').length;
     const dupCount = rows.filter((row) => row.import_status === 'duplicate').length;
     const reviewCount = rows.filter((row) => ['review','inactive','owner_conflict'].includes(row.import_status)).length;
-    title.innerHTML = `<div><strong>AccountInfo PDF 미리보기</strong><div style="margin-top:3px;color:#94a3b8;font-size:11px;">${kind === 'brokerage' ? '증권' : '은행'} · 조회기준일 ${parsed.report_date} · ${rows.length}계좌 · 소유자 ${owner}</div></div><div style="font-size:11px;color:#94a3b8;">신규 ${newCount} · 기존 ${dupCount} · 확인 ${reviewCount}</div>`;
+    const title = element('div', 'accountinfo-summary');
+    title.append(element('strong', '', 'AccountInfo PDF 미리보기'),
+      element('p', '', `${kind === 'brokerage' ? '증권' : '은행'} · 조회기준일 ${parsed.report_date} · ${rows.length}계좌 · 소유자 ${owner}`),
+      element('p', '', `신규 ${newCount} · 기존 ${dupCount} · 확인 ${reviewCount}`));
     host.appendChild(title);
-
-    const note = document.createElement('div');
-    note.style.cssText = 'margin-bottom:8px;padding:7px 9px;border-radius:8px;background:rgba(30,41,59,.48);font-size:10.8px;color:#cbd5e1;line-height:1.5;';
-    note.textContent = kind === 'brokerage'
+    const note = element('p', 'accountinfo-note', kind === 'brokerage'
       ? 'AccountInfo의 증권계좌 잔액은 예수금으로 간주하지 않습니다. 가져온 증권계좌의 KRW/USD 예수금은 0원으로 시작하며 PDF 잔액은 저장하지 않습니다.'
-      : '신규 은행계좌의 잔액을 직접 수정할 수 있습니다. 0원(미확인) 행은 기본 선택하지 않습니다. 해당 행을 선택하면 신규 잔액 0원으로 등록하는 데 동의하는 것입니다. 기존 계좌 잔액은 변경하지 않습니다. 청약·적금·외화 상품도 성격을 먼저 확인하세요.';
+      : '신규 은행계좌의 잔액을 직접 수정할 수 있습니다. 0원(미확인) 행은 기본 선택하지 않습니다. 해당 행을 선택하면 신규 잔액 0원으로 등록하는 데 동의하는 것입니다. 기존 계좌 잔액은 변경하지 않습니다. 청약·적금·외화 상품도 성격을 먼저 확인하세요.');
     host.appendChild(note);
-
-    const table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:10.8px;min-width:850px;';
-    table.innerHTML = '<thead><tr style="color:#94a3b8;border-bottom:1px solid rgba(148,163,184,.2);"><th style="padding:6px;text-align:left;">선택</th><th style="padding:6px;text-align:left;">금융기관</th><th style="padding:6px;text-align:left;">계좌</th><th style="padding:6px;text-align:left;">상품</th><th style="padding:6px;text-align:left;">상태</th><th style="padding:6px;text-align:right;">PDF 잔액</th><th style="padding:6px;text-align:left;">가져오기 상태</th></tr></thead>';
-    const body = document.createElement('tbody');
+    const cards = element('div', 'accountinfo-cards');
+    cards.setAttribute('role', 'list');
+    cards.setAttribute('aria-label', '가져올 계좌 검토');
     rows.forEach((row) => {
-      const [label, color] = statusLabel(row.import_status);
       const disabled = row.import_status === 'duplicate' || row.import_status === 'owner_conflict';
-      const tr = document.createElement('tr');
-      tr.style.borderTop = '1px solid rgba(148,163,184,.08)';
+      const card = element('article', 'accountinfo-card');
+      card.setAttribute('role', 'listitem');
+      card.dataset.importStatus = row.import_status;
+      const selection = element('label', 'accountinfo-selection');
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.dataset.accountInfoIndex = String(row.preview_index);
       checkbox.checked = row.default_selected === true;
       checkbox.disabled = disabled;
-      const selectTd = document.createElement('td');
-      selectTd.style.padding = '7px 6px';
-      selectTd.appendChild(checkbox);
-      tr.appendChild(selectTd);
-      const values = [
-        row.institution,
-        maskAccountNo(row.account_no),
-        row.product || row.branch || '-',
-        row.status || '-',
-      ];
-      values.forEach((value) => {
-        const td = document.createElement('td'); td.style.padding = '7px 6px'; td.textContent = value; tr.appendChild(td);
-      });
-      const bal = document.createElement('td'); bal.style.cssText = 'padding:7px 6px;text-align:right;';
-      const balanceInput = document.createElement('input');
-      balanceInput.type = 'text';balanceInput.inputMode = 'decimal';balanceInput.value = row.import_balance_krw;
-      balanceInput.style.cssText = 'width:130px;max-width:100%;box-sizing:border-box;';
-      balanceInput.setAttribute('aria-label', `계좌 ${row.preview_index + 1} ${kind === 'brokerage' ? 'PDF 참고 잔액' : '신규 은행계좌 잔액'}`);
-      balanceInput.disabled = disabled;
-      balanceInput.addEventListener('input', () => {row.import_balance_krw = balanceInput.value;});
-      bal.appendChild(balanceInput);
-      const balanceNote = document.createElement('div');
-      balanceNote.textContent = row.reported_balance_krw == null ? '0원(미확인) · 직접 수정 가능' : `PDF ${money(row.reported_balance_krw)}`;
-      if(kind === 'brokerage')balanceNote.textContent += ' · 참고용, 예수금 반영 안 함';
-      bal.appendChild(balanceNote);tr.appendChild(bal);
-      const st = document.createElement('td'); st.style.cssText = `padding:7px 6px;color:${color};font-weight:700;white-space:nowrap;`; st.textContent = label; tr.appendChild(st);
-      body.appendChild(tr);
+      const identity = element('span', 'accountinfo-identity');
+      identity.append(element('strong', '', row.institution),
+        element('span', 'accountinfo-account-number', maskAccountNo(row.account_no)));
+      selection.append(checkbox, identity);
+      const details = element('dl', 'accountinfo-details');
+      for (const [name, value] of [['계좌 상품명', row.product || row.branch || '-'],
+        ['활동 상태', row.status || '-'], ['가져오기 상태', statusLabel(row.import_status)]]) {
+        details.append(element('dt', '', name), element('dd', '', value));
+      }
+      const balance = element('div', 'accountinfo-reference');
+      balance.append(element('span', '', 'PDF 원본 참고 잔액'),
+        element('strong', 'accountinfo-reference-amount', row.reported_balance_krw == null
+          ? '0원(미확인)' : money(row.reported_balance_krw)));
+      card.append(selection, details, balance);
+      if (kind === 'bank') {
+        const edit = element('label', 'accountinfo-balance-editor', '신규 은행계좌 등록 잔액');
+        const balanceInput = document.createElement('input');
+        balanceInput.type = 'text';balanceInput.inputMode = 'decimal';balanceInput.value = row.import_balance_krw;
+        balanceInput.setAttribute('aria-label', `계좌 ${row.preview_index + 1} 신규 은행계좌 잔액`);
+        balanceInput.disabled = disabled;
+        balanceInput.addEventListener('input', () => {row.import_balance_krw = balanceInput.value;});
+        edit.appendChild(balanceInput);
+        card.append(edit, element('small', 'accountinfo-balance-help', disabled
+          ? '기존 계좌 잔액은 변경하지 않습니다.'
+          : row.reported_balance_krw == null ? '0원(미확인) · 직접 수정 가능' : '위 PDF 참고값과 별도로 등록할 잔액을 확인하세요.'));
+      } else {
+        card.append(element('small', 'accountinfo-balance-help', '참고용 · 예수금 반영 안 함 · 신규 예수금 0원'));
+      }
+      cards.appendChild(card);
     });
-    table.appendChild(body);
-    const wrap = document.createElement('div'); wrap.style.overflowX = 'auto'; wrap.appendChild(table); host.appendChild(wrap);
-
-    const privacy = document.createElement('div');
-    privacy.style.cssText = 'margin-top:8px;color:#64748b;font-size:10px;';
-    privacy.textContent = '계좌번호는 미리보기에서 마스킹됩니다. PDF 파일 자체는 Wealth 서버나 외부 분석 서비스로 업로드하지 않고 현재 브라우저에서만 읽습니다.';
-    host.appendChild(privacy);
-
+    host.appendChild(cards);
+    host.appendChild(element('p', 'accountinfo-privacy', '계좌번호는 미리보기에서 마스킹됩니다. PDF 파일 자체는 Wealth 서버나 외부 분석 서비스로 업로드하지 않고 현재 브라우저에서만 읽습니다.'));
     previewState = { file, parsed, rows, owner };
     const submit = form.querySelector('button[type="submit"]');
     if (submit) submit.textContent = '선택 계좌 추가';
@@ -549,7 +546,25 @@
     const description = dialog.querySelector('.dialog-description');
     if (description && !description.dataset.accountInfoEnhanced) {
       description.dataset.accountInfoEnhanced = '1';
-      description.insertAdjacentHTML('afterend', '<p style="margin:-4px 0 10px;color:#94a3b8;font-size:11px;line-height:1.5;">AccountInfo의 <strong>계좌통합현황 PDF</strong>도 지원합니다. PDF는 저장 전에 마스킹된 미리보기에서 신규/중복/확인 필요 계좌를 선택합니다.</p>');
+      description.insertAdjacentHTML('afterend', '<p class="accountinfo-import-hint" style="margin:-4px 0 10px;color:#94a3b8;font-size:11px;line-height:1.5;">AccountInfo의 <strong>계좌통합현황 PDF</strong>도 지원합니다. PDF는 저장 전에 마스킹된 미리보기에서 신규/중복/확인 필요 계좌를 선택합니다.</p>');
+    }
+    const heading = dialog.querySelector('h2');
+    const originalHeading = heading.textContent;
+    const originalDescription = [...description.childNodes].map(node => node.cloneNode(true));
+    const hint = dialog.querySelector('.accountinfo-import-hint');
+    const originalHint = [...hint.childNodes].map(node => node.cloneNode(true));
+    function setPdfMode(enabled) {
+      dialog.classList.toggle('accountinfo-pdf-mode', enabled);
+      const ownerLabel = document.getElementById('accountInfoOwnerLabel');
+      if (ownerLabel) ownerLabel.style.display = enabled ? 'block' : 'none';
+      heading.textContent = enabled ? 'AccountInfo PDF 계좌 검토' : originalHeading;
+      if (enabled) {
+        description.textContent = '신규 계좌를 선택하고 등록 잔액을 확인하세요.';
+        hint.textContent = 'PDF 원문은 업로드하지 않습니다.';
+      } else {
+        description.replaceChildren(...originalDescription.map(node => node.cloneNode(true)));
+        hint.replaceChildren(...originalHint.map(node => node.cloneNode(true)));
+      }
     }
     const ownerSelect = ensureOwnerSelect(form);
     ensurePreviewHost(form);
@@ -558,9 +573,12 @@
       previewState = null;
       clearPreview();
       const pdf = isPdfFile(fileInput.files?.[0]);
-      const ownerLabel = document.getElementById('accountInfoOwnerLabel');
-      if (ownerLabel) ownerLabel.style.display = pdf ? 'block' : 'none';
-      if (!pdf) dialog.style.maxWidth = '540px';
+      setPdfMode(pdf);
+    });
+
+    dialog.addEventListener('close', () => { setPdfMode(false); previewState = null; clearPreview(); });
+    document.getElementById('accountImportBtn')?.addEventListener('click', () => {
+      setPdfMode(isPdfFile(fileInput.files?.[0]));
     });
 
     form.addEventListener('submit', async (event) => {
@@ -605,9 +623,8 @@
       button.addEventListener('click', () => {
         previewState = null;
         clearPreview();
-        const ownerLabel = document.getElementById('accountInfoOwnerLabel');
-        if (ownerLabel) ownerLabel.style.display = 'block';
         fileInput.value = '';
+        setPdfMode(true);
         dialog.showModal();
       });
       bankingActions.appendChild(button);
