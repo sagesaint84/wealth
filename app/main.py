@@ -11,6 +11,7 @@ import threading
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -1925,7 +1926,77 @@ async def get_dividends(request: Request, owner: str = "모두") -> dict:
         ]
     fx_rate = full.get("fx_rates", {}).get("USD", 1385.0)
     summary = await get_web_dividend_summary(holdings, fx_rate=fx_rate, username=username)
-    return summary
+    return {**summary, 'dividend_tax_benefits': _dividend_benefit_context(
+        summary, full, username=username, owner=owner, tax_year=datetime.now(ZoneInfo('Asia/Seoul')).year)}
+
+
+def _dividend_benefit_context(summary, full, *, username, owner, tax_year, selections=None):
+    import hashlib
+    from app.services.tax.what_if import build_dividend_benefit_preview
+    accounts = {a['id']: a.get('owner') for a in full.get('accounts', [])}
+    owners = sorted({str(h.get('owner') or accounts.get(h.get('account_id')) or '')
+        for h in full.get('holdings', [])} - {'', '모두'})
+    invalid_owner = owner != '모두' and owner not in owners
+    context = hashlib.sha256(f'{username}\0{owner}\0{tax_year}'.encode()).hexdigest()
+    # Refuse mixed/ambiguous quantity scopes without changing the legacy summary.
+    import math
+    from app.services.dividend_event_identity import normalize_dividend_code
+    quantities = {}
+    for holding in full.get('holdings', []):
+        if str(holding.get('currency') or 'KRW').upper() != 'KRW':
+            continue
+        if str(holding.get('owner') or accounts.get(holding.get('account_id')) or '') != owner:
+            continue
+        code = normalize_dividend_code(holding.get('code'))
+        quantity = holding.get('quantity')
+        if isinstance(quantity, (int, float)) and not isinstance(quantity, bool) and math.isfinite(quantity) and quantity > 0:
+            quantities[code] = quantities.get(code, 0) + quantity
+    scoped = {**summary, 'monthly_schedule': [{**bucket, 'items': [item for item in bucket.get('items', [])
+        if isinstance(item.get('quantity'), (int, float))
+        and item.get('quantity') == quantities.get(normalize_dividend_code(item.get('code')))]}
+        for bucket in summary.get('monthly_schedule', [])]}
+    result = ({'owner': owner, 'tax_year': tax_year, 'events': [], 'requires_owner': True,
+        'session_only': True, 'invalid_owner': invalid_owner} if owner == '모두' or invalid_owner else build_dividend_benefit_preview(
+            scoped, owner=owner, tax_year=tax_year, selections=selections, as_of=datetime.now(ZoneInfo('Asia/Seoul')).date()))
+    return {**result, 'context_key': context, 'owners': owners}
+
+
+@app.post('/api/dividends/tax-benefit-preview')
+async def dividend_tax_benefit_preview(request: Request) -> JSONResponse:
+    username = get_current_username(request)
+    from app.services.tax.what_if import FinancialIncomeWhatIfError
+    try:
+        body = await request.json()
+        if not isinstance(body, dict) or set(body) - {'owner', 'tax_year', 'selections', 'context_key'}:
+            raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_REQUEST_INVALID')
+        owner = body.get('owner', '모두')
+        year = body.get('tax_year', datetime.now(ZoneInfo('Asia/Seoul')).year)
+        if not isinstance(owner, str) or not owner.strip():
+            raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_OWNER_INVALID')
+        if isinstance(year, bool) or not isinstance(year, int) or not 1900 <= year <= 2100:
+            raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_YEAR_INVALID')
+        choices = body.get('selections', {})
+        if not isinstance(choices, dict) or len(choices) > 500 or (owner == '모두' and choices):
+            raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_SELECTION_INVALID')
+        full = get_dashboard(username=username)
+        # Resolve owner from authenticated holdings; never accept client events,
+        # official verdicts, gross amounts, or a client username.
+        context = _dividend_benefit_context({}, full, username=username, owner=owner, tax_year=year)
+        if context.get('invalid_owner'):
+            raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_OWNER_INVALID')
+        if choices and body.get('context_key') != context['context_key']:
+            raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_CONTEXT_CHANGED')
+        account_owners = {a['id']: a.get('owner') for a in full.get('accounts', [])}
+        holdings = [h for h in full.get('holdings', [])
+            if str(h.get('owner') or account_owners.get(h.get('account_id')) or '') == owner]
+        summary = await get_web_dividend_summary(holdings,
+            fx_rate=full.get('fx_rates', {}).get('USD', 1385.0), username=username) if owner != '모두' else {}
+        result = _dividend_benefit_context(summary, full, username=username, owner=owner,
+            tax_year=year, selections=body.get('selections'))
+    except (FinancialIncomeWhatIfError, ValueError) as exc:
+        code = str(exc) if isinstance(exc, FinancialIncomeWhatIfError) else 'DIVIDEND_BENEFIT_REQUEST_INVALID'
+        raise HTTPException(status_code=400, detail={'code': code}, headers={'Cache-Control': 'no-store'}) from None
+    return JSONResponse(result, headers={'Cache-Control': 'no-store'})
 
 
 @app.get("/api/dividends/financial-income-family-risk")

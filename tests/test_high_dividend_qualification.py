@@ -151,5 +151,40 @@ class HighDividendQualificationEnrichmentTests(unittest.IsolatedAsyncioTestCase)
         )
 
 
+
+
+
+class HighDividendBenefitSourceScopeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_source_marks_correction_uncertainty_without_extra_document_fetch(self):
+        import io
+        import zipfile
+        import httpx
+        from app.services import high_dividend_qualification as service
+        text = '기업가치 제고 계획 조세특례제한법 제104조의27에 따른 고배당기업 여부 | 해당 직전 사업연도 (2025) 결정일자 | 2026-03-18'
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, 'w') as stream:
+            stream.writestr('document.xml', text)
+        for title, remark, expected in [('기업가치제고계획(자율공시)', '', 'no_correction_indicated'),
+                ('[기재정정] 기업가치제고계획(자율공시)', '', 'not_resolved'),
+                ('기업가치제고계획(자율공시)', '정', 'not_resolved'),
+                ('기업가치제고계획(자율공시)', '철', 'not_resolved')]:
+            with self.subTest(remark=remark, title=title):
+                requests = []
+                def respond(request):
+                    requests.append(request)
+                    if request.url.path.endswith('list.json'):
+                        return httpx.Response(200, json={'status': '000', 'list': [{
+                            'rcept_no': '20260318000001', 'rcept_dt': '20260319', 'report_nm': title, 'rm': remark}]})
+                    return httpx.Response(200, content=archive.getvalue())
+                async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+                    with patch.dict(service._CACHE, {}, clear=True):
+                        result = await service._fetch_company_status(client, api_key='SYNTHETIC',
+                            corp_code='00000001', stock_code='005930', as_of=date(2026, 10, 17))
+                self.assertEqual(result['evidence']['correction_review'], expected)
+                self.assertEqual(result['status'], 'official_qualified')
+                self.assertEqual(service._qualification_payload(result['status'], result=result)['correction_review'], expected)
+                self.assertEqual(len(requests), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -766,6 +766,10 @@
 
   function wrappedRender(data) {
     originalRender(data);
+    window.WealthDividendBenefitData = data?.dividend_tax_benefits || null;
+    window.dispatchEvent(new CustomEvent('wealth:dividend-benefits', {
+      detail: window.WealthDividendBenefitData,
+    }));
     try {
       renderSourceStatus(data);
     } catch (err) {
