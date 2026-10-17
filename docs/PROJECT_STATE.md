@@ -19,7 +19,69 @@
 9. 브랜치·worktree 정리는 병합 및 운영 배포 검증 후 진행한다.
 10. 작업 종료 전 코드·테스트·문서 버전 불일치, 변경 범위 및 임시 경로 정리 상태를 확인한다.
 
-현재 개발·운영 기준: **Wealth v2.0.3**, main `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b` ([PR #149](https://github.com/sagesaint84/wealth/pull/149) Squash Merge 완료; 2026-10-17). 운영 이미지와 검증 상태는 아래를 따르며, 과거 PR #147 및 v2.0.3 개발 당시의 미병합·미배포·실패 기록은 당시 이력이다.
+현재 개발 기준: **Wealth v2.1.0**, `codex/v210-capital-dividend-evidence` (PR 미병합·운영 미배포).
+Oracle 운영은 **Wealth v2.0.3**, 코드 `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b` 및 이미지
+`ghcr.io/sagesaint84/wealth:b1e6e59`를 유지한다. 문서 전용 PR #150까지 반영된 main은
+`a28d31995df3af71ed945b9fe61968064a1dd757`이며 이후 GHCR 성공은 Oracle 재배포를 의미하지 않는다.
+과거 PR #147·#149 및 개발 당시의 미병합·미배포·실패 기록은 아래에 보존한다.
+
+## v2.1.0 개발 상태 — 감액배당 Evidence A / B1
+
+- Phase A 구현·로컬 검증 완료: 이벤트 혼합 방지·인용문 상대 span·Decimal/null/0 계약을 유지한다.
+  보호 커밋 `f290d9b211b166e49e320d38fa0a2bdd571bfad7` 직전 검사 84 PASS, subtests 39 PASS.
+  이전 단계의 71 PASS + 관련 회귀 13 PASS 기록과 이번 커밋 전 재실행을 구분한다.
+  원본 보존 브랜치/커밋 `6c88396b036d8826979f0379d255d4e6f4055194`를 유지한다.
+- Phase B1 읽기 전용 연결: 같은 공시 원문을 재사용하며 추가 document 요청은 없다.
+  공식 조회의 `evidence[code].capital_dividend_evidence`를 배당 요약 최상위 동명 map으로 전달한다.
+  기존 structured_decision_disclosure·forecast_source·월별 항목·스냅샷 계약에는 근거를 섞지 않는다.
+  receipt/URL/접수일/조회일·보통주 대상·파서 버전·구성금액·제한된 인용문/span을 보존한다.
+  available은 근거 조회 완료만 뜻하며 amount_status·이벤트·정정·재원 상태와 별도로 해석한다.
+  구성 파서 오류는 신규 근거만 unavailable로 처리한다. 현금배당 파서 오류와 독립적으로 실행하며
+  현금배당 확인이 실패하면 신규 구성금액이 verified여도 기존 금액을 확정하거나 예상액에 반영하지 않는다.
+- 정정 관계는 not_resolved다. 조회는 기존 370일·첫 페이지 100건이며 날짜/접수번호 순 선택을 바꾸지 않는다.
+  [OpenDART 공시검색 가이드](https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001)의
+  정정 제목과 rm(정/철)을 확인한다. 선택 공시의 후속 정정 표시·조회 내 철회·동일 receipt 메타데이터
+  충돌은 신규 구성금액을 미확인 처리하며 원공시 관계나 동일 이벤트를 추론하지 않는다.
+  재원 설명이 없으면 not_confirmed, 개인 과세는 항상 not_assessed다. 인용문은 plain text이며
+  향후 UI는 textContent/escape가 필요하다. 이번에는 UI·개인 비과세·분리과세 세율을 구현하지 않는다.
+- 향후 예상 세금·UI 계획: 설정이 없어도 일반 배당세금 계산을 기본으로 제공한다. 공식 근거와
+  적용 요건이 충분히 확인되면 예상 혜택을 자동 반영하고 사용자가 언제든 해제할 수 있게 한다.
+  근거가 불충분하면 일반 배당으로 계산하되 수동 혜택 선택은 허용하고 사용자 가정 적용으로 구분한다.
+  사용자 선택은 소유자·배당 이벤트·적용 연도별로 유지하며 공식 근거 상태와 별도 데이터로 관리한다.
+  감액배당의 예상 비과세 효과와 고배당기업 분리과세의 예상 세부담 효과를 구분한다. 실제 배당 입금액·
+  원천징수 기록·실현손익·금융 원본은 자동 수정하지 않으며 고배당기업 특례로 실제 원천징수액을 줄이지 않는다.
+  기존 high_dividend_qualification.py를 재사용하고 별도의 복잡한 세무 엔진·불필요한 검증 시스템은
+  만들지 않는다. 이번 B1은 읽기 전용 근거 연결만 확정하며 새 세금 계산·UI·판정 규칙은 구현하지 않는다.
+- 개발 앱/HTML/SW는 2.1.0, 미변경 AccountInfo `2.0.3-ai1` 및 core `2.0.2-r7` revision은 유지한다.
+  수정 후 B1 전체 pytest·실제 외부 API·CI·v2.1.0 PR 병합·운영 배포는 미실행이다. 기존 임시 경로·롤백 이미지는 건드리지 않는다.
+- 최초 B1 구현·로컬 집중 검증 기록: Python 3.14.2, bytecode/pytest cache 차단, 합성/mock만 사용한
+  배당 구성/공식 소스/사용자 격리/고배당기업/이벤트/스냅샷/Intelligence/세후/금융소득/분리과세/
+  앱 버전/money-input/SW runtime 13개 모듈 **214 PASS / 0 FAIL / 0 SKIP**, subtests **51 PASS**, 10.27초.
+  원문 재사용·오류 격리·정정 미확인·JSON/plain-text 경계·사용자별 키 전달을 검증했다.
+  Phase A 커밋의 소스와 현재 소스를 같은 모의 API 응답으로 실행해 새 근거 영역을 제외한 응답 전체,
+  고배당기업 자격 및 저장 스냅샷이 동일함을 확인했다. Phase A 71개 테스트를 유지하며 실제 호출을
+  금지하던 옛 소스 문자열 단언 한 곳은 B1 연결/금융 저장 불변 테스트로 대체했다.
+  과거 Git 객체를 읽는 대조는 로컬 읽기 전용 검사로 실행했으며 CI 회귀는 동일한 기존 원문 조회
+  계약을 모의해 shallow checkout에서도 로컬 보존 커밋 객체에 의존하지 않는다.
+  Python 6개 파일/SW 문법·기존 계산 함수 AST·전체 미변경 JS/CSS·git diff --check PASS.
+  이번 테스트용 임시 부모 경로 자동 제거 확인. 이 결과는 전체 pytest·외부 API·CI·운영 검증을 뜻하지 않는다.
+
+- B1 감사 보완: 원문 다운로드 1회, 파서 양방향 실패 독립성 및 ZIP/개별 파서 실패 구분을 검증했다.
+  정상 목록 부재(013 포함)는 decision_not_found, 명시적 API 오류는 source_unavailable와 안전한
+  api_status, 비정상 응답은 invalid_response, 요청 실패는 source_request_failed로 구분한다.
+  API 오류 시 기존 정기보고서 fallback, HTTP/JSON 해석 실패 시 기존 요청 실패 경로를 유지한다.
+  격리 집중 13개 모듈 **222 PASS / 0 FAIL / 0 SKIP**, subtests **72 PASS**(14.10초).
+  Phase A·수정 전 B1·수정 후 B1의 12개 합성/mock 비교에서 기존 금융 응답·스냅샷·요청 횟수가
+  동일하며 금융 writer와 사용자 데이터 경로 함수는 미호출이었다. 이전 214 PASS 기록과 구분한다.
+  감사 시작 시점의 수정 전 B1 복사본에서 비-live 전체 재실행: **4,278 PASS / 0 FAIL / 2 SKIP**,
+  subtests **849 PASS**, 4 warnings, 1338.93초, 종료 코드 0. Linux 커널 subreaper/pidfd 통합 검사
+  2개는 기존 플랫폼 조건으로 skip됐고 tests/live의 실제 외부 API 3개 모듈은 제외했다.
+  이전 중단 실행의 실패는 재현되지 않아 node ID·예외·assertion·원인 UNKNOWN이며 Phase A와
+  동일 실패 node 비교는 미실행이다. 이번 무실패 재실행으로 이전 기록을 성공 처리하지 않는다.
+  수정 후 B1은 위 집중 222 PASS 및 금융 12조건 비교로 검증했으며 전체 재실행·실제 API·CI는 미검증이다.
+  이번 임시 경로 `C:\Users\Public\Documents\ESTsoft\CreatorTemp\wealth-b1-contract-ltai1nsz`의
+  복사본 재귀 삭제는 자동 승인 검토의 blocked by policy로 차단됐다. 우회하지 않았으며 로그·복사본은
+  정리 미완료 상태다. 기존 사용자 임시 파일과 보존 브랜치/커밋은 건드리지 않았다.
 
 ## 1. 현재 운영 상태
 

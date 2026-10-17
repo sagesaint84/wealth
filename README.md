@@ -1,6 +1,10 @@
 # Wealth
 
-Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 개발·Oracle 운영 버전은 모두 **Wealth v2.0.3**입니다. [PR #149](https://github.com/sagesaint84/wealth/pull/149) Squash Merge 후 운영 main은 `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b`, 운영 이미지는 `ghcr.io/sagesaint84/wealth:b1e6e59`입니다. Native AMD64/ARM64 [CI 38930119488](https://github.com/sagesaint84/wealth/actions/runs/38930119488)와 [GHCR 이미지 빌드 38931035808](https://github.com/sagesaint84/wealth/actions/runs/38931035808)는 SUCCESS입니다. 사용자 제공 Oracle 배포·10분 안정성·실제 AccountInfo 화면 확인도 완료됐습니다. PR #147의 이전 병합·운영 배포 완료 기록은 보존합니다.
+Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 개발 버전은 **Wealth v2.1.0**, Oracle 운영 버전은 **Wealth v2.0.3**입니다. [PR #149](https://github.com/sagesaint84/wealth/pull/149) Squash Merge 후 운영 코드 기준은 `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b`, 운영 이미지는 `ghcr.io/sagesaint84/wealth:b1e6e59`입니다. Native AMD64/ARM64 [CI 38930119488](https://github.com/sagesaint84/wealth/actions/runs/38930119488)와 [GHCR 이미지 빌드 38931035808](https://github.com/sagesaint84/wealth/actions/runs/38931035808)는 SUCCESS입니다. 사용자 제공 Oracle 배포·10분 안정성·실제 AccountInfo 화면 확인도 완료됐습니다. 문서 전용 [PR #150](https://github.com/sagesaint84/wealth/pull/150)까지 반영된 main은 `a28d31995df3af71ed945b9fe61968064a1dd757`이며 Oracle 컨테이너는 재배포하지 않았습니다. PR #147의 이전 병합·운영 배포 완료 기록은 보존합니다.
+
+v2.1.0 감액배당 Evidence는 Phase A 파서·로컬 검증 완료 후 Phase B1 읽기 전용 공식 근거를 연결한 개발 변경이며 아직 PR 미병합·운영 미배포입니다. 기존 DART 원문을 재사용하고 응답의 별도 `capital_dividend_evidence`에 구성금액·출처·미확인 정정 관계를 전달합니다. 예상/실제 배당·원천징수·세금·금융 저장 및 UI는 변경하지 않습니다. 향후 예상 세금은 일반 배당을 기본으로 하며, 공식 근거와 적용 요건이 충분히 확인된 혜택은 자동 반영하고 사용자가 해제할 수 있도록 설계합니다. 근거 부족 시에도 수동 선택은 가능하되 사용자 가정 적용으로 구분합니다. 기존 고배당기업 판정 기능을 재사용하며, 선택 보존·근거 분리·금융 원본 보호의 상세 원칙은 [현재 상태의 향후 계획](docs/PROJECT_STATE.md)을 따릅니다. 이번 B1에는 세금 계산이나 UI를 추가하지 않습니다.
+
+B1 감사 보완에서는 두 파서의 실패를 독립 처리하고 API 오류·정상 공시 부재·비정상 응답을 구분했습니다. 격리된 Python 3.14.2 집중 검증은 **222 PASS / 0 FAIL / 0 SKIP**, subtests **72 PASS**입니다. 감사 시작 시점의 수정 전 B1 복사본으로 비-live 전체 범위를 재실행해 **4,278 PASS / 0 FAIL / 2 SKIP**, subtests **849 PASS**를 확인했습니다. 이전 중단 실행의 실패는 재현되지 않아 node ID·원인은 UNKNOWN이며 당시 실행을 성공으로 바꾸어 기록하지 않습니다. 수정 후 B1 전체 실행·실제 API·CI는 미검증입니다.
 
 AccountInfo 반응형 카드 UI는 운영 반영 완료입니다. 개발 당시 로컬 집중 검증은 **129 PASS / 0 FAIL / 0 SKIP**입니다. 실제 브라우저에서 계좌 카드, PDF 잔액 전체 표시, 은행 신규 잔액 편집, 증권 참고값 구분, 버튼 접근성, 기존 자산 데이터 유지의 6개 항목을 확인했습니다. 이는 실제 신규 계좌 등록이나 전체 금융 API 실거래 검증 완료를 뜻하지 않습니다. parser·중복·Owner·마스킹·금융 저장·증권 예수금 정책은 유지합니다. 운영 환경·마운트·롤백 보존 및 과거 이력의 상세는 [현재 상태와 필수 작업 원칙](docs/PROJECT_STATE.md)을 따릅니다. [계좌 UI·보험 표시 정책](docs/v2-wts-insurance-roi.md), [국민연금 분석 기준과 한계](docs/national-pension-analysis.md), [국민연금 자료 가져오기](docs/national-pension-import.md)도 참고하세요.
 
@@ -98,7 +102,7 @@ Write-Host "PYTEST_EXIT=$testExit"
 
 관련 기능을 바꿀 때는 해당 테스트를 먼저 실행하고, Python 변경은 `py_compile`, JavaScript 변경은 `node --check`, 최종 변경은 `git diff --check`로 확인합니다.
 
-v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 현재 개발 소스의 앱 버전·service-worker cache는 `2.0.3`이며 static asset의 `?v=`는 파일별 cache revision입니다. AccountInfo importer·money-input loader·dialog CSS는 `2.0.3-ai1`이고, 미변경 core JS와 연결된 `application-assets-revision`은 `2.0.2-r7`, layout CSS는 `2.0.2-r5`를 유지합니다. Oracle 운영도 v2.0.3 / `b1e6e59`이며 코드·자산 revision은 이번 배포 완료 문서 정리에서 변경하지 않습니다.
+v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 현재 개발 소스의 앱 버전·service-worker cache는 `2.1.0`이며 static asset의 `?v=`는 파일별 cache revision입니다. 미변경 AccountInfo importer·money-input loader·dialog CSS는 `2.0.3-ai1`이고, core JS와 연결된 `application-assets-revision`은 `2.0.2-r7`, layout CSS는 `2.0.2-r5`를 유지합니다. Oracle 운영은 v2.0.3 / `b1e6e59`를 유지하며 v2.1.0은 미배포입니다.
 
 ## 프로젝트 문서
 

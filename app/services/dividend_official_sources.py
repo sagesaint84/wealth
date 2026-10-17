@@ -27,7 +27,10 @@ import zipfile
 import httpx
 
 from app.services.network_policy import external_network_allowed
-from app.services.dividend_confirmed_disclosures import parse_dividend_decision_document
+from app.services.dividend_confirmed_disclosures import (
+    COMPONENT_PARSER_VERSION, parse_dividend_decision_document,
+    parse_dividend_payment_components,
+)
 from app.services.dividend_event_identity import build_dividend_event_identity
 from app.services.ipo.dart_client import DartClient, extract_document_text_from_zip
 
@@ -201,6 +204,16 @@ async def _fetch_periodic_dividend(
     }
 
 
+class _DecisionLookupError(ValueError):
+    """Safe lookup metadata, never the remote response or credentials."""
+
+    def __init__(self, reason: str, api_status: str | None = None, *, request_failed: bool = False):
+        super().__init__(reason)
+        self.reason = reason
+        self.api_status = api_status
+        self.request_failed = request_failed
+
+
 async def _fetch_recent_decision(
     client: httpx.AsyncClient,
     api_key: str,
@@ -223,11 +236,108 @@ async def _fetch_recent_decision(
         timeout=7.0,
     )
     response.raise_for_status()
-    payload = response.json()
-    status = str(payload.get("status") or "")
-    if status not in {"", "000"}:
+    try:
+        payload = response.json()
+    except ValueError:
+        raise _DecisionLookupError('invalid_response', request_failed=True) from None
+    if not isinstance(payload, dict):
+        raise _DecisionLookupError('invalid_response', request_failed=True)
+    status = payload.get("status")
+    if not isinstance(status, str) or len(status) != 3 or not status.isascii() or not status.isdigit():
+        raise _DecisionLookupError('invalid_response')
+    if status == "013":
         return None
-    return _latest_dividend_decision(payload.get("list"))
+    if status != "000":
+        raise _DecisionLookupError('source_unavailable', status)
+    if not isinstance(payload.get("list"), list) or any(not isinstance(row, dict) for row in payload['list']):
+        raise _DecisionLookupError('invalid_response')
+    selected = _latest_dividend_decision(payload.get("list"))
+    if selected is not None:
+        # Supplemental metadata only. Keep the legacy selection and HTTP query.
+        selected["capital_dividend_revision"] = _capital_revision_context(payload.get("list"), selected)
+    return selected
+
+
+def _capital_revision_context(rows: object, selected: dict[str, Any]) -> dict[str, Any]:
+    """Inspect this limited list page without inventing correction relationships.
+
+    OpenDART list.json documents rm='정' (later correction) and rm='철'
+    (withdrawn). Neither a title marker nor receipt ordering proves a linkage.
+    """
+    selected_rows = [row for row in rows if isinstance(row, dict)
+        and str(row.get('rcept_no') or '').strip() == selected['receipt_no']] if isinstance(rows, list) else []
+    remarks = ''.join(dict.fromkeys(''.join(str(row.get('rm') or '') for row in selected_rows)))
+    withdrawal = any(isinstance(row, dict) and '배당' in str(row.get('report_nm') or '')
+        and ('철' in str(row.get('rm') or '') or '철회' in str(row.get('report_nm') or ''))
+        for row in rows) if isinstance(rows, list) else False
+    identities = {(str(row.get('report_nm') or '').strip(), str(row.get('rcept_dt') or '').strip())
+        for row in selected_rows}
+    return {
+        'status': 'not_resolved', 'original_receipt_no': None, 'supersedes_receipt_no': None,
+        'selected_remarks': remarks,
+        'title_has_correction_marker': '정정' in str(selected.get('report_name') or ''),
+        'later_correction_indicated': '정' in remarks,
+        'withdrawal_in_search_results': withdrawal,
+        'selected_metadata_conflict': len(identities) > 1,
+        'search_scope': '370_days_first_page_100',
+    }
+
+
+def _capital_evidence(
+    document_text: str | None, decision: dict[str, Any] | None, *, as_of: date,
+    revision_context: dict[str, Any] | None = None, unavailable_reason: str | None = None,
+) -> dict[str, Any]:
+    """Read-only metadata; never feed these amounts into forecast/tax fields."""
+    decision = decision or {}
+    revision = revision_context or _capital_revision_context([], {
+        'receipt_no': str(decision.get('receipt_no') or ''),
+        'report_name': str(decision.get('report_name') or ''),
+    })
+    evidence = {
+        'source': 'opendart_dividend_decision',
+        **{key: str(decision.get(key) or '') for key in ('receipt_no', 'receipt_date', 'report_name', 'viewer_url')},
+        'parser_version': COMPONENT_PARSER_VERSION, 'as_of_date': as_of.isoformat(),
+        'share_class': 'ordinary', 'status': 'unavailable',
+        'reason': unavailable_reason, 'payment_components': None,
+        'reserve_evidence_status': 'not_confirmed', 'payment_event_status': 'not_resolved',
+        'correction_relationship': revision,
+        'tax_assessment': {'status': 'not_assessed', 'excluded_income_amount_krw': None,
+                           'withholding_adjustment_krw': None},
+        # Keep exact quote offsets. A future UI must use textContent or escaping.
+        'evidence_text_format': 'plain_text', 'requires_html_escape': True,
+    }
+    if unavailable_reason:
+        return evidence
+    if not document_text or not document_text.strip():
+        evidence['reason'] = 'empty_document' if document_text is not None else 'decision_not_found'
+        return evidence
+    try:
+        parsed = parse_dividend_payment_components(document_text,
+            report_name=evidence['report_name'], share_class='ordinary')
+        components = parsed['payment_components']
+        evidence.update(status='available', reason=None, payment_components=components)
+        evidence['reserve_evidence_status'] = 'disclosed' if components['reserve_description'] else 'not_confirmed'
+        evidence['payment_event_status'] = ('single_event_scoped'
+            if components['amount_status'] in {'verified', 'partial'} else 'not_resolved')
+        if any(revision[key] for key in ('later_correction_indicated',
+                'withdrawal_in_search_results', 'selected_metadata_conflict')):
+            # Evidence blocked by this page is not a corrected/withdrawn event map.
+            # Leave the legacy cash parser completely untouched.
+            evidence.update(status='unverified', reason='revision_uncertainty',
+                payment_event_status='not_resolved', reserve_evidence_status='not_confirmed')
+            components.update(amount_status='unverified', reconciliation_status='not_evaluated',
+                reserve_description=None, **{key: None for key in ('total_cash_dps_krw',
+                    'disclosed_regular_dps_krw', 'disclosed_capital_reduction_dps_krw', 'unclassified_dps_krw')})
+    except Exception:
+        # Do not log disclosure text, credentials, or exception payloads.
+        evidence.update(status='unavailable', reason='component_parse_failed', payment_components=None)
+    return evidence
+
+
+def _unavailable_structured_decision(decision: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {**decision, 'structured_verification': False, 'confirmed_amount': False,
+        'confirmed_payment_date': False, 'ordinary_cash_dps_krw': None,
+        'record_date': None, 'payment_date': None, 'future_payment': None, 'reason': reason}
 
 
 async def _fetch_structured_decision(
@@ -236,6 +346,7 @@ async def _fetch_structured_decision(
     decision: dict[str, Any],
     *,
     as_of: date,
+    revision_context: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     receipt_no = str(decision.get("receipt_no") or "").strip()
     if not receipt_no:
@@ -246,15 +357,27 @@ async def _fetch_structured_decision(
         timeout=10.0,
     )
     response.raise_for_status()
-    document_text = extract_document_text_from_zip(response.content)
-    return parse_dividend_decision_document(
-        document_text,
-        report_name=str(decision.get("report_name") or ""),
-        receipt_no=receipt_no,
-        receipt_date=str(decision.get("receipt_date") or ""),
-        viewer_url=str(decision.get("viewer_url") or ""),
-        as_of=as_of,
-    )
+    try:
+        document_text = extract_document_text_from_zip(response.content)
+    except Exception:
+        structured = _unavailable_structured_decision(decision, 'document_extract_failed')
+        structured['capital_dividend_evidence'] = _capital_evidence(None, decision,
+            as_of=as_of, revision_context=revision_context, unavailable_reason='document_extract_failed')
+        return structured
+    try:
+        structured = parse_dividend_decision_document(
+            document_text,
+            report_name=str(decision.get("report_name") or ""),
+            receipt_no=receipt_no,
+            receipt_date=str(decision.get("receipt_date") or ""),
+            viewer_url=str(decision.get("viewer_url") or ""),
+            as_of=as_of,
+        )
+    except Exception:
+        structured = _unavailable_structured_decision(decision, 'legacy_parse_failed')
+    structured['capital_dividend_evidence'] = _capital_evidence(
+        document_text, decision, as_of=as_of, revision_context=revision_context)
+    return structured
 
 
 async def get_official_dividend_evidence(
@@ -328,35 +451,47 @@ async def get_official_dividend_evidence(
                 continue
             try:
                 periodic = await _fetch_periodic_dividend(http, key, corp_code, business_year)
-                recent = await _fetch_recent_decision(http, key, corp_code, as_of=day)
+                lookup_error = None
+                try:
+                    recent = await _fetch_recent_decision(http, key, corp_code, as_of=day)
+                except _DecisionLookupError as exc:
+                    if exc.request_failed:
+                        # Keep the legacy transport/JSON failure fallback.
+                        raise
+                    recent = None
+                    lookup_error = exc
                 structured = None
+                revision = recent.pop('capital_dividend_revision', None) if recent else None
+                capital = _capital_evidence(None, recent, as_of=day,
+                    unavailable_reason=lookup_error.reason if lookup_error else None)
+                if lookup_error and lookup_error.api_status is not None:
+                    capital['api_status'] = lookup_error.api_status
                 if recent:
                     try:
-                        structured = await _fetch_structured_decision(http, key, recent, as_of=day)
+                        structured = await _fetch_structured_decision(http, key, recent,
+                            as_of=day, revision_context=revision)
+                        if isinstance(structured, dict):
+                            capital = structured.pop('capital_dividend_evidence', capital)
                     except Exception:
-                        structured = {
-                            **recent,
-                            "structured_verification": False,
-                            "confirmed_amount": False,
-                            "confirmed_payment_date": False,
-                            "ordinary_cash_dps_krw": None,
-                            "record_date": None,
-                            "payment_date": None,
-                            "future_payment": None,
-                            "reason": "document_parse_failed",
-                        }
+                        capital = _capital_evidence(None, recent, as_of=day,
+                            revision_context=revision, unavailable_reason='document_request_failed')
+                        structured = _unavailable_structured_decision(recent, 'document_parse_failed')
                 evidence[code] = {
                     "official_data_available": bool(periodic.get("available") or recent),
                     "corp_code": corp_code,
                     "historical": periodic,
                     "recent_decision_disclosure": recent,
                     "structured_decision_disclosure": structured,
+                    "capital_dividend_evidence": capital,
                 }
-            except Exception:
+            except Exception as exc:
                 evidence[code] = {
                     "official_data_available": False,
                     "corp_code": corp_code,
                     "reason": "opendart_request_failed",
+                    "capital_dividend_evidence": _capital_evidence(None, None,
+                        as_of=day, unavailable_reason=(exc.reason if isinstance(exc, _DecisionLookupError)
+                            else 'source_request_failed')),
                 }
         return {"status": "ok", "evidence": evidence, "policy": policy}
     except Exception:
@@ -736,6 +871,12 @@ async def enrich_dividend_summary_with_official_sources(
     evidence_map = evidence_result.get("evidence")
     if not isinstance(evidence_map, dict):
         evidence_map = {}
+    # A response-only sibling: forecast_source is persisted by snapshots. Do not
+    # add raw source excerpts to that contract, monthly items, or financial data.
+    summary['capital_dividend_evidence'] = {
+        code: item['capital_dividend_evidence'] for code, item in evidence_map.items()
+        if isinstance(item, dict) and isinstance(item.get('capital_dividend_evidence'), dict)
+    }
     day = as_of.date() if isinstance(as_of, datetime) else (as_of or _now_kst().date())
 
     rows = summary.get("holding_dividends")

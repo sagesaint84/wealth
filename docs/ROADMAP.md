@@ -3,13 +3,30 @@
 > 현재 작업 상태는 `docs/PROJECT_STATE.md`를 먼저 읽습니다.
 > 이 문서는 앞으로 진행할 기능의 우선순위와 완료 기준을 기록합니다.
 
-마지막 갱신: 2026-10-17 (v2.0.3 AccountInfo UI 운영 완료)
+마지막 갱신: 2026-10-17 (운영 v2.0.3 유지, 개발 v2.1.0 감액배당 Evidence B1)
+
+## v2.1.0 — 감액배당 공식 근거 (PR 미병합·운영 미배포)
+
+- Phase A: 파서 안정화·로컬 검증 및 보호 커밋 `f290d9b211b166e49e320d38fa0a2bdd571bfad7` 완료.
+- Phase B1: 기존 DART 원문을 재사용하는 보통주 구성금액·공식 출처의 읽기 전용 응답 연결.
+  이벤트/정정 관계가 불명확하면 미확인을 유지하며 예상/실제 배당·세금·금융 저장·UI를 변경하지 않는다.
+- B1 감사 보완: 두 파서의 실패 독립성·원문 1회 조회·API 오류/정상 부재 구분 및 기존 금융 fallback 유지.
+  수정 후 격리 집중 **222 PASS / 0 FAIL / 0 SKIP**, subtests **72 PASS**.
+  수정 전 B1 비-live 전체 재실행은 **4,278 PASS / 0 FAIL / 2 SKIP**, subtests **849 PASS**다.
+  이전 실패 node ID·원인은 재현되지 않아 UNKNOWN이다. B1 읽기 전용 연결은 확정하며 수정 후 전체 pytest·
+  전체 CI·실제 API·병합·배포는 미완료이며 운영 v2.0.3 검증과 구분한다.
+- 향후 예상 세금·UI: 기존 high_dividend_qualification.py를 재사용한다. 일반 배당을 기본으로,
+  공식 근거·적용 요건 확인 시 혜택 자동 반영/사용자 해제, 미확인 시 일반 계산/사용자 가정 선택을 설계한다.
+  근거와 소유자·이벤트·연도별 선택을 분리하고 감액배당·고배당기업 예상 효과 및 실제 기록을 구분한다.
+  상세 원칙은 PROJECT_STATE.md를 따르며 별도 복잡한 세무 엔진은 만들지 않는다. 이번 B1의 구현 범위는 아니다.
+- v2.1.0 앱/HTML/SW·버전 테스트·4개 MD를 동기화하고 미변경 정적 revision은 유지한다.
+  전체 pytest·CI·실제 외부 API·병합·배포는 아직 완료되지 않았다. 운영 v2.0.3 검증은 아래 과거 기록과 구분한다.
 
 ## 1. 완료된 제품 영역
 
 v2.0.2 국민연금 PDF·사진 가져오기, 세금 탭 복원 및 모바일 부동산 UI 구현과 합성 검증은 완료됐다. Windows 전체 pytest 3,699 passed / 5 skipped / 0 failed / 5 warnings, 798 subtests passed 및 Python·JS 문법 PASS를 사용자에게 확인받았다. Actions run 38493482329 attempt #8의 native amd64/arm64 Docker·Chromium·OCR·document worker smoke도 성공했다.
 
-당시 PR #144의 Draft·운영 미배포 상태는 과거 기록이다. PR #147은 CI·병합·Oracle 배포 완료된 이전 단계이며, 현재 개발·Oracle 운영은 v2.0.3 / main `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b`이다. 실제 문서 양식별 정확성 및 운영 자원·이미지 크기 측정은 완료 항목에 포함하지 않는다. 최신 검증 상세와 필수 버전·MD 동기화 원칙은 `PROJECT_STATE.md`, 아래 phase 기록은 당시 완료 내역을 따른다.
+당시 PR #144의 Draft·운영 미배포 상태는 과거 기록이다. PR #147은 CI·병합·Oracle 배포 완료된 이전 단계이며, Oracle 운영은 v2.0.3 / 코드 `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b`를 유지한다. PR #150 반영 main은 `a28d31995df3af71ed945b9fe61968064a1dd757`, 신규 개발은 위 v2.1.0 상태다. 실제 문서 양식별 정확성 및 운영 자원·이미지 크기 측정은 완료 항목에 포함하지 않는다. 최신 검증 상세와 필수 버전·MD 동기화 원칙은 `PROJECT_STATE.md`, 아래 phase 기록은 당시 완료 내역을 따른다.
 
 ### v2.0.3 — AccountInfo 반응형 미리보기
 

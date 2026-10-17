@@ -492,7 +492,9 @@ class PaymentComponentHotfixTests(unittest.TestCase):
         self.assertEqual(metadata['tax_assessment'], {'status':'not_assessed',
             'excluded_income_amount_krw':None, 'withholding_adjustment_krw':None})
         root = Path(__file__).resolve().parents[1]
-        for relative in ('app/services/dividend_official_sources.py', 'app/services/tax/financial_income.py',
+        # B1 may call the parser from the read-only source service. Financial
+        # calculation and record writers must still never call it directly.
+        for relative in ('app/services/tax/financial_income.py',
                          'app/services/dividend_records.py', 'app/services/portfolio_dividend_after_tax.py'):
             self.assertNotIn('parse_dividend_payment_components', (root / relative).read_text(encoding='utf-8'))
 
