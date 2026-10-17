@@ -3,17 +3,19 @@
 > 현재 작업 상태는 `docs/PROJECT_STATE.md`를 먼저 읽습니다.
 > 이 문서는 앞으로 진행할 기능의 우선순위와 완료 기준을 기록합니다.
 
-마지막 갱신: 2026-10-17 (운영 v2.0.2 / v2.0.3 AccountInfo UI 개발 상태)
+마지막 갱신: 2026-10-17 (v2.0.3 AccountInfo UI 운영 완료)
 
 ## 1. 완료된 제품 영역
 
 v2.0.2 국민연금 PDF·사진 가져오기, 세금 탭 복원 및 모바일 부동산 UI 구현과 합성 검증은 완료됐다. Windows 전체 pytest 3,699 passed / 5 skipped / 0 failed / 5 warnings, 798 subtests passed 및 Python·JS 문법 PASS를 사용자에게 확인받았다. Actions run 38493482329 attempt #8의 native amd64/arm64 Docker·Chromium·OCR·document worker smoke도 성공했다.
 
-당시 PR #144의 Draft·운영 미배포 상태는 과거 기록이며, 현재는 사용자 확인 기준 PR #147 CI·Squash Merge·Oracle 배포 및 서비스 안정성 검사까지 완료됐다. Oracle 운영은 v2.0.2 / main `113c663023586dd8a217d15ac9ca9bd3cfd47648`이다. 실제 문서 양식별 정확성 및 운영 자원·이미지 크기 측정은 완료 항목에 포함하지 않는다. 최신 상태와 필수 버전·MD 동기화 원칙은 `PROJECT_STATE.md`, 아래 phase 기록은 당시 완료 내역을 따른다.
+당시 PR #144의 Draft·운영 미배포 상태는 과거 기록이다. PR #147은 CI·병합·Oracle 배포 완료된 이전 단계이며, 현재 개발·Oracle 운영은 v2.0.3 / main `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b`이다. 실제 문서 양식별 정확성 및 운영 자원·이미지 크기 측정은 완료 항목에 포함하지 않는다. 최신 검증 상세와 필수 버전·MD 동기화 원칙은 `PROJECT_STATE.md`, 아래 phase 기록은 당시 완료 내역을 따른다.
 
 ### v2.0.3 — AccountInfo 반응형 미리보기
 
-상태: **개발 완료·미병합·운영 미배포**. `codex/v202-accountinfo-pdf-responsive-preview`, 구현 커밋 `ebd66452e185ddbf3e0d2a7cc6d6a290790c6dc7`. 기존 로컬 집중 82 PASS이며 전체 CI·배포 검증은 미완료다. 36개 합성 계좌의 반응형 카드·단일 스크롤·잔액 전체 표시를 검증했다. parser·중복·Owner·마스킹·금융 저장·증권 예수금 정책은 유지한다. 이후 진행 후보는 새로 추가하지 않는다.
+상태: **운영 완료**. [PR #149](https://github.com/sagesaint84/wealth/pull/149) Squash Merge, 운영 main `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b`. Native AMD64/ARM64 CI `38930119488`와 GHCR `38931035808` SUCCESS, 이미지 `ghcr.io/sagesaint84/wealth:b1e6e59`의 Oracle 배포 및 10분 안정성·마운트·이전 롤백 이미지 보존 확인 완료다. 개발 당시 로컬 집중 검증은 129 PASS / 실패·skip 0이다.
+
+반응형 카드·단일 스크롤·잔액 전체 표시와 금융 데이터 보호 정책을 유지하며, 사용자 실제 화면 확인 6개 항목도 정상이다. 이는 신규 계좌 등록·전체 금융 API 실거래 검증 완료를 뜻하지 않는다. 개발 브랜치 `codex/v202-accountinfo-pdf-responsive-preview`와 UI 구현 커밋 `ebd66452e185ddbf3e0d2a7cc6d6a290790c6dc7`은 이전 구현 이력이다. 기존 향후 후보와 phase 완료 기록은 유지하며 새 기능 계획을 추가하지 않는다.
 
 ### Phase 10.5C — 배당 자산관리 의사결정
 
