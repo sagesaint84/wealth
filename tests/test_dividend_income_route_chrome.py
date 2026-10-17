@@ -89,7 +89,7 @@ def chrome_preview(request):
     chrome = _chrome_path()
     if chrome is None:
         pytest.skip("Chromium browser unavailable")
-    handler = (DelayedDividendPreview if "dividend_slow_first_frame" in request.node.name
+    handler = (DividendBenefitPreview if 'b2_benefit' in request.node.name else DelayedDividendPreview if "dividend_slow_first_frame" in request.node.name
                else DividendPreview if "dividend_visible_chart" in request.node.name or "startup_request" in request.node.name
                else StaticPreview)
     server = safe_preview_server(ChromePreviewServer, handler)
@@ -583,3 +583,131 @@ def test_startup_request_dedupe_and_estimated_lazy_load(chrome_preview):
       return chain;
     })()""")
     print("CURSOR_CENTER_DOM=" + json.dumps(cursor))
+
+
+class DividendBenefitPreview(StaticPreview):
+    def model(self, owner='아빠', year=2026, selections=None):
+        from datetime import date
+        from tests.test_financial_income_what_if import DividendBenefitPreviewTests
+        from app.services.tax.what_if import build_dividend_benefit_preview
+        summary = DividendBenefitPreviewTests().fixture()
+        if owner == '엄마':
+            summary['monthly_schedule'] = []
+        if getattr(self.server, 'benefit_missing_amount', False):
+            summary['capital_dividend_evidence'] = {}
+        result = build_dividend_benefit_preview(summary, owner=owner, tax_year=year,
+            selections=selections, as_of=date(2026, 10, 17))
+        return {**result, 'context_key': f'synthetic-user:{owner}:{year}', 'owners': ['아빠', '엄마']}
+
+    def do_GET(self):
+        path = urlsplit(self.path).path
+        if path == '/':
+            self.server.benefit_missing_amount = parse_qs(urlsplit(self.path).query).get('missing') == ['1']
+            self.send(("""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+              <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css"></head>
+              <body><section id="dividendPanel"><div id="dividendModeTabs"><button data-div-mode="estimated" class="heatmap-tab active">예상</button></div>
+              <div class="dividend-summary-cards"></div></section>
+              <script>var currentOwner='아빠',currentDividendMode='actual';window.renderDividends=function(){};</script>
+              <script src="/static/wealth-dividend-source.js"></script>
+              <script src="/static/wealth-financial-income-what-if.js"></script></body></html>""").encode(), 'text/html; charset=utf-8')
+            return
+        if path.startswith('/static/'):
+            name = path.rsplit('/', 1)[-1]
+            if name in self.server.preview_assets:
+                self.send(self.server.preview_assets[name], 'text/css' if name.endswith('.css') else 'text/javascript')
+                return
+        super().do_GET()
+
+    def do_POST(self):
+        if urlsplit(self.path).path == '/api/dividends/tax-benefit-preview':
+            body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            self.server.benefit_requests = getattr(self.server, 'benefit_requests', []) + [body]
+            self.send(self.model(body['owner'], body['tax_year'], body['selections']))
+            return
+        super().do_POST()
+
+
+@pytest.mark.parametrize('width,theme', [(320, 'purple'), (390, 'white'), (1280, 'oled')])
+def test_b2_benefit_modes_mobile_xss_and_scope(chrome_preview, width, theme):
+    from datetime import date
+    from tests.test_financial_income_what_if import DividendBenefitPreviewTests
+    from app.services.tax.what_if import build_dividend_benefit_preview
+    call, evaluate, port = chrome_preview
+    call('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 900,
+        'deviceScaleFactor': 1, 'mobile': width < 500})
+    call('Page.navigate', {'url': f'http://127.0.0.1:{port}/'})
+    def wait(expression):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if evaluate(expression):
+                return
+            time.sleep(.05)
+        raise AssertionError(expression)
+    wait("!!window.WealthFinancialIncomeWhatIf && !!document.getElementById('dividendBenefitPreview')")
+    model = build_dividend_benefit_preview(DividendBenefitPreviewTests().fixture(), owner='아빠',
+        tax_year=2026, as_of=date(2026, 10, 17))
+    model.update(context_key='synthetic-user:아빠:2026', owners=['아빠', '엄마'])
+    evaluate(f"document.documentElement.dataset.theme={json.dumps(theme)};currentDividendMode='estimated';WealthFinancialIncomeWhatIf.syncVisibility();window.renderDividends({{dividend_tax_benefits:{json.dumps(model)}}})")
+    wait("document.querySelectorAll('.fi-benefit-card').length===1")
+    assert evaluate("document.querySelector('[data-benefit-kind=high_dividend][type=checkbox]').checked")
+    assert not evaluate("document.querySelector('[data-benefit-kind=capital][type=checkbox]').checked")
+    assert evaluate("document.querySelector('.fi-benefits').textContent.includes('기본 세후 카드와 별도 계산 · 자동 합산 없음')")
+    assert evaluate("document.querySelectorAll('.fi-benefit-card img, .fi-benefit-card script').length") == 0
+    assert evaluate("document.documentElement.scrollWidth <= innerWidth")
+    assert evaluate("[...document.querySelectorAll('.fi-benefits a')].every(a=>a.protocol==='https:')")
+    evaluate("document.querySelector('[data-benefit-kind=capital][type=checkbox]').click()")
+    wait("document.querySelector('.fi-benefits').textContent.includes('사용자 가정 적용')")
+    assert evaluate("document.querySelector('.fi-benefits').textContent.includes('₩62')")
+    assert evaluate("document.querySelector('.fi-benefits').textContent.includes('세금 적용 요건 미확인')")
+    evaluate("document.querySelector('[data-benefit-kind=high_dividend][type=checkbox]').click()")
+    wait("document.querySelector('[data-benefit-kind=high_dividend][type=checkbox]').checked===false && document.querySelector('.fi-benefits').getAttribute('aria-busy')===null")
+    evaluate("document.querySelector('[data-benefit-kind=capital][type=checkbox]').click()")
+    wait("document.querySelector('[data-benefit-kind=capital][type=checkbox]').checked===false && document.querySelector('.fi-benefits').getAttribute('aria-busy')===null")
+    evaluate("document.querySelector('[data-benefit-auto][data-benefit-kind=high_dividend]').click()")
+    wait("document.querySelector('[data-benefit-kind=high_dividend][type=checkbox]').checked && document.querySelector('.fi-benefits').getAttribute('aria-busy')===null")
+    evaluate("const year=document.getElementById('fiBenefitYear');year.value='2025';year.dispatchEvent(new Event('change',{bubbles:true}))")
+    wait("document.getElementById('fiBenefitYear')?.value==='2025' && !document.querySelector('.fi-benefit-card')")
+    evaluate("const year2=document.getElementById('fiBenefitYear');year2.value='2026';year2.dispatchEvent(new Event('change',{bubbles:true}))")
+    wait("document.querySelectorAll('.fi-benefit-card').length===1 && document.querySelector('.fi-benefits').getAttribute('aria-busy')===null")
+    assert not evaluate("document.querySelector('[data-benefit-kind=capital][type=checkbox]').checked")
+    evaluate("const owner=document.getElementById('fiBenefitOwner');owner.value='엄마';owner.dispatchEvent(new Event('change',{bubbles:true}))")
+    wait("document.getElementById('fiBenefitOwner')?.value==='엄마' && !document.querySelector('.fi-benefit-card')")
+    assert not evaluate("document.getElementById('dividendBenefitPreview').textContent.includes('<img')")
+
+
+def test_b2_benefit_missing_amount_failure_draft_and_stale_user_response(chrome_preview):
+    from datetime import date
+    from tests.test_financial_income_what_if import DividendBenefitPreviewTests
+    from app.services.tax.what_if import build_dividend_benefit_preview
+    call, evaluate, port = chrome_preview
+    call('Emulation.setDeviceMetricsOverride', {'width': 320, 'height': 800,
+        'deviceScaleFactor': 1, 'mobile': True})
+    call('Page.navigate', {'url': f'http://127.0.0.1:{port}/?missing=1'})
+    def wait(expression):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if evaluate(expression): return
+            time.sleep(.05)
+        raise AssertionError(expression)
+    wait("!!window.WealthFinancialIncomeWhatIf && !!document.getElementById('dividendBenefitPreview')")
+    summary = DividendBenefitPreviewTests().fixture(); summary['capital_dividend_evidence'] = {}
+    model = build_dividend_benefit_preview(summary, owner='아빠', tax_year=2026, as_of=date(2026, 10, 17))
+    model.update(context_key='synthetic-user:아빠:2026', owners=['아빠', '엄마'])
+    evaluate(f"currentDividendMode='estimated';WealthFinancialIncomeWhatIf.syncVisibility();window.renderDividends({{dividend_tax_benefits:{json.dumps(model)}}})")
+    evaluate("document.querySelector('[data-benefit-kind=capital][type=checkbox]').click()")
+    wait("!!document.querySelector('[data-benefit-amount][data-benefit-kind=capital]')")
+    assert evaluate("document.querySelector('[data-benefit-amount][data-benefit-kind=capital]').value") == ''
+    evaluate("const amount=document.querySelector('[data-benefit-amount][data-benefit-kind=capital]');amount.value='400';amount.dispatchEvent(new Event('change',{bubbles:true}))")
+    wait("document.querySelector('.fi-benefits').textContent.includes('₩62') && !document.querySelector('.fi-benefits').hasAttribute('aria-busy')")
+    evaluate("window.__benefitFetch=fetch;window.fetch=(...args)=>String(args[0]).includes('tax-benefit-preview')?Promise.resolve(new Response('{}',{status:503})):__benefitFetch(...args)")
+    evaluate("const amount2=document.querySelector('[data-benefit-amount][data-benefit-kind=capital]');amount2.value='350';amount2.dispatchEvent(new Event('change',{bubbles:true}))")
+    wait("document.getElementById('fiBenefitStatus').textContent.includes('계산 실패')")
+    assert evaluate("document.querySelector('[data-benefit-amount][data-benefit-kind=capital]').value") == '350'
+    evaluate("window.fetch=async(...args)=>{const response=await __benefitFetch(...args);if(String(args[0]).includes('tax-benefit-preview'))await new Promise(r=>setTimeout(r,300));return response}")
+    evaluate("document.querySelector('[data-benefit-auto][data-benefit-kind=capital]').click()")
+    other = {**model, 'owner': '엄마', 'events': [], 'context_key': 'different-user:엄마:2026'}
+    evaluate(f"window.renderDividends({{dividend_tax_benefits:{json.dumps(other)}}})")
+    evaluate("new Promise(r=>setTimeout(r,600))")
+    assert evaluate("document.getElementById('fiBenefitOwner').value") == '엄마'
+    assert evaluate("document.querySelectorAll('.fi-benefit-card').length") == 0
+    assert not evaluate("document.documentElement.scrollWidth>innerWidth")

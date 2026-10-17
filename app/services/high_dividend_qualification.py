@@ -257,6 +257,12 @@ async def _fetch_company_status(
                 receipt_date=filing["receipt_date"],
                 viewer_url=filing["viewer_url"],
             )
+            selected_rows = [row for row in payload.get('list', []) if isinstance(row, dict)
+                and row.get('rcept_no') == filing['receipt_no']]
+            uncertain = (not selected_rows or any(mark in filing['report_name'] for mark in ('정정', '철회'))
+                or any(any(mark in str(row.get('rm') or '') for mark in ('정', '철')) for row in selected_rows)
+                or len({(str(row.get('report_nm')), str(row.get('rcept_dt'))) for row in selected_rows}) != 1)
+            parsed['correction_review'] = 'not_resolved' if uncertain else 'no_correction_indicated'
             result = {
                 "status": parsed.get("qualification_status") or "not_confirmed",
                 "reason": parsed.get("reason"),
@@ -296,6 +302,7 @@ def _qualification_payload(
         "receipt_date": evidence.get("receipt_date"),
         "business_year": evidence.get("business_year"),
         "decision_date": evidence.get("decision_date"),
+        "correction_review": evidence.get("correction_review", "not_resolved"),
         "company_self_determination": True,
         "wealth_inferred": False,
         "reason": result.get("reason"),

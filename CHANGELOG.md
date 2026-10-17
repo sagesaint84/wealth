@@ -1,5 +1,24 @@
 # Wealth 변경 이력
 
+## Wealth v2.1.0 — 배당 공식 근거 및 예상 세금 혜택 미리보기 — 2026-10-17 (개발 변경·PR 미병합·운영 미배포)
+
+- Phase A는 지급 이벤트 혼합 방지와 320자 인용문 기준 span 정합성을 보완해 `f290d9b211b166e49e320d38fa0a2bdd571bfad7`로 보존했다. 해당 커밋 전 실제 집중 검증은 84 PASS, subtests 39 PASS다. 원본 보존 커밋 `6c88396b036d8826979f0379d255d4e6f4055194`도 유지한다.
+- Phase B1은 기존 OpenDART 다운로드 원문을 두 파서가 재사용한다. 구성 파서 오류는 신규 근거만 unavailable로 반환하고 기존 현금배당 확정값·예상/실제 배당·원천징수·세금·고배당기업 판정·금융 저장을 변경하지 않는다. 보통주 대상의 읽기 전용 `capital_dividend_evidence`는 기존 structured 응답의 형제와 배당 요약 최상위 별도 영역에 전달하며 스냅샷의 forecast_source에는 넣지 않는다. B1 당시 UI는 미구현이었다.
+- Phase A의 Decimal 십진 문자열·null/명시적 0·이벤트 미확인·개인 과세 not_assessed 계약을 유지한다. 재원 설명이 없으면 not_confirmed이며 고배당기업 분리과세 자격과 동일시하지 않는다. 근거는 plain text이며 향후 UI는 textContent/escape를 사용해야 한다.
+- 기존 370일·첫 100건 조회 및 최신 공시 선택 정책을 유지한다. 정정 제목·공식 rm 비고를 관찰하되 원공시/정정 관계는 not_resolved다. 선택 공시의 후속 정정 표시·조회 내 철회·동일 receipt의 상충 메타데이터는 신규 구성금액 확정만 차단한다. 전체 정정 계보·교차 공시 금액 비교는 미구현이다.
+- 하위 호환 근거 추가로 개발 APP_VERSION·HTML 메타/화면 표시·SW 캐시를 2.1.0으로 동기화한다. 수정하지 않은 JS/CSS revision 및 application-assets-revision은 유지한다. Oracle는 v2.0.3 / `b1e6e59`, PR #149·#150 운영 이력은 아래에 보존한다. 이후 B2 미리보기의 범위는 아래 기록을 따르며 새 세율표·전문 세무 판정 엔진은 추가하지 않는다.
+- 최초 B1 로컬 집중 검증: Python 3.14.2의 합성/mock 13개 모듈 **214 PASS / 0 FAIL / 0 SKIP**, subtests **51 PASS**(10.27초). 동일 모의 응답으로 Phase A 커밋의 소스 서비스를 실행해 기존 배당·세금·고배당기업 결과와 저장용 스냅샷 불변을 확인했다. Python 6개 파일/SW 문법·정적 자산 revision 보존·git diff --check PASS, 이번 합성 임시 경로 자동 제거 확인. 전체 pytest·실제 DART·CI·v2.1.0 병합/배포는 미실행이다.
+
+- B1 감사 보완: 같은 원문으로 현금배당/구성 파서를 각각 실행하고 양방향 실패를 격리했다. ZIP 추출 실패·개별 파서 실패·요청 실패를 구분하며 기존 현금배당 파서가 실패한 경우 구성금액 verified만으로 예상액을 보강하지 않는다. 목록의 정상 부재(013 포함), 명시적 API 오류, 비정상 응답을 분리하고 안전한 3자리 오류 코드만 노출한다. 기존 조회 범위·횟수·현금배당 fallback은 유지한다.
+- 감사 보완 후 격리 집중 13개 모듈 **222 PASS / 0 FAIL / 0 SKIP**, subtests **72 PASS**. Phase A·수정 전 B1·수정 후 B1을 12개 합성/mock 조건으로 비교해 기존 응답·저장 스냅샷·요청 횟수 동일 및 금융 writer 미호출을 확인했다. 감사 시작 시점의 수정 전 B1 비-live 전체 재실행은 **4,278 PASS / 0 FAIL / 2 SKIP**, subtests **849 PASS**, 4 warnings(1338.93초), 종료 코드 0이었다. 기존 Linux 커널 통합 검사 2개는 플랫폼 조건으로 skip됐고 tests/live는 제외했다. 이전 중단 실행의 실패 node ID·원인은 재현되지 않아 UNKNOWN이다. 수정 후 B1 전체 실행·실제 API·CI는 미검증이다. 이번 격리 경로 정리는 자동 승인 정책으로 차단돼 우회하지 않았다.
+
+- B2 개발 변경: 배당/What-if의 단일 이벤트 미리보기에서 AUTO·MANUAL_ON·MANUAL_OFF, 대상 금액 입력, 예상 차이와 공식 원문 링크를 제공한다. 인증 사용자·소유자·이벤트·연도별 세션 메모리 선택이며 새로고침 후 영구 보존은 하지 않는다. 서버가 공식 근거와 이벤트 금액을 다시 조회하고 오래된 사용자 범위·다른 이벤트 선택을 거부한다.
+- 고배당기업 공식 판정과 기존 2026 What-if/누진세 계산을 재사용한다. 공식 사업연도·이벤트·지급연도·대상 금액이 일치하고 정정 경고가 없는 경우만 AUTO를 허용한다. 감액배당 적용액을 먼저 제외해 같은 금액을 고배당기업 대상에서 중복 차감하지 않는다. 개인 적용 요건 미확인인 현재 B1 자료는 감액배당 AUTO 비과세 근거로 쓰지 않으며 수동 선택은 사용자 가정으로 구분한다.
+- 실제 배당/원천징수/실현손익/금융 원본·기존 예상 총액은 변경하지 않는다. 고배당기업 국세는 일반 원천징수 국세와 단순 비교하며 지방세·종합과세 대비 유불리를 확정하지 않는다. 신고 시 신청 조건을 유지한다. 변경 JS 2개/CSS 1개 revision만 `2.1.0-b2`로 갱신하고 앱/HTML/SW 2.1.0·운영 2.0.3은 유지한다.
+- B2 최종 합성/mock 집중 **242 PASS / 0 FAIL / 0 SKIP**: 21개 모듈 214 PASS, subtests 69 PASS(26.05초), 기존/신규 Chromium 모듈 28 PASS(115.68초). 320/390/1280px, AUTO/수동/제외/자동 복원, 미확인 금액 입력, 실패 초안·늦은 응답·사용자/소유자/연도/이벤트 분리, XSS·overflow 방지와 기존 화면 회귀를 확인했다. Starlette/httpx 의존성 deprecation 경고 1건은 실패가 아니다. 이 검증 당시 전체 pytest·외부 API·PR CI·커밋·운영 배포는 실행하지 않았다.
+
+- B2 커밋 전 핵심 재검증: 서비스/API·금융/버전/정적 69 PASS(subtests 25 PASS), Chromium 4 PASS, 합계 73 PASS / 0 FAIL / 0 SKIP. 기존 242 PASS와 구분한다. 화면에 기본 세후 카드와 별도 계산·자동 합산 없음 문구를 보완했다. 전체 pytest·PR CI는 이번에도 미실행이다.
+
 ## Wealth v2.0.3 — AccountInfo PDF 반응형 계좌 미리보기 — 2026-10-17 (운영 배포 완료)
 
 - **배포 완료**: [PR #149](https://github.com/sagesaint84/wealth/pull/149) Squash Merge, 운영 main `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b`. Native AMD64/ARM64 [CI 38930119488](https://github.com/sagesaint84/wealth/actions/runs/38930119488) 및 [GHCR run 38931035808](https://github.com/sagesaint84/wealth/actions/runs/38931035808) SUCCESS. 운영 이미지 `ghcr.io/sagesaint84/wealth:b1e6e59`를 Oracle ARM64 `/docker/wealth`의 `wealth` 컨테이너에 배포했다. 사용자 제공 10분 안정성 확인은 `RUNNING=true`, `RESTARTS=0`, `EXIT=0`, `HTTP=307`이며 금융 데이터/Toss 마운트 PASS, 이전 롤백 이미지 보존 확인이다.

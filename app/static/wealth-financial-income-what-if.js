@@ -75,6 +75,7 @@
           <span class="fi-what-if-badge">자산관리용 · 저장 안 함</span>
         </div>
 
+        <section id="dividendBenefitPreview" class="fi-benefits" aria-label="배당 이벤트 예상 혜택"></section>
         <form id="financialIncomeWhatIfForm" class="fi-what-if-form">
           <div class="fi-what-if-section fi-dividend-primary">
             <div class="fi-what-if-section-title">
@@ -703,6 +704,142 @@
     root.innerHTML = html;
   }
 
+  // Session-memory only. The server supplies an authenticated-user/owner/year
+  // context key; official status is never read from the selection map.
+  const benefitChoices = new Map();
+  let benefitModel = null;
+  let benefitRevision = 0;
+
+  function benefitLink(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && ['dart.fss.or.kr', 'opendart.fss.or.kr', 'kind.krx.co.kr'].includes(url.hostname)
+        && !url.username ? url.href : null;
+    } catch (_) { return null; }
+  }
+
+  function renderBenefits(model) {
+    const root = document.getElementById('dividendBenefitPreview');
+    if (!root || !model) { if (root) root.replaceChildren(); return; }
+    root.removeAttribute('aria-busy');
+    const cards = (model.events || []).map((event, index) => {
+      const controls = ['capital', 'high_dividend'].map(kind => {
+        const view = event[kind];
+        const id = `fiBenefit-${index}-${kind}`;
+        const link = benefitLink(view.source_url);
+        const officialStatus = { official_qualified: '공식 고배당기업 해당', official_not_qualified: '공식 고배당기업 미해당',
+          not_assessed: '세금 적용 요건 미확인', not_confirmed: '공식 근거 미확인',
+          source_unavailable: '공식 근거 조회 불가', eligibility_confirmed: '적용 근거 확인' }[view.official_status] || '공식 근거 미확인';
+        return `<fieldset class="fi-benefit-choice"><legend>${kind === 'capital' ? '감액배당 예상 효과' : '고배당기업 분리과세'}</legend>
+          <span>${escapeHtml(view.official_eligible ? '공식 근거·적용 범위 확인' : '적용 요건 미확인')} · ${escapeHtml(officialStatus)}</span>
+          <div><label for="${id}"><input id="${id}" type="checkbox" data-benefit-index="${index}" data-benefit-kind="${kind}" ${view.applied || view.needs_amount ? 'checked' : ''} ${model.supported_year ? '' : 'disabled'}> 예상 혜택 적용</label>
+          <button type="button" data-benefit-auto="${index}" data-benefit-kind="${kind}" ${model.supported_year ? '' : 'disabled'}>자동</button></div>
+          <small>${view.mode === 'AUTO' ? 'AUTO' : view.mode === 'MANUAL_OFF' ? '사용자 제외' : view.assumed ? '사용자 가정 적용' : '사용자 적용'} · 대상 ${money(view.applied_amount_krw)}${view.overlap_removed ? ' · 감액배당 중복분 제외' : ''}</small>
+          ${view.mode === 'MANUAL_ON' ? `<label for="${id}-amount">혜택 대상 금액(원)<input id="${id}-amount" data-benefit-amount="${index}" data-benefit-kind="${kind}" type="number" min="0" max="${escapeHtml(event.gross_amount_krw)}" step="1" inputmode="numeric" value="${view.selected_amount_krw === null ? '' : escapeHtml(view.selected_amount_krw)}" placeholder="대상 금액 직접 입력" required></label>` : ''}
+          ${view.needs_amount ? '<strong role="status">대상 금액을 입력해야 계산할 수 있습니다.</strong>' : ''}
+          ${link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">공식 공시 원문 ↗</a>` : ''}
+        </fieldset>`;
+      }).join('');
+      return `<article class="fi-benefit-card"><strong>${escapeHtml(event.name)} (${escapeHtml(event.code)})</strong>
+        <div>${escapeHtml(event.payment_date || '지급일 미확인')} · 세전 예상 ${money(event.gross_amount_krw)}</div>${controls}
+        <div>감액배당 예상 원천징수 부담 차이 ${money(event.estimated_capital_withholding_difference_krw)}</div></article>`;
+    }).join('');
+    root.innerHTML = `<div class="fi-benefit-head"><strong>이벤트별 예상 세금 혜택</strong><span>기본 세후 카드와 별도 계산 · 자동 합산 없음 · 화면 세션 내 선택 · 실제 기록 변경 없음</span></div>
+      <div class="fi-benefit-scope"><label>소유자 <select id="fiBenefitOwner"><option value="모두">소유자 선택</option>${(model.owners || []).map(owner => `<option value="${escapeHtml(owner)}" ${owner === model.owner ? 'selected' : ''}>${escapeHtml(owner)}</option>`).join('')}</select></label>
+      <label>과세연도 <select id="fiBenefitYear">${[2025, 2026, 2027].map(year => `<option ${year === model.tax_year ? 'selected' : ''}>${year}</option>`).join('')}</select></label></div>
+      <p>${model.requires_owner ? '소유자를 선택하면 해당 소유자의 배당 이벤트를 확인합니다.' : !model.supported_year ? '현재 계산기는 2026년만 지원합니다. 다른 연도에 혜택을 자동 적용하지 않습니다.' : '근거 부족 시 일반 배당으로 계산합니다. 직접 적용하면 사용자 가정으로 구분합니다.'}</p>
+      <div class="fi-benefit-grid">${cards || (model.requires_owner ? '' : '<p>해당 연도의 계산 가능한 배당 이벤트가 없습니다.</p>')}</div>
+      ${model.events?.length ? `<p>선택 이벤트 일반배당 과세 검토액 ${money(model.general_taxable_dividend_krw)} · 감액배당 예상 부담 차이 ${money(model.estimated_capital_withholding_difference_krw)} · 고배당기업 국세 ${money(model.high_dividend_national_tax_krw)} · 일반 원천징수 국세 대비 차이 ${money(model.high_dividend_national_difference_vs_withholding_krw)}${model.needs_amount ? ' (입력 전 부분 계산)' : ''}</p>
+      <small>고배당기업은 신고 시 분리과세 신청이 필요합니다. 국세만 단순 비교하며 지방세·종합과세와의 유불리를 확정하지 않습니다. 실제 원천징수·입금 기록은 바꾸지 않습니다.</small>` : ''}
+      <div id="fiBenefitStatus" role="status" aria-live="polite"></div>`;
+  }
+
+  async function requestBenefits(owner, year, choices = null) {
+    const revision = ++benefitRevision;
+    const root = document.getElementById('dividendBenefitPreview');
+    if (!root) return;
+    // Remove the old owner's figures while a different scope is loading.
+    root.setAttribute('aria-busy', 'true');
+    const differentScope = owner !== benefitModel?.owner || year !== benefitModel?.tax_year;
+    if (differentScope) root.replaceChildren(Object.assign(document.createElement('p'), { textContent: '예상 혜택 계산 중…' }));
+    try {
+      const response = await fetch('/api/dividends/tax-benefit-preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ owner, tax_year: year, selections: choices || {},
+          ...(choices ? { context_key: benefitModel?.context_key } : {}) }),
+      });
+      if (!response.ok) throw new Error('계산 요청을 확인할 수 없습니다. 다시 선택해 주세요.');
+      const result = await response.json();
+      if (revision !== benefitRevision) return;
+      benefitModel = result;
+      if (choices === null && benefitChoices.has(result.context_key)) {
+        const scoped = currentBenefitChoices(result);
+        if (scoped) return requestBenefits(owner, year, scoped);
+      }
+      renderBenefits(result);
+    } catch (error) {
+      if (revision !== benefitRevision) return;
+      if (differentScope) {
+        benefitModel = { ...benefitModel, owner, tax_year: year, events: [], requires_owner: owner === '모두' };
+        renderBenefits(benefitModel);
+      }
+      const status = document.getElementById('fiBenefitStatus');
+      if (status) status.textContent = '계산 실패: 선택 초안은 유지했습니다. 다시 선택하거나 자동으로 복원해 주세요.';
+    } finally {
+      if (revision === benefitRevision) root.removeAttribute('aria-busy');
+    }
+  }
+
+  function currentBenefitChoices(model) {
+    const keys = new Set((model.events || []).map(event => event.key));
+    const scoped = Object.fromEntries(Object.entries(benefitChoices.get(model.context_key) || {})
+      .filter(([key]) => keys.has(key)));
+    benefitChoices.set(model.context_key, scoped);
+    return Object.keys(scoped).length ? scoped : null;
+  }
+
+  function receiveBenefits(model) {
+    ++benefitRevision;
+    benefitModel = model;
+    renderBenefits(model);
+    if (model && benefitChoices.has(model.context_key)) {
+      const scoped = currentBenefitChoices(model);
+      if (scoped) requestBenefits(model.owner, model.tax_year, scoped);
+    }
+  }
+
+  document.addEventListener('change', event => {
+    if (event.target.id === 'fiBenefitOwner' || event.target.id === 'fiBenefitYear') {
+      const owner = document.getElementById('fiBenefitOwner')?.value || '모두';
+      const year = Number(document.getElementById('fiBenefitYear')?.value || 2026);
+      requestBenefits(owner, year);
+      return;
+    }
+    const target = event.target.closest?.('[data-benefit-index], [data-benefit-amount]');
+    if (!target || !benefitModel) return;
+    const index = Number(target.dataset.benefitIndex ?? target.dataset.benefitAmount);
+    const eventModel = benefitModel.events[index];
+    if (!eventModel) return;
+    const kind = target.dataset.benefitKind;
+    const choices = structuredClone(benefitChoices.get(benefitModel.context_key) || {});
+    const choice = (choices[eventModel.key] ||= {});
+    choice[kind] = target.dataset.benefitAmount !== undefined
+      ? { mode: 'MANUAL_ON', ...(target.value === '' ? {} : { amount_krw: Number(target.value) }) }
+      : { mode: target.checked ? 'MANUAL_ON' : 'MANUAL_OFF' };
+    benefitChoices.set(benefitModel.context_key, choices);
+    requestBenefits(benefitModel.owner, benefitModel.tax_year, choices);
+  });
+  document.addEventListener('click', event => {
+    const target = event.target.closest?.('[data-benefit-auto]');
+    if (!target || !benefitModel) return;
+    const row = benefitModel.events[Number(target.dataset.benefitAuto)];
+    const choices = structuredClone(benefitChoices.get(benefitModel.context_key) || {});
+    (choices[row.key] ||= {})[target.dataset.benefitKind] = { mode: 'AUTO' };
+    benefitChoices.set(benefitModel.context_key, choices);
+    requestBenefits(benefitModel.owner, benefitModel.tax_year, choices);
+  });
+  window.addEventListener('wealth:dividend-benefits', event => receiveBenefits(event.detail));
+
   function attachGlobalListeners() {
     document.addEventListener('click', event => {
       const modeTab = event.target.closest?.('#dividendModeTabs .heatmap-tab');
@@ -725,6 +862,7 @@
   function init() {
     mountPanel();
     attachGlobalListeners();
+    receiveBenefits(window.WealthDividendBenefitData || null);
     // Observe only mode/category selection, never panel moves or result markup.
     const observer = new MutationObserver(syncVisibility);
     const modeTabs = document.getElementById('dividendModeTabs');

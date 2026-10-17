@@ -371,3 +371,187 @@ async def get_financial_income_what_if_for_user(
         result["investment_comparison"] = comparison
 
     return result
+
+
+# Stateless event choices: official metadata is always read from server summaries.
+# These previews never update actual receipts, withholding, or forecast totals.
+def build_dividend_benefit_preview(summary, *, owner, tax_year, selections=None, as_of=None):
+    from datetime import date
+    from collections import Counter
+    from app.services.dividend_event_identity import build_dividend_event_identity
+    from urllib.parse import urlsplit
+
+    if isinstance(tax_year, bool) or not isinstance(tax_year, int) or not 1900 <= tax_year <= 2100:
+        raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_YEAR_INVALID')
+    if not isinstance(owner, str) or not owner.strip() or owner == '모두':
+        raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_OWNER_REQUIRED')
+    if selections is None:
+        selections = {}
+    if not isinstance(selections, dict) or len(selections) > 500:
+        raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_SELECTION_INVALID')
+    day = as_of or date.today()
+    supported = tax_year == investment_rules.RULE_YEAR
+
+    def amount(value):
+        try:
+            result = _nonnegative(value, 'DIVIDEND_BENEFIT_AMOUNT_INVALID')
+            return result if value is not None and result <= 1e15 else None
+        except FinancialIncomeWhatIfError:
+            return None
+
+    def parsed_day(value):
+        try:
+            return date.fromisoformat(str(value))
+        except (ValueError, TypeError):
+            return None
+
+    def official_link(value):
+        try:
+            url = urlsplit(str(value or ''))
+            return value if url.scheme == 'https' and url.hostname in {
+                'dart.fss.or.kr', 'opendart.fss.or.kr', 'kind.krx.co.kr'} and not url.username else None
+        except ValueError:
+            return None
+
+    instruments = {str(row.get('code')): row for row in
+        (summary.get('dividend_intelligence') or {}).get('instruments', []) if isinstance(row, dict)}
+    capital_map = summary.get('capital_dividend_evidence') or {}
+    etfs = {str(row.get('code')) for row in summary.get('holding_dividends', []) if row.get('is_etf')}
+    events = []
+    for bucket in summary.get('monthly_schedule', []):
+        for item in bucket.get('items', []):
+            code = str(item.get('code') or '')
+            gross = amount(item.get('payout_krw'))
+            if (item.get('currency') != 'KRW' or item.get('is_etf') or code in etfs
+                    or len(code) != 6 or not code[0].isdigit() or not code.isalnum() or gross is None or gross <= 0):
+                continue
+            paid = parsed_day(item.get('payment_date'))
+            if (paid and paid.year != tax_year) or (not paid and tax_year != day.year):
+                continue
+            identity = build_dividend_event_identity(code=code, record_date=item.get('record_date'),
+                source='opendart', source_event_id=item.get('receipt_no'))
+            official_event = bool(identity and identity == item.get('event_identity')
+                and item.get('event_identity_confidence') == 'official' and paid)
+            event_id = identity or f"forecast:{code}:{bucket.get('month')}"
+            # The owner/year scope is deliberately part of the selection key.
+            key = f'{owner}:{tax_year}:{event_id}'
+            capital = capital_map.get(code) or {}
+            components = capital.get('payment_components') or {}
+            record = parsed_day(item.get('record_date'))
+            qualification = (instruments.get(code) or {}).get('high_dividend_qualification') or {}
+            quantity = amount(item.get('quantity'))
+            dps = amount(components.get('disclosed_capital_reduction_dps_krw'))
+            total_dps = amount(components.get('total_cash_dps_krw'))
+            matched_capital = bool(official_event and capital.get('receipt_no') == item.get('receipt_no')
+                and components.get('amount_status') == 'verified' and quantity is not None
+                and total_dps is not None and abs(quantity * total_dps - gross) <= 1)
+            candidate_capital = min(gross, quantity * dps) if matched_capital and dps is not None else None
+            # B1 has not_assessed and unresolved correction lineage: composition
+            # verified is not personal tax eligibility, so capital AUTO stays off.
+            assessment = capital.get('tax_assessment') or {}
+            assessed_amount = amount(assessment.get('eligible_amount_krw'))
+            capital_eligible = bool(matched_capital and supported
+                and candidate_capital is not None and assessed_amount is not None
+                and 0 < assessed_amount <= candidate_capital
+                and capital.get('reserve_evidence_status') == 'disclosed'
+                and capital.get('payment_event_status') == 'single_event_scoped'
+                and (capital.get('correction_relationship') or {}).get('status') == 'resolved'
+                and assessment.get('status') == 'eligibility_confirmed'
+                and assessment.get('tax_year') == tax_year
+                and assessment.get('event_identity') == identity)
+            # Reuse the official company verdict, but only the same declared
+            # business-year event paid in the supported 2026 screening year.
+            decision = parsed_day(qualification.get('decision_date'))
+            published = parsed_day(qualification.get('receipt_date'))
+            high_eligible = bool(supported and official_event and record and decision and published
+                and quantity is not None and quantity > 0
+                and (instruments.get(code) or {}).get('tax_engine_asset_type') == 'domestic_dividend_stock'
+                and decision.year == published.year == tax_year and published <= day
+                and qualification.get('status') == 'official_qualified'
+                and qualification.get('source') == 'official_valueup_disclosure'
+                and qualification.get('correction_review') == 'no_correction_indicated'
+                and qualification.get('receipt_no') and official_link(qualification.get('source_url'))
+                and qualification.get('business_year') == tax_year - 1 == record.year
+                and record <= decision <= paid and decision <= day
+                and not (capital.get('correction_relationship') or {}).get('later_correction_indicated')
+                and not (capital.get('correction_relationship') or {}).get('withdrawal_in_search_results')
+                and not (capital.get('correction_relationship') or {}).get('selected_metadata_conflict'))
+            event = {'key': key, 'event_identity': identity, 'code': code,
+                'name': str(item.get('name') or code), 'owner': owner, 'tax_year': tax_year,
+                'gross_amount_krw': _won(gross), 'payment_date': item.get('payment_date'),
+                'capital': {'official_eligible': capital_eligible, 'candidate_amount_krw': candidate_capital,
+                    'auto_amount_krw': assessed_amount if capital_eligible else None,
+                    'official_status': assessment.get('status') or 'not_assessed',
+                    'source_url': official_link(capital.get('viewer_url'))},
+                'high_dividend': {'official_eligible': high_eligible,
+                    'candidate_amount_krw': (gross - (candidate_capital or 0)) if high_eligible else None,
+                    'auto_amount_krw': (gross - (candidate_capital or 0)) if high_eligible else None,
+                    'official_status': qualification.get('status') or 'not_confirmed',
+                    'source_url': official_link(qualification.get('source_url'))}}
+            events.append(event)
+    counts = Counter(e['key'] for e in events)
+    # Ambiguous duplicate events must not double-count a tax benefit.
+    events = [e for e in events if counts[e['key']] == 1]
+    if set(selections) - {e['key'] for e in events}:
+        raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_EVENT_SCOPE_INVALID')
+    total_capital = total_high = total_gross = 0
+    pending = False
+    for event in events:
+        selected = selections.get(event['key'], {})
+        if not isinstance(selected, dict) or set(selected) - {'capital', 'high_dividend'}:
+            raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_SELECTION_INVALID')
+        gross = event['gross_amount_krw']
+        for kind in ('capital', 'high_dividend'):
+            choice = selected.get(kind, {})
+            if not isinstance(choice, dict) or set(choice) - {'mode', 'amount_krw'}:
+                raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_SELECTION_INVALID')
+            mode = choice.get('mode', 'AUTO')
+            if not isinstance(mode, str) or mode not in {'AUTO', 'MANUAL_ON', 'MANUAL_OFF'}:
+                raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_MODE_INVALID')
+            view = event[kind]
+            target = view['auto_amount_krw'] if mode == 'AUTO' else view['candidate_amount_krw']
+            if mode == 'MANUAL_ON' and 'amount_krw' in choice:
+                target = amount(choice['amount_krw'])
+                if target is None:
+                    raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_AMOUNT_INVALID')
+            if target is not None and not 0 <= target <= gross:
+                raise FinancialIncomeWhatIfError('DIVIDEND_BENEFIT_AMOUNT_EXCEEDS_EVENT')
+            applied = supported and (mode == 'MANUAL_ON' or (mode == 'AUTO' and view['official_eligible']))
+            needs_amount = bool(applied and target is None)
+            pending = pending or needs_amount
+            view.update(mode=mode, applied=bool(applied and target is not None and target > 0),
+                assumed=bool(mode == 'MANUAL_ON' and (not view['official_eligible'] or target != view['auto_amount_krw'])),
+                needs_amount=needs_amount, selected_amount_krw=target,
+                applied_amount_krw=_won(target) if applied and target is not None else 0)
+        capital_amount = event['capital']['applied_amount_krw']
+        high = event['high_dividend']
+        high['applied_amount_krw'] = min(high['applied_amount_krw'], gross - capital_amount)
+        high['overlap_removed'] = high['applied_amount_krw'] != (high['selected_amount_krw'] or 0) if high['applied'] else False
+        high['applied'] = high['applied_amount_krw'] > 0
+        event['estimated_capital_withholding_difference_krw'] = _won(capital_amount * investment_rules.GENERAL_DIVIDEND_WITHHOLDING_RATE)
+        total_capital += capital_amount
+        total_high += high['applied_amount_krw']
+        total_gross += gross
+    # Reuse the existing What-if exclusion and progressive-tax orchestration on
+    # this event subtotal only; do not add forecasts to the user's baseline twice.
+    event_what_if = build_financial_income_what_if(
+        {'known_gross_screening_income_krw': 0, 'projected_gross_screening_income_krw': 0},
+        additional_dividend_gross_krw=total_gross - total_capital,
+        high_dividend_scenario={'special_dividend_income_krw': total_high,
+            'high_dividend_company_confirmed': True, 'separate_taxation_requested': True}
+            if supported and total_high else None)
+    special = event_what_if['high_dividend_special_tax']
+    high_tax = special['national_income_tax_krw'] if special else 0
+    high_difference = _won(total_high * investment_rules.GENERAL_DIVIDEND_INCOME_TAX_RATE) - high_tax
+    return {'owner': owner, 'tax_year': tax_year, 'supported_year': supported,
+        'events': events, 'needs_amount': pending, 'session_only': True,
+        'gross_amount_krw': total_gross, 'capital_applied_amount_krw': total_capital,
+        'general_taxable_dividend_krw': event_what_if['scenario_comprehensive_tax_screening_income_krw'],
+        'calculation_basis': 'selected_events_only',
+        'high_dividend_applied_amount_krw': total_high,
+        'estimated_capital_withholding_difference_krw': _won(total_capital * investment_rules.GENERAL_DIVIDEND_WITHHOLDING_RATE),
+        'high_dividend_national_tax_krw': high_tax,
+        'high_dividend_national_difference_vs_withholding_krw': high_difference,
+        'high_dividend_local_tax_included': False, 'filing_application_required': bool(total_high),
+        'favorable_vs_comprehensive_confirmed': False, 'actual_records_modified': False,
+        'ambiguous_events_excluded': sum(count > 1 for count in counts.values())}

@@ -34,13 +34,13 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
         version = assets.versions[0]
         self.assertIsInstance(version, str)
         self.assertRegex(version, r'^\d+\.\d+\.\d+$')
-        css_ref = '/static/wealth-financial-income-what-if.css?v=1.3.0'
+        css_ref = '/static/wealth-financial-income-what-if.css?v=2.1.0-b2'
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
         # Core asset revision is independent of the app release version.
         self.assertEqual(revision, '2.0.2-r7')
         core_js = f'/static/wealth.js?v={revision}'
-        what_if_js = '/static/wealth-financial-income-what-if.js?v=2.0.2-r6'
+        what_if_js = '/static/wealth-financial-income-what-if.js?v=2.1.0-b2'
         self.assertIn(css_ref, html)
         self.assertIn(core_js, html)
         self.assertIn(what_if_js, html)
