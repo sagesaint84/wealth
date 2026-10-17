@@ -19,16 +19,46 @@
 9. 브랜치·worktree 정리는 병합 및 운영 배포 검증 후 진행한다.
 10. 작업 종료 전 코드·테스트·문서 버전 불일치, 변경 범위 및 임시 경로 정리 상태를 확인한다.
 
-현재 운영 기준: Wealth v2.0.2, main `113c663023586dd8a217d15ac9ca9bd3cfd47648` (사용자 제공 확인: PR #147 Squash Merge·CI 완료, Oracle 배포 및 서비스 안정성 검사 PASS; 2026-10-17). 아래 과거 PR #147 실패·미검증·미배포 기록은 각 단계 당시 이력이다.
+현재 개발·운영 기준: **Wealth v2.0.3**, main `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b` ([PR #149](https://github.com/sagesaint84/wealth/pull/149) Squash Merge 완료; 2026-10-17). 운영 이미지와 검증 상태는 아래를 따르며, 과거 PR #147 및 v2.0.3 개발 당시의 미병합·미배포·실패 기록은 당시 이력이다.
 
-## 1. 현재 개발 상태
+## 1. 현재 운영 상태
 
-### v2.0.3 AccountInfo PDF 반응형 미리보기 — 2026-10-17 (개발 완료·미병합·운영 미배포)
+### v2.0.3 / PR #149 — 병합·이미지 발행·Oracle 배포 완료
+
+- 운영 main: `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b`.
+  Native AMD64/ARM64 [CI run 38930119488](https://github.com/sagesaint84/wealth/actions/runs/38930119488) SUCCESS,
+  [GHCR run 38931035808](https://github.com/sagesaint84/wealth/actions/runs/38931035808) SUCCESS.
+- 운영 이미지: `ghcr.io/sagesaint84/wealth:b1e6e59`. Oracle ARM64의 `/docker/wealth`, 컨테이너 `wealth`.
+  사용자 제공 10분 안정성 결과: `RUNNING=true`, `RESTARTS=0`, `EXIT=0`, `HTTP=307`.
+  금융 데이터/Toss 마운트는 PASS이며 이전 롤백 이미지는 보존 확인됐다. 후속 배포에서도 데이터 마운트와
+  검증된 롤백 이미지를 임의 삭제하지 않고 기존 롤백 보존 정책을 유지한다.
+- 사용자 실제 브라우저 확인 6개 항목 모두 정상: 계좌 카드 표시, PDF 잔액 전체 표시, 은행 신규 잔액 편집,
+  증권 참고값 구분, 버튼 접근성, 기존 자산 데이터 유지. 실제 신규 계좌 등록 및 전체 금융 API 실거래
+  검증 완료를 뜻하지 않는다. Oracle/브라우저 결과는 사용자 제공 확정 기록이며 이번 문서 작업에서
+  배포·운영 검증을 다시 실행한 결과가 아니다.
+- AccountInfo 반응형 UI는 운영 반영 완료이며 parser·금융 저장 API·중복·Owner·마스킹·증권 예수금
+  정책을 유지한다. 앱/HTML/SW는 2.0.3, AccountInfo 자산은 `2.0.3-ai1`, 미변경 core는 `2.0.2-r7`이다.
+  개발 당시 로컬 집중 검증은 **129 PASS / 0 FAIL / 0 SKIP**다. 전체 pytest 및 실제 금융 실거래 전체 범위는
+  해당 집중 검증과 구분한다.
+- PR #147은 이전에 CI·병합·Oracle 배포 완료된 이력이며 당시 운영은 v2.0.2 / `113c663`이었다.
+  이번 문서 전용 브랜치는 `codex/v203-postdeploy-docs`, 기준 HEAD는 위 운영 main이다.
+  이전 OCR·AccountInfo 브랜치와 worktree는 이번 문서 단계에서 제거하지 않으며, 시스템 임시 경로
+  두 개의 이전 정책 차단 상태도 우회하거나 추가 삭제하지 않는다.
+- 이번 배포 완료 문서 정리의 로컬 검증: 문서 버전 동기화·HTML 버전/revision·서비스워커 캐시
+  기존 테스트 **3 PASS / 0 FAIL / 0 SKIP**, `git diff --check` PASS. 정확히 네 MD만 변경했으며
+  기존 10개 작업 원칙과 하단 과거 기록은 원문 대조로 보존을 확인했다. 기능·테스트 코드는 변경하지
+  않았고 CI·Oracle 배포·실제 계좌 등록을 이번 작업에서 재실행하지 않았다.
+
+## v2.0.3 개발 당시 구현·검증 이력
+
+아래는 PR #149 병합·운영 배포 전 기록이다. 현재 AccountInfo 상태는 위 운영 완료 항목을 따른다.
+
+### v2.0.3 AccountInfo PDF 반응형 미리보기 — 2026-10-17 (당시 개발 완료·미병합·운영 미배포)
 
 `wealth-ocr`의 깨끗한 기존 OCR 브랜치 HEAD `cb6f87b13d774a101157a7a3d6a0ef7febb3492f`와
 `origin/main`의 운영 커밋 일치를 확인한 뒤, 같은 worktree에서
 `codex/v202-accountinfo-pdf-responsive-preview`를 `origin/main` 기반으로 생성했다.
-UI 구현 커밋은 `ebd66452e185ddbf3e0d2a7cc6d6a290790c6dc7`이며 이번 버전·문서 동기화는 그 후속 변경이다.
+UI 구현 커밋은 `ebd66452e185ddbf3e0d2a7cc6d6a290790c6dc7`이며 당시 버전·문서 동기화는 그 후속 변경이었다.
 원본 wealth와 감액배당 작업은 변경하지 않는다.
 
 - PDF 미리보기의 7열 테이블을 계좌 카드로 바꾼다. 320/390/768px는 1열,
@@ -41,15 +71,15 @@ UI 구현 커밋은 `ebd66452e185ddbf3e0d2a7cc6d6a290790c6dc7`이며 이번 버�
   중복/소유자 충돌 방지를 유지한다. parser·Owner·마스킹·금융 API·계산은 변경하지 않는다.
 - APP_VERSION·HTML 메타/하단 표시·서비스워커 캐시는 **2.0.3**, importer·loader·dialog CSS revision은
   `2.0.3-ai1`로 정리한다. 미변경 core JS와 연결된 `application-assets-revision`은 `2.0.2-r7`을
-  유지한다. 관련 테스트도 앱 버전과 파일 revision을 구분한다. 새 UI는 개발 완료·미병합·운영 미배포이며
-  전체 CI·배포 검증은 미완료다. 이번 작업에서 커밋·푸시·PR 생성·병합·배포는 하지 않는다.
-- **이번 v2.0.3 동기화 후 실제 재검증**: 기존 AccountInfo/UI/버전 네 모듈 **82 passed**, 164.96초.
+  유지한다. 관련 테스트도 앱 버전과 파일 revision을 구분한다. 당시 새 UI는 개발 완료·미병합·운영 미배포였고
+  전체 CI·배포 검증은 미완료였다. 해당 동기화 작업에서는 커밋·푸시·PR 생성·병합·배포를 하지 않았다.
+- **당시 v2.0.3 동기화 후 실제 재검증**: 기존 AccountInfo/UI/버전 네 모듈 **82 passed**, 164.96초.
   추가 서비스워커 runtime·배당 source/What-if 자산 revision 회귀 세 모듈 **47 passed**, 8.19초.
   합계 **129 PASS / 0 FAIL / 0 SKIP**. Python 7개 파일은 bytecode 생성 없이 문법 확인,
   JavaScript 3개 파일은 `node --check`, 최종 `git diff --check` PASS다.
   앱·HTML·서비스워커 일치와 미변경 자산/AccountInfo 소스 보존을 정적 대조했다.
   저장소의 `2.0.2` 검색 결과 중 운영·과거 릴리스/PR 검증 스냅샷·미변경 자산 revision은 보존한다.
-  전체 pytest·전체 CI·배포는 이번 검증에 포함하지 않는다. 원본 wealth는 수정하지 않았고 실제
+  전체 pytest·전체 CI·배포는 해당 로컬 검증에 포함하지 않았다. 원본 wealth는 수정하지 않았고 실제
   금융 데이터·`.env`는 열거나 수정하지 않았다. 테스트는 별도 시스템 임시 경로의 합성 데이터만 사용했다.
 - UI 구현 당시 격리 집중 검증: Chrome UI·AccountInfo frontend·release version·money-input 네 모듈
   **82 passed / 0 failed / 0 skipped**, 162.76초. 실제 Chromium에서 가상 36계좌의
@@ -65,7 +95,7 @@ UI 구현 커밋은 `ebd66452e185ddbf3e0d2a7cc6d6a290790c6dc7`이며 이번 버�
 
 ### 이전 PR #147 개발·검증 기록
 
-다음은 병합·운영 배포 전 단계별 기록이다. 현재 운영 상태와 새 UI 개발 상태는 위 항목을 따른다.
+다음은 병합·운영 배포 전 단계별 기록이다. 현재 운영 상태와 AccountInfo 배포 완료 상태는 문서 상단 운영 항목을 따른다.
 
 ### PR #147 Chromium teardown 경합 보정 — 2026-10-16 (미검증)
 
