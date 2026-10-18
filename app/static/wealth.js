@@ -9041,6 +9041,8 @@ async function saveActualDividendRecord() {
     memo: memoVal,
   };
 
+  Object.assign(payload, dividendRecordTaxInputs(form));
+
   // 현재 스크롤 위치 저장
   const savedScrollY = window.scrollY || window.pageYOffset || 0;
   const divDetailWrap = document.querySelector("#dividendMonthlyDetail .div-detail-grid, #dividendMonthlyDetail .detail-table-wrap");
@@ -9289,6 +9291,7 @@ function updateDividendYearOptions(years) {
 }
 
 function renderDividends(data) {
+  if (document.getElementById('divMonthlyAvgSub')) document.getElementById('divMonthlyAvgSub').textContent = '연간 배당금 ÷ 12개월';
   if (!data) return;
   syncDividendMonthNavUI();
   const fxUsd = (dashboard?.fx_rates?.USD) || 1385.0;
@@ -9343,7 +9346,7 @@ function renderDividends(data) {
     const barFill = isSelected ? "url(#divBarGradActive)" : (val > 0 ? "url(#divBarGrad)" : "#1c263d");
 
     return `
-      <g class="dividend-bar-group" data-month="${m}">
+      <g class="dividend-bar-group" data-month="${m}" data-bucket-index="${idx}" tabindex="0" role="img" aria-label="${m}월 예상 배당금 ${html(money(val))}">
         <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barH.toFixed(1)}" fill="${barFill}" rx="4" opacity="0.95">
           <title>${m}월 예상 배당금: ${money(val)} (${itemCount}개 종목)</title>
         </rect>
@@ -9380,8 +9383,21 @@ function renderDividends(data) {
     `;
   }
 
+  attachEstimatedDividendTooltip(data);
+
   renderMonthlyDividendDetail(selectedDividendMonth);
 }
+
+function attachEstimatedDividendTooltip(data = dividendData) {
+  if (currentDividendMode !== 'estimated' || !data) return;
+  const host = document.getElementById('dividendBarChartWrap');
+  if (!host) return;
+  const year = selectedDividendYear && !['all', '전체'].includes(selectedDividendYear) ? selectedDividendYear : getKstYearMonth().year;
+  window.WealthUnifiedTimeseries?.installAmountTooltip(host,
+    normalizeMonthlyDividendSchedule(data.monthly_schedule).map(item => ({key:`${year}-${String(item.month).padStart(2, '0')}`, total:item.total_krw})),
+    bucket => [['예상 배당', bucket.total]]);
+}
+window.addEventListener('wealth:unified-ready', () => attachEstimatedDividendTooltip());
 
 function renderMonthlyDividendDetail(month = null) {
   const container = $("#dividendMonthlyDetail");
@@ -9451,140 +9467,35 @@ function renderMonthlyDividendDetail(month = null) {
 function renderActualDividends(data) {
   if (!data) return;
   syncDividendMonthNavUI();
-  const fxUsd = (dashboard?.fx_rates?.USD) || 1385.0;
   const isAllYears = (selectedDividendYear === "all" || selectedDividendYear === "전체");
 
-  const allRecords = data.records || [];
+  const allRecords = (data.records || []).filter(r =>
+    (isAllYears || String(r.date || '').startsWith(`${selectedDividendYear}-`))
+    && (currentOwner === '모두' || (r.owner || '모두') === currentOwner)
+    && r.income_type !== 'account_interest' && r.income_kind !== 'interest');
   let filteredRecords = allRecords;
-  if (!isAllYears && selectedDividendMonth && selectedDividendMonth >= 1 && selectedDividendMonth <= 12) {
-    const mStr = String(selectedDividendMonth).padStart(2, '0');
-    filteredRecords = allRecords.filter(r => {
-      if (!r.date) return false;
-      const parts = r.date.split('-');
-      if (parts.length < 2) return false;
-      const rYear = parts[0];
-      const rMonth = parts[1];
-      if (selectedDividendYear && selectedDividendYear !== 'all') {
-        return rYear === String(selectedDividendYear) && rMonth === mStr;
-      }
-      return rMonth === mStr;
-    });
+  if (!isAllYears && selectedDividendMonth) {
+    filteredRecords = allRecords.filter(r => String(r.date || '').startsWith(`${selectedDividendYear}-${String(selectedDividendMonth).padStart(2, '0')}`));
   }
-
-  if (!isAllYears && selectedDividendMonth && selectedDividendMonth >= 1 && selectedDividendMonth <= 12) {
-    $("#divCardLabel1") && ($("#divCardLabel1").textContent = `${selectedDividendMonth}월 실제 수령 배당금`);
-    $("#divCardLabel2") && ($("#divCardLabel2").textContent = "월간 배당 수령률");
-    $("#divCardLabel3") && ($("#divCardLabel3").textContent = "월 실제 수령액");
-    $("#divCardLabel4") && ($("#divCardLabel4").textContent = "실제 수령 종목 / 건수");
-  } else {
-    $("#divCardLabel1") && ($("#divCardLabel1").textContent = isAllYears ? "누적 실제 수령 배당금" : "연간 실제 수령 배당금");
-    $("#divCardLabel2") && ($("#divCardLabel2").textContent = "실제 수령 배당수익률");
-    $("#divCardLabel3") && ($("#divCardLabel3").textContent = isAllYears ? "연평균 실제 수령액" : "월평균 실제 수령액");
-    $("#divCardLabel4") && ($("#divCardLabel4").textContent = "실제 수령 종목 / 건수");
-  }
-  $("#dividendChartTitle") && ($("#dividendChartTitle").textContent = isAllYears ? "📊 전체 기간 연도별 실제 배당금 입금 추이" : `📊 ${selectedDividendYear}년 1월 ~ 12월 월별 실제 배당금 입금 추이`);
-
-  const totalActual = (!isAllYears && selectedDividendMonth)
-    ? filteredRecords.reduce((acc, r) => acc + Number(r.amount_krw || 0), 0)
-    : Number(data.total_actual_dividend_krw || 0);
-  const totalActualUsd = fxUsd > 0 ? (totalActual / fxUsd) : 0;
-  const totalVal = Number(dashboard?.summary?.total_value_krw || 0);
-  const actualYield = totalVal > 0 ? (totalActual / totalVal * 100) : 0;
-  
-  // 전체 기간일 때는 가용 연도 수로 나눈 연평균, 단일 연도일 때는 12로 나눈 월평균
-  const availYearsCount = (data.available_years || []).length || 1;
-  const avgAmt = (!isAllYears && selectedDividendMonth)
-    ? totalActual
-    : (isAllYears ? (totalActual / availYearsCount) : Number(data.monthly_avg_dividend_krw || 0));
-  const payingStockCount = (!isAllYears && selectedDividendMonth)
-    ? new Set(filteredRecords.map(r => r.name || r.code).filter(Boolean)).size
-    : Number(data.paying_stock_count || 0);
-  const recordCount = (!isAllYears && selectedDividendMonth)
-    ? filteredRecords.length
-    : Number(data.record_count || 0);
-
-  $("#divTotalAnnual") && ($("#divTotalAnnual").textContent = money(totalActual));
-  $("#divTotalAnnualUsd") && ($("#divTotalAnnualUsd").textContent = `$${number(totalActualUsd, 2)} 환산 포함`);
-  $("#divYield") && ($("#divYield").textContent = `${number(actualYield, 2)}%`);
-  $("#divYieldSub") && ($("#divYieldSub").textContent = (!isAllYears && selectedDividendMonth) ? "선택 월 수령액 / 평가금액 기준" : "총 투자자산 대비");
-  $("#divMonthlyAvg") && ($("#divMonthlyAvg").textContent = money(avgAmt));
-  $("#divPayingCount") && ($("#divPayingCount").textContent = `${payingStockCount}종목`);
-  $("#divTotalHoldings") && ($("#divTotalHoldings").textContent = `총 ${recordCount}건 입금`);
-
-  const w = 900, h = 240, pad = 30;
-  const hBarArea = 170;
-
-  let bars = "";
-
-  if (isAllYears) {
-    // ── 전체 기간: 연도별 막대그래프 ──
-    const yearlySchedule = data.yearly_schedule || [];
-    const maxYearly = Math.max(...yearlySchedule.map(s => Number(s.total_krw || 0)), 1);
-    const numYears = Math.max(yearlySchedule.length, 1);
-    const barWidth = Math.min(64, Math.max(36, (w - pad * 2) / numYears - 28));
-
-    bars = yearlySchedule.map((item, idx) => {
-      const yr = String(item.year);
-      const val = Number(item.total_krw || 0);
-      const x = pad + ((w - pad * 2) * (idx + 0.5)) / numYears - barWidth / 2;
-      const barH = val > 0 ? Math.max(8, (val / maxYearly) * (hBarArea - 25)) : 2;
-      const y = hBarArea - barH;
-      const itemCount = (item.items || []).length;
-      const topText = val > 0 ? money(val) : "-";
-
-      return `
-        <g class="dividend-bar-group" data-year="${yr}" style="cursor:pointer;">
-          <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barH.toFixed(1)}" fill="url(#actualDivBarGrad)" rx="5" opacity="0.95">
-            <title>${yr}년 실제 배당금: ${money(val)} (${itemCount}건) - 클릭시 해당 연도 보기</title>
-          </rect>
-          <text x="${(x + barWidth / 2).toFixed(1)}" y="${(y - 6).toFixed(1)}" fill="${val > 0 ? '#f43f5e' : '#64748b'}" font-size="10" font-weight="700" text-anchor="middle">
-            ${topText}
-          </text>
-          <text x="${(x + barWidth / 2).toFixed(1)}" y="${(hBarArea + 16).toFixed(1)}" fill="#cbd5e1" font-size="11.5" font-weight="700" text-anchor="middle">
-            ${yr}년
-          </text>
-          <text x="${(x + barWidth / 2).toFixed(1)}" y="${(hBarArea + 29).toFixed(1)}" fill="${itemCount > 0 ? '#fb7185' : '#475569'}" font-size="9" font-weight="600" text-anchor="middle">
-            ${itemCount > 0 ? itemCount + '건' : '-'}
-          </text>
-        </g>
-      `;
-    }).join("");
-  } else {
-    // ── 단일 연도: 1월 ~ 12월 월별 막대그래프 ──
-    const schedule = data.monthly_schedule || [];
-    const maxMonthly = Math.max(...schedule.map(s => Number(s.total_krw || 0)), 1);
-    const barWidth = 44;
-
-    bars = schedule.map((item, idx) => {
-      const m = item.month;
-      const val = Number(item.total_krw || 0);
-      const x = pad + ((w - pad * 2) * (idx + 0.5)) / 12 - barWidth / 2;
-      const barH = val > 0 ? Math.max(8, (val / maxMonthly) * (hBarArea - 25)) : 2;
-      const y = hBarArea - barH;
-      const isSelected = selectedDividendMonth === m;
-
-      const itemCount = (item.items || []).length;
-      const topText = val > 0 ? money(val) : "-";
-      const barFill = isSelected ? "url(#actualDivBarGradActive)" : (val > 0 ? "url(#actualDivBarGrad)" : "#1c263d");
-
-      return `
-        <g class="dividend-bar-group" data-month="${m}" style="cursor:pointer;">
-          <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barH.toFixed(1)}" fill="${barFill}" rx="4" opacity="0.95">
-            <title>${m}월 실제 입금액: ${money(val)} (${itemCount}건)</title>
-          </rect>
-          <text x="${(x + barWidth / 2).toFixed(1)}" y="${(y - 6).toFixed(1)}" fill="${val > 0 ? '#f43f5e' : '#64748b'}" font-size="9.5" font-weight="700" text-anchor="middle">
-            ${topText}
-          </text>
-          <text x="${(x + barWidth / 2).toFixed(1)}" y="${(hBarArea + 16).toFixed(1)}" fill="${isSelected ? '#f43f5e' : '#94a3b8'}" font-size="11" font-weight="${isSelected ? '700' : '600'}" text-anchor="middle">
-            ${m}월
-          </text>
-          <text x="${(x + barWidth / 2).toFixed(1)}" y="${(hBarArea + 28).toFixed(1)}" fill="${itemCount > 0 ? '#fb7185' : '#475569'}" font-size="9" font-weight="600" text-anchor="middle">
-            ${itemCount > 0 ? itemCount + '건' : '-'}
-          </text>
-        </g>
-      `;
-    }).join("");
-  }
+  const periodLabel = isAllYears ? '전체 기간' : `${selectedDividendYear}년`;
+  const monthLabel = !isAllYears && selectedDividendMonth ? `${selectedDividendMonth}월` : '';
+  const totalActual = filteredRecords.reduce((sum, r) => sum + Number(r.amount_krw || 0), 0);
+  const annualActual = allRecords.reduce((sum, r) => sum + Number(r.amount_krw || 0), 0);
+  const grossAnnual = allRecords.reduce((sum, r) => sum + Number(r.tax_estimate?.gross_amount_krw ?? r.amount_krw ?? 0), 0);
+  const hasEstimates = allRecords.some(r => !r.tax_estimate || r.tax_estimate.estimated);
+  const texts = {
+    divCardLabel1: `${periodLabel} ${monthLabel} 실제 수령 배당금`,
+    divCardLabel2: `${periodLabel} 총 세전 배당금`,
+    divCardLabel3: `${periodLabel} 누적 실제 수령 배당금`,
+    divCardLabel4: `${monthLabel || periodLabel} 수령 종목 / 건수`,
+    divTotalAnnual: money(totalActual), divTotalAnnualUsd: '실제 입금액 기준',
+    divYield: money(grossAnnual), divYieldSub: hasEstimates ? '일부 예상값 포함' : '저장된 세전 금액 기준',
+    divMonthlyAvg: money(annualActual), divMonthlyAvgSub: `${periodLabel} 전체 입금 합계`,
+    divPayingCount: `${new Set(filteredRecords.map(r => r.code || r.name).filter(Boolean)).size}종목`,
+    divTotalHoldings: `총 ${filteredRecords.length}건 입금`,
+  };
+  Object.entries(texts).forEach(([id, text]) => { const node = document.getElementById(id); if (node) node.textContent = text; });
+  $('#dividendChartTitle') && ($('#dividendChartTitle').textContent = `📊 ${periodLabel} 실제 배당금 입금 추이`);
 
   const chartWrap = $("#dividendBarChartWrap");
   if (chartWrap && !window.WealthUnifiedTimeseries?.renderDividend) {
@@ -9690,7 +9601,7 @@ function renderActualDividendDetail(month = null, bucketDetail = null) {
           <strong class="td-stock-name">${html(item.name || item.code)}</strong>
           <div class="td-stock-code">${html(item.code || '')}</div>
         </td>
-        <td class="center"><span class="td-owner-badge">${item.income_kind === 'interest' ? '이자' : '배당'}</span></td>
+        <td class="center"><span class="td-owner-badge">${item.income_kind === 'interest' ? '이자' : html(item.tax_estimate?.tax_type_label || '일반 배당')}</span></td>
         <td class="center"><span class="td-currency">${html(item.currency || 'KRW')}</span></td>
         <td class="num td-orig-amt">${origAmt}${fxInfo}</td>
         <td class="num td-krw-amt pnl-gain-val" style="font-size:13.5px;font-weight:700;">${money(item.amount_krw)}</td>
@@ -9806,6 +9717,19 @@ async function openDividendRecordDialog(record = null) {
   if (amtKrwEl) amtKrwEl.value = record ? record.amount_krw : "";
   if (memoEl) memoEl.value = record ? (record.memo || "") : "";
 
+  for (const field of ['capital_dividend_mode', 'gross_amount', 'tax', 'estimated_tax_rate', 'capital_exempt_amount']) {
+    const input = form.elements.namedItem(field);
+    if (input) input.value = field === 'capital_dividend_mode' ? (record?.[field] || 'AUTO')
+      : record?.[field] == null ? '' : field === 'estimated_tax_rate' ? record[field] * 100 : record[field];
+  }
+  form._taxRecord = record;
+  ++dividendTaxPreviewRevision;
+  if (!form.dataset.taxEstimateBound) {
+    form.dataset.taxEstimateBound = 'true';
+    form.addEventListener('input', scheduleDividendTaxPreview);
+    form.addEventListener('change', scheduleDividendTaxPreview);
+  }
+
   if (record && record.fx_rate) {
     if (fxEl) fxEl.value = record.fx_rate;
   } else {
@@ -9827,6 +9751,41 @@ async function openDividendRecordDialog(record = null) {
 
   updateDivFormFields();
   dlg.showModal();
+  scheduleDividendTaxPreview();
+}
+
+let dividendTaxPreviewTimer = null;
+let dividendTaxPreviewRevision = 0;
+function dividendRecordTaxInputs(form) {
+  const values = {capital_dividend_mode: form.elements.namedItem('capital_dividend_mode')?.value || 'AUTO'};
+  for (const key of ['gross_amount', 'tax', 'estimated_tax_rate', 'capital_exempt_amount']) {
+    const value = form.elements.namedItem(key)?.value;
+    values[key] = value == null || value === '' ? null : Number(value) / (key === 'estimated_tax_rate' ? 100 : 1);
+  }
+  return values;
+}
+function scheduleDividendTaxPreview() {
+  clearTimeout(dividendTaxPreviewTimer);
+  const revision = ++dividendTaxPreviewRevision;
+  const form = document.getElementById('dividendRecordForm');
+  const output = document.getElementById('divRecordTaxPreview');
+  if (!form || !output) return;
+  output.textContent = '예상 금액 계산 중…';
+  dividendTaxPreviewTimer = setTimeout(async () => {
+    const values = Object.fromEntries(new FormData(form));
+    const payload = {...values, ...dividendRecordTaxInputs(form), amount: Number(values.amount || 0),
+      fee: form._taxRecord?.fee ?? 0, fx_rate: Number(values.fx_rate || 1),
+      ...(form._taxRecord?.event_identity ? {event_identity: form._taxRecord.event_identity} : {})};
+    try {
+      const result = await api('/api/actual-dividends/estimate', {method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+      if (revision !== dividendTaxPreviewRevision || !form.closest('dialog')?.open) return;
+      const fmt = value => Number(value).toLocaleString('ko-KR', {maximumFractionDigits:values.currency === 'USD' ? 2 : 0});
+      output.textContent = `${result.tax_type_label} · ${result.estimated ? '예상 ' : ''}세전 ${fmt(result.gross_amount)} / 세금 ${fmt(result.tax)} ${values.currency} · 자산관리용 추정`;
+    } catch (_) {
+      if (revision === dividendTaxPreviewRevision) output.textContent = '예상 계산을 불러오지 못했습니다. 실제 입금액은 그대로 저장할 수 있습니다.';
+    }
+  }, 350);
 }
 
 function updateDivFormFields() {
@@ -9840,6 +9799,12 @@ function updateDivFormFields() {
 
   const amt = Number(form.amount.value || 0);
   const fx = Number(form.fx_rate.value || (dashboard?.fx_rates?.USD) || 1385.0);
+  const original = form._taxRecord;
+  if (original && Number(original.amount) === amt && original.currency === form.currency.value
+      && (!isUsd || Number(original.fx_rate) === fx)) {
+    form.amount_krw.value = original.amount_krw;
+    return;
+  }
   if (isUsd) {
     form.amount_krw.value = Math.round(amt * fx);
   } else {

@@ -115,7 +115,7 @@ if (typeof document !== 'undefined') {
     const loadUnified = () => {
       if (document.querySelector('script[data-wealth-timeseries-unified]')) return;
       const script = document.createElement('script');
-      script.src = '/static/wealth-timeseries-unified.js?v=10.7g1';
+      script.src = '/static/wealth-timeseries-unified.js?v=2.1.1-r1';
       script.async = false;
       script.dataset.wealthTimeseriesUnified = '1';
       script.addEventListener('error', () => window.WealthLedgerChartModule?.settle('failed'), { once: true });

@@ -117,7 +117,7 @@ assert.equal(charts, 1);
         self.assertIn("/static/wealth-timeseries-period-core.js?v=10.6k1", self.loader)
         self.assertIn("/static/wealth-timeseries-visible-range.js?v=10.6k4", self.loader)
         self.assertIn("/static/wealth-timeseries-label-layout.js?v=10.6k4", self.loader)
-        self.assertIn("/static/wealth-timeseries-unified.js?v=10.7g1", self.loader)
+        self.assertIn("/static/wealth-timeseries-unified.js?v=2.1.1-r1", self.loader)
         self.assertIn("visibleRange.addEventListener('load', loadLabelLayout", self.loader)
         self.assertIn("script.addEventListener('load', loadUnified", self.loader)
         self.assertIn("periodCore.addEventListener('load', loadUnifiedTimeseries", self.loader)

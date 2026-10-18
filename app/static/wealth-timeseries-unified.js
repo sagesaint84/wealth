@@ -489,7 +489,103 @@
     return `${bucket.year}년`;
   }
 
+  let amountTooltip = null;
+  const amountTooltipBindings = new WeakMap();
+  function hideAmountTooltip() { if (amountTooltip) amountTooltip.hidden = true; }
+  function installAmountTooltip(host, buckets, lines, {state = false, daily = false} = {}) {
+    const viewport = host.querySelector('.wealth-unified-viewport') || host;
+    const svg = host.querySelector('svg');
+    if (!viewport || !svg) return;
+    amountTooltipBindings.get(viewport)?.abort();
+    const controller = new AbortController();
+    amountTooltipBindings.set(viewport, controller);
+    const on = (target, type, listener, options = {}) => target.addEventListener(type, listener,
+      {...(typeof options === 'boolean' ? {capture:options} : options), signal:controller.signal});
+    const won = value => `${Number(value).toLocaleString('ko-KR', {maximumFractionDigits:0})}원`;
+    const show = (index, x, y) => {
+      const bucket = buckets[Number(index)];
+      if (!bucket) return;
+      if (!amountTooltip) {
+        amountTooltip = document.createElement('div');
+        amountTooltip.id = 'wealthChartAmountTooltip';
+        amountTooltip.setAttribute('role', 'tooltip');
+        Object.assign(amountTooltip.style, {position:'fixed', zIndex:'2147483647', pointerEvents:'none',
+          padding:'10px', borderRadius:'8px', background:'#172033', color:'#fff', whiteSpace:'pre-line',
+          overflowWrap:'anywhere', maxWidth:'calc(100vw - 16px)', boxSizing:'border-box', fontSize:'13px'});
+        document.body.appendChild(amountTooltip);
+        document.addEventListener('pointerdown', hideAmountTooltip, true);
+        window.addEventListener('resize', hideAmountTooltip, {passive:true});
+      }
+      amountTooltip.textContent = [bucket.last?.date || bucket.key,
+        ...lines(bucket).map(([label, value]) => `${label} ${won(value)}`)].join('\n');
+      amountTooltip.hidden = false;
+      const box = amountTooltip.getBoundingClientRect();
+      amountTooltip.style.left = `${Math.max(8, Math.min(x + 12, innerWidth - box.width - 8))}px`;
+      amountTooltip.style.top = `${Math.max(8, Math.min(y + 12, innerHeight - box.height - 8))}px`;
+    };
+    const hit = (x, y, touch) => {
+      const bounds = viewport.getBoundingClientRect();
+      if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return null;
+      if (state) {
+        let found = null, distance = Infinity;
+        svg.querySelectorAll('circle[data-bucket-index],rect[data-state-change]').forEach(node => {
+          const r = node.getBoundingClientRect();
+          const dx = Math.abs(x - (r.left + r.width / 2));
+          const dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+          if (dx <= (touch ? 20 : 12) && dy <= (touch ? 20 : 10) && dx < distance) {found = node.dataset.bucketIndex; distance = dx;}
+        });
+        return found;
+      }
+      if (touch && daily) {
+        for (const node of svg.querySelectorAll('.wealth-unified-bucket-target')) {
+          const r = node.getBoundingClientRect(), middle = r.left + r.width / 2;
+          if (Math.abs(x - middle) <= r.width * .325 && y >= r.top && y <= r.bottom) return node.dataset.bucketIndex;
+        }
+        return null;
+      }
+      const node = document.elementFromPoint(x, y)?.closest('[data-bucket-index]');
+      return node && svg.contains(node) ? node.dataset.bucketIndex : null;
+    };
+    let gesture = null;
+    on(viewport, 'pointerdown', event => {
+      if (gesture) { gesture.cancelled = true; return; }
+      gesture = {id:event.pointerId, x:event.clientX, y:event.clientY, scroll:viewport.scrollLeft, cancelled:false};
+      hideAmountTooltip();
+    }, true);
+    on(viewport, 'pointermove', event => {
+      if (gesture && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 8) {gesture.cancelled = true; hideAmountTooltip();}
+      if (event.pointerType !== 'touch' && !gesture) {
+        const index = hit(event.clientX, event.clientY, false);
+        if (index == null) hideAmountTooltip(); else show(index, event.clientX, event.clientY);
+      }
+    }, {passive:true});
+    on(viewport, 'pointerup', event => {
+      const start = gesture; gesture = null;
+      if (!start || start.id !== event.pointerId || start.cancelled || Math.abs(viewport.scrollLeft - start.scroll) > 3) return;
+      const index = hit(event.clientX, event.clientY, event.pointerType === 'touch');
+      if (index != null) show(index, event.clientX, event.clientY);
+    }, true);
+    on(viewport, 'touchstart', event => {if (event.touches.length > 1 && gesture) gesture.cancelled = true;}, {passive:true});
+    on(viewport, 'pointercancel', () => {gesture = null; hideAmountTooltip();});
+    on(viewport, 'pointerleave', event => {if (event.pointerType !== 'touch') hideAmountTooltip();});
+    on(viewport, 'scroll', hideAmountTooltip, {passive:true});
+    on(svg, 'focusin', event => {
+      const node = event.target.closest('[data-bucket-index]');
+      if (!node) return;
+      node.setAttribute('aria-describedby', 'wealthChartAmountTooltip');
+      const r = node.getBoundingClientRect(); show(node.dataset.bucketIndex, r.left, r.top);
+    });
+    on(svg, 'focusout', hideAmountTooltip);
+    on(svg, 'keydown', event => {if (event.key === 'Escape') hideAmountTooltip();});
+    svg.querySelectorAll('circle[data-bucket-index]').forEach(node => {
+      node.setAttribute('tabindex', '0');
+      node.setAttribute('aria-label', [buckets[Number(node.dataset.bucketIndex)].last?.date,
+        ...lines(buckets[Number(node.dataset.bucketIndex)]).map(([label, value]) => `${label} ${won(value)}`)].join(' · '));
+    });
+  }
+
   function renderStateChart(host, aggregated, options = {}) {
+    hideAmountTooltip();
     if (!host) return;
     const buckets = aggregated?.buckets || [];
     if (!buckets.length) {
@@ -523,19 +619,27 @@
       const h = Math.max(value === 0 ? 1 : 2, (Math.abs(value) / changeAbs) * barMaxH);
       const y = value >= 0 ? zeroY - h : zeroY;
       const fill = value >= 0 ? '#f05268' : '#438ee6';
-      return `<rect x="${x(index) - barWidth / 2}" y="${y}" width="${barWidth}" height="${h}" rx="1.5" fill="${fill}" opacity=".94"><title>${html(bucket.label)} · 변화 ${compactWon(value)}</title></rect>`;
+      return `<rect data-state-change="true" data-bucket-index="${index}" x="${x(index) - barWidth / 2}" y="${y}" width="${barWidth}" height="${h}" rx="1.5" fill="${fill}" opacity=".94"><title>${html(bucket.label)} · 변화 ${compactWon(value)}</title></rect>`;
     }).join('');
     const labels = buckets.map((bucket, index) => {
       const marker = yearText(bucket, index, aggregated.mode);
       return `<text x="${x(index)}" y="262" fill="#9aacd2" font-size="10" text-anchor="middle">${html(bucket.label)}</text>${marker ? `<text x="${x(index)}" y="280" fill="#6f82ad" font-size="9" font-weight="700" text-anchor="middle">${html(marker)}</text>` : ''}`;
     }).join('');
-    const dots = buckets.map((bucket, index) => `<circle cx="${x(index)}" cy="${lineY(bucket.close)}" r="2.8" fill="#9b8afb"><title>${html(bucket.label)} · ${compactWon(bucket.close)}</title></circle>`).join('');
+    const dots = buckets.map((bucket, index) => `<circle data-bucket-index="${index}" cx="${x(index)}" cy="${lineY(bucket.close)}" r="4" fill="#9b8afb"><title>${html(bucket.label)} · ${compactWon(bucket.close)}</title></circle>`).join('');
 
     host.innerHTML = `<div class="wealth-unified-chart-shell" data-unified-kind="${html(options.kind || '')}"><div class="wealth-unified-axis">${axisHtml([
       { range: lineRange, top: lineTop, height: lineBottom - lineTop, count: 4 },
       { range: changeRange, top: barTop, height: barBottom - barTop, count: 3, caption: options.changeLabel || '변화', captionTop: barTop - 13 },
     ])}</div><div class="wealth-unified-viewport"><div class="wealth-unified-content"><svg class="wealth-unified-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="${html(options.ariaLabel || '금액 추이 차트')}"><line x1="${left}" y1="${lineBottom}" x2="${right}" y2="${lineBottom}" stroke="#293858" opacity=".6"/><line x1="${left}" y1="${zeroY}" x2="${right}" y2="${zeroY}" stroke="#334673" opacity=".85"/><polygon points="${area}" fill="#8e70fa" opacity=".10"/><polyline points="${points}" fill="none" stroke="#8e70fa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>${dots}${bars}${labels}</svg></div></div></div>`;
 
+    const latest = buckets.at(-1);
+    const label = options.kind === 'stock' ? '주식자산' : '순자산';
+    const latestNode = document.createElement('div');
+    latestNode.className = 'wealth-unified-latest';
+    latestNode.style.cssText = 'font-size:clamp(14px,3vw,22px);font-weight:700;overflow-wrap:anywhere;padding:8px 0;grid-column:1 / -1';
+    latestNode.textContent = `최신 ${label} ${Number(latest.close).toLocaleString('ko-KR')}원 · ${latest.last?.date || latest.key} 기준`;
+    host.firstElementChild.prepend(latestNode);
+    installAmountTooltip(host, buckets, bucket => [[label, bucket.close], [options.changeLabel || '변화', bucket.change]], {state:true});
     const viewport = host.querySelector('.wealth-unified-viewport');
     const content = host.querySelector('.wealth-unified-content');
     installPanZoom(viewport, content, {
@@ -547,6 +651,7 @@
   }
 
   function renderFlowChart(host, aggregated, series, options = {}) {
+    hideAmountTooltip();
     if (!host) return;
     const buckets = aggregated?.buckets || [];
     if (!buckets.length) {
@@ -682,6 +787,8 @@
       markSelection(options.kind);
     }
 
+    installAmountTooltip(host, buckets, bucket => series.map(item => [item.label, finite(bucket.values?.[item.key])]),
+      {daily:aggregated.mode === MODES.DAY});
     const content = host.querySelector('.wealth-unified-content');
     installPanZoom(viewport, content, {
       mode: aggregated.mode,
@@ -705,7 +812,7 @@
     const controls = document.getElementById('recordPeriodTabs');
     if (!host || !controls) return;
     adoptExistingControls('stock', controls);
-    const source = stockSource();
+    const source = stockSource().filter(row => row.total_value_krw != null && Number.isFinite(Number(row.total_value_krw)));
     const aggregated = aggregateState(source, modes.stock, {
       valueField: 'total_value_krw',
       changeField: 'day_profit_krw',
@@ -738,6 +845,9 @@
     const controls = panel?.querySelector('.wealth-periods');
     const plot = document.getElementById('wealthHistoryPlot');
     if (!panel || !controls || !plot) return false;
+    // A legacy redraw means records or owner changed; recapture the full saved
+    // source rather than showing an old cached latest amount.
+    if (!plot.querySelector('.wealth-unified-chart-shell, .wealth-unified-empty')) cache.networth = [];
     if (cache.networth.length) {
       adoptExistingControls('networth', controls);
       return true;
@@ -746,22 +856,31 @@
     const allButton = controls.querySelector('[data-period="ALL"]');
     if (!allButton) return false;
     netWorthCapturePending = true;
+    const captureOwner = currentOwnerValue();
     internalNetWorthClick = true;
     allButton.click();
     internalNetWorthClick = false;
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      captureNetWorthFromLegacy();
+      if (captureOwner !== currentOwnerValue()) { netWorthCapturePending = false; return; }
+      const captured = captureNetWorthFromLegacy();
       adoptExistingControls('networth', controls);
       netWorthCapturePending = false;
-      renderNetWorth();
+      // The legacy SVG still exists here. Re-entering source discovery would
+      // mistake it for another redraw and discard the freshly captured cache.
+      if (captured) renderNetWorthChart();
+      else plot.innerHTML = '<div class="wealth-unified-empty">기록 없음</div>';
     }));
     return false;
   }
 
   function renderNetWorth() {
     if (!ensureNetWorthSource()) return;
+    renderNetWorthChart();
+  }
+
+  function renderNetWorthChart() {
     const host = document.getElementById('wealthHistoryPlot');
-    const aggregated = aggregateState(cache.networth, modes.networth, {
+    const aggregated = aggregateState(cache.networth.filter(row => row.net_worth != null && Number.isFinite(Number(row.net_worth))), modes.networth, {
       valueField: 'net_worth',
     });
     renderStateChart(host, aggregated, {
@@ -1144,6 +1263,8 @@
     }
     if (event.target?.closest?.('.family-tab')) {
       clearDetail('pnl', {render:false}); clearDetail('dividend', {render:false});
+      hideAmountTooltip();
+      cache.networth = [];
       cache.pnl.key = '';
       cache.dividend.key = '';
       ledgerDataVersion += 1;
@@ -1190,6 +1311,7 @@
 
   window.WealthUnifiedTimeseries = {
     modes,
+    installAmountTooltip,
     getDetail, getDetailMode, clearDetail, bucketContains, bucketHeading,
     renderStock,
     renderNetWorth,

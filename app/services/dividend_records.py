@@ -5,6 +5,7 @@ import io
 import json
 import re
 import uuid
+import math
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,102 @@ DATA_DIR = ROOT_DIR / "data"
 
 class DividendRecordsStorageError(RuntimeError):
     """Existing dividend storage could not be read safely for an import."""
+
+
+def _record_tax_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    """Optional user estimates only; never overwrite deposit/source fields."""
+    result = {}
+    if 'capital_dividend_mode' in payload:
+        mode = payload['capital_dividend_mode']
+        if mode not in ('AUTO', 'MANUAL_ON', 'MANUAL_OFF'):
+            raise ValueError('capital_dividend_mode is invalid')
+        result['capital_dividend_mode'] = mode
+    for field in ('gross_amount', 'tax', 'fee', 'estimated_tax_rate', 'capital_exempt_amount'):
+        if field not in payload:
+            continue
+        raw = payload[field]
+        if raw is None or raw == '':
+            result[field] = None
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f'{field} is invalid') from None
+        if isinstance(raw, bool) or not math.isfinite(value) or value < 0 or (field == 'estimated_tax_rate' and value >= 1):
+            raise ValueError(f'{field} is invalid')
+        result[field] = value
+    return result
+
+
+def estimate_record_dividend(record: dict[str, Any], official: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Personal-management estimate in original currency; no writes or FX fetch."""
+    from app.services.tax.investment_tax.rules_2026 import (
+        GENERAL_DIVIDEND_WITHHOLDING_RATE, US_TREATY_GENERAL_DIVIDEND_RATE,
+    )
+    from app.services.dividend_event_identity import build_dividend_event_identity
+    def number(value, fallback=0.0):
+        try:
+            n = float(value)
+            return n if not isinstance(value, bool) and math.isfinite(n) and n >= 0 else fallback
+        except (ValueError, TypeError):
+            return fallback
+    currency = str(record.get('currency') or 'KRW').upper()
+    net = number(record.get('amount'))
+    mode = record.get('capital_dividend_mode') or 'AUTO'
+    evidence = official or {}
+    capital = evidence.get('capital_dividend_evidence') or {}
+    cash = evidence.get('structured_decision_disclosure') or {}
+    components = capital.get('payment_components') or {}
+    revision = capital.get('correction_relationship') or {}
+    identity = build_dividend_event_identity(code=record.get('code'), record_date=cash.get('record_date'),
+        source='opendart', source_event_id=cash.get('receipt_no'))
+    confirmed = bool(currency == 'KRW' and capital.get('status') == 'available'
+        and capital.get('receipt_no') and capital.get('receipt_no') == cash.get('receipt_no')
+        and cash.get('confirmed_payment_date') and cash.get('payment_date') == record.get('date')
+        and (not record.get('event_identity') or record.get('event_identity') == identity)
+        and capital.get('payment_event_status') == 'single_event_scoped'
+        and components.get('amount_status') == 'verified'
+        and number(components.get('total_cash_dps_krw')) > 0
+        and number(components.get('disclosed_capital_reduction_dps_krw')) > 0
+        and not any(revision.get(k) for k in ('later_correction_indicated', 'withdrawal_in_search_results', 'selected_metadata_conflict')))
+    ratio = min(1.0, number(components.get('disclosed_capital_reduction_dps_krw')) /
+        number(components.get('total_cash_dps_krw'), 1)) if confirmed else 0.0
+    applied = mode == 'MANUAL_ON' or (mode == 'AUTO' and confirmed)
+    rate = number(record.get('estimated_tax_rate'), US_TREATY_GENERAL_DIVIDEND_RATE
+        if currency == 'USD' else GENERAL_DIVIDEND_WITHHOLDING_RATE)
+    if rate >= 1:
+        rate = US_TREATY_GENERAL_DIVIDEND_RATE if currency == 'USD' else GENERAL_DIVIDEND_WITHHOLDING_RATE
+    fee = number(record.get('fee'))
+    # A manual selection means the entire payment unless an optional partial
+    # amount is supplied. Official mixed payments use the disclosed proportion.
+    partial = number(record.get('capital_exempt_amount')) if record.get('capital_exempt_amount') is not None else None
+    if record.get('gross_amount') is not None:
+        gross = number(record['gross_amount'])
+        estimated = False
+    elif record.get('tax') is not None:
+        gross = net + number(record['tax']) + fee
+        estimated = False
+    elif applied and partial is not None:
+        exempt_net = min(net, partial)
+        gross = exempt_net + (net - exempt_net + fee) / (1 - rate)
+        estimated = True
+    else:
+        exempt_ratio = (ratio if mode == 'AUTO' else 1.0) if applied else 0.0
+        gross = (net + fee) / (1 - rate * (1 - exempt_ratio))
+        estimated = True
+    tax = number(record['tax']) if record.get('tax') is not None else max(0, gross - net - fee)
+    fx = number(record.get('fx_rate')) if currency != 'KRW' else 1
+    if currency != 'KRW' and not fx:
+        fx = number(record.get('amount_krw')) / net if net else 1
+    pending = mode == 'AUTO' and not confirmed and (capital.get('status') == 'unverified'
+        or number(components.get('disclosed_capital_reduction_dps_krw')) > 0)
+    label = ('감액배당 · 사용자 지정' if mode == 'MANUAL_ON' else
+        '감액배당 · 공식 확인' if applied else '감액배당 확인 대기' if pending else '일반 배당')
+    return {'capital_dividend_mode': mode, 'capital_official_confirmed': confirmed,
+        'capital_applied': applied, 'tax_type_label': label,
+        'gross_amount': gross, 'tax': tax, 'estimated': estimated,
+        'gross_amount_krw': round(gross * fx), 'estimated_tax_rate': rate,
+        'personal_tax_eligibility_confirmed': False}
 
 
 def _get_user_dir(username: str | None = None) -> Path:
@@ -89,6 +186,7 @@ def write_dividend_records(records: list[dict[str, Any]], username: str | None =
 
 @financial_rmw('dividend_records.json')
 def create_dividend_record(payload: dict[str, Any], username: str | None = None) -> dict[str, Any]:
+    tax_metadata = _record_tax_metadata(payload)
     if payload.get("source") == "ledger_interest":
         raise ValueError("가계부 연동 기록은 가계부에서 등록해 주세요.")
     records = read_dividend_records(username)
@@ -169,6 +267,7 @@ def create_dividend_record(payload: dict[str, Any], username: str | None = None)
         # JSON round-trip is a defensive deep copy and also rejects non-JSON values.
         record["source_meta"] = json.loads(json.dumps(source_meta, ensure_ascii=False, allow_nan=False))
 
+    record.update(tax_metadata)
     records.append(record)
     write_dividend_records(records, username)
     return record
@@ -176,6 +275,7 @@ def create_dividend_record(payload: dict[str, Any], username: str | None = None)
 
 @financial_rmw('dividend_records.json')
 def update_dividend_record(record_id: str, payload: dict[str, Any], username: str | None = None) -> dict[str, Any] | None:
+    tax_metadata = _record_tax_metadata(payload)
     records = read_dividend_records(username)
     target = None
     for r in records:
@@ -190,9 +290,12 @@ def update_dividend_record(record_id: str, payload: dict[str, Any], username: st
     currency = str(payload.get("currency", target.get("currency", "KRW"))).upper()
     amount = float(payload.get("amount", target.get("amount", 0.0)))
     fx_rate = float(payload.get("fx_rate", target.get("fx_rate", 1385.0))) if currency == "USD" else 1.0
-    amount_krw = float(payload.get("amount_krw", 0.0))
-    if amount_krw <= 0.0:
-        amount_krw = round(amount * fx_rate, 0) if currency == "USD" else round(amount, 0)
+    if 'amount_krw' in payload:
+        amount_krw = float(payload['amount_krw'])
+    elif not any(field in payload for field in ('amount', 'currency', 'fx_rate')):
+        amount_krw = target.get('amount_krw', 0.0)
+    else:
+        amount_krw = round(amount * fx_rate, 0) if currency == 'USD' else round(amount, 0)
 
     raw_code = str(payload.get("code", target.get("code", ""))).strip()
     raw_name = str(payload.get("name", target.get("name", ""))).strip()
@@ -213,6 +316,7 @@ def update_dividend_record(record_id: str, payload: dict[str, Any], username: st
         if field in payload:
             value = payload[field]
             target[field] = str(value).strip() if value is not None else ""
+    target.update(tax_metadata)
     target["updated_at"] = datetime.now().astimezone().isoformat()
 
     write_dividend_records(records, username)
