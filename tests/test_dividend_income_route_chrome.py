@@ -22,6 +22,168 @@ ROUTES = {"calendar": "#income", "pnl": "#pnl", "dividend": "#dividend",
           "ledger": "#ledger", "ipo": "#ipo"}
 
 
+@pytest.mark.parametrize('width', [320, 390, 1280])
+def test_v211_dividend_visible_chart_cards_and_optional_record_fields(chrome_preview, width):
+    call, evaluate, port = chrome_preview
+    call('Emulation.setDeviceMetricsOverride', {'width':width, 'height':900, 'deviceScaleFactor':1, 'mobile':width < 500})
+    call('Page.navigate', {'url':f'http://127.0.0.1:{port}/#dividend'})
+    wait_for(evaluate, "!!window.WealthUnifiedTimeseries && !!document.getElementById('divTotalAnnual')")
+    result = evaluate("""(() => {
+      currentOwner='모두'; selectedDividendYear='2026'; selectedDividendMonth=10;
+      const rows=[{id:'v211-a',code:'316140',name:'합성 우리금융',owner:'모두',date:'2026-04-08',currency:'KRW',amount:212800,amount_krw:212800,fx_rate:1,
+        capital_dividend_mode:'MANUAL_ON',tax_estimate:{gross_amount_krw:212800,estimated:true,tax_type_label:'감액배당 · 사용자 지정'}},
+        {id:'v211-b',code:'005930',date:'2026-10-01',amount:846,amount_krw:846,tax_estimate:{gross_amount_krw:1000,estimated:true}}];
+      actualDividendData={records:rows,interest_records:[{date:'2026-10-01',amount_krw:999999}],available_years:['2026'],monthly_schedule:[]};
+      renderActualDividends(actualDividendData);
+      return {month:document.getElementById('divTotalAnnual').textContent,gross:document.getElementById('divYield').textContent,
+        annual:document.getElementById('divMonthlyAvg').textContent,count:document.getElementById('divTotalHoldings').textContent,
+        estimate:document.getElementById('divYieldSub').textContent,sub:document.getElementById('divMonthlyAvgSub').textContent};
+    })()""")
+    assert '846' in result['month']
+    assert '213,800' in result['gross'] and '213,646' in result['annual']
+    assert '1건' in result['count'] and result['estimate'] == '일부 예상값 포함'
+    assert '12개월' not in result['sub']
+    evaluate("selectedDividendMonth=4;renderActualDividends(actualDividendData)")
+    assert evaluate("document.getElementById('dividendMonthlyDetail').textContent.includes('감액배당 · 사용자 지정')")
+    evaluate("openDividendRecordDialog({...actualDividendData.records[0],gross_amount:212800,tax:0})")
+    wait_for(evaluate, "document.getElementById('dividendRecordDialog').open")
+    assert evaluate("document.querySelector('#dividendRecordForm [name=tax]').value") == '0'
+    assert evaluate("document.querySelector('#dividendRecordForm [name=gross_amount]').value") == '212800'
+    assert evaluate("document.querySelector('#dividendRecordForm [name=capital_dividend_mode]').value") == 'MANUAL_ON'
+    assert not evaluate("document.documentElement.scrollWidth > innerWidth")
+
+
+@pytest.mark.parametrize('width', [320, 1280])
+def test_v211_dividend_visible_chart_shared_tooltip_pointer_keyboard_and_drag(chrome_preview, width):
+    call, evaluate, port = chrome_preview
+    call('Emulation.setDeviceMetricsOverride', {'width':width, 'height':900, 'deviceScaleFactor':1, 'mobile':width < 500})
+    call('Page.navigate', {'url':f'http://127.0.0.1:{port}/#dividend'})
+    wait_for(evaluate, "!!window.WealthUnifiedTimeseries")
+    evaluate("""(() => {
+      const host=document.createElement('div');host.id='v211TooltipHost';
+      host.style.cssText='position:fixed;inset:80px 10px auto;z-index:99999;height:180px;background:white';
+      host.innerHTML='<svg viewBox="0 0 300 180" style="width:100%;height:180px"><rect data-bucket-index="0" tabindex="0" x="10" y="20" width="100" height="100"/><rect data-bucket-index="1" tabindex="0" x="160" y="20" width="100" height="100"/></svg>';
+      document.body.appendChild(host);
+      WealthUnifiedTimeseries.installAmountTooltip(host,[{key:'2026-04',a:2900000,b:20000},{key:'2026-05',a:-12345,b:0}],
+        row=>[['배당 또는 손익',row.a],['이자',row.b]]);
+    })()""")
+    center = evaluate("(() => {const r=document.querySelector('#v211TooltipHost rect').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()")
+    if width < 500:
+        call('Input.dispatchTouchEvent', {'type':'touchStart', 'touchPoints':[center]})
+        call('Input.dispatchTouchEvent', {'type':'touchEnd', 'touchPoints':[]})
+    else:
+        call('Input.dispatchMouseEvent', {'type':'mouseMoved', **center})
+    wait_for(evaluate, "!!document.getElementById('wealthChartAmountTooltip') && !document.getElementById('wealthChartAmountTooltip').hidden")
+    assert evaluate("document.getElementById('wealthChartAmountTooltip').textContent.includes('2,900,000원')")
+    assert evaluate("document.getElementById('wealthChartAmountTooltip').textContent.includes('이자 20,000원')")
+    evaluate("document.querySelectorAll('#v211TooltipHost rect')[1].focus()")
+    assert evaluate("document.getElementById('wealthChartAmountTooltip').textContent.includes('-12,345원')")
+    assert evaluate("(() => {const r=document.getElementById('wealthChartAmountTooltip').getBoundingClientRect();return r.left>=0 && r.right<=innerWidth && r.bottom<=innerHeight})()")
+    evaluate("document.querySelectorAll('#v211TooltipHost rect')[1].dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
+    assert evaluate("document.getElementById('wealthChartAmountTooltip').hidden")
+
+    # A drag must not select/show the initial bar on release.
+    call('Input.dispatchMouseEvent', {'type':'mousePressed', **center, 'button':'left', 'clickCount':1})
+    call('Input.dispatchMouseEvent', {'type':'mouseMoved', 'x':center['x']+30, 'y':center['y'], 'buttons':1})
+    call('Input.dispatchMouseEvent', {'type':'mouseReleased', 'x':center['x']+30, 'y':center['y'], 'button':'left', 'clickCount':1})
+    assert evaluate("document.getElementById('wealthChartAmountTooltip').hidden")
+
+def test_v211_dividend_visible_chart_latest_stock_record_zero_and_empty(chrome_preview):
+    call, evaluate, port = chrome_preview
+    # Document/module readiness precedes async auth/dashboard/asset reads. Observe
+    # their actual completion without changing application results or timings.
+    call('Page.addScriptToEvaluateOnNewDocument', {'source': """
+      window.__v211StockStartup={auth:'pending',assetReads:0,assetCompletions:0};
+      document.addEventListener('DOMContentLoaded', () => {
+        const originalAuth=initAuthSession, originalAssets=loadAssetRecords;
+        initAuthSession=async function(...args) {
+          try {
+            const result=await originalAuth.apply(this,args);
+            __v211StockStartup.auth=result ? 'complete' : 'failed';
+            return result;
+          } catch(error) {__v211StockStartup.auth='failed';throw error;}
+        };
+        loadAssetRecords=async function(...args) {
+          ++__v211StockStartup.assetReads;
+          try {return await originalAssets.apply(this,args);}
+          finally {--__v211StockStartup.assetReads;++__v211StockStartup.assetCompletions;}
+        };
+      }, {once:true,capture:true});
+    """})
+    call('Page.navigate', {'url':f'http://127.0.0.1:{port}/#dividend'})
+
+    def state():
+        return evaluate("""(() => {
+          const host=document.getElementById('assetChart'), latest=host?.querySelector('.wealth-unified-latest');
+          return {ready:document.readyState,startup:window.__v211StockStartup,
+            owner:typeof currentOwner==='undefined'?null:currentOwner,
+            view:typeof currentRecordView==='undefined'?null:currentRecordView,
+            mode:window.WealthUnifiedTimeseries?.modes.stock,
+            taxView:document.getElementById('recordsPanel')?.classList.contains('is-tax-view'),
+            connected:!!host?.isConnected,latestConnected:!!latest?.isConnected,
+            latest:latest?.textContent ?? null,empty:!!host?.querySelector('.wealth-unified-empty'),
+            text:host?.textContent,source:typeof assetRecords==='undefined'?null:assetRecords,
+            errors:window.__divTrace?.errors};
+        })()""")
+
+    def wait_state(expression, phase):
+        try:
+            wait_for(evaluate, expression)
+        except pytest.fail.Exception as error:
+            pytest.fail(f'{phase}: {error}; stock render state={state()}')
+
+    wait_state("""document.readyState==='complete' && !!window.WealthUnifiedTimeseries
+      && !!document.getElementById('assetChart') && __v211StockStartup.auth==='complete'
+      && __v211StockStartup.assetCompletions>0 && __v211StockStartup.assetReads===0""", 'startup')
+
+    def inject(owner, rows):
+        # Use the production renderer to synchronize both assetRecords and its
+        # window mirror; period synchronization can legitimately read either.
+        evaluate(f"currentOwner={json.dumps(owner)};currentRecordView='combo';"
+                 f"allAssetRecords={json.dumps(rows)};renderAssetRecords(allAssetRecords);"
+                 "WealthUnifiedTimeseries.renderStock()")
+
+    def assert_latest(owner, date, amount, mode):
+        expected = f'최신 주식자산 {amount:,}원 · {date} 기준'
+        wait_state(f"""(() => {{
+          const host=document.getElementById('assetChart'), latest=host?.querySelector('.wealth-unified-latest');
+          return !!(host?.isConnected && latest?.isConnected && latest.textContent==={json.dumps(expected)}
+            && currentOwner==={json.dumps(owner)} && currentRecordView==='combo'
+            && !document.getElementById('recordsPanel').classList.contains('is-tax-view')
+            && WealthUnifiedTimeseries.modes.stock==={json.dumps(mode)}
+            && assetRecords.some(r=>r.owner==={json.dumps(owner)} && r.date==={json.dumps(date)} && r.total_value_krw==={amount}));
+        }})()""", f'{owner}/{mode}/{date}/{amount}')
+        current = state()
+        assert current['latest'] == expected and current['latestConnected'], current
+        assert current['owner'] == owner and current['mode'] == mode, current
+
+    owner = '합성 주식 A'
+    rows = [{'owner':owner,'date':'2026-10-16','total_value_krw':123456,'day_profit_krw':-100},
+            {'owner':owner,'date':'2026-10-17','total_value_krw':0,'day_profit_krw':-123456}]
+    evaluate("WealthUnifiedTimeseries.modes.stock='1D'")
+    inject(owner, rows)
+    assert_latest(owner, '2026-10-17', 0, '1D')
+    for mode in ['1D', '1W', '1M', '1Y', 'ALL']:
+        evaluate(f"WealthUnifiedTimeseries.modes.stock={json.dumps(mode)};WealthUnifiedTimeseries.renderStock()")
+        assert_latest(owner, '2026-10-17', 0, mode)
+    inject(owner, rows[:1])
+    assert_latest(owner, '2026-10-16', 123456, 'ALL')
+    inject(owner, [{'owner':owner,'date':'2026-10-18','total_value_krw':-100,'day_profit_krw':-100}])
+    assert_latest(owner, '2026-10-18', -100, 'ALL')
+    next_owner = '합성 주식 B'
+    inject(next_owner, [{'owner':next_owner,'date':'2026-10-19','total_value_krw':987654,'day_profit_krw':100}])
+    assert_latest(next_owner, '2026-10-19', 987654, 'ALL')
+    empty_owner = '합성 주식 C'
+    inject(empty_owner, [])
+    wait_state(f"""currentOwner==={json.dumps(empty_owner)} && assetRecords.length===0
+      && !!document.querySelector('#assetChart .wealth-unified-empty')
+      && !document.querySelector('#assetChart .wealth-unified-latest')""", 'empty owner')
+    final = state()
+    assert final['empty'] and final['latest'] is None, final
+    assert '기록' in final['text'] and '987,654' not in final['text'], final
+
+
+
 class DividendPreview(IncomePreview):
     def do_GET(self):
         parsed = urlsplit(self.path)
@@ -83,13 +245,53 @@ class ChromePreviewServer(ThreadingHTTPServer):
     request_queue_size = 32
 
 
+class V211StatePreview(DividendPreview):
+    def do_GET(self):
+        if urlsplit(self.path).path == '/':
+            self.send('''<!doctype html><html><body>
+              <button class="family-tab" id="syntheticOwner">소유자 변경</button>
+              <section id="recordsPanel"><div id="recordPeriodTabs"><button data-period="ALL">전체</button></div><div id="assetChart"></div></section>
+              <section class="wealth-history"><div class="wealth-periods"><button type="button" data-period="1D">일간</button><button type="button" data-period="1W">주간</button><button type="button" data-period="1M">월간</button><button type="button" data-period="1Y">연간</button><button type="button" data-period="ALL">전체</button></div>
+              <div id="wealthHistoryPlot"><svg><g class="wealth-history-point" data-history-date="2026-10-16"><circle cx="80" cy="80" r="4"><title>순자산 100,000원</title></circle></g>
+              <g class="wealth-history-point" data-history-date="2026-10-17"><circle cx="80" cy="80" r="4"><title>순자산 0원</title></circle></g></svg></div></section>
+              <script>let currentOwner='합성 A';let assetRecords=[{date:'2026-10-17',total_value_krw:123456,day_profit_krw:-100}];</script>
+              <script src="/static/wealth-timeseries-period-core.js"></script>
+              <script src="/static/wealth-timeseries-visible-range.js"></script>
+              <script src="/static/wealth-timeseries-unified.js"></script>
+              </body></html>'''.encode(), 'text/html; charset=utf-8')
+            return
+        super().do_GET()
+
+
+def test_v211_state_networth_latest_zero_owner_change_and_empty(chrome_preview):
+    call, evaluate, port = chrome_preview
+    call('Page.navigate', {'url':f'http://127.0.0.1:{port}/'})
+    wait_for(evaluate, "!!document.querySelector('#wealthHistoryPlot .wealth-unified-latest')")
+    assert evaluate("document.querySelector('#wealthHistoryPlot .wealth-unified-latest').textContent.includes('최신 순자산 0원 · 2026-10-17 기준')")
+    for mode in ['1D', '1W', '1M', '1Y', 'ALL']:
+        evaluate(f"WealthUnifiedTimeseries.modes.networth={json.dumps(mode)};WealthUnifiedTimeseries.renderNetWorth()")
+        assert evaluate("document.querySelector('#wealthHistoryPlot .wealth-unified-latest').textContent.includes('순자산 0원')")
+    # A new saved snapshot redraws the legacy SVG before the unified adapter
+    # captures it. It must render once, rather than repeatedly clearing its cache.
+    evaluate("""document.getElementById('wealthHistoryPlot').innerHTML='<svg><g class="wealth-history-point" data-history-date="2026-10-18"><circle cx="80" cy="80" r="4"><title>순자산 200,000원</title></circle></g></svg>';
+      WealthUnifiedTimeseries.renderNetWorth();""")
+    wait_for(evaluate, "document.querySelector('#wealthHistoryPlot .wealth-unified-latest')?.textContent.includes('최신 순자산 200,000원 · 2026-10-18 기준')")
+    evaluate("""currentOwner='합성 B';document.getElementById('syntheticOwner').click();
+      document.getElementById('wealthHistoryPlot').innerHTML='<svg><g class="wealth-history-point" data-history-date="2026-10-18"><circle cx="80" cy="80" r="4"><title>순자산 461,000,000원</title></circle></g></svg>';
+      WealthUnifiedTimeseries.renderNetWorth();""")
+    wait_for(evaluate, "document.querySelector('#wealthHistoryPlot .wealth-unified-latest')?.textContent.includes('461,000,000원')")
+    evaluate("currentOwner='합성 C';document.getElementById('syntheticOwner').click();document.getElementById('wealthHistoryPlot').replaceChildren();WealthUnifiedTimeseries.renderNetWorth()")
+    wait_for(evaluate, "document.getElementById('wealthHistoryPlot').textContent.includes('기록 없음')")
+    assert not evaluate("!!document.querySelector('#wealthHistoryPlot .wealth-unified-latest')")
+
+
 @pytest.fixture
 def chrome_preview(request):
     websocket = pytest.importorskip("websocket")
     chrome = _chrome_path()
     if chrome is None:
         pytest.skip("Chromium browser unavailable")
-    handler = (DividendBenefitPreview if 'b2_benefit' in request.node.name else DelayedDividendPreview if "dividend_slow_first_frame" in request.node.name
+    handler = (V211StatePreview if 'v211_state' in request.node.name else DividendBenefitPreview if 'b2_benefit' in request.node.name else DelayedDividendPreview if "dividend_slow_first_frame" in request.node.name
                else DividendPreview if "dividend_visible_chart" in request.node.name or "startup_request" in request.node.name
                else StaticPreview)
     server = safe_preview_server(ChromePreviewServer, handler)

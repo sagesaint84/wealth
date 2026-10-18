@@ -11,8 +11,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Wealth" />
     <meta name="application-name" content="Wealth" />
-    <meta name="application-version" content="2.1.0" />
-    <meta name="application-assets-revision" content="2.0.2-r7" />
+    <meta name="application-version" content="2.1.1" />
+    <meta name="application-assets-revision" content="2.1.1-r1" />
     <script src="/static/wealth-invest-tab-state.js?v=10.9k1"></script>
     <script src="/static/wealth-asset-category-state.js?v=2.0.2"></script>
     <link rel="manifest" href="/manifest.json" />
@@ -1165,7 +1165,7 @@
             <div class="div-summary-card">
               <span class="div-card-label" id="divCardLabel3">월평균 예상 배당금</span>
               <strong id="divMonthlyAvg" class="div-card-val">₩0</strong>
-              <small class="muted">연간 배당금 ÷ 12개월</small>
+              <small id="divMonthlyAvgSub" class="muted">연간 배당금 ÷ 12개월</small>
             </div>
             <div class="div-summary-card">
               <span class="div-card-label" id="divCardLabel4">배당 지급 종목 수</span>
@@ -2563,7 +2563,7 @@
     </div>
     <div style="text-align:center;">
       <p id="updatedAt" class="muted" style="margin:0;font-size:12px;opacity:0.75;">데이터를 불러오는 중입니다.</p>
-      <p id="appVersionDisplay" class="muted" style="margin:4px 0 0;font-size:12px;opacity:0.65;">앱 버전 v2.1.0</p>
+      <p id="appVersionDisplay" class="muted" style="margin:4px 0 0;font-size:12px;opacity:0.65;">앱 버전 v2.1.1</p>
     </div>
   </footer>
 
@@ -3087,6 +3087,23 @@
             실제 배당금 (입금액)
             <input name="amount" id="divFormAmount" type="number" step="any" min="0" placeholder="실제 수령 금액" required />
           </label>
+          <label style="grid-column:1 / -1;">배당 세금 유형
+            <select name="capital_dividend_mode">
+              <option value="AUTO">자동 판단 (기본)</option>
+              <option value="MANUAL_OFF">일반 배당</option>
+              <option value="MANUAL_ON">감액배당 적용</option>
+            </select>
+            <small id="divRecordTaxPreview" role="status" aria-live="polite">입금액을 입력하면 예상 세전 금액을 계산합니다.</small>
+          </label>
+          <details style="grid-column:1 / -1;">
+            <summary>세금 상세 / 직접 수정 (선택)</summary>
+            <div class="form-grid">
+              <label>세전 배당금 (입금 통화)<input name="gross_amount" type="number" min="0" step="any" placeholder="자동 계산" /></label>
+              <label>원천징수세액 (입금 통화)<input name="tax" type="number" min="0" step="any" placeholder="자동 계산" /></label>
+              <label>추정 세율 (%)<input name="estimated_tax_rate" type="number" min="0" max="99.99" step="any" placeholder="국내 15.4 / USD 15" /></label>
+              <label>감액배당 적용 금액 (입금 통화)<input name="capital_exempt_amount" type="number" min="0" step="any" placeholder="직접 적용 시 기본: 전체" /></label>
+            </div>
+          </details>
           <label id="fxRateField" style="display:none;">
             적용 환율 (USD/KRW)
             <input name="fx_rate" id="divFormFxRate" type="number" step="0.1" min="0" placeholder="1385.0" />
@@ -3340,7 +3357,7 @@
     <script src="/static/wealth-settings-surface.js?v=10.9m1"></script>
     <script src="/static/wealth-layout.js?v=2.0.2"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
-    <script src="/static/wealth.js?v=2.0.2-r7"></script>
+    <script src="/static/wealth.js?v=2.1.1-r1"></script>
     <script src="/static/wealth-ledger-ocr.js?v=2.0.2-review2"></script>
     <script src="/static/wealth-national-pension.js?v=2.0.2"></script>
     <script src="/static/wealth-pension-import.js?v=2.0.2"></script>
@@ -3354,7 +3371,7 @@
     <script src="/static/wealth-settings.js?v=10.9h1"></script>
     <script src="/static/wealth-ipo.js?v=1.3.0"></script>
     <script src="/static/wealth-calendar.js?v=10.9r4"></script>
-    <script src="/static/wealth-planning-model.js?v=10.9q"></script>
+    <script src="/static/wealth-planning-model.js?v=2.1.1-r1"></script>
     <script src="/static/wealth-planning.js?v=10.9r6"></script>
   </body>
 </html>

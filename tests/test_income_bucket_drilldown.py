@@ -603,31 +603,57 @@ def test_native_daily_zoom_label_alignment(chrome_preview, kind):
     evaluate('(async()=>{' + SETUP + f"setIncomeTab('{kind}',{{updateHash:false,loadContent:false}});" + r'''
       currentOwner='zoom-alignment';__pnl=Array.from({length:365},(_,i)=>record('Z'+i,WealthTimeseriesPeriodCore.isoDate(new Date(Date.UTC(2025,9,i+1))),100,{owner:currentOwner}));
       __div=__pnl.map(r=>({...r,amount_krw:200}));__interest=__div.map(r=>({...r,id:'I'+r.id,name:'I'+r.name,amount_krw:100,income_type:'account_interest'}));
-    ''' + f"await render('{kind}',modes.DAY);const chart=host('{kind}'),vp=chart.querySelector('.wealth-unified-viewport'),content=chart.querySelector('.wealth-unified-content');" + r'''
+    ''' + f"await render('{kind}',modes.DAY);const chart=host('{kind}');" + r'''
       const n=chart.querySelector('.wealth-unified-bucket-target[data-bucket-key="2026-09-30"]');n.scrollIntoView({block:'center',inline:'center',behavior:'instant'});
       for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);
       window.__zoomPoint=()=>{const r=chart.querySelector('.wealth-unified-flow-bar[data-bucket-key="2026-09-30"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};};
       const center=n=>{const r=n.getBoundingClientRect();return r.x+r.width/2;};
-      window.__zoomMeasure=()=>({
+      // The host survives renderFlowChart's innerHTML replacement; its viewport,
+      // content and label overlay do not. Always measure one current DOM tree.
+      window.__zoomMeasure=()=>{
+        const vp=chart.querySelector('.wealth-unified-viewport');
+        const content=vp?.querySelector('.wealth-unified-content');
+        const overlay=content?.querySelector('.wealth-timeseries-html-xaxis');
+        check(chart.isConnected && vp?.isConnected && content?.isConnected && overlay?.isConnected,
+          'Current zoom DOM must be connected: '+JSON.stringify({host:chart.isConnected,viewport:vp?.isConnected,content:content?.isConnected,overlay:overlay?.isConnected}));
+        return {
+        connected:{host:chart.isConnected,viewport:vp.isConnected,content:content.isConnected,overlay:overlay.isConnected},
         key:u.getDetail(chart.dataset.unifiedKind || vp.closest('[data-unified-kind]').dataset.unifiedKind)?.key,
-        width:content.getBoundingClientRect().width,overlayWidth:chart.querySelector('.wealth-timeseries-html-xaxis').getBoundingClientRect().width,
+        width:content.getBoundingClientRect().width,overlayWidth:overlay.getBoundingClientRect().width,
         scroll:vp.scrollLeft,scrollWidth:vp.scrollWidth,
         selected:[...chart.querySelectorAll('.wealth-unified-flow-bar.is-selected')].map(b=>({key:b.dataset.bucketKey,x:center(b),targetX:center(chart.querySelector('.wealth-unified-bucket-target[data-bucket-key="'+b.dataset.bucketKey+'"]'))})),
-        labels:[...chart.querySelectorAll('.wealth-timeseries-html-xlabel,.wealth-timeseries-html-year')].map(label=>{
+        labels:[...overlay.querySelectorAll('.wealth-timeseries-html-xlabel,.wealth-timeseries-html-year')].map(label=>{
           const index=label.dataset.bucketIndex,key=label.dataset.bucketKey,t=chart.querySelector('.wealth-unified-bucket-target[data-bucket-index="'+index+'"]');
           return {index,key,text:label.textContent,x:center(label),targetKey:t?.dataset.bucketKey,error:t?center(label)-center(t):null};
         }),
         legacy:[selectedPnlYear,selectedPnlMonth,selectedDividendYear,selectedDividendMonth],calls:__incomeCalls.length
-      });
-      window.__zoomFrames=[];window.__recordZoom=true;
-      const recordFrame=()=>{if(!__recordZoom)return;__zoomFrames.push(__zoomMeasure());requestAnimationFrame(recordFrame);};requestAnimationFrame(recordFrame);
+      };};
+      window.__zoomFrames=[];window.__zoomErrors=[];window.__recordZoom=true;
+      const recordFrame=()=>{
+        if(!__recordZoom)return;
+        try {__zoomFrames.push(__zoomMeasure());}
+        catch(error) {__zoomErrors.push(String(error));}
+        requestAnimationFrame(recordFrame);
+      };
+      window.__startZoomRecording=()=>requestAnimationFrame(recordFrame);
       return true;})()''')
+    wait_for(evaluate, f"""(() => {{
+      const host=document.getElementById('{chart}');
+      const vp=host?.querySelector('.wealth-unified-viewport');
+      const content=vp?.querySelector('.wealth-unified-content');
+      const overlay=content?.querySelector('.wealth-timeseries-html-xaxis');
+      return !!(host?.isConnected && vp?.isConnected && content?.isConnected && overlay?.isConnected
+        && content.getBoundingClientRect().width>0 && overlay.getBoundingClientRect().width>0
+        && overlay.querySelector('.wealth-timeseries-html-xlabel'));
+    }})()""")
     def click(point):
         for event in ['mousePressed', 'mouseReleased']:
             call('Input.dispatchMouseEvent', {'type':event,**point,'button':'left','clickCount':1})
     click(evaluate('__zoomPoint()'))
     initial = evaluate('__zoomMeasure()')
     def assert_frame(frame):
+        assert all(frame['connected'].values()), frame
+        assert frame['width'] > 0 and frame['overlayWidth'] > 0, frame
         assert frame['key'] == '2026-09-30', frame
         assert frame['selected']
         for bar in frame['selected']:
@@ -642,11 +668,12 @@ def test_native_daily_zoom_label_alignment(chrome_preview, kind):
         assert frame['legacy'] == initial['legacy']
         assert frame['calls'] == initial['calls'], 'No detail or zoom refetch'
     assert_frame(initial)
-    evaluate('__zoomFrames=[]')
+    evaluate('__zoomFrames=[];__startZoomRecording()')
     for delta in [-100,-100] + [100]*18:
         point = evaluate(f"(()=>{{const r=document.querySelector('#{chart} .wealth-unified-viewport').getBoundingClientRect();return {{x:r.x+r.width/2,y:r.y+100}}}})()")
         call('Input.dispatchMouseEvent', {'type':'mouseWheel',**point,'deltaX':0,'deltaY':delta})
         evaluate('(async()=>{for(let i=0;i<6;i++)await new Promise(requestAnimationFrame)})()')
+        assert evaluate('__zoomErrors') == [], 'Every zoom frame must have connected, measurable DOM'
         for frame in evaluate('__zoomFrames.splice(0)'):
             assert_frame(frame)
         assert_frame(evaluate('__zoomMeasure()'))
@@ -656,6 +683,7 @@ def test_native_daily_zoom_label_alignment(chrome_preview, kind):
     evaluate('(async()=>{for(let i=0;i<4;i++)await new Promise(requestAnimationFrame)})()')
     after_scroll = evaluate('__zoomMeasure()')
     assert_frame(after_scroll)
+    assert evaluate('__zoomErrors') == [], 'No invalid frame may be silently dropped'
     assert before_scroll == after_scroll, 'Scroll must not repair stale label positions'
     evaluate('__recordZoom=false')
     # Without any repair pan, zoom back in and verify native pointer accuracy.

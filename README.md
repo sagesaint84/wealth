@@ -1,5 +1,15 @@
 # Wealth
 
+Wealth는 사용 편의성과 자동화를 우선하는 개인·가족 자산관리 도우미이며 전문 세무·회계·신고 프로그램이 아니다. 합리적인 기본값으로 추정하고 추가 입력은 선택으로 둔다. 공식 근거가 충분한 예상 혜택은 자동 반영하되 제외할 수 있고, 부족한 경우 일반 배당을 기본으로 사용자 가정을 허용한다. 실제 입금·원천징수·금융 원본은 보존하며 기존 계산·저장 구조와 UI를 재사용한다. 별도 전문 세무 엔진·중복 UI·불필요한 확인 절차를 추가하지 않는다.
+
+현재 개발 버전은 **Wealth v2.1.1**, 운영 배포 완료 버전은 **Wealth v2.1.0**이다. 기준 main은 `7236dd39381ed0d2f16cf982b36055c8c43e3cc0`, 개발 브랜치는 `codex/v211-dividend-record-chart-ux`다(미커밋·미배포).
+
+v2.1.1은 실제 배당 기록의 감액배당 AUTO/직접 적용/제외, 선택형 세전·세액·세율 입력과 입금액 자동 역산, 월/연간 요약 카드 분리, 공통 차트 금액 툴팁 및 최신 저장 자산 금액을 구현한다. 개인별 법적 비과세 확정이나 실제 세금 기록 수정 기능이 아니다. 테스트 코드는 작성했으며 이번 단계에서 pytest/Chromium은 실행하지 않았다.
+
+## v2.1.0 개발 및 이전 배포 당시 기록
+
+아래의 당시 미병합·미배포 및 v2.0.3 운영 설명은 과거 이력이다. 현재 운영/개발 상태는 위 내용을 따른다.
+
 Wealth는 개인과 가족의 자산, 투자 성과, 생활 수입·지출을 한곳에서 관리하는 self-hosted 웹 애플리케이션입니다. 데이터는 서버의 `data/`에 사용자별로 저장됩니다. 현재 개발 버전은 **Wealth v2.1.0**, Oracle 운영 버전은 **Wealth v2.0.3**입니다. [PR #149](https://github.com/sagesaint84/wealth/pull/149) Squash Merge 후 운영 코드 기준은 `b1e6e59d0f650db6023cdc7bf95c1b22d2f5694b`, 운영 이미지는 `ghcr.io/sagesaint84/wealth:b1e6e59`입니다. Native AMD64/ARM64 [CI 38930119488](https://github.com/sagesaint84/wealth/actions/runs/38930119488)와 [GHCR 이미지 빌드 38931035808](https://github.com/sagesaint84/wealth/actions/runs/38931035808)는 SUCCESS입니다. 사용자 제공 Oracle 배포·10분 안정성·실제 AccountInfo 화면 확인도 완료됐습니다. 문서 전용 [PR #150](https://github.com/sagesaint84/wealth/pull/150)까지 반영된 main은 `a28d31995df3af71ed945b9fe61968064a1dd757`이며 Oracle 컨테이너는 재배포하지 않았습니다. PR #147의 이전 병합·운영 배포 완료 기록은 보존합니다.
 
 v2.1.0 개발 소스에는 Phase A/B1 공식 근거 연결과 B2 이벤트별 예상 세금 혜택 미리보기가 포함됩니다. PR 미병합·운영 미배포 상태입니다. 배당/What-if의 같은 화면에서 AUTO·사용자 적용·사용자 제외를 선택하며, 공식 판정과 사용자 선택은 분리합니다. 기존 고배당기업 판정·2026 누진세·What-if를 재사용하고 실제 입금·원천징수·실현손익·기존 배당 예상 총액은 바꾸지 않습니다.
@@ -106,7 +116,7 @@ Write-Host "PYTEST_EXIT=$testExit"
 
 관련 기능을 바꿀 때는 해당 테스트를 먼저 실행하고, Python 변경은 `py_compile`, JavaScript 변경은 `node --check`, 최종 변경은 `git diff --check`로 확인합니다.
 
-v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 현재 개발 소스의 앱 버전·service-worker cache는 `2.1.0`이며 static asset의 `?v=`는 파일별 cache revision입니다. 미변경 AccountInfo importer·money-input loader·dialog CSS는 `2.0.3-ai1`이고, core JS와 연결된 `application-assets-revision`은 `2.0.2-r7`, layout CSS는 `2.0.2-r5`를 유지합니다. B2 배당 출처 JS·What-if JS/CSS revision은 `2.1.0-b2`입니다. Oracle 운영은 v2.0.3 / `b1e6e59`를 유지하며 v2.1.0은 미배포입니다.
+v2 UI 변경의 사용자 실행용 검증 목록, 자산 비중/수익률 표시 정책과 cleanup 근거는 [v2 UI 마감 기록](docs/v2-ui-cleanup.md)에 정리했습니다. 현재 개발 소스의 앱 버전·service-worker cache는 `2.1.1`이며 static asset의 `?v=`는 파일별 cache revision입니다. 미변경 AccountInfo importer·money-input loader·dialog CSS는 `2.0.3-ai1`이고, 변경된 core JS와 연결된 `application-assets-revision`은 `2.1.1-r1`, layout CSS는 `2.0.2-r5`를 유지합니다. B2 배당 출처 JS·What-if JS/CSS revision은 `2.1.0-b2`입니다. 현재 Oracle 운영은 v2.1.0이며 v2.1.1은 미배포입니다.
 
 ## 프로젝트 문서
 

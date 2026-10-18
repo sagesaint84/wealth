@@ -38,7 +38,7 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
         # Core asset revision is independent of the app release version.
-        self.assertEqual(revision, '2.0.2-r7')
+        self.assertEqual(revision, '2.1.1-r1')
         core_js = f'/static/wealth.js?v={revision}'
         what_if_js = '/static/wealth-financial-income-what-if.js?v=2.1.0-b2'
         self.assertIn(css_ref, html)

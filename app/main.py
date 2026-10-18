@@ -252,7 +252,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.1.1"
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -2335,11 +2335,56 @@ async def simulate_financial_income_what_if(request: Request) -> JSONResponse:
     return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
 
+_actual_dividend_evidence_cache = {}
+
+
+async def _actual_dividend_evidence(records, username):
+    """Small user-scoped read cache shared by list and debounced form preview."""
+    import time
+    from app.services.dividend_official_sources import get_official_dividend_evidence
+    codes = tuple(sorted({str(r.get('code') or '') for r in records if r.get('currency', 'KRW') == 'KRW'}))
+    if not codes:
+        return {}
+    key = (username, codes)
+    cached = _actual_dividend_evidence_cache.get(key)
+    if cached and time.monotonic() - cached[0] < 60:
+        return cached[1]
+    result = await get_official_dividend_evidence(
+        [{'code': code, 'currency': 'KRW'} for code in codes], username=username)
+    if len(_actual_dividend_evidence_cache) >= 128:
+        _actual_dividend_evidence_cache.clear()
+    evidence = result.get('evidence') or {}
+    _actual_dividend_evidence_cache[key] = (time.monotonic(), evidence)
+    return evidence
+
+
 @app.get("/api/actual-dividends")
 async def get_actual_dividends(request: Request, owner: str = "모두", year: str | None = None) -> dict:
     """Return actual dividend records and 12-month summary."""
     username = get_current_username(request)
-    return get_actual_dividend_summary(owner=owner, year=year, username=username)
+    summary = get_actual_dividend_summary(owner=owner, year=year, username=username)
+    from app.services.dividend_records import estimate_record_dividend
+    evidence = await _actual_dividend_evidence(summary['records'], username)
+    # Enrich response copies only. Never migrate or persist inferred tax values.
+    summary['records'] = [{**r, 'tax_estimate': estimate_record_dividend(r, evidence.get(r.get('code')))}
+        for r in summary['records']]
+    return summary
+
+
+@app.post('/api/actual-dividends/estimate')
+async def preview_actual_dividend_estimate(request: Request) -> JSONResponse:
+    username = get_current_username(request)
+    from app.services.dividend_records import estimate_record_dividend, _record_tax_metadata
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError('invalid record')
+        _record_tax_metadata(body)
+        evidence = await _actual_dividend_evidence([body], username)
+        result = estimate_record_dividend(body, evidence.get(body.get('code')))
+    except (ValueError, TypeError):
+        raise HTTPException(400, '배당 세금 입력값을 확인해 주세요.') from None
+    return JSONResponse(result, headers={'Cache-Control': 'no-store'})
 
 
 @app.post("/api/actual-dividends")

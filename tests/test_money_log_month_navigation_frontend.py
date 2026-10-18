@@ -447,10 +447,11 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
         self.assertIn('<button type="button" id="ledgerCurrentMonthText"', self.index_html)
         self.assertIn('<button type="button" class="ipo-month-text money-month-text" id="ipoCurrentMonthText"', self.wealth_ipo_js)
 
-    # 12. Actual dividend monthly ratio card label and subtext
-    def test_actual_dividend_monthly_yield_label_clarification(self):
-        self.assertIn('$("#divCardLabel2").textContent = "월간 배당 수령률"', self.wealth_js)
-        self.assertIn('"선택 월 수령액 / 평가금액 기준"', self.wealth_js)
+    # 12. Actual monthly receipts and year totals have distinct scopes.
+    def test_actual_dividend_monthly_and_annual_card_labels(self):
+        self.assertIn('divCardLabel2: `${periodLabel} 총 세전 배당금`', self.wealth_js)
+        self.assertIn('divCardLabel3: `${periodLabel} 누적 실제 수령 배당금`', self.wealth_js)
+        self.assertIn('divYieldSub: hasEstimates ? \'일부 예상값 포함\'', self.wealth_js)
 
 
 if __name__ == "__main__":
