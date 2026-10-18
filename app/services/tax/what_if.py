@@ -193,6 +193,16 @@ def build_financial_income_what_if(
         else 0
     )
 
+    recorded_special = (baseline_projection.get('actual_financial_income') or {}).get('high_dividend_special_tax')
+    if recorded_special and recorded_special.get('special_rule_applied'):
+        recorded_amount = recorded_special['special_dividend_income_krw']
+        high_dividend_special = calculate_high_dividend_separate_tax_2026(
+            recorded_amount + excluded_from_comprehensive,
+            high_dividend_company_confirmed=True, separate_taxation_requested=True)
+        high_dividend_special['recorded_selection_amount_krw'] = recorded_amount
+        high_dividend_special['application_basis'] = 'user_selection_and_filing_assumption'
+        high_dividend_special['eligibility']['confirmation_source'] = 'user_assumption'
+
     try:
         baseline_known = int(
             round(float(baseline_projection["known_gross_screening_income_krw"]))
@@ -233,6 +243,13 @@ def build_financial_income_what_if(
     comprehensive_scenario = _threshold_state(
         scenario_comprehensive_amount, FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW
     )
+    if (baseline_projection.get('owner') == '모두'
+            and (baseline_projection.get('actual_financial_income') or {}).get('personal_threshold_applied') is False):
+        for state in (watch_baseline, watch_scenario, comprehensive_baseline, comprehensive_scenario):
+            if state is not None:
+                for key in ('remaining_krw', 'exceeded', 'at_or_above', 'progress_percent'):
+                    state[key] = None
+        high_dividend_special = None
 
     return {
         "baseline_known_gross_screening_income_krw": baseline_known,
@@ -284,6 +301,7 @@ async def get_financial_income_what_if_for_user(
     username: str,
     *,
     owner: str = "모두",
+    as_of=None,
     expected_remaining_interest_gross_krw: object = 0,
     current_month_remaining_dividend_gross_krw: object = 0,
     additional_dividend_gross_krw: object = 0,
@@ -298,6 +316,7 @@ async def get_financial_income_what_if_for_user(
     baseline = await get_financial_income_projection_for_user(
         username,
         owner=owner,
+        **({"as_of": as_of} if as_of is not None else {}),
         expected_remaining_interest_gross_krw=expected_remaining_interest_gross_krw,
         current_month_remaining_dividend_gross_krw=current_month_remaining_dividend_gross_krw,
     )

@@ -170,6 +170,7 @@ def _member_risk_row(projection: dict[str, Any]) -> dict[str, Any]:
     comprehensive = (thresholds.get("comprehensive_tax") or {}).get(threshold_key)
     return {
         "owner": str(projection.get("owner") or ""),
+        "year": projection.get("year"),
         "risk_basis": "projected" if use_projected else "known",
         "risk_amount_krw": projected if use_projected else projection.get(
             "known_gross_screening_income_krw"
@@ -184,6 +185,7 @@ def _member_risk_row(projection: dict[str, Any]) -> dict[str, Any]:
         "projected_gross_screening_income_krw": projected,
         "forecast_complete": bool(projection.get("forecast_complete")),
         "components": projection.get("components") or {},
+        "actual_financial_income": projection.get("actual_financial_income"),
         "thresholds": {
             "watch": watch,
             "comprehensive_tax": comprehensive,
@@ -321,12 +323,15 @@ async def get_family_financial_income_risk_for_user(
             year=str(day.year),
             username=username,
         )
+        from app.services.dividend_records import get_record_tax_evidence
+        evidence = await get_record_tax_evidence(actual.get('records') or [], username)
         try:
             projection = build_financial_income_projection(
                 actual,
                 forecast,
                 as_of=day,
                 owner=owner,
+                official_evidence=evidence,
             )
         except FinancialIncomeProjectionError as exc:
             raise FamilyFinancialIncomeRiskError(str(exc)) from exc

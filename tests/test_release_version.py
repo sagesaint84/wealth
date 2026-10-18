@@ -11,15 +11,15 @@ STATIC_DIR = ROOT / "app" / "static"
 class ReleaseVersionTests(unittest.TestCase):
     def test_fastapi_app_version(self):
         main = _import_main_without_loading_real_env()
-        self.assertEqual(getattr(main, "APP_VERSION", None), "2.1.1")
-        self.assertEqual(main.app.version, "2.1.1")
+        self.assertEqual(getattr(main, "APP_VERSION", None), "2.1.2")
+        self.assertEqual(main.app.version, "2.1.2")
 
     def test_index_html_version_metadata_and_cache_busting(self):
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-        self.assertIn('<meta name="application-version" content="2.1.1" />', html)
-        self.assertIn('<meta name="application-assets-revision" content="2.1.1-r1" />', html)
+        self.assertIn('<meta name="application-version" content="2.1.2" />', html)
+        self.assertIn('<meta name="application-assets-revision" content="2.1.2-r1" />', html)
         self.assertIn('id="appVersionDisplay"', html)
-        self.assertIn("앱 버전 v2.1.1", html)
+        self.assertIn("앱 버전 v2.1.2", html)
 
         css_matches = re.findall(r'href="/static/([^"]+\.css)\?v=([^"]+)"', html)
         self.assertTrue(css_matches)
@@ -43,10 +43,10 @@ class ReleaseVersionTests(unittest.TestCase):
         versions = {
             'wealth-ledger-ocr.js': '2.0.2-review2',
             'wealth-money-input.js': '2.0.3-ai1',
-            "wealth-financial-income-what-if.js": "2.1.0-b2",
+            "wealth-financial-income-what-if.js": "2.1.2-r1",
             "wealth-dividend-source.js": "2.1.0-b2",
-            "wealth-family-financial-income-risk.js": "2.0.2-r7",
-            "wealth.js": "2.1.1-r1", "wealth-layout.js": "2.0.2",
+            "wealth-family-financial-income-risk.js": "2.1.2-r1",
+            "wealth.js": "2.1.2-r1", "wealth-layout.js": "2.0.2",
             "wealth-national-pension.js": "2.0.2", "wealth-pension-import.js": "2.0.2",
             "wealth-transaction-defaults.js": "2.0.1",
             "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "10.9r6",
@@ -60,15 +60,15 @@ class ReleaseVersionTests(unittest.TestCase):
 
     def test_service_worker_cache_name(self):
         sw = (STATIC_DIR / "sw.js").read_text(encoding="utf-8")
-        self.assertIn('const CACHE_NAME = "wealth-cache-v2.1.1";', sw)
+        self.assertIn('const CACHE_NAME = "wealth-cache-v2.1.2";', sw)
 
     def test_documentation_version_sync(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("**Wealth v2.1.1**", readme)
+        self.assertIn("**Wealth v2.1.2**", readme)
         self.assertIn("**Wealth v2.1.0**", readme)
 
         changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-        self.assertIn("## Wealth v2.1.1", changelog)
+        self.assertIn("## Wealth v2.1.2", changelog)
         self.assertIn("## Wealth v2.1.0", changelog)
         self.assertIn("## Wealth v2.0.3", changelog)
         self.assertIn("## Wealth v2.0.2", changelog)

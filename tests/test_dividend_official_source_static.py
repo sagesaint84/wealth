@@ -35,7 +35,7 @@ class DividendOfficialSourceStaticTests(unittest.TestCase):
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
         # Core asset revision is independent of the app release version.
-        self.assertEqual(revision, '2.1.1-r1')
+        self.assertEqual(revision, '2.1.2-r1')
         core = f'/static/wealth.js?v={revision}'
         source = '/static/wealth-dividend-source.js?v=2.1.0-b2'
         self.assertIn(core, html)

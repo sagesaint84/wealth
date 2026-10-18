@@ -171,6 +171,7 @@
           <span class="family-fi-risk-state ${watch.cls}">${escapeHtml(watch.text)}</span>
           <span class="family-fi-risk-state ${comprehensive.cls}">${escapeHtml(comprehensive.text)}</span>
         </div>
+        ${window.WealthFinancialIncomeWhatIf?.registeredThresholdHtml(member?.actual_financial_income, member?.owner, member?.year || 2026) || ''}
         <div class="family-fi-risk-components">
           <span>실제 수령액 ${money(member?.actual_cash_income_krw)}</span>
           <span>현재월 이후 예상 배당 ${money(components.future_months_estimated_dividend_gross_krw)}</span>

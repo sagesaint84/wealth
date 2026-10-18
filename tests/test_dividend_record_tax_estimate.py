@@ -131,9 +131,9 @@ def test_evidence_cache_does_not_mix_users():
         from tests.test_request_state_user_id import _import_main_without_loading_real_env
         main = _import_main_without_loading_real_env()
         with patch.object(main, '_actual_dividend_evidence_cache', {}), \
-             patch('app.services.dividend_official_sources.get_official_dividend_evidence',
-                new=AsyncMock(side_effect=[{'evidence':{'316140':{'synthetic':'alice'}}},
-                                          {'evidence':{'316140':{'synthetic':'bob'}}}])) as source:
+             patch('app.services.dividend_records.get_record_tax_evidence',
+                new=AsyncMock(side_effect=[{'316140':{'synthetic':'alice'}},
+                                          {'316140':{'synthetic':'bob'}}])) as source:
             a = await main._actual_dividend_evidence([record()], 'alice')
             b = await main._actual_dividend_evidence([record()], 'bob')
             again = await main._actual_dividend_evidence([record()], 'alice')
