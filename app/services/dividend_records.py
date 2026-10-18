@@ -39,7 +39,11 @@ def _record_tax_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         if mode not in ('AUTO', 'MANUAL_ON', 'MANUAL_OFF'):
             raise ValueError('capital_dividend_mode is invalid')
         result['capital_dividend_mode'] = mode
-    for field in ('gross_amount', 'tax', 'fee', 'estimated_tax_rate', 'capital_exempt_amount'):
+    if 'high_dividend_mode' in payload:
+        if payload['high_dividend_mode'] not in ('MANUAL_ON', 'MANUAL_OFF'):
+            raise ValueError('high_dividend_mode is invalid')
+        result['high_dividend_mode'] = payload['high_dividend_mode']
+    for field in ('gross_amount', 'tax', 'fee', 'estimated_tax_rate', 'capital_exempt_amount', 'high_dividend_amount'):
         if field not in payload:
             continue
         raw = payload[field]
@@ -120,11 +124,52 @@ def estimate_record_dividend(record: dict[str, Any], official: dict[str, Any] | 
         or number(components.get('disclosed_capital_reduction_dps_krw')) > 0)
     label = ('감액배당 · 사용자 지정' if mode == 'MANUAL_ON' else
         '감액배당 · 공식 확인' if applied else '감액배당 확인 대기' if pending else '일반 배당')
+    capital_amount = (min(gross, partial) if partial is not None else
+        gross * (ratio if mode == 'AUTO' else 1)) if applied else 0
+    high_selected = record.get('high_dividend_mode') == 'MANUAL_ON'
+    high_supported = currency == 'KRW' and str(record.get('date', '')).startswith('2026-')
+    high_amount = (min(max(0, gross - capital_amount), number(record.get('high_dividend_amount'), gross))
+        if high_selected and high_supported else 0)
+    qualification = evidence.get('high_dividend_qualification') or {}
+    if high_selected:
+        label = '고배당 분리과세 · 사용자 선택·신청 가정' if high_supported else '고배당 선택 · 적용 연도/통화 미지원'
     return {'capital_dividend_mode': mode, 'capital_official_confirmed': confirmed,
         'capital_applied': applied, 'tax_type_label': label,
         'gross_amount': gross, 'tax': tax, 'estimated': estimated,
         'gross_amount_krw': round(gross * fx), 'estimated_tax_rate': rate,
-        'personal_tax_eligibility_confirmed': False}
+        'personal_tax_eligibility_confirmed': False,
+        'capital_exempt_amount_krw': round(capital_amount * fx),
+        'high_dividend_selected': high_selected, 'high_dividend_supported': high_supported,
+        'high_dividend_applied_amount_krw': round(high_amount * fx),
+        'high_dividend_qualification': qualification,
+        'high_dividend_application_assumption': high_selected}
+
+
+async def get_record_tax_evidence(records, username):
+    """Reuse official readers; qualifications never imply a filing selection."""
+    from app.services.dividend_official_sources import get_official_dividend_evidence
+    from app.services.high_dividend_qualification import enrich_dividend_intelligence_with_high_dividend_qualification
+    from app.services.dividend_event_identity import normalize_dividend_code
+    codes = set()
+    for record in records:
+        if str(record.get('currency') or 'KRW').upper() != 'KRW':
+            continue
+        code = normalize_dividend_code(record.get('code'))
+        if (code and len(code) == 6 and code.isascii()
+                and code[0].isdigit() and code.isalnum()):
+            codes.add(code)
+    codes = sorted(codes)
+    if not codes:
+        return {}
+    holdings = [{'code': code, 'currency': 'KRW'} for code in codes]
+    result = await get_official_dividend_evidence(holdings, username=username)
+    summary = {'dividend_intelligence': {'instruments': [
+        {**r, 'tax_engine_asset_type': 'domestic_dividend_stock'} for r in holdings]}}
+    summary = await enrich_dividend_intelligence_with_high_dividend_qualification(summary, holdings, username=username)
+    evidence = {code: dict(row) for code, row in (result.get('evidence') or {}).items()}
+    for row in summary['dividend_intelligence']['instruments']:
+        evidence.setdefault(row['code'], {})['high_dividend_qualification'] = row.get('high_dividend_qualification') or {}
+    return evidence
 
 
 def _get_user_dir(username: str | None = None) -> Path:

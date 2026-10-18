@@ -9717,9 +9717,9 @@ async function openDividendRecordDialog(record = null) {
   if (amtKrwEl) amtKrwEl.value = record ? record.amount_krw : "";
   if (memoEl) memoEl.value = record ? (record.memo || "") : "";
 
-  for (const field of ['capital_dividend_mode', 'gross_amount', 'tax', 'estimated_tax_rate', 'capital_exempt_amount']) {
+  for (const field of ['capital_dividend_mode', 'gross_amount', 'tax', 'estimated_tax_rate', 'capital_exempt_amount', 'high_dividend_amount']) {
     const input = form.elements.namedItem(field);
-    if (input) input.value = field === 'capital_dividend_mode' ? (record?.[field] || 'AUTO')
+    if (input) input.value = field === 'capital_dividend_mode' ? (record?.high_dividend_mode === 'MANUAL_ON' ? 'HIGH_DIVIDEND' : record?.[field] || 'AUTO')
       : record?.[field] == null ? '' : field === 'estimated_tax_rate' ? record[field] * 100 : record[field];
   }
   form._taxRecord = record;
@@ -9757,8 +9757,10 @@ async function openDividendRecordDialog(record = null) {
 let dividendTaxPreviewTimer = null;
 let dividendTaxPreviewRevision = 0;
 function dividendRecordTaxInputs(form) {
-  const values = {capital_dividend_mode: form.elements.namedItem('capital_dividend_mode')?.value || 'AUTO'};
-  for (const key of ['gross_amount', 'tax', 'estimated_tax_rate', 'capital_exempt_amount']) {
+  const selected = form.elements.namedItem('capital_dividend_mode')?.value || 'AUTO';
+  const values = {capital_dividend_mode: selected === 'HIGH_DIVIDEND' ? 'MANUAL_OFF' : selected,
+    high_dividend_mode: selected === 'HIGH_DIVIDEND' ? 'MANUAL_ON' : 'MANUAL_OFF'};
+  for (const key of ['gross_amount', 'tax', 'estimated_tax_rate', 'capital_exempt_amount', 'high_dividend_amount']) {
     const value = form.elements.namedItem(key)?.value;
     values[key] = value == null || value === '' ? null : Number(value) / (key === 'estimated_tax_rate' ? 100 : 1);
   }
@@ -9781,7 +9783,7 @@ function scheduleDividendTaxPreview() {
         headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
       if (revision !== dividendTaxPreviewRevision || !form.closest('dialog')?.open) return;
       const fmt = value => Number(value).toLocaleString('ko-KR', {maximumFractionDigits:values.currency === 'USD' ? 2 : 0});
-      output.textContent = `${result.tax_type_label} · ${result.estimated ? '예상 ' : ''}세전 ${fmt(result.gross_amount)} / 세금 ${fmt(result.tax)} ${values.currency} · 자산관리용 추정`;
+      output.textContent = `${result.tax_type_label} · ${result.estimated ? '예상 ' : ''}세전 ${fmt(result.gross_amount)} / 세금 ${fmt(result.tax)} ${values.currency} · 자산관리용 추정${result.high_dividend_qualification?.status === 'official_qualified' ? ` · 공식 고배당기업 근거 (${result.high_dividend_qualification.business_year ?? '연도 미확인'} 사업연도)` : result.high_dividend_selected ? ' · 공식 자격 미확인' : ''}`;
     } catch (_) {
       if (revision === dividendTaxPreviewRevision) output.textContent = '예상 계산을 불러오지 못했습니다. 실제 입금액은 그대로 저장할 수 있습니다.';
     }

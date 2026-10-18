@@ -11,8 +11,8 @@ Two concepts are kept separate:
   screen proximity to the statutory 20M KRW financial-income threshold.
 
 The screening result is NOT a legal comprehensive-tax determination. Existing
-records do not yet classify every non-taxable / separately-taxed item, including
-the 2026 high-dividend special taxation regime. Current-month forecast is also
+records distinguish selected capital exclusions and 2026 high-dividend filing
+assumptions, but do not classify every other non-taxable / separately-taxed item. Current-month forecast is also
 excluded automatically to avoid double counting against realized records.
 """
 
@@ -191,9 +191,9 @@ def _record_gross_screening_krw(
     """Resolve one realized record to a gross screening amount in KRW.
 
     Preferred basis:
-    1. explicit positive gross_amount;
+    1. explicit gross_amount (including zero);
     2. deposited amount + explicit tax + fee;
-    3. amount_krw cash fallback (basis incomplete).
+    3. existing actual-record net-to-gross estimate; cash fallback if FX is unknown.
 
     ``complete`` only describes whether the pre-withholding amount can be
     reconstructed. It does not mean tax-treatment classification is complete.
@@ -215,36 +215,27 @@ def _record_gross_screening_krw(
     else:
         multiplier = None
 
-    gross = _optional_non_negative_money(
-        record.get("gross_amount"), "FINANCIAL_INCOME_RECORD_INVALID"
-    )
-    if gross is not None and gross > 0 and multiplier is not None:
-        return gross * multiplier, True, "gross_amount"
-
-    tax = _optional_non_negative_money(
-        record.get("tax"), "FINANCIAL_INCOME_RECORD_INVALID"
-    )
-    amount = _optional_non_negative_money(
-        record.get("amount"), "FINANCIAL_INCOME_RECORD_INVALID"
-    )
-    fee = _optional_non_negative_money(
-        record.get("fee"), "FINANCIAL_INCOME_RECORD_INVALID"
-    )
-    if (
-        tax is not None
-        and amount is not None
-        and amount > 0
-        and multiplier is not None
-    ):
-        return (amount + tax + (fee or 0.0)) * multiplier, True, "net_plus_tax"
-
-    return cash_krw, False, "cash_fallback"
+    # Preserve validation of recorded figures, including explicit zero. Estimates
+    # reuse the actual-record UI calculator; inferred values never get persisted.
+    for field in ('gross_amount', 'tax', 'amount', 'fee', 'estimated_tax_rate', 'capital_exempt_amount', 'high_dividend_amount'):
+        _optional_non_negative_money(record.get(field), 'FINANCIAL_INCOME_RECORD_INVALID')
+    if multiplier is None:
+        return cash_krw, False, 'cash_fallback'
+    from app.services.dividend_records import estimate_record_dividend
+    copy = dict(record)
+    if copy.get('amount') is None:
+        copy['amount'] = cash_krw / multiplier
+    estimate = estimate_record_dividend(copy)
+    source = ('gross_amount' if record.get('gross_amount') is not None else
+        'net_plus_tax' if record.get('tax') is not None else 'estimated_from_net')
+    return float(estimate['gross_amount_krw']), not estimate['estimated'], source
 
 
 def _actual_gross_screening_basis(
     actual_summary: dict[str, Any],
     *,
     actual_cash_total: float,
+    official_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     dividend_records = actual_summary.get("records")
     interest_records = actual_summary.get("interest_records")
@@ -260,6 +251,9 @@ def _actual_gross_screening_basis(
     if not records:
         return {
             "amount_krw": actual_cash_total,
+            "total_gross_krw": actual_cash_total,
+            "capital_excluded_krw": 0, "high_dividend_excluded_krw": 0,
+            "high_dividend_special_tax": None,
             "gross_basis_complete": actual_cash_total == 0.0 and expected_count == 0,
             "record_detail_complete": actual_cash_total == 0.0 and expected_count == 0,
             "record_count": expected_count,
@@ -272,11 +266,30 @@ def _actual_gross_screening_basis(
         }
 
     amount = 0.0
+    capital_excluded = high_excluded = 0
     gross_basis_count = 0
     fallback_count = 0
     basis_sources: dict[str, int] = {}
     for record in records:
-        resolved, complete, source = _record_gross_screening_krw(record)
+        # Interest never inherits dividend tax selections, even on legacy rows.
+        is_interest = any(record is r for r in (interest_records or []))
+        normalized = ({**record, 'capital_dividend_mode': 'MANUAL_OFF', 'high_dividend_mode': 'MANUAL_OFF'}
+            if is_interest else record)
+        resolved, complete, source = _record_gross_screening_krw(normalized)
+        from app.services.dividend_records import estimate_record_dividend
+        if not is_interest:
+            estimate_record = dict(record)
+            if estimate_record.get('amount') is None:
+                multiplier = 1 if record.get('currency', 'KRW') == 'KRW' else record.get('fx_rate')
+                if multiplier:
+                    estimate_record['amount'] = float(record.get('amount_krw') or 0) / float(multiplier)
+            estimate = estimate_record_dividend(estimate_record, (official_evidence or {}).get(str(record.get('code'))))
+            if estimate_record.get('amount') is not None:
+                resolved = estimate['gross_amount_krw']
+            capital_excluded += min(resolved, estimate['capital_exempt_amount_krw'])
+            high_excluded += min(max(0, resolved - estimate['capital_exempt_amount_krw']), estimate['high_dividend_applied_amount_krw'])
+        if resolved < float(record.get('amount_krw') or 0):
+            complete, source = False, 'cash_fallback'
         amount += resolved
         basis_sources[source] = basis_sources.get(source, 0) + 1
         if complete:
@@ -294,9 +307,27 @@ def _actual_gross_screening_basis(
         amount = actual_cash_total
         basis_sources["aggregate_cash_floor"] = 1
 
+    # The cash safety floor belongs to TOTAL gross, before exclusions. Applying
+    # it to the final threshold amount would incorrectly add excluded cash back.
+    total_gross = amount
+    from app.services.tax.what_if import build_financial_income_what_if
+    calculation = build_financial_income_what_if(
+        {'known_gross_screening_income_krw': 0, 'projected_gross_screening_income_krw': 0},
+        additional_dividend_gross_krw=max(0, total_gross - capital_excluded),
+        high_dividend_scenario={'special_dividend_income_krw': high_excluded,
+            'high_dividend_company_confirmed': True, 'separate_taxation_requested': True} if high_excluded else None)
+    special = calculation['high_dividend_special_tax']
+    if special:
+        # The existing calculator requires eligibility as an input assumption;
+        # a saved manual selection does not establish an official qualification.
+        special['application_basis'] = 'user_selection_and_filing_assumption'
+        special['eligibility']['confirmation_source'] = 'user_assumption'
     record_detail_complete = expected_count in {0, len(records)}
     return {
-        "amount_krw": amount,
+        "amount_krw": calculation['scenario_comprehensive_tax_screening_income_krw'],
+        "total_gross_krw": total_gross,
+        "capital_excluded_krw": capital_excluded, "high_dividend_excluded_krw": high_excluded,
+        "high_dividend_special_tax": calculation['high_dividend_special_tax'],
         "gross_basis_complete": (
             fallback_count == 0
             and record_detail_complete
@@ -333,19 +364,25 @@ def _threshold_bundle(
     actual_screening: float,
     known_screening: float,
     projected_screening: float | None,
+    *, personal: bool = True,
 ) -> dict[str, Any]:
     def one(kind: str, threshold: float, *, statutory: bool) -> dict[str, Any]:
+        def state(amount):
+            result = _threshold_state(amount, threshold)
+            if result is not None and not personal:
+                for key in ('remaining_krw', 'exceeded', 'at_or_above', 'progress_percent'):
+                    result[key] = None
+            return result
         return {
             "kind": kind,
             "statutory_threshold": statutory,
             "screening_only": True,
             "legal_tax_determination": False,
             "threshold_krw": round(threshold),
-            "actual_gross_screening": _threshold_state(actual_screening, threshold),
-            "known_gross_screening": _threshold_state(known_screening, threshold),
-            "projected_gross_screening": _threshold_state(
-                projected_screening, threshold
-            ),
+            "personal_threshold_applied": personal,
+            "actual_gross_screening": state(actual_screening),
+            "known_gross_screening": state(known_screening),
+            "projected_gross_screening": state(projected_screening),
         }
 
     return {
@@ -370,6 +407,7 @@ def build_financial_income_projection(
     owner: str = "모두",
     expected_remaining_interest_gross_krw: float = 0.0,
     current_month_remaining_dividend_gross_krw: float = 0.0,
+    official_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a gross-income screening projection from existing data.
 
@@ -417,6 +455,7 @@ def build_financial_income_projection(
     actual_screening = _actual_gross_screening_basis(
         actual_summary,
         actual_cash_total=actual_cash_total,
+        official_evidence=official_evidence,
     )
     actual_gross_screening = float(actual_screening["amount_krw"])
 
@@ -445,6 +484,19 @@ def build_financial_income_projection(
         "forecast_complete": forecast_complete,
         "forecast_unavailable": not forecast_complete,
         "actual_cash_income_krw": round(actual_cash_total),
+        "actual_financial_income": {
+            'total_gross_krw': round(actual_screening['total_gross_krw']),
+            'capital_excluded_krw': round(actual_screening['capital_excluded_krw']),
+            'high_dividend_excluded_krw': round(actual_screening['high_dividend_excluded_krw']),
+            'included_krw': round(actual_gross_screening),
+            'remaining_krw': max(0, FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW - round(actual_gross_screening)) if owner != '모두' else None,
+            'exceeded': actual_gross_screening > FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW if owner != '모두' else None,
+            'status': ('기준 초과' if actual_gross_screening > FINANCIAL_INCOME_COMPREHENSIVE_TAX_THRESHOLD_KRW else '기준 이내') if owner != '모두' else '가족 참고 합계',
+            'personal_threshold_applied': owner != '모두',
+            'high_dividend_special_tax': actual_screening['high_dividend_special_tax'] if owner != '모두' else None,
+            'high_dividend_application_basis': 'user_selection_and_filing_assumption',
+            'basis': 'registered_records_only',
+        },
         "actual_gross_screening_income_krw": round(actual_gross_screening),
         "known_gross_screening_income_krw": round(known_gross_screening),
         "projected_gross_screening_income_krw": (
@@ -494,7 +546,7 @@ def build_financial_income_projection(
             ),
             "actual_basis_sources": dict(actual_screening["basis_sources"]),
             "tax_treatment_classification_complete": False,
-            "high_dividend_special_rule_applied": False,
+            "high_dividend_special_rule_applied": actual_screening["high_dividend_excluded_krw"] > 0,
             "screening_only": True,
             "dividend_event_identity_supported": True,
             "heuristic_forecast_event_dedup_applied": False,
@@ -503,6 +555,7 @@ def build_financial_income_projection(
             actual_gross_screening,
             known_gross_screening,
             projected_gross_screening,
+            personal=owner != '모두',
         ),
         "rule_context": {
             "year": RULE_YEAR,
@@ -517,7 +570,7 @@ def build_financial_income_projection(
             ],
             "verified_on": RULE_VERIFIED_ON,
             "tax_liability_calculated": False,
-            "tax_treatment_classification_applied": False,
+            "tax_treatment_classification_applied": bool(actual_screening["capital_excluded_krw"] or actual_screening["high_dividend_excluded_krw"]),
         },
     }
 
@@ -576,11 +629,14 @@ async def get_financial_income_projection_for_user(
         username=username,
     )
 
+    from app.services.dividend_records import get_record_tax_evidence
+    evidence = await get_record_tax_evidence(actual.get('records') or [], username)
     result = build_financial_income_projection(
         actual,
         forecast,
         as_of=day,
         owner=normalized_owner,
+        official_evidence=evidence,
         expected_remaining_interest_gross_krw=(
             expected_remaining_interest_gross_krw
         ),

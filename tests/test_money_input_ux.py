@@ -41,7 +41,7 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
         # Core asset revision is independent of the app release version.
-        self.assertEqual(revision, '2.1.1-r1')
+        self.assertEqual(revision, '2.1.2-r1')
         core = f'/static/wealth.js?v={revision}'
         money = '/static/wealth-money-input.js?v=2.0.3-ai1'
         self.assertIn(core, html)

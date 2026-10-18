@@ -252,7 +252,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-APP_VERSION = "2.1.1"
+APP_VERSION = "2.1.2"
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -2190,6 +2190,7 @@ async def simulate_financial_income_what_if(request: Request) -> JSONResponse:
 
     allowed_fields = {
         "owner",
+        "as_of",
         "expected_remaining_interest_gross_krw",
         "current_month_remaining_dividend_gross_krw",
         "additional_dividend_gross_krw",
@@ -2283,6 +2284,7 @@ async def simulate_financial_income_what_if(request: Request) -> JSONResponse:
         result = await get_financial_income_what_if_for_user(
             username,
             owner=owner.strip(),
+            **({"as_of": body["as_of"]} if "as_of" in body else {}),
             expected_remaining_interest_gross_krw=body.get(
                 "expected_remaining_interest_gross_krw", 0.0
             ),
@@ -2341,7 +2343,7 @@ _actual_dividend_evidence_cache = {}
 async def _actual_dividend_evidence(records, username):
     """Small user-scoped read cache shared by list and debounced form preview."""
     import time
-    from app.services.dividend_official_sources import get_official_dividend_evidence
+    from app.services.dividend_records import get_record_tax_evidence
     codes = tuple(sorted({str(r.get('code') or '') for r in records if r.get('currency', 'KRW') == 'KRW'}))
     if not codes:
         return {}
@@ -2349,11 +2351,10 @@ async def _actual_dividend_evidence(records, username):
     cached = _actual_dividend_evidence_cache.get(key)
     if cached and time.monotonic() - cached[0] < 60:
         return cached[1]
-    result = await get_official_dividend_evidence(
-        [{'code': code, 'currency': 'KRW'} for code in codes], username=username)
+    evidence = await get_record_tax_evidence(
+        [{'code': code, 'currency': 'KRW'} for code in codes], username)
     if len(_actual_dividend_evidence_cache) >= 128:
         _actual_dividend_evidence_cache.clear()
-    evidence = result.get('evidence') or {}
     _actual_dividend_evidence_cache[key] = (time.monotonic(), evidence)
     return evidence
 

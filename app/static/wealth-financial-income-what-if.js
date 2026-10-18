@@ -419,6 +419,9 @@
       additional_foreign_share_realized_gain_krw: numberValue('fiWhatIfForeignShareGain'),
       additional_kr_listed_overseas_etf_taxable_gain_krw: numberValue('fiWhatIfKrOverseasEtfTaxableGain'),
     };
+    const year = Number(document.getElementById('fiBenefitYear')?.value || new Date().getFullYear());
+    const today = new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Seoul'});
+    if (year !== Number(today.slice(0, 4))) payload.as_of = `${year}-12-31`;
     const highDividendScenario = buildHighDividendScenario();
     if (highDividendScenario) payload.high_dividend_scenario = highDividendScenario;
     const investmentScenario = buildInvestmentScenario();
@@ -528,10 +531,30 @@
     return '';
   }
 
+  function registeredThresholdHtml(summary, owner, year) {
+    if (!summary) return '';
+    const personal = summary.personal_threshold_applied === true;
+    const status = personal ? summary.status : '가족 참고 합계 · 개인별 기준은 구성원별 확인';
+    const metrics = [['전체 세전 금융소득', summary.total_gross_krw],
+      ['감액배당 비과세 제외금액', summary.capital_excluded_krw],
+      ['고배당 분리과세 제외금액', summary.high_dividend_excluded_krw],
+      ['종합과세 기준 포함액', summary.included_krw],
+      ...(personal ? [['2천만원 기준까지 남은 금액', summary.remaining_krw]] : [])];
+    return `<section aria-label="등록된 실제 금융소득 기준 집계"><strong>${escapeHtml(owner)} · ${escapeHtml(year)}년 실제 등록 기록</strong>
+      <div class="fi-result-grid dashboard">${metrics.map(([label, amount]) => `<div class="fi-result-card"><span>${escapeHtml(label)}</span><strong>${money(amount)}</strong></div>`).join('')}
+      <div class="fi-result-card ${personal ? (summary.exceeded ? 'warn' : 'safe') : ''}"><strong>${escapeHtml(status)}</strong></div></div>
+      <small>등록된 자료 기준 예상 · 실제 입금·원천징수 기록은 변경하지 않습니다.${summary.high_dividend_special_tax?.special_rule_applied ? ` 고배당 신고 가정 국세 ${money(summary.high_dividend_special_tax.national_income_tax_krw)} (지방세 별도)` : ''}</small></section>`;
+  }
+
   function renderResult(data) {
     const root = document.getElementById('financialIncomeWhatIfResult');
     if (!root) return;
 
+    const actualHtml = registeredThresholdHtml(data?.baseline_projection?.actual_financial_income, data?.owner, data?.baseline_projection?.year);
+    if (data?.baseline_projection?.owner === '모두') {
+      root.innerHTML = actualHtml + '<p>가족 합계에는 개인별 2천만원 기준을 적용하지 않습니다. 소유자를 선택해 확인하세요.</p>';
+      return;
+    }
     const whatIf = data?.what_if || {};
     const threshold = whatIf?.thresholds?.comprehensive_tax || {};
     const baselineState = threshold?.baseline || {};
@@ -558,14 +581,14 @@
           ? '2천만원 기준에 정확히 도달했습니다.'
           : `2천만원까지 ${money(scenarioRemaining)} 남음`));
 
-    let html = `
+    let html = actualHtml + `
       <div class="fi-result-grid dashboard">
         <div class="fi-result-card">
-          <span>올해 예상 금융소득</span>
+          <span>연말 예상 기준 포함액</span>
           <strong>${money(baseline)}</strong>
           <small>현재 실제 + 향후 예상</small>
         </div>
-        <div class="fi-result-card ${baselineState.at_or_above ? 'warn' : 'safe'}">
+        <div class="fi-result-card ${baselineState.exceeded ? 'warn' : 'safe'}">
           <span>2천만원까지 여유</span>
           <strong>${baselineRemainingText}</strong>
           <small>현재 예상 기준</small>
@@ -576,8 +599,8 @@
           <small>${otherAddition > 0 ? `기타 금융소득 가정 ${money(otherAddition)} 별도` : '배당만 빠르게 비교'}</small>
         </div>
         <div class="fi-result-card ${status.className}">
-          <span>배당 추가 후 예상 금융소득</span>
-          <strong>${money(projected)}</strong>
+          <span>추가 가정 후 기준 포함액</span>
+          <strong>${money(comprehensiveProjected)}</strong>
           <small>${status.text} · ${scenarioRemainingText}</small>
         </div>
       </div>
@@ -838,6 +861,7 @@
     benefitChoices.set(benefitModel.context_key, choices);
     requestBenefits(benefitModel.owner, benefitModel.tax_year, choices);
   });
+  document.addEventListener('change', event => {if (event.target.id === 'fiBenefitYear') runSimulation();});
   window.addEventListener('wealth:dividend-benefits', event => receiveBenefits(event.detail));
 
   function attachGlobalListeners() {
@@ -873,7 +897,7 @@
     window.addEventListener('wealth:view', syncVisibility);
   }
 
-  window.WealthFinancialIncomeWhatIf = { syncVisibility, runSimulation };
+  window.WealthFinancialIncomeWhatIf = { syncVisibility, runSimulation, registeredThresholdHtml };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init, { once: true });

@@ -20,7 +20,12 @@ class DividendTaxDashboardFrontendTests(unittest.TestCase):
         self.assertIn("배당 세금 대시보드", self.js)
         self.assertIn("배당을 더 받는다면?", self.js)
         self.assertIn("2천만원까지 여유", self.js)
-        self.assertIn("배당 추가 후", self.js)
+        self.assertIn("등록된 실제 금융소득 기준 집계", self.js)
+        self.assertIn("전체 세전 금융소득", self.js)
+        self.assertIn("감액배당 비과세 제외금액", self.js)
+        self.assertIn("고배당 분리과세 제외금액", self.js)
+        self.assertIn("종합과세 기준 포함액", self.js)
+        self.assertIn("추가 가정 후 기준 포함액", self.js)
         self.assertIn("자산관리 의사결정용", self.js)
 
     def test_quick_dividend_presets_are_available(self):
