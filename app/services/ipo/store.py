@@ -6,6 +6,7 @@ from typing import Any
 
 from app.services.ipo.identity import find_matching_ipo, generate_ipo_id
 from app.services.ipo.models import IpoRecord
+from app.services.ipo.display import display_records
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 DATA_DIR = ROOT_DIR / "data" / "ipo"
@@ -236,7 +237,7 @@ def get_ipo_calendar_events(
 
     events: list[dict[str, Any]] = []
 
-    for ipo in store.get("ipos", []):
+    for ipo in display_records(store.get("ipos", [])):
         verification = ipo.get("sources", {}).get("dart_schedule_verification", {}).get("status")
         schedule_status = ipo.get("sources", {}).get("dart_schedule_status", {}).get("status")
         if schedule_status in {"postponed", "withdrawn"}:
@@ -260,6 +261,7 @@ def get_ipo_calendar_events(
             is_applied_by_owner = (owner in applied_owners)
 
         meta_base = {
+            "application_record_ids": ipo.get("application_record_ids", [ipo_id]),
             "schedule_verification": verification or "not_checked",
             "ipo_id": ipo_id,
             "company_name": company,
@@ -273,6 +275,12 @@ def get_ipo_calendar_events(
             "all_applied": all_applied,
             "is_applied_by_owner": is_applied_by_owner,
         }
+        for alias_id in ipo.get("identity_alias_ids", []):
+            alias_app = user_apps.get(alias_id, {})
+            if owner == "모두":
+                meta_base["is_applied_by_owner"] |= bool(alias_app.get("all_applied"))
+            else:
+                meta_base["is_applied_by_owner"] |= owner in alias_app.get("applied_owners", [])
 
         # Project only the canonical subscription boundaries. A provider range
         # may span weekends/holidays, but the integrated calendar must not imply

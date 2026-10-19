@@ -9,6 +9,7 @@ from app.services.ipo.source_discovery import _apply_dart_schedules
 def test_eucast_calendar_stop_and_unknown_state_in_real_dom(chrome_preview):
     call, evaluate, port = chrome_preview
     data = market()
+    data["ipos"][0]["sources"]["dart_schedule_verification"] = {"status": "verified", "checked_date": WINDOW["target_date_str"]}
     original = events(data)
     _apply_dart_schedules(data, dart=SyntheticDart([ORIGINAL, DEMAND]), **WINDOW)
     postponed = events(data)

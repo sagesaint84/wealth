@@ -53,6 +53,7 @@ class IpoPresentationStateTests(unittest.TestCase):
 
     def test_presentation_is_read_only_and_attaches_authoritative_state(self):
         market = {"ipos": [self.ipo()]}
+        market["ipos"][0]["sources"] = {"dart_schedule_verification": {"status": "verified", "checked_date": "2026-09-12"}}
         data = {"settings": {"ipo": {"applications": {"ipo": {"applied_owners": ["본인"], "applicants": {"본인": {"allocation": {"quantity": 5, "links": []}}}}}}}}
         with patch("app.services.ipo.presentation._read_portfolio_for_presentation", return_value=data), \
              patch("app.services.ipo.presentation.read_pnl_records_readonly", return_value=[]):

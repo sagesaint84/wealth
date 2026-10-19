@@ -6,9 +6,11 @@ from unittest.mock import MagicMock, patch
 from app.services.ipo.orchestrator import run_ipo_daily_pipeline
 from app.services.ipo.reminders import _run_reminders_locked
 from app.services.ipo.store import get_ipo_calendar_events
+from app.services.ipo.display import market_day
 
 
 IPO = {
+    "sources": {"dart_schedule_verification": {"status": "verified", "checked_date": market_day()}},
     "ipo_id": "jincostech-20261002",
     "company_name": "진코스텍",
     "stock_code": "250030",

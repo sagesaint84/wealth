@@ -41,6 +41,7 @@ class ReleaseVersionTests(unittest.TestCase):
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
         versions = {
+            'wealth-ipo.js': '2.1.2-ipo2',
             'wealth-ledger-ocr.js': '2.0.2-review2',
             'wealth-money-input.js': '2.0.3-ai1',
             "wealth-financial-income-what-if.js": "2.1.2-r1",
@@ -60,7 +61,7 @@ class ReleaseVersionTests(unittest.TestCase):
 
     def test_service_worker_cache_name(self):
         sw = (STATIC_DIR / "sw.js").read_text(encoding="utf-8")
-        self.assertIn('const CACHE_NAME = "wealth-cache-v2.1.2";', sw)
+        self.assertIn('const CACHE_NAME = "wealth-cache-v2.1.2-ipo2";', sw)
 
     def test_documentation_version_sync(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
