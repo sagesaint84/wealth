@@ -1,0 +1,143 @@
+name: Static transport synthetic PR validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/main.py'
+      - 'app/static_transport.py'
+      - 'app/static/**'
+      - 'tests/test_static_transport*.py'
+      - 'app/services/ipo/**'
+      - 'app/static/wealth-calendar.js'
+      - 'app/static/wealth-layout.css'
+      - 'app/static/wealth-ipo.js'
+      - 'app/static/index.html'
+      - 'app/static/sw.js'
+      - 'tests/test_ipo*.py'
+      - 'tests/test_moneylog_calendar*.py'
+      - 'tests/test_calendar_ipo_tones_frontend.py'
+      - 'tests/test_release_version.py'
+      - 'tests/test_service_worker_cache_guard.py'
+      - 'tests/chrome_harness.py'
+      - 'tests/ui_preview.py'
+      - 'tests/test_account_reorder_runtime.py'
+      - 'tests/test_dividend_income_route_chrome.py'
+      - 'tests/test_realized_pnl_viewport.py'
+      - 'tests/__init__.py'
+      - 'tests/conftest.py'
+      - 'requirements.txt'
+      - '.github/workflows/static-transport-pr-validation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-transport-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      WEALTH_ENV: test
+      WEALTH_DISABLE_ENV_FILE: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PYTEST_ADDOPTS: ''
+      DART_API_KEY: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies and synthetic browser
+        run: |
+          node --version
+          python -m pip install -r requirements.txt 'pytest>=9.0.3,<10' websocket-client playwright
+          python -m playwright install --with-deps chromium
+          python - <<'PY'
+          import os
+          import shlex
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              executable = Path(p.chromium.executable_path).resolve(strict=True)
+          wrapper = Path(os.environ['RUNNER_TEMP']) / 'chrome'
+          wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(str(executable))
+                             + ' --no-sandbox "$@"\n', encoding='utf-8')
+          wrapper.chmod(0o700)
+          PY
+      - name: Validate only synthetic IPO schedules with loopback-only networking
+        run: |
+          export PATH="$RUNNER_TEMP:$PATH"
+          export WEALTH_DATA_DIR="$RUNNER_TEMP/ipo-synthetic-data"
+          export DATA_DIR="$WEALTH_DATA_DIR"
+          export TMPDIR="$RUNNER_TEMP/ipo-synthetic-temp"
+          mkdir -p "$WEALTH_DATA_DIR" "$TMPDIR"
+          # Checkout contains code only; refuse any repository data or env input.
+          test ! -e data
+          test ! -e .env
+          # Separate network namespace: Python AND Chromium can reach the
+          # synthetic loopback server, but cannot reach financial/external APIs.
+          sudo env "PATH=$PATH" "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}" \
+            WEALTH_ENV=test WEALTH_DISABLE_ENV_FILE=1 PYTHONDONTWRITEBYTECODE=1 \
+            PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTEST_ADDOPTS= DART_API_KEY= \
+            "WEALTH_DATA_DIR=$WEALTH_DATA_DIR" "DATA_DIR=$DATA_DIR" "TMPDIR=$TMPDIR" \
+            unshare --net bash -c 'ip link set lo up && exec "$@"' -- \
+            "$(command -v python)" -B -m pytest -q -p no:cacheprovider --maxfail=1 \
+            --basetemp="$TMPDIR/pytest" --junitxml="$RUNNER_TEMP/ipo-synthetic-results.xml" \
+            tests/test_static_transport.py \
+            tests/test_static_transport_chrome.py \
+            tests/test_ipo_schedule_lifecycle.py \
+            tests/test_ipo_schedule_lifecycle_chrome.py \
+            tests/test_ipo_stored_compat.py \
+            tests/test_ipo_stored_compat_chrome.py \
+            tests/test_ipo_calendar_ui_chrome.py \
+            tests/test_ipo_future_compact_view_frontend.py \
+            tests/test_ipo_single_renderer_chrome.py \
+            tests/test_ipo_broker_past_bucket_chrome.py \
+            tests/test_toss_wts_import_modal_scroll.py \
+            tests/test_ipo_dart_offering_schedule.py \
+            tests/test_ipo_source_discovery.py \
+            tests/test_ipo_parallel_fetch.py \
+            tests/test_ipo_dart_client.py \
+            tests/test_ipo_subscription_boundaries_and_fast_refresh.py \
+            tests/test_ipo_identity.py \
+            tests/test_ipo_store.py \
+            tests/test_ipo_presentation.py \
+            tests/test_ipo_presentation_states.py \
+            tests/test_ipo_account_resolution.py \
+            tests/test_ipo_applications.py \
+            tests/test_moneylog_calendar.py \
+            tests/test_moneylog_calendar_frontend.py \
+            tests/test_calendar_ipo_tones_frontend.py \
+            tests/test_release_version.py \
+            tests/test_service_worker_cache_guard.py \
+            tests/test_ipo_refresh_scope.py \
+            tests/test_ipo_refresh_adapter_order.py \
+            tests/test_ipo_fast_refresh_and_krx_auth.py
+      - name: Require actual Chromium execution without skipped regressions
+        run: |
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          report = Path(os.environ['RUNNER_TEMP']) / 'ipo-synthetic-results.xml'
+          cases = list(ET.parse(report).iter('testcase'))
+          assert cases and not any(c.find('skipped') is not None for c in cases)
+          transport = [c for c in cases if c.get('name', '').startswith('test_static_compression_transfer_and_startup[')]
+          assert len(transport) == 2 and not any(list(c) for c in transport)
+          browser = [c for c in cases if c.get('name') == 'test_eucast_calendar_stop_and_unknown_state_in_real_dom']
+          assert len(browser) == 1 and not any(list(c) for c in browser)
+          compat = [c for c in cases if c.get('name') == 'test_legacy_list_calendar_and_alias_application_ids']
+          assert len(compat) == 1 and not any(list(c) for c in compat)
+          visibility = [c for c in cases if c.get('name') == 'test_user_exclusion_restore_in_real_list_and_calendar']
+          assert len(visibility) == 1 and not any(list(c) for c in visibility)
+          ui = [c for c in cases if c.get('name', '').startswith('test_ipo_calendar_dark_ui_and_actions[')]
+          assert len(ui) == 4 and not any(list(c) for c in ui)
+          PY
+      # No Docker, publication, deployment, secrets or artifact upload steps.
