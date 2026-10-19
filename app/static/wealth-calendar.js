@@ -290,11 +290,11 @@
     label.textContent = `${dateStr} 상세 내역 (${events.length}건)`;
 
     if (events.length === 0) {
-      list.innerHTML = '<a class="cal-ipo-restore-link" href="#ipo">공모주 제외 목록 / 복원</a><p class="empty-text" style="padding:16px;text-align:center;">이 날짜에 기록된 금융 이벤트가 없습니다.</p>';
+      list.innerHTML = '<a class="cal-ipo-restore-link ipo-schedule-control" href="#ipo">공모주 제외 목록 / 복원</a><p class="empty-text" style="padding:16px;text-align:center;">이 날짜에 기록된 금융 이벤트가 없습니다.</p>';
       return;
     }
 
-    let itemsHtml = '<a class="cal-ipo-restore-link" href="#ipo">공모주 제외 목록 / 복원</a><ul class="calendar-event-items">';
+    let itemsHtml = '<a class="cal-ipo-restore-link ipo-schedule-control" href="#ipo">공모주 제외 목록 / 복원</a><ul class="calendar-event-items">';
     events.forEach(ev => {
       let icon = '📌';
       let typeLabel = ev.subtype || ev.type;
@@ -409,7 +409,7 @@
               </div>
               ${metaDetails.length > 0 ? `<div class="event-meta">${escapeHtml(metaDetails.join(' · '))}</div>` : ''}
               ${ipoAppControlsHtml}
-              ${ev.meta?.ipo_id ? `<button type="button" class="button secondary compact cal-ipo-exclude" data-ipo="${escapeHtml(ev.meta.ipo_id)}">일정 제외</button>` : ""}
+              ${ev.meta?.ipo_id ? `<button type="button" class="button secondary compact ipo-schedule-control cal-ipo-exclude" data-ipo="${escapeHtml(ev.meta.ipo_id)}">일정 제외</button>` : ""}
             </div>
           </div>
           ${amountFormatted ? `<div class="event-amount ${toneClass}"><strong>${amountFormatted}</strong></div>` : ''}

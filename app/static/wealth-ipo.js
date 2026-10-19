@@ -704,7 +704,7 @@
       html += monthControlHtml;
     }
 
-    html += `<p class="empty-text">제공처 일정 참고용 · 실제 청약 가능 여부는 증권사에서 확인하세요. 제외는 원본·신청·배정 기록을 지우지 않습니다.</p><button type="button" class="button secondary compact" id="ipoExcludedToggle">${showExcludedSchedules ? "일정 목록으로" : "제외 목록 / 다시 표시"}</button>`;
+    html += `<div class="ipo-schedule-toolbar"><p class="ipo-schedule-notice">제공처 일정 참고용 · 실제 청약 가능 여부는 증권사에서 확인하세요. 제외는 원본·신청·배정 기록을 지우지 않습니다.</p><button type="button" class="button secondary compact ipo-schedule-control" id="ipoExcludedToggle">${showExcludedSchedules ? "일정 목록으로" : "제외 목록 / 다시 표시"}</button></div>`;
 
     const renderCard = (ipo) => {
       let cardHtml = '';
@@ -866,19 +866,23 @@
         <article class="ipo-card ipo-compact-card${expanded ? ' ipo-card-expanded' : ''}" data-ipo-id="${escapeHtml(ipoId)}">
           <div class="ipo-card-header">
             <div class="ipo-card-title-group">
-              <h3 class="ipo-company-name">${escapeHtml(ipo.company_name)}</h3>
-              <small>참고 일정 · ${escapeHtml(["metalogos160", "dart_schedule", "kind", "npay", "naver"].filter(key => ipo.sources?.[key]).join(" / ") || "기존 수집자료")} · 조회 ${escapeHtml(String(ipo.updated_at || "미확인").slice(0, 10))}</small>
+              <div class="ipo-card-identity"><h3 class="ipo-company-name">${escapeHtml(ipo.company_name)}</h3>
+
               <span class="ipo-market-badge${market ? '' : ' ipo-market-unknown'}" title="${market ? '공식 시장 구분' : 'canonical IPO record에 시장 구분이 없습니다.'}">${escapeHtml(market || '시장 미확인')}</span>
               ${ipo.stock_code ? `<span class="ipo-code-badge">${escapeHtml(ipo.stock_code)}</span>` : ''}
+              </div>
+              <small class="ipo-source-meta">참고 일정 · ${escapeHtml(["metalogos160", "dart_schedule", "kind", "npay", "naver"].filter(key => ipo.sources?.[key]).join(" / ") || "기존 수집자료")} · 조회 ${escapeHtml(String(ipo.updated_at || "미확인").slice(0, 10))}</small>
             </div>
             <div class="ipo-status-badges">
-              <span class="ipo-subscription-status">${escapeHtml(marketStateLabel)}</span>
-              <span class="ipo-user-status">${escapeHtml(userStateLabel)}</span>
+              <span class="ipo-subscription-status" data-state="${escapeHtml(ipo.market_state || 'DATE_UNKNOWN')}">${escapeHtml(marketStateLabel)}</span>
+              <span class="ipo-user-status" data-state="${escapeHtml(ipo.user_state || 'NOT_APPLIED')}">${escapeHtml(userStateLabel)}</span>
             </div>
             ${scoreBoxHtml}
-            <button type="button" class="button secondary compact ipo-visibility-toggle" data-ipo="${escapeHtml(ipoId)}" data-excluded="${Boolean(ipo.user_excluded)}">${ipo.user_excluded ? "다시 표시" : "일정 제외"}</button>
-            ${ipo.excluded_schedule_changed ? "<span>제외 후 일정 변경 · 확인 후 복원 가능</span>" : ""}
+            <div class="ipo-card-actions">
+            <button type="button" class="button secondary compact ipo-schedule-control ipo-visibility-toggle" data-ipo="${escapeHtml(ipoId)}" data-excluded="${Boolean(ipo.user_excluded)}">${ipo.user_excluded ? "다시 표시" : "일정 제외"}</button>
             <button type="button" class="button secondary compact ipo-card-detail-toggle" aria-expanded="${expanded}" aria-label="${escapeHtml(ipo.company_name || '공모주')} ${expanded ? '상세 접기' : '상세 보기'}">${expanded ? '접기' : '자세히'}</button>
+            </div>
+            ${ipo.excluded_schedule_changed ? '<span class="ipo-schedule-change-note">제외 후 일정 변경 · 확인 후 복원 가능</span>' : ""}
           </div>
 
           <div class="ipo-card-body"${detailHidden}>
