@@ -296,6 +296,11 @@ class DartClient:
             "page_no": page_no,
             "page_count": page_count,
         }
+        # Schedule lifecycle checks explicitly request all issuer disclosures;
+        # regulator correction demands need not belong to C001. Defaults stay C/C001.
+        for key in ("pblntf_ty", "pblntf_detail_ty"):
+            if not params[key]:
+                params.pop(key)
         try:
             res = self._request_json("list.json", params)
             return res

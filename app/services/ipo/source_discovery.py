@@ -7,7 +7,7 @@ from typing import Any
 from time import perf_counter
 
 from app.services.ipo.dart_client import DartClient
-from app.services.ipo.dart_offering_schedule import build_dart_offering_schedule, select_dart_schedule_filing
+from app.services.ipo.dart_offering_schedule import build_dart_offering_schedule, select_dart_schedule_filing, dart_schedule_restriction
 from app.services.ipo.identity import is_spac_ipo, normalize_company_name, spac_name_key
 from app.services.ipo.kind_client import KindClient
 from app.services.ipo.metalogos_client import MetalogosIpoClient, metalogos_identity_matches
@@ -281,11 +281,23 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
             return item, True
     else:
         target = _unique_stock_match(item, existing) or _unique_name_match(item, existing)
+        if target is None and item.get("corp_code"):
+            # A changed offering period must still take the existing record's
+            # stop/field protection path, rather than bypass it via store merge.
+            corporate_matches = [row for row in existing
+                if str(row.get("corp_code") or "").strip() == str(item["corp_code"]).strip()]
+            if len(corporate_matches) > 1:
+                return item, True
+            if corporate_matches:
+                target = corporate_matches[0]
     if target is None:
         saved, review = merge_ipo_record(store, item)
         return saved, review
 
     protect = _source_priority_present(target, source_name)
+    if (source_name != "dart" and target.get("sources", {}).get(
+            "dart_schedule_status", {}).get("status") in {"postponed", "withdrawn"}):
+        protect = True
     protected_fields = {
         "demand_forecast_start", "demand_forecast_end",
         "subscription_start", "subscription_end", "payment_date", "refund_date",
@@ -394,6 +406,7 @@ def _fetch_dart_schedules(
     end_de = target.strftime("%Y%m%d")
 
     corp_by_name: dict[str, dict[str, Any]] = {}
+    ambiguous_names: set[str] = set()
     unresolved = [ipo for _, ipo in candidates if not str(ipo.get("corp_code") or "").strip()]
     if unresolved:
         try:
@@ -402,8 +415,14 @@ def _fetch_dart_schedules(
                 if not isinstance(row, dict):
                     continue
                 key = normalize_company_name(str(row.get("corp_name") or ""))
-                if key and key not in corp_by_name:
-                    corp_by_name[key] = row
+                if key:
+                    previous = corp_by_name.get(key)
+                    if previous and previous.get("corp_code") != row.get("corp_code"):
+                        ambiguous_names.add(key)
+                    elif key not in ambiguous_names:
+                        corp_by_name[key] = row
+            for key in ambiguous_names:
+                corp_by_name.pop(key, None)
         except Exception:
             failed += 1
 
@@ -422,11 +441,25 @@ def _fetch_dart_schedules(
             result["status"] = "ignored"
             return result
         try:
-            filings_resp = dart.get_filing_list(
-                corp_code=corp_code, bgn_de=bgn_de, end_de=end_de,
-                pblntf_detail_ty="C001", last_reprt_at="N", page_count=100,
-            )
-            filings = filings_resp.get("list", []) if isinstance(filings_resp, dict) else []
+            filings = []
+            page = 1
+            while True:
+                filings_resp = dart.get_filing_list(
+                    corp_code=corp_code, bgn_de=bgn_de, end_de=end_de,
+                    pblntf_ty="", pblntf_detail_ty="", last_reprt_at="N",
+                    page_no=page, page_count=100,
+                )
+                rows = filings_resp.get("list", [])
+                if any(str(row.get("corp_code") or corp_code).strip() != corp_code for row in rows):
+                    raise ValueError("DART issuer mismatch")
+                filings.extend(rows)
+                if page >= int(filings_resp.get("total_page") or 1):
+                    break
+                page += 1
+                if page > 20:
+                    raise ValueError("DART schedule disclosure pagination limit exceeded")
+            # Retain the official stop notice even if estkRs subsequently fails.
+            result["restriction"] = dart_schedule_restriction(filings)
             raw_structured = dart.get_equity_registration_statements(
                 corp_code=corp_code, bgn_de=bgn_de, end_de=end_de,
             )
@@ -462,6 +495,8 @@ def _apply_dart_schedules(
         master_row = result["master_row"]
         corp_code = result["corp_code"]
         if not corp_code:
+            ipo.setdefault("sources", {})["dart_schedule_verification"] = {
+                "status": "unverified", "reason": "issuer_unresolved"}
             ignored += 1
             continue
         stock_code = str(master_row.get("stock_code") or "").strip()
@@ -491,13 +526,26 @@ def _apply_dart_schedules(
             "observed_at": datetime.now(KST).isoformat(),
         }
 
+        def order(source):
+            return (str(source.get("source_date") or "").replace("-", "")[:8],
+                    str(source.get("rcept_no") or ""))
+
+        sources = ipo["sources"]
+        restriction = result.get("restriction")
+        previous_status = sources.get("dart_schedule_status", {})
+        previous_schedule = sources.get("dart_schedule", {})
+        if restriction and order(restriction) >= max(order(previous_status), order(previous_schedule)):
+            sources["dart_schedule_status"] = copy.deepcopy(restriction)
+
         if result["status"] == "failed":
+            sources["dart_schedule_verification"] = {"status": "unverified", "reason": "dart_read_failed"}
             failed += 1
             continue
         try:
             filing = result["filing"]
             raw_structured = result["raw_structured"]
             if not filing:
+                sources["dart_schedule_verification"] = {"status": "unverified", "reason": "no_linked_filing"}
                 ignored += 1
                 continue
             filing = copy.deepcopy(filing)
@@ -506,12 +554,35 @@ def _apply_dart_schedules(
             if ipo.get("stock_code"):
                 filing.setdefault("stock_code", ipo.get("stock_code"))
             item = build_dart_offering_schedule(raw_structured, filing=filing)
+            if item and item.get("corp_code") and str(item["corp_code"]).strip() != corp_code:
+                raise ValueError("DART structured issuer mismatch")
             if not item or not _relevant_schedule(item, start, end):
+                sources["dart_schedule_verification"] = {"status": "unverified", "reason": "no_usable_schedule"}
                 ignored += 1
                 continue
+            status = sources.get("dart_schedule_status", {})
+            schedule_source = item["sources"]["dart_schedule"]
+            if order(schedule_source) < order(previous_schedule):
+                ignored += 1
+                continue
+            if status.get("status") in {"postponed", "withdrawn"}:
+                # Only a newer, structured equity registration with a usable new
+                # subscription date can reopen dates; portal refreshes cannot.
+                if (order(schedule_source) <= order(status)
+                        or "증권신고서" not in str(filing.get("report_nm") or "")
+                        or str(item.get("subscription_start") or "").replace("-", "") < order(schedule_source)[0]):
+                    ignored += 1
+                    continue
             _apply_observation(market, item, source_name="dart")
+            sources["dart_schedule_verification"] = {"status": "verified"}
+            if status.get("status") in {"postponed", "withdrawn"}:
+                sources["dart_schedule_status"] = {"status": "scheduled",
+                    "source_date": schedule_source.get("source_date"),
+                    "rcept_no": schedule_source.get("rcept_no"),
+                    "report_nm": filing.get("report_nm")}
             matched += 1
         except Exception:
+            sources["dart_schedule_verification"] = {"status": "unverified", "reason": "dart_schedule_invalid"}
             failed += 1
 
     return matched, failed, ignored
@@ -680,8 +751,16 @@ def discover_and_merge_primary_sources(
     statuses["dart_identity_attached"] = "company_scoped"
     if not dart_configured:
         statuses["dart_schedule"] = "source_unavailable (api_key_missing)"
+        for ipo in market.get("ipos", []):
+            if _relevant_schedule(ipo, start, end):
+                ipo.setdefault("sources", {})["dart_schedule_verification"] = {
+                    "status": "unverified", "reason": "api_key_missing"}
     elif dart_result["error"]:
         statuses["dart_schedule"] = dart_result["error"]
+        for ipo in market.get("ipos", []):
+            if _relevant_schedule(ipo, start, end):
+                ipo.setdefault("sources", {})["dart_schedule_verification"] = {
+                    "status": "unverified", "reason": "dart_read_failed"}
     else:
         matched, failed, ignored = _apply_dart_schedules(
             market, dart=dart, target_date_str=target_date_str, start=start, end=end,

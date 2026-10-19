@@ -237,6 +237,15 @@ def get_ipo_calendar_events(
     events: list[dict[str, Any]] = []
 
     for ipo in store.get("ipos", []):
+        verification = ipo.get("sources", {}).get("dart_schedule_verification", {}).get("status")
+        schedule_status = ipo.get("sources", {}).get("dart_schedule_status", {}).get("status")
+        if schedule_status in {"postponed", "withdrawn"}:
+            # Keep original dates and user applications intact, but never project
+            # the superseded subscription/expected listing as an actionable event.
+            if not ipo.get("actual_listing_date"):
+                continue
+            ipo = {**ipo, "subscription_start": None, "subscription_end": None,
+                   "expected_listing_date": None}
         ipo_id = ipo.get("ipo_id") or ""
         company = ipo.get("company_name") or "공모주"
         app_info = user_apps.get(ipo_id, {})
@@ -251,6 +260,7 @@ def get_ipo_calendar_events(
             is_applied_by_owner = (owner in applied_owners)
 
         meta_base = {
+            "schedule_verification": verification or "not_checked",
             "ipo_id": ipo_id,
             "company_name": company,
             "market": ipo.get("market"),
@@ -294,7 +304,8 @@ def get_ipo_calendar_events(
                     "type": "ipo_subscription",
                     "subtype": "공모주",
                     "owner": "모두",
-                    "title": f"🎯 {company} {label}",
+                    "title": (f"🎯 {company} 청약 일정 확인 필요 (기존 예정일)"
+                              if verification == "unverified" else f"🎯 {company} {label}"),
                     "amount_krw": None,
                     "source_id": ipo_id,
                     "meta": event_meta,
@@ -319,7 +330,8 @@ def get_ipo_calendar_events(
             listing_date = None
 
         if listing_date and (from_date <= listing_date <= to_date):
-            label = "신규상장" if listing_status == "actual" else "상장예정"
+            label = "신규상장" if listing_status == "actual" else (
+                "상장 일정 확인 필요 (기존 예정일)" if verification == "unverified" else "상장예정")
             event_id = f"ipo_listing:{ipo_id}:{listing_date}"
             if not any(e["id"] == event_id for e in events):
                 listing_meta = dict(meta_base)

@@ -1,5 +1,13 @@
 # Wealth 변경 이력
 
+## IPO 일정 상태 보완 — Draft PR #155·미배포
+
+- 정정신고서 제출 요구와 철회 공시를 일정 데이터와 분리해 보존하고, 이전 청약·예정상장 이벤트를 제외한다. 새로운 공식 신고서의 연결된 일정으로 복원한다.
+- DART 조회 실패·회사 코드 불일치 시 기존 날짜는 남기되 캘린더에 확인 필요로 표시한다. 외부 사이트의 오래된 일정과 과거 응답은 공식 중단 상태를 해제하지 못한다.
+- 합성 데이터 회귀 및 실제 캘린더 DOM 검증을 추가한다. 운영 반영·전체 회귀·배포 검증 결과가 아니다.
+- IPO 전용 PR CI를 추가한다. 제한된 집중 pytest와 Chromium만 실행하고, 테스트 프로세스는 loopback 전용 네트워크 공간에서 실행한다. Docker 게시·배포·산출물 업로드는 하지 않는다. CI 성공 여부는 실제 실행 결과로 별도 확인한다.
+- 최종 관련 회귀 범위를 캘린더 API·프런트엔드·회사 식별·저장·소유자별 신청 체크까지 확대한다. 로컬 142 PASS(Chromium 포함)이며 전체 pytest·운영 검증을 대체하지 않는다. 확대 CI는 새 PR HEAD의 결과로 확인한다.
+
 ## Wealth v2.1.2 — 금융소득 기준 포함액 및 실제 배당 세금 유형 (운영 배포 완료)
 
 사용자 제공 완료 기록: [PR #153](https://github.com/sagesaint84/wealth/pull/153) Squash Merge, main `255d135b8562b5569a11ac7c213787dccbcc2513`, 기능 커밋 `71e5c254f01a57336d31a7b2f634088dfce5ab23`. 전체 pytest **4,353 passed / 2 skipped / 4 warnings / 888 subtests passed**, 집중 테스트 **191 passed / 30 subtests passed**, 기존 Chromium 회귀 **35 passed**. AMD64/ARM64 PR CI SUCCESS ([실행 39103493324](https://github.com/sagesaint84/wealth/actions/runs/39103493324)), GHCR 빌드 SUCCESS ([실행 39103784893](https://github.com/sagesaint84/wealth/actions/runs/39103784893)).
