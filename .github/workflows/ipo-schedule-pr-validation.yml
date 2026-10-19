@@ -6,6 +6,7 @@ on:
     paths:
       - 'app/services/ipo/**'
       - 'app/static/wealth-calendar.js'
+      - 'app/static/wealth-layout.css'
       - 'app/static/wealth-ipo.js'
       - 'app/static/index.html'
       - 'app/static/sw.js'
@@ -89,6 +90,11 @@ jobs:
             tests/test_ipo_schedule_lifecycle_chrome.py \
             tests/test_ipo_stored_compat.py \
             tests/test_ipo_stored_compat_chrome.py \
+            tests/test_ipo_calendar_ui_chrome.py \
+            tests/test_ipo_future_compact_view_frontend.py \
+            tests/test_ipo_single_renderer_chrome.py \
+            tests/test_ipo_broker_past_bucket_chrome.py \
+            tests/test_toss_wts_import_modal_scroll.py \
             tests/test_ipo_dart_offering_schedule.py \
             tests/test_ipo_source_discovery.py \
             tests/test_ipo_parallel_fetch.py \
@@ -123,5 +129,7 @@ jobs:
           assert len(compat) == 1 and not any(list(c) for c in compat)
           visibility = [c for c in cases if c.get('name') == 'test_user_exclusion_restore_in_real_list_and_calendar']
           assert len(visibility) == 1 and not any(list(c) for c in visibility)
+          ui = [c for c in cases if c.get('name', '').startswith('test_ipo_calendar_dark_ui_and_actions[')]
+          assert len(ui) == 4 and not any(list(c) for c in ui)
           PY
       # No Docker, publication, deployment, secrets or artifact upload steps.
