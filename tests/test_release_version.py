@@ -41,7 +41,7 @@ class ReleaseVersionTests(unittest.TestCase):
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
         versions = {
-            'wealth-ipo.js': '2.1.2-ipo2',
+            'wealth-ipo.js': '2.1.2-ipo3',
             'wealth-ledger-ocr.js': '2.0.2-review2',
             'wealth-money-input.js': '2.0.3-ai1',
             "wealth-financial-income-what-if.js": "2.1.2-r1",
@@ -51,7 +51,7 @@ class ReleaseVersionTests(unittest.TestCase):
             "wealth-national-pension.js": "2.0.2", "wealth-pension-import.js": "2.0.2",
             "wealth-transaction-defaults.js": "2.0.1",
             "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "10.9r6",
-            "wealth-calendar.js": "10.9r4", "wealth-color-picker.js": "10.9r5",
+            "wealth-calendar.js": "2.1.2-ipo3", "wealth-color-picker.js": "10.9r5",
             "wealth-planning-model.js": "2.1.1-r1", "wealth-asset-category-state.js": "2.0.2",
             "wealth-settings-surface.js": "10.9m1", "wealth-invest-tab-state.js": "10.9k1",
             "wealth-settings.js": "10.9h1", "wealth-family-financial-income-allocation.js": "10.7g1",
@@ -61,7 +61,7 @@ class ReleaseVersionTests(unittest.TestCase):
 
     def test_service_worker_cache_name(self):
         sw = (STATIC_DIR / "sw.js").read_text(encoding="utf-8")
-        self.assertIn('const CACHE_NAME = "wealth-cache-v2.1.2-ipo2";', sw)
+        self.assertIn('const CACHE_NAME = "wealth-cache-v2.1.2-ipo3";', sw)
 
     def test_documentation_version_sync(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

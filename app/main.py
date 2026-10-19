@@ -2751,6 +2751,21 @@ async def get_ipo_applications(request: Request) -> dict:
     return get_user_applications(username)
 
 
+@app.put("/api/ipo/visibility/{ipo_id}")
+async def put_ipo_visibility(ipo_id: str, request: Request) -> dict:
+    username = get_current_username(request)
+    body = await request.json()
+    if not isinstance(body, dict) or type(body.get("revision")) is not int:
+        raise HTTPException(status_code=400, detail="revision is required")
+    from app.services.ipo.applications import set_schedule_visibility, ApplicationRevisionConflict, InvalidApplicationError
+    try:
+        return set_schedule_visibility(username, ipo_id, excluded=body.get("excluded"), client_revision=body["revision"])
+    except ApplicationRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except InvalidApplicationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.put("/api/ipo/applications/{ipo_id}")
 async def put_ipo_application(ipo_id: str, request: Request) -> dict:
     """Update family application status for a specific IPO with revision locking."""

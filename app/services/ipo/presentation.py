@@ -11,7 +11,7 @@ from typing import Any
 from app.services import portfolio
 from app.services.broker_registry import normalize_broker, get_display_name
 from app.services.pnl_records import read_pnl_records_readonly
-from app.services.ipo.display import display_records, schedule_condition
+from app.services.ipo.display import display_records, schedule_condition, annotate_visibility
 
 
 def _unknown_manager_name(value: str) -> str:
@@ -224,6 +224,7 @@ def present_market_store(username: str | None, market: dict[str, Any], today: da
         if not isinstance(item, dict):
             continue
         application = applications.get(str(item.get("ipo_id") or "")) if isinstance(applications, dict) else None
+        annotate_visibility(item, (((data.get("settings") or {}).get("ipo") or {}).get("schedule_exclusions") or {}))
         market_state = derive_market_state(item, today)
         user_state, applicant_counts = derive_user_state(application, records)
         related = [derive_user_state(applications.get(key), records)

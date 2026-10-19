@@ -2,7 +2,6 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import re
-from app.services.ipo.identity import normalize_company_name
 
 
 def market_day():
@@ -31,11 +30,11 @@ def _same_offering(a, b):
     sa, sb = a.get("sources") or {}, b.get("sources") or {}
     identifiers = [(a.get("corp_code"), b.get("corp_code"), r"\d{8}"),
                    (a.get("stock_code"), b.get("stock_code"), r"\d{6}"),
-                   ((sa.get("dart_schedule") or sa.get("dart") or {}).get("rcept_no"),
-                    (sb.get("dart_schedule") or sb.get("dart") or {}).get("rcept_no"), r"\d{14}"),
                    (a.get("kind_bz_procs_no") or sa.get("kind_bz_procs_no") or sa.get("kind", {}).get("kind_bz_procs_no"),
                     b.get("kind_bz_procs_no") or sb.get("kind_bz_procs_no") or sb.get("kind", {}).get("kind_bz_procs_no"), r"[A-Za-z0-9_-]+")]
-    if not any(x and x == y and re.fullmatch(pattern, str(x)) for x, y, pattern in identifiers):
+    provider_a = {key for key in visibility_keys(a) if key.startswith("metalogos:")}
+    provider_b = {key for key in visibility_keys(b) if key.startswith("metalogos:")}
+    if not (provider_a & provider_b) and not any(x and x == y and re.fullmatch(pattern, str(x)) for x, y, pattern in identifiers):
         return False
     for field in ("subscription_start", "subscription_end", "actual_listing_date"):
         if a.get(field) and b.get(field) and a[field] != b[field]:
@@ -50,7 +49,6 @@ def display_records(records, today=None):
     This is an in-memory preview, not a persisted merge. Pairwise evidence
     prevents a third ambiguous record from bridging two incompatible issuers.
     """
-    today = str(today or market_day())
     groups = []
     for original in records:
         row = deepcopy(original)
@@ -60,12 +58,8 @@ def display_records(records, today=None):
         for key in ("dart", "dart_schedule", "dart_schedule_status", "dart_schedule_verification", "kind"):
             if key in sources and not isinstance(sources[key], dict):
                 sources[key] = {}
-        v = sources.get("dart_schedule_verification") or {}
-        if not row.get("actual_listing_date"):
-            if not v:
-                sources["dart_schedule_verification"] = {"status": "unverified", "reason": "legacy_not_checked"}
-            elif v.get("status") == "verified" and v.get("checked_date") != today:
-                sources["dart_schedule_verification"] = {"status": "unverified", "reason": "cache_not_current"}
+        if not row.get("actual_listing_date") and not sources.get("dart_schedule_verification"):
+            sources["dart_schedule_verification"] = {"status": "unverified", "reason": "legacy_not_checked"}
         group = next((g for g in groups if all(_same_offering(row, other) for other in g)), None)
         if group is None:
             groups.append([row])
@@ -96,10 +90,31 @@ def display_records(records, today=None):
         if len(group) > 1:
             canonical["identity_resolution"] = "official_identifiers_same_offering"
         result.append(canonical)
-    # Similar names without corroborating identifiers remain separate, marked for review.
-    for row in result:
-        key = normalize_company_name(row.get("company_name", "")).removesuffix("그룹")
-        if any(other is not row and key and key == normalize_company_name(
-                other.get("company_name", "")).removesuffix("그룹") for other in result):
-            row["identity_review_required"] = True
     return result
+
+
+def visibility_keys(ipo):
+    """Stable explicit identities only; never infer identity from a similar name."""
+    keys = ["id:" + str(i) for i in ipo.get("application_record_ids", [ipo["ipo_id"]])]
+    for field, pattern in (("corp_code", r"\d{8}"), ("stock_code", r"\d{6}")):
+        value = str(ipo.get(field) or "")
+        if re.fullmatch(pattern, value):
+            keys.append(field + ":" + value)
+    source = (ipo.get("sources") or {}).get("metalogos160") or {}
+    url = source.get("url", "") if isinstance(source, dict) else ""
+    if re.fullmatch(r"https://(?:www\.)?metalogos\.ai/160ipo/stock/[A-Za-z0-9_-]+/?", url):
+        keys.append("metalogos:" + url.rstrip("/").split("/")[-1])
+    return keys
+
+
+def schedule_snapshot(ipo):
+    return {key: ipo.get(key) for key in ("subscription_start", "subscription_end",
+            "expected_listing_date", "actual_listing_date")}
+
+
+def annotate_visibility(ipo, exclusions):
+    entries = [exclusions[key] for key in visibility_keys(ipo) if key in exclusions]
+    ipo["user_excluded"] = bool(entries)
+    ipo["excluded_schedule_changed"] = bool(entries and any(
+        entry.get("schedule") != schedule_snapshot(ipo) for entry in entries))
+    return ipo

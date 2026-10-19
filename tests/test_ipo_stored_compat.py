@@ -63,13 +63,13 @@ def test_old_store_refresh_applies_notice_to_both_surfaces_then_reopens():
     assert [r["date"] for r in events(data) if r["type"] == "ipo_subscription"] == ["2026-11-19", "2026-11-20"]
 
 
-def test_verified_normal_offering_remains_and_stale_cache_becomes_confirmation_needed():
+def test_reference_schedule_does_not_expire_at_midnight():
     data = market()
     data["ipos"][0]["sources"]["dart_schedule_verification"] = {"status": "verified", "checked_date": "2026-10-19"}
     assert presented(data)[0]["market_state"] == "SUBSCRIPTION_OPEN"
     # Projection is date-injected and does not mutate the persisted verification.
     row = display_records(data["ipos"], "2026-10-20")[0]
-    assert row["sources"]["dart_schedule_verification"]["reason"] == "cache_not_current"
+    assert row["sources"]["dart_schedule_verification"] == data["ipos"][0]["sources"]["dart_schedule_verification"]
     assert data["ipos"][0]["sources"]["dart_schedule_verification"]["status"] == "verified"
 
 
@@ -128,11 +128,11 @@ def test_name_suffix_alone_or_conflicting_official_ids_are_not_merged():
         else:
             data["ipos"][1]["subscription_start"] = "2027-10-01"
         assert len(display_records(data["ipos"], "2026-10-19")) == 2
-        assert all(r["identity_review_required"] for r in display_records(data["ipos"], "2026-10-19"))
+        assert {r["ipo_id"] for r in display_records(data["ipos"], "2026-10-19")} == {"old-elice", "official-elice"}
 
 
 @pytest.mark.parametrize("proof", ["kind", "receipt"])
-def test_legacy_kind_or_receipt_evidence_without_stock_code(proof):
+def test_provider_identifier_groups_but_receipt_alone_does_not(proof):
     data = aliases()
     for row in data["ipos"]:
         row.pop("corp_code"); row.pop("stock_code"); row["sources"] = {}
@@ -140,7 +140,7 @@ def test_legacy_kind_or_receipt_evidence_without_stock_code(proof):
             row["kind_bz_procs_no"] = "synthetic-official-202610"
         else:
             row["sources"]["dart"] = {"rcept_no": "20261001000002"}
-    assert len(display_records(data["ipos"], "2026-10-19")) == 1
+    assert len(display_records(data["ipos"], "2026-10-19")) == (1 if proof == "kind" else 2)
 
 
 def test_family_checks_from_both_ids_survive_calendar_projection_without_writes():

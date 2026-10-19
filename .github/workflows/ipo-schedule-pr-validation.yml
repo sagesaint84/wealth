@@ -121,5 +121,7 @@ jobs:
           assert len(browser) == 1 and not any(list(c) for c in browser)
           compat = [c for c in cases if c.get('name') == 'test_legacy_list_calendar_and_alias_application_ids']
           assert len(compat) == 1 and not any(list(c) for c in compat)
+          visibility = [c for c in cases if c.get('name') == 'test_user_exclusion_restore_in_real_list_and_calendar']
+          assert len(visibility) == 1 and not any(list(c) for c in visibility)
           PY
       # No Docker, publication, deployment, secrets or artifact upload steps.

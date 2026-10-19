@@ -6,7 +6,7 @@ from typing import Any
 
 from app.services.ipo.identity import find_matching_ipo, generate_ipo_id
 from app.services.ipo.models import IpoRecord
-from app.services.ipo.display import display_records
+from app.services.ipo.display import display_records, annotate_visibility
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 DATA_DIR = ROOT_DIR / "data" / "ipo"
@@ -230,14 +230,18 @@ def get_ipo_calendar_events(
 
     # Get user applications if available
     user_apps = {}
+    exclusions = {}
     if username:
         from app.services.ipo.applications import get_user_applications
         apps_data = get_user_applications(username)
         user_apps = apps_data.get("applications", {})
+        exclusions = apps_data.get("schedule_exclusions", {})
 
     events: list[dict[str, Any]] = []
 
     for ipo in display_records(store.get("ipos", [])):
+        if annotate_visibility(ipo, exclusions)["user_excluded"]:
+            continue
         verification = ipo.get("sources", {}).get("dart_schedule_verification", {}).get("status")
         schedule_status = ipo.get("sources", {}).get("dart_schedule_status", {}).get("status")
         if schedule_status in {"postponed", "withdrawn"}:
