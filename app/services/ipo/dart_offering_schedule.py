@@ -254,6 +254,7 @@ def build_dart_offering_schedule(
     )
 
     source = {
+        "company_name": company_name,
         "schedule_source": "OpenDART C001 + estkRs",
         "board_reference": "https://dart.fss.or.kr/dsac005/main.do",
         "rcept_no": rcept_no or None,

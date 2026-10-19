@@ -53,6 +53,69 @@ class IpoApplicationsTests(unittest.TestCase):
         }
         write_portfolio(initial_portfolio, username=self.username)
 
+    def test_visibility_is_revision_locked_user_scoped_and_preserves_records(self):
+        from copy import deepcopy
+        from app.services.ipo.applications import set_schedule_visibility
+        from app.services.ipo.display import annotate_visibility, display_records
+        from tests.test_ipo_schedule_lifecycle import market
+        from app.services.ipo.presentation import present_market_store
+        from app.services.ipo.store import get_ipo_calendar_events
+        data = market()
+        app = {"applied_owners": ["아빠"], "applicants": {"아빠": {
+            "allocation": {"quantity": 3, "links": [{"pnl_record_id": "kept"}]}}}}
+        pf = read_portfolio(self.username)
+        pf["settings"]["ipo"]["applications"]["synthetic-eucast"] = app
+        write_portfolio(pf, self.username)
+        before = deepcopy(pf)
+        with patch("app.services.ipo.store.read_market_store_read_only", return_value=data):
+            set_schedule_visibility(self.username, "synthetic-eucast", excluded=True, client_revision=0)
+            with self.assertRaises(ApplicationRevisionConflict):
+                set_schedule_visibility(self.username, "synthetic-eucast", excluded=False, client_revision=0)
+            with self.assertRaises(InvalidApplicationError):
+                set_schedule_visibility(self.username, "unknown", excluded=True, client_revision=1)
+            with self.assertRaises(InvalidApplicationError):
+                set_schedule_visibility(self.username, "synthetic-eucast", excluded="false", client_revision=1)
+            saved = read_portfolio(self.username)
+            self.assertEqual(saved["settings"]["ipo"]["applications"], before["settings"]["ipo"]["applications"])
+            exclusions = saved["settings"]["ipo"]["schedule_exclusions"]
+            row = display_records(data["ipos"])[0]
+            self.assertTrue(annotate_visibility(row, exclusions)["user_excluded"])
+            self.assertFalse(row["excluded_schedule_changed"])
+            self.assertFalse(annotate_visibility(deepcopy(row), {})["user_excluded"])
+            # Recollection of the same issuer under another record ID remains excluded.
+            changed = deepcopy(data["ipos"][0])
+            changed.update(ipo_id="new-provider-id", subscription_start="2026-11-19",
+                           subscription_end="2026-11-20", expected_listing_date="2026-11-30")
+            self.assertTrue(annotate_visibility(changed, exclusions)["user_excluded"])
+            self.assertTrue(changed["excluded_schedule_changed"])
+            with patch("app.services.ipo.store.read_market_store", return_value=data):
+                self.assertEqual(get_ipo_calendar_events(self.username, "2026-10-01", "2026-10-31"), [])
+            with patch("app.services.ipo.presentation.read_pnl_records_readonly", return_value=[]):
+                self.assertTrue(present_market_store(self.username, data)["ipos"][0]["user_excluded"])
+            # Restore through a new ID after a schedule change, including old ID preference.
+            data["ipos"] = [changed]
+            set_schedule_visibility(self.username, "new-provider-id", excluded=False, client_revision=1)
+            restored = read_portfolio(self.username)
+            self.assertEqual(restored["settings"]["ipo"]["schedule_exclusions"], {})
+            self.assertEqual(restored["settings"]["ipo"]["applications"], before["settings"]["ipo"]["applications"])
+            with patch("app.services.ipo.store.read_market_store", return_value=data):
+                self.assertTrue(get_ipo_calendar_events(self.username, "2026-11-01", "2026-11-30"))
+
+    def test_visibility_api_requires_valid_payload_and_authentication(self):
+        from tests.test_ipo_schedule_lifecycle import market
+        client = TestClient(main.app)
+        token = main._serializer.dumps({"user": self.username, "role": "user"})
+        headers = {"Cookie": f"{main.COOKIE_NAME}={token}"}
+        endpoint = "/api/ipo/visibility/synthetic-eucast"
+        with patch("app.services.user_manager.get_user_by_name", return_value={"username": self.username, "role": "user"}), \
+             patch("app.services.ipo.store.read_market_store_read_only", return_value=market()):
+            self.assertEqual(client.put(endpoint, json={"revision": 0, "excluded": True}).status_code, 401)
+            self.assertEqual(client.put(endpoint, headers=headers, json={"revision": 0, "excluded": True}).status_code, 200)
+            self.assertEqual(client.put(endpoint, headers=headers, json={"revision": 0, "excluded": False}).status_code, 409)
+            self.assertEqual(client.put(endpoint, headers=headers, json={"revision": 1, "excluded": "false"}).status_code, 400)
+            self.assertEqual(client.put(endpoint, headers=headers, json={"revision": True, "excluded": False}).status_code, 400)
+            self.assertEqual(client.put(endpoint, headers=headers, json={"revision": 1, "excluded": False}).status_code, 200)
+
     def test_initial_empty_application_state(self):
         apps = get_user_applications(self.username)
         self.assertEqual(apps["revision"], 0)

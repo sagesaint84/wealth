@@ -46,7 +46,8 @@ class SyntheticDart:
 
 
 def events(data):
-    with patch("app.services.ipo.store.read_market_store", return_value=data):
+    with patch("app.services.ipo.store.read_market_store", return_value=data), \
+         patch("app.services.ipo.display.market_day", return_value=WINDOW["target_date_str"]):
         return get_ipo_calendar_events(None, "2026-09-01", "2026-11-30")
 
 

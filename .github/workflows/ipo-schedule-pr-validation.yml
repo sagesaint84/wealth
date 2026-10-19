@@ -6,9 +6,14 @@ on:
     paths:
       - 'app/services/ipo/**'
       - 'app/static/wealth-calendar.js'
+      - 'app/static/wealth-ipo.js'
+      - 'app/static/index.html'
+      - 'app/static/sw.js'
       - 'tests/test_ipo*.py'
       - 'tests/test_moneylog_calendar*.py'
       - 'tests/test_calendar_ipo_tones_frontend.py'
+      - 'tests/test_release_version.py'
+      - 'tests/test_service_worker_cache_guard.py'
       - 'tests/chrome_harness.py'
       - 'tests/ui_preview.py'
       - 'tests/test_account_reorder_runtime.py'
@@ -82,6 +87,8 @@ jobs:
             --basetemp="$TMPDIR/pytest" --junitxml="$RUNNER_TEMP/ipo-synthetic-results.xml" \
             tests/test_ipo_schedule_lifecycle.py \
             tests/test_ipo_schedule_lifecycle_chrome.py \
+            tests/test_ipo_stored_compat.py \
+            tests/test_ipo_stored_compat_chrome.py \
             tests/test_ipo_dart_offering_schedule.py \
             tests/test_ipo_source_discovery.py \
             tests/test_ipo_parallel_fetch.py \
@@ -95,7 +102,12 @@ jobs:
             tests/test_ipo_applications.py \
             tests/test_moneylog_calendar.py \
             tests/test_moneylog_calendar_frontend.py \
-            tests/test_calendar_ipo_tones_frontend.py
+            tests/test_calendar_ipo_tones_frontend.py \
+            tests/test_release_version.py \
+            tests/test_service_worker_cache_guard.py \
+            tests/test_ipo_refresh_scope.py \
+            tests/test_ipo_refresh_adapter_order.py \
+            tests/test_ipo_fast_refresh_and_krx_auth.py
       - name: Require actual Chromium execution without skipped regressions
         run: |
           python - <<'PY'
@@ -107,5 +119,9 @@ jobs:
           assert cases and not any(c.find('skipped') is not None for c in cases)
           browser = [c for c in cases if c.get('name') == 'test_eucast_calendar_stop_and_unknown_state_in_real_dom']
           assert len(browser) == 1 and not any(list(c) for c in browser)
+          compat = [c for c in cases if c.get('name') == 'test_legacy_list_calendar_and_alias_application_ids']
+          assert len(compat) == 1 and not any(list(c) for c in compat)
+          visibility = [c for c in cases if c.get('name') == 'test_user_exclusion_restore_in_real_list_and_calendar']
+          assert len(visibility) == 1 and not any(list(c) for c in visibility)
           PY
       # No Docker, publication, deployment, secrets or artifact upload steps.

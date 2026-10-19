@@ -1,5 +1,6 @@
 from copy import deepcopy
 from datetime import datetime
+from uuid import uuid4
 import json
 from typing import Any
 
@@ -75,6 +76,7 @@ def get_user_applications(username: str | None = None) -> dict[str, Any]:
         "revision": revision,
         "applications": result_apps,
         "family_members": family,
+        "schedule_exclusions": deepcopy(ipo_settings.get("schedule_exclusions", {})),
     }
 
 
@@ -373,3 +375,37 @@ def freeze_untouched_ipo_application(
         path.parent.mkdir(parents=True, exist_ok=True)
         portfolio.write_financial_json(path, pf)
         return app
+
+
+def set_schedule_visibility(username, ipo_id, *, excluded, client_revision):
+    """Only user display preferences change; market and family records stay intact."""
+    from app.services.ipo.store import read_market_store_read_only
+    from app.services.ipo.display import display_records, visibility_keys, schedule_snapshot
+    rows = display_records(read_market_store_read_only().get("ipos", []))
+    row = next((r for r in rows if ipo_id in r.get("application_record_ids", [r["ipo_id"]])), None)
+    if row is None:
+        raise InvalidApplicationError("Unknown IPO")
+    if type(excluded) is not bool:
+        raise InvalidApplicationError("excluded must be boolean")
+    path = portfolio._get_portfolio_file(username)
+    with portfolio.financial_lock(path):
+        pf = portfolio.read_financial_json(path, default=portfolio.EMPTY_PORTFOLIO)
+        settings = pf.setdefault("settings", {}).setdefault("ipo", {})
+        revision = int(settings.get("revision", 0))
+        if client_revision != revision:
+            raise ApplicationRevisionConflict("Revision conflict; reload before changing visibility")
+        exclusions = settings.setdefault("schedule_exclusions", {})
+        keys = visibility_keys(row)
+        if excluded:
+            entry = {"preference_id": uuid4().hex, "schedule": schedule_snapshot(row), "updated_at": datetime.now().astimezone().isoformat()}
+            for key in keys:
+                exclusions[key] = entry
+        else:
+            # Remove the linked preference, including its older IPO-ID keys.
+            matched = [exclusions[key] for key in keys if key in exclusions]
+            for key in list(exclusions):
+                if key in keys or exclusions[key] in matched:
+                    del exclusions[key]
+        settings["revision"] = revision + 1
+        portfolio.write_financial_json(path, pf)
+    return {"revision": revision + 1, "excluded": excluded}

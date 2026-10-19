@@ -352,8 +352,15 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
     resolved_target = _target_date(target_date_str)
     total_started = perf_counter()
     kind_snapshot: dict[str, Any] = {}
-    result = _BASE_REFRESH_MARKET(username=username, target_date_str=resolved_target,
-                                  kind_schedule_snapshot=kind_snapshot)
+    try:
+        result = _BASE_REFRESH_MARKET(username=username, target_date_str=resolved_target,
+                                      kind_schedule_snapshot=kind_snapshot)
+    except _base.IpoRefreshAlreadyRunning:
+        raise
+    except Exception:
+        # Failure of a portal/base refresh must not prevent the independent
+        # official stop-notice refresh for already stored offerings.
+        result = {"status": "preserved", "sources": {"base_refresh": "failed"}}
     timings = {"base_refresh_ms": round((perf_counter() - total_started) * 1000, 3),
                "metalogos_reference_ms": 0.0, "targeted_dart_ms": 0.0}
     supplement: dict[str, Any] = {}
@@ -408,8 +415,13 @@ def refresh_ipo_market_enriched(
     """
     resolved_target = _target_date(target_date_str)
     kind_snapshot: dict[str, Any] = {}
-    result = _BASE_REFRESH_ENRICHED(username=username, target_date_str=resolved_target,
-                                    kind_schedule_snapshot=kind_snapshot)
+    try:
+        result = _BASE_REFRESH_ENRICHED(username=username, target_date_str=resolved_target,
+                                        kind_schedule_snapshot=kind_snapshot)
+    except _base.IpoRefreshAlreadyRunning:
+        raise
+    except Exception:
+        result = {"status": "preserved", "sources": {"base_refresh": "failed"}}
     supplement, targeted = _run_supplement_and_targeted(
         username=username,
         target_date_str=resolved_target,

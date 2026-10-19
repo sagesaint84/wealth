@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import app.services.ipo.applications  # Ensure patch target module is loaded.
 from app.services.ipo.store import get_ipo_calendar_events
+from app.services.ipo.display import market_day
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,6 +67,7 @@ class IpoPresentationTests(unittest.TestCase):
             "schema_version": 1,
             "ipos": [{
                 "ipo_id": "ipo-period",
+                "sources": {"dart_schedule_verification": {"status": "verified", "checked_date": market_day()}},
                 "company_name": "기간테스트",
                 "subscription_start": "2026-09-18",
                 "subscription_end": "2026-09-20",

@@ -6,7 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from time import perf_counter
 
-from app.services.ipo.dart_client import DartClient
+from app.services.ipo.dart_client import DartClient, DartAuthError
+import httpx
 from app.services.ipo.dart_offering_schedule import build_dart_offering_schedule, select_dart_schedule_filing, dart_schedule_restriction
 from app.services.ipo.identity import is_spac_ipo, normalize_company_name, spac_name_key
 from app.services.ipo.kind_client import KindClient
@@ -466,8 +467,13 @@ def _fetch_dart_schedules(
             result.update(status="ok", filing=copy.deepcopy(
                 select_dart_schedule_filing(filings, raw_structured)),
                 raw_structured=copy.deepcopy(raw_structured))
-        except Exception:
+        except Exception as exc:
             result["status"] = "failed"
+            cause = exc.__cause__ or exc
+            result["failure_reason"] = (
+                "api_key_invalid" if isinstance(exc, DartAuthError) else
+                "network_disabled" if isinstance(exc, ExternalNetworkDisabled) else
+                "network_error" if isinstance(cause, httpx.RequestError) else "refresh_failed")
         return result
 
     results = []
@@ -538,7 +544,8 @@ def _apply_dart_schedules(
             sources["dart_schedule_status"] = copy.deepcopy(restriction)
 
         if result["status"] == "failed":
-            sources["dart_schedule_verification"] = {"status": "unverified", "reason": "dart_read_failed"}
+            sources["dart_schedule_verification"] = {"status": "unverified",
+                "reason": result.get("failure_reason", "refresh_failed"), "last_attempt_date": target_date_str}
             failed += 1
             continue
         try:
@@ -574,7 +581,7 @@ def _apply_dart_schedules(
                     ignored += 1
                     continue
             _apply_observation(market, item, source_name="dart")
-            sources["dart_schedule_verification"] = {"status": "verified"}
+            sources["dart_schedule_verification"] = {"status": "verified", "checked_date": target_date_str}
             if status.get("status") in {"postponed", "withdrawn"}:
                 sources["dart_schedule_status"] = {"status": "scheduled",
                     "source_date": schedule_source.get("source_date"),

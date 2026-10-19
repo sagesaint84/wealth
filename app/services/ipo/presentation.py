@@ -11,6 +11,7 @@ from typing import Any
 from app.services import portfolio
 from app.services.broker_registry import normalize_broker, get_display_name
 from app.services.pnl_records import read_pnl_records_readonly
+from app.services.ipo.display import display_records, schedule_condition, annotate_visibility
 
 
 def _unknown_manager_name(value: str) -> str:
@@ -64,6 +65,14 @@ def _date(value: object) -> date | None:
 
 def derive_market_state(ipo: dict[str, Any], today: date | None = None) -> str:
     today = today or current_market_date()
+    condition = schedule_condition(ipo)
+    if not ipo.get("actual_listing_date"):
+        if condition == "postponed":
+            return "POSTPONED"
+        if condition == "withdrawn":
+            return "WITHDRAWN"
+        if condition == "unverified":
+            return "DATE_UNKNOWN"
     start, end = _date(ipo.get("subscription_start")), _date(ipo.get("subscription_end"))
     actual_listing = _date(ipo.get("actual_listing_date"))
     sources = ipo.get("sources") if isinstance(ipo.get("sources"), dict) else {}
@@ -207,6 +216,7 @@ def _read_portfolio_for_presentation(username: str | None) -> dict[str, Any]:
 def present_market_store(username: str | None, market: dict[str, Any], today: date | None = None) -> dict[str, Any]:
     """Copy and enrich market response; never mutate market storage or portfolio."""
     output = deepcopy(market)
+    output["ipos"] = display_records(output.get("ipos", []), today or current_market_date())
     data = _read_portfolio_for_presentation(username)
     applications = (((data.get("settings") or {}).get("ipo") or {}).get("applications") or {})
     records = read_pnl_records_readonly(username)
@@ -214,8 +224,17 @@ def present_market_store(username: str | None, market: dict[str, Any], today: da
         if not isinstance(item, dict):
             continue
         application = applications.get(str(item.get("ipo_id") or "")) if isinstance(applications, dict) else None
+        annotate_visibility(item, (((data.get("settings") or {}).get("ipo") or {}).get("schedule_exclusions") or {}))
         market_state = derive_market_state(item, today)
         user_state, applicant_counts = derive_user_state(application, records)
+        related = [derive_user_state(applications.get(key), records)
+                   for key in item.get("identity_alias_ids", [])]
+        if related:
+            states = [user_state] + [state for state, _ in related]
+            user_state = next(state for state in _POSITION_PRECEDENCE if state in states)
+            for _, counts in related:
+                for key, value in counts.items():
+                    applicant_counts[key] += value
         month_keys, month_sort_dates = derive_presentation_months(item)
         item["market_state"] = market_state
         item["lead_manager_filters"] = derive_lead_manager_filters(item.get("lead_managers"))

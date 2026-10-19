@@ -115,7 +115,7 @@ async function run(scenario) {
     assert.equal(await original.text(), 'fresh network body');
     if (scenario !== 'openFailure') assert.equal(settled, false);
     assert.equal(event.calls[1][0], 'open');
-    assert.equal(event.calls[1][1], 'wealth-cache-v2.1.2');
+    assert.equal(event.calls[1][1], 'wealth-cache-v2.1.2-ipo3');
     const putCall = event.calls.find(call => call[0] === 'put');
     if (scenario === 'openFailure') {
       assert.equal(putCall, undefined);

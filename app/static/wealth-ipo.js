@@ -90,6 +90,9 @@
   };
 
   const subscriptionStatus = (ipo, today = todayKst()) => {
+    if (['POSTPONED','WITHDRAWN','DATE_UNKNOWN'].includes(ipo?.market_state)
+        || ['postponed','withdrawn'].includes(ipo?.sources?.dart_schedule_status?.status)
+        || ipo?.sources?.dart_schedule_verification?.status === 'unverified') return null;
     const start = dateParts(ipo?.subscription_start);
     const end = dateParts(ipo?.subscription_end);
     const current = dateParts(today);
@@ -588,6 +591,24 @@
     }
   }
 
+  let showExcludedSchedules = false;
+
+  async function setIpoScheduleExcluded(ipoId, excluded) {
+    const latest = await fetch("/api/ipo/applications");
+    if (!latest.ok) throw new Error("표시 설정을 읽지 못했습니다.");
+    const state = await latest.json();
+    const response = await fetch(`/api/ipo/visibility/${encodeURIComponent(ipoId)}`, {
+      method: "PUT", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({excluded, revision: state.revision})
+    });
+    if (!response.ok) throw new Error(response.status === 409 ? "다른 변경이 있습니다. 다시 시도해 주세요." : "일정 표시 설정 저장 실패");
+    marketSnapshotRevision += 1;
+    if (ipoLoadPending) await ipoLoadPending;
+    await loadIpoSchedule();
+    if (window.WealthCalendar) await window.WealthCalendar.loadCalendar();
+  }
+  window.setIpoScheduleExcluded = setIpoScheduleExcluded;
+
   function renderIpoList() {
     const wrapper = document.getElementById('ipoListWrapper');
     if (!wrapper) return;
@@ -602,8 +623,9 @@
       .sort(([, left], [, right]) => left.localeCompare(right, 'ko'));
     if (ipoBrokerFilter && !managers.some(([key]) => key === ipoBrokerFilter)) ipoBrokerFilter = '';
     // Month projections may change sort dates; PAST always uses canonical dates.
-    const viewIpos = ipoFilterGroup === 'PAST' ? canonicalMarketIpos : marketIpos;
-    const brokerIpos = viewIpos.filter(ipo => !ipoBrokerFilter ||
+    const viewIpos = (showExcludedSchedules || ipoFilterGroup === 'PAST' ? canonicalMarketIpos : marketIpos)
+      .filter(ipo => showExcludedSchedules ? ipo.user_excluded : !ipo.user_excluded);
+    const brokerIpos = viewIpos.filter(ipo => showExcludedSchedules || !ipoBrokerFilter ||
       brokerFilters(ipo).some(item => item.key === ipoBrokerFilter));
     const counts = { ALL: brokerIpos.length, UPCOMING: 0, ACTIVE: 0, PAST: 0 };
     brokerIpos.forEach(ipo => { if (counts[ipo.filter_group] !== undefined) counts[ipo.filter_group] += 1; });
@@ -630,7 +652,9 @@
     let fallbackIpos = [];
     let monthControlHtml = '';
 
-    if (['ALL', 'UPCOMING', 'ACTIVE'].includes(ipoFilterGroup)) {
+    if (showExcludedSchedules) {
+      visibleIpos = brokerIpos.slice().sort(sortAsc);
+    } else if (['ALL', 'UPCOMING', 'ACTIVE'].includes(ipoFilterGroup)) {
       const curKst = currentKstYearMonth();
       if (ipoHistoryYear === null || ipoHistoryMonth === null) {
         ipoHistoryYear = curKst.year;
@@ -680,6 +704,8 @@
       html += monthControlHtml;
     }
 
+    html += `<p class="empty-text">제공처 일정 참고용 · 실제 청약 가능 여부는 증권사에서 확인하세요. 제외는 원본·신청·배정 기록을 지우지 않습니다.</p><button type="button" class="button secondary compact" id="ipoExcludedToggle">${showExcludedSchedules ? "일정 목록으로" : "제외 목록 / 다시 표시"}</button>`;
+
     const renderCard = (ipo) => {
       let cardHtml = '';
       const ipoId = ipo.ipo_id;
@@ -712,14 +738,23 @@
         ? (ipo.offering_amount ? `${formatMoney(ipo.offering_amount)} 원` : '미수집')
         : null;
       const listingDate = ipo.actual_listing_date || ipo.expected_listing_date || '미정';
-      const marketStateLabels = { UPCOMING: '청약예정', SUBSCRIPTION_OPEN: '청약중', SUBSCRIPTION_CLOSED: '청약마감', LISTING_UPCOMING: '상장예정', LISTED: '상장완료', DATE_UNKNOWN: '일정 확인 필요' };
+      const marketStateLabels = { POSTPONED: '청약 연기 · 새 일정 확인 필요', WITHDRAWN: '공모 철회', UPCOMING: '청약예정', SUBSCRIPTION_OPEN: '청약중', SUBSCRIPTION_CLOSED: '청약마감', LISTING_UPCOMING: '상장예정', LISTED: '상장완료', DATE_UNKNOWN: '일정 확인 필요' };
       const userStateLabels = { NOT_APPLIED: '미신청', APPLIED: '신청완료', ALLOCATED_UNSOLD: '배정 보유', PARTIALLY_SOLD: '일부 매도', FULLY_SOLD: '매도 완료', LINK_DATA_MISSING: '연결 확인 필요' };
-      const marketStateLabel = marketStateLabels[ipo.market_state] || '일정 확인 필요';
+      const reasonLabels = {api_key_missing:'DART 인증 미설정',api_key_invalid:'DART 인증 오류',network_error:'공시 통신 오류',network_disabled:'외부 통신 차단',refresh_failed:'공시 갱신 실패',legacy_not_checked:'이전 저장 일정 · 공식 확인 전',cache_not_current:'최근 공식 확인 필요'};
+      const reason = ipo.sources?.dart_schedule_verification?.reason;
+      const marketStateLabel = (marketStateLabels[ipo.market_state] || '일정 확인 필요')
+        + (ipo.market_state === 'DATE_UNKNOWN' && reasonLabels[reason] ? ' · ' + reasonLabels[reason] : '')
+        + (ipo.identity_review_required ? ' · 기업 동일성 확인 필요' : '');
       const userStateLabel = userStateLabels[ipo.user_state] || '미신청';
       const managers = (ipo.lead_managers && ipo.lead_managers.length > 0)
         ? ipo.lead_managers.join(', ')
         : (historicalOfficial ? '미수집' : '미정');
 
+      // Preserve each original application/account/allocation endpoint after
+      // read-only company deduplication; never union or overwrite owner records.
+      const renderApplicationControls = (ipoId, app) => {
+        const appliedSet = new Set(app.applied_owners || []);
+        const targetList = app.target_owners?.length ? app.target_owners : familyMembers;
       // Tri-state for '모두'
       const allChecked = targetList.length > 0 && targetList.every(m => appliedSet.has(m));
       const someChecked = !allChecked && targetList.some(m => appliedSet.has(m));
@@ -761,6 +796,17 @@
             </div>
           </div>`;
       });
+
+        return {allChecked,someChecked,memberCheckboxesHtml,applicantAccountsHtml};
+      };
+      let {allChecked,someChecked,memberCheckboxesHtml,applicantAccountsHtml} = renderApplicationControls(ipoId, app);
+      for (const aliasId of ipo.identity_alias_ids || []) {
+        const related = renderApplicationControls(aliasId, userApplications[aliasId] || {});
+        memberCheckboxesHtml += `<fieldset><legend>동일 기업 · 이전 신청 기록</legend>
+          <label><input type="checkbox" class="ipo-all-chk" data-ipo="${escapeHtml(aliasId)}" ${related.allChecked ? 'checked' : ''} /> 모두</label>
+          ${related.memberCheckboxesHtml}</fieldset>`;
+        applicantAccountsHtml += related.applicantAccountsHtml;
+      }
 
       // Score display logic (Section 1D, Section 19)
       const scoreObj = ipo.score;
@@ -821,6 +867,7 @@
           <div class="ipo-card-header">
             <div class="ipo-card-title-group">
               <h3 class="ipo-company-name">${escapeHtml(ipo.company_name)}</h3>
+              <small>참고 일정 · ${escapeHtml(["metalogos160", "dart_schedule", "kind", "npay", "naver"].filter(key => ipo.sources?.[key]).join(" / ") || "기존 수집자료")} · 조회 ${escapeHtml(String(ipo.updated_at || "미확인").slice(0, 10))}</small>
               <span class="ipo-market-badge${market ? '' : ' ipo-market-unknown'}" title="${market ? '공식 시장 구분' : 'canonical IPO record에 시장 구분이 없습니다.'}">${escapeHtml(market || '시장 미확인')}</span>
               ${ipo.stock_code ? `<span class="ipo-code-badge">${escapeHtml(ipo.stock_code)}</span>` : ''}
             </div>
@@ -829,6 +876,8 @@
               <span class="ipo-user-status">${escapeHtml(userStateLabel)}</span>
             </div>
             ${scoreBoxHtml}
+            <button type="button" class="button secondary compact ipo-visibility-toggle" data-ipo="${escapeHtml(ipoId)}" data-excluded="${Boolean(ipo.user_excluded)}">${ipo.user_excluded ? "다시 표시" : "일정 제외"}</button>
+            ${ipo.excluded_schedule_changed ? "<span>제외 후 일정 변경 · 확인 후 복원 가능</span>" : ""}
             <button type="button" class="button secondary compact ipo-card-detail-toggle" aria-expanded="${expanded}" aria-label="${escapeHtml(ipo.company_name || '공모주')} ${expanded ? '상세 접기' : '상세 보기'}">${expanded ? '접기' : '자세히'}</button>
           </div>
 
@@ -921,6 +970,12 @@
         button.setAttribute('aria-label', `${name} ${expanded ? '상세 접기' : '상세 보기'}`);
       });
     });
+    wrapper.querySelector('#ipoExcludedToggle')?.addEventListener('click', () => { showExcludedSchedules = !showExcludedSchedules; renderIpoList(); });
+    wrapper.querySelectorAll('.ipo-visibility-toggle').forEach(button => button.addEventListener('click', async () => {
+      button.disabled = true;
+      try { await setIpoScheduleExcluded(button.dataset.ipo, button.dataset.excluded !== 'true'); }
+      catch (error) { alert(error.message); button.disabled = false; }
+    }));
     window.dispatchEvent(new CustomEvent('wealth:ipo-market-rendered'));
     wrapper.querySelector('#ipoBrokerFilter')?.addEventListener('change', event => {
       ipoBrokerFilter = event.target.value;
@@ -1002,15 +1057,14 @@
     }
 
     // Set indeterminate state on '모두' checkboxes
-    wrapper.querySelectorAll('.ipo-card').forEach(card => {
-      const ipoId = card.dataset.ipoId;
+    wrapper.querySelectorAll('.ipo-all-chk').forEach(allChk => {
+      const ipoId = allChk.dataset.ipo;
       const app = userApplications[ipoId] || {};
       const appliedSet = new Set(app.applied_owners || []);
       const targetList = (app.target_owners && app.target_owners.length > 0) ? app.target_owners : familyMembers;
       const allChecked = targetList.length > 0 && targetList.every(m => appliedSet.has(m));
       const someChecked = !allChecked && targetList.some(m => appliedSet.has(m));
 
-      const allChk = card.querySelector('.ipo-all-chk');
       if (allChk) {
         allChk.indeterminate = someChecked;
       }
@@ -1195,7 +1249,7 @@
         const card = chk.closest('.ipo-card');
         const checkedMembers = [];
         card.querySelectorAll('.ipo-member-chk').forEach(c => {
-          if (c.checked) checkedMembers.push(c.dataset.member);
+          if (c.dataset.ipo === ipoId && c.checked) checkedMembers.push(c.dataset.member);
         });
 
         await saveApplicationState(ipoId, checkedMembers, card);
@@ -1211,6 +1265,7 @@
 
         const nextMembers = [];
         card.querySelectorAll('.ipo-member-chk').forEach(c => {
+          if (c.dataset.ipo !== ipoId) return;
           c.checked = targetChecked;
           if (targetChecked) nextMembers.push(c.dataset.member);
         });
@@ -1257,7 +1312,7 @@
       };
 
       // Update the '모두' checkbox state in UI
-      const allChk = cardElement.querySelector('.ipo-all-chk');
+      const allChk = [...cardElement.querySelectorAll('.ipo-all-chk')].find(c => c.dataset.ipo === ipoId);
       if (allChk) {
         allChk.checked = data.all_applied;
         allChk.indeterminate = data.state === 'some';
