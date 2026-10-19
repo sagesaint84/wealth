@@ -7,6 +7,8 @@ on:
       - 'app/services/ipo/**'
       - 'app/static/wealth-calendar.js'
       - 'tests/test_ipo*.py'
+      - 'tests/test_moneylog_calendar*.py'
+      - 'tests/test_calendar_ipo_tones_frontend.py'
       - 'tests/chrome_harness.py'
       - 'tests/ui_preview.py'
       - 'tests/test_account_reorder_runtime.py'
@@ -44,6 +46,7 @@ jobs:
           python-version: '3.12'
       - name: Install test dependencies and synthetic browser
         run: |
+          node --version
           python -m pip install -r requirements.txt 'pytest>=9.0.3,<10' websocket-client playwright
           python -m playwright install --with-deps chromium
           python - <<'PY'
@@ -83,7 +86,16 @@ jobs:
             tests/test_ipo_source_discovery.py \
             tests/test_ipo_parallel_fetch.py \
             tests/test_ipo_dart_client.py \
-            tests/test_ipo_subscription_boundaries_and_fast_refresh.py
+            tests/test_ipo_subscription_boundaries_and_fast_refresh.py \
+            tests/test_ipo_identity.py \
+            tests/test_ipo_store.py \
+            tests/test_ipo_presentation.py \
+            tests/test_ipo_presentation_states.py \
+            tests/test_ipo_account_resolution.py \
+            tests/test_ipo_applications.py \
+            tests/test_moneylog_calendar.py \
+            tests/test_moneylog_calendar_frontend.py \
+            tests/test_calendar_ipo_tones_frontend.py
       - name: Require actual Chromium execution without skipped regressions
         run: |
           python - <<'PY'
