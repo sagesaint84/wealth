@@ -114,6 +114,32 @@ def _number(value: object) -> float | None:
 
 
 
+def dart_schedule_restriction(filings: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Official issuer notices invalidate dates, not the user's applications.
+
+    A correction REQUEST is different from a corrected registration statement.
+    Debt filings and unrelated correction notices must not suspend an equity IPO.
+    """
+    notices = []
+    for row in filings:
+        title = re.sub(r"\s+", "", str(row.get("report_nm") or ""))
+        if "채무증권" in title or "사채" in title:
+            continue
+        if "정정신고서제출요구" in title and ("지분증권" in title or title == "정정신고서제출요구"):
+            status = "postponed"
+        elif "철회신고서" in title and ("지분증권" in title or title == "철회신고서"):
+            status = "withdrawn"
+        else:
+            continue
+        source_date = str(row.get("rcept_dt") or "")
+        receipt = str(row.get("rcept_no") or "")
+        if not re.fullmatch(r"\d{8}", source_date) or not re.fullmatch(r"\d{14}", receipt):
+            continue
+        notices.append({"status": status, "source_date": source_date,
+                        "rcept_no": receipt, "report_nm": row["report_nm"]})
+    return max(notices, key=lambda r: (r["source_date"], r["rcept_no"]), default=None)
+
+
 def select_dart_schedule_filing(
     filings: list[dict[str, Any]],
     raw_structured: dict[str, Any] | list[Any],
