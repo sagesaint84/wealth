@@ -1,6 +1,16 @@
 # Wealth 변경 이력
 
-## 구조 개선 검토 후보 — 운영 미배포
+## 2026-10-21 — PR #161 운영 배포 (v2.1.2 / route1)
+
+- [PR #161](https://github.com/sagesaint84/wealth/pull/161) Squash Merge SHA `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`: 초기 deep-link 화면 표시·route 상태 개선, 숨겨진 투자 DOM/가계부 조회의 지연 실행, 중복·오래된 요청 방어, 검증된 미사용 레이아웃 코드 정리. 앱 버전 **v2.1.2** 유지; 정적 asset/SW revision **2.1.2-route1**, core **2.1.2-r1**.
+- GitHub CI **4/4 PASS** (정적 전송/IPO 회귀/Toss WTS Linux AMD64·ARM64); [GHCR 발행](https://github.com/sagesaint84/wealth/actions/runs/39572486587) SUCCESS, 태그 `ghcr.io/sagesaint84/wealth:fc0bb10`, 다중 플랫폼 manifest Digest `sha256:b82b79c9a3e781810a9c823237473fe09549fa72825c5756c5c97b0774cd05b9`.
+- **Oracle 사용자 확인**: `wealth` 재생성 후 이미지 ID `sha256:4d6133a4e1977b739c3e1065023e7f18616e0289674911a2050c64783c9a3f82`; 영구 데이터/Toss 마운트 유지, HTTP 307, 배포·이미지·마운트·HTTP 점검 PASS. 시작 직후 일시적 연결 reset 후 307 응답.
+- **실제 운영 화면 사용자 보고 5/5 PASS**: 홈 로그인, `#invest` 직접 새로고침, `#ledger` 직접 새로고침·월간 현금흐름, DAY 차트, 모바일 화면. 원격 독립 자동 브라우저 검증은 미실행.
+- 전체 Windows pytest **4,424 passed / 1 failed / 5 skipped / 888 subtests passed**. 실패한 `test_native_daily_pointer_accuracy[True-dividend]`는 이후 포인터 조건 4/4 집중 검사에서 통과했으나 원인 **UNCONFIRMED**.
+- 모바일 자산 표시 약 **+488ms**, readiness 약 **+532ms** 지연 위험은 제한된 비교 관측으로 남으며 **PERFORMANCE_NUMERIC_GATE=FAIL**. 사용자의 **PR #161 한정 성능 예외 승인**으로 배포했으며 이력을 PASS로 수정하지 않는다. v2.1.3 P0(원본27/통합33/최소2)는 분리·보호.
+- 아래 '미배포'·'HOLD' 표기는 **개발 및 출시 의사결정 이전 시점의 과거 이력**이다. 현재 운영 배포 결과는 이 항목이 우선한다.
+
+## 과거 검토 기록 — PR #161 병합 전 상태 (현재 운영 상태 아님)
 
 기준 main `99277956dc3c9e6383b533bd2efba259c1418cae`, 브랜치 `codex/v212-initial-deeplink-paint-fix`. 운영은 앱 **v2.1.2 / home1** 그대로이며 미커밋 후보의 변경 core JS와 layout CSS/JS·SW assets는 **2.1.2-route1**이다. v2.1.3 P0 27/33/2 작업을 포함하지 않는다.
 

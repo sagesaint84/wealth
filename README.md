@@ -1,6 +1,15 @@
 # Wealth
 
-## 구조 개선 검토 후보 — 운영 미배포
+## 현재 운영 배포 — 2026-10-21 / PR #161
+
+- **운영 앱 v2.1.2** (정적 화면·레이아웃·서비스워커 revision **2.1.2-route1**; core **2.1.2-r1**). [PR #161](https://github.com/sagesaint84/wealth/pull/161) Squash Merge SHA `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`. **v2.1.3 P0 변경 미포함**.
+- GHCR 이미지 `ghcr.io/sagesaint84/wealth:fc0bb10` / 고정 manifest Digest `sha256:b82b79c9a3e781810a9c823237473fe09549fa72825c5756c5c97b0774cd05b9`. [이미지 발행 워크플로](https://github.com/sagesaint84/wealth/actions/runs/39572486587) SUCCESS; Linux AMD64/ARM64 이미지 발행.
+- **Oracle 배포 검증(사용자 실행 출력)**: 실행 이미지 ID `sha256:4d6133a4e1977b739c3e1065023e7f18616e0289674911a2050c64783c9a3f82`, 영구 데이터 `/app/data`, Toss WTS 바이너리·설정 마운트 유지, `wealth` 실행, HTTP `/` → **307**, 배포·이미지·마운트·HTTP 게이트 PASS.
+- **운영 브라우저(사용자 보고)**: 로그인/홈, 주식 `#invest` 직접 새로고침, 가계부 `#ledger`·월간 현금흐름, DAY 상세 선택, 모바일 탐색·새로고침 **5/5 PASS**. 별도의 원격 브라우저 자동 검증은 수행하지 않았다.
+- 품질 이력: PR #161 CI **4/4 PASS**; Windows 전체 pytest **4,424 PASS / 1 FAIL / 5 SKIP / 888 subtests PASS**였으며 실패한 모바일 배당 DAY pointer 검사는 후속 집중 재검증 **4/4 PASS**. 원인은 **UNCONFIRMED**, 전체 pytest를 PASS로 바꾸지 않는다.
+- 성능 숫자 게이트 **FAIL** (한정 비교에서 모바일 첫 자산 약 **+488ms**, readiness 약 **+532ms**). **사용자가 PR #161에 한해 출시 예외를 승인**했으며, 성능 자체가 개선·해결되었다는 의미는 아니다. 이 예외는 v2.1.3 P0 또는 후속 릴리스에 적용되지 않는다.
+
+## 과거 검토 기록 — PR #161 병합 전 상태 (현재 운영 상태 아님)
 
 기준 main `99277956dc3c9e6383b533bd2efba259c1418cae`, 브랜치 `codex/v212-initial-deeplink-paint-fix`. 운영은 앱 **v2.1.2 / home1** 그대로이며 미커밋 후보의 변경 core JS와 layout CSS/JS·SW assets는 **2.1.2-route1**이다. v2.1.3 P0 27/33/2 작업을 포함하지 않는다.
 
