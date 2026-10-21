@@ -1,6 +1,20 @@
 # Wealth
 
-## 홈 초기 UI 핫픽스 후보 — Windows 검증 완료 / Linux CI 대기 / 미배포
+## 현재 운영 상태 — PR #159 홈 초기 UI 핫픽스 (2026-10-21)
+
+앱 **v2.1.2**, 홈 assets 및 SW **2.1.2-home1**, 변경하지 않은 core JS **2.1.2-r1**이다. [PR #159](https://github.com/sagesaint84/wealth/pull/159)는 Squash Merge 완료됐고, 이 문서 갱신 시 확인한 main 및 운영 배포 코드 SHA는 `b5a5c525f24ec7233b85af70dc8242a25966e150`다. v2.1.3 P0는 포함하지 않았다.
+
+[GHCR 발행 실행 39522925985](https://github.com/sagesaint84/wealth/actions/runs/39522925985)는 해당 SHA에서 SUCCESS다. 이미지 `ghcr.io/sagesaint84/wealth:b5a5c52`, 발행 manifest Digest는 `sha256:c9b586098a4d31860008782531f2163e7f274938de2e2f0c6bc185b143fd4ffc`이며, 레지스트리에서 원문 SHA256 및 Linux AMD64/ARM64 manifest를 확인했다. 사용자가 제공한 Oracle 결과는 **IMAGE_DIGEST_GATE=PASS**, **DEPLOY_GATE=PASS**, 컨테이너 **wealth running**이다. 사용자 메시지의 Digest는 `sha256`까지만 있어 서버의 실제 전체 Digest를 독립 대조한 결과는 아니다. Codex는 Oracle에 접속하거나 재배포하지 않았다.
+
+**운영 실제 브라우저 smoke는 NOT_CONFIRMED**다. 배포 후 새로고침·로그인·가족·탭·테마·자산 표시의 사용자 브라우저 결과는 아직 제공되지 않았다. 아래 합성/출시 전 검증을 운영 브라우저 PASS로 해석하지 않는다.
+
+출시 전 Windows 전체 **4,414 PASS / 0 FAIL / 5 SKIP / 888 subtests PASS**, 실제 앱 인증 E2E **24 PASS**를 보존한다. [정적·홈·DAY CI](https://github.com/sagesaint84/wealth/actions/runs/39521010150) **330 PASS**(DAY 38개 및 과거 실패 대상 무스킵 PASS), [IPO CI](https://github.com/sagesaint84/wealth/actions/runs/39521010106) **239 PASS**, [native CI](https://github.com/sagesaint84/wealth/actions/runs/39521010029)는 AMD64/ARM64 각각 금융·가계부 **488 PASS**, 프로세스 **24 PASS / 11 subtests PASS**다. Linux 필수 2개는 양쪽에서 실제 무스킵 통과했다. Windows skip은 외부 live 3개와 Linux 전용 2개이며 CI 결과와 구분한다. job 간 중복을 고유 테스트 수로 합산하지 않는다.
+
+기존 합성 모바일 warm 자산 표시 **1698→1396ms**, readiness **2072→1718ms**, CLS **0.243→0.034**. FCP **200→220ms**는 **FAIL_WITH_APPROVED_CANDIDATE_EXCEPTION**으로 이번 후보 한정 승인이다. 과거 DAY 차트 일회성 실패 원인은 계속 **UNCONFIRMED**다. 운영 성능을 새로 측정하지 않았다.
+
+GitHub Releases는 조회 시 0건이며 `v2.1.2` Git tag도 없다. 이 운영 이력은 앱/asset 버전·PR·SHA·GHCR Digest 기준이며 GitHub Release/tag 발행 완료를 뜻하지 않는다. 미완료 P0 27/33/2개 파일을 보호한다. 정리 검토 범위와 미확인 Compose 사용 여부는 [PROJECT_STATE](docs/PROJECT_STATE.md)를 따른다.
+
+## PR #159 조사·출시 준비 당시 기록 (현재 운영 상태 아님)
 
 2026-10-21 기준 `codex/v212-home-initial-flash-fix` 후보다. 사용자 제공 운영 기준은 **Wealth v2.1.2**, PR #158, SHA `baee68438fed1822581e83211756304d3f080bc1`이다. 구형 홈 HTML을 먼저 그린 뒤 JavaScript가 현재 홈을 재구성하던 경로를 HTML-first 구조로 바꿨다. 합성 Chromium 캡처에서 구형 UI 재노출과 현재 홈 재소실은 관찰되지 않았다.
 
@@ -12,7 +26,7 @@
 
 앱 **2.1.2**, workspace assets revision 및 SW cache suffix **2.1.2-home1**, 변경하지 않은 core JS **2.1.2-r1**을 유지한다. 미완료 v2.1.3 P0는 포함하지 않았다. 이 기록은 PR 제출 준비 시점이며 커밋·PR 및 실제 Linux CI 결과는 해당 PR/Actions에서 확인한다. 머지·GHCR 발행·Oracle 배포는 별도 승인 전까지 진행하지 않으며 운영 서버와 Compose는 변경하지 않았다. 아래 절은 이전 개발 당시의 기록이다.
 
-## 정적 전송 최적화 — 개발·합성 검증 / 운영 미배포
+## PR #158 개발 당시 기록 — 정적 전송 최적화 (당시 미배포)
 
 기준 main `92956f620e9316b111b419f8c1d01891b7fe2562`에서 공개 `/static` JS/CSS(1KB 이상)에만 표준 gzip(level 5)을 적용한다. API·금융 응답·이미지·저장 형식·계산·스냅샷 순서·인증은 변경하지 않는다. Range·HEAD·ETag/304·MIME·gzip 거부를 보존하고 `Vary: Accept-Encoding`을 설정한다. 디스크 압축 캐시나 영구 파일은 생성하지 않는다.
 
@@ -22,7 +36,7 @@
 
 앱 버전 **2.1.2**, 정적 원문과 기존 revision **2.1.2-ipo-ui1**은 유지한다(전송 방식만 변경). 원본 P0 27개·기존 worktree를 보존한다. 로컬 집중 회귀 **253 PASS / 1 의존성 경고**, 실제 Chromium **15건** 포함(신규 전송 14건, 기존 관련 239건). Python AST·CI YAML·diff 검사 PASS. 전체 pytest·Oracle 접속은 하지 않았다. 최신 CI 성공 전 머지하지 않고 운영 배포 완료로 기록하지 않는다. 배포 시 고정 Digest 및 영구 데이터/Toss 마운트를 확인하되 롤백 이미지 생성·백업 저장은 하지 않는다.
 
-## IPO·통합 캘린더 UI 보완 — 구현·검증 기록 / 운영 미배포
+## PR #157 개발 당시 기록 — IPO·통합 캘린더 UI (당시 미배포)
 
 운영 기준 main `a17ef0681f95a2d874257b796eb25ac9f7840e22`의 PR #156 기능을 유지하면서 안내·출처·기본 링크 스타일 누락과 추가 버튼의 카드 헤더 정렬을 보완한다. 다크 테마 토큰·청약/상장/수익/손실/배당/수입/지출의 기존 색상 의미를 유지한다. 기업명·배지·출처·동작을 분리하고 긴 텍스트와 모바일 월 선택·가족 체크박스의 줄바꿈을 정리한다. 제외·복원·재수집·신청·배정·손익 연결·시장 원본·IPO ID·데이터 판정 로직은 변경하지 않는다.
 
@@ -42,7 +56,7 @@ Draft [PR #155](https://github.com/sagesaint84/wealth/pull/155)의 `codex/ipo-sc
 
 Wealth는 사용 편의성과 자동화를 우선하는 개인·가족 자산관리 도우미이며 전문 세무·회계·신고 프로그램이 아니다. 합리적인 기본값으로 추정하고 추가 입력은 선택으로 둔다. 공식 근거가 충분한 예상 혜택은 자동 반영하되 제외할 수 있고, 부족한 경우 일반 배당을 기본으로 사용자 가정을 허용한다. 실제 입금·원천징수·금융 원본은 보존하며 기존 계산·저장 구조와 UI를 재사용한다. 별도 전문 세무 엔진·중복 UI·불필요한 확인 절차를 추가하지 않는다.
 
-현재 앱 및 운영 배포 완료 버전은 **Wealth v2.1.2**다. 문서 정리 브랜치 `codex/v212-postdeploy-docs`, 기준 HEAD/main `255d135b8562b5569a11ac7c213787dccbcc2513`.
+PR #153 배포 당시 앱 및 운영 버전은 **Wealth v2.1.2**였다. 당시 문서 정리 브랜치 `codex/v212-postdeploy-docs`, 기준 HEAD/main `255d135b8562b5569a11ac7c213787dccbcc2513`.
 
 사용자 제공 완료 기록: [PR #153](https://github.com/sagesaint84/wealth/pull/153) Squash Merge, main `255d135b8562b5569a11ac7c213787dccbcc2513`, 기능 커밋 `71e5c254f01a57336d31a7b2f634088dfce5ab23`. 전체 pytest **4,353 passed / 2 skipped / 4 warnings / 888 subtests passed**, 집중 테스트 **191 passed / 30 subtests passed**, 기존 Chromium 회귀 **35 passed**. AMD64/ARM64 PR CI SUCCESS ([실행 39103493324](https://github.com/sagesaint84/wealth/actions/runs/39103493324)), GHCR 빌드 SUCCESS ([실행 39103784893](https://github.com/sagesaint84/wealth/actions/runs/39103784893)).
 

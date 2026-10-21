@@ -1,6 +1,16 @@
 # Wealth 변경 이력
 
-## 홈 초기 HTML 핫픽스 후보 — 2026-10-21 / Windows PASS / Linux CI 대기
+## v2.1.2 홈 초기 UI 핫픽스 — PR #159 운영 배포 기록 (2026-10-21)
+
+- [PR #159](https://github.com/sagesaint84/wealth/pull/159) Squash Merge 완료. 확인한 main/배포 코드 SHA `b5a5c525f24ec7233b85af70dc8242a25966e150`. 앱 **2.1.2**, 홈 assets/SW **2.1.2-home1**, core **2.1.2-r1** 유지; 미완료 v2.1.3 P0 제외.
+- 현재 홈을 최초 HTML에 배치해 구형 UI의 순간 노출과 JS DOM 재구성을 줄였다. 합성 캡처의 현재 홈 유지 검증과 출시 전 인증·금융·IPO 검증을 보존하며 앱 기능을 추가 변경하지 않았다.
+- Windows **4,414 PASS / 0 FAIL / 5 SKIP / 888 subtests PASS**, 실제 앱 인증 **24 PASS**. PR Linux CI 정적·홈·DAY **330 PASS**(DAY 38개 무스킵), IPO **239 PASS**, native AMD64/ARM64 각각 ledger **488 PASS**, process **24 PASS / 11 subtests PASS**. Linux 필수 프로세스 2개 양쪽 무스킵 PASS. 외부 live 3개는 Windows의 의도적 SKIP 이력이다.
+- [GHCR 39522925985](https://github.com/sagesaint84/wealth/actions/runs/39522925985) SUCCESS, Linux AMD64/ARM64 manifest 및 Digest `sha256:c9b586098a4d31860008782531f2163e7f274938de2e2f0c6bc185b143fd4ffc`를 레지스트리에서 확인했다. 이미지 tag `b5a5c52`.
+- 사용자 확인 Oracle 결과: **IMAGE_DIGEST_GATE=PASS / DEPLOY_GATE=PASS / wealth running**. Codex 서버 재검증 결과가 아니다. 사용자가 전체 서버 Digest를 제공하지 않아 발행 Digest와 서버값의 독립 대조는 미확인이다. 배포 후 실제 브라우저 smoke **NOT_CONFIRMED**; 출시 전 합성 UI·실제 앱 인증 결과와 구분한다.
+- 기존 모바일 자산 표시 1698→1396ms, readiness 2072→1718ms, CLS 0.243→0.034. FCP **200→220ms FAIL_WITH_APPROVED_CANDIDATE_EXCEPTION**, 이번 후보만 승인. DAY 과거 일회성 실패 원인 **UNCONFIRMED** 유지. 기존 OCR smoke의 mismatched_inputs=4/4 진단은 수동 검토 안전성 PASS와 구분한다.
+- GitHub Releases 0건, `v2.1.2` tag 없음(조회 시점). 앱/문서 버전은 2.1.2로 일치하며 별도 Release/tag를 생성하지 않았다. 이번 후속 작업은 문서와 정리 가능성 조사만 수행하며 재빌드·재배포·삭제는 하지 않는다.
+
+## PR #159 조사·출시 준비 당시 기록 (현재 운영 상태 아님)
 
 - 최초 HTML에 현재 홈·내비게이션·패널 부모 구조를 배치하고 중복 workspace 생성 및 주요 DOM 이동을 줄였다. 저장된 purple/white/oled 테마는 초기 복원 경로를 유지한다. 금융 계산·요청/기록 순서·인증·IPO backend는 변경하지 않는다.
 - 정적 revision과 HTML 조상관계 검사를 현재 구조에 맞추고, IPO의 원본 보존과 정확한 DART 미검증 메타데이터 계약을 구분했다. DAY 차트 assertion은 유지한 채 실패 시 연결 상태·계산 스타일 진단만 보강했다.
@@ -9,7 +19,7 @@
 - 과거 DAY 차트 full-run 실패 원인은 **UNCONFIRMED**다. 이번 PASS가 원인 규명이나 비결정성 제거를 의미하지 않는다. Linux CI에서 차트와 Linux 전용 2개를 필수 검증해야 한다. 외부 live 3개는 의도적으로 미실행이다.
 - **PR_READY_PENDING_LINUX_CI**. 앱 2.1.2 / assets 2.1.2-home1 유지, v2.1.3 P0 포함 없음. PR 제출 준비로 기존 선택형 CI에 DAY 모듈 38개 및 IPO 계약 모듈 2개와 XML 실행 보장 검사를 추가했다. 기존 Linux 전용 2개 무스킵 검사는 유지한다. CI 설정 정적 검증 PASS, 실제 Linux 통과는 PR/Actions에서 확인해야 한다. 머지·GHCR·Oracle 배포·Compose 변경은 별도 승인 전까지 진행하지 않는다.
 
-## 정적 전송 최적화 — 개발·합성 검증 / 운영 미배포
+## PR #158 개발 당시 기록 — 정적 전송 최적화 (당시 미배포)
 
 기준 main `92956f620e9316b111b419f8c1d01891b7fe2562`에서 공개 `/static` JS/CSS(1KB 이상)에만 표준 gzip(level 5)을 적용한다. API·금융 응답·이미지·저장 형식·계산·스냅샷 순서·인증은 변경하지 않는다. Range·HEAD·ETag/304·MIME·gzip 거부를 보존하고 `Vary: Accept-Encoding`을 설정한다. 디스크 압축 캐시나 영구 파일은 생성하지 않는다.
 
@@ -19,7 +29,7 @@
 
 앱 버전 **2.1.2**, 정적 원문과 기존 revision **2.1.2-ipo-ui1**은 유지한다(전송 방식만 변경). 원본 P0 27개·기존 worktree를 보존한다. 로컬 집중 회귀 **253 PASS / 1 의존성 경고**, 실제 Chromium **15건** 포함(신규 전송 14건, 기존 관련 239건). Python AST·CI YAML·diff 검사 PASS. 전체 pytest·Oracle 접속은 하지 않았다. 최신 CI 성공 전 머지하지 않고 운영 배포 완료로 기록하지 않는다. 배포 시 고정 Digest 및 영구 데이터/Toss 마운트를 확인하되 롤백 이미지 생성·백업 저장은 하지 않는다.
 
-## IPO·통합 캘린더 UI 보완 — 구현·검증 기록 / 운영 미배포
+## PR #157 개발 당시 기록 — IPO·통합 캘린더 UI (당시 미배포)
 
 운영 기준 main `a17ef0681f95a2d874257b796eb25ac9f7840e22`의 PR #156 기능을 유지하면서 안내·출처·기본 링크 스타일 누락과 추가 버튼의 카드 헤더 정렬을 보완한다. 다크 테마 토큰·청약/상장/수익/손실/배당/수입/지출의 기존 색상 의미를 유지한다. 기업명·배지·출처·동작을 분리하고 긴 텍스트와 모바일 월 선택·가족 체크박스의 줄바꿈을 정리한다. 제외·복원·재수집·신청·배정·손익 연결·시장 원본·IPO ID·데이터 판정 로직은 변경하지 않는다.
 

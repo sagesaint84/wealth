@@ -1,6 +1,25 @@
 # Wealth Project State
 
-## 홈 초기 UI 핫픽스 후보 상태 — 2026-10-21
+## 현재 운영 및 후속 정리 상태 — 2026-10-21
+
+- 운영 앱 **v2.1.2**, 홈 assets/SW **2.1.2-home1**, core **2.1.2-r1**. [PR #159](https://github.com/sagesaint84/wealth/pull/159) Squash Merge 완료, 확인한 main/운영 배포 코드 SHA `b5a5c525f24ec7233b85af70dc8242a25966e150`. 이전 조사 기준 PR #158/baee684와 구분한다. v2.1.3 P0 미포함.
+- [발행 workflow 39522925985](https://github.com/sagesaint84/wealth/actions/runs/39522925985) SUCCESS. 이미지 `ghcr.io/sagesaint84/wealth:b5a5c52`, manifest Digest `sha256:c9b586098a4d31860008782531f2163e7f274938de2e2f0c6bc185b143fd4ffc`. 발행 로그의 revision 및 레지스트리 원문 해시와 Linux AMD64/ARM64 플랫폼 확인 PASS. 재빌드하지 않았다.
+- **Oracle DEPLOY_GATE=PASS / IMAGE_DIGEST_GATE=PASS / wealth running**은 사용자 확인 범위다. 서버에 직접 접속하지 않았고 HTTP·정적/gzip·마운트·재시작 횟수·실제 전체 서버 Digest를 이번 단계에서 독립 검증하지 않았다. 사용자 입력 Digest `sha256`은 완전한 값이 아니므로 서버 전체 Digest 확인으로 기록하지 않는다.
+- **BROWSER_SMOKE_STATUS=NOT_CONFIRMED**. 운영 배포 후 실제 로그인·새로고침·가족/탭·테마·자산 화면 결과는 아직 제공되지 않았다. 기존 합성 Chromium/출시 전 실제 앱 인증 24 PASS는 운영 브라우저 검증과 별도다.
+- Windows 전체 4,414 PASS / 0 FAIL / 5 SKIP / 888 subtests PASS. [정적·홈·DAY](https://github.com/sagesaint84/wealth/actions/runs/39521010150) 330 PASS, DAY 38개 무스킵 및 과거 실패 대상 PASS. [IPO](https://github.com/sagesaint84/wealth/actions/runs/39521010106) 239 PASS. [native](https://github.com/sagesaint84/wealth/actions/runs/39521010029) AMD64/ARM64 각각 ledger488 PASS, process24 PASS/11subtests PASS 및 Linux 필수2개 무스킵 PASS. 과거 일회성 DAY 실패 원인 **UNCONFIRMED**, 비결정성 위험 기록 유지. 기존 OCR 정확도 진단 mismatch4/4는 안전성 PASS와 구분한다.
+- 합성 모바일 자산 표시1698→1396ms, readiness2072→1718ms, CLS0.243→0.034. 모바일 warm FCP **200→220ms FAIL_WITH_APPROVED_CANDIDATE_EXCEPTION**, 해당 후보만 승인하며 운영 성능 재측정이나 일반 게이트 변경은 없다.
+- GitHub Releases 조회 0건, `v2.1.2` tag 없음. 앱/asset/문서 버전과 PR/SHA/GHCR 기반 운영 기록은 일치하며 GitHub Release 발행은 별도 미실행이다.
+
+### 보호 및 안전한 정리 검토
+
+- P0 원본27개, 통합33개, 최소2개의 branch/HEAD/status/SHA256을 시작·종료에 확인하며 수정·삭제·통합하지 않는다.
+- 완료 홈 브랜치 `codex/v212-home-initial-flash-fix`의 커밋 `45de3340ee34b64aa0ec3235e230810f409d4094`는 PR #159 Squash Merge 결과와 파일 트리가 동일하고 patch-equivalent다. 시작 시 해당 worktree는 clean, ignored/untracked 산출물 없음. 로컬·원격 브랜치는 보존한다.
+- 새 worktree 없이 기존 홈 경로를 문서 전용 `codex/v212-home-deploy-docs`로 재사용한다. 문서 PR이 이 경로를 사용하는 동안 worktree는 정리 대상에서 보류한다. 향후 문서 커밋·PR 보존, clean/ignored 파일 및 다른 chat 사용 여부를 재확인하고 **사용자 삭제 승인 후에만** 완료 브랜치/worktree 정리를 검토한다.
+- 기존 PR #155/#156/#157/#158 및 문서 PR #154도 merged지만, 연결된 worktree·활성 사용·추가 변경 검증과 삭제 승인이 필요하다. merged 표시만으로 unused 또는 삭제 가능으로 분류하지 않는다. 보호 P0 세 브랜치는 정리에서 제외한다.
+- `docker-compose.release.ipo155.yml`: 로컬 네 확인 경로에서 없음, Git 추적 파일 및 전체 ref의 해당 경로 이력 없음, 저장소 코드/문서 참조 없음. Oracle `/docker/wealth`에서의 실제 존재·Compose `-f` 사용·컨테이너 compose config_files label·실행 스크립트/예약 작업 참조는 **UNCONFIRMED**다. 이름만으로 사용 중단을 판단하지 않으며 삭제하지 않는다.
+- 추적 중인 Compose는 `docker-compose.yml`, `docker-compose.ghcr.yml`, `docker-compose.override.yml`이다. 운영 릴리스 파일 정리는 서버의 읽기 전용 참조 조사와 마운트/이미지 설정 보존 확인 후 별도 승인 대상으로 보고한다. 운영 데이터/Toss 설정 및 Compose 변경 없음.
+
+## PR #159 조사·출시 준비 당시 기록 (현재 운영 상태 아님)
 
 - 운영 기준: 사용자 제공 v2.1.2 / PR #158 / `baee68438fed1822581e83211756304d3f080bc1`. 원격 main도 같은 SHA로 확인했다. 후보 브랜치는 `codex/v212-home-initial-flash-fix`이며 운영 서버는 변경하지 않았다.
 - 원인/수정: 구형 초기 HTML을 JavaScript가 현재 홈으로 재구성하던 경로를 HTML-first로 전환했다. 최초 현재 구조, 중복 workspace 방지, 초기 테마 복원을 검증했고 보존 캡처에서 현재 홈 재소실과 구형 UI 노출은 없었다. 인증·금융·IPO·DAY 렌더링 구현은 운영 기준과 동일하다.
@@ -11,7 +30,7 @@
 - 로컬 판정 **WINDOWS_VALIDATION_PASS**, 준비 상태 **PR_READY_PENDING_LINUX_CI**. skip 5개는 외부 live 3개와 Linux 전용 2개다. Linux subreaper/pidfd 2개와 DAY 차트의 실제 Linux CI 통과가 머지·배포 전제다. 기존 선택형 워크플로에 DAY 38개와 IPO 계약 모듈 2개를 추가하고 XML로 대상 수집·무스킵 PASS를 강제했다. 기존 native CI의 Linux 전용 2개 검증은 유지한다. 로컬 CI 정적 검증 PASS, 실제 Linux 결과는 PR/Actions에서 확인한다.
 - 앱 **2.1.2**, workspace assets/SW suffix **2.1.2-home1**, 미변경 core JS **2.1.2-r1**. v2.1.3 P0를 합치거나 버전을 선점하지 않았다. **PR 제출 준비 / 실제 Linux CI 결과 대기 / 머지 없음 / GHCR 없음 / Oracle 미배포**다. 제출 후 커밋·PR·CI 상태는 해당 PR/Actions를 따른다. 아래 절은 이전 작업 당시의 기록이다.
 
-## 정적 전송 최적화 — 개발·합성 검증 / 운영 미배포
+## PR #158 개발 당시 기록 — 정적 전송 최적화 (당시 미배포)
 
 기준 main `92956f620e9316b111b419f8c1d01891b7fe2562`에서 공개 `/static` JS/CSS(1KB 이상)에만 표준 gzip(level 5)을 적용한다. API·금융 응답·이미지·저장 형식·계산·스냅샷 순서·인증은 변경하지 않는다. Range·HEAD·ETag/304·MIME·gzip 거부를 보존하고 `Vary: Accept-Encoding`을 설정한다. 디스크 압축 캐시나 영구 파일은 생성하지 않는다.
 
@@ -21,7 +40,7 @@
 
 앱 버전 **2.1.2**, 정적 원문과 기존 revision **2.1.2-ipo-ui1**은 유지한다(전송 방식만 변경). 원본 P0 27개·기존 worktree를 보존한다. 로컬 집중 회귀 **253 PASS / 1 의존성 경고**, 실제 Chromium **15건** 포함(신규 전송 14건, 기존 관련 239건). Python AST·CI YAML·diff 검사 PASS. 전체 pytest·Oracle 접속은 하지 않았다. 최신 CI 성공 전 머지하지 않고 운영 배포 완료로 기록하지 않는다. 배포 시 고정 Digest 및 영구 데이터/Toss 마운트를 확인하되 롤백 이미지 생성·백업 저장은 하지 않는다.
 
-## IPO·통합 캘린더 UI 보완 — 구현·검증 기록 / 운영 미배포
+## PR #157 개발 당시 기록 — IPO·통합 캘린더 UI (당시 미배포)
 
 운영 기준 main `a17ef0681f95a2d874257b796eb25ac9f7840e22`의 PR #156 기능을 유지하면서 안내·출처·기본 링크 스타일 누락과 추가 버튼의 카드 헤더 정렬을 보완한다. 다크 테마 토큰·청약/상장/수익/손실/배당/수입/지출의 기존 색상 의미를 유지한다. 기업명·배지·출처·동작을 분리하고 긴 텍스트와 모바일 월 선택·가족 체크박스의 줄바꿈을 정리한다. 제외·복원·재수집·신청·배정·손익 연결·시장 원본·IPO ID·데이터 판정 로직은 변경하지 않는다.
 
