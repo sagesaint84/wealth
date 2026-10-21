@@ -34,9 +34,10 @@ class DividendOfficialSourceStaticTests(unittest.TestCase):
         self.assertRegex(version, r'^\d+\.\d+\.\d+$')
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
-        # Core asset revision is independent of the app release version.
-        self.assertEqual(revision, '2.1.2-r1')
-        core = f'/static/wealth.js?v={revision}'
+        # Workspace changed; the unchanged core keeps its own cache revision.
+        self.assertEqual(revision, '2.1.2-home1')
+        self.assertEqual(assets.scripts.count(f'/static/wealth-layout.js?v={revision}'), 1)
+        core = '/static/wealth.js?v=2.1.2-r1'
         source = '/static/wealth-dividend-source.js?v=2.1.0-b2'
         self.assertIn(core, html)
         self.assertIn(source, html)

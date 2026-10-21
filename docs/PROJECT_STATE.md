@@ -1,5 +1,16 @@
 # Wealth Project State
 
+## 홈 초기 UI 핫픽스 후보 상태 — 2026-10-21
+
+- 운영 기준: 사용자 제공 v2.1.2 / PR #158 / `baee68438fed1822581e83211756304d3f080bc1`. 원격 main도 같은 SHA로 확인했다. 후보 브랜치는 `codex/v212-home-initial-flash-fix`이며 운영 서버는 변경하지 않았다.
+- 원인/수정: 구형 초기 HTML을 JavaScript가 현재 홈으로 재구성하던 경로를 HTML-first로 전환했다. 최초 현재 구조, 중복 workspace 방지, 초기 테마 복원을 검증했고 보존 캡처에서 현재 홈 재소실과 구형 UI 노출은 없었다. 인증·금융·IPO·DAY 렌더링 구현은 운영 기준과 동일하다.
+- Windows 전체 최종 재검증을 정확히 1회 완료했다: **4,414 passed / 0 failed / 5 skipped / 888 subtests passed / 5 warnings**, **exit 0**, 약 **24분 53초**. 최초 실패 XML은 보존하고 후속 XML을 분리했다. DAY 차트 및 IPO 계약 대상 2건이 이번 전체 실행에서 PASS다.
+- 과거 차트 full-run 1회 실패는 이력으로 유지한다. 원인 **UNCONFIRMED**, 비결정성 가능성은 미해소이며 이번 PASS로 원인 해결을 주장하지 않는다. assertion 제거·완화·skip·임의 sleep·제품 CSS 은폐는 하지 않았다.
+- 실제 인증 E2E **24개 PASS**, 격리 금융 무결성 및 요청 완료/기록 순서 검증은 관련 구현이 불변인 범위의 보존 결과다. 초기 홈 320/360/390/768/1280px, 테마, 역할, SW/gzip 증거도 구분해 보존한다.
+- 기존 모바일 warm 자산 표시 **1698→1396ms**, readiness **2072→1718ms**, CLS **0.243→0.034**. FCP **200→220ms**는 **FAIL_WITH_APPROVED_CANDIDATE_EXCEPTION**으로 유지한다. 이번 후보만의 명시적 사용자 승인이고 다른 후보/P0/미래 버전에는 적용하지 않는다. 다른 성능·보안·데이터 차단 조건은 그대로다.
+- 로컬 판정 **WINDOWS_VALIDATION_PASS**, 준비 상태 **PR_READY_PENDING_LINUX_CI**. skip 5개는 외부 live 3개와 Linux 전용 2개다. Linux subreaper/pidfd 2개와 DAY 차트의 실제 Linux CI 통과가 머지·배포 전제다. 기존 선택형 워크플로에 DAY 38개와 IPO 계약 모듈 2개를 추가하고 XML로 대상 수집·무스킵 PASS를 강제했다. 기존 native CI의 Linux 전용 2개 검증은 유지한다. 로컬 CI 정적 검증 PASS, 실제 Linux 결과는 PR/Actions에서 확인한다.
+- 앱 **2.1.2**, workspace assets/SW suffix **2.1.2-home1**, 미변경 core JS **2.1.2-r1**. v2.1.3 P0를 합치거나 버전을 선점하지 않았다. **PR 제출 준비 / 실제 Linux CI 결과 대기 / 머지 없음 / GHCR 없음 / Oracle 미배포**다. 제출 후 커밋·PR·CI 상태는 해당 PR/Actions를 따른다. 아래 절은 이전 작업 당시의 기록이다.
+
 ## 정적 전송 최적화 — 개발·합성 검증 / 운영 미배포
 
 기준 main `92956f620e9316b111b419f8c1d01891b7fe2562`에서 공개 `/static` JS/CSS(1KB 이상)에만 표준 gzip(level 5)을 적용한다. API·금융 응답·이미지·저장 형식·계산·스냅샷 순서·인증은 변경하지 않는다. Range·HEAD·ETag/304·MIME·gzip 거부를 보존하고 `Vary: Accept-Encoding`을 설정한다. 디스크 압축 캐시나 영구 파일은 생성하지 않는다.

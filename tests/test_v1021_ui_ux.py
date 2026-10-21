@@ -10,20 +10,20 @@ HTML = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
 def test_quick_access_removed_and_routes_preserved():
     assert 'wealth-shortcuts' not in LAYOUT
     assert 'wealth-home-secondary' not in LAYOUT
-    assert 'href="#${key}" data-wealth-view="${key}"' in LAYOUT
+    assert all(f'href="#{key}" data-wealth-view="{key}"' in HTML for key in ('home','invest','assets','income','settings'))
     assert "invest: [" in LAYOUT
     assert "assets: [" in LAYOUT
     assert "income: [" in LAYOUT
 
 
 def test_home_summary_is_non_visual_legacy_and_portfolio_prominent():
-    assert 'data-legacy-summary="true"' in LAYOUT
+    assert 'data-legacy-summary="true"' in HTML
     assert '.wealth-home-asset-portfolio' in CSS
 
 
 def test_home_kpi_secondary_rows_simplified():
-    assert "['부동산 기대수익', 'wealthAssetPropertyExpected'" in LAYOUT
-    assert "['주식 기대수익', 'wealthAssetStockExpected'" in LAYOUT
+    assert '<em>부동산 기대수익</em><small id="wealthAssetPropertyExpected">' in HTML
+    assert '<em>주식 기대수익</em><small id="wealthAssetStockExpected">' in HTML
     assert "['일간 수익', 'wealthAssetDayDetail'" not in LAYOUT
     assert "['연간', 'wealthAssetYearDetail'" not in LAYOUT
     assert "['월간', 'wealthAssetMonthDetail'" not in LAYOUT

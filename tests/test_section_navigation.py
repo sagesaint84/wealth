@@ -22,15 +22,16 @@ class SectionNavigationTests(unittest.TestCase):
         self.assertIn("switchAccountCategory(category)", self.js)
 
     def test_asset_tabs_are_moved_before_accounts_panel_at_page_level(self):
-        tabs_move = self.layout_js.index("page('assets').append(assetCategoryTabs)")
-        panel_move = self.layout_js.index("move('accountsPanel', page('assets'))")
-        self.assertLess(tabs_move, panel_move)
+        self.assertIn("page('assets').prepend(assetCategoryTabs)", self.layout_js)
+        assets = self.html.split('<section data-wealth-page="assets"', 1)[1].split('<section data-wealth-page="income"', 1)[0]
+        self.assertIn('id="accountsPanel"', assets)
 
     def test_income_tabs_are_siblings_of_content_panels(self):
         self.assertNotIn('id="incomeTabs"', self.html)
-        tabs_move = self.layout_js.index("page('income').append(incomeTabs)")
-        pnl_move = self.layout_js.index("['calendarPanel', 'realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel', 'ipoPanel']")
-        self.assertLess(tabs_move, pnl_move)
+        self.assertIn("page('income').prepend(incomeTabs)", self.layout_js)
+        income = self.html.split('<section data-wealth-page="income"', 1)[1].split('<section data-wealth-page="settings"', 1)[0]
+        for panel in ('calendarPanel', 'realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel', 'ipoPanel'):
+            self.assertIn(f'id="{panel}"', income)
         self.assertNotIn("realizedPnlPanel.append", self.layout_js)
         self.assertNotIn("dividendPanel.append", self.layout_js)
 

@@ -12,7 +12,14 @@
     <meta name="apple-mobile-web-app-title" content="Wealth" />
     <meta name="application-name" content="Wealth" />
     <meta name="application-version" content="2.1.2" />
-    <meta name="application-assets-revision" content="2.1.2-r1" />
+    <meta name="application-assets-revision" content="2.1.2-home1" />
+    <script>
+      // Restore the validated theme before the render-blocking stylesheets.
+      try {
+        const theme = localStorage.getItem('app_theme');
+        if (theme === 'white' || theme === 'oled') document.documentElement.dataset.theme = theme;
+      } catch (error) { /* Storage denial keeps the default purple theme. */ }
+    </script>
     <script src="/static/wealth-invest-tab-state.js?v=10.9k1"></script>
     <script src="/static/wealth-asset-category-state.js?v=2.0.2"></script>
     <link rel="manifest" href="/manifest.json" />
@@ -33,7 +40,7 @@
     <link rel="stylesheet" href="/static/wealth-national-pension.css?v=2.0.2-r2" />
     <link rel="stylesheet" href="/static/wealth-dialog-system.css?v=2.0.3-ai1" />
   </head>
-  <body>
+  <body class="wealth-layout">
     <main class="shell">
       <header class="topbar">
         <div class="topbar-brand-wrap">
@@ -45,7 +52,7 @@
           <div class="user-pill" style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:8px;background:rgba(255,255,255,0.06);border:1px solid #263558;font-size:12px;color:#dbe4ff;">
             <span>👤</span> <strong id="topbarUsername">사용자</strong>
           </div>
-          <button id="topbarFamilyBtn" class="button secondary compact" type="button" title="가족 구성원 관리" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#cbd5e1;border-color:#334155;">👨‍👩‍👧‍👦 가족</button>
+
           <button id="adminUserBtn" class="button secondary compact" type="button" onclick="openAdminUsersModal()" style="display:none;font-size:11.5px;padding:5px 9px;border-radius:8px;color:#c4b5fd;border-color:#4c3e80;" title="사용자 관리">⚙️ 사용자 관리</button>
           <button id="changePwBtn" class="button secondary compact" type="button" onclick="openChangePasswordModal()" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#aeb8d8;" title="비밀번호 변경">🔑 비번 변경</button>
           <a href="/logout" class="button secondary compact" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#ff8ca0;text-decoration:none;display:inline-flex;align-items:center;" title="로그아웃">로그아웃</a>
@@ -134,8 +141,26 @@
 
       <!-- 자산 관리 전체 래퍼 (admin 로그인 시 제외, 일반 사용자 로그인 시 표시) -->
       <div id="userAssetDashboardWrapper">
-        <!-- 1. 주요지수 (상단 마켓 오버뷰 & 기간별 지수 변화 탭) -->
-        <section id="marketPanel" class="panel market-panel user-asset-section" style="margin-top:16px;">
+<div class="wealth-workspace">
+    <a class="wealth-skip" href="#wealthPageTitle">본문으로 건너뛰기</a>
+    <nav class="wealth-nav" aria-label="주요 메뉴">
+      <div class="wealth-nav-label">MY WEALTH</div>
+      <a href="#home" data-wealth-view="home" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7v10H3Z"></path><path d="M9 20v-7h6v7"></path></svg><span>홈</span></a><a href="#invest" data-wealth-view="invest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 15l4-5 4 2 5-8"></path></svg><span>주식 투자</span></a><a href="#assets" data-wealth-view="assets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="15" rx="2"></rect><path d="M3 10h18M7 6V3h10v3M15 15h3"></path></svg><span>종합 자산</span></a><a href="#income" data-wealth-view="income"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4"></path></svg><span>머니 로그</span></a>
+      <div class="wealth-nav-bottom"><a href="#settings" data-wealth-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16"></path><circle cx="8" cy="7" r="3"></circle><circle cx="16" cy="17" r="3"></circle></svg><span>설정</span></a><small>개인 · 가족 자산관리</small></div>
+    </nav>
+    <div class="wealth-content">
+      <div class="wealth-page-head"><div><p class="wealth-eyebrow">YOUR FINANCIAL OVERVIEW</p><h2 id="wealthPageTitle" tabindex="-1">가족의 자산을 한눈에</h2><p id="wealthPageDescription">지금의 자산 현황을 확인하고, 필요한 관리로 이어가세요.</p></div><a class="wealth-settings-link" href="#settings" aria-label="설정 열기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16"></path><circle cx="8" cy="7" r="3"></circle><circle cx="16" cy="17" r="3"></circle></svg></a></div>
+      <div class="wealth-owner-bar"><span>조회 범위</span><div id="wealthOwnerSlot"><div class="family-tabs topbar-family-tabs" id="topbarFamilyTabs" style="margin-left:4px;">
+              <button type="button" class="family-tab active" data-owner="모두">모두</button>
+            </div></div><div class="wealth-refresh-actions"><button id="refreshButton" title="시세를 갱신합니다. 증권사 잔고 동기화와 별개입니다." class="button secondary compact" type="button">시세 갱신</button><button id="syncAccountsButton" title="설정된 증권사에서 잔고와 보유종목을 가져옵니다." class="button secondary compact" type="button">계좌 동기화</button></div></div>
+      <section data-wealth-page="home" aria-label="자산 요약">
+        <div class="wealth-home-grid" data-legacy-summary="true" aria-hidden="true" hidden="">
+          <article class="wealth-net-card"><div class="wealth-card-top"><span>나의 순자산</span><span class="wealth-live-label" id="wealthOwnerLabel">전체 가족</span></div><strong id="wealthNetWorth">—</strong><p>등록 자산에서 부채를 뺀 금액</p><div class="wealth-net-bottom"><span id="wealthHomeUpdated">자산 정보를 불러오는 중입니다.</span><a id="wealthNetWorthDetails" href="#homeAssetPortfolioPanel">상세 현황 <span aria-hidden="true">↗</span></a></div></article>
+          <article class="wealth-stat-card"><span class="wealth-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="15" rx="2"></rect><path d="M3 10h18M7 6V3h10v3M15 15h3"></path></svg></span><h3>현금·예적금</h3><strong id="wealthCash">—</strong><p>은행 잔액 · 증권 예수금 · 예적금</p><a href="#assets">계좌 살펴보기 →</a></article>
+          <article class="wealth-stat-card"><span class="wealth-stat-icon wealth-debt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="15" height="18" rx="2"></rect><path d="M3 7h4M3 12h4M3 17h4M11 8h5M11 12h5M11 16h3"></path></svg></span><h3>총부채</h3><strong id="wealthDebt">—</strong><p>대출 · 음수 잔액 · 임대보증금 반환의무</p><a href="#assets">부채 확인하기 →</a></article>
+        </div>
+        <article class="wealth-composition wealth-home-asset-portfolio" id="homeAssetPortfolioPanel" tabindex="-1"><div class="wealth-section-heading"><div><p class="wealth-eyebrow">ASSET PORTFOLIO</p><h3>자산 포트폴리오</h3></div><a href="#assets">자산 상세보기 ↗</a></div><p class="wealth-help">전체 자산의 핵심 지표와 자산군별 구성을 한눈에 확인하세요.</p><div class="wealth-asset-dashboard"><div id="wealthAssetKpis" class="wealth-asset-kpis" aria-label="자산 포트폴리오 요약"><article class="wealth-asset-kpi tone-net"><span class="wealth-asset-kpi-icon">◆</span><div><span>순자산</span><strong id="wealthAssetNetWorth">—</strong><span class="wealth-asset-secondary-row is-debt"><em>총부채</em><small id="wealthAssetDebtDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-invest"><span class="wealth-asset-kpi-icon">◈</span><div><span>투자자산</span><strong id="wealthAssetInvest">—</strong><span class="wealth-asset-secondary-row"><em>주식</em><small id="wealthAssetStockDetail">—</small></span><span class="wealth-asset-secondary-row"><em>부동산</em><small id="wealthAssetPropertyDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-profit"><span class="wealth-asset-kpi-icon">↗</span><div><span>기대수익</span><strong id="wealthAssetExpected">—</strong><span class="wealth-asset-secondary-row"><em>주식 기대수익</em><small id="wealthAssetStockExpected">—</small></span><span class="wealth-asset-secondary-row"><em>부동산 기대수익</em><small id="wealthAssetPropertyExpected">—</small></span></div></article><article class="wealth-asset-kpi tone-realized"><span class="wealth-asset-kpi-icon">▤</span><div><span>실현손익</span><strong id="wealthAssetRealized">—</strong><span class="wealth-asset-secondary-row"><em>배당/이자</em><small id="wealthAssetDividendDetail">—</small></span><span class="wealth-asset-secondary-row"><em>매매차익</em><small id="wealthAssetTradeDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-safe"><span class="wealth-asset-kpi-icon">◇</span><div><span>안전자산</span><strong id="wealthAssetSafe">—</strong><span class="wealth-asset-secondary-row"><em>보험</em><small id="wealthAssetInsuranceDetail">—</small></span><span class="wealth-asset-secondary-row"><em>임차보증금</em><small id="wealthAssetDepositDetail">—</small></span><span class="wealth-asset-secondary-row"><em>예수금 및 예금</em><small id="wealthAssetSafeDetail">—</small></span></div></article></div><div class="wealth-asset-allocation"><div class="wealth-asset-allocation-head"><div><span class="wealth-eyebrow">ASSET ALLOCATION</span><h4>전체 자산 구성</h4></div><div id="homeAssetAllocationDonut" class="wealth-asset-donut" role="img" aria-label="전체 자산 구성"><span>전체 자산</span><strong id="homeAssetAllocationTotal">—</strong></div><div id="homeAssetAllocationLegend" class="wealth-asset-donut-legend"></div></div><div id="wealthMixLegend" class="wealth-mix-legend wealth-asset-breakdown"><p class="wealth-help">자산 정보가 준비되면 구성을 표시합니다.</p></div></div></div></article>
+        <div id="wealthMarketSlot"><section id="marketPanel" class="panel market-panel user-asset-section" style="margin-top:16px;">
         <div class="panel-head market-head" style="flex-wrap:wrap;gap:0.75rem;align-items:center;">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div>
@@ -161,15 +186,15 @@
             </div>
           </div>
           <div class="toolbar" style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <button id="syncAccountsButton" class="button secondary compact" type="button">🔗 계좌 연결</button>
-            <button id="refreshButton" class="button secondary compact" type="button">↻ 조회</button>
+
+
           </div>
         </div>
         <div id="marketGrid" class="market-grid" aria-label="주요 시장 지수" style="margin-top:16px;"></div>
+      </section></div>
       </section>
-
-      <!-- 2열 통합 레이아웃: 핵심 요약 + 투자자산 분류 단일 패널 (접기/펼치기 통합) -->
-      <section id="summaryPanel" class="panel summary-panel overview-panel">
+      <section data-wealth-page="invest" aria-label="주식 투자" hidden="">
+<section id="summaryPanel" class="panel summary-panel overview-panel">
         <div class="panel-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div>
@@ -177,9 +202,7 @@
               <h2>포트폴리오 <button type="button" class="section-collapse-btn" data-section="summary" title="접기/펼치기" aria-label="포트폴리오 접기/펼치기">▼</button></h2>
             </div>
             <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
-            <div class="family-tabs topbar-family-tabs" id="topbarFamilyTabs" style="margin-left:4px;">
-              <button type="button" class="family-tab active" data-owner="모두">모두</button>
-            </div>
+
           </div>
           <span id="accountCaption" class="muted" style="font-size:11px;margin-left:6px;"></span>
         </div>
@@ -311,46 +334,7 @@
           </div>
         </div>
       </section>
-
-      <!-- 3. 기록 (구 자산기록) -->
-      <section id="recordsPanel" class="panel records-panel">
-        <div class="panel-head records-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <div>
-              <p class="eyebrow" id="recordsEyebrow">STOCK RECORDS</p>
-              <h2><span id="recordsHeadingText">주식기록</span> <button type="button" class="section-collapse-btn" data-section="records" title="접기/펼치기" aria-label="주식기록 접기/펼치기">▼</button></h2>
-            </div>
-            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
-            <div class="family-tabs" id="recordsFamilyTabs" style="margin-left:4px;"></div>
-          </div>
-          <div class="heatmap-period-tabs" id="recordViewTabs" style="margin-right:6px;">
-            <button type="button" class="heatmap-tab active" data-view="combo">📈 전체주식</button>
-            <button type="button" class="heatmap-tab" data-view="tax_accounts">🌿 절세계좌</button>
-          </div>
-          <div class="heatmap-period-tabs compact-record-tabs" id="recordPeriodTabs">
-            <button type="button" class="heatmap-tab" data-period="1D">일간</button>
-            <button type="button" class="heatmap-tab" data-period="1W">주간</button>
-            <button type="button" class="heatmap-tab" data-period="1M">월간</button>
-            <button type="button" class="heatmap-tab" data-period="1Y">연간</button>
-            <button type="button" class="heatmap-tab active" data-period="ALL">전체</button>
-          </div>
-          <div class="toolbar" style="margin-left:auto;">
-            <span id="recordCount" class="muted">0개 기록</span>
-            <button id="snapshotButton" class="button secondary compact" type="button" title="오늘 스냅샷 저장">기록</button>
-            <button id="addRecordButton" class="button secondary compact" type="button" title="주식기록 직접 추가">추가</button>
-          </div>
-        </div>
-        <div class="records-grid">
-          <div id="assetChart" class="record-chart-wrap"></div>
-          <div class="record-side">
-            <div class="record-side-summary"><span>전체 변화</span><strong id="recordSummary">0원</strong><small>저장된 날짜별 자산 추이</small></div>
-            <div id="assetRecordList" class="record-list"></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 4. 히트맵 (구 자산 히트맵) -->
-      <section id="assetHeatmapPanel" class="panel heatmap-panel">
+<section id="assetHeatmapPanel" class="panel heatmap-panel">
         <div class="panel-head heatmap-head">
           <div class="heatmap-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div>
@@ -404,9 +388,84 @@
           </div>
         </div>
       </section>
-
-      <!-- 5. 자산 (구 계좌 - 증권 / 은행 / 보험 / 부동산 통합 섹션) -->
-      <section id="accountsPanel" class="panel">
+<section id="holdingsPanel" class="panel holdings-panel">
+        <div class="panel-head holdings-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div>
+              <p class="eyebrow">HOLDINGS</p>
+              <h2>보유 종목 <button type="button" class="section-collapse-btn" data-section="holdings" title="접기/펼치기" aria-label="보유 종목 접기/펼치기">▼</button></h2>
+            </div>
+            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
+            <div class="family-tabs" id="holdingsFamilyTabs" style="margin-left:4px;"></div>
+          </div>
+          <div class="toolbar" style="margin-left:auto;">
+            <input id="searchInput" type="search" placeholder="종목명·코드·증권사 검색" />
+            <button id="addButton" class="button secondary compact" type="button">➕ 종목추가</button>
+            <button id="importButton" class="button secondary compact" type="button">📂 가져오기</button>
+            <button id="clearAllHoldingsBtn" class="button secondary danger compact" type="button" title="보유종목 전체 일괄 삭제">🗑️ 일괄삭제</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th data-sort="name" class="sortable-th">종목 <span class="sort-icon"></span></th>
+                <th data-sort="sector" class="sortable-th">섹터 <span class="sort-icon"></span></th>
+                <th data-sort="account" class="sortable-th">계좌 <span class="sort-icon"></span></th>
+                <th data-sort="quantity" class="sortable-th">수량 <span class="sort-icon"></span></th>
+                <th data-sort="market_value_krw" class="sortable-th">평가금액 <span class="sort-icon"></span></th>
+                <th data-sort="profit_krw" class="sortable-th">평가손익 <span class="sort-icon"></span></th>
+                <th data-sort="return_rate" class="sortable-th">수익률 <span class="sort-icon"></span></th>
+                <th data-sort="day_change_rate" class="sortable-th">등락률 <span class="sort-icon"></span></th>
+                <th style="text-align:center;">차트</th>
+              </tr>
+            </thead>
+            <tbody id="holdingsBody"></tbody>
+          </table>
+        </div>
+        <div id="emptyHoldings" class="empty">
+          <strong>아직 불러온 보유종목이 없습니다.</strong>
+          <p>각 증권사 동기화 또는 파일 가져오기로 시작하세요.</p>
+          <button id="demoButton" class="button text" type="button">예시 화면 보기</button>
+        </div>
+      </section>
+<section id="recordsPanel" class="panel records-panel">
+        <div class="panel-head records-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div>
+              <p class="eyebrow" id="recordsEyebrow">STOCK RECORDS</p>
+              <h2><span id="recordsHeadingText">주식기록</span> <button type="button" class="section-collapse-btn" data-section="records" title="접기/펼치기" aria-label="주식기록 접기/펼치기">▼</button></h2>
+            </div>
+            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
+            <div class="family-tabs" id="recordsFamilyTabs" style="margin-left:4px;"></div>
+          </div>
+          <div class="heatmap-period-tabs" id="recordViewTabs" style="margin-right:6px;">
+            <button type="button" class="heatmap-tab active" data-view="combo">📈 전체주식</button>
+            <button type="button" class="heatmap-tab" data-view="tax_accounts">🌿 절세계좌</button>
+          </div>
+          <div class="heatmap-period-tabs compact-record-tabs" id="recordPeriodTabs">
+            <button type="button" class="heatmap-tab" data-period="1D">일간</button>
+            <button type="button" class="heatmap-tab" data-period="1W">주간</button>
+            <button type="button" class="heatmap-tab" data-period="1M">월간</button>
+            <button type="button" class="heatmap-tab" data-period="1Y">연간</button>
+            <button type="button" class="heatmap-tab active" data-period="ALL">전체</button>
+          </div>
+          <div class="toolbar" style="margin-left:auto;">
+            <span id="recordCount" class="muted">0개 기록</span>
+            <button id="snapshotButton" class="button secondary compact" type="button" title="오늘 스냅샷 저장">기록</button>
+            <button id="addRecordButton" class="button secondary compact" type="button" title="주식기록 직접 추가">추가</button>
+          </div>
+        </div>
+        <div class="records-grid">
+          <div id="assetChart" class="record-chart-wrap"></div>
+          <div class="record-side">
+            <div class="record-side-summary"><span>전체 변화</span><strong id="recordSummary">0원</strong><small>저장된 날짜별 자산 추이</small></div>
+            <div id="assetRecordList" class="record-list"></div>
+          </div>
+        </div>
+      </section>
+</section><section data-wealth-page="assets" aria-label="종합 자산" hidden="">
+<section id="accountsPanel" class="panel">
         <div class="account-panel-head-row">
           <div class="panel-head" style="flex-wrap:wrap;gap:0.5rem;display:flex;align-items:center;">
             <div>
@@ -582,9 +641,8 @@
 
         </div>
       </section>
-
-      <!-- 5-1. 통합 캘린더 -->
-      <section id="calendarPanel" class="panel calendar-panel">
+</section><section data-wealth-page="income" aria-label="머니 로그" hidden="">
+<section id="calendarPanel" class="panel calendar-panel">
         <div class="panel-head calendar-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div>
             <p class="eyebrow">FINANCIAL CALENDAR</p>
@@ -606,9 +664,7 @@
           <div id="calendarDetailList" class="calendar-detail-list"></div>
         </div>
       </section>
-
-      <!-- 6. 실현손익 -->
-      <section id="realizedPnlPanel" class="panel dividend-panel pnl-panel">
+<section id="realizedPnlPanel" class="panel dividend-panel pnl-panel">
         <div class="panel-head dividend-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div class="dividend-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div>
@@ -1111,9 +1167,7 @@
 
         </div>
       </section>
-
-      <!-- 7. 배당금 -->
-      <section id="dividendPanel" class="panel dividend-panel">
+<section id="dividendPanel" class="panel dividend-panel">
         <div class="panel-head dividend-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div class="dividend-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div>
@@ -1278,52 +1332,7 @@
           </div>
         </div>
       </section>
-
-      <!-- 7. 보유 종목 -->
-      <section id="holdingsPanel" class="panel holdings-panel">
-        <div class="panel-head holdings-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <div>
-              <p class="eyebrow">HOLDINGS</p>
-              <h2>보유 종목 <button type="button" class="section-collapse-btn" data-section="holdings" title="접기/펼치기" aria-label="보유 종목 접기/펼치기">▼</button></h2>
-            </div>
-            <!-- 가족 구성원 선택 탭 (모두 아빠 엄마 자녀) -->
-            <div class="family-tabs" id="holdingsFamilyTabs" style="margin-left:4px;"></div>
-          </div>
-          <div class="toolbar" style="margin-left:auto;">
-            <input id="searchInput" type="search" placeholder="종목명·코드·증권사 검색" />
-            <button id="addButton" class="button secondary compact" type="button">➕ 종목추가</button>
-            <button id="importButton" class="button secondary compact" type="button">📂 가져오기</button>
-            <button id="clearAllHoldingsBtn" class="button secondary danger compact" type="button" title="보유종목 전체 일괄 삭제">🗑️ 일괄삭제</button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th data-sort="name" class="sortable-th">종목 <span class="sort-icon"></span></th>
-                <th data-sort="sector" class="sortable-th">섹터 <span class="sort-icon"></span></th>
-                <th data-sort="account" class="sortable-th">계좌 <span class="sort-icon"></span></th>
-                <th data-sort="quantity" class="sortable-th">수량 <span class="sort-icon"></span></th>
-                <th data-sort="market_value_krw" class="sortable-th">평가금액 <span class="sort-icon"></span></th>
-                <th data-sort="profit_krw" class="sortable-th">평가손익 <span class="sort-icon"></span></th>
-                <th data-sort="return_rate" class="sortable-th">수익률 <span class="sort-icon"></span></th>
-                <th data-sort="day_change_rate" class="sortable-th">등락률 <span class="sort-icon"></span></th>
-                <th style="text-align:center;">차트</th>
-              </tr>
-            </thead>
-            <tbody id="holdingsBody"></tbody>
-          </table>
-        </div>
-        <div id="emptyHoldings" class="empty">
-          <strong>아직 불러온 보유종목이 없습니다.</strong>
-          <p>각 증권사 동기화 또는 파일 가져오기로 시작하세요.</p>
-          <button id="demoButton" class="button text" type="button">예시 화면 보기</button>
-        </div>
-      </section>
-
-      <!-- 8. 📒 스마트 가족 가계부 섹션 -->
-      <section id="ledgerSectionPanel" class="panel ledger-section-panel" style="margin-top:18px;">
+<section id="ledgerSectionPanel" class="panel ledger-section-panel" style="margin-top:18px;">
         <div class="panel-head ledger-panel-head" style="flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;">
           <div class="ledger-head-left" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div class="ledger-title-wrap">
@@ -1423,8 +1432,7 @@
           </div>
         </div>
       </section>
-      <!-- 5-2. 공모주 -->
-      <section id="ipoPanel" class="panel ipo-panel" style="margin-top:18px;">
+<section id="ipoPanel" class="panel ipo-panel" style="margin-top:18px;">
         <div class="panel-head ipo-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div>
             <p class="eyebrow">IPO SCHEDULE &amp; SCORE</p>
@@ -1439,6 +1447,39 @@
           <p class="empty-text" style="padding:24px;text-align:center;">공모주 일정을 불러오는 중입니다...</p>
         </div>
       </section>
+</section><section data-wealth-page="settings" aria-label="설정" hidden=""><article class="wealth-settings-card"><h3>계정과 데이터</h3><p class="wealth-help">가족 구성원, 비밀번호, 테마와 백업을 관리합니다.</p><div class="wealth-settings-actions"><button id="topbarFamilyBtn" class="button secondary compact" type="button" title="가족 구성원 관리" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#cbd5e1;border-color:#334155;">👨‍👩‍👧‍👦 가족</button></div></article></section>
+    </div></div>
+        <!-- 1. 주요지수 (상단 마켓 오버뷰 & 기간별 지수 변화 탭) -->
+
+
+      <!-- 2열 통합 레이아웃: 핵심 요약 + 투자자산 분류 단일 패널 (접기/펼치기 통합) -->
+
+
+      <!-- 3. 기록 (구 자산기록) -->
+
+
+      <!-- 4. 히트맵 (구 자산 히트맵) -->
+
+
+      <!-- 5. 자산 (구 계좌 - 증권 / 은행 / 보험 / 부동산 통합 섹션) -->
+
+
+      <!-- 5-1. 통합 캘린더 -->
+
+
+      <!-- 6. 실현손익 -->
+
+
+      <!-- 7. 배당금 -->
+
+
+      <!-- 7. 보유 종목 -->
+
+
+      <!-- 8. 📒 스마트 가족 가계부 섹션 -->
+
+      <!-- 5-2. 공모주 -->
+
     </div>
 
     </main>
@@ -1673,7 +1714,7 @@
             <div style="font-size:11.5px;font-weight:700;color:#93c5fd;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
               <span>📝</span> <span>납입 연도 및 공제 설정 입력</span>
             </div>
-            
+
             <div class="form-grid" style="grid-template-columns:100px 1fr;gap:8px;margin-bottom:8px;">
               <label>납입 연도
                 <input type="text" id="accountInputYear" class="pension-entry-year" placeholder="예: 2024 또는 24년" maxlength="10" value="2026" style="font-weight:700;text-align:center;" />
@@ -2902,7 +2943,7 @@
         <button value="cancel" class="close" aria-label="닫기">×</button>
       </div>
       <p class="dialog-description">카드사 또는 은행에서 다운로드받은 엑셀(.xlsx, .xls) 또는 CSV 파일을 일괄 등록합니다.</p>
-      
+
       <!-- 샘플 엑셀 다운로드 링크 영역 -->
       <div class="ledger-sample-box" style="border-radius:10px;padding:12px 14px;margin:12px 0;">
         <div style="font-size:12px;font-weight:700;margin-bottom:6px;" class="ledger-sample-title">📋 표준 샘플 엑셀 서식 다운로드</div>
@@ -3308,7 +3349,7 @@
           <h2 style="display:flex;align-items:center;gap:8px;">⚙️ 사용자 계정 관리 <span class="admin-desc" style="font-size:12px;font-weight:400;">(Admin)</span></h2>
           <button class="close" type="button" aria-label="닫기" onclick="closeDialog('adminUsersModal')">×</button>
         </div>
-        
+
         <!-- 신규 아이디 추가 영역 -->
         <div class="admin-box admin-create-box" style="border-radius:10px;padding:14px 16px;margin-bottom:20px;">
           <h3 class="admin-box-title dialog-subheading">➕ 새 사용자 아이디 추가</h3>
@@ -3357,7 +3398,7 @@
     <script src="/static/wealth-color-picker.js?v=10.9r5"></script>
     <script src="/static/wealth-color-preferences.js?v=10.9r6"></script>
     <script src="/static/wealth-settings-surface.js?v=10.9m1"></script>
-    <script src="/static/wealth-layout.js?v=2.0.2"></script>
+    <script src="/static/wealth-layout.js?v=2.1.2-home1"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
     <script src="/static/wealth.js?v=2.1.2-r1"></script>
     <script src="/static/wealth-ledger-ocr.js?v=2.0.2-review2"></script>

@@ -19,37 +19,37 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
         self.assertNotIn("currentAllocTab", self.js)
 
     def test_home_asset_portfolio_is_page_local_and_rich(self):
-        self.assertIn('id="homeAssetPortfolioPanel"', self.layout)
-        home_start = self.layout.index('<section data-wealth-page="home"')
-        home_end = self.layout.index('${Object.keys(views)', home_start)
-        home = self.layout[home_start:home_end]
+        self.assertIn('id="homeAssetPortfolioPanel"', self.html)
+        home_start = self.html.index('<section data-wealth-page="home"')
+        home_end = self.html.index('<section data-wealth-page="invest"', home_start)
+        home = self.html[home_start:home_end]
         self.assertLess(home.index('class="wealth-home-grid"'), home.index('id="homeAssetPortfolioPanel"'))
         self.assertLess(home.index('id="homeAssetPortfolioPanel"'), home.index('id="wealthMarketSlot"'))
         self.assertIn("(home.querySelector('#wealthMarketSlot') || home).before(historyPanel)", self.planning)
         for metric in ("wealthAssetNetWorth", "wealthAssetInvest", "wealthAssetExpected", "wealthAssetRealized", "wealthAssetSafe"):
-            self.assertIn(metric, self.layout)
+            self.assertIn(metric, self.html)
         for detail in (
             "wealthAssetDebtDetail", "wealthAssetPropertyDetail", "wealthAssetStockDetail",
-            "wealthAssetExpectedRate", "wealthAssetDayDetail", "wealthAssetDayDate",
-            "wealthAssetTradeDetail", "wealthAssetDividendDetail", "wealthAssetYearDetail",
-            "wealthAssetMonthDetail", "wealthAssetSafeDetail", "wealthAssetDepositDetail",
+            "wealthAssetPropertyExpected", "wealthAssetStockExpected",
+            "wealthAssetTradeDetail", "wealthAssetDividendDetail",
+            "wealthAssetSafeDetail", "wealthAssetDepositDetail",
             "wealthAssetInsuranceDetail",
         ):
-            self.assertIn(detail, self.layout)
-        self.assertIn('id="homeAssetAllocationDonut"', self.layout)
-        self.assertIn('id="homeAssetAllocationLegend"', self.layout)
+            self.assertIn(detail, self.html + self.layout)
+        self.assertIn('id="homeAssetAllocationDonut"', self.html)
+        self.assertIn('id="homeAssetAllocationLegend"', self.html)
         self.assertIn("wealth-asset-dashboard", self.css)
-        self.assertIn("wealth-asset-secondary-row", self.layout)
+        self.assertIn("wealth-asset-secondary-row", self.html)
         self.assertIn("grid-template-columns:154px", self.css)
 
     def test_summary_detail_links_home_asset_and_assets_page(self):
-        self.assertIn('id="wealthNetWorthDetails"', self.layout)
-        self.assertIn('href="#homeAssetPortfolioPanel"', self.layout)
+        self.assertIn('id="wealthNetWorthDetails"', self.html)
+        self.assertIn('href="#homeAssetPortfolioPanel"', self.html)
         self.assertIn("event.preventDefault();", self.layout)
         self.assertIn("target.scrollIntoView({ behavior: 'smooth', block: 'start' });", self.layout)
         self.assertIn("target.focus({ preventScroll: true });", self.layout)
         self.assertNotIn("showPage('invest')", self.layout)
-        self.assertIn('href="#assets">자산 상세보기', self.layout)
+        self.assertIn('href="#assets">자산 상세보기', self.html)
 
     def test_summary_event_reuses_existing_metrics(self):
         for field in (

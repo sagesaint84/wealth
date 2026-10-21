@@ -62,76 +62,12 @@
     income: ['머니 로그', '머니 로그', '실현손익, 배당·이자, 수입·지출 내역을 한곳에서 확인하세요.'],
     settings: ['설정', '설정', 'API 연결, 알림과 자동화, 계정과 데이터를 관리하세요.'],
   };
-  const icons = {
-    home: '<path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/>',
-    invest: '<path d="M4 20V4M4 20h17M8 15l4-5 4 2 5-8"/>',
-    assets: '<rect x="3" y="6" width="18" height="15" rx="2"/><path d="M3 10h18M7 6V3h10v3M15 15h3"/>',
-    income: '<path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4"/>',
-    ledger: '<rect x="5" y="3" width="15" height="18" rx="2"/><path d="M3 7h4M3 12h4M3 17h4M11 8h5M11 12h5M11 16h3"/>',
-    settings: '<path d="M4 7h16M4 17h16"/><circle cx="8" cy="7" r="3"/><circle cx="16" cy="17" r="3"/>',
-  };
-  const icon = key => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[key]}</svg>`;
-  const link = key => `<a href="#${key}" data-wealth-view="${key}">${icon(key)}<span>${views[key][0]}</span></a>`;
-  const layout = document.createElement('div');
-  layout.className = 'wealth-workspace';
-  layout.innerHTML = `
-    <a class="wealth-skip" href="#wealthPageTitle">본문으로 건너뛰기</a>
-    <nav class="wealth-nav" aria-label="주요 메뉴">
-      <div class="wealth-nav-label">MY WEALTH</div>
-      ${Object.keys(views).filter(key => key !== 'settings').map(link).join('')}
-      <div class="wealth-nav-bottom">${link('settings')}<small>개인 · 가족 자산관리</small></div>
-    </nav>
-    <div class="wealth-content">
-      <div class="wealth-page-head"><div><p class="wealth-eyebrow">YOUR FINANCIAL OVERVIEW</p><h2 id="wealthPageTitle" tabindex="-1"></h2><p id="wealthPageDescription"></p></div><a class="wealth-settings-link" href="#settings" aria-label="설정 열기">${icon('settings')}</a></div>
-      <div class="wealth-owner-bar"><span>조회 범위</span><div id="wealthOwnerSlot"></div></div>
-      <section data-wealth-page="home" aria-label="자산 요약">
-        <div class="wealth-home-grid" data-legacy-summary="true" aria-hidden="true" hidden>
-          <article class="wealth-net-card"><div class="wealth-card-top"><span>나의 순자산</span><span class="wealth-live-label" id="wealthOwnerLabel">전체 가족</span></div><strong id="wealthNetWorth">—</strong><p>등록 자산에서 부채를 뺀 금액</p><div class="wealth-net-bottom"><span id="wealthHomeUpdated">자산 정보를 불러오는 중입니다.</span><a id="wealthNetWorthDetails" href="#homeAssetPortfolioPanel">상세 현황 <span aria-hidden="true">↗</span></a></div></article>
-          <article class="wealth-stat-card"><span class="wealth-stat-icon">${icon('assets')}</span><h3>현금·예적금</h3><strong id="wealthCash">—</strong><p>은행 잔액 · 증권 예수금 · 예적금</p><a href="#assets">계좌 살펴보기 →</a></article>
-          <article class="wealth-stat-card"><span class="wealth-stat-icon wealth-debt-icon">${icon('ledger')}</span><h3>총부채</h3><strong id="wealthDebt">—</strong><p>대출 · 음수 잔액 · 임대보증금 반환의무</p><a href="#assets">부채 확인하기 →</a></article>
-        </div>
-        <article class="wealth-composition wealth-home-asset-portfolio" id="homeAssetPortfolioPanel" tabindex="-1"><div class="wealth-section-heading"><div><p class="wealth-eyebrow">ASSET PORTFOLIO</p><h3>자산 포트폴리오</h3></div><a href="#assets">자산 상세보기 ↗</a></div><p class="wealth-help">전체 자산의 핵심 지표와 자산군별 구성을 한눈에 확인하세요.</p><div class="wealth-asset-dashboard"><div id="wealthAssetKpis" class="wealth-asset-kpis" aria-label="자산 포트폴리오 요약"><article class="wealth-asset-kpi tone-net"><span class="wealth-asset-kpi-icon">◆</span><div><span>순자산</span><strong id="wealthAssetNetWorth">—</strong><small id="wealthAssetDebtDetail">총부채 —</small></div></article><article class="wealth-asset-kpi tone-invest"><span class="wealth-asset-kpi-icon">◈</span><div><span>투자자산</span><strong id="wealthAssetInvest">—</strong><small id="wealthAssetInvestDetail">부동산 — · 주식 —</small></div></article><article class="wealth-asset-kpi tone-profit"><span class="wealth-asset-kpi-icon">↗</span><div><span>기대수익</span><strong id="wealthAssetExpected">—</strong><small id="wealthAssetExpectedRate">수익률 —</small><small id="wealthAssetDayDetail">일간 수익 — · 전일 대비</small></div></article><article class="wealth-asset-kpi tone-realized"><span class="wealth-asset-kpi-icon">▤</span><div><span>실현손익</span><strong id="wealthAssetRealized">—</strong><small id="wealthAssetRealizedDetail">매매차익 — · 배당/이자 —</small><small id="wealthAssetRealizedPeriod">연간 — · 월간 —</small></div></article><article class="wealth-asset-kpi tone-safe"><span class="wealth-asset-kpi-icon">◇</span><div><span>안전자산</span><strong id="wealthAssetSafe">—</strong><small id="wealthAssetSafeDetail">예수금 및 예금 —</small><small id="wealthAssetSafeBreakdown">임차보증금 — · 보험 —</small></div></article></div><div class="wealth-asset-allocation"><div class="wealth-asset-allocation-head"><div><span class="wealth-eyebrow">ASSET ALLOCATION</span><h4>전체 자산 구성</h4></div><div id="homeAssetAllocationDonut" class="wealth-asset-donut" role="img" aria-label="전체 자산 구성"><span>전체 자산</span><strong id="homeAssetAllocationTotal">—</strong></div><div id="homeAssetAllocationLegend" class="wealth-asset-donut-legend"></div></div><div id="wealthMixLegend" class="wealth-mix-legend wealth-asset-breakdown"><p class="wealth-help">자산 정보가 준비되면 구성을 표시합니다.</p></div></div></div></article>
-        <div id="wealthMarketSlot"></div>
-      </section>
-      ${Object.keys(views).filter(key => key !== 'home').map(key => `<section data-wealth-page="${key}" aria-label="${views[key][0]}" hidden>${key === 'settings' ? window.WealthSettingsSurfaceMarkup() : ''}</section>`).join('')}
-    </div>`;
-  root.prepend(layout);
-  const splitMetricRows = (card, rows) => {
-    if (!card) return;
-    const content = card.querySelector(':scope > div:last-child');
-    if (!content) return;
-    const primary = content.querySelector('strong');
-    [...content.querySelectorAll('small')].forEach(node => node.remove());
-    rows.forEach(([label, id, initial]) => {
-      const row = document.createElement('span');
-      row.className = 'wealth-asset-secondary-row';
-      const key = document.createElement('em'); key.textContent = label;
-      const value = document.createElement('small'); value.id = id; value.textContent = initial;
-      row.append(key, value);
-      primary?.after(row);
-    });
-  };
-  splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-net'), [['총부채', 'wealthAssetDebtDetail', '—']]);
-  document.getElementById('wealthAssetDebtDetail')?.closest('.wealth-asset-secondary-row')?.classList.add('is-debt');
-  splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-invest'), [['부동산', 'wealthAssetPropertyDetail', '—'], ['주식', 'wealthAssetStockDetail', '—']]);
-  splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-profit'), [['부동산 기대수익', 'wealthAssetPropertyExpected', '—'], ['주식 기대수익', 'wealthAssetStockExpected', '—']]);
-  splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-realized'), [['매매차익', 'wealthAssetTradeDetail', '—'], ['배당/이자', 'wealthAssetDividendDetail', '—']]);
-  splitMetricRows(document.querySelector('.wealth-asset-kpi.tone-safe'), [['예수금 및 예금', 'wealthAssetSafeDetail', '—'], ['임차보증금', 'wealthAssetDepositDetail', '—'], ['보험', 'wealthAssetInsuranceDetail', '—']]);
-  document.body.classList.add('wealth-layout');
+  // The initial HTML already contains the current workspace and final panel parents.
+  const layout = root.querySelector('.wealth-workspace');
+  if (!layout) return;
   const page = key => layout.querySelector(`[data-wealth-page="${key}"]`);
+  page('settings').insertAdjacentHTML('afterbegin', window.WealthSettingsSurfaceMarkup());
   const move = (id, target) => { const node = document.getElementById(id); if (node) target.append(node); };
-  move('topbarFamilyTabs', document.getElementById('wealthOwnerSlot'));
-  const refreshActions = document.createElement('div');
-  refreshActions.className = 'wealth-refresh-actions';
-  layout.querySelector('.wealth-owner-bar').append(refreshActions);
-  move('refreshButton', refreshActions);
-  move('syncAccountsButton', refreshActions);
-  document.getElementById('refreshButton').textContent = '시세 갱신';
-  document.getElementById('syncAccountsButton').textContent = '계좌 동기화';
-  document.getElementById('refreshButton').title = '시세를 갱신합니다. 증권사 잔고 동기화와 별개입니다.';
-  document.getElementById('syncAccountsButton').title = '설정된 증권사에서 잔고와 보유종목을 가져옵니다.';
-  move('marketPanel', document.getElementById('wealthMarketSlot'));
-  ['summaryPanel', 'assetHeatmapPanel', 'holdingsPanel', 'recordsPanel'].forEach(id => move(id, page('invest')));
   const recordSide = document.getElementById('recordsPanel')?.querySelector('.record-side');
   const recordToolbar = document.getElementById('recordsPanel')?.querySelector('.records-head .toolbar');
   if (recordSide && recordToolbar) {
@@ -160,8 +96,7 @@
     button.setAttribute('role','tab'); button.setAttribute('aria-controls',assetPanels[button.dataset.cat]);
     button.setAttribute('aria-selected',String(active)); button.classList.toggle('active',active);
   });
-  page('assets').append(assetCategoryTabs);
-  move('accountsPanel', page('assets'));
+  page('assets').prepend(assetCategoryTabs);
   const incomeTabs = document.createElement('div');
   incomeTabs.id = 'incomeTabs';
   incomeTabs.className = 'wealth-section-tabs income-tabs';
@@ -173,8 +108,7 @@
     <button type="button" class="income-tab" data-income="dividend" role="tab" aria-selected="false">💰 배당·이자</button>
     <button type="button" class="income-tab" data-income="ledger" role="tab" aria-selected="false">🧾 가계부</button>
     <button type="button" class="income-tab" data-income="ipo" role="tab" aria-selected="false">🔔 공모주</button>`;
-  page('income').append(incomeTabs);
-  ['calendarPanel', 'realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel', 'ipoPanel'].forEach(id => move(id, page('income')));
+  page('income').prepend(incomeTabs);
   const accountsPanel = document.getElementById('accountsPanel');
   function enhanceAccountLists() {
     accountsPanel.querySelectorAll('.mini-delete-button').forEach(button => {
@@ -196,12 +130,8 @@
   }
   new MutationObserver(enhanceAccountLists).observe(accountsPanel, { childList: true, subtree: true });
   enhanceAccountLists();
-  const settingsCard = document.createElement('article');
-  settingsCard.className = 'wealth-settings-card';
-  settingsCard.innerHTML = '<h3>계정과 데이터</h3><p class="wealth-help">가족 구성원, 비밀번호, 테마와 백업을 관리합니다.</p><div class="wealth-settings-actions"></div>';
-  page('settings').append(settingsCard);
+  const settingsCard = page('settings').querySelector('.wealth-settings-card');
   const actions = settingsCard.querySelector('.wealth-settings-actions');
-  move('topbarFamilyBtn', actions);
   const footer = document.getElementById('appCommonFooter');
   const footerParent = footer?.parentNode;
   if (footer) page('settings').append(footer);

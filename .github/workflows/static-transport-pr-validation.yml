@@ -8,6 +8,8 @@ on:
       - 'app/static_transport.py'
       - 'app/static/**'
       - 'tests/test_static_transport*.py'
+      - 'tests/test_home_initial_html_chrome.py'
+      - 'tests/test_income_bucket_drilldown.py'
       - 'app/services/ipo/**'
       - 'app/static/wealth-calendar.js'
       - 'app/static/wealth-layout.css'
@@ -92,6 +94,10 @@ jobs:
             --basetemp="$TMPDIR/pytest" --junitxml="$RUNNER_TEMP/ipo-synthetic-results.xml" \
             tests/test_static_transport.py \
             tests/test_static_transport_chrome.py \
+            tests/test_home_initial_html_chrome.py \
+            tests/test_income_bucket_drilldown.py \
+            tests/test_ipo_broker_presentation.py \
+            tests/test_ipo_interactive_discovery.py \
             tests/test_ipo_schedule_lifecycle.py \
             tests/test_ipo_schedule_lifecycle_chrome.py \
             tests/test_ipo_stored_compat.py \
@@ -129,6 +135,18 @@ jobs:
           report = Path(os.environ['RUNNER_TEMP']) / 'ipo-synthetic-results.xml'
           cases = list(ET.parse(report).iter('testcase'))
           assert cases and not any(c.find('skipped') is not None for c in cases)
+          initial_home = [c for c in cases if c.get('classname', '').endswith('test_home_initial_html_chrome')]
+          assert len(initial_home) == 4 and not any(list(c) for c in initial_home)
+          chart = [c for c in cases if c.get('classname', '').endswith('test_income_bucket_drilldown')]
+          assert len(chart) == 38 and not any(list(c) for c in chart)
+          day = [c for c in chart if c.get('name') == 'test_income_bucket_runtime[day_selection_non_painted_geometry]']
+          assert len(day) == 1 and not list(day[0])
+          print('PASS: DAY chart module 38 executed without skips; day_selection_non_painted_geometry PASS')
+          for module in ('test_ipo_broker_presentation', 'test_ipo_interactive_discovery'):
+              selected = [c for c in cases if c.get('classname', '').split('.')[-2:-1] == [module]
+                          or c.get('classname', '').endswith(module)]
+              assert selected and not any(list(c) for c in selected), module
+              print('PASS: IPO contract executed without skips: ' + module)
           transport = [c for c in cases if c.get('name', '').startswith('test_static_compression_transfer_and_startup[')]
           assert len(transport) == 2 and not any(list(c) for c in transport)
           browser = [c for c in cases if c.get('name') == 'test_eucast_calendar_stop_and_unknown_state_in_real_dom']

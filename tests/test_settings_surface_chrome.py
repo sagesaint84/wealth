@@ -11,16 +11,18 @@ from tests.test_workflow_ux_chrome import FRAMES, click, no_overflow
 BOOT = r'''
 window.__settingsProbe={requests:[],legacy:0,forms:0,moves:0,dialogs:0,errors:[],legacyVisibleFrames:0,hold:false,pending:[],fail:false};
 const banned=['userOpenApiModal','notificationSettingsDialog','userOpenApiBtn','notificationSettingsBtn'];
+const seenForms=new WeakSet();
 const inspect=node=>{
  if(node.nodeType!==1)return;
  const nodes=[node,...node.querySelectorAll('[id]')];
  for(const item of nodes){if(banned.includes(item.id))__settingsProbe.legacy++;
- if(item.id==='userOpenApiForm')__settingsProbe.forms++;}
+ if(item.id==='userOpenApiForm'&&!seenForms.has(item)){seenForms.add(item);__settingsProbe.forms++;}}
 };
 const htmlDescriptor=Object.getOwnPropertyDescriptor(Element.prototype,'innerHTML');
 Object.defineProperty(Element.prototype,'innerHTML',{...htmlDescriptor,set(value){htmlDescriptor.set.call(this,value);for(const child of this.children)inspect(child);}});
 const sampleFrame=()=>{if(banned.some(id=>{const e=document.getElementById(id);return e&&e.getBoundingClientRect().width>0;}))__settingsProbe.legacyVisibleFrames++;requestAnimationFrame(sampleFrame);};requestAnimationFrame(sampleFrame);
-new MutationObserver(records=>{for(const r of records)for(const n of r.addedNodes){if(n.nodeType===1&&banned.includes(n.id))__settingsProbe.legacy++;}}).observe(document,{subtree:true,childList:true});
+// Observe parser/insertAdjacentHTML insertions too; each distinct form counts once.
+new MutationObserver(records=>{for(const r of records)for(const n of r.addedNodes)inspect(n);}).observe(document,{subtree:true,childList:true});
 for(const method of ['appendChild','insertBefore']){
  const original=Node.prototype[method];Node.prototype[method]=function(node,...rest){
  if(['settingsApiPanel','settingsNotificationsPanel','userOpenApiForm'].includes(node.id)&&node.parentNode)__settingsProbe.moves++;
