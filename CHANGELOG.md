@@ -6,7 +6,7 @@
 - 현재 홈을 최초 HTML에 배치해 구형 UI의 순간 노출과 JS DOM 재구성을 줄였다. 합성 캡처의 현재 홈 유지 검증과 출시 전 인증·금융·IPO 검증을 보존하며 앱 기능을 추가 변경하지 않았다.
 - Windows **4,414 PASS / 0 FAIL / 5 SKIP / 888 subtests PASS**, 실제 앱 인증 **24 PASS**. PR Linux CI 정적·홈·DAY **330 PASS**(DAY 38개 무스킵), IPO **239 PASS**, native AMD64/ARM64 각각 ledger **488 PASS**, process **24 PASS / 11 subtests PASS**. Linux 필수 프로세스 2개 양쪽 무스킵 PASS. 외부 live 3개는 Windows의 의도적 SKIP 이력이다.
 - [GHCR 39522925985](https://github.com/sagesaint84/wealth/actions/runs/39522925985) SUCCESS, Linux AMD64/ARM64 manifest 및 Digest `sha256:c9b586098a4d31860008782531f2163e7f274938de2e2f0c6bc185b143fd4ffc`를 레지스트리에서 확인했다. 이미지 tag `b5a5c52`.
-- 사용자 확인 Oracle 결과: **IMAGE_DIGEST_GATE=PASS / DEPLOY_GATE=PASS / wealth running**. Codex 서버 재검증 결과가 아니다. 사용자가 전체 서버 Digest를 제공하지 않아 발행 Digest와 서버값의 독립 대조는 미확인이다. 배포 후 실제 브라우저 smoke **NOT_CONFIRMED**; 출시 전 합성 UI·실제 앱 인증 결과와 구분한다.
+- 사용자 확인 Oracle 결과: **IMAGE_DIGEST_GATE=PASS / DEPLOY_GATE=PASS / wealth running**. Codex 서버 재검증 결과가 아니다. 사용자 출력에는 전체 Digest가 있었으나 배포 스크립트에 설정된 기대값이며, 실행 컨테이너가 사용하는 이미지의 `RepoDigests` 독립 조회는 미실행이다. 배포 후 실제 브라우저 smoke **NOT_CONFIRMED**; 출시 전 합성 UI·실제 앱 인증 결과와 구분한다.
 - 기존 모바일 자산 표시 1698→1396ms, readiness 2072→1718ms, CLS 0.243→0.034. FCP **200→220ms FAIL_WITH_APPROVED_CANDIDATE_EXCEPTION**, 이번 후보만 승인. DAY 과거 일회성 실패 원인 **UNCONFIRMED** 유지. 기존 OCR smoke의 mismatched_inputs=4/4 진단은 수동 검토 안전성 PASS와 구분한다.
 - GitHub Releases 0건, `v2.1.2` tag 없음(조회 시점). 앱/문서 버전은 2.1.2로 일치하며 별도 Release/tag를 생성하지 않았다. 이번 후속 작업은 문서와 정리 가능성 조사만 수행하며 재빌드·재배포·삭제는 하지 않는다.
 

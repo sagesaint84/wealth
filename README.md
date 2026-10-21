@@ -4,7 +4,7 @@
 
 앱 **v2.1.2**, 홈 assets 및 SW **2.1.2-home1**, 변경하지 않은 core JS **2.1.2-r1**이다. [PR #159](https://github.com/sagesaint84/wealth/pull/159)는 Squash Merge 완료됐고, 이 문서 갱신 시 확인한 main 및 운영 배포 코드 SHA는 `b5a5c525f24ec7233b85af70dc8242a25966e150`다. v2.1.3 P0는 포함하지 않았다.
 
-[GHCR 발행 실행 39522925985](https://github.com/sagesaint84/wealth/actions/runs/39522925985)는 해당 SHA에서 SUCCESS다. 이미지 `ghcr.io/sagesaint84/wealth:b5a5c52`, 발행 manifest Digest는 `sha256:c9b586098a4d31860008782531f2163e7f274938de2e2f0c6bc185b143fd4ffc`이며, 레지스트리에서 원문 SHA256 및 Linux AMD64/ARM64 manifest를 확인했다. 사용자가 제공한 Oracle 결과는 **IMAGE_DIGEST_GATE=PASS**, **DEPLOY_GATE=PASS**, 컨테이너 **wealth running**이다. 사용자 메시지의 Digest는 `sha256`까지만 있어 서버의 실제 전체 Digest를 독립 대조한 결과는 아니다. Codex는 Oracle에 접속하거나 재배포하지 않았다.
+[GHCR 발행 실행 39522925985](https://github.com/sagesaint84/wealth/actions/runs/39522925985)는 해당 SHA에서 SUCCESS다. 이미지 `ghcr.io/sagesaint84/wealth:b5a5c52`, 발행 manifest Digest는 `sha256:c9b586098a4d31860008782531f2163e7f274938de2e2f0c6bc185b143fd4ffc`이며, 레지스트리에서 원문 SHA256 및 Linux AMD64/ARM64 manifest를 확인했다. 사용자가 제공한 Oracle 결과는 **IMAGE_DIGEST_GATE=PASS**, **DEPLOY_GATE=PASS**, 컨테이너 **wealth running**이다. 사용자 출력에는 전체 Digest가 있었지만, 이는 배포 스크립트에 설정된 기대값이다. 실행 컨테이너가 사용하는 이미지의 `RepoDigests` 독립 조회는 미실행이며, 기대값 출력과 실제 실행 이미지의 독립 대조를 구분한다. Codex는 Oracle에 접속하거나 재배포하지 않았다.
 
 **운영 실제 브라우저 smoke는 NOT_CONFIRMED**다. 배포 후 새로고침·로그인·가족·탭·테마·자산 표시의 사용자 브라우저 결과는 아직 제공되지 않았다. 아래 합성/출시 전 검증을 운영 브라우저 PASS로 해석하지 않는다.
 

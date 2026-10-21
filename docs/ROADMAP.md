@@ -9,7 +9,7 @@
 - [x] 사용자 제공 Oracle **IMAGE_DIGEST_GATE=PASS / DEPLOY_GATE=PASS / wealth running** 기록. Codex의 서버 직접 확인이나 재배포는 아님.
 - [x] 모바일 warm FCP **200→220ms FAIL_WITH_APPROVED_CANDIDATE_EXCEPTION**, 이번 후보만 승인. 기존 자산1698→1396ms/readiness2072→1718ms/CLS0.243→0.034 합성 결과 보존. DAY 일회성 실패 원인은 **UNCONFIRMED** 유지.
 - [ ] 운영 실제 브라우저 smoke 확인: 로그인·일반 새로고침에서 구형 UI/현재 홈 재소실 여부·가족/탭·테마·자산 표시. 현재 **NOT_CONFIRMED**이며 합성 PASS로 대체하지 않는다.
-- [ ] 사용자가 서버의 전체 이미지 Digest를 제공하면 발행 Digest와 대조한다. 현재 메시지의 `sha256`만으로 전체 서버값 확인을 주장하지 않는다.
+- [ ] 실행 컨테이너가 사용하는 이미지의 `RepoDigests`를 독립 조회해 발행 Digest와 대조한다. 사용자 출력의 전체 Digest는 배포 스크립트에 설정된 기대값이며, 해당 독립 조회는 미실행이다.
 - [ ] 문서 PR 별도 검토·승인 후 반영. 완료 홈 브랜치는 커밋 보존·clean·연결 사용 여부 재확인 및 사용자 삭제 승인 후에만 정리한다. 기존 홈 worktree는 문서 PR 작업 경로로 재사용 중이다.
 - [ ] Oracle `docker-compose.release.ipo155.yml`의 존재/실제 참조를 읽기 전용으로 확인한 뒤 정리 후보 여부를 판단한다. 로컬/Git에는 없으며 미사용 여부는 미확정, 삭제하지 않는다.
 
