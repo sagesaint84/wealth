@@ -10,6 +10,7 @@ class StrategyBucketBatch3Tests(unittest.TestCase):
         cls.model = (root / "app/static/wealth-planning-model.js").read_text(encoding="utf-8")
         cls.css = (root / "app/static/wealth-layout.css").read_text(encoding="utf-8")
         cls.backend = (root / "app/services/planning.py").read_text(encoding="utf-8")
+        cls.html = (root / "app/static/index.html").read_text(encoding="utf-8")
         cls.layout = (root / "app/static/wealth-layout.js").read_text(encoding="utf-8")
 
     def test_target_persistence_and_validation_reuse_existing_contract(self):
@@ -74,7 +75,7 @@ class StrategyBucketBatch3Tests(unittest.TestCase):
     def test_no_trading_and_batches_one_two_contracts_remain_present(self):
         self.assertIn("매매 주문은 실행하지 않습니다.", self.ui)
         for label in ("홈", "주식 투자", "종합 자산", "머니 로그", "설정"):
-            self.assertIn(label, self.layout)
+            self.assertIn(label, self.html)
         self.assertIn('class="wealth-history-main"', self.ui)
         self.assertIn("left = pad, right = width - pad", self.ui)
 

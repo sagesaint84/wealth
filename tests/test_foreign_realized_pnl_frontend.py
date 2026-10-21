@@ -125,6 +125,7 @@ const sandbox = {
   computeFilteredDayChange: () => ({}),
   loadAssetRecords: () => {},
   loadLedger: () => {},
+  isLedgerViewActive: () => false, // This owner-filter unit runs on the home view.
   render: data => { sandbox.result = data; },
 };
 vm.runInNewContext(source.slice(start, end) + '\nthis.run = renderWithOwner;', sandbox);

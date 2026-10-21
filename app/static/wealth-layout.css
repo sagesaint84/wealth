@@ -129,7 +129,7 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-nav a { display: flex; align-items: center; gap: 13px; padding: 15px 16px; border-radius: 12px; color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; border: 1px solid transparent; }
 .wealth-nav a:hover { background: var(--panel); color: var(--text); }
 .wealth-nav a[aria-current] { color: var(--workspace-accent); background: rgba(139,113,241,.13); border-color: rgba(139,113,241,.18); }
-.wealth-nav svg, .wealth-settings-link svg, .wealth-stat-icon svg, .wealth-shortcuts svg { width: 22px; height: 22px; flex-shrink: 0; }
+.wealth-nav svg, .wealth-settings-link svg { width: 22px; height: 22px; flex-shrink: 0; }
 .wealth-nav-bottom { margin-top: auto; padding-top: 42px; }
 .wealth-nav-bottom small { display: block; font-size: 11px; color: var(--muted); padding: 20px 16px; }
 .wealth-page-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 12px 0 26px; }
@@ -146,27 +146,12 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-layout [data-wealth-page][hidden] { display: none !important; }
 .wealth-layout [data-wealth-page] > .panel { margin-top: 22px !important; }
 .wealth-layout [data-wealth-page] > .panel:first-child { margin-top: 0 !important; }
-.wealth-home-grid { display: grid; grid-template-columns: 1.65fr 1fr 1fr; gap: 16px; }
-.wealth-net-card, .wealth-stat-card, .wealth-composition, .wealth-shortcuts, .wealth-settings-card { border: 1px solid var(--line); border-radius: 20px; padding: 26px; background: var(--panel); min-width: 0; }
-.wealth-net-card { background: radial-gradient(ellipse at 100% 0%,rgba(129,100,238,.26),transparent 80%),var(--panel); border-color: rgba(154,126,242,.35); display: flex; flex-direction: column; }
-.wealth-card-top { display: flex; gap: 8px; justify-content: space-between; align-items: center; font-size: 14px; }
-.wealth-live-label { font-size: 11px; color: var(--workspace-accent); padding: 5px 9px; border: 1px solid rgba(154,126,242,.3); border-radius: 20px; }
-#wealthNetWorth { font-size: clamp(25px,2.65vw,43px); font-weight: 750; letter-spacing: -1.7px; margin-top: 27px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.wealth-net-card > p { font-size: 12px; color: var(--muted); margin: 9px 0 24px; }
-.wealth-net-bottom { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin-top: auto; padding-top: 18px; border-top: 1px solid rgba(154,126,242,.18); }
-.wealth-net-bottom > span { font-size: 10px; color: var(--muted); line-height: 1.6; }
-.wealth-net-bottom a, .wealth-stat-card a, .wealth-section-heading a { color: var(--workspace-accent); text-decoration: none; font-size: 12px; white-space: nowrap; }
-.wealth-stat-icon { display: inline-flex; color: #61c9b2; border-radius: 11px; padding: 10px; background: rgba(97,201,178,.1); margin-bottom: 18px; }
-.wealth-debt-icon { color: #e7bc71; background: rgba(231,188,113,.1); }
-.wealth-stat-card h3 { font-size: 13px; font-weight: 500; margin: 0 0 13px; color: var(--muted); }
-.wealth-stat-card > strong { font-size: clamp(20px,1.6vw,28px); letter-spacing: -.7px; overflow-wrap: anywhere; }
-.wealth-stat-card > p { font-size: 11px; color: var(--muted); line-height: 1.7; margin: 12px 0 18px; }
-.wealth-home-secondary { display: grid; grid-template-columns: 1.65fr 1fr; gap: 16px; margin: 20px 0 28px; }
+.wealth-composition, .wealth-settings-card { border: 1px solid var(--line); border-radius: 20px; padding: 26px; background: var(--panel); min-width: 0; }
+.wealth-section-heading a { color: var(--workspace-accent); text-decoration: none; font-size: 12px; white-space: nowrap; }
 .wealth-home-asset-portfolio { margin: 20px 0; }
-.wealth-home-secondary:has(> .wealth-shortcuts:only-child) { grid-template-columns: minmax(0, 1fr); }
 .wealth-section-heading { display: flex; align-items: center; justify-content: space-between; }
 .wealth-content h3 { letter-spacing: -.35px; }
-.wealth-section-heading h3, .wealth-shortcuts h3, .wealth-settings-card h3 { font-size: 18px; margin: 0; }
+.wealth-section-heading h3, .wealth-settings-card h3 { font-size: 18px; margin: 0; }
 .wealth-help { font-size: 12px; line-height: 1.7; color: var(--muted); }
 .wealth-mix { display: flex; height: 12px; border-radius: 5px; overflow: hidden; gap: 3px; background: var(--line); margin: 26px 0 22px; }
 .wealth-mix-legend > div { display: grid; grid-template-columns: 1fr auto 50px; gap: 12px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
@@ -174,14 +159,6 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-mix-legend span::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 3px; background: var(--mix-color); margin-right: 9px; }
 .wealth-mix-legend strong { font-weight: 500; font-variant-numeric: tabular-nums; }
 .wealth-mix-legend small { color: var(--muted); text-align: right; }
-.wealth-shortcuts > a { display: flex; gap: 14px; align-items: center; color: var(--text); text-decoration: none; border-top: 1px solid var(--line); padding: 22px 0; }
-.wealth-shortcuts > a:first-of-type { margin-top: 25px; }
-.wealth-shortcuts > a:last-child { padding-bottom: 0; }
-.wealth-shortcuts svg { color: var(--workspace-accent); }
-.wealth-shortcuts strong, .wealth-shortcuts small { display: block; }
-.wealth-shortcuts strong { font-size: 13px; font-weight: 600; }
-.wealth-shortcuts small { color: var(--muted); font-size: 11px; margin-top: 7px; }
-.wealth-shortcuts b { margin-left: auto; color: var(--muted); font-weight: 400; }
 .wealth-settings-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .wealth-danger-zone { border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-top: 24px; font-size: 13px; }
 .wealth-danger-zone summary { cursor: pointer; color: var(--muted); }
@@ -190,15 +167,9 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-skip:focus { top: 12px; }
 .wealth-layout :is(a,button,summary):focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 4px; }
 [data-theme="white"] .wealth-layout { --workspace-accent: #6b4bc3; }
-[data-theme="white"] .wealth-stat-icon { color: #247965; }
-[data-theme="white"] .wealth-debt-icon { color: #946711; }
 @media (max-width: 1150px) {
   .wealth-layout .shell { padding: 20px; }
   .wealth-workspace { grid-template-columns: 150px minmax(0,1fr); gap: 22px; }
-  .wealth-home-grid { grid-template-columns: 1fr 1fr; }
-  .wealth-net-card { grid-column: 1 / -1; }
-  .wealth-home-secondary { grid-template-columns: 1fr; }
-  #wealthNetWorth { font-size: 38px; }
 }
 @media (max-width: 760px) {
   .wealth-layout .shell { padding: 16px 16px calc(100px + env(safe-area-inset-bottom)); }
@@ -218,13 +189,7 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
   .wealth-page-head p:last-child { font-size: 12px; }
   .wealth-eyebrow { font-size: 9px; }
   .wealth-owner-bar { gap: 10px; padding-bottom: 16px; margin-bottom: 20px; }
-  .wealth-net-card, .wealth-stat-card, .wealth-composition, .wealth-shortcuts, .wealth-settings-card { padding: 20px; border-radius: 16px; }
-  .wealth-home-grid { gap: 10px; }
-  .wealth-stat-card { padding: 17px; }
-  .wealth-stat-card > strong { font-size: 20px; }
-  .wealth-stat-card > p { min-height: 38px; }
-  #wealthNetWorth { font-size: clamp(28px,8vw,38px); }
-  .wealth-net-bottom { align-items: flex-start; }
+  .wealth-composition, .wealth-settings-card { padding: 20px; border-radius: 16px; }
   .wealth-mix-legend > div { grid-template-columns: 1fr auto 42px; gap: 8px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { .wealth-layout * { scroll-behavior: auto !important; } }
@@ -232,19 +197,12 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 /* v1.0.19: unify the home dashboard rhythm without affecting other pages. */
 [data-wealth-page="home"] { --home-section-gap: 18px; }
 [data-wealth-page="home"] .wealth-page-head { margin-bottom: 20px; }
-[data-wealth-page="home"] .wealth-home-grid { gap: var(--home-section-gap); }
-[data-wealth-page="home"] .wealth-net-card,
-[data-wealth-page="home"] .wealth-stat-card { padding: 22px; border-radius: 16px; }
-[data-wealth-page="home"] .wealth-net-card { min-height: 224px; }
-[data-wealth-page="home"] .wealth-stat-card { display: flex; flex-direction: column; min-height: 224px; }
-[data-wealth-page="home"] .wealth-stat-card > p { margin-bottom: 16px; }
 [data-wealth-page="home"] .wealth-home-asset-portfolio { margin: var(--home-section-gap) 0; }
 [data-wealth-page="home"] .wealth-section-heading h3 { font-size: 17px; }
 [data-wealth-page="home"] .wealth-home-asset-portfolio > .wealth-help { margin: 7px 0 0; }
 [data-wealth-page="home"] .wealth-asset-dashboard { margin-top: 16px; gap: 18px; }
 [data-wealth-page="home"] .wealth-asset-kpi { padding: 12px 13px; }
 [data-wealth-page="home"] .wealth-asset-kpi strong,
-[data-wealth-page="home"] #wealthNetWorth,
 [data-wealth-page="home"] .wealth-asset-donut strong { font-variant-numeric: tabular-nums; }
 [data-wealth-page="home"] .wealth-asset-allocation { padding: 15px; }
 [data-wealth-page="home"] #netWorthHistoryPanel { margin-top: var(--home-section-gap) !important; }
@@ -254,8 +212,6 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 @media (max-width: 760px) {
   [data-wealth-page="home"] { --home-section-gap: 14px; }
   [data-wealth-page="home"] .wealth-page-head { margin-bottom: 16px; }
-  [data-wealth-page="home"] .wealth-net-card,
-  [data-wealth-page="home"] .wealth-stat-card { min-height: 0; padding: 18px; }
   [data-wealth-page="home"] .wealth-section-heading { align-items: flex-start; }
   [data-wealth-page="home"] #netWorthHistoryPanel .wealth-section-heading { flex-direction: column; gap: 9px; }
 }
@@ -286,16 +242,14 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
   .wealth-layout .button:not(:disabled):hover { background: var(--surface-hover); border-color: var(--workspace-accent); }
   .wealth-layout .button.primary:not(:disabled):hover { background: #795bdf; color: #fff; }
   .wealth-layout .button.danger:not(:disabled):hover { color: var(--red); border-color: var(--red); background: color-mix(in srgb,var(--red) 16%,var(--surface-1)); }
-  .wealth-layout .wealth-shortcuts > a:hover { background: var(--surface-2); color: var(--workspace-accent); }
 }
 .wealth-layout .button:not(:disabled):active { transform: none; box-shadow: inset 0 2px 4px #0003; }
 .wealth-layout .button:disabled { opacity: .42; cursor: not-allowed; filter: none; transform: none; box-shadow: none; }
 .wealth-layout :is(.button,input,select,textarea):focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 3px; }
 .wealth-layout .button[hidden], .wealth-history-dialog [hidden] { display: none !important; }
-.wealth-layout :is(.panel,.summary-card,.market-card,.wealth-net-card,.wealth-stat-card,.wealth-composition,.wealth-shortcuts,.wealth-settings-card) {
+.wealth-layout :is(.panel,.summary-card,.market-card,.wealth-composition,.wealth-settings-card) {
   background: var(--surface-1); border-color: var(--border-subtle); border-radius: 16px; box-shadow: 0 2px 10px #0001;
 }
-.wealth-layout .wealth-net-card { border-color: color-mix(in srgb,var(--workspace-accent) 35%,var(--line)); }
 .wealth-layout .wealth-invest-tabs { display: flex; flex-wrap: nowrap; gap: 4px; margin: 0 0 18px; padding: 4px; overflow-x: auto; scrollbar-width: thin; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
 .wealth-layout .wealth-invest-tabs button { flex: 1 1 0; min-height: 38px; min-width: max-content; padding: 9px 13px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 650; line-height: normal; white-space: nowrap; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .wealth-layout .wealth-invest-tabs button:hover { color: var(--text); background: var(--surface-1); }

@@ -1,5 +1,44 @@
 # Wealth 변경 이력
 
+## 구조 개선 검토 후보 — 운영 미배포
+
+기준 main `99277956dc3c9e6383b533bd2efba259c1418cae`, 브랜치 `codex/v212-initial-deeplink-paint-fix`. 운영은 앱 **v2.1.2 / home1** 그대로이며 미커밋 후보의 변경 core JS와 layout CSS/JS·SW assets는 **2.1.2-route1**이다. v2.1.3 P0 27/33/2 작업을 포함하지 않는다.
+
+공통 순자산·실현손익 계산 및 원천 상태 갱신은 유지하고, 주식 분류/히트맵/보유종목 DOM은 주식 화면 첫 진입 또는 dashboard 데이터 변경 시 렌더한다. 같은 데이터로 재방문할 때 중복 렌더를 생략한다. 기존 히트맵은 이미 숨김 화면 방어가 있었으므로 이를 신규 개선으로 중복 주장하지 않는다. 가계부는 해당 화면 진입 시 조회하며 같은 사용자·소유자·연월의 진행 중 요청만 공유한다. 사용자/소유자/기간/요청 순서가 바뀐 응답은 폐기하고 쓰기 시 기존 읽기를 무효화한다. 완료 결과를 금융 캐시로 재사용하지 않는다.
+
+주식 기록은 DAY 기준 계산과 차트가 공유하고, 예적금·보험·부동산은 원천 상태를 갱신하므로 유지했다. 가족 조회 병렬화 및 후속 Promise.allSettled도 이미 존재해 중복 구현하지 않았다. 시세 성공→dashboard 주식 스냅샷→snapshot-all 순서 및 실패 시 자동 기록 방어는 그대로다. 초기 라우트/접근성/history는 유지하고 동일 text/aria/dataset 기록만 조건부 처리했다. 미사용 layout views 별칭은 참조 확인 후 제거했다.
+
+검증 상태: 집중 결과는 표적13 PASS, 기존 회귀179 PASS/34 subtests(DAY38 포함), 스냅샷3 PASS이며 중복 실행 건수는 합산하지 않는다. 실제 앱 인증·세션·가족/사용자 격리 E2E24 PASS. 전체 pytest는 정확1회 실행하여 **4421 PASS / 4 FAIL / 5 SKIP / 888 subtests PASS**였다. 실패4건은 이전 CSS revision 기대값2건, 이동 전 메뉴 파일 참조1건, Node 샌드박스 의존성 누락1건이었다. 테스트 계약만 보완한 관련4모듈은 **20 PASS**이며 전체 pytest는 재실행하지 않았다. 최초 전체 실패 결과는 보존하고 전체 PASS로 재분류하지 않는다. 최소 비교1회(390/1280 A/B 각first1+warm1)는 완료했고 재측정하지 않는다. 모바일warm FCP220→248ms, 자산1528.5→2016.3ms, readiness1861.6→2393.1ms, CLS0.0210155→0.0352354였고 PCwarm은 FCP88→72ms, 자산204.3→239.6ms, readiness282.2→291.2ms였다. 초기API16→15/숨김주식DOM 미생성은 확인했으나 속도 개선은 입증하지 못했다. **PERFORMANCE_NUMERIC_GATE=FAIL**, **FUNCTIONAL_GATE=이전 집중 검증 PASS / 아래 최종 전체 결과 참조**, **USABILITY_GATE=HOLD**로 모바일 사용성 위험은 사용자 검토 대상으로 남긴다. 기존 수치 실패를 완화하거나 추가 좋은 표본을 수집하지 않는다. 기존 성능 FAIL/HOLD는 아래 이력으로 보존하며 수치 무회귀 PASS로 재분류하지 않는다. 구조 개선 후 최소 비교는 390/1280 A/B 각 최초1+warm1 한 번만 수행하고 반복하지 않는다. 기능·사용성·숫자 게이트를 분리하며 최종 출시 결정은 **USER_APPROVAL_REQUIRED**다. Commit/push/PR/merge/GHCR/Oracle/Compose 변경은 미실행이다.
+
+후속 개발: 국장/미장 공포탐욕지수, 보유종목 20일·50일선 이탈 및 데드크로스는 계획으로만 유지하며 이번 앱 변경에는 포함하지 않는다.
+
+최종 품질 정리: **TEST_CONTRACT_REVIEW=PASS**. 단일 exact stylesheet 링크/revision, 소유자별 계좌·보유종목 정확 결과, HTML 메뉴5개 검증 유지. 계약 보완 후 승인된 최종 전체 pytest 별도1회 결과는 **4424 PASS / 1 FAIL / 5 SKIP / 888 subtests PASS (1651.71초)**다. 실패 `test_native_daily_pointer_accuracy[True-dividend]`는 모바일 배당 DAY 차트의 상세 선택·선택 막대·기하 구조 검사 이후 수집 이벤트에서 pointerdown을 찾지 못한 StopIteration이다. 원인 UNCONFIRMED이며 과거 DAY 실패와 같은 원인이라고 단정하지 않는다. 자동 패치·재실행 없음. **FINAL_FULL_PYTEST=FAIL, FUNCTIONAL_GATE=HOLD, PR_PREPARATION=HOLD, RELEASE_GATE=HOLD**. 기존 인증 E2E24 및 합성 금융 검증 PASS는 기존 범위의 결과이며 전체 기능 PASS를 뜻하지 않는다. 기존 모바일 기능 경로 증거는 유지하되 자산 약+488ms/readiness 약+532ms는 단일 비교의 미해결 위험이다. 반복 재현으로 단정하지 않으며 PERFORMANCE_NUMERIC_GATE=FAIL을 유지한다. 이번 단계 앱·테스트·CI 변경 및 새 성능 측정은 0개다. 운영 v2.1.2/home1과 미배포 후보 v2.1.2/route1을 구분한다.
+
+### 이전 단계 이력 — 아래는 구조 개선 전 후보의 측정·검증 기록
+
+
+기준 main `99277956dc3c9e6383b533bd2efba259c1418cae`, 브랜치 `codex/v212-initial-deeplink-paint-fix`. 운영은 PR #159의 앱 **v2.1.2 / 홈 assets 2.1.2-home1**을 유지하며 아래는 별도 미커밋 후보다. PR #160 문서 병합은 앱 코드를 변경하지 않았다.
+
+수정 전 합성 Chromium 390px 일반 reload에서 `#invest`는 FCP332ms에 홈을 표시하고 약1348ms에 주식 화면으로 전환했다. `#ledger`도 홈→캘린더→가계부 및 ‘최근 6개월’→‘월간’ 제목 전환을 재현했다. 원인은 HTML 기본 홈과 뒤늦은 hash navigate의 불일치, 차트 기본 MONTH 모드와 HTML 초기 제목의 불일치다.
+
+기존 HTML-first를 유지하고 파서 체크포인트에서 선택 페이지·머니로그 패널을 맞춘다. 초기 표시와 이후 navigate는 하나의 라우트 규칙을 공유하며 detached 탭을 삽입 전에 선택한다. 가계부 초기 제목은 기본 차트 모드에 맞춘 ‘월간 현금흐름 추이’다. 인증·금융·차트 계산·기록 순서는 변경하지 않는다. CSS 변경은 사용하지 않는 과거 카드/바로가기 선택자 제거에 한정한다. 타이머/전체 앱 숨김 없이 JS 비활성 홈 기본 구조를 보존한다.
+
+후보 변경 asset revision/layout CSS·JS/SW는 **2.1.2-route1**, core **2.1.2-r1** 및 앱 **2.1.2**는 유지한다. v2.1.3 P0는 제외·보호한다. 기존 FCP200→220ms 승인 예외는 PR #159 후보만의 기록이며 이번 후보에 자동 적용하지 않는다. DAY 과거 일회성 실패 원인 **UNCONFIRMED**를 유지한다.
+
+과거 UI 정리 전 검증 상태: 첫 프레임 5폭×13라우트×첫 방문/일반 reload PASS. 테마3종·SW 제어 재방문·히스토리·비홈 권한, 가계부 렌더러·기간 변경, DAY38·IPO35 및 금융 격리 집중 검증 PASS. 추가 IPO 직접 새로고침·제외/복원·정적 gzip/캐시 회귀22 PASS. 초기 홈 기존4 PASS + route matrix1 PASS + 나머지 집중215 PASS/Windows의 Linux전용2 SKIP/45subtests PASS이며, 실제 FastAPI 인증·세션·사용자 격리와 Chromium E2E도 이번 후보에서24 PASS다. CI 홈 모듈의 실제 수집은9개로 확인했고 XML 무스킵 guard를4→9로 보완했다. CI 실행은 하지 않았다.
+
+성능 게이트는 **FAIL / HOLD**다. 줄바꿈을 Windows CRLF로 일치시킨 baseline/candidate 비교(각 최초1+warm3, 같은 기존 CPU/네트워크·purple·캐시/SW 조건)에서 모바일 warm 중앙값 FCP204→196ms, 자산1760→1911ms, readiness2064→2311ms, CLS0.0335→0.0224였다. PC는 FCP76→76ms, 자산213→192ms, readiness358→335ms, CLS0.00456→0.00456. 모바일 자산/readiness 무회귀를 충족하지 못했고 정확한 코드 인과관계는 미확정이다. 앞선 LF/CRLF 혼재 비교는 진단 자료로 보존하고 판정 근거와 구분한다. 추가 임의 측정·추측 튜닝이나 기존 FCP 예외 확장은 하지 않는다.
+
+전체 pytest는 **NOT_RUN**이다. 기능 집중 검사는 통과했지만 성능 게이트가 미충족이므로 전체 출시 재검증으로 진행하지 않았다. 후보를 미커밋·미배포 상태로 보존하며 commit/push/PR/머지/GHCR/Oracle/Compose 변경은 실행하지 않는다.
+
+추가 과거 UI 정리: 항상 hidden/aria-hidden이던 `data-legacy-summary`의 카드3개, 전용 링크 이벤트1개·중복 값 갱신5개와 전용 CSS를 삭제했다. HTML/JS에서 이미 제거된 바로가기 패널의 잔여 CSS도 삭제했다. 현재 `homeAssetPortfolioPanel`, 주식 `summaryPanel`, 가족 선택·내부 탭 및 인증/권한용 표시 제어는 실제 사용 중이므로 보존했다. 정리 전후 합성 360px 비교에서 홈 DOM188→168, 현재 자산 값·표시 링크·주요 computed style/좌표·접근성 링크/제목이 동일했다. CSS/JS로 과거 UI를 은폐하는 신규 규칙은 없다. 이전 성능 결과는 정리 전 후보의 기록으로 보존한다. 아래의 정리 후 고정 비교에서도 출시 HOLD를 유지한다.
+정리 후 집중 회귀는 137 pytest PASS/20 subtests PASS, 실제 인증·세션·가족 선택·데이터 격리 E2E 24 PASS. 홈 초기 모듈9개 및 CI XML 수집 guard9는 유지한다. 전체 pytest/커밋/PR/배포는 미실행이다.
+
+과거 UI 정리 후 사전 고정 경량 비교(Chrome155.0.8059.84, #home, 모바일5쌍 AB/BA/AB/BA/AB·PC2쌍 BA/AB, side별 최초1+warm3, 전체56회)를 완료했다. 모바일 warm15개/side 중앙값은 FCP160→172ms, 첫 유효 자산1373.5→1533.5ms, 같은 readiness1912.6→2080.8ms, ScriptDuration414.623→464.862ms, CLS0.033507→0.033507. PC warm6개/side는 FCP64→68ms, 자산182.15→209.90ms, readiness272→312.60ms다. 무회귀를 충족하지 못해 **PERFORMANCE_GATE=HOLD**다. 최초 방문은 별도로 보존했으며 warm 판정과 합치지 않았다. 기존 정리 전 실패 이력도 유지한다.
+
+판정 시점 완료 API는 모바일 A13건6회/16건9회, B13건9회/16건6회로 차이가 있었지만 별도 후속 관찰에서는 양쪽 모든 warm 표본이 동일16건이었다. 늦게 완료된 요청은 planning 재조회·market-overview·realized-pnl 재조회였다. 인증1회/workspace1개, 시세 완료→dashboard→snapshot-all 순서와 합성 순자산397,000,000원은 모두 유지됐다. 100ms polling과 누적 CPU 지표만으로 특정 코드의 인과관계는 확인하지 못했다(**UNCONFIRMED**). API·readiness·assertion을 변경하지 않았고 추가 앱 수정0개, 추가 성능 재측정/출시 집중 검사/전체 pytest/커밋/PR/배포도 미실행이다. 기존 기능 PASS 결과를 새 고유 통과 건수로 합산하지 않는다.
+
+
 ## v2.1.2 홈 초기 UI 핫픽스 — PR #159 운영 배포 기록 (2026-10-21)
 
 - [PR #159](https://github.com/sagesaint84/wealth/pull/159) Squash Merge 완료. 확인한 main/배포 코드 SHA `b5a5c525f24ec7233b85af70dc8242a25966e150`. 앱 **2.1.2**, 홈 assets/SW **2.1.2-home1**, core **2.1.2-r1** 유지; 미완료 v2.1.3 P0 제외.

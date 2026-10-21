@@ -85,3 +85,25 @@ assert.equal(writes, 1);
 """
     result = subprocess.run(["node", "-e", script, heatmap_fn], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_price_refresh_success_and_failure_preserve_snapshot_order():
+    source = (Path(__file__).resolve().parents[1] / 'app/static/wealth.js').read_text(encoding='utf-8')
+    code='async function loadAssetDataForUser() {'+source.split('async function loadAssetDataForUser() {',1)[1].split('\nasync function handleForcePasswordSubmit',1)[0]
+    script=r"""
+const assert=require('node:assert/strict'),vm=require('node:vm');
+(async()=>{for(const fail of [false,true]){
+ const events=[];const c={currentOwner:'모두',currentDividendMode:'actual',selectedDividendYear:'all',selectedPnlYear:'all',currentPnlTradeType:'all',
+  api:async p=>{events.push(p);if(fail&&p==='/api/refresh-prices')throw Error('synthetic refresh failure');return{};},
+  loadFamilyMembers:async()=>{events.push('family');},loadDashboard:async flag=>{events.push(flag?'dashboard-with-snapshot':'dashboard-without-snapshot');},
+  toast:()=>events.push('warning'),window:{dispatchEvent:()=>events.push('planning-refresh')},CustomEvent:class{},
+  loadMarkets:async()=>events.push('markets'),loadActualDividends:async()=>events.push('dividends'),loadRealizedPnl:async()=>events.push('pnl'),updateOverviewCardsAllTime:async()=>events.push('overview'),finishStartupIncomeReads:()=>events.push('finished')};
+ vm.createContext(c);vm.runInContext(process.argv[1],c);await c.loadAssetDataForUser();
+ const snaps=events.filter(x=>x==='/api/planning/snapshot-all');assert.equal(snaps.length,fail?0:1);
+ assert(events.indexOf('/api/refresh-prices')<events.indexOf(fail?'dashboard-without-snapshot':'dashboard-with-snapshot'));
+ if(!fail)assert(events.indexOf('dashboard-with-snapshot')<events.indexOf('/api/planning/snapshot-all'));
+ assert.equal(events.filter(x=>x==='planning-refresh').length,fail?0:1);assert.equal(events.at(-1),'finished');
+}})().catch(e=>{console.error(e);process.exitCode=1});
+"""
+    result=subprocess.run(['node','-e',script,code],capture_output=True,text=True,encoding='utf-8')
+    assert result.returncode==0,result.stderr

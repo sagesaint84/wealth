@@ -21,8 +21,8 @@ class MoneyLogNavigationTests(unittest.TestCase):
             "settings: ['설정'",
         ):
             with self.subTest(definition=definition):
-                self.assertIn(definition, self.layout)
-        views_block = self.layout[self.layout.index("const views = {"):self.layout.index("// The initial HTML")]
+                self.assertIn(definition, self.html)
+        views_block = self.html[self.html.index("const views = {"):self.html.index("const moneyLogTabs = {")]
         self.assertNotIn("ledger:", views_block)
         self.assertEqual(self.html.count('data-wealth-view="'), 5)
         self.assertIn(".wealth-nav-bottom { display: contents; }", self.css)
@@ -62,13 +62,13 @@ class MoneyLogNavigationTests(unittest.TestCase):
                 self.assertIn(existing_action, self.js + self.html)
 
     def test_income_hashes_remain_compatible_and_distinct(self):
-        self.assertIn("legacyMoneyLogTabs = { ledger: 'ledger', dividend: 'dividend', pnl: 'pnl' }", self.layout)
-        self.assertIn("? 'income'", self.layout)
+        self.assertIn("moneyLogTabs = { ledger: 'ledger', dividend: 'dividend', pnl: 'pnl', calendar: 'calendar', ipo: 'ipo' }", self.html)
+        self.assertIn("? 'income'", self.html)
         self.assertIn("currentIncomeTab === 'calendar' ? '#income' : `#${currentIncomeTab}`", self.js)
         self.assertIn("[location.hash.slice(1)] || 'calendar'", self.js)
 
     def test_header_and_responsive_tab_contract(self):
-        self.assertIn("['머니 로그', '머니 로그', '실현손익, 배당·이자, 수입·지출 내역을 한곳에서 확인하세요.']", self.layout)
+        self.assertIn("['머니 로그', '머니 로그', '실현손익, 배당·이자, 수입·지출 내역을 한곳에서 확인하세요.']", self.html)
         self.assertIn("overflow-x: auto", self.css)
         self.assertIn("white-space: nowrap", self.css)
 
