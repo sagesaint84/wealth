@@ -169,6 +169,7 @@ def test_interactive_refresh_has_one_external_discovery_even_when_alice_stays_un
         {'company_name': '엘리스그룹', 'subscription_start': '2026-10-07', 'sources': {},
          'offer_band_low': 70400, 'offer_band_high': 90500, 'final_offer_price': None},
     ]}
+    unmatched_before = copy.deepcopy(state['ipos'][1])
     calls = Counter()
     shared = 'https://metalogos.ai/160ipo/stock/B202607142'
     def handler(request):
@@ -202,7 +203,28 @@ def test_interactive_refresh_has_one_external_discovery_even_when_alice_stays_un
     assert 'unmatched=1' in result['sources']['metalogos160_reference_fallback']
     assert state['ipos'][0]['sources']['metalogos160']['attractiveness_score'] == 61
     assert state['ipos'][1]['final_offer_price'] is None
-    assert state['ipos'][1]['sources'] == {}
+    # Missing credentials must remain explicitly unverified, without invented values.
+    assert state['ipos'][1] == {
+        **unmatched_before,
+        'sources': {'dart_schedule_verification': {'status': 'unverified', 'reason': 'api_key_missing'}},
+        'score': {
+            'score': None, 'grade': None, 'coverage': 0.0, 'confidence_level': 'low',
+            'status': 'BETA', 'is_calculating': True,
+            'reason': 'Core features missing: institutional_competition_ratio, lockup_commitment_ratio, tradable_share_ratio, pricing_discipline',
+            'core_missing': ['institutional_competition_ratio', 'lockup_commitment_ratio',
+                             'tradable_share_ratio', 'pricing_discipline'],
+            'component_scores': {},
+            'feature_scores': dict.fromkeys([
+                'lockup_commitment_ratio', 'institutional_competition_ratio', 'high_bid_ratio',
+                'tradable_share_ratio', 'tradable_market_cap_krw', 'secondary_sale_ratio',
+                'unlock_3m_ratio', 'pricing_discipline', 'relative_valuation', 'revenue_cagr',
+                'operating_margin', 'net_debt_to_assets', 'recent_ipo_market_return',
+                'market_20d_return'], 50.0),
+            'score_label': '산정중', 'score_as_of': '2026-10-06T23:59:59+09:00',
+            'score_version': 'v1.0',
+        },
+    }
+    assert all(call[0] == 'is_configured' for call in dart.mock_calls)
     assert 'features' not in state['ipos'][1]
 
 

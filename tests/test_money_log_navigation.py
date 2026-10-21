@@ -22,13 +22,13 @@ class MoneyLogNavigationTests(unittest.TestCase):
         ):
             with self.subTest(definition=definition):
                 self.assertIn(definition, self.layout)
-        views_block = self.layout[self.layout.index("const views = {"):self.layout.index("const icons = {")]
+        views_block = self.layout[self.layout.index("const views = {"):self.layout.index("// The initial HTML")]
         self.assertNotIn("ledger:", views_block)
-        self.assertIn("filter(key => key !== 'settings')", self.layout)
+        self.assertEqual(self.html.count('data-wealth-view="'), 5)
         self.assertIn(".wealth-nav-bottom { display: contents; }", self.css)
 
     def test_money_log_has_primary_tabs(self):
-        tab_block = self.layout[self.layout.index("incomeTabs.innerHTML"):self.layout.index("page('income').append(incomeTabs)")]
+        tab_block = self.layout[self.layout.index("incomeTabs.innerHTML"):self.layout.index("page('income').prepend(incomeTabs)")]
         self.assertEqual(tab_block.count('class="income-tab'), 5)
         self.assertIn('data-income="calendar"', tab_block)
         self.assertIn('data-income="pnl"', tab_block)
@@ -38,11 +38,12 @@ class MoneyLogNavigationTests(unittest.TestCase):
         for label in ("캘린더", "실현손익", "배당·이자", "가계부", "공모주"):
             self.assertIn(label, tab_block)
 
-    def test_existing_financial_panels_are_moved_without_replacement(self):
-        self.assertIn("['calendarPanel', 'realizedPnlPanel', 'dividendPanel', 'ledgerSectionPanel', 'ipoPanel'].forEach", self.layout)
+    def test_existing_financial_panels_start_inside_money_log_without_replacement(self):
+        income = self.html.split('<section data-wealth-page="income"', 1)[1].split('<section data-wealth-page="settings"', 1)[0]
         for panel_id in ("calendarPanel", "realizedPnlPanel", "dividendPanel", "ledgerSectionPanel", "ipoPanel"):
             with self.subTest(panel_id=panel_id):
                 self.assertEqual(self.html.count(f'id="{panel_id}"'), 1)
+                self.assertIn(f'id="{panel_id}"', income)
         for owner_tabs in ("pnlFamilyTabs", "dividendFamilyTabs", "ledgerFamilyTabs"):
             self.assertIn(f'id="{owner_tabs}"', self.html)
 

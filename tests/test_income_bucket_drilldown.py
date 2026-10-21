@@ -247,7 +247,7 @@ SCENARIOS = {
         const geometry=()=>[...svg.querySelectorAll('.wealth-unified-flow-bar')].map(b=>['x','y','width','height'].map(a=>b.getAttribute(a)));
         const before=geometry(),layout=()=>[host(kind).querySelector('.wealth-unified-content').getBoundingClientRect().width,host(kind).querySelector('.wealth-unified-viewport').getBoundingClientRect().width,host(kind).querySelector('.wealth-unified-axis').textContent,...[...svg.querySelectorAll('text')].map(t=>[t.textContent,t.style.visibility])];
         const beforeLayout=layout();
-        const invisible=()=>{const s=getComputedStyle(n);check(s.fill==='none'&&s.stroke==='none'&&s.outlineStyle==='none'&&s.pointerEvents==='none','DAY keyboard target unpainted and pointer-inert');};
+        const invisible=()=>{const s=getComputedStyle(n);check(s.fill==='none'&&s.stroke==='none'&&s.outlineStyle==='none'&&s.pointerEvents==='none','DAY keyboard target unpainted and pointer-inert '+JSON.stringify({kind,connected:n.isConnected,fill:s.fill,stroke:s.stroke,outline:s.outlineStyle,pointer:s.pointerEvents,active:document.activeElement===n,fonts:document.fonts.status,ready:document.readyState}));};
         invisible();select(kind,'2026-10-07');n.focus();n.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await frames();
         invisible();check(u.getDetail(kind).key==='2026-10-07','detail opens');eq(geometry(),before,'selection does not change bar geometry');eq(layout(),beforeLayout,'selection does not change axes/width/labels');
         check(svg.getAttribute('preserveAspectRatio')==='none','existing SVG scale retained');

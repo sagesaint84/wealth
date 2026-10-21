@@ -9,6 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 WEALTH_JS = ROOT / "app" / "static" / "wealth.js"
+WEALTH_HTML = ROOT / "app" / "static" / "index.html"
 WEALTH_LAYOUT_JS = ROOT / "app" / "static" / "wealth-layout.js"
 WEALTH_PLANNING_JS = ROOT / "app" / "static" / "wealth-planning.js"
 WEALTH_LAYOUT_CSS = ROOT / "app" / "static" / "wealth-layout.css"
@@ -181,9 +182,9 @@ process.stdout.write(JSON.stringify(out));
             self.layout_css,
         )
         # Verify the global page head contains the standard eyebrow
-        self.assertIn('<p class="wealth-eyebrow">YOUR FINANCIAL OVERVIEW</p>', self.layout_js)
-        self.assertIn('<h2 id="wealthPageTitle"', self.layout_js)
-        self.assertIn('<p id="wealthPageDescription"', self.layout_js)
+        self.assertIn('<p class="wealth-eyebrow">YOUR FINANCIAL OVERVIEW</p>', WEALTH_HTML.read_text(encoding="utf-8"))
+        self.assertIn('<h2 id="wealthPageTitle"', WEALTH_HTML.read_text(encoding="utf-8"))
+        self.assertIn('<p id="wealthPageDescription"', WEALTH_HTML.read_text(encoding="utf-8"))
 
     # ── 6. Standardized Secondary Tab Navigation ──────────────────────────────
     def test_secondary_tab_navigation_styling_is_standardized(self) -> None:

@@ -6,6 +6,7 @@ class HomeDashboardBatch2Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         root = Path(__file__).resolve().parents[1]
+        cls.html = (root / "app/static/index.html").read_text(encoding="utf-8")
         cls.layout = (root / "app/static/wealth-layout.js").read_text(encoding="utf-8")
         cls.css = (root / "app/static/wealth-layout.css").read_text(encoding="utf-8")
         cls.main = (root / "app/static/wealth.js").read_text(encoding="utf-8")
@@ -13,14 +14,14 @@ class HomeDashboardBatch2Tests(unittest.TestCase):
 
     def test_debt_is_a_secondary_existing_value_with_non_profit_color(self):
         self.assertIn("wealthAssetDebtDetail", self.layout)
-        self.assertIn("classList.add('is-debt')", self.layout)
+        self.assertIn('class="wealth-asset-secondary-row is-debt"', self.html)
         self.assertIn(".wealth-asset-secondary-row.is-debt", self.css)
         self.assertIn("#d6a85f", self.css)
         self.assertIn(".wealth-asset-secondary-row.is-debt em, .wealth-asset-secondary-row.is-debt small", self.css)
 
     def test_expected_return_uses_existing_property_and_stock_domain_values(self):
-        self.assertIn("['부동산 기대수익', 'wealthAssetPropertyExpected'", self.layout)
-        self.assertIn("['주식 기대수익', 'wealthAssetStockExpected'", self.layout)
+        self.assertIn('<em>부동산 기대수익</em><small id="wealthAssetPropertyExpected">', self.html)
+        self.assertIn('<em>주식 기대수익</em><small id="wealthAssetStockExpected">', self.html)
         self.assertIn("propertyExpected: totalREProfit", self.main)
         self.assertIn("stockExpected: Number(s.profit_krw) || 0", self.main)
         self.assertIn("propertyExpectedRate: realEstateReturnRate", self.main)

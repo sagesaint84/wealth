@@ -1,5 +1,17 @@
 # Wealth
 
+## 홈 초기 UI 핫픽스 후보 — Windows 검증 완료 / Linux CI 대기 / 미배포
+
+2026-10-21 기준 `codex/v212-home-initial-flash-fix` 후보다. 사용자 제공 운영 기준은 **Wealth v2.1.2**, PR #158, SHA `baee68438fed1822581e83211756304d3f080bc1`이다. 구형 홈 HTML을 먼저 그린 뒤 JavaScript가 현재 홈을 재구성하던 경로를 HTML-first 구조로 바꿨다. 합성 Chromium 캡처에서 구형 UI 재노출과 현재 홈 재소실은 관찰되지 않았다.
+
+기존 모바일 warm 중앙값은 자산 표시 **1698→1396ms**, readiness **2072→1718ms**, CLS **0.243→0.034**로 개선됐다. FCP **200→220ms(+20ms, +10%)**는 계속 **`FAIL_WITH_APPROVED_CANDIDATE_EXCEPTION`**이다. 사용자가 승인한 이번 후보만의 예외이며 다른 후보·v2.1.3 P0·미래 릴리스에 적용하지 않는다. FCP 기준이나 다른 성능·기능 차단 조건은 완화하지 않았다. 이번 전체 재검증에서 성능은 다시 측정하지 않았다.
+
+최종 Windows 전체 pytest를 정확히 1회 실행해 **4,414 passed / 0 failed / 5 skipped / 888 subtests passed**, exit **0**을 확인했다. DAY 차트 검사와 IPO 계약 2건도 전체 실행에서 PASS다. 과거 전체 실행에서 DAY 차트가 한 번 실패한 이력과 원인 **`UNCONFIRMED`**는 유지하며 비결정성 위험을 PR 검토 항목으로 남긴다. 실제 앱 인증 E2E **24개 PASS**는 인증 구현이 불변인 범위의 보존 검증 결과다.
+
+상태는 **`PR_READY_PENDING_LINUX_CI`**다. skip은 비활성 외부 live 3개와 Windows에서 실행할 수 없는 Linux subreaper/pidfd 2개다. 기존 GitHub Actions에서 Linux 전용 2개와 DAY 차트 회귀를 실제 통과시키기 전에는 머지·배포를 승인하지 않는다. 기존 선택형 CI에 DAY 차트 38개와 IPO 계약 모듈 2개를 추가하고, 결과 XML에서 실제 수집·무스킵 PASS와 DAY 대상 검사를 강제하도록 보완했다. 기존 native Linux CI는 두 프로세스 검사의 무스킵 PASS를 이미 강제한다. YAML·실행 명령·XML 검사 로직의 로컬 정적 검증은 PASS이며 실제 Linux CI 결과는 PR에서 별도로 확인해야 한다.
+
+앱 **2.1.2**, workspace assets revision 및 SW cache suffix **2.1.2-home1**, 변경하지 않은 core JS **2.1.2-r1**을 유지한다. 미완료 v2.1.3 P0는 포함하지 않았다. 이 기록은 PR 제출 준비 시점이며 커밋·PR 및 실제 Linux CI 결과는 해당 PR/Actions에서 확인한다. 머지·GHCR 발행·Oracle 배포는 별도 승인 전까지 진행하지 않으며 운영 서버와 Compose는 변경하지 않았다. 아래 절은 이전 개발 당시의 기록이다.
+
 ## 정적 전송 최적화 — 개발·합성 검증 / 운영 미배포
 
 기준 main `92956f620e9316b111b419f8c1d01891b7fe2562`에서 공개 `/static` JS/CSS(1KB 이상)에만 표준 gzip(level 5)을 적용한다. API·금융 응답·이미지·저장 형식·계산·스냅샷 순서·인증은 변경하지 않는다. Range·HEAD·ETag/304·MIME·gzip 거부를 보존하고 `Vary: Accept-Encoding`을 설정한다. 디스크 압축 캐시나 영구 파일은 생성하지 않는다.

@@ -1,5 +1,20 @@
 # Wealth Roadmap
 
+## 홈 초기 UI 핫픽스 — Windows 검증 완료, Linux CI 및 PR 단계 대기
+
+2026-10-21, 대상 `codex/v212-home-initial-flash-fix` (기준 v2.1.2 / PR #158 / `baee68438fed1822581e83211756304d3f080bc1`).
+
+- [x] 구형 초기 HTML→JS 홈 재구성을 HTML-first로 바꾸고 현재 홈 유지·다섯 화면 폭·테마·역할·가족 및 SW/gzip을 검증한다.
+- [x] 기존 실제 인증 E2E 24 PASS와 금융 계산·기록 완료 순서 검증을 관련 구현 불변 범위에서 보존한다.
+- [x] 최종 Windows 전체 pytest 1회: **4,414 PASS / 0 FAIL / 5 SKIP / 888 subtests PASS**, exit **0**. DAY 차트·IPO 계약 2건 PASS.
+- [x] 모바일 FCP **200→220ms FAIL**은 이번 후보 한정 사용자 승인 예외로 기록한다. 기존 자산 표시 1698→1396ms, readiness 2072→1718ms, CLS 0.243→0.034 개선을 보존하고 게이트를 일반적으로 완화하지 않는다.
+- [ ] 과거 DAY 차트 비결정적 실패 위험을 PR에 명시한다. 원인은 **UNCONFIRMED**이며 이번 PASS를 원인 해결로 표현하지 않는다.
+- [x] 기존 선택형 CI에 DAY 38개와 IPO 계약 모듈 2개를 추가하고 XML로 무스킵 실행 및 DAY 대상 PASS를 강제한다. YAML·실행 명령·XML 검사 로직 정적 검증 PASS.
+- [ ] 실제 차트 회귀 및 기존 native CI의 Linux subreaper/pidfd 2개를 필수 통과시킨다. 외부 live 3개와 Linux 대기 2개를 구분한다.
+- [ ] Linux CI 통과 이후에만 머지·이미지·배포 승인을 별도로 검토한다. 현재 **PR_READY_PENDING_LINUX_CI**, 최종 머지·배포 승인 **NOT_YET**다.
+
+앱 **2.1.2**, workspace assets/SW **2.1.2-home1** 유지. 미완료 v2.1.3 P0와 분리한다. 이 기록은 PR 제출 준비 시점이다. 제출 후 커밋·PR·실제 Linux CI 결과는 해당 PR/Actions를 따른다. Merge·GHCR 발행·Oracle 배포·Compose 수정은 별도 승인 전까지 진행하지 않는다. 운영 서버는 기존 v2.1.2 그대로다.
+
 ## 정적 전송 최적화 — 개발·합성 검증 / 운영 미배포
 
 기준 main `92956f620e9316b111b419f8c1d01891b7fe2562`에서 공개 `/static` JS/CSS(1KB 이상)에만 표준 gzip(level 5)을 적용한다. API·금융 응답·이미지·저장 형식·계산·스냅샷 순서·인증은 변경하지 않는다. Range·HEAD·ETag/304·MIME·gzip 거부를 보존하고 `Vary: Accept-Encoding`을 설정한다. 디스크 압축 캐시나 영구 파일은 생성하지 않는다.

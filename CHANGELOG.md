@@ -1,5 +1,14 @@
 # Wealth 변경 이력
 
+## 홈 초기 HTML 핫픽스 후보 — 2026-10-21 / Windows PASS / Linux CI 대기
+
+- 최초 HTML에 현재 홈·내비게이션·패널 부모 구조를 배치하고 중복 workspace 생성 및 주요 DOM 이동을 줄였다. 저장된 purple/white/oled 테마는 초기 복원 경로를 유지한다. 금융 계산·요청/기록 순서·인증·IPO backend는 변경하지 않는다.
+- 정적 revision과 HTML 조상관계 검사를 현재 구조에 맞추고, IPO의 원본 보존과 정확한 DART 미검증 메타데이터 계약을 구분했다. DAY 차트 assertion은 유지한 채 실패 시 연결 상태·계산 스타일 진단만 보강했다.
+- 최종 Windows 전체 검증: **4,414 PASS / 0 FAIL / 5 SKIP / 888 subtests PASS**, exit **0**. DAY 차트와 IPO 대상 2건 PASS. 실제 인증 **24 PASS**는 기존 격리 E2E 결과를 보존한다.
+- 기존 warm 자산 표시 1698→1396ms, readiness 2072→1718ms, CLS 0.243→0.034 개선을 보존한다. 모바일 FCP **200→220ms FAIL**은 **이번 후보에 한정한 사용자 승인 예외**다. 기준을 PASS로 바꾸거나 미래 릴리스에 자동 적용하지 않는다.
+- 과거 DAY 차트 full-run 실패 원인은 **UNCONFIRMED**다. 이번 PASS가 원인 규명이나 비결정성 제거를 의미하지 않는다. Linux CI에서 차트와 Linux 전용 2개를 필수 검증해야 한다. 외부 live 3개는 의도적으로 미실행이다.
+- **PR_READY_PENDING_LINUX_CI**. 앱 2.1.2 / assets 2.1.2-home1 유지, v2.1.3 P0 포함 없음. PR 제출 준비로 기존 선택형 CI에 DAY 모듈 38개 및 IPO 계약 모듈 2개와 XML 실행 보장 검사를 추가했다. 기존 Linux 전용 2개 무스킵 검사는 유지한다. CI 설정 정적 검증 PASS, 실제 Linux 통과는 PR/Actions에서 확인해야 한다. 머지·GHCR·Oracle 배포·Compose 변경은 별도 승인 전까지 진행하지 않는다.
+
 ## 정적 전송 최적화 — 개발·합성 검증 / 운영 미배포
 
 기준 main `92956f620e9316b111b419f8c1d01891b7fe2562`에서 공개 `/static` JS/CSS(1KB 이상)에만 표준 gzip(level 5)을 적용한다. API·금융 응답·이미지·저장 형식·계산·스냅샷 순서·인증은 변경하지 않는다. Range·HEAD·ETag/304·MIME·gzip 거부를 보존하고 `Vary: Accept-Encoding`을 설정한다. 디스크 압축 캐시나 영구 파일은 생성하지 않는다.

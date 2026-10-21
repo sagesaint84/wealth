@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from html.parser import HTMLParser
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,14 +12,33 @@ CSS = (ROOT / "app/static/wealth-layout.css").read_text(encoding="utf-8")
 
 class TossWtsIncomeUiTests(unittest.TestCase):
     def test_income_section_is_inside_dividend_panel_not_realized_panel(self):
-        realized = HTML.index('id="realizedPnlPanel"')
-        dividend = HTML.index('id="dividendPanel"')
-        income = HTML.index('id="tossWtsIncomeSection"')
-        holdings = HTML.index('id="holdingsPanel"')
-        self.assertLess(realized, dividend)
-        self.assertGreater(income, dividend)
-        self.assertLess(income, holdings)
-        self.assertIn("토스 WTS 배당·이자 가져오기", HTML[dividend:holdings])
+        class IncomeParents(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.sections, self.parents, self.dividend_text = [], [], []
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if attributes.get('id') == 'tossWtsIncomeSection':
+                    self.parents.append(tuple(self.sections))
+                if tag == 'section':
+                    self.sections.append(attributes.get('id'))
+
+            def handle_endtag(self, tag):
+                if tag == 'section':
+                    self.sections.pop()
+
+            def handle_data(self, data):
+                if 'dividendPanel' in self.sections:
+                    self.dividend_text.append(data)
+
+        structure = IncomeParents()
+        structure.feed(HTML)
+        self.assertEqual(len(structure.parents), 1)
+        self.assertIn('dividendPanel', structure.parents[0])
+        self.assertNotIn('realizedPnlPanel', structure.parents[0])
+        self.assertNotIn('holdingsPanel', structure.parents[0])
+        self.assertIn('토스 WTS 배당·이자 가져오기', ''.join(structure.dividend_text))
 
     def test_dividend_defaults_to_actual_and_income_is_actual_only(self):
         tabs = HTML.index('id="dividendModeTabs"')

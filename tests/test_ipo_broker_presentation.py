@@ -72,7 +72,7 @@ def test_explicit_eugene_alias_merges_without_changing_unknown_namespace():
     assert presentation.derive_lead_manager_filters(['', '  ', None, 42, '(주)']) == []
 
 
-def test_presentation_preserves_raw_bytes_and_does_not_mutate_market_or_read_storage():
+def test_presentation_preserves_raw_bytes_and_does_not_mutate_market_or_read_storage(tmp_path):
     market = {'schema_version': 1, 'ipos': [{
         'ipo_id': 'synthetic', 'company_name': 'fixture',
         'lead_managers': [' 삼성증권(주) ', '미래에셋증권 주식회사', '골드만삭스증권 서울지점'],
@@ -80,16 +80,27 @@ def test_presentation_preserves_raw_bytes_and_does_not_mutate_market_or_read_sto
         'sources': {'fixture': {'raw_issuer': 'untouched'}},
     }]}
     before = deepcopy(market)
+    store = tmp_path / 'market.json'
+    store_bytes = json.dumps(market, ensure_ascii=False).encode('utf-8')
+    store.write_bytes(store_bytes)
     raw_bytes = json.dumps(market['ipos'][0]['lead_managers'], ensure_ascii=False).encode('utf-8')
     with patch.object(presentation, '_read_portfolio_for_presentation', return_value={}), \
-         patch.object(presentation, 'read_pnl_records_readonly', return_value=[]):
+         patch.object(presentation, 'read_pnl_records_readonly', return_value=[]), \
+         patch('app.services.ipo.store.write_market_store', side_effect=AssertionError('presentation must not persist')):
         output = presentation.present_market_store('synthetic-user', market, date(2026, 10, 8))
     assert market == before
     item = output['ipos'][0]
     assert json.dumps(item['lead_managers'], ensure_ascii=False).encode('utf-8') == raw_bytes
     assert [entry['key'] for entry in item['lead_manager_filters']] == ['samsung', 'mirae', 'raw:골드만삭스증권']
-    assert item['sources'] == before['ipos'][0]['sources']
+    # Read-only projection preserves every source and adds only this exact status.
+    assert item['sources'] == {
+        **before['ipos'][0]['sources'],
+        'dart_schedule_verification': {'status': 'unverified', 'reason': 'legacy_not_checked'},
+    }
+    assert store.read_bytes() == store_bytes
     assert 'lead_manager_filters' not in market['ipos'][0]
+    item['sources']['fixture']['raw_issuer'] = 'output mutation'
+    item['sources']['dart_schedule_verification']['status'] = 'output mutation'
     item['lead_managers'].append('output mutation')
     item['lead_manager_filters'][0]['display_name'] = 'output mutation'
     assert market == before
