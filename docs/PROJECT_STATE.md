@@ -4,7 +4,7 @@
 
 - 운영 앱 **v2.1.2**, 홈 assets/SW **2.1.2-home1**, core **2.1.2-r1**. [PR #159](https://github.com/sagesaint84/wealth/pull/159) Squash Merge 완료, 확인한 main/운영 배포 코드 SHA `b5a5c525f24ec7233b85af70dc8242a25966e150`. 이전 조사 기준 PR #158/baee684와 구분한다. v2.1.3 P0 미포함.
 - [발행 workflow 39522925985](https://github.com/sagesaint84/wealth/actions/runs/39522925985) SUCCESS. 이미지 `ghcr.io/sagesaint84/wealth:b5a5c52`, manifest Digest `sha256:c9b586098a4d31860008782531f2163e7f274938de2e2f0c6bc185b143fd4ffc`. 발행 로그의 revision 및 레지스트리 원문 해시와 Linux AMD64/ARM64 플랫폼 확인 PASS. 재빌드하지 않았다.
-- **Oracle DEPLOY_GATE=PASS / IMAGE_DIGEST_GATE=PASS / wealth running**은 사용자 확인 범위다. 서버에 직접 접속하지 않았고 HTTP·정적/gzip·마운트·재시작 횟수·실제 전체 서버 Digest를 이번 단계에서 독립 검증하지 않았다. 사용자 출력의 전체 Digest는 배포 스크립트에 설정된 기대값이다. 실행 컨테이너가 사용하는 이미지의 `RepoDigests` 독립 조회는 미실행이므로, 기대값 출력을 실제 실행 이미지의 독립 대조 완료로 기록하지 않는다.
+- **Oracle DEPLOY_GATE=PASS / IMAGE_DIGEST_GATE=PASS / wealth running**은 사용자 확인 범위다. 이전에는 스크립트 기대값만 확인했고 실행 이미지 `RepoDigests` 조회는 미실행이었다. 이후 사용자가 Oracle의 읽기 전용 조회로 실행 이미지 ID `sha256:4ec2929e1bac2df9458d987b762f7128e3b6de12f1ffe9c228245074f3a5cede`와 `RepoDigests`의 GHCR 발행 Digest 일치를 확인했다고 전달했다. 현재 **ORACLE_IMAGE_DIGEST_VERIFIED=PASS**는 사용자 제공 명령 출력에 근거하며 Codex가 서버에 직접 접속한 결과가 아니다. HTTP·정적/gzip·마운트·재시작 횟수의 추가 독립 검증은 수행하지 않았다.
 - **BROWSER_SMOKE_STATUS=NOT_CONFIRMED**. 운영 배포 후 실제 로그인·새로고침·가족/탭·테마·자산 화면 결과는 아직 제공되지 않았다. 기존 합성 Chromium/출시 전 실제 앱 인증 24 PASS는 운영 브라우저 검증과 별도다.
 - Windows 전체 4,414 PASS / 0 FAIL / 5 SKIP / 888 subtests PASS. [정적·홈·DAY](https://github.com/sagesaint84/wealth/actions/runs/39521010150) 330 PASS, DAY 38개 무스킵 및 과거 실패 대상 PASS. [IPO](https://github.com/sagesaint84/wealth/actions/runs/39521010106) 239 PASS. [native](https://github.com/sagesaint84/wealth/actions/runs/39521010029) AMD64/ARM64 각각 ledger488 PASS, process24 PASS/11subtests PASS 및 Linux 필수2개 무스킵 PASS. 과거 일회성 DAY 실패 원인 **UNCONFIRMED**, 비결정성 위험 기록 유지. 기존 OCR 정확도 진단 mismatch4/4는 안전성 PASS와 구분한다.
 - 합성 모바일 자산 표시1698→1396ms, readiness2072→1718ms, CLS0.243→0.034. 모바일 warm FCP **200→220ms FAIL_WITH_APPROVED_CANDIDATE_EXCEPTION**, 해당 후보만 승인하며 운영 성능 재측정이나 일반 게이트 변경은 없다.
@@ -16,8 +16,19 @@
 - 완료 홈 브랜치 `codex/v212-home-initial-flash-fix`의 커밋 `45de3340ee34b64aa0ec3235e230810f409d4094`는 PR #159 Squash Merge 결과와 파일 트리가 동일하고 patch-equivalent다. 시작 시 해당 worktree는 clean, ignored/untracked 산출물 없음. 로컬·원격 브랜치는 보존한다.
 - 새 worktree 없이 기존 홈 경로를 문서 전용 `codex/v212-home-deploy-docs`로 재사용한다. 문서 PR이 이 경로를 사용하는 동안 worktree는 정리 대상에서 보류한다. 향후 문서 커밋·PR 보존, clean/ignored 파일 및 다른 chat 사용 여부를 재확인하고 **사용자 삭제 승인 후에만** 완료 브랜치/worktree 정리를 검토한다.
 - 기존 PR #155/#156/#157/#158 및 문서 PR #154도 merged지만, 연결된 worktree·활성 사용·추가 변경 검증과 삭제 승인이 필요하다. merged 표시만으로 unused 또는 삭제 가능으로 분류하지 않는다. 보호 P0 세 브랜치는 정리에서 제외한다.
-- `docker-compose.release.ipo155.yml`: 로컬 네 확인 경로에서 없음, Git 추적 파일 및 전체 ref의 해당 경로 이력 없음, 저장소 코드/문서 참조 없음. Oracle `/docker/wealth`에서의 실제 존재·Compose `-f` 사용·컨테이너 compose config_files label·실행 스크립트/예약 작업 참조는 **UNCONFIRMED**다. 이름만으로 사용 중단을 판단하지 않으며 삭제하지 않는다.
+- `docker-compose.release.ipo155.yml`: 로컬 네 확인 경로에서 없음, Git 추적 파일 및 전체 ref의 해당 경로 이력 없음, 저장소 코드/문서 참조 없음. 이전에는 Oracle 존재·참조가 미확인이었으나, 현재 사용자 제공 명령 출력으로 서버 파일 존재와 현재 컨테이너 Compose 목록 미포함을 확인했다. 다른 실행 스크립트·예약 작업 참조는 **UNCONFIRMED**이며 삭제하지 않는다.
 - 추적 중인 Compose는 `docker-compose.yml`, `docker-compose.ghcr.yml`, `docker-compose.override.yml`이다. 운영 릴리스 파일 정리는 서버의 읽기 전용 참조 조사와 마운트/이미지 설정 보존 확인 후 별도 승인 대상으로 보고한다. 운영 데이터/Toss 설정 및 Compose 변경 없음.
+
+사용자 제공 Oracle 읽기 전용 출력의 현재 컨테이너 Compose 목록은 `/docker/wealth/docker-compose.ghcr.yml`, `/docker/wealth/docker-compose.override.yml` 두 파일이다. `docker-compose.release.ipo155.yml`은 서버에 존재하지만 이 목록에는 없으며, 다른 배포 스크립트·예약 작업 참조는 아직 미확인이다. 현재 컨테이너에서 사용하지 않는다는 사실만으로 전체 미사용이나 삭제 가능을 판단하지 않는다.
+
+```text
+ORACLE_IMAGE_DIGEST_VERIFIED=PASS
+COMPOSE_FILES_VERIFIED=PASS
+RELEASE_COMPOSE_EXISTS=YES
+RELEASE_COMPOSE_CURRENT_CONTAINER_USED=NO
+RELEASE_COMPOSE_OTHER_REFERENCES=UNCONFIRMED
+BROWSER_SMOKE=NOT_CONFIRMED
+```
 
 ## PR #159 조사·출시 준비 당시 기록 (현재 운영 상태 아님)
 

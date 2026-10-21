@@ -4,7 +4,7 @@
 
 앱 **v2.1.2**, 홈 assets 및 SW **2.1.2-home1**, 변경하지 않은 core JS **2.1.2-r1**이다. [PR #159](https://github.com/sagesaint84/wealth/pull/159)는 Squash Merge 완료됐고, 이 문서 갱신 시 확인한 main 및 운영 배포 코드 SHA는 `b5a5c525f24ec7233b85af70dc8242a25966e150`다. v2.1.3 P0는 포함하지 않았다.
 
-[GHCR 발행 실행 39522925985](https://github.com/sagesaint84/wealth/actions/runs/39522925985)는 해당 SHA에서 SUCCESS다. 이미지 `ghcr.io/sagesaint84/wealth:b5a5c52`, 발행 manifest Digest는 `sha256:c9b586098a4d31860008782531f2163e7f274938de2e2f0c6bc185b143fd4ffc`이며, 레지스트리에서 원문 SHA256 및 Linux AMD64/ARM64 manifest를 확인했다. 사용자가 제공한 Oracle 결과는 **IMAGE_DIGEST_GATE=PASS**, **DEPLOY_GATE=PASS**, 컨테이너 **wealth running**이다. 사용자 출력에는 전체 Digest가 있었지만, 이는 배포 스크립트에 설정된 기대값이다. 실행 컨테이너가 사용하는 이미지의 `RepoDigests` 독립 조회는 미실행이며, 기대값 출력과 실제 실행 이미지의 독립 대조를 구분한다. Codex는 Oracle에 접속하거나 재배포하지 않았다.
+[GHCR 발행 실행 39522925985](https://github.com/sagesaint84/wealth/actions/runs/39522925985)는 해당 SHA에서 SUCCESS다. 이미지 `ghcr.io/sagesaint84/wealth:b5a5c52`, 발행 manifest Digest는 `sha256:c9b586098a4d31860008782531f2163e7f274938de2e2f0c6bc185b143fd4ffc`이며, 레지스트리에서 원문 SHA256 및 Linux AMD64/ARM64 manifest를 확인했다. 사용자가 제공한 Oracle 결과는 **IMAGE_DIGEST_GATE=PASS**, **DEPLOY_GATE=PASS**, 컨테이너 **wealth running**이다. 이전 기록에서는 스크립트 기대값만 확인했고 실행 이미지의 `RepoDigests` 조회는 미실행이었다. 이후 사용자가 Oracle에서 실행한 읽기 전용 명령 출력으로 실행 이미지 ID `sha256:4ec2929e1bac2df9458d987b762f7128e3b6de12f1ffe9c228245074f3a5cede` 및 `RepoDigests`의 GHCR 발행 Digest 일치를 확인했다고 전달했다. 현재 **ORACLE_IMAGE_DIGEST_VERIFIED=PASS**는 이 사용자 제공 증거에 근거한다. Codex는 Oracle에 접속하거나 재배포하지 않았다.
 
 **운영 실제 브라우저 smoke는 NOT_CONFIRMED**다. 배포 후 새로고침·로그인·가족·탭·테마·자산 표시의 사용자 브라우저 결과는 아직 제공되지 않았다. 아래 합성/출시 전 검증을 운영 브라우저 PASS로 해석하지 않는다.
 
@@ -13,6 +13,17 @@
 기존 합성 모바일 warm 자산 표시 **1698→1396ms**, readiness **2072→1718ms**, CLS **0.243→0.034**. FCP **200→220ms**는 **FAIL_WITH_APPROVED_CANDIDATE_EXCEPTION**으로 이번 후보 한정 승인이다. 과거 DAY 차트 일회성 실패 원인은 계속 **UNCONFIRMED**다. 운영 성능을 새로 측정하지 않았다.
 
 GitHub Releases는 조회 시 0건이며 `v2.1.2` Git tag도 없다. 이 운영 이력은 앱/asset 버전·PR·SHA·GHCR Digest 기준이며 GitHub Release/tag 발행 완료를 뜻하지 않는다. 미완료 P0 27/33/2개 파일을 보호한다. 정리 검토 범위와 미확인 Compose 사용 여부는 [PROJECT_STATE](docs/PROJECT_STATE.md)를 따른다.
+
+사용자 제공 Oracle 읽기 전용 출력의 현재 컨테이너 Compose 목록은 `/docker/wealth/docker-compose.ghcr.yml`, `/docker/wealth/docker-compose.override.yml` 두 파일이다. `docker-compose.release.ipo155.yml`은 서버에 존재하지만 이 목록에는 없으며, 다른 배포 스크립트·예약 작업 참조는 아직 미확인이다. 현재 컨테이너에서 사용하지 않는다는 사실만으로 전체 미사용이나 삭제 가능을 판단하지 않는다.
+
+```text
+ORACLE_IMAGE_DIGEST_VERIFIED=PASS
+COMPOSE_FILES_VERIFIED=PASS
+RELEASE_COMPOSE_EXISTS=YES
+RELEASE_COMPOSE_CURRENT_CONTAINER_USED=NO
+RELEASE_COMPOSE_OTHER_REFERENCES=UNCONFIRMED
+BROWSER_SMOKE=NOT_CONFIRMED
+```
 
 ## PR #159 조사·출시 준비 당시 기록 (현재 운영 상태 아님)
 
