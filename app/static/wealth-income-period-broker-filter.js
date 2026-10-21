@@ -218,13 +218,26 @@
     ensureDividendBrokerFilter(latestRawDividendData);
   }
 
-  async function loadActualDividendScope(owner, year) {
+  function isActualDividendActive() {
+    return (typeof currentDividendMode === 'undefined' || currentDividendMode === 'actual')
+      && (globalThis.WealthStartup
+        ? globalThis.WealthStartup.visible('dividendPanel')
+        : !!document.getElementById('dividendPanel')?.getClientRects().length);
+  }
+
+  async function loadActualDividendScope(owner, year, preparedDividend = null) {
+    if (!isActualDividendActive()) return;
     const requestSequence = ++dividendRequestSequence;
     const activeOwner = owner ?? (typeof currentOwner !== 'undefined' ? currentOwner : '모두');
     const activeYear = year ?? (typeof selectedDividendYear !== 'undefined' ? selectedDividendYear : 'all');
     try {
-      const rawData = await api(`/api/actual-dividends?owner=${encodeURIComponent(activeOwner)}&year=all`);
-      if (requestSequence !== dividendRequestSequence) return;
+      const preparedResponse = typeof preparedActualDividendResponse === 'function'
+        ? preparedActualDividendResponse(preparedDividend, activeOwner, activeYear) : null;
+      const rawData = preparedResponse
+        ?? await api(`/api/actual-dividends?owner=${encodeURIComponent(activeOwner)}&year=all`);
+      if (requestSequence !== dividendRequestSequence || !isActualDividendActive()
+          || (typeof currentOwner !== 'undefined' && activeOwner !== currentOwner)
+          || (typeof selectedDividendYear !== 'undefined' && activeYear !== selectedDividendYear)) return;
       latestRawDividendData = rawData;
       ensureDividendBrokerFilter(rawData);
       const view = buildDividendFilteredData(rawData, activeYear, selectedDividendBroker);
@@ -521,7 +534,9 @@
     ensureDividendBrokerFilter(latestRawDividendData);
     observer.observe(document.body, { childList: true, subtree: true });
 
-    if (typeof api === 'function' && typeof loadActualDividends === 'function') {
+    // A late-installed filter catches up only with an already active actual
+    // dividend screen. Hidden tabs are loaded by the normal navigation path.
+    if (isActualDividendActive() && typeof api === 'function' && typeof loadActualDividends === 'function') {
       const owner = typeof currentOwner !== 'undefined' ? currentOwner : '모두';
       const year = typeof selectedDividendYear !== 'undefined' ? selectedDividendYear : 'all';
       void window.loadActualDividends(owner, year);

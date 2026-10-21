@@ -109,7 +109,7 @@ const vm = require('node:vm');
 const requests = [];
 const context = {
   currentUserProfile: {username: 'synthetic-user'}, currentIncomeTab: 'calendar',
-  document: {getElementById() { return null; }, querySelectorAll() { return []; }},
+  document: {getElementById() { return null; }, querySelector() { return null; }, querySelectorAll() { return []; }},
   history: {replaceState() {}}, window: {},
   loadLedger() { requests.push('/api/ledger'); },
 };

@@ -37,16 +37,18 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
         css_ref = '/static/wealth-financial-income-what-if.css?v=2.1.0-b2'
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
-        # Workspace changed; the unchanged core keeps its own cache revision.
-        self.assertEqual(revision, '2.1.2-route1')
-        self.assertEqual(assets.scripts.count(f'/static/wealth-layout.js?v={revision}'), 1)
-        core_js = '/static/wealth.js?v=2.1.2-route1'
-        what_if_js = '/static/wealth-financial-income-what-if.js?v=2.1.2-r1'
+        # P0 changes core/What-if assets; the unchanged main layout keeps its
+        # independent revision, matching test_release_version.py.
+        self.assertEqual(revision, '2.1.3-p0')
+        layout_js = '/static/wealth-layout.js?v=2.1.2-route1'
+        self.assertEqual(assets.scripts.count(layout_js), 1)
+        core_js = '/static/wealth.js?v=2.1.3-p0'
+        what_if_js = '/static/wealth-financial-income-what-if.js?v=2.1.3-p0'
         self.assertIn(css_ref, html)
         self.assertIn(core_js, html)
         self.assertIn(what_if_js, html)
         self.assertLess(html.index(core_js), html.index(what_if_js))
-        for script in (core_js, what_if_js):
+        for script in (layout_js, core_js, what_if_js):
             self.assertEqual(assets.scripts.count(script), 1)
             self.assertEqual(sum(src.split('?', 1)[0] == script.split('?', 1)[0] for src in assets.scripts), 1)
             self.assertTrue((ROOT / 'app/static' / script.split('?', 1)[0].rsplit('/', 1)[1]).is_file())

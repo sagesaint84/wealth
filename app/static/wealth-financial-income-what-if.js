@@ -459,7 +459,8 @@
     const button = document.getElementById('fiWhatIfRun');
     const result = document.getElementById('financialIncomeWhatIfResult');
     syncVisibility();
-    if (!status || !button || !result || visibilityContext === 'actual') return;
+    if (!status || !button || !result || visibilityContext === 'actual'
+        || globalThis.WealthStartup?.visible('financialIncomeWhatIfPanel') === false) return;
     const revision = ++simulationRevision;
     const owner = currentOwnerValue();
 
@@ -483,7 +484,7 @@
       });
       const data = await response.json().catch(() => ({}));
       syncVisibility();
-      if (revision !== simulationRevision || owner !== currentOwnerValue()) return;
+      if (revision !== simulationRevision || owner !== currentOwnerValue() || globalThis.WealthStartup?.visible('financialIncomeWhatIfPanel') === false) return;
       if (!response.ok) {
         const code = data?.detail?.code || `HTTP_${response.status}`;
         throw new Error(code);
@@ -493,7 +494,7 @@
       status.className = 'fi-what-if-status success';
     } catch (error) {
       syncVisibility();
-      if (revision !== simulationRevision || owner !== currentOwnerValue()) return;
+      if (revision !== simulationRevision || owner !== currentOwnerValue() || globalThis.WealthStartup?.visible('financialIncomeWhatIfPanel') === false) return;
       result.innerHTML = `<div class="fi-what-if-error">계산하지 못했습니다. <code>${escapeHtml(error?.message || 'UNKNOWN')}</code></div>`;
       status.textContent = '계산 실패';
       status.className = 'fi-what-if-status error';
@@ -780,7 +781,7 @@
   async function requestBenefits(owner, year, choices = null) {
     const revision = ++benefitRevision;
     const root = document.getElementById('dividendBenefitPreview');
-    if (!root) return;
+    if (!root || globalThis.WealthStartup?.visible('dividendBenefitPreview') === false) return;
     // Remove the old owner's figures while a different scope is loading.
     root.setAttribute('aria-busy', 'true');
     const differentScope = owner !== benefitModel?.owner || year !== benefitModel?.tax_year;
@@ -895,6 +896,9 @@
       if (tabs) observer.observe(tabs, {subtree: true, attributes: true, attributeFilter: ['class']});
     }
     window.addEventListener('wealth:view', syncVisibility);
+    const loadEstimated = () => { syncVisibility(); if (visibilityContext === 'estimated') void runSimulation(); };
+    window.addEventListener('wealth:assets-ready', loadEstimated);
+    window.addEventListener('wealth:view', loadEstimated);
   }
 
   window.WealthFinancialIncomeWhatIf = { syncVisibility, runSimulation, registeredThresholdHtml };

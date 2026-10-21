@@ -17,7 +17,7 @@ class ReleaseVersionTests(unittest.TestCase):
     def test_index_html_version_metadata_and_cache_busting(self):
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         self.assertIn('<meta name="application-version" content="2.1.2" />', html)
-        self.assertIn('<meta name="application-assets-revision" content="2.1.2-route1" />', html)
+        self.assertIn('<meta name="application-assets-revision" content="2.1.3-p0" />', html)
         self.assertIn('id="appVersionDisplay"', html)
         self.assertIn("앱 버전 v2.1.2", html)
 
@@ -44,24 +44,24 @@ class ReleaseVersionTests(unittest.TestCase):
             'wealth-ipo.js': '2.1.2-ipo-ui1',
             'wealth-ledger-ocr.js': '2.0.2-review2',
             'wealth-money-input.js': '2.0.3-ai1',
-            "wealth-financial-income-what-if.js": "2.1.2-r1",
+            "wealth-financial-income-what-if.js": "2.1.3-p0",
             "wealth-dividend-source.js": "2.1.0-b2",
-            "wealth-family-financial-income-risk.js": "2.1.2-r1",
-            "wealth.js": "2.1.2-route1", "wealth-layout.js": "2.1.2-route1",
+            "wealth-family-financial-income-risk.js": "2.1.3-p0",
+            "wealth.js": "2.1.3-p0", "wealth-layout.js": "2.1.2-route1",
             "wealth-national-pension.js": "2.0.2", "wealth-pension-import.js": "2.0.2",
             "wealth-transaction-defaults.js": "2.0.1",
-            "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "10.9r6",
+            "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "2.1.3-p0",
             "wealth-calendar.js": "2.1.2-ipo-ui1", "wealth-color-picker.js": "10.9r5",
-            "wealth-planning-model.js": "2.1.1-r1", "wealth-asset-category-state.js": "2.0.2",
+            "wealth-planning-model.js": "2.1.3-p0", "wealth-asset-category-state.js": "2.0.2",
             "wealth-settings-surface.js": "10.9m1", "wealth-invest-tab-state.js": "10.9k1",
-            "wealth-settings.js": "10.9h1", "wealth-family-financial-income-allocation.js": "10.7g1",
+            "wealth-settings.js": "10.9h1", "wealth-family-financial-income-allocation.js": "2.1.3-p0",
         }
         for asset, version in js_matches:
             self.assertEqual(version, versions.get(asset, "1.3.0"))
 
     def test_service_worker_cache_name(self):
         sw = (STATIC_DIR / "sw.js").read_text(encoding="utf-8")
-        self.assertIn('const CACHE_NAME = "wealth-cache-v2.1.2-route1";', sw)
+        self.assertIn('const CACHE_NAME = "wealth-cache-v2.1.3-p0";', sw)
 
     def test_documentation_version_sync(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

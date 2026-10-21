@@ -121,6 +121,7 @@ let currentOwner = '모두'; // 선택된 가족 구성원
 
 // ── 가족 구성원 선택 – 모든 섹션(요약/기록/히트맵/배당/손익/보유종목/계좌) 전역 동기화 ───────
 function selectOwner(owner) {
+  if (currentOwner !== (owner || '모두') && typeof invalidateStartupReads === 'function') invalidateStartupReads();
   currentOwner = owner || '모두';
   document.querySelectorAll('.family-tabs .family-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.owner === currentOwner);
@@ -140,11 +141,14 @@ function selectOwner(owner) {
 
 // ── 핵심 요약 패널의 실현손익 및 실제 배당금 전체 기간(All-Time) 갱신 ─────────
 async function updateOverviewCardsAllTime(owner = currentOwner) {
+  if (globalThis.WealthStartup?.visible('summaryRealizedPnl') === false) { globalThis.WealthStartup.count('inactive_skipped'); return; }
+  const generation = updateOverviewCardsAllTime.generation = (updateOverviewCardsAllTime.generation || 0) + 1;
   const [pnlResult, dividendResult] = await Promise.allSettled([
     api(`/api/realized-pnl?owner=${encodeURIComponent(owner)}&year=all&trade_type=all`),
     api(`/api/actual-dividends?owner=${encodeURIComponent(owner)}&year=all`),
   ]);
-  if (owner !== currentOwner) return;
+  if (generation !== updateOverviewCardsAllTime.generation || owner !== currentOwner
+      || globalThis.WealthStartup?.visible('summaryRealizedPnl') === false) { globalThis.WealthStartup?.count('stale_ignored'); return; }
   let totalPnl = 0;
   try {
     if (pnlResult.status === 'rejected') throw pnlResult.reason;
@@ -745,10 +749,87 @@ function sparkline(points, change) {
   `;
 }
 
+// Opt-in synthetic profiling only: bounded memory, fixed labels, no payloads/URLs.
+globalThis.WealthStartup = (() => {
+  const enabled = globalThis.__WEALTH_SYNTHETIC_PERF__ === true;
+  const counters = Object.create(null), events = [];
+  let assetsReady = false;
+  const visiblePending = new Map();
+  let visibleScope = null, visibleRevision = 0;
+  const labels = new Set(['auth:start','auth:end','prices:start','prices:end',
+    'snapshot:start','snapshot:end','dashboard:visible','request','render',
+    'supplementary','aux_request','inactive_request','inactive_skipped','merged_get','cache_hit','stale_ignored']);
+  function count(label) {
+    if (!enabled || !labels.has(label) || (label === 'dashboard:visible' && counters[label])) return;
+    counters[label] = (counters[label] || 0) + 1;
+    const time = globalThis.performance?.now?.() ?? 0;
+    events.push({label, time});
+    if (events.length > 128) events.shift();
+    const name = `wealth-startup:${label}`;
+    globalThis.performance?.clearMarks?.(name);
+    globalThis.performance?.mark?.(name);
+  }
+  function canRead() {
+    return assetsReady && typeof currentUserProfile !== 'undefined' &&
+      !!currentUserProfile && currentUserProfile.username !== 'admin' && !currentUserProfile.must_change_password;
+  }
+  function visible(id) {
+    return canRead() && !!document.getElementById(id)?.getClientRects().length;
+  }
+  function loadVisible(preparedDividend = null) {
+    if (!canRead()) return;
+    const scope = JSON.stringify([startupReadEpoch, currentOwner, selectedDividendYear, selectedPnlYear,
+      currentPnlTradeType, currentDividendMode, currentLedgerYear, currentLedgerMonth,
+      ['marketGrid','recordsPanel','ledgerSectionPanel','dividendPanel','realizedPnlPanel','summaryRealizedPnl'].map(visible)]);
+    if (scope !== visibleScope) { visibleScope = scope; visibleRevision++; }
+    const key = `${visibleRevision}:${scope}`;
+    if (visiblePending.has(key)) return visiblePending.get(key);
+    const jobs = [];
+    if (visible('marketGrid')) jobs.push(loadMarkets());
+    if (visible('recordsPanel')) jobs.push(loadAssetRecords(currentOwner));
+    if (visible('ledgerSectionPanel')) jobs.push(loadLedger());
+    if (visible('dividendPanel')) jobs.push(currentDividendMode === 'estimated'
+      ? loadDividends(currentOwner, {reuse:true}) : loadActualDividends(currentOwner, selectedDividendYear, preparedDividend));
+    if (visible('realizedPnlPanel')) jobs.push(loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType));
+    if (visible('summaryRealizedPnl')) jobs.push(updateOverviewCardsAllTime(currentOwner));
+    const pending = Promise.allSettled(jobs).finally(() => {
+      if (visiblePending.get(key) === pending) visiblePending.delete(key);
+    });
+    visiblePending.set(key, pending);
+    return pending;
+  }
+  function request(path, allTime) {
+    if (!enabled) return;
+    if (!['/api/auth/me','/api/refresh-prices','/api/planning/snapshot-all','/api/dashboard'].includes(path)) count('aux_request');
+    const panels = {
+      '/api/ledger':['ledgerSectionPanel'], '/api/asset-records':['recordsPanel'],
+      '/api/dividends':['dividendPanel'], '/api/market-overview':['marketGrid'],
+      '/api/realized-pnl':allTime ? ['realizedPnlPanel','summaryRealizedPnl'] : ['realizedPnlPanel'],
+      '/api/actual-dividends':allTime ? ['dividendPanel','summaryRealizedPnl'] : ['dividendPanel'],
+    }[path];
+    const explicitDividendEntry = path === '/api/actual-dividends' && allTime
+      && typeof setIncomeTab === 'function' && setIncomeTab.pendingTarget === 'dividend';
+    if (panels && !panels.some(visible) && !explicitDividendEntry) count('inactive_request');
+  }
+  function dashboardRendered(data) {
+    if (data?.summary && Number.isFinite(Number(data.summary.total_value_krw)) &&
+        ['wealthAssetNetWorth','wealthNetWorth','totalValue'].some(id => document.getElementById(id)?.getClientRects().length)) count('dashboard:visible');
+  }
+  return {count, request, dashboardRendered, canRead, visible, loadVisible,
+    ready() { assetsReady = true; },
+    snapshot() { return {enabled, scope:'core-api-and-visible-render', counters:{...counters}, events:events.map(e => ({...e}))}; }};
+})();
+
 const startupReadPending = new Map();
 const allTimeReadCache = new Map();
 let startupReadEpoch = 0;
 let startupIncomeReuse = true;
+
+function invalidateStartupReads() {
+  startupReadEpoch++;
+  allTimeReadCache.clear();
+  startupReadPending.clear();
+}
 
 function finishStartupIncomeReads() {
   startupIncomeReuse = false;
@@ -763,16 +844,14 @@ async function api(url, options = {}) {
   const key = parsed.pathname + parsed.search;
   const isRead = !options.method || options.method.toUpperCase() === 'GET';
   if (!isRead && parsed.pathname.startsWith('/api/ledger')) invalidateLedgerRead();
-  const shared = isRead && ['/api/realized-pnl', '/api/actual-dividends', '/api/family-members', '/api/ipo/market', '/api/accounts'].includes(parsed.pathname);
+  const shared = isRead && ['/api/realized-pnl', '/api/actual-dividends', '/api/family-members', '/api/ipo/market', '/api/accounts', '/api/asset-records', '/api/ledger', '/api/market-overview', '/api/dividends'].includes(parsed.pathname);
   const reusable = shared && ((startupIncomeReuse && parsed.searchParams.get('year') === 'all') || parsed.pathname === '/api/ipo/market');
   // Price/snapshot writes do not change realized income or IPO market records.
   if (!isRead && !['/api/refresh-prices', '/api/planning/snapshot-all'].includes(parsed.pathname)) {
-    startupReadEpoch++;
-    allTimeReadCache.clear();
-    startupReadPending.clear();
+    invalidateStartupReads();
   }
-  if (reusable && options.cache !== 'no-store' && allTimeReadCache.has(key)) return allTimeReadCache.get(key);
-  if (shared && startupReadPending.has(key)) return startupReadPending.get(key);
+  if (reusable && options.cache !== 'no-store' && allTimeReadCache.has(key)) { globalThis.WealthStartup?.count('cache_hit'); return allTimeReadCache.get(key); }
+  if (shared && startupReadPending.has(key)) { globalThis.WealthStartup?.count('merged_get'); return startupReadPending.get(key); }
   const epoch = startupReadEpoch;
   const pending = apiRequest(url, options);
   if (!shared) return pending;
@@ -787,15 +866,22 @@ async function api(url, options = {}) {
 }
 
 async function apiRequest(url, options = {}) {
-  options.credentials = options.credentials || 'include';
-  const response = await fetch(url, options);
-  if (response.status === 401) {
-    window.location.href = '/login';
-    throw new Error('로그인이 필요합니다.');
-  }
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.detail || result.message || "요청을 처리하지 못했습니다.");
-  return result;
+  globalThis.WealthStartup?.count('request');
+  const address = new URL(url, location.origin);
+  globalThis.WealthStartup?.request(address.pathname, address.searchParams.get('year') === 'all');
+  const phase = ({'/api/auth/me':'auth', '/api/refresh-prices':'prices', '/api/planning/snapshot-all':'snapshot'})[address.pathname];
+  if (phase) globalThis.WealthStartup?.count(`${phase}:start`);
+  try {
+    options.credentials = options.credentials || 'include';
+    const response = await fetch(url, options);
+    if (response.status === 401) {
+      window.location.href = '/login';
+      throw new Error('로그인이 필요합니다.');
+    }
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail || result.message || "요청을 처리하지 못했습니다.");
+    return result;
+  } finally { if (phase) globalThis.WealthStartup?.count(`${phase}:end`); }
 }
 
 const fetchJson = api;
@@ -1048,8 +1134,15 @@ document.addEventListener("change", (e) => {
 });
 
 async function loadMarkets() {
-  try { renderMarkets(await api("/api/market-overview")); }
+  if (globalThis.WealthStartup?.visible('marketGrid') === false) { globalThis.WealthStartup.count('inactive_skipped'); return; }
+  const generation = loadMarkets.generation = (loadMarkets.generation || 0) + 1;
+  try {
+    const data = await api('/api/market-overview');
+    if (generation !== loadMarkets.generation || globalThis.WealthStartup?.visible('marketGrid') === false) { globalThis.WealthStartup?.count('stale_ignored'); return; }
+    renderMarkets(data);
+  }
   catch (error) {
+    if (generation !== loadMarkets.generation || globalThis.WealthStartup?.visible('marketGrid') === false) return;
     const grid = $("#marketGrid");
     if (grid) grid.innerHTML = `<article class="market-card"><p>시장 스냅샷을 불러오지 못했습니다.</p><small>${html(error.message)}</small></article>`;
   }
@@ -2692,9 +2785,96 @@ let currentAccountCategory = window.WealthAssetCategoryState?.current() || 'secu
 // 머니 로그는 캘린더, 실현손익, 배당·이자, 가계부, 공모주 패널을 공유하며 화면만 전환합니다.
 let currentIncomeTab = 'calendar';
 function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
+  const preparedDividend = arguments[1]?.preparedDividend || null;
+  const selection = setIncomeTab.pendingIncomeTabSelection = (setIncomeTab.pendingIncomeTabSelection || 0) + 1;
+  setIncomeTab.cancelPending?.();
+  setIncomeTab.cancelPending = null;
+  const tabs = document.getElementById('incomeTabs');
+  const clearPending = () => {
+    // Restore the original nodes, including their listeners and input state.
+    const controls = document.getElementById('dividendPendingControls');
+    const panel = document.getElementById('dividendPanel');
+    const head = controls?.querySelector('.dividend-head');
+    if (head && panel) panel.prepend(head);
+    controls?.remove();
+    tabs?.removeAttribute?.('aria-busy');
+    document.getElementById('incomeChartStatus')?.remove();
+  };
+  clearPending();
+  setIncomeTab.pendingTarget = null;
+  // Hash restoration runs before the later currentDividendMode declaration.
+  if (tab === 'dividend' && (document.querySelector?.('#dividendModeTabs .heatmap-tab.active')?.dataset?.divMode || 'actual') === 'actual' && !preparedDividend) {
+    // Route selection is synchronous; only the first chart frame is deferred.
+    // layout.navigate() may have run before this function was registered.
+    currentIncomeTab = 'dividend';
+    const workspace = document.querySelector('.wealth-workspace');
+    if (workspace) workspace.dataset.incomeTab = 'dividend';
+    document.querySelectorAll('#incomeTabs .income-tab').forEach(button => {
+      const active = button.dataset.income === 'dividend';
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
+    if (updateHash) history.replaceState(null, '', '#dividend');
+    setIncomeTab.pendingTarget = 'dividend';
+    let cancelled = false, releaseWait = null;
+    setIncomeTab.cancelPending = () => { cancelled = true; releaseWait?.(); clearPending(); };
+    const current = () => !cancelled && selection === setIncomeTab.pendingIncomeTabSelection
+      && (!document.querySelector('.wealth-workspace') || document.querySelector('.wealth-workspace').dataset.activeView === 'income');
+    const waitReady = (event, ready) => ready() ? Promise.resolve() : new Promise(resolve => {
+      const finish = () => { window.removeEventListener(event, finish); releaseWait = null; resolve(); };
+      releaseWait = finish;
+      window.addEventListener(event, finish, {once:true});
+    });
+    tabs?.setAttribute?.('aria-busy', 'true');
+    if (tabs?.insertAdjacentElement) {
+      const status = document.createElement('p');
+      status.id = 'incomeChartStatus'; status.className = 'muted'; status.setAttribute('role','status');
+      status.textContent = '배당 차트를 준비 중입니다…'; tabs.insertAdjacentElement('afterend', status);
+    }
+    // Only the data panel waits for the first unified frame. Keep the existing
+    // controls usable in the same workspace while that panel is being prepared.
+    if (currentIncomeTab !== 'dividend' || !document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell')) {
+      const panel = document.getElementById('dividendPanel');
+      const head = panel?.querySelector('.dividend-head');
+      if (head) {
+        const controls = document.createElement('section');
+        controls.id = 'dividendPendingControls';
+        controls.className = 'panel dividend-panel';
+        controls.setAttribute('aria-label', '배당금 입력 및 조회');
+        panel.before(controls);
+        controls.append(head);
+      }
+      panel?.classList.add('wealth-income-hidden');
+      ['calendarPanel','realizedPnlPanel','ledgerSectionPanel','ipoPanel'].forEach(id =>
+        document.getElementById(id)?.classList.add('wealth-income-hidden'));
+    }
+    return (async () => {
+      try {
+        await waitReady('wealth:assets-ready', () => !globalThis.WealthStartup || globalThis.WealthStartup.canRead());
+        if (!current()) return false;
+        await waitReady('wealth:unified-ready', () => !!window.WealthUnifiedTimeseries?.prepareDividend);
+        if (!current()) return false;
+        const scope = window.WealthUnifiedTimeseries.dividendScopeKey();
+        const prepared = await window.WealthUnifiedTimeseries.prepareDividend({refresh:true});
+        if (!current()) return false;
+        if (scope !== window.WealthUnifiedTimeseries.dividendScopeKey()) return setIncomeTab(tab, {updateHash, loadContent});
+        if (prepared.readEpoch !== (typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch))
+          return setIncomeTab(tab, {updateHash, loadContent});
+        setIncomeTab.cancelPending = null;
+        return setIncomeTab(tab, {updateHash, loadContent, preparedDividend:prepared});
+      } finally {
+        if (selection === setIncomeTab.pendingIncomeTabSelection) {
+          clearPending(); setIncomeTab.pendingTarget = null; setIncomeTab.cancelPending = null;
+        }
+      }
+    })();
+  }
+
   const isKnownTab = ['calendar', 'pnl', 'dividend', 'ledger', 'ipo'].includes(tab);
   const _legacyCheck = ['pnl', 'dividend', 'ledger'].includes(tab);
   currentIncomeTab = isKnownTab ? tab : 'calendar';
+  const workspace = document.querySelector?.('.wealth-workspace');
+  if (workspace) workspace.dataset.incomeTab = currentIncomeTab;
   document.getElementById('calendarPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'calendar');
   document.getElementById('realizedPnlPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'pnl');
   document.getElementById('dividendPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'dividend');
@@ -2705,6 +2885,10 @@ function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
     button.classList.toggle('active', active);
     button.setAttribute('aria-selected', String(active));
   });
+  if (preparedDividend && !window.WealthUnifiedTimeseries.commitDividend(preparedDividend)) {
+    document.getElementById('dividendPanel')?.classList.add('wealth-income-hidden');
+    return false;
+  }
   if (currentIncomeTab === 'pnl' || currentIncomeTab === 'dividend') {
     window.WealthUnifiedTimeseries?.refreshVisiblePanZoom?.(
       currentIncomeTab === 'pnl' ? 'pnlBarChartWrap' : 'dividendBarChartWrap'
@@ -2714,7 +2898,9 @@ function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
     const hash = currentIncomeTab === 'calendar' ? '#income' : `#${currentIncomeTab}`;
     history.replaceState(null, '', hash);
   }
-  if (loadContent) {
+  if (loadContent || preparedDividend) {
+    globalThis.dispatchEvent?.(new CustomEvent('wealth:income-view'));
+    void globalThis.WealthStartup?.loadVisible(preparedDividend);
     if (currentIncomeTab === 'calendar') window.loadCalendar?.();
     if (currentIncomeTab === 'ledger' && currentUserProfile && currentUserProfile.username !== 'admin') loadLedger();
     if (currentIncomeTab === 'ipo') window.loadIpoSchedule?.();
@@ -2722,38 +2908,9 @@ function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
 }
 window.setIncomeTab = setIncomeTab;
 
-let pendingIncomeTabSelection = 0;
 document.getElementById('incomeTabs')?.addEventListener('click', event => {
   const tab = event.target.closest('.income-tab');
-  if (!tab) return;
-  const selection = ++pendingIncomeTabSelection;
-  if (tab.dataset.income === 'dividend' && currentDividendMode === 'actual'
-      && !document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell')) {
-    void (async () => {
-      if (!window.WealthUnifiedTimeseries?.renderDividend) {
-        await new Promise(resolve => window.addEventListener('wealth:unified-ready', resolve, { once: true }));
-      }
-      const rendered = await window.WealthUnifiedTimeseries.renderDividend();
-      if (rendered === false) {
-        if (selection === pendingIncomeTabSelection) setIncomeTab('dividend');
-        return;
-      }
-      const host = document.getElementById('dividendBarChartWrap');
-      if (host && !host.querySelector('.wealth-unified-chart-shell, .wealth-unified-empty')) {
-        await new Promise(resolve => {
-          const observer = new MutationObserver(() => {
-            if (!host.querySelector('.wealth-unified-chart-shell, .wealth-unified-empty')) return;
-            observer.disconnect();
-            resolve();
-          });
-          observer.observe(host, { childList: true });
-        });
-      }
-      if (selection === pendingIncomeTabSelection) setIncomeTab('dividend');
-    })();
-    return;
-  }
-  setIncomeTab(tab.dataset.income);
+  if (tab) void setIncomeTab(tab.dataset.income);
 });
 setIncomeTab(document.querySelector('.wealth-workspace')?.dataset.incomeTab || ({ pnl: 'pnl', dividend: 'dividend', ledger: 'ledger', ipo: 'ipo' }[location.hash.slice(1)] || 'calendar'), { updateHash: false, loadContent: false });
 
@@ -5042,6 +5199,7 @@ async function loadStockChartData() {
 
 // ── 8. 주식기록 렌더링 (전체주식 콤보 차트 vs 절세계좌 뷰) ───────────────────────────
 function renderAssetRecords(records) {
+  globalThis.WealthStartup?.count('render');
   assetRecords = records || [];
   window.assetRecords = records || [];
 
@@ -6221,6 +6379,7 @@ function renderInvestmentView(data = dashboard) {
 
 // ── 9. 대시보드 렌더링 총괄 ──────────────────────────────────────────────────
 function render(data) {
+  globalThis.WealthStartup?.count('render');
   dashboard = data;
   renderSummary(data);
   renderAccounts(data.accounts);
@@ -6235,21 +6394,27 @@ function render(data) {
 }
 
 async function loadDashboard(recordSnapshots = false) {
+  const generation = loadDashboard.generation = (loadDashboard.generation || 0) + 1;
   const suffix = recordSnapshots ? "?record_snapshots=true" : "";
   const data = await api(`/api/dashboard${suffix}`);
+  if (generation !== loadDashboard.generation) { globalThis.WealthStartup?.count('stale_ignored'); return; }
   rawDashboard = data;
   dashboard = data;
   renderWithOwner(data, currentOwner);
+  globalThis.WealthStartup?.dashboardRendered(data);
 }
 
 async function loadAssetRecords(owner) {
+  // Keep main's eager record source: DAY summary calculations share these
+  // records even when the stock page is hidden.
+  const generation = loadAssetRecords.generation = (loadAssetRecords.generation || 0) + 1;
   const o = owner || currentOwner || '모두';
   try {
     const allRes = await api('/api/asset-records');
-    if (o !== currentOwner) return;
+    if (generation !== loadAssetRecords.generation || o !== currentOwner) { globalThis.WealthStartup?.count('stale_ignored'); return; }
     allAssetRecords = allRes.records || [];
   } catch (e) {}
-  if (o !== currentOwner) return;
+  if (generation !== loadAssetRecords.generation || o !== currentOwner) return;
   let filtered = [];
   if (o === '모두') {
     const allOwnerRecs = allAssetRecords.filter(r => (r.owner || '모두') === '모두');
@@ -7266,14 +7431,17 @@ document.addEventListener('click', async (e) => {
     if (incomeSection) {
       incomeSection.style.display = currentDividendMode === 'actual' ? 'flex' : 'none';
     }
+    // A mode change supersedes an in-flight actual-chart navigation, too.
+    // Estimated mode can activate immediately; actual mode keeps its controls
+    // available while preparing a scoped unified frame.
+    void setIncomeTab('dividend', {updateHash:false});
 
     if (currentDividendMode === 'estimated') {
       if (refreshBtn) refreshBtn.style.display = 'inline-block';
       if (addBtn) addBtn.style.display = 'none';
       if (importBtn) importBtn.style.display = 'none';
       if (clearBtn) clearBtn.style.display = 'none';
-      if (dividendData) renderDividends(dividendData);
-      else loadDividends(currentOwner);
+      void loadDividends(currentOwner, {reuse:true});
     } else {
       if (refreshBtn) refreshBtn.style.display = 'none';
       if (addBtn) addBtn.style.display = 'inline-block';
@@ -9220,6 +9388,8 @@ window.triggerPwaInstall = triggerPwaInstall;
 // ── 15. 배당(분배금) 현황 및 1월~12월 캘린더 (예상 / 실제 모드 지원) ───────────
 let currentDividendMode = 'actual'; // 'estimated' | 'actual'
 let dividendData = null;
+let dividendDataOwner = null;
+let dividendDataEpoch = -1;
 let actualDividendData = null;
 const _initDivKst = getKstYearMonth();
 let selectedDividendMonth = _initDivKst.month;
@@ -9265,11 +9435,25 @@ function normalizeMonthlyDividendSchedule(monthlySchedule) {
     .sort((left, right) => left.month - right.month);
 }
 
-async function loadDividends(owner = currentOwner) {
+async function loadDividends(owner = currentOwner, {reuse = false} = {}) {
+  if (currentDividendMode !== 'estimated') return;
+  if (globalThis.WealthStartup?.visible('dividendPanel') === false) { globalThis.WealthStartup.count('inactive_skipped'); return; }
+  if (owner !== currentOwner) return;
+  if (reuse && dividendData && dividendDataOwner === owner && dividendDataEpoch === startupReadEpoch) {
+    renderDividends(dividendData);
+    return dividendData;
+  }
+  // A failed explicit refresh must not leave an older success marked reusable.
+  if (!reuse) dividendDataEpoch = -1;
+  const readEpoch = startupReadEpoch;
+  const generation = loadDividends.generation = (loadDividends.generation || 0) + 1;
   try {
     const res = await api(`/api/dividends?owner=${encodeURIComponent(owner)}`);
-    if (owner !== currentOwner) return;
+    if (generation !== loadDividends.generation || owner !== currentOwner || readEpoch !== startupReadEpoch || currentDividendMode !== 'estimated'
+        || globalThis.WealthStartup?.visible('dividendPanel') === false) { globalThis.WealthStartup?.count('stale_ignored'); return; }
     dividendData = res;
+    dividendDataOwner = owner;
+    dividendDataEpoch = readEpoch;
     if (currentDividendMode === 'estimated') {
       renderDividends(res);
     }
@@ -9278,10 +9462,25 @@ async function loadDividends(owner = currentOwner) {
   }
 }
 
-async function loadActualDividends(owner = currentOwner, year = selectedDividendYear) {
+// A navigation hands its freshly fetched full-history response to the visible
+// summary/filter consumer. Ordinary reloads never consult this transient value.
+function preparedActualDividendResponse(prepared, owner, year) {
+  if (!prepared || prepared.error || !prepared.response || prepared.owner !== owner
+      || owner !== currentOwner || year !== selectedDividendYear || currentDividendMode !== 'actual'
+      || prepared.readEpoch !== startupReadEpoch
+      || prepared.scope !== window.WealthUnifiedTimeseries?.dividendScopeKey()) return null;
+  return prepared.response;
+}
+
+async function loadActualDividends(owner = currentOwner, year = selectedDividendYear, preparedDividend = null) {
+  if (currentDividendMode !== 'actual') return;
+  if (globalThis.WealthStartup?.visible('dividendPanel') === false) { globalThis.WealthStartup.count('inactive_skipped'); return; }
+  const generation = loadActualDividends.generation = (loadActualDividends.generation || 0) + 1;
   try {
-    const res = await api(`/api/actual-dividends?owner=${encodeURIComponent(owner)}&year=${encodeURIComponent(year || '')}`);
-    if (owner !== currentOwner || year !== selectedDividendYear) return;
+    const res = preparedActualDividendResponse(preparedDividend, owner, year)
+      ?? await api(`/api/actual-dividends?owner=${encodeURIComponent(owner)}&year=${encodeURIComponent(year || '')}`);
+    if (generation !== loadActualDividends.generation || owner !== currentOwner || year !== selectedDividendYear || currentDividendMode !== 'actual'
+        || globalThis.WealthStartup?.visible('dividendPanel') === false) { globalThis.WealthStartup?.count('stale_ignored'); return; }
     actualDividendData = res;
     if (currentDividendMode === 'actual') {
       renderActualDividends(res);
@@ -9481,6 +9680,7 @@ function renderMonthlyDividendDetail(month = null) {
 }
 
 function renderActualDividends(data) {
+  globalThis.WealthStartup?.count('render');
   if (!data) return;
   syncDividendMonthNavUI();
   const isAllYears = (selectedDividendYear === "all" || selectedDividendYear === "전체");
@@ -9860,8 +10060,12 @@ window.setSelectedPnlPeriod = (year, month) => {
 };
 
 async function loadRealizedPnl(owner = currentOwner, year = selectedPnlYear, tradeType = currentPnlTradeType) {
+  if (globalThis.WealthStartup?.visible('realizedPnlPanel') === false) { globalThis.WealthStartup.count('inactive_skipped'); return; }
+  const generation = loadRealizedPnl.generation = (loadRealizedPnl.generation || 0) + 1;
   try {
     const res = await api(`/api/realized-pnl?owner=${encodeURIComponent(owner)}&year=${encodeURIComponent(year || '')}&trade_type=${encodeURIComponent(tradeType || 'all')}`);
+    if (generation !== loadRealizedPnl.generation || owner !== currentOwner || year !== selectedPnlYear || tradeType !== currentPnlTradeType
+        || globalThis.WealthStartup?.visible('realizedPnlPanel') === false) { globalThis.WealthStartup?.count('stale_ignored'); return; }
     pnlData = res;
     renderRealizedPnl(res);
     updatePnlYearOptions(res?.available_years || []);
@@ -9898,6 +10102,7 @@ function updatePnlYearOptions(years) {
 }
 
 function renderRealizedPnl(data) {
+  globalThis.WealthStartup?.count('render');
   if (!data) return;
   syncPnlMonthNavUI();
 
@@ -10911,46 +11116,49 @@ async function applyUserRoleView(me) {
 }
 
 async function loadAssetDataForUser() {
-  const o = currentOwner || '모두';
-  let priceRefreshSucceeded = false;
-  const familyMembersReady = loadFamilyMembers().catch(() => {});
+  if (loadAssetDataForUser.pending) return loadAssetDataForUser.pending;
+  const pending = (async () => {
+    let priceRefreshSucceeded = false;
+    const familyMembersReady = loadFamilyMembers().catch(() => {});
 
-  // 접속 시 먼저 최신 시세/환율을 반영한다. 성공한 경우에만 당일 자동 스냅샷을 기록한다.
-  try {
-    await api("/api/refresh-prices", { method: "POST" });
-    priceRefreshSucceeded = true;
-  } catch (e) {
-    toast(e.message || "접속 시 시세 갱신에 실패해 자동 기록을 건너뜁니다.", true);
-  }
-  await familyMembersReady;
-
-  try {
-    await loadDashboard(priceRefreshSucceeded);
-  } catch (e) {
-    toast(e.message || "대시보드를 불러오지 못했습니다.", true);
-  }
-
-  if (priceRefreshSucceeded) {
+    // 접속 시 먼저 최신 시세/환율을 반영한다. 성공한 경우에만 당일 자동 스냅샷을 기록한다.
     try {
-      await api("/api/planning/snapshot-all", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: "auto" }),
-      });
-      window.dispatchEvent(new CustomEvent('wealth:planning-refresh'));
+      await api("/api/refresh-prices", { method: "POST" });
+      priceRefreshSucceeded = true;
     } catch (e) {
-      toast(e.message || "접속 시 순자산 자동 기록에 실패했습니다.", true);
+      toast(e.message || "접속 시 시세 갱신에 실패해 자동 기록을 건너뜁니다.", true);
     }
-  }
+    try {
+      await loadDashboard(priceRefreshSucceeded);
+    } catch (e) {
+      toast(e.message || "대시보드를 불러오지 못했습니다.", true);
+    }
 
-  await Promise.allSettled([
-    loadMarkets(),
-    ...(currentDividendMode === 'estimated' ? [loadDividends(o)] : []),
-    loadActualDividends(o, selectedDividendYear),
-    loadRealizedPnl(o, selectedPnlYear, currentPnlTradeType),
-    updateOverviewCardsAllTime(o),
-  ]);
-  finishStartupIncomeReads();
+    if (priceRefreshSucceeded) {
+      try {
+        await api("/api/planning/snapshot-all", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source: "auto" }),
+        });
+        window.dispatchEvent(new CustomEvent('wealth:planning-refresh'));
+      } catch (e) {
+        toast(e.message || "접속 시 순자산 자동 기록에 실패했습니다.", true);
+      }
+    }
+
+    globalThis.WealthStartup?.ready();
+    window.dispatchEvent(new CustomEvent('wealth:assets-ready'));
+    globalThis.WealthStartup?.count('supplementary');
+    // No reads assuming refreshed prices start before both recording steps settle.
+    loadAssetDataForUser.supplementary = Promise.allSettled([
+      familyMembersReady,
+      globalThis.WealthStartup?.loadVisible(),
+    ]).finally(finishStartupIncomeReads);
+  })();
+  loadAssetDataForUser.pending = pending;
+  try { await pending; }
+  finally { if (loadAssetDataForUser.pending === pending) loadAssetDataForUser.pending = null; }
 }
 
 async function handleForcePasswordSubmit(e) {
@@ -11950,6 +12158,7 @@ function invalidateLedgerRead() {
   ledgerPendingRead = null;
 }
 async function loadLedger() {
+  if (globalThis.WealthStartup?.visible('ledgerSectionPanel') === false) { globalThis.WealthStartup.count('inactive_skipped'); return; }
   const owner = currentOwner || "모두";
   const year = currentLedgerYear, month = currentLedgerMonth;
   const username = currentUserProfile?.username || '';
@@ -11962,7 +12171,8 @@ async function loadLedger() {
       const res = await api(`/api/ledger?year=${year}&month=${month}&owner=${encodeURIComponent(owner)}`);
       if (entry.sequence !== ledgerReadSequence || owner !== currentOwner ||
           year !== currentLedgerYear || month !== currentLedgerMonth ||
-          username !== (currentUserProfile?.username || '')) return;
+          username !== (currentUserProfile?.username || '') ||
+          globalThis.WealthStartup?.visible('ledgerSectionPanel') === false) { globalThis.WealthStartup?.count('stale_ignored'); return; }
       rawLedgerData = res;
       renderLedger(res);
     } catch (err) {
@@ -11975,6 +12185,7 @@ async function loadLedger() {
 }
 
 function renderLedger(data) {
+  globalThis.WealthStartup?.count('render');
   if (!data) return;
   rawLedgerData = data;
 
@@ -14235,6 +14446,9 @@ async function commitTossWtsIncomeImport() {
       showTossWtsIncomeMessage(`배당·이자 가져오기에 실패했습니다. (${payload?.detail?.code || response.status})`, 'error');
       return;
     }
+    // This import uses fetch directly, so it must also invalidate navigation
+    // response handoffs before the normal post-import reload.
+    invalidateStartupReads();
     for (const index of tossWtsIncomeState.selectedIndices) tossWtsIncomeState.importedIndices.add(index);
     tossWtsIncomeState.selectedIndices.clear();
     closeTossWtsIncomeImportModal();
@@ -16448,8 +16662,7 @@ function initDividendMonthNavListeners() {
         renderActualDividends(actualDividendData);
       }
     } else {
-      if (dividendData) renderDividends(dividendData);
-      else await loadDividends(currentOwner);
+      await loadDividends(currentOwner, {reuse:true});
     }
   };
 
@@ -16527,6 +16740,11 @@ if (document.readyState === 'loading') {
 }
 
 window.addEventListener('wealth:view', ({ detail }) => {
+  // Hidden subview notifications must not cancel a direct dividend entry.
+  const activeView = document.querySelector('.wealth-workspace')?.dataset.activeView;
+  if (activeView ? activeView !== 'income' : detail !== 'income' && detail !== 'ledger') setIncomeTab.cancelPending?.();
+  globalThis.WealthStartup?.dashboardRendered(rawDashboard);
+  void globalThis.WealthStartup?.loadVisible();
   if (detail === 'invest') renderInvestmentView();
   if (detail === 'ledger' && currentUserProfile && currentUserProfile.username !== 'admin') loadLedger();
 });

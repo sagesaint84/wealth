@@ -1,6 +1,7 @@
 (() => {
   'use strict';
 
+  let requestRevision = 0, loadPending = null;
   const API_PATH = '/api/dividends/financial-income-family-allocation-simulation';
   const money = value => value === null || value === undefined
     ? '확인 불가'
@@ -12,6 +13,7 @@
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
   const taxWorkspaceActive = () => {
+    if (globalThis.WealthStartup?.visible('accountsPanel') === false) return false;
     if (window.WealthTaxWorkspace?.isActive) return window.WealthTaxWorkspace.isActive();
     return document.querySelector('.account-cat-tab.active')?.dataset?.cat === 'tax';
   };
@@ -64,6 +66,7 @@
   }
 
   async function request(allocations) {
+    const revision = ++requestRevision;
     const response = await fetch(API_PATH, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', Accept: 'application/json'},
@@ -73,7 +76,9 @@
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload?.detail?.code || `HTTP ${response.status}`);
+    if (revision !== requestRevision || !taxWorkspaceActive()) return false;
     render(payload);
+    return true;
   }
 
   async function run() {
@@ -96,13 +101,18 @@
       !taxWorkspaceActive()
       || document.querySelector('#familyFinancialIncomeAllocationPanel')?.dataset.loaded
     ) return;
-    try {
-      await request([]);
-      const panel = document.querySelector('#familyFinancialIncomeAllocationPanel');
-      if (panel) panel.dataset.loaded = 'true';
-    } catch (err) {
-      error(err?.message);
-    }
+    if (loadPending) return loadPending;
+    const pending = (async () => {
+      try {
+        if (!await request([])) return;
+        const panel = document.querySelector('#familyFinancialIncomeAllocationPanel');
+        if (panel) panel.dataset.loaded = 'true';
+      } catch (err) {
+        if (taxWorkspaceActive()) error(err?.message);
+      }
+    })();
+    loadPending = pending;
+    try { await pending; } finally { if (loadPending === pending) loadPending = null; }
   }
 
   function mount() {
@@ -120,6 +130,8 @@
       window.setTimeout(load, 0);
     }
   });
+  window.addEventListener('wealth:assets-ready', load);
+  window.addEventListener('wealth:view', load);
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', mount, {once: true});
   } else {
@@ -154,9 +166,9 @@
   async function loadWealthExtensions() {
     try {
       await loadScriptOnce('wealthPeriodFilterCoreScript', '/static/wealth-period-filter-core.js?v=10.6f1');
-      await loadScriptOnce('wealthIncomePeriodBrokerFilterScript', '/static/wealth-income-period-broker-filter.js?v=10.6p1');
+      await loadScriptOnce('wealthIncomePeriodBrokerFilterScript', '/static/wealth-income-period-broker-filter.js?v=2.1.3-p0');
       await loadScriptOnce('wealthPnlYearIntentScript', '/static/wealth-pnl-year-intent.js?v=10.6f2');
-      await loadScriptOnce('wealthLedgerPeriodFilterScript', '/static/wealth-ledger-period-filter.js?v=10.6f1');
+      await loadScriptOnce('wealthLedgerPeriodFilterScript', '/static/wealth-ledger-period-filter.js?v=2.1.3-p0');
       await loadScriptOnce('wealthIpoEventMonthsScript', '/static/wealth-ipo-event-months.js?v=10.6i1');
     } catch (err) {
       console.error('Wealth 확장 모듈 로드 실패:', err);

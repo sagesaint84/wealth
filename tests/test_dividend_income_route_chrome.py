@@ -59,6 +59,9 @@ def test_v211_dividend_visible_chart_shared_tooltip_pointer_keyboard_and_drag(ch
     call('Emulation.setDeviceMetricsOverride', {'width':width, 'height':900, 'deviceScaleFactor':1, 'mobile':width < 500})
     call('Page.navigate', {'url':f'http://127.0.0.1:{port}/#dividend'})
     wait_for(evaluate, "!!window.WealthUnifiedTimeseries")
+    # Module registration precedes async route preparation. A synthetic tooltip
+    # must not race the real chart's initial render, which closes old tooltips.
+    wait_for(evaluate, "WealthStartup.canRead() && currentIncomeTab==='dividend' && !setIncomeTab.pendingTarget && startupReadPending.size===0 && !!document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell') && !!document.getElementById('dividendPanel').getClientRects().length")
     evaluate("""(() => {
       const host=document.createElement('div');host.id='v211TooltipHost';
       host.style.cssText='position:fixed;inset:80px 10px auto;z-index:99999;height:180px;background:white';
@@ -603,59 +606,141 @@ def test_dividend_visible_chart_is_unified_from_first_paint(chrome_preview, widt
         "screenWidth": width, "screenHeight": height, "deviceScaleFactor": 1,
         "mobile": width <= 430})
     call("Page.navigate", {"url": f"http://127.0.0.1:{port}/#income"})
-    ready_expression = "typeof window.setIncomeTab==='function' && !!window.WealthUnifiedTimeseries && !!document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell') && !!actualDividendData"
-    try:
-        wait_for(evaluate, ready_expression, timeout=8)
-    except pytest.fail.Exception:
-        call("Page.reload", {"ignoreCache": True})
-        wait_for(evaluate, ready_expression)
+    # P0 initializes the calendar without fetching/rendering an inactive dividend
+    # tab. Establish that baseline before entering through the user's click path.
+    wait_for(evaluate, "document.readyState==='complete' && typeof window.setIncomeTab==='function' && !!window.WealthUnifiedTimeseries && !!window.WealthStartup?.canRead() && !!document.querySelector('#incomeTabs [data-income=\"dividend\"]')")
+    initial = evaluate("""(() => ({
+      hash:location.hash, tab:currentIncomeTab,
+      selected:document.querySelector('#incomeTabs .income-tab.active')?.dataset.income,
+      calendarVisible:!!document.getElementById('calendarPanel').getClientRects().length,
+      dividendHidden:document.getElementById('dividendPanel').classList.contains('wealth-income-hidden'),
+      dividendChart:!!document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell'),
+      requests:window.__divTrace.requests
+    }))()""")
+    assert initial['hash'] == '#income' and initial['tab'] == initial['selected'] == 'calendar', initial
+    assert initial['calendarVisible'] and initial['dividendHidden'] and not initial['dividendChart'], initial
+    assert not any(urlsplit(key).path in {'/api/actual-dividends', '/api/dividends'}
+                   for key in initial['requests']), initial
+    # Observe existing full-history responses, without issuing another request
+    # or replacing their data. The chart uses both dividend and interest rows.
+    evaluate("""(() => {
+      const originalApi=window.api;
+      window.__v213DividendSource={originalApi,byOwner:new Map()};
+      window.api=async function(url,...args){
+        const response=await originalApi.call(this,url,...args);
+        const parsed=new URL(url,location.origin);
+        if(parsed.pathname==='/api/actual-dividends' && parsed.searchParams.get('year')==='all'){
+          window.__v213DividendSource.byOwner.set(parsed.searchParams.get('owner'),response);
+        }
+        return response;
+      };
+    })()""")
+    evaluate("document.querySelector('#incomeTabs [data-income=dividend]').click()")
+    # This is setup for the geometry/mode/race checks below, not the slow first
+    # visible-frame test, which independently observes the complete entry sequence.
+    wait_for(evaluate, "location.hash==='#dividend' && currentIncomeTab==='dividend' && document.querySelector('#incomeTabs .income-tab.active')?.dataset.income==='dividend' && !!document.getElementById('dividendPanel').getClientRects().length && !!document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell') && !!actualDividendData && !window.setIncomeTab.pendingTarget")
     result = evaluate("""(async () => {
       const host=document.getElementById('dividendBarChartWrap');
       const panel=document.getElementById('dividendPanel');
       const sample=() => {
         const viewport=host.querySelector('.wealth-unified-viewport');
         const content=host.querySelector('.wealth-unified-content');
+        const controls=document.querySelector('.wealth-unified-periods[data-kind="dividend"]');
         return {tab:document.querySelector('#incomeTabs .income-tab.active')?.dataset.income,
+          controls:{exists:!!controls,hidden:controls?.hidden,
+            display:controls?getComputedStyle(controls).display:null,visible:!!controls?.getClientRects().length},
           hidden:panel.classList.contains('wealth-income-hidden'),
+          visible:!!panel.getClientRects().length && !!document.querySelector('.wealth-workspace')?.getClientRects().length
+            && !panel.closest('[data-wealth-page]')?.hidden && getComputedStyle(panel).visibility!=='hidden',
+          actualMode:currentDividendMode,owner:String(currentOwner || '모두'),year:String(selectedDividendYear),
+          mode:window.WealthUnifiedTimeseries.modes.dividend,
+          renderedMode:window.WealthUnifiedTimeseries.getDetailMode('dividend'),
+          expectedRenderedMode:expectedRenderedMode(window.WealthUnifiedTimeseries.modes.dividend),
+          scope:window.WealthUnifiedTimeseries.dividendScopeKey(),
+          dataRange:JSON.stringify(chartSourceRows()?.map(row=>[row.id || '',row.date,row.amount_krw,row.broker || '']) || null),
+          unifiedCount:host.querySelectorAll('.wealth-unified-chart-shell').length,
           child:host.firstElementChild?.className?.baseVal || host.firstElementChild?.className || '',
           legacy:!!host.querySelector('svg.record-chart'),
           unified:!!host.querySelector('.wealth-unified-chart-shell'),
           client:viewport?.clientWidth || 0,scrollWidth:viewport?.scrollWidth || 0,
           scrollLeft:viewport?.scrollLeft || 0,width:content?.getBoundingClientRect().width || 0};
       };
+      const chartSourceRows=() => {
+        const owner=String(currentOwner || '모두');
+        const source=window.__v213DividendSource.byOwner.get(owner);
+        if(!source) return null;
+        const broker=document.getElementById('dividendBrokerFilter')?.value || 'all';
+        return [...(source.records || []),...(source.interest_records || [])].filter(record=>{
+          const label=String(record?.broker || '').trim();
+          return broker==='all' || (broker==='__unassigned__'?!label:label===broker);
+        });
+      };
+      const expectedRenderedMode=mode => {
+        const rows=chartSourceRows();
+        return rows===null?null:window.WealthTimeseriesPeriodCore.effectiveMode(rows,mode,'date');
+      };
+      const waitActualReady=async (mode, phase, frames) => {
+        const started=performance.now();
+        const scope=window.WealthUnifiedTimeseries.dividendScopeKey();
+        for(let i=0;i<600 && performance.now()-started<10000;i++){
+          const frame=sample();
+          frame.mode=window.WealthUnifiedTimeseries.modes.dividend;
+          frame.renderedMode=window.WealthUnifiedTimeseries.getDetailMode('dividend');
+          frame.expectedRenderedMode=expectedRenderedMode(mode);
+          frame.owner=String(currentOwner || '모두');
+          frame.year=String(selectedDividendYear);
+          frame.scope=window.WealthUnifiedTimeseries.dividendScopeKey();
+          frames.push(frame);
+          if(frame.visible && frame.legacy) throw new Error(phase+': visible legacy chart '+JSON.stringify(frame));
+          if(frame.tab==='dividend' && currentIncomeTab==='dividend' && !frame.hidden && frame.visible
+              && currentDividendMode==='actual' && frame.unified && !frame.legacy
+              && host.querySelectorAll('.wealth-unified-chart-shell').length===1
+              && frame.client>0 && frame.width>0 && frame.mode===mode
+              && frame.controls.exists && !frame.controls.hidden && frame.controls.display!=='none' && frame.controls.visible
+              && frame.expectedRenderedMode!==null && frame.renderedMode===frame.expectedRenderedMode
+              && frame.scope===scope
+              && !window.setIncomeTab.pendingTarget) return frame;
+          await new Promise(requestAnimationFrame);
+        }
+        throw new Error(phase+': actual chart readiness timed out '+JSON.stringify(frames.at(-1)));
+      };
+      const observeActual=async (mode,phase,count) => {
+        const frames=[];
+        await waitActualReady(mode,phase,frames);
+        for(let i=0;i<count;i++){
+          await new Promise(requestAnimationFrame);
+          frames.push(sample());
+        }
+        return frames;
+      };
       const visits=[];
       for(let visit=0;visit<2;visit++){
         document.querySelector('#incomeTabs [data-income="calendar"]').click();
         document.querySelector('#incomeTabs [data-income="dividend"]').click();
         renderActualDividends(actualDividendData);
-        const frames=[sample()];
-        for(let i=0;i<70;i++){
-          await new Promise(requestAnimationFrame);
-          frames.push(sample());
-        }
-        visits.push(frames);
+        visits.push(await observeActual(window.WealthUnifiedTimeseries.modes.dividend,'visit '+visit,70));
       }
       const actualVisitWrites=[...window.__divTrace.writes];
       const modes={};
       for(const key of ['DAY','WEEK','MONTH','YEAR','ALL']){
-        window.WealthUnifiedTimeseries.modes.dividend=window.WealthTimeseriesPeriodCore.MODES[key];
+        const frames=[];
+        await waitActualReady(window.WealthUnifiedTimeseries.modes.dividend,key+' previous entry',frames);
+        const mode=window.WealthTimeseriesPeriodCore.MODES[key];
+        window.WealthUnifiedTimeseries.modes.dividend=mode;
         await window.WealthUnifiedTimeseries.renderDividend();
-        const before=sample();
+        const before=await waitActualReady(mode,key+' before',frames);
         document.querySelector('#incomeTabs [data-income="calendar"]').click();
         document.querySelector('#incomeTabs [data-income="dividend"]').click();
-        await new Promise(requestAnimationFrame);
-        await new Promise(requestAnimationFrame);
-        modes[key]={before,after:sample(),selected:window.WealthUnifiedTimeseries.modes.dividend};
+        const after=await waitActualReady(mode,key+' return',frames);
+        modes[key]={before,after,frames,expected:mode,selected:window.WealthUnifiedTimeseries.modes.dividend};
       }
+      const actualModeWrites=[...window.__divTrace.writes];
       document.querySelector('#dividendModeTabs [data-div-mode="estimated"]').click();
       for(let i=0;i<600 && !host.querySelector('svg.record-chart');i++) await new Promise(requestAnimationFrame);
       const estimated=sample();
+      const actualReturnWriteStart=window.__divTrace.writes.length;
       document.querySelector('#dividendModeTabs [data-div-mode="actual"]').click();
-      const actualFrames=[sample()];
-      for(let i=0;i<5;i++){
-        await new Promise(requestAnimationFrame);
-        actualFrames.push(sample());
-      }
+      const actualFrames=await observeActual(window.WealthUnifiedTimeseries.modes.dividend,'actual mode return',5);
       window.WealthUnifiedTimeseries.modes.dividend=window.WealthTimeseriesPeriodCore.MODES.MONTH;
       await window.WealthUnifiedTimeseries.renderDividend();
       currentOwner='synthetic-slow';
@@ -663,24 +748,69 @@ def test_dividend_visible_chart_is_unified_from_first_paint(chrome_preview, widt
       currentOwner='synthetic-fast';
       const fast=window.WealthUnifiedTimeseries.renderDividend();
       await Promise.all([slow,fast]);
+      const actualReturnWrites=window.__divTrace.writes.slice(actualReturnWriteStart);
       const raceLabel=host.querySelector('svg text[y="280"]')?.textContent || '';
-      return {visits,modes,estimated,actualFrames,actualVisitWrites,writes:window.__divTrace.writes,
+      window.api=window.__v213DividendSource.originalApi;
+      return {visits,modes,estimated,actualFrames,actualVisitWrites,actualModeWrites,actualReturnWrites,writes:window.__divTrace.writes,
         requests:window.__divTrace.requests,
         raceLabel,
         summary:document.getElementById('divTotalAnnual')?.textContent,
         detail:!!document.querySelector('#dividendMonthlyDetail .div-detail-header')};
     })()""")
     print("DIVIDEND_FRAMES=" + json.dumps({"width": width, **result}))
-    assert all(frame["unified"] and not frame["legacy"] for visit in result["visits"] for frame in visit), result
+    def assert_visible_actual_stability(frames):
+        displayed = [(index, frame) for index, frame in enumerate(frames)
+                     if frame['visible'] and not frame['hidden'] and frame['actualMode'] == 'actual']
+        assert displayed, frames
+        first_index, first = displayed[0]
+        assert first['dataRange'] != 'null', frames
+        for frame in frames[first_index:]:
+            # Once displayed, a chart must not disappear again or expose an old
+            # renderer/scope. Hidden preparation frames before this point remain
+            # in the trace but are not valid geometry measurements.
+            assert frame['visible'] and not frame['hidden'] and frame['actualMode'] == 'actual', frames
+            assert frame['tab'] == 'dividend' and frame['unified'] and not frame['legacy'], frames
+            assert frame['unifiedCount'] == 1, frames
+            assert frame['controls']['exists'] and not frame['controls']['hidden'], frames
+            assert frame['controls']['display'] != 'none' and frame['controls']['visible'], frames
+            assert frame['client'] > 0 and frame['width'] > 0, frames
+            assert frame['width'] == first['width'], frames
+            assert frame['scrollLeft'] == first['scrollLeft'], frames
+            for field in ('owner', 'year', 'scope', 'dataRange', 'mode', 'renderedMode'):
+                assert frame[field] == first[field], frames
+            assert frame['renderedMode'] == frame['expectedRenderedMode'], frames
+            if frame['mode'] != 'ALL':
+                assert frame['renderedMode'] == frame['mode'], frames
+        return first
+
+    assert len(result['visits']) == 2, result
     assert not any(write["kind"] == "legacy" and write["visible"] for write in result["actualVisitWrites"]), result
     for visit in result["visits"]:
-        assert visit[2]["width"] == visit[-1]["width"], result
-        assert visit[2]["scrollLeft"] == visit[-1]["scrollLeft"], result
+        assert_visible_actual_stability(visit)
     for pair in result["modes"].values():
+        assert pair['selected'] == pair['expected'], pair
+        for frame in (pair['before'], pair['after']):
+            assert frame['visible'] and not frame['hidden'] and frame['tab'] == 'dividend', pair
+            assert frame['unified'] and not frame['legacy'] and frame['client'] > 0 and frame['width'] > 0, pair
+            assert frame['controls']['exists'] and not frame['controls']['hidden'], pair
+            assert frame['controls']['display'] != 'none' and frame['controls']['visible'], pair
+            assert frame['mode'] == pair['expected'], pair
+            assert frame['renderedMode'] == frame['expectedRenderedMode'], pair
+            if pair['expected'] != 'ALL':
+                assert frame['renderedMode'] == pair['expected'], pair
+        assert pair['before']['renderedMode'] == pair['after']['renderedMode'], pair
+        assert pair['before']['owner'] == pair['after']['owner'], pair
+        assert pair['before']['year'] == pair['after']['year'], pair
+        assert pair['before']['scope'] == pair['after']['scope'], pair
+        assert not any(frame['visible'] and frame['legacy'] for frame in pair['frames']), pair
         assert pair["before"]["width"] == pair["after"]["width"], pair
         assert pair["before"]["scrollLeft"] == pair["after"]["scrollLeft"], pair
+    assert not any(write['kind'] == 'legacy' and write['visible'] for write in result['actualModeWrites']), result
     assert result["estimated"]["legacy"] and not result["estimated"]["unified"], result
-    assert all(frame["unified"] and not frame["legacy"] for frame in result["actualFrames"][1:]), result
+    assert result['estimated']['controls']['exists'] and result['estimated']['controls']['hidden'], result
+    assert result['estimated']['controls']['display'] == 'none' and not result['estimated']['controls']['visible'], result
+    assert_visible_actual_stability(result['actualFrames'])
+    assert not any(write['kind'] == 'legacy' and write['visible'] for write in result['actualReturnWrites']), result
     assert result["summary"] and result["detail"], result
     assert "2026" in result["raceLabel"], result
 
@@ -743,41 +873,236 @@ def test_startup_request_dedupe_and_estimated_lazy_load(chrome_preview):
     call("Page.navigate", {"url": f"http://127.0.0.1:{port}/#dividend"})
     wait_for(evaluate, "!!document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell') && typeof loadAssetDataForUser==='function'")
     evaluate("loadAssetDataForUser()")
+    wait_for(evaluate, "!loadAssetDataForUser.pending && !window.setIncomeTab.pendingTarget && currentIncomeTab==='dividend' && !!actualDividendData && !!document.getElementById('dividendPanel').getClientRects().length")
     counts = evaluate("window.__divTrace.requests")
     print("ACTUAL_STARTUP_COUNTS=" + json.dumps({key: counts.count(key) for key in sorted(set(counts))}))
     assert evaluate("window.__divTrace.requests.filter(key=>key.startsWith('/api/dividends?')).length") == 0
     result = evaluate("""(async()=>{
-      currentOwner='synthetic-dedupe';
-      window.__divTrace.requests=[];
-      await Promise.all(Array.from({length:12},()=>window.WealthUnifiedTimeseries.renderPnl()));
-      await Promise.all(Array.from({length:12},()=>window.WealthUnifiedTimeseries.renderDividend()));
-      return window.__divTrace.requests;
+      const trace=window.__divTrace, gates=new Map(), originalFetch=window.fetch, requestEvents=[];
+      const originalLoadActual=window.loadActualDividends,handoffs=[];
+      window.loadActualDividends=function(owner,year,prepared){
+        if(prepared?.response){
+          handoffs.push({owner,year,accepted:preparedActualDividendResponse(prepared,owner,year)===prepared.response,
+            staleEpochRejected:preparedActualDividendResponse({...prepared,readEpoch:prepared.readEpoch-1},owner,year)===null,
+            otherOwnerRejected:preparedActualDividendResponse(prepared,owner+'-other',year)===null,
+            otherYearRejected:preparedActualDividendResponse(prepared,owner,year==='all'?'1900':'all')===null,
+            otherScopeRejected:preparedActualDividendResponse({...prepared,scope:prepared.scope+'-old'},owner,year)===null});
+        }
+        return originalLoadActual.call(this,owner,year,prepared);
+      };
+      const matching=(start,path,owner)=>trace.requests.slice(start).filter(key=>{
+        const url=new URL(key,location.origin);
+        return url.pathname===path && (owner===undefined || url.searchParams.get('owner')===owner);
+      });
+      const until=async(predicate,phase)=>{
+        const start=performance.now();
+        for(let i=0;i<600 && performance.now()-start<10000;i++){
+          if(predicate())return;
+          await new Promise(requestAnimationFrame);
+        }
+        throw new Error(phase+' timed out '+JSON.stringify({hash:location.hash,tab:currentIncomeTab,
+          owner:currentOwner,pending:window.setIncomeTab.pendingTarget,requests:trace.requests}));
+      };
+      const ready=kind=>currentIncomeTab===kind && location.hash==='#'+kind
+        && document.querySelector('.wealth-workspace').dataset.activeView==='income'
+        && document.querySelector('.wealth-workspace').dataset.incomeTab===kind
+        && document.querySelector('#incomeTabs .income-tab.active')?.dataset.income===kind
+        && !!document.getElementById(kind==='pnl'?'realizedPnlPanel':'dividendPanel').getClientRects().length
+        && !window.setIncomeTab.pendingTarget
+        && window.WealthUnifiedTimeseries.getDetailMode(kind)!==null
+        && !!document.querySelector('#'+(kind==='pnl'?'pnlBarChartWrap':'dividendBarChartWrap')+' .wealth-unified-chart-shell');
+      window.fetch=function(...args){
+        const url=new URL(String(args[0]),location.origin);
+        const gate=gates.get(url.pathname+'|'+url.searchParams.get('owner'));
+        const event=url.pathname==='/api/actual-dividends'?{
+          order:requestEvents.length+1,url:url.pathname+url.search,start:performance.now(),
+          stack:new Error('actual dividend GET caller').stack,
+          tab:currentIncomeTab,owner:currentOwner,year:selectedDividendYear,mode:currentDividendMode,
+          broker:document.getElementById('dividendBrokerFilter')?.value || 'all',
+          scope:window.WealthUnifiedTimeseries.dividendScopeKey(),
+          previousSameUrl:requestEvents.filter(item=>item.url===url.pathname+url.search).map(item=>({
+            order:item.order,networkEnd:item.networkEnd || null,delivered:item.delivered || null})),
+          sharedPendingAtStart:startupReadPending.has(url.pathname+url.search),
+          gateReleased:gate?gate.released:null}:null;
+        if(event)requestEvents.push(event);
+        const response=originalFetch.apply(this,args);
+        if(gate)gate.started++;
+        return response.then(async value=>{
+          if(event)event.networkEnd=performance.now();
+          if(gate)await gate.pending;
+          if(event)event.delivered=performance.now();
+          return value;
+        },error=>{if(event)event.failed=performance.now();throw error;});
+      };
+      const checks=[];
+      try{
+        const idleStart=trace.requests.length;
+        await Promise.all(Array.from({length:12},()=>window.WealthUnifiedTimeseries.renderPnl()));
+        const inactivePnl=matching(idleStart,'/api/realized-pnl').length;
+        for(const [kind,owner,path] of [
+            ['pnl','synthetic-dedupe-pnl','/api/realized-pnl'],
+            ['dividend','synthetic-dedupe-dividend','/api/actual-dividends']]){
+          if(kind==='dividend'){
+            // Complete hidden-panel preparation under the previous scope first.
+            // Then a fresh owner plus a real re-entry click tests overlapping
+            // active render calls, rather than calls correctly skipped while hidden.
+            document.querySelector('#incomeTabs [data-income=dividend]').click();
+            await until(()=>ready('dividend'),'dividend activation before fresh scope');
+            await until(()=>!startupReadPending.size,'previous scope GET completion');
+          }
+          const start=trace.requests.length;
+          const gate={started:0,released:false};gate.pending=new Promise(resolve=>{
+            gate.release=()=>{gate.released=true;resolve();};
+          });
+          gates.set(path+'|'+owner,gate);
+          currentOwner=owner;
+          selectedPnlYear='all';selectedDividendYear='all';
+          document.getElementById('pnlYearSelect').value='all';
+          document.getElementById('dividendYearSelect').value='all';
+          document.querySelector('#incomeTabs [data-income='+kind+']').click();
+          await until(()=>gate.started>0,kind+' activation request');
+          // Response delivery is gated, so the batch must join an unfinished
+          // request, not merely reuse a previously rendered/cached chart.
+          let completed=0;
+          const render=kind==='pnl'?'renderPnl':'renderDividend';
+          const batch=Array.from({length:12},()=>window.WealthUnifiedTimeseries[render]().then(()=>completed++));
+          const inactiveStart=trace.requests.length;
+          const inactiveRender=kind==='pnl'?'renderDividend':'renderPnl';
+          await Promise.all(Array.from({length:12},()=>window.WealthUnifiedTimeseries[inactiveRender]()));
+          const inactivePath=kind==='pnl'?'/api/actual-dividends':'/api/realized-pnl';
+          const overlap={requests:matching(start,path,owner).length,started:gate.started,completed,
+            inactive:matching(inactiveStart,inactivePath,owner).length};
+          gate.release();await Promise.all(batch);
+          await until(()=>ready(kind),kind+' active chart');
+          // Include automatic navigation loads in the final same-scope count.
+          await until(()=>!startupReadPending.size,kind+' pending GET completion');
+          checks.push({kind,owner,overlap,total:matching(start,path,owner).length,
+            urls:matching(start,path,owner),scope:window.WealthUnifiedTimeseries.dividendScopeKey(),
+            activeOwner:currentOwner,tab:currentIncomeTab});
+          gates.delete(path+'|'+owner);
+        }
+        return {inactivePnl,checks,requests:[...trace.requests],requestEvents,handoffs};
+      }finally{
+        for(const gate of gates.values())gate.release();
+        window.fetch=originalFetch;
+        window.loadActualDividends=originalLoadActual;
+      }
     })()""")
-    for endpoint in ['/api/realized-pnl', '/api/actual-dividends']:
-        calls = [key for key in result if urlsplit(key).path == endpoint]
-        assert len(calls) == 1, result
-    evaluate("document.querySelector('#dividendModeTabs [data-div-mode=estimated]').click()")
-    wait_for(evaluate, "!!dividendData && !!document.querySelector('#dividendBarChartWrap svg.record-chart')")
-    count = evaluate("window.__divTrace.requests.filter(key=>key.startsWith('/api/dividends?')).length")
-    assert count == 1
-    evaluate("document.querySelector('#dividendModeTabs [data-div-mode=actual]').click(); document.querySelector('#dividendModeTabs [data-div-mode=estimated]').click()")
-    assert evaluate("window.__divTrace.requests.filter(key=>key.startsWith('/api/dividends?')).length") == count
+    print('ACTIVE_DEDUPE=' + json.dumps(result))
+    assert result['handoffs'], result
+    for handoff in result['handoffs']:
+        assert all(handoff[key] for key in ('accepted', 'staleEpochRejected', 'otherOwnerRejected',
+                                            'otherYearRejected', 'otherScopeRejected')), handoff
+    assert result['inactivePnl'] == 0, result
+    assert len(result['checks']) == 2, result
+    for check in result['checks']:
+        assert check['overlap']['requests'] == check['overlap']['started'] == 1, check
+        assert check['overlap']['completed'] == 0 and check['overlap']['inactive'] == 0, check
+        assert check['total'] == 1, check
+        assert check['activeOwner'] == check['owner'] and check['tab'] == check['kind'], check
+        assert all(parse_qs(urlsplit(url).query).get('year') == ['all'] for url in check['urls']), check
+    estimated = evaluate("""(async()=>{
+      const originalFetch=window.fetch,events=[],actions=[];
+      const owner=currentOwner;
+      let stage='first-entry';
+      const cacheState=()=>({present:!!dividendData,dataOwner:dividendDataOwner,
+        ownerMatches:dividendDataOwner===currentOwner,cacheEpoch:dividendDataEpoch,epoch:startupReadEpoch});
+      const calls=scope=>window.__divTrace.requests.filter(key=>{
+        const url=new URL(key,location.origin);
+        return url.pathname==='/api/dividends' && url.searchParams.get('owner')===scope;
+      });
+      const until=async(scope)=>{
+        const started=performance.now();
+        for(let i=0;i<600 && performance.now()-started<10000;i++){
+          const key='/api/dividends?owner='+encodeURIComponent(scope);
+          if(currentIncomeTab==='dividend' && currentDividendMode==='estimated'
+              && currentOwner===scope && dividendData && dividendDataOwner===scope
+              && dividendDataEpoch===startupReadEpoch && !startupReadPending.has(key)
+              && document.getElementById('dividendPanel').getClientRects().length
+              && document.querySelector('#dividendBarChartWrap svg.record-chart')
+              && !document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell'))return;
+          await new Promise(requestAnimationFrame);
+        }
+        throw new Error('estimated readiness timed out '+JSON.stringify({stage,owner:currentOwner,cache:cacheState(),events}));
+      };
+      window.fetch=function(...args){
+        const url=new URL(String(args[0]),location.origin);
+        if(url.pathname!=='/api/dividends')return originalFetch.apply(this,args);
+        const event={url:url.pathname+url.search,owner:url.searchParams.get('owner'),stage,
+          started:performance.now(),tab:currentIncomeTab,mode:currentDividendMode,currentOwner,
+          cache:cacheState(),stack:new Error('estimated dividend GET caller').stack,
+          previous:events.map(item=>({url:item.url,started:item.started,completed:item.completed || null}))};
+        events.push(event);
+        return originalFetch.apply(this,args).then(response=>{
+          event.completed=performance.now();return response;
+        },error=>{event.failed=performance.now();throw error;});
+      };
+      try{
+        actions.push({stage,owner,cache:cacheState(),mutation:false,refresh:false});
+        document.querySelector('#dividendModeTabs [data-div-mode=estimated]').click();
+        await until(owner);
+        const first=[...calls(owner)],firstCache=cacheState();
+        stage='same-owner-reentry';
+        actions.push({stage,owner:currentOwner,cache:cacheState(),mutation:false,refresh:false});
+        document.querySelector('#dividendModeTabs [data-div-mode=actual]').click();
+        document.querySelector('#dividendModeTabs [data-div-mode=estimated]').click();
+        await until(owner);
+        const reentry=[...calls(owner)],reentryCache=cacheState();
+        stage='owner-change';
+        const otherOwner='synthetic-estimated-other';
+        actions.push({stage,owner:otherOwner,mutation:false,refresh:false});
+        selectOwner(otherOwner);
+        const ownerChangeStarted=cacheState();
+        await until(otherOwner);
+        return {owner,otherOwner,first,reentry,firstCache,reentryCache,ownerChangeStarted,
+          otherCalls:calls(otherOwner),otherCache:cacheState(),events,actions};
+      }finally{window.fetch=originalFetch;}
+    })()""")
+    print('ESTIMATED_REQUESTS=' + json.dumps(estimated))
+    assert len(estimated['first']) == 1, estimated
+    assert estimated['reentry'] == estimated['first'], estimated
+    for state in (estimated['firstCache'], estimated['reentryCache']):
+        assert state['present'] and state['ownerMatches'] and state['dataOwner'] == estimated['owner'], estimated
+        assert state['cacheEpoch'] == state['epoch'], estimated
+    assert estimated['firstCache']['epoch'] == estimated['reentryCache']['epoch'], estimated
+    assert not estimated['ownerChangeStarted']['present'], estimated
+    assert len(estimated['otherCalls']) == 1, estimated
+    assert estimated['otherCache']['dataOwner'] == estimated['otherOwner'], estimated
+    assert estimated['otherCache']['ownerMatches'], estimated
     empty = evaluate("""(async()=>{
-      document.querySelector('#dividendModeTabs [data-div-mode=actual]').click();
       currentOwner='synthetic-empty';
-      await Promise.all([window.WealthUnifiedTimeseries.renderPnl(),window.WealthUnifiedTimeseries.renderDividend()]);
-      for(let i=0;i<3;i++) await new Promise(requestAnimationFrame);
-      const before=window.__divTrace.unifiedCalls;
-      const probe=document.createElement('div');
-      document.body.append(probe);
-      for(let i=0;i<5;i++) await new Promise(requestAnimationFrame);
-      probe.remove();
-      for(let i=0;i<5;i++) await new Promise(requestAnimationFrame);
-      return {before,after:window.__divTrace.unifiedCalls,
-        pnl:!!document.querySelector('#pnlBarChartWrap > .wealth-unified-empty'),
-        dividend:!!document.querySelector('#dividendBarChartWrap > .wealth-unified-empty')};
+      const checks=[];
+      for(const kind of ['pnl','dividend']){
+        if(kind==='dividend'){
+          document.querySelector('#incomeTabs [data-income=dividend]').click();
+          document.querySelector('#dividendModeTabs [data-div-mode=actual]').click();
+        }
+        else document.querySelector('#incomeTabs [data-income=pnl]').click();
+        const panel=document.getElementById(kind==='pnl'?'realizedPnlPanel':'dividendPanel');
+        const host=document.getElementById(kind==='pnl'?'pnlBarChartWrap':'dividendBarChartWrap');
+        const start=performance.now();let prepared=false;
+        for(let i=0;i<600 && performance.now()-start<10000;i++){
+          if(currentIncomeTab===kind && location.hash==='#'+kind && panel.getClientRects().length
+              && !window.setIncomeTab.pendingTarget && host.querySelector(':scope > .wealth-unified-empty')
+              && window.WealthUnifiedTimeseries.getDetailMode(kind)!==null){prepared=true;break;}
+          await new Promise(requestAnimationFrame);
+        }
+        if(!prepared)throw new Error(kind+' empty active chart timed out');
+        for(let i=0;i<3;i++) await new Promise(requestAnimationFrame);
+        const before=window.__divTrace.unifiedCalls;
+        const probe=document.createElement('div');document.body.append(probe);
+        for(let i=0;i<5;i++) await new Promise(requestAnimationFrame);
+        probe.remove();
+        for(let i=0;i<5;i++) await new Promise(requestAnimationFrame);
+        checks.push({kind,before,after:window.__divTrace.unifiedCalls,
+          empty:!!host.querySelector(':scope > .wealth-unified-empty'),owner:currentOwner});
+      }
+      return checks;
     })()""")
-    assert empty['pnl'] and empty['dividend'] and empty['before'] == empty['after'], empty
+    assert [check['kind'] for check in empty] == ['pnl', 'dividend'], empty
+    for check in empty:
+        assert check['empty'] and check['before'] == check['after'], check
+        assert check['owner'] == 'synthetic-empty', check
     cursor = evaluate("""(()=>{
       const node=document.elementFromPoint(innerWidth/2,innerHeight/2);
       const chain=[];
