@@ -1,6 +1,14 @@
 # Wealth Roadmap
 
-## 구조 개선 검토 후보 — 운영 미배포
+## 현재 완료 단계 — 2026-10-21 / PR #161 운영 배포
+
+- **완료**: [PR #161](https://github.com/sagesaint84/wealth/pull/161) 초기 deep-link 라우팅, 숨김 투자 렌더 지연, 가계부 요청 공유·오래된 응답 차단, 검증된 미사용 UI 정리. Squash Merge `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`, 앱 **v2.1.2**, 정적 자산 **2.1.2-route1**.
+- **완료**: GitHub CI 4/4 PASS, [GHCR 이미지](https://github.com/sagesaint84/wealth/actions/runs/39572486587) SUCCESS (`ghcr.io/sagesaint84/wealth:fc0bb10`, Digest `sha256:b82b79c9a3e781810a9c823237473fe09549fa72825c5756c5c97b0774cd05b9`), Oracle Docker 실행 이미지·영구/Toss 마운트·HTTP 307 PASS (사용자 출력), 운영 브라우저 5/5 PASS (사용자 보고).
+- **잔존 위험**: Windows 전체 pytest 4424 PASS / 1 FAIL / 5 SKIP; 모바일 DAY 후속 matrix 4/4 PASS이나 실패 원인 UNCONFIRMED. 모바일 첫 자산 약 +488ms/readiness 약 +532ms로 **성능 게이트 FAIL**. **PR #161 한정 승인 예외**로 운영 배포했으며 후속 작업에서 별도 해결·재평가 필요.
+- **다음 개발**: 보호된 **v2.1.3 P0**(원본27/통합33/최소2)를 손실 없이 검토하고 별도 PR·게이트로 진행. 모바일 실측 회귀 위험은 보존·판단하고, 국장/미장 공포탐욕지수·보유종목 20/50일선 이탈/데드크로스는 미착수 백로그로 유지.
+- **문서 이력**: 아래 '운영 미배포'·'HOLD' 표기는 출시 전 검증 경과이며, 현재 운영 배포와 혼동하지 않는다.
+
+## 과거 검토 기록 — PR #161 병합 전 상태 (현재 운영 상태 아님)
 
 기준 main `99277956dc3c9e6383b533bd2efba259c1418cae`, 브랜치 `codex/v212-initial-deeplink-paint-fix`. 운영은 앱 **v2.1.2 / home1** 그대로이며 미커밋 후보의 변경 core JS와 layout CSS/JS·SW assets는 **2.1.2-route1**이다. v2.1.3 P0 27/33/2 작업을 포함하지 않는다.
 

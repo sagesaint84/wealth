@@ -1,6 +1,17 @@
 # Wealth Project State
 
-## 구조 개선 검토 후보 — 운영 미배포
+## 현재 운영 상태 — 2026-10-21 PR #161 배포 완료
+
+- **운영 앱 v2.1.2**, 변경된 정적 화면·레이아웃·SW revision **2.1.2-route1**, core **2.1.2-r1**. [PR #161](https://github.com/sagesaint84/wealth/pull/161) Squash Merge `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14` (GitHub CI 4/4 SUCCESS). 별도 v2.1.3 P0는 포함하지 않았다.
+- [Docker 발행 workflow #39572486587](https://github.com/sagesaint84/wealth/actions/runs/39572486587) SUCCESS. `ghcr.io/sagesaint84/wealth:fc0bb10` / 다중 플랫폼 manifest Digest `sha256:b82b79c9a3e781810a9c823237473fe09549fa72825c5756c5c97b0774cd05b9`; Git revision `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`, Linux AMD64·ARM64 발행 로그 확인.
+- **Oracle 배포(사용자 제공 SSH 출력 기준)**: `docker compose ... up -d --no-deps --no-build --pull never --force-recreate dashboard` 실행 후 `wealth` Running, 실행 이미지 ID `sha256:4d6133a4e1977b739c3e1065023e7f18616e0289674911a2050c64783c9a3f82` 확인. 데이터 `/docker/wealth/data -> /app/data`, Toss 바이너리 `/docker/wealth/toss-wts/bin/tossctl -> /opt/toss-wts/tossctl`, 설정 `/docker/wealth/toss-wts/config -> /opt/toss-wts/config` 보존. HTTP `/` → 307. 시작 직후 연결 reset 1회 뒤 정상 응답. **DEPLOY/IMAGE_DIGEST/MOUNT/HTTP GATE=PASS (사용자 출력)**. 레지스트리 manifest Digest와 로컬 이미지 ID는 다른 개념이다.
+- **BROWSER_SMOKE=PASS (사용자 확인 5/5)**: 로그인·홈 자산, `#invest` 직접 새로고침, `#ledger` 새로고침과 월간 현금흐름, DAY 실현손익·배당 상세 선택, 모바일 홈/주식/가계부. 운영 사이트의 독립 자동 E2E는 별도로 실행하지 않았다.
+- 검사 기록: PR #161 CI 3 workflows / 4 jobs **SUCCESS**. Windows 최종 full pytest **4424 PASS / 1 FAIL / 5 SKIP / 888 subtests PASS**, 모바일 배당 DAY `pointerdown` 불발의 원인 **UNCONFIRMED**. 단독1 PASS 및 DAY 포인터 matrix 4/4 PASS는 이전 전체 실패를 소급 제거하지 않는다. 기존 인증 E2E 24 PASS는 별도 이력.
+- **PERFORMANCE_NUMERIC_GATE=FAIL**: 한정 A/B에서 모바일 첫 자산 약 **+488ms**, readiness 약 **+532ms** 지연이 관측됐고 인과는 확인되지 않았다. 사용자가 **2026-10-21 PR #161 한정으로 예외 승인**하여 Squash Merge 및 Oracle 배포를 진행했다. 숫자 자체의 PASS·해결을 뜻하지 않으며 기존 기준이나 향후 후보로 예외 승계하지 않는다.
+- **보호 경계**: P0 원본27/통합33/최소2개 변경과 관련 worktree는 머지·리셋·삭제하지 않는다. 화면 증거 PNG 2개는 PR에서 제외하고 로컬에 보존했다. 기존 Compose·영구 데이터·Toss 마운트 파일은 변경하지 않았다. GitHub Release/tag는 별도 수행하지 않았다.
+- **문서 우선순위**: 아래의 '후보/미배포/HOLD' 문구는 PR #161 병합 및 운영 검증 전에 작성된 *과거 시점 기록*으로 남긴다. 현재 출시 상태는 이 절을 따른다.
+
+## 과거 검토 기록 — PR #161 병합 전 상태 (현재 운영 상태 아님)
 
 기준 main `99277956dc3c9e6383b533bd2efba259c1418cae`, 브랜치 `codex/v212-initial-deeplink-paint-fix`. 운영은 앱 **v2.1.2 / home1** 그대로이며 미커밋 후보의 변경 core JS와 layout CSS/JS·SW assets는 **2.1.2-route1**이다. v2.1.3 P0 27/33/2 작업을 포함하지 않는다.
 
