@@ -12,13 +12,59 @@
     <meta name="apple-mobile-web-app-title" content="Wealth" />
     <meta name="application-name" content="Wealth" />
     <meta name="application-version" content="2.1.2" />
-    <meta name="application-assets-revision" content="2.1.2-home1" />
+    <meta name="application-assets-revision" content="2.1.2-route1" />
     <script>
       // Restore the validated theme before the render-blocking stylesheets.
       try {
         const theme = localStorage.getItem('app_theme');
         if (theme === 'white' || theme === 'oled') document.documentElement.dataset.theme = theme;
       } catch (error) { /* Storage denial keeps the default purple theme. */ }
+    </script>
+    <script>
+      // One route contract for parser-time selection and later hash navigation.
+      (() => {
+  const views = {
+    home: ['홈', '가족의 자산을 한눈에', '지금의 자산 현황을 확인하고, 필요한 관리로 이어가세요.'],
+    invest: ['주식 투자', '주식 현황', '주식 포트폴리오, 보유종목과 투자 기록을 한곳에서 확인하세요.'],
+    assets: ['종합 자산', '자산과 계좌 관리', '증권·은행·보험·부동산과 대출을 관리하세요.'],
+    income: ['머니 로그', '머니 로그', '실현손익, 배당·이자, 수입·지출 내역을 한곳에서 확인하세요.'],
+    settings: ['설정', '설정', 'API 연결, 알림과 자동화, 계정과 데이터를 관리하세요.'],
+  };
+        const moneyLogTabs = { ledger: 'ledger', dividend: 'dividend', pnl: 'pnl', calendar: 'calendar', ipo: 'ipo' };
+        const resolve = (hash = location.hash) => {
+          const requested = hash.slice(1);
+          const key = Object.hasOwn(moneyLogTabs, requested) ? 'income'
+            : (Object.hasOwn(views, requested) ? requested : 'home');
+          return { requested, key, incomeTab: moneyLogTabs[requested] || 'calendar' };
+        };
+        const select = (node, incomeTab) => {
+          const route = resolve();
+          if (incomeTab) node.classList.toggle('wealth-income-hidden', incomeTab !== route.incomeTab);
+          else node.hidden = node.dataset.wealthPage !== route.key;
+        };
+        const sync = () => {
+          const route = resolve();
+          document.querySelectorAll('.wealth-nav [data-wealth-view]').forEach(node => {
+            if (node.dataset.wealthView === route.key) {
+              if (node.getAttribute('aria-current') !== 'page') node.setAttribute('aria-current', 'page');
+            } else if (node.hasAttribute('aria-current')) node.removeAttribute('aria-current');
+          });
+          const title = document.getElementById('wealthPageTitle');
+          const description = document.getElementById('wealthPageDescription');
+          if (title && title.textContent !== views[route.key][1]) title.textContent = views[route.key][1];
+          if (description && description.textContent !== views[route.key][2]) description.textContent = views[route.key][2];
+          const documentTitle = `Wealth · ${views[route.key][0]}`;
+          if (document.title !== documentTitle) document.title = documentTitle;
+          const workspace = document.querySelector('.wealth-workspace');
+          if (workspace) {
+            if (workspace.dataset.activeView !== route.key) workspace.dataset.activeView = route.key;
+            if (workspace.dataset.incomeTab !== route.incomeTab) workspace.dataset.incomeTab = route.incomeTab;
+          }
+          return route;
+        };
+        window.WealthWorkspaceRoute = { views, resolve, select, sync };
+        sync();
+      })();
     </script>
     <script src="/static/wealth-invest-tab-state.js?v=10.9k1"></script>
     <script src="/static/wealth-asset-category-state.js?v=2.0.2"></script>
@@ -30,7 +76,7 @@
     <link rel="stylesheet" href="/static/wealth-savings-contributions.css?v=10.9p" />
     <link rel="stylesheet" href="/static/wealth-account-reorder.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-overrides.css?v=10.9h1" />
-    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.2-ipo-ui1" />
+    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.2-route1" />
     <link rel="stylesheet" href="/static/wealth-color-preferences.css?v=10.9r6" />
   <link rel="stylesheet" href="/static/wealth-color-picker.css?v=10.9r2" />
     <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css?v=2.1.0-b2" />
@@ -147,18 +193,13 @@
       <div class="wealth-nav-label">MY WEALTH</div>
       <a href="#home" data-wealth-view="home" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7v10H3Z"></path><path d="M9 20v-7h6v7"></path></svg><span>홈</span></a><a href="#invest" data-wealth-view="invest"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h17M8 15l4-5 4 2 5-8"></path></svg><span>주식 투자</span></a><a href="#assets" data-wealth-view="assets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="15" rx="2"></rect><path d="M3 10h18M7 6V3h10v3M15 15h3"></path></svg><span>종합 자산</span></a><a href="#income" data-wealth-view="income"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4"></path></svg><span>머니 로그</span></a>
       <div class="wealth-nav-bottom"><a href="#settings" data-wealth-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16"></path><circle cx="8" cy="7" r="3"></circle><circle cx="16" cy="17" r="3"></circle></svg><span>설정</span></a><small>개인 · 가족 자산관리</small></div>
-    </nav>
+    </nav><script>WealthWorkspaceRoute.sync();</script>
     <div class="wealth-content">
-      <div class="wealth-page-head"><div><p class="wealth-eyebrow">YOUR FINANCIAL OVERVIEW</p><h2 id="wealthPageTitle" tabindex="-1">가족의 자산을 한눈에</h2><p id="wealthPageDescription">지금의 자산 현황을 확인하고, 필요한 관리로 이어가세요.</p></div><a class="wealth-settings-link" href="#settings" aria-label="설정 열기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16"></path><circle cx="8" cy="7" r="3"></circle><circle cx="16" cy="17" r="3"></circle></svg></a></div>
+      <div class="wealth-page-head"><div><p class="wealth-eyebrow">YOUR FINANCIAL OVERVIEW</p><h2 id="wealthPageTitle" tabindex="-1">가족의 자산을 한눈에</h2><p id="wealthPageDescription">지금의 자산 현황을 확인하고, 필요한 관리로 이어가세요.</p></div><a class="wealth-settings-link" href="#settings" aria-label="설정 열기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16"></path><circle cx="8" cy="7" r="3"></circle><circle cx="16" cy="17" r="3"></circle></svg></a></div><script>WealthWorkspaceRoute.sync();</script>
       <div class="wealth-owner-bar"><span>조회 범위</span><div id="wealthOwnerSlot"><div class="family-tabs topbar-family-tabs" id="topbarFamilyTabs" style="margin-left:4px;">
               <button type="button" class="family-tab active" data-owner="모두">모두</button>
             </div></div><div class="wealth-refresh-actions"><button id="refreshButton" title="시세를 갱신합니다. 증권사 잔고 동기화와 별개입니다." class="button secondary compact" type="button">시세 갱신</button><button id="syncAccountsButton" title="설정된 증권사에서 잔고와 보유종목을 가져옵니다." class="button secondary compact" type="button">계좌 동기화</button></div></div>
-      <section data-wealth-page="home" aria-label="자산 요약">
-        <div class="wealth-home-grid" data-legacy-summary="true" aria-hidden="true" hidden="">
-          <article class="wealth-net-card"><div class="wealth-card-top"><span>나의 순자산</span><span class="wealth-live-label" id="wealthOwnerLabel">전체 가족</span></div><strong id="wealthNetWorth">—</strong><p>등록 자산에서 부채를 뺀 금액</p><div class="wealth-net-bottom"><span id="wealthHomeUpdated">자산 정보를 불러오는 중입니다.</span><a id="wealthNetWorthDetails" href="#homeAssetPortfolioPanel">상세 현황 <span aria-hidden="true">↗</span></a></div></article>
-          <article class="wealth-stat-card"><span class="wealth-stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="15" rx="2"></rect><path d="M3 10h18M7 6V3h10v3M15 15h3"></path></svg></span><h3>현금·예적금</h3><strong id="wealthCash">—</strong><p>은행 잔액 · 증권 예수금 · 예적금</p><a href="#assets">계좌 살펴보기 →</a></article>
-          <article class="wealth-stat-card"><span class="wealth-stat-icon wealth-debt-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="15" height="18" rx="2"></rect><path d="M3 7h4M3 12h4M3 17h4M11 8h5M11 12h5M11 16h3"></path></svg></span><h3>총부채</h3><strong id="wealthDebt">—</strong><p>대출 · 음수 잔액 · 임대보증금 반환의무</p><a href="#assets">부채 확인하기 →</a></article>
-        </div>
+      <section data-wealth-page="home" aria-label="자산 요약"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement);</script>
         <article class="wealth-composition wealth-home-asset-portfolio" id="homeAssetPortfolioPanel" tabindex="-1"><div class="wealth-section-heading"><div><p class="wealth-eyebrow">ASSET PORTFOLIO</p><h3>자산 포트폴리오</h3></div><a href="#assets">자산 상세보기 ↗</a></div><p class="wealth-help">전체 자산의 핵심 지표와 자산군별 구성을 한눈에 확인하세요.</p><div class="wealth-asset-dashboard"><div id="wealthAssetKpis" class="wealth-asset-kpis" aria-label="자산 포트폴리오 요약"><article class="wealth-asset-kpi tone-net"><span class="wealth-asset-kpi-icon">◆</span><div><span>순자산</span><strong id="wealthAssetNetWorth">—</strong><span class="wealth-asset-secondary-row is-debt"><em>총부채</em><small id="wealthAssetDebtDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-invest"><span class="wealth-asset-kpi-icon">◈</span><div><span>투자자산</span><strong id="wealthAssetInvest">—</strong><span class="wealth-asset-secondary-row"><em>주식</em><small id="wealthAssetStockDetail">—</small></span><span class="wealth-asset-secondary-row"><em>부동산</em><small id="wealthAssetPropertyDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-profit"><span class="wealth-asset-kpi-icon">↗</span><div><span>기대수익</span><strong id="wealthAssetExpected">—</strong><span class="wealth-asset-secondary-row"><em>주식 기대수익</em><small id="wealthAssetStockExpected">—</small></span><span class="wealth-asset-secondary-row"><em>부동산 기대수익</em><small id="wealthAssetPropertyExpected">—</small></span></div></article><article class="wealth-asset-kpi tone-realized"><span class="wealth-asset-kpi-icon">▤</span><div><span>실현손익</span><strong id="wealthAssetRealized">—</strong><span class="wealth-asset-secondary-row"><em>배당/이자</em><small id="wealthAssetDividendDetail">—</small></span><span class="wealth-asset-secondary-row"><em>매매차익</em><small id="wealthAssetTradeDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-safe"><span class="wealth-asset-kpi-icon">◇</span><div><span>안전자산</span><strong id="wealthAssetSafe">—</strong><span class="wealth-asset-secondary-row"><em>보험</em><small id="wealthAssetInsuranceDetail">—</small></span><span class="wealth-asset-secondary-row"><em>임차보증금</em><small id="wealthAssetDepositDetail">—</small></span><span class="wealth-asset-secondary-row"><em>예수금 및 예금</em><small id="wealthAssetSafeDetail">—</small></span></div></article></div><div class="wealth-asset-allocation"><div class="wealth-asset-allocation-head"><div><span class="wealth-eyebrow">ASSET ALLOCATION</span><h4>전체 자산 구성</h4></div><div id="homeAssetAllocationDonut" class="wealth-asset-donut" role="img" aria-label="전체 자산 구성"><span>전체 자산</span><strong id="homeAssetAllocationTotal">—</strong></div><div id="homeAssetAllocationLegend" class="wealth-asset-donut-legend"></div></div><div id="wealthMixLegend" class="wealth-mix-legend wealth-asset-breakdown"><p class="wealth-help">자산 정보가 준비되면 구성을 표시합니다.</p></div></div></div></article>
         <div id="wealthMarketSlot"><section id="marketPanel" class="panel market-panel user-asset-section" style="margin-top:16px;">
         <div class="panel-head market-head" style="flex-wrap:wrap;gap:0.75rem;align-items:center;">
@@ -193,7 +234,7 @@
         <div id="marketGrid" class="market-grid" aria-label="주요 시장 지수" style="margin-top:16px;"></div>
       </section></div>
       </section>
-      <section data-wealth-page="invest" aria-label="주식 투자" hidden="">
+      <section data-wealth-page="invest" aria-label="주식 투자" hidden=""><script>WealthWorkspaceRoute.select(document.currentScript.parentElement);</script>
 <section id="summaryPanel" class="panel summary-panel overview-panel">
         <div class="panel-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -464,7 +505,7 @@
           </div>
         </div>
       </section>
-</section><section data-wealth-page="assets" aria-label="종합 자산" hidden="">
+</section><section data-wealth-page="assets" aria-label="종합 자산" hidden=""><script>WealthWorkspaceRoute.select(document.currentScript.parentElement);</script>
 <section id="accountsPanel" class="panel">
         <div class="account-panel-head-row">
           <div class="panel-head" style="flex-wrap:wrap;gap:0.5rem;display:flex;align-items:center;">
@@ -641,8 +682,8 @@
 
         </div>
       </section>
-</section><section data-wealth-page="income" aria-label="머니 로그" hidden="">
-<section id="calendarPanel" class="panel calendar-panel">
+</section><section data-wealth-page="income" aria-label="머니 로그" hidden=""><script>WealthWorkspaceRoute.select(document.currentScript.parentElement);</script>
+<section id="calendarPanel" class="panel calendar-panel"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'calendar');</script>
         <div class="panel-head calendar-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div>
             <p class="eyebrow">FINANCIAL CALENDAR</p>
@@ -664,7 +705,7 @@
           <div id="calendarDetailList" class="calendar-detail-list"></div>
         </div>
       </section>
-<section id="realizedPnlPanel" class="panel dividend-panel pnl-panel">
+<section id="realizedPnlPanel" class="panel dividend-panel pnl-panel"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'pnl');</script>
         <div class="panel-head dividend-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div class="dividend-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div>
@@ -1167,7 +1208,7 @@
 
         </div>
       </section>
-<section id="dividendPanel" class="panel dividend-panel">
+<section id="dividendPanel" class="panel dividend-panel"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'dividend');</script>
         <div class="panel-head dividend-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div class="dividend-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div>
@@ -1332,7 +1373,7 @@
           </div>
         </div>
       </section>
-<section id="ledgerSectionPanel" class="panel ledger-section-panel" style="margin-top:18px;">
+<section id="ledgerSectionPanel" class="panel ledger-section-panel" style="margin-top:18px;"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'ledger');</script>
         <div class="panel-head ledger-panel-head" style="flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;">
           <div class="ledger-head-left" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div class="ledger-title-wrap">
@@ -1398,7 +1439,7 @@
             <div class="sub-panel ledger-sub-panel" style="padding:16px 18px;border-radius:12px;">
               <div class="panel-head" style="margin-bottom:10px;padding:0;">
                 <div>
-                  <h3 style="font-size:15px;margin:0;">최근 6개월 현금흐름 추이</h3>
+                  <h3 style="font-size:15px;margin:0;">월간 현금흐름 추이</h3>
                 </div>
               </div>
               <div id="ledgerTrendContainer" style="min-height:180px;"></div>
@@ -1432,7 +1473,7 @@
           </div>
         </div>
       </section>
-<section id="ipoPanel" class="panel ipo-panel" style="margin-top:18px;">
+<section id="ipoPanel" class="panel ipo-panel" style="margin-top:18px;"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'ipo');</script>
         <div class="panel-head ipo-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div>
             <p class="eyebrow">IPO SCHEDULE &amp; SCORE</p>
@@ -1447,7 +1488,7 @@
           <p class="empty-text" style="padding:24px;text-align:center;">공모주 일정을 불러오는 중입니다...</p>
         </div>
       </section>
-</section><section data-wealth-page="settings" aria-label="설정" hidden=""><article class="wealth-settings-card"><h3>계정과 데이터</h3><p class="wealth-help">가족 구성원, 비밀번호, 테마와 백업을 관리합니다.</p><div class="wealth-settings-actions"><button id="topbarFamilyBtn" class="button secondary compact" type="button" title="가족 구성원 관리" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#cbd5e1;border-color:#334155;">👨‍👩‍👧‍👦 가족</button></div></article></section>
+</section><section data-wealth-page="settings" aria-label="설정" hidden=""><script>WealthWorkspaceRoute.select(document.currentScript.parentElement);</script><article class="wealth-settings-card"><h3>계정과 데이터</h3><p class="wealth-help">가족 구성원, 비밀번호, 테마와 백업을 관리합니다.</p><div class="wealth-settings-actions"><button id="topbarFamilyBtn" class="button secondary compact" type="button" title="가족 구성원 관리" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#cbd5e1;border-color:#334155;">👨‍👩‍👧‍👦 가족</button></div></article></section>
     </div></div>
         <!-- 1. 주요지수 (상단 마켓 오버뷰 & 기간별 지수 변화 탭) -->
 
@@ -3398,9 +3439,9 @@
     <script src="/static/wealth-color-picker.js?v=10.9r5"></script>
     <script src="/static/wealth-color-preferences.js?v=10.9r6"></script>
     <script src="/static/wealth-settings-surface.js?v=10.9m1"></script>
-    <script src="/static/wealth-layout.js?v=2.1.2-home1"></script>
+    <script src="/static/wealth-layout.js?v=2.1.2-route1"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
-    <script src="/static/wealth.js?v=2.1.2-r1"></script>
+    <script src="/static/wealth.js?v=2.1.2-route1"></script>
     <script src="/static/wealth-ledger-ocr.js?v=2.0.2-review2"></script>
     <script src="/static/wealth-national-pension.js?v=2.0.2"></script>
     <script src="/static/wealth-pension-import.js?v=2.0.2"></script>

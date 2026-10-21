@@ -13,7 +13,7 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
         cls.html = (root / "app/static/index.html").read_text(encoding="utf-8")
 
     def test_stock_page_is_named_stock_status_and_toggle_removed(self):
-        self.assertIn("invest: ['주식 투자', '주식 현황'", self.layout)
+        self.assertIn("invest: ['주식 투자', '주식 현황'", self.html)
         self.assertNotIn('id="allocTabs"', self.html)
         self.assertIn("const STOCK_PORTFOLIO_MODE = 'sector'", self.js)
         self.assertNotIn("currentAllocTab", self.js)
@@ -23,7 +23,7 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
         home_start = self.html.index('<section data-wealth-page="home"')
         home_end = self.html.index('<section data-wealth-page="invest"', home_start)
         home = self.html[home_start:home_end]
-        self.assertLess(home.index('class="wealth-home-grid"'), home.index('id="homeAssetPortfolioPanel"'))
+        self.assertNotIn('data-legacy-summary', home)
         self.assertLess(home.index('id="homeAssetPortfolioPanel"'), home.index('id="wealthMarketSlot"'))
         self.assertIn("(home.querySelector('#wealthMarketSlot') || home).before(historyPanel)", self.planning)
         for metric in ("wealthAssetNetWorth", "wealthAssetInvest", "wealthAssetExpected", "wealthAssetRealized", "wealthAssetSafe"):
@@ -42,14 +42,15 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
         self.assertIn("wealth-asset-secondary-row", self.html)
         self.assertIn("grid-template-columns:154px", self.css)
 
-    def test_summary_detail_links_home_asset_and_assets_page(self):
-        self.assertIn('id="wealthNetWorthDetails"', self.html)
-        self.assertIn('href="#homeAssetPortfolioPanel"', self.html)
-        self.assertIn("event.preventDefault();", self.layout)
-        self.assertIn("target.scrollIntoView({ behavior: 'smooth', block: 'start' });", self.layout)
-        self.assertIn("target.focus({ preventScroll: true });", self.layout)
-        self.assertNotIn("showPage('invest')", self.layout)
+    def test_current_portfolio_keeps_live_navigation_without_hidden_summary(self):
+        for obsolete in ('wealthNetWorthDetails', 'wealthNetWorth', 'wealthCash',
+                         'wealthDebt', 'wealthOwnerLabel', 'wealthHomeUpdated'):
+            self.assertNotIn(f'id="{obsolete}"', self.html)
+            self.assertNotIn(f"'{obsolete}'", self.layout)
+        self.assertIn('id="homeAssetPortfolioPanel"', self.html)
         self.assertIn('href="#assets">자산 상세보기', self.html)
+        self.assertIn("layout.querySelector('.wealth-skip').addEventListener", self.layout)
+        self.assertIn("document.getElementById('wealthPageTitle').focus()", self.layout)
 
     def test_summary_event_reuses_existing_metrics(self):
         for field in (

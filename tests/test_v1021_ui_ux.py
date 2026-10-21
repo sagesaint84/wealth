@@ -11,13 +11,15 @@ def test_quick_access_removed_and_routes_preserved():
     assert 'wealth-shortcuts' not in LAYOUT
     assert 'wealth-home-secondary' not in LAYOUT
     assert all(f'href="#{key}" data-wealth-view="{key}"' in HTML for key in ('home','invest','assets','income','settings'))
-    assert "invest: [" in LAYOUT
-    assert "assets: [" in LAYOUT
-    assert "income: [" in LAYOUT
+    assert "invest: [" in HTML
+    assert "assets: [" in HTML
+    assert "income: [" in HTML
 
 
-def test_home_summary_is_non_visual_legacy_and_portfolio_prominent():
-    assert 'data-legacy-summary="true"' in HTML
+def test_unused_summary_and_shortcuts_are_removed_from_all_layers():
+    assert 'data-legacy-summary' not in HTML
+    for obsolete in ("wealth-home-grid", "wealth-net-card", "wealth-stat-card", "wealth-shortcuts", "wealth-home-secondary"):
+        assert obsolete not in HTML + LAYOUT + CSS
     assert '.wealth-home-asset-portfolio' in CSS
 
 

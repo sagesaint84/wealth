@@ -38,9 +38,9 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
         # Workspace changed; the unchanged core keeps its own cache revision.
-        self.assertEqual(revision, '2.1.2-home1')
+        self.assertEqual(revision, '2.1.2-route1')
         self.assertEqual(assets.scripts.count(f'/static/wealth-layout.js?v={revision}'), 1)
-        core_js = '/static/wealth.js?v=2.1.2-r1'
+        core_js = '/static/wealth.js?v=2.1.2-route1'
         what_if_js = '/static/wealth-financial-income-what-if.js?v=2.1.2-r1'
         self.assertIn(css_ref, html)
         self.assertIn(core_js, html)

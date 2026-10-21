@@ -129,7 +129,7 @@ function selectOwner(owner) {
     renderWithOwner(rawDashboard, currentOwner);
   } else {
     loadAssetRecords(currentOwner);
-    loadLedger();
+    if (isLedgerViewActive()) loadLedger();
   }
   dividendData = null;
   if (currentDividendMode === 'estimated') loadDividends(currentOwner);
@@ -526,7 +526,7 @@ function renderWithOwner(data, owner) {
 
   render(filteredData);
   loadAssetRecords(effectiveOwner);
-  loadLedger();
+  if (isLedgerViewActive()) loadLedger();
 }
 
 // 다이얼로그 닫기 버튼 공통 처리
@@ -762,6 +762,7 @@ async function api(url, options = {}) {
   parsed.searchParams.sort();
   const key = parsed.pathname + parsed.search;
   const isRead = !options.method || options.method.toUpperCase() === 'GET';
+  if (!isRead && parsed.pathname.startsWith('/api/ledger')) invalidateLedgerRead();
   const shared = isRead && ['/api/realized-pnl', '/api/actual-dividends', '/api/family-members', '/api/ipo/market', '/api/accounts'].includes(parsed.pathname);
   const reusable = shared && ((startupIncomeReuse && parsed.searchParams.get('year') === 'all') || parsed.pathname === '/api/ipo/market');
   // Price/snapshot writes do not change realized income or IPO market records.
@@ -6201,17 +6202,32 @@ function renderTaxAccountHoldings(owner = currentOwner) {
   `;
 }
 
+// Shared totals/raw asset state remain eager; only stock-page DOM work is lazy.
+function currentWealthView() {
+  return document.querySelector('.wealth-workspace')?.dataset.activeView || 'invest';
+}
+function isLedgerViewActive() {
+  return currentModule === 'ledger' ||
+    (currentWealthView() === 'income' && currentIncomeTab === 'ledger');
+}
+let investmentRenderedData = null;
+function renderInvestmentView(data = dashboard) {
+  if (!data || currentWealthView() !== 'invest' || investmentRenderedData === data) return;
+  renderClassifications(data.classifications || []);
+  renderHeatmaps(data);
+  renderHoldings(data);
+  investmentRenderedData = data;
+}
+
 // ── 9. 대시보드 렌더링 총괄 ──────────────────────────────────────────────────
 function render(data) {
   dashboard = data;
   renderSummary(data);
-  renderClassifications(data.classifications || []);
   renderAccounts(data.accounts);
   renderSavings(data.savings_accounts || [], data.bank_accounts || [], data.loan_accounts || [], currentOwner);
   renderInsurance(data.insurance_accounts || [], currentOwner);
   renderRealEstate(data.real_estates || [], currentOwner, data.sold_real_estates);
-  renderHeatmaps(data);
-  renderHoldings(data);
+  renderInvestmentView(data);
   window.dispatchEvent(new CustomEvent('wealth:portfolio', { detail: {
     accounts: data.accounts || [], holdings: data.holdings || [],
     owner: currentOwner, fxRates: data.fx_rates || {},
@@ -11927,16 +11943,35 @@ function switchMainModule(mod) {
 }
 window.switchMainModule = switchMainModule;
 
+let ledgerPendingRead = null;
+let ledgerReadSequence = 0;
+function invalidateLedgerRead() {
+  ledgerReadSequence++;
+  ledgerPendingRead = null;
+}
 async function loadLedger() {
-  try {
-    const owner = currentOwner || "모두";
-    const res = await api(`/api/ledger?year=${currentLedgerYear}&month=${currentLedgerMonth}&owner=${encodeURIComponent(owner)}`);
-    if (owner !== currentOwner) return;
-    rawLedgerData = res;
-    renderLedger(res);
-  } catch (err) {
-    console.error("가계부 로드 오류:", err);
-  }
+  const owner = currentOwner || "모두";
+  const year = currentLedgerYear, month = currentLedgerMonth;
+  const username = currentUserProfile?.username || '';
+  const key = JSON.stringify([username, owner, year, month]);
+  if (ledgerPendingRead?.key === key) return ledgerPendingRead.promise;
+  const entry = { key, sequence: ++ledgerReadSequence, promise: null };
+  ledgerPendingRead = entry;
+  entry.promise = (async () => {
+    try {
+      const res = await api(`/api/ledger?year=${year}&month=${month}&owner=${encodeURIComponent(owner)}`);
+      if (entry.sequence !== ledgerReadSequence || owner !== currentOwner ||
+          year !== currentLedgerYear || month !== currentLedgerMonth ||
+          username !== (currentUserProfile?.username || '')) return;
+      rawLedgerData = res;
+      renderLedger(res);
+    } catch (err) {
+      console.error("가계부 로드 오류:", err);
+    } finally {
+      if (ledgerPendingRead === entry) ledgerPendingRead = null;
+    }
+  })();
+  return entry.promise;
 }
 
 function renderLedger(data) {
@@ -16492,7 +16527,7 @@ if (document.readyState === 'loading') {
 }
 
 window.addEventListener('wealth:view', ({ detail }) => {
-  if (detail === 'invest' && dashboard) requestAnimationFrame(() => renderHeatmaps(dashboard));
+  if (detail === 'invest') renderInvestmentView();
   if (detail === 'ledger' && currentUserProfile && currentUserProfile.username !== 'admin') loadLedger();
 });
 window.addEventListener('wealth:role', ({ detail }) => {

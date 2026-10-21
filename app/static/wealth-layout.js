@@ -55,13 +55,7 @@
   };
   const root = document.getElementById('userAssetDashboardWrapper');
   if (!root) return;
-  const views = {
-    home: ['홈', '가족의 자산을 한눈에', '지금의 자산 현황을 확인하고, 필요한 관리로 이어가세요.'],
-    invest: ['주식 투자', '주식 현황', '주식 포트폴리오, 보유종목과 투자 기록을 한곳에서 확인하세요.'],
-    assets: ['종합 자산', '자산과 계좌 관리', '증권·은행·보험·부동산과 대출을 관리하세요.'],
-    income: ['머니 로그', '머니 로그', '실현손익, 배당·이자, 수입·지출 내역을 한곳에서 확인하세요.'],
-    settings: ['설정', '설정', 'API 연결, 알림과 자동화, 계정과 데이터를 관리하세요.'],
-  };
+  const routeState = window.WealthWorkspaceRoute;
   // The initial HTML already contains the current workspace and final panel parents.
   const layout = root.querySelector('.wealth-workspace');
   if (!layout) return;
@@ -108,6 +102,13 @@
     <button type="button" class="income-tab" data-income="dividend" role="tab" aria-selected="false">💰 배당·이자</button>
     <button type="button" class="income-tab" data-income="ledger" role="tab" aria-selected="false">🧾 가계부</button>
     <button type="button" class="income-tab" data-income="ipo" role="tab" aria-selected="false">🔔 공모주</button>`;
+  // Select detached tabs before insertion; the core reuses this same route state.
+  const initialIncomeTab = routeState.resolve().incomeTab;
+  incomeTabs.querySelectorAll('[data-income]').forEach(button => {
+    const active = button.dataset.income === initialIncomeTab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
   page('income').prepend(incomeTabs);
   const accountsPanel = document.getElementById('accountsPanel');
   function enhanceAccountLists() {
@@ -157,29 +158,14 @@
   });
   let activeView = null;
   function navigate(focus = false) {
-    const requested = location.hash.slice(1);
-    const legacyMoneyLogTabs = { ledger: 'ledger', dividend: 'dividend', pnl: 'pnl' };
-    const allMoneyLogTabs = { ...legacyMoneyLogTabs, calendar: 'calendar', ipo: 'ipo' };
-    const key = Object.hasOwn(allMoneyLogTabs, requested)
-      ? 'income'
-      : (Object.hasOwn(views, requested) ? requested : 'home');
+    const { requested, key, incomeTab } = routeState.sync();
     layout.querySelectorAll('[data-wealth-page]').forEach(node => { node.hidden = node.dataset.wealthPage !== key; });
-    layout.querySelectorAll('[data-wealth-view]').forEach(node => {
-      if (node.dataset.wealthView === key) node.setAttribute('aria-current', 'page');
-      else node.removeAttribute('aria-current');
-    });
-    document.getElementById('wealthPageTitle').textContent = views[key][1];
-    document.getElementById('wealthPageDescription').textContent = views[key][2];
-    document.title = `Wealth · ${views[key][0]}`;
     if (focus && activeView !== key) {
       document.getElementById('wealthPageTitle').focus({ preventScroll: true });
       window.scrollTo({ top: 0, behavior: 'instant' });
     }
     activeView = key;
-    layout.dataset.activeView = key;
     if (key === 'income') {
-      const incomeTab = allMoneyLogTabs[requested] || 'calendar';
-      layout.dataset.incomeTab = incomeTab;
       window.setIncomeTab?.(incomeTab, { updateHash: false });
     }
     window.dispatchEvent(new CustomEvent('wealth:view', { detail: requested === 'ledger' ? 'ledger' : key }));
@@ -188,13 +174,6 @@
   layout.querySelector('.wealth-skip').addEventListener('click', event => {
     event.preventDefault();
     document.getElementById('wealthPageTitle').focus();
-  });
-  document.getElementById('wealthNetWorthDetails').addEventListener('click', event => {
-    event.preventDefault();
-    const target = document.getElementById('homeAssetPortfolioPanel');
-    if (!target) return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    target.focus({ preventScroll: true });
   });
   navigate();
   const won = value => `${Math.round(value).toLocaleString('ko-KR')}원`;
@@ -214,7 +193,6 @@
   let lastAssetSummary = null;
   window.addEventListener('wealth:summary', ({ detail: s }) => {
     lastAssetSummary = s;
-    setText('wealthNetWorth', won(s.netWorth));
     setText('wealthAssetNetWorth', won(s.netWorth));
     setText('wealthAssetInvest', won(s.invest));
     setText('wealthAssetExpected', won(s.expected));
@@ -235,10 +213,6 @@
     setText('wealthAssetSafeDetail', won(s.cash));
     setText('wealthAssetDepositDetail', won(s.deposits));
     setText('wealthAssetInsuranceDetail', won(s.insurance));
-    setText('wealthCash', won(s.cash));
-    setText('wealthDebt', won(s.debt));
-    setText('wealthOwnerLabel', s.owner === '모두' ? '전체 가족' : s.owner);
-    setText('wealthHomeUpdated', s.updatedAt ? `자산 반영 ${new Date(s.updatedAt).toLocaleString('ko-KR')}` : '등록된 자산 기준 · 반영 시각 없음');
     const palette = ['#9b8afb','#61c9b2','#6ea6ec','#e7bc71','#c891bd','#5aa9cf','#ef7b8e','#8bbf74','#a9a1d6'];
     const items = (s.classifications || []).filter(item => Number(item.market_value_krw || 0) > 0).map((item, index) => ({ ...item, color: window.WealthColorPreferences.register('asset_category_colors',item,palette[index % palette.length]), colorKey: window.WealthColorPreferences.keyFor('asset_category_colors',item) }));
     const total = items.reduce((sum, item) => sum + Math.max(0, Number(item.market_value_krw || 0)), 0);

@@ -9,6 +9,9 @@ on:
       - 'app/static/**'
       - 'tests/test_static_transport*.py'
       - 'tests/test_home_initial_html_chrome.py'
+      - 'tests/test_view_initial_work_chrome.py'
+      - 'tests/test_owner_filter_loads.py'
+      - 'tests/test_initial_asset_load.py'
       - 'tests/test_income_bucket_drilldown.py'
       - 'app/services/ipo/**'
       - 'app/static/wealth-calendar.js'
@@ -95,6 +98,9 @@ jobs:
             tests/test_static_transport.py \
             tests/test_static_transport_chrome.py \
             tests/test_home_initial_html_chrome.py \
+            tests/test_view_initial_work_chrome.py \
+            tests/test_owner_filter_loads.py \
+            tests/test_initial_asset_load.py \
             tests/test_income_bucket_drilldown.py \
             tests/test_ipo_broker_presentation.py \
             tests/test_ipo_interactive_discovery.py \
@@ -136,7 +142,7 @@ jobs:
           cases = list(ET.parse(report).iter('testcase'))
           assert cases and not any(c.find('skipped') is not None for c in cases)
           initial_home = [c for c in cases if c.get('classname', '').endswith('test_home_initial_html_chrome')]
-          assert len(initial_home) == 4 and not any(list(c) for c in initial_home)
+          assert len(initial_home) == 9 and not any(list(c) for c in initial_home)
           chart = [c for c in cases if c.get('classname', '').endswith('test_income_bucket_drilldown')]
           assert len(chart) == 38 and not any(list(c) for c in chart)
           day = [c for c in chart if c.get('name') == 'test_income_bucket_runtime[day_selection_non_painted_geometry]']

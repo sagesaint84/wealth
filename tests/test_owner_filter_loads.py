@@ -14,7 +14,7 @@ def _run_owner_script(mode: str) -> subprocess.CompletedProcess[str]:
         ("function renderWithOwner(data, owner) {", "\n// 다이얼로그"),
         ("async function loadDashboard(recordSnapshots = false) {", "\nasync function loadAssetRecords"),
         ("async function loadAssetRecords(owner) {", "\n// ── 다이얼로그"),
-        ("async function loadLedger() {", "\nfunction renderLedger"),
+        ("let ledgerPendingRead = null;", "\nfunction renderLedger"),
     )
     code = "\n".join(
         start + source.split(start, 1)[1].split(end, 1)[0]
@@ -31,6 +31,7 @@ const ledgerRenders = [];
 const data = {accounts: [], holdings: [], summary: {}, fx_rates: {}};
 const context = {
   dividendData: null, currentDividendMode: 'actual',
+  currentUserProfile: {username:'synthetic'}, isLedgerViewActive:()=>true,
   currentOwner: 'A', rawDashboard: data, dashboard: data,
   currentLedgerYear: 2026, currentLedgerMonth: 10,
   allAssetRecords: [], assetRecords: [], rawLedgerData: null,
@@ -123,3 +124,26 @@ assert.deepEqual(requests, ['/api/ledger']);
         ["node", "-e", script, tab_function], capture_output=True, text=True, encoding="utf-8"
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_ledger_single_flight_keys_aba_staleness_mutation_and_retry():
+    source = SOURCE.read_text(encoding="utf-8")
+    code = 'let ledgerPendingRead = null;' + source.split('let ledgerPendingRead = null;', 1)[1].split('\nfunction renderLedger', 1)[0]
+    script = r"""
+const assert=require('node:assert/strict'),vm=require('node:vm');
+const calls=[],renders=[],errors=[];
+const c={currentOwner:'A',currentLedgerYear:2026,currentLedgerMonth:10,currentUserProfile:{username:'alice'},rawLedgerData:null,
+ api:url=>new Promise((resolve,reject)=>calls.push({url,resolve,reject})),renderLedger:r=>renders.push(r.tag),console:{error:e=>errors.push(e)}};
+vm.createContext(c);vm.runInContext(process.argv[1],c);
+(async()=>{
+ const p1=c.loadLedger(),p2=c.loadLedger();assert.equal(calls.length,1);calls[0].resolve({tag:'shared'});await Promise.all([p1,p2]);assert.deepEqual(renders,['shared']);
+ const slow=c.loadLedger();c.currentLedgerMonth=11;const other=c.loadLedger();c.currentLedgerMonth=10;const latest=c.loadLedger();assert.equal(calls.length,4);
+ calls[3].resolve({tag:'latest'});await latest;calls[1].resolve({tag:'old-ABA'});calls[2].resolve({tag:'old-month'});await Promise.all([slow,other]);assert.deepEqual(renders,['shared','latest']);
+ const user=c.loadLedger();c.currentUserProfile={username:'bob'};calls[4].resolve({tag:'old-user'});await user;assert.equal(renders.at(-1),'latest');
+ const prewrite=c.loadLedger();c.invalidateLedgerRead();const postwrite=c.loadLedger();calls[6].resolve({tag:'post-write'});await postwrite;calls[5].resolve({tag:'pre-write'});await prewrite;assert.equal(renders.at(-1),'post-write');
+ const fail=c.loadLedger();calls[7].reject(new Error('synthetic failure'));await fail;assert.equal(errors.length,1);const retry=c.loadLedger();calls[8].resolve({tag:'retry'});await retry;assert.equal(renders.at(-1),'retry');
+ assert.equal(calls.length,9);console.log('ledger keys/races/invalidation/retry PASS');
+})().catch(e=>{console.error(e);process.exitCode=1});
+"""
+    result=subprocess.run(['node','-e',script,code],capture_output=True,text=True,encoding='utf-8')
+    assert result.returncode==0,result.stderr

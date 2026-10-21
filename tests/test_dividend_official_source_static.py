@@ -35,9 +35,9 @@ class DividendOfficialSourceStaticTests(unittest.TestCase):
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
         # Workspace changed; the unchanged core keeps its own cache revision.
-        self.assertEqual(revision, '2.1.2-home1')
+        self.assertEqual(revision, '2.1.2-route1')
         self.assertEqual(assets.scripts.count(f'/static/wealth-layout.js?v={revision}'), 1)
-        core = '/static/wealth.js?v=2.1.2-r1'
+        core = '/static/wealth.js?v=2.1.2-route1'
         source = '/static/wealth-dividend-source.js?v=2.1.0-b2'
         self.assertIn(core, html)
         self.assertIn(source, html)
