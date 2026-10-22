@@ -1,6 +1,18 @@
 # Wealth Project State
 
-## 현재 운영 상태 — 2026-10-21 PR #161 배포 완료
+## 현재 운영 상태 — 2026-10-22 / v2.1.3 PR #163 배포 완료
+
+- **현재 배포 앱: Wealth v2.1.3.** [PR #163](https://github.com/sagesaint84/wealth/pull/163) Squash Merge `f9cb3cd87644fc8a51cd25488802878ee680613a`; FastAPI APP_VERSION·HTML 사용자 표기 2.1.3, 변경된 JS와 SW `2.1.3-p0`. 기존 IPO·레이아웃 revision 보존. `main` 배포 기준은 이 SHA이며 아래 2.1.2 운영·P0 후보 단락은 **작업 당시의 과거 기록**이다.
+- **빌드**: [GitHub Actions 39741300759](https://github.com/sagesaint84/wealth/actions/runs/39741300759) SUCCESS, native/멀티플랫폼 Linux AMD64·ARM64 발행. GHCR 태그 `ghcr.io/sagesaint84/wealth:f9cb3cd`, Manifest Digest `sha256:f2683c22acd77e8fe8f03b11c5bbfcf60115c095c7a242069a81c4d2ba64d1d8`.
+- **Oracle 배포 증거(사용자 SSH 로그)**: `/docker/wealth`, Compose `docker-compose.ghcr.yml` + `docker-compose.override.yml`, `dashboard`/wealth 컨테이너 재생성. 검증한 런타임 image ID `sha256:18076e45b121569d349997d29489adb3335cf6fbc4121914d1f1f3616e7b4d35`, `/docker/wealth/data -> /app/data`, `/docker/wealth/toss-wts/bin/tossctl -> /opt/toss-wts/tossctl` (ro), `/docker/wealth/toss-wts/config -> /opt/toss-wts/config`; HTTP 307, JS gzip PASS, restart 0, APP_VERSION 2.1.3. 기존 이미지 `ghcr.io/sagesaint84/wealth:rollback-before-v213` 보존. 레지스트리 Digest와 image ID는 서로 다른 식별자.
+- **사용자 실제 운영 화면 7/7 PASS**: 로그인 홈 순자산, 모바일 360px 새로고침, 배당·이자 DAY, 실현손익 및 주식기록 기간, 가계부 월간 현금흐름, IPO, 소유자·기간 전환과 뒤늦은 응답 방어. 운영 사이트 독립 자동 브라우저 E2E는 별도로 하지 않았다.
+- **테스트**: PR #163 GitHub CI 4/4 SUCCESS; v2.1.3 release/SW 실제 Chromium 집중 44 PASS, 이전 초기/IPO/금융/차트 집중 50/54/22/15/20 PASS(중복 검사 합산 금지). **v2.1.3 전체 pytest NOT_RUN**.
+- **성능 및 승인**: 동일 캐시 360px Chromium 2회 A/B에서 API 15→12 감소는 재현. 8표본씩 합산 중앙값 첫 자산 -82.9ms, ready -117.2ms이나 개별 실행에 소폭 역전이 있어 **PERFORMANCE_NUMERIC_GATE=REVIEW_REQUIRED** 유지. 사용자가 2026-10-22 PR #163을 조건부 승인해 머지·운영 배포 진행; 숫자 자체 PASS나 PR #161 한정 waiver 승계 아님.
+- **태그/Release 상태(문서 작성 시점)**: `v2.1.2` Git 태그는 `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`에 존재. [`v2.1.3` annotated Git 태그](https://github.com/sagesaint84/wealth/tree/v2.1.3)는 배포 커밋 `f9cb3cd87644fc8a51cd25488802878ee680613a`를 가리키는 것으로 GitHub에서 검증 완료. **GitHub Release는 2026-10-22 조회 기준 미발행**이며, Release 게시와 후속 기록 정리가 남아 있다.
+- **보호·정리**: 구 P0 원본/통합/최소 및 Route1 작업 worktree, 로컬 PNG/ledger-artifacts, 운영 데이터/Toss/Compose 및 v2.1.2 롤백 이미지는 삭제하지 않는다. `codex/v212-initial-deeplink-paint-fix`의 오류로 생성된 *원격* 임시 브랜치는 2026-10-22 삭제됨(로컬 작업은 보존). PR #163 브랜치 정리는 원격 최신 SHA와 병합 상태 재확인 후 별도 수행.
+
+
+## 과거 운영 상태 — 2026-10-21 PR #161 배포 완료
 
 - **운영 앱 v2.1.2**, 변경된 정적 화면·레이아웃·SW revision **2.1.2-route1**, core **2.1.2-r1**. [PR #161](https://github.com/sagesaint84/wealth/pull/161) Squash Merge `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14` (GitHub CI 4/4 SUCCESS). 별도 v2.1.3 P0는 포함하지 않았다.
 - [Docker 발행 workflow #39572486587](https://github.com/sagesaint84/wealth/actions/runs/39572486587) SUCCESS. `ghcr.io/sagesaint84/wealth:fc0bb10` / 다중 플랫폼 manifest Digest `sha256:b82b79c9a3e781810a9c823237473fe09549fa72825c5756c5c97b0774cd05b9`; Git revision `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`, Linux AMD64·ARM64 발행 로그 확인.
@@ -13,7 +25,7 @@
 
 - **태그·Release 현황(2026-10-22, 사용자 제공)**: 운영 배포 커밋 `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`에 Git 태그 `v2.1.2` 등록 완료. **GitHub Release는 아직 생성되지 않았다.** 아래 과거 태그 미등록 문구는 당시 조회 기록으로 보존한다.
 
-## 미배포 릴리스 준비 — v2.1.3 P0 (2026-10-22)
+## 과거 후보 상태 — v2.1.3 P0 (2026-10-22 당시)
 
 기준 main `9ff5c9719454cb7a0a4b9cd3d18e489158b7b36f`, 작업 브랜치 `codex/v213-mainline-p0-integration`, 릴리스 준비 시작 HEAD `7ade00e68729fcec67a68f288c9efc00e71bcba2`. 사용자 제공 현황은 [Draft PR #163](https://github.com/sagesaint84/wealth/pull/163), 커밋 `7ade00e`, **CI 4/4 PASS**다. 이후의 버전 정리·SW 실동작 테스트 추가는 이 HEAD 위의 미커밋 변경이며 해당 CI 결과에 포함되지 않는다.
 
