@@ -127,11 +127,13 @@
     };
   }
 
-  async function loadAnnualLedger(owner, year, sequence) {
+  async function loadAnnualLedger(owner, year, sequence, epoch) {
     const rows = [];
     for (let month = 1; month <= 12; month += 1) {
       const row = await fetchLedgerMonth(owner, year, month);
-      if (sequence !== requestSequence) return null;
+      if (sequence !== requestSequence || owner !== currentOwner || year !== Number(currentLedgerYear)
+          || !annualView || epoch !== (typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch)
+          || globalThis.WealthStartup?.visible('ledgerSectionPanel') === false) return null;
       rows.push(row);
     }
     return mergeAnnualLedger(rows, owner, year);
@@ -195,14 +197,21 @@
   window.renderLedger = renderLedgerPeriodAware;
 
   window.loadLedger = async function loadLedgerWithPeriodScope() {
+    if (globalThis.WealthStartup?.visible('ledgerSectionPanel') === false) return;
     const sequence = ++requestSequence;
+    const month = Number(currentLedgerMonth) || 1;
+    const annual = annualView;
+    const epoch = typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch;
     const owner = typeof currentOwner !== 'undefined' && currentOwner ? currentOwner : '모두';
     const year = Number(currentLedgerYear) || currentKstYear();
     try {
-      const data = annualView
-        ? await loadAnnualLedger(owner, year, sequence)
-        : await fetchLedgerMonth(owner, year, Number(currentLedgerMonth) || 1);
-      if (!data || sequence !== requestSequence || owner !== currentOwner) return;
+      const data = annual
+        ? await loadAnnualLedger(owner, year, sequence, epoch)
+        : await fetchLedgerMonth(owner, year, month);
+      if (!data || sequence !== requestSequence || owner !== currentOwner
+          || year !== Number(currentLedgerYear) || month !== (Number(currentLedgerMonth) || 1)
+          || annual !== annualView || epoch !== (typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch)
+          || globalThis.WealthStartup?.visible('ledgerSectionPanel') === false) return;
       if (typeof rawLedgerData !== 'undefined') rawLedgerData = data;
       renderLedgerPeriodAware(data);
       return data;

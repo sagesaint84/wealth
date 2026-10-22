@@ -34,15 +34,16 @@ class DividendOfficialSourceStaticTests(unittest.TestCase):
         self.assertRegex(version, r'^\d+\.\d+\.\d+$')
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
-        # Workspace changed; the unchanged core keeps its own cache revision.
-        self.assertEqual(revision, '2.1.2-route1')
-        self.assertEqual(assets.scripts.count(f'/static/wealth-layout.js?v={revision}'), 1)
-        core = '/static/wealth.js?v=2.1.2-route1'
+        # P0 core changes independently of the unchanged main layout.
+        self.assertEqual(revision, '2.1.3-p0')
+        layout = '/static/wealth-layout.js?v=2.1.2-route1'
+        self.assertEqual(assets.scripts.count(layout), 1)
+        core = '/static/wealth.js?v=2.1.3-p0'
         source = '/static/wealth-dividend-source.js?v=2.1.0-b2'
         self.assertIn(core, html)
         self.assertIn(source, html)
         self.assertLess(html.index(core), html.index(source))
-        for script in (core, source):
+        for script in (layout, core, source):
             self.assertEqual(assets.scripts.count(script), 1)
             self.assertEqual(sum(src.split('?', 1)[0] == script.split('?', 1)[0] for src in assets.scripts), 1)
             self.assertTrue((ROOT / 'app/static' / script.split('?', 1)[0].rsplit('/', 1)[1]).is_file())

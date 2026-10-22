@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import subprocess
 import unittest
 
@@ -36,7 +37,28 @@ class UnifiedTimeseriesTests(unittest.TestCase):
 
     def test_realized_pnl_dividend_interest_and_ledger_are_flow_buckets(self):
         self.assertIn("fields: ['pnl_value']", self.js)
-        self.assertIn("fields: ['dividend_value', 'interest_value']", self.js)
+        prepare = 'function prepareDividend(' + self.js.split(
+            'function prepareDividend(', 1)[1].split('\n  function syncDividendPeriodControls(', 1)[0]
+        self.assertRegex(prepare, r'const\s+source\s*=\s*await\s+dividendSource\s*\(\s*\)')
+        self.assertRegex(prepare,
+            r'aggregateFlow\s*\(\s*rows\s*,\s*modes\.dividend\s*,\s*\{\s*fields\s*:\s*\['
+            r'''\s*['"]dividend_value['"]\s*,\s*['"]interest_value['"]\s*\]\s*\}\s*\)''')
+        rows = re.search(r'const\s+rows\s*=\s*\[(?P<body>.*?)\]\s*;', prepare, re.S)
+        self.assertIsNotNone(rows, 'aggregate input rows missing from prepareDividend')
+        mappings = {}
+        for kind, value_field, zero_field in (
+            ('dividend', 'dividend_value', 'interest_value'),
+            ('interest', 'interest_value', 'dividend_value'),
+        ):
+            mapping = re.search(
+                rf'source\.{kind}\.map\(\s*record\s*=>\s*\(\{{(?P<body>.*?)\}}\)\s*\)', rows.group('body'), re.S)
+            self.assertIsNotNone(mapping, f'{kind} source mapping missing from prepareDividend')
+            mappings[kind] = mapping.start()
+            body = mapping.group('body')
+            self.assertRegex(body, rf'''\bincome_kind\s*:\s*['"]{kind}['"]''')
+            self.assertRegex(body, rf'\b{value_field}\s*:\s*finite\s*\(\s*record\s*\?\.\s*amount_krw\s*\)')
+            self.assertRegex(body, rf'\b{zero_field}\s*:\s*0\b')
+        self.assertLess(mappings['dividend'], mappings['interest'])
         self.assertIn("fields: ['income_value', 'expense_value']", self.js)
         self.assertIn("year=all&trade_type=", self.js)
         self.assertIn("/api/actual-dividends?owner=", self.js)
@@ -71,8 +93,44 @@ class UnifiedTimeseriesTests(unittest.TestCase):
         self.assertIn("renderActualDividendDetail(null, value)", self.js)
 
     def test_estimated_dividend_keeps_legacy_chart_without_misleading_period_controls(self):
-        self.assertIn("if (dividendMode() !== 'actual')", self.js)
-        self.assertIn("controls.hidden = true", self.js)
+        controls_code = 'function syncDividendPeriodControls(' + self.js.split(
+            'function syncDividendPeriodControls(', 1)[1].split('\n  function monthKey(', 1)[0]
+        click_code = 'function handleExternalClick(event) {' + self.js.split(
+            'function handleExternalClick(event) {', 1)[1].split('\n  function hostNeedsUnified', 1)[0]
+        script = r"""
+const assert=require('node:assert/strict'),vm=require('node:vm');
+let mode='actual',visible=true,reads=0;
+const controls={hidden:true};
+const host={dataset:{},firstElementChild:null,
+ closest:()=>({querySelector:()=>({})}),querySelector(){return this.firstElementChild?.unified?{}:null;}};
+const c={document:{querySelector:()=>controls,getElementById:id=>id==='dividendBarChartWrap'?host:null},
+ dividendMode:()=>mode,WealthStartup:{visible:()=>visible},
+ dividendScopeKey:()=>mode,currentOwnerValue:()=> 'synthetic',
+ committedDividend:null,dividendRenderGeneration:0,cache:{dividend:{key:'synthetic'}},details:{},
+ modes:{dividend:'1M'},MODE_LABEL:{'1M':'월간'},ensureInjectedControls:()=>controls,
+ prepareDividend:async()=>{reads++;return {scope:mode,readEpoch:0,aggregated:{buckets:[{}]}};},
+ updateDetail(){},selectBucket(){},renderFlowChart(){host.firstElementChild={unified:true};},
+ clearDetail(){},queue(){},setTimeout:fn=>fn()};
+vm.createContext(c);vm.runInContext(process.argv[1]+process.argv[2],c);
+const click=()=>c.handleExternalClick({target:{closest:selector=>selector.includes('dividendModeTabs')?{}:null}});
+(async()=>{
+ await c.renderDividend();assert.equal(controls.hidden,false);assert(host.firstElementChild.unified);
+ assert.equal(reads,1);
+ mode='estimated';click();assert.equal(controls.hidden,true,'mode click hides controls immediately');
+ const legacy={legacy:true};host.firstElementChild=legacy;
+ await c.renderDividend();assert.equal(reads,1,'estimated mode must not read actual data');
+ assert.equal(host.firstElementChild,legacy,'estimated legacy chart must remain untouched');
+ visible=false;controls.hidden=false;await c.renderDividend();assert.equal(controls.hidden,true);
+ assert.equal(reads,1,'inactive estimated rendering must not fetch');
+ visible=true;mode='actual';click();assert.equal(controls.hidden,false,'actual click restores controls');
+ await c.renderDividend();assert.equal(controls.hidden,false);assert(host.firstElementChild.unified);
+ assert.equal(reads,2);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        result = subprocess.run(['node', '-e', script, controls_code, click_code],
+                                capture_output=True, text=True, encoding='utf-8')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('.wealth-unified-periods[data-kind="dividend"][hidden] { display: none !important; }', self.js)
 
     def test_mutation_observer_does_not_rerender_its_own_owned_chart(self):
         self.assertIn("function hostNeedsUnified(hostId)", self.js)
@@ -117,7 +175,7 @@ assert.equal(charts, 1);
         self.assertIn("/static/wealth-timeseries-period-core.js?v=10.6k1", self.loader)
         self.assertIn("/static/wealth-timeseries-visible-range.js?v=10.6k4", self.loader)
         self.assertIn("/static/wealth-timeseries-label-layout.js?v=10.6k4", self.loader)
-        self.assertIn("/static/wealth-timeseries-unified.js?v=2.1.1-r1", self.loader)
+        self.assertIn("/static/wealth-timeseries-unified.js?v=2.1.3-p0", self.loader)
         self.assertIn("visibleRange.addEventListener('load', loadLabelLayout", self.loader)
         self.assertIn("script.addEventListener('load', loadUnified", self.loader)
         self.assertIn("periodCore.addEventListener('load', loadUnifiedTimeseries", self.loader)

@@ -44,9 +44,9 @@ vm.runInContext(source, context);
   const loading = context.loadAssetDataForUser();
   await Promise.resolve();
   assert(requests.includes('/api/refresh-prices'), 'refresh must start before family response');
-  familyReleased();
   for (let i = 0; i < 8; i++) await Promise.resolve();
   assert(rendered, 'dashboard must render before asset records respond');
+  familyReleased();
   assert.equal(requests.filter(path => path === '/api/asset-records').length, 1);
   releaseRecords({records: []});
   await loading;
@@ -96,12 +96,14 @@ const assert=require('node:assert/strict'),vm=require('node:vm');
  const events=[];const c={currentOwner:'모두',currentDividendMode:'actual',selectedDividendYear:'all',selectedPnlYear:'all',currentPnlTradeType:'all',
   api:async p=>{events.push(p);if(fail&&p==='/api/refresh-prices')throw Error('synthetic refresh failure');return{};},
   loadFamilyMembers:async()=>{events.push('family');},loadDashboard:async flag=>{events.push(flag?'dashboard-with-snapshot':'dashboard-without-snapshot');},
-  toast:()=>events.push('warning'),window:{dispatchEvent:()=>events.push('planning-refresh')},CustomEvent:class{},
+  toast:()=>events.push('warning'),window:{dispatchEvent:event=>events.push(event.type==='wealth:planning-refresh'?'planning-refresh':event.type)},CustomEvent:class{constructor(type){this.type=type;}},
   loadMarkets:async()=>events.push('markets'),loadActualDividends:async()=>events.push('dividends'),loadRealizedPnl:async()=>events.push('pnl'),updateOverviewCardsAllTime:async()=>events.push('overview'),finishStartupIncomeReads:()=>events.push('finished')};
- vm.createContext(c);vm.runInContext(process.argv[1],c);await c.loadAssetDataForUser();
+ vm.createContext(c);vm.runInContext(process.argv[1],c);await c.loadAssetDataForUser();await c.loadAssetDataForUser.supplementary;
  const snaps=events.filter(x=>x==='/api/planning/snapshot-all');assert.equal(snaps.length,fail?0:1);
  assert(events.indexOf('/api/refresh-prices')<events.indexOf(fail?'dashboard-without-snapshot':'dashboard-with-snapshot'));
  if(!fail)assert(events.indexOf('dashboard-with-snapshot')<events.indexOf('/api/planning/snapshot-all'));
+ assert.equal(events.filter(x=>x==='wealth:assets-ready').length,1);
+ assert(events.indexOf(fail?'dashboard-without-snapshot':'/api/planning/snapshot-all')<events.indexOf('wealth:assets-ready'));
  assert.equal(events.filter(x=>x==='planning-refresh').length,fail?0:1);assert.equal(events.at(-1),'finished');
 }})().catch(e=>{console.error(e);process.exitCode=1});
 """

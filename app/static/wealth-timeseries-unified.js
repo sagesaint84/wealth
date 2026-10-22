@@ -158,6 +158,7 @@
         flex-wrap: wrap;
       }
       .wealth-unified-periods .heatmap-tab { min-width: 42px; }
+      .wealth-unified-periods[data-kind="dividend"][hidden] { display: none !important; }
       .wealth-unified-chart-shell {
         display: grid;
         grid-template-columns: 74px minmax(0, 1fr);
@@ -585,6 +586,7 @@
   }
 
   function renderStateChart(host, aggregated, options = {}) {
+    globalThis.WealthStartup?.count('render');
     hideAmountTooltip();
     if (!host) return;
     const buckets = aggregated?.buckets || [];
@@ -651,6 +653,7 @@
   }
 
   function renderFlowChart(host, aggregated, series, options = {}) {
+    globalThis.WealthStartup?.count('render');
     hideAmountTooltip();
     if (!host) return;
     const buckets = aggregated?.buckets || [];
@@ -925,6 +928,7 @@
   }
 
   async function renderPnl() {
+    if (globalThis.WealthStartup?.visible('pnlBarChartWrap') === false) return;
     const host = document.getElementById('pnlBarChartWrap');
     const header = host?.closest('.dividend-chart-section')?.querySelector('.dividend-chart-header');
     if (!host || !header || typeof api !== 'function') return;
@@ -933,7 +937,7 @@
     const generation = ++pnlRenderGeneration;
     try {
       const source = await pnlSource();
-      if (generation !== pnlRenderGeneration || owner !== currentOwnerValue()) return;
+      if (generation !== pnlRenderGeneration || owner !== currentOwnerValue() || globalThis.WealthStartup?.visible('pnlBarChartWrap') === false) return;
       const rows = source.map(record => ({ ...record, pnl_value: finite(record?.pnl_krw) }));
       const aggregated = aggregateFlow(rows, modes.pnl, { fields: ['pnl_value'] });
       updateDetail('pnl', aggregated);
@@ -958,19 +962,26 @@
   async function dividendSource() {
     const owner = currentOwnerValue();
     const key = owner;
+    const readEpoch = typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch;
+    const pendingKey = JSON.stringify([owner, readEpoch]);
     let data = cache.dividend;
-    if (data.key !== key) {
-      if (!dividendPending.has(key)) {
+    if (data.key !== key || data.readEpoch !== readEpoch) {
+      if (!dividendPending.has(pendingKey)) {
         const pending = api(`/api/actual-dividends?owner=${encodeURIComponent(owner)}&year=all`)
           .then(response => ({
             key,
+            readEpoch,
+            response,
             dividend: Array.isArray(response?.records) ? response.records : [],
             interest: Array.isArray(response?.interest_records) ? response.interest_records : [],
-          })).finally(() => dividendPending.delete(key));
-        dividendPending.set(key, pending);
+          })).finally(() => {
+            if (dividendPending.get(pendingKey) === pending) dividendPending.delete(pendingKey);
+          });
+        dividendPending.set(pendingKey, pending);
       }
-      data = await dividendPending.get(key);
-      if (owner === currentOwnerValue()) cache.dividend = data;
+      data = await dividendPending.get(pendingKey);
+      if (owner === currentOwnerValue()
+          && readEpoch === (typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch)) cache.dividend = data;
     }
     const broker = activeBroker('dividendBrokerFilter');
     const filterBroker = rows => broker === 'all' ? rows : rows.filter(record => {
@@ -978,49 +989,95 @@
       return broker === '__unassigned__' ? !label : label === broker;
     });
     return {
+      response: data.response,
       dividend: filterBroker(data.dividend),
       interest: filterBroker(data.interest),
     };
   }
 
-  async function renderDividend() {
+  const dividendPreparations = new Map();
+  let committedDividend = null;
+
+  function dividendScopeKey() {
+    const year = typeof selectedDividendYear === 'undefined' ? 'all' : selectedDividendYear;
+    const readEpoch = typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch;
+    // Preparation, commit and the committed-frame fast path share this scope.
+    return JSON.stringify([currentOwnerValue(), year, dividendMode(), modes.dividend, activeBroker('dividendBrokerFilter'), readEpoch]);
+  }
+
+  // Explicit navigation may prepare data while hidden; background rendering may not.
+  function prepareDividend({refresh = false} = {}) {
+    const scope = dividendScopeKey();
+    if (dividendPreparations.has(scope)) return dividendPreparations.get(scope);
+    if (refresh) cache.dividend.key = '';
+    const owner = currentOwnerValue();
+    const readEpoch = typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch;
+    const promise = (async () => {
+      try {
+        const source = await dividendSource();
+        const rows = [
+          ...source.dividend.map(record => ({ ...record, income_kind: 'dividend', dividend_value: finite(record?.amount_krw), interest_value: 0 })),
+          ...source.interest.map(record => ({ ...record, income_kind: 'interest', dividend_value: 0, interest_value: finite(record?.amount_krw) })),
+        ];
+        return {scope, owner, readEpoch, response:source.response,
+          aggregated: aggregateFlow(rows, modes.dividend, {fields:['dividend_value','interest_value']})};
+      } catch (error) {
+        console.error('배당·이자 공통 차트 오류:', error);
+        return {scope, owner, readEpoch, error:true};
+      }
+    })().finally(() => { if (dividendPreparations.get(scope) === promise) dividendPreparations.delete(scope); });
+    dividendPreparations.set(scope, promise);
+    return promise;
+  }
+
+  function syncDividendPeriodControls(controls = document.querySelector('.wealth-unified-periods[data-kind="dividend"]')) {
+    if (controls) controls.hidden = dividendMode() !== 'actual';
+    return controls;
+  }
+
+  function commitDividend(prepared) {
     const host = document.getElementById('dividendBarChartWrap');
     const header = host?.closest('.dividend-chart-section')?.querySelector('.dividend-chart-header');
-    if (!host || !header || typeof api !== 'function') return;
+    if (!host || !header || !prepared || prepared.scope !== dividendScopeKey() || dividendMode() !== 'actual'
+        || prepared.readEpoch !== (typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch)
+        || globalThis.WealthStartup?.visible('dividendBarChartWrap') === false) return false;
+    if (committedDividend?.prepared === prepared && committedDividend.node === host.firstElementChild) return true;
     const controls = ensureInjectedControls('dividend', header);
-    if (dividendMode() !== 'actual') {
-      if (controls) controls.hidden = true;
+    syncDividendPeriodControls(controls);
+    if (prepared.error) {
       details.dividend = null;
-      return;
+      host.innerHTML = '<div class="wealth-unified-empty" role="alert">배당 차트를 불러오지 못했습니다. 배당 탭을 다시 선택해 주세요.</div>';
+    } else {
+      updateDetail('dividend', prepared.aggregated);
+      renderFlowChart(host, prepared.aggregated, [
+        {key:'dividend_value', label:'배당', color:'#fb7185'},
+        {key:'interest_value', label:'이자', color:'#f6b84a'},
+      ], {kind:'dividend', stacked:true, ariaLabel:'기간별 실제 배당 및 이자',
+        onBucketClick:(bucket, mode) => selectBucket('dividend', bucket, mode)});
     }
-    if (controls) controls.hidden = false;
-    const owner = currentOwnerValue();
+    const owned = host.querySelector('.wealth-unified-chart-shell, .wealth-unified-empty');
+    if (!owned) return false;
+    host.dataset.unifiedState = prepared.error ? 'error' : prepared.aggregated.buckets.length ? 'ready' : 'empty';
+    committedDividend = {prepared, node:host.firstElementChild};
+    const title = document.getElementById('dividendChartTitle');
+    if (title) title.textContent = `📊 ${MODE_LABEL[modes.dividend]} 실제 배당·이자 추이`;
+    return true;
+  }
+
+  async function renderDividend() {
+    syncDividendPeriodControls();
+    if (globalThis.WealthStartup?.visible('dividendBarChartWrap') === false) return false;
+    const host = document.getElementById('dividendBarChartWrap');
+    if (!host || dividendMode() !== 'actual') return false;
+    if (committedDividend?.prepared.scope === dividendScopeKey()
+        && committedDividend.prepared.readEpoch === (typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch)
+        && (committedDividend.prepared.error || (cache.dividend.key === currentOwnerValue()
+          && cache.dividend.readEpoch === (typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch)))
+        && committedDividend.node === host.firstElementChild) return true;
     const generation = ++dividendRenderGeneration;
-    try {
-      const source = await dividendSource();
-      if (generation !== dividendRenderGeneration || owner !== currentOwnerValue() || dividendMode() !== 'actual') return;
-      const rows = [
-        ...source.dividend.map(record => ({ ...record, income_kind: 'dividend', dividend_value: finite(record?.amount_krw), interest_value: 0 })),
-        ...source.interest.map(record => ({ ...record, income_kind: 'interest', dividend_value: 0, interest_value: finite(record?.amount_krw) })),
-      ];
-      const aggregated = aggregateFlow(rows, modes.dividend, { fields: ['dividend_value', 'interest_value'] });
-      updateDetail('dividend', aggregated);
-      renderFlowChart(host, aggregated, [
-        { key: 'dividend_value', label: '배당', color: '#fb7185' },
-        { key: 'interest_value', label: '이자', color: '#f6b84a' },
-      ], {
-        kind: 'dividend',
-        stacked: true,
-        ariaLabel: '기간별 실제 배당 및 이자',
-        onBucketClick: (bucket, resolvedMode) => selectBucket('dividend', bucket, resolvedMode),
-      });
-      const title = document.getElementById('dividendChartTitle');
-      if (title) title.textContent = `📊 ${MODE_LABEL[aggregated.mode]} 실제 배당·이자 추이`;
-      return true;
-    } catch (error) {
-      console.error('배당·이자 공통 차트 오류:', error);
-      return false;
-    }
+    const prepared = await prepareDividend();
+    if (generation !== dividendRenderGeneration) return false;
+    return commitDividend(prepared);
   }
 
   function monthKey(year, month) {
@@ -1205,6 +1262,8 @@
   }
 
   function queue(kind) {
+    const id = {stock:'assetChart', networth:'wealthHistoryPlot', pnl:'pnlBarChartWrap', dividend:'dividendBarChartWrap', ledger:'ledgerSectionPanel'}[kind];
+    if (globalThis.WealthStartup?.visible(id) === false) return;
     if (renderQueued.has(kind)) return;
     renderQueued.add(kind);
     requestAnimationFrame(() => {
@@ -1258,6 +1317,7 @@
       setTimeout(() => queue('pnl'), 0);
     }
     if (event.target?.closest?.('#dividendModeTabs [data-div-mode]')) {
+      syncDividendPeriodControls();
       clearDetail('dividend', {render:false});
       setTimeout(() => queue('dividend'), 0);
     }
@@ -1267,6 +1327,12 @@
       cache.networth = [];
       cache.pnl.key = '';
       cache.dividend.key = '';
+      committedDividend = null;
+      const host = document.getElementById('dividendBarChartWrap');
+      if (host && globalThis.WealthStartup?.visible('dividendBarChartWrap') !== false && dividendMode() === 'actual') {
+        host.textContent = '선택한 소유자의 배당 차트를 준비 중입니다…';
+        host.dataset.unifiedState = 'loading';
+      }
       ledgerDataVersion += 1;
       ledgerRenderGeneration += 1;
       cache.ledgerOwner = '';
@@ -1304,6 +1370,15 @@
     document.addEventListener('click', handleExternalClick, false);
     installObserver();
     ['stock', 'networth', 'pnl', 'dividend'].forEach(queue);
+    window.addEventListener('wealth:assets-ready', () => ['stock','networth','pnl','dividend'].forEach(queue));
+    const activate = () => {
+      // Re-entry checks the server again; hidden charts never fetch here.
+      pnlRenderGeneration++; dividendRenderGeneration++;
+      if (globalThis.WealthStartup?.visible('pnlBarChartWrap')) cache.pnl.key = '';
+      ['stock','networth','pnl','dividend'].forEach(queue);
+    };
+    window.addEventListener('wealth:view', activate);
+    window.addEventListener('wealth:income-view', activate);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, { once: true });
@@ -1316,7 +1391,7 @@
     renderStock,
     renderNetWorth,
     renderPnl,
-    renderDividend,
+    renderDividend, prepareDividend, commitDividend, dividendScopeKey,
     refreshVisiblePanZoom,
     renderLedger,
     extendLedgerHistory,

@@ -25,7 +25,7 @@ class LedgerPeriodFilterAndKftcRetirementFrontendTests(unittest.TestCase):
             "wealthLedgerPeriodFilterScript",
         ):
             self.assertIn(marker, self.loader_js)
-        self.assertIn("/static/wealth-ledger-period-filter.js?v=10.6f1", self.loader_js)
+        self.assertIn("/static/wealth-ledger-period-filter.js?v=2.1.3-p0", self.loader_js)
         self.assertNotIn("wealthKftcRetirementScript", self.loader_js)
         self.assertFalse(KFTC_JS.exists())
         self.assertLess(

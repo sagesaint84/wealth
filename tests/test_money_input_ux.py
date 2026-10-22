@@ -40,10 +40,11 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         # Parse actual tags so comments cannot satisfy order.
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
-        # Workspace changed; the unchanged core keeps its own cache revision.
-        self.assertEqual(revision, '2.1.2-route1')
-        self.assertEqual(assets.scripts.count(f'/static/wealth-layout.js?v={revision}'), 1)
-        core = '/static/wealth.js?v=2.1.2-route1'
+        # P0 core changes independently of the unchanged main layout.
+        self.assertEqual(revision, '2.1.3-p0')
+        layout = '/static/wealth-layout.js?v=2.1.2-route1'
+        self.assertEqual(assets.scripts.count(layout), 1)
+        core = '/static/wealth.js?v=2.1.3-p0'
         money = '/static/wealth-money-input.js?v=2.0.3-ai1'
         self.assertIn(core, html)
         self.assertIn(money, html)
@@ -53,6 +54,9 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         self.assertLess(assets.scripts.index(core), assets.scripts.index(money))
         self.assertTrue((ROOT / 'app/static/wealth.js').is_file())
         self.assertTrue(MONEY_JS.is_file())
+        for script in (layout, core, money):
+            self.assertEqual(sum(src.split('?', 1)[0] == script.split('?', 1)[0] for src in assets.scripts), 1)
+            self.assertTrue((ROOT / 'app/static' / script.split('?', 1)[0].rsplit('/', 1)[1]).is_file())
 
     def test_money_module_preserves_native_number_inputs(self):
         js = MONEY_JS.read_text(encoding="utf-8")

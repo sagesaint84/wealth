@@ -4,6 +4,7 @@
   const API_PATH = '/api/dividends/financial-income-family-risk';
   let loading = false;
   let loadedOnce = false;
+  let workspaceWasActive = false;
   let relayoutQueued = false;
 
   function escapeHtml(value) {
@@ -23,7 +24,7 @@
   }
 
   function taxWorkspaceActive() {
-    return document.querySelector('.account-cat-tab.active')?.dataset?.cat === 'tax';
+    return globalThis.WealthStartup?.visible('accountsPanel') !== false && document.querySelector('.account-cat-tab.active')?.dataset?.cat === 'tax';
   }
 
   function ensureTaxWorkspace() {
@@ -223,6 +224,8 @@
   async function loadRisk({ force = false } = {}) {
     if (loading || (!force && loadedOnce) || !taxWorkspaceActive()) return;
     loading = true;
+    const owner = document.querySelector('.family-tabs .family-tab.active')?.dataset?.owner;
+    let retryScope = false;
     const button = document.getElementById('familyFinancialIncomeRiskRefresh');
     if (button) button.disabled = true;
     try {
@@ -238,19 +241,24 @@
         const text = typeof detail === 'object' ? detail?.message || detail?.code : detail;
         throw new Error(text || `HTTP ${response.status}`);
       }
+      retryScope = owner !== document.querySelector('.family-tabs .family-tab.active')?.dataset?.owner;
+      if (!taxWorkspaceActive() || retryScope) return;
       render(payload);
       loadedOnce = true;
     } catch (error) {
-      renderError(error?.message);
+      if (taxWorkspaceActive()) renderError(error?.message);
     } finally {
       loading = false;
       if (button) button.disabled = false;
+      if (retryScope && taxWorkspaceActive()) void loadRisk({force:true});
     }
   }
 
   function syncTaxWorkspace() {
     scheduleRelayout();
     const visible = taxWorkspaceActive();
+    if (visible && !workspaceWasActive) loadedOnce = false;
+    workspaceWasActive = visible;
     const panel = document.getElementById('catPanelTax');
     if (panel) panel.style.display = visible ? 'block' : 'none';
     if (visible) {
@@ -293,6 +301,9 @@
       }, 0);
     }
   });
+
+  window.addEventListener('wealth:assets-ready', syncTaxWorkspace);
+  window.addEventListener('wealth:view', syncTaxWorkspace);
 
   window.WealthTaxWorkspace = {
     isActive: taxWorkspaceActive,
