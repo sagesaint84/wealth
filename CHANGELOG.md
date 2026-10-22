@@ -8,7 +8,7 @@
 - 성능: 360px·4x CPU·40ms latency·gzip, JS/CSS HTTP 캐시 양쪽 53/53 적중·SW 우회 A/B 두 실행에서 초기 API 15→12 감소 재현. 합산 각 8표본의 첫 자산 중앙값 main 2239.5ms / P0 2156.6ms (-82.9ms), 준비 main 2589.1ms / P0 2471.9ms (-117.2ms). **한 실행에서는 소폭 악화**, 수치 게이트는 **REVIEW_REQUIRED**. 2026-10-22 사용자 승인은 PR #163에 대한 조건부 릴리스 결정이며 성능 보장이나 과거 PR #161 예외 승계가 아님.
 - [GHCR run #39741300759](https://github.com/sagesaint84/wealth/actions/runs/39741300759) SUCCESS. AMD64/ARM64 `ghcr.io/sagesaint84/wealth:f9cb3cd`, multi-platform manifest `sha256:f2683c22acd77e8fe8f03b11c5bbfcf60115c095c7a242069a81c4d2ba64d1d8`. Oracle 실행 이미지 ID `sha256:18076e45b121569d349997d29489adb3335cf6fbc4121914d1f1f3616e7b4d35`; 데이터·Toss 마운트, HTTP 307, gzip, restart 0 PASS(사용자 SSH 로그). v2.1.2 롤백 이미지 보존.
 - **운영 화면 7/7 PASS (사용자 보고)**: 홈, 360px, 배당 DAY, 주식기록·실현손익, 가계부, IPO, 소유자/기간 전환. 별도 운영 E2E 자동화는 수행하지 않았다.
-- **Git 태그·Release**: 배포 이후 생성 절차 대기 중이며, 본 문서 PR 생성 시점에는 `v2.1.3` 태그와 GitHub Release **미확인**. 출시 태그는 Squash Merge 커밋 `f9cb3cd...`에 고정할 것.
+- **Git 태그·Release(2026-10-22 확인)**: annotated Git 태그 [`v2.1.3`](https://github.com/sagesaint84/wealth/tree/v2.1.3) 원격 등록·대상 커밋 `f9cb3cd87644fc8a51cd25488802878ee680613a` **검증 완료**. GitHub Release는 **미발행**; Release 발행과 문서 후속 정리는 별도 단계로 남긴다.
 
 
 ## 2026-10-21 — PR #161 운영 배포 (v2.1.2 / route1)

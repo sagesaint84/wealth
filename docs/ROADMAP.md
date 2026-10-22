@@ -4,7 +4,7 @@
 
 - **완료**: [PR #163](https://github.com/sagesaint84/wealth/pull/163) Squash Merge `f9cb3cd87644fc8a51cd25488802878ee680613a`; 비활성 홈 초기 읽기 지연/공유, 배당 차트 준비-표시 순서·늦은 응답 방어. 코드 APP_VERSION 2.1.3, 변경 JS·SW revision `2.1.3-p0`; IPO·가계부·gzip·Toss WTS 유지.
 - **완료**: PR CI **4/4 SUCCESS**, 44개 release/SW 실제 Chrome 집중 검사 PASS, GHCR [39741300759](https://github.com/sagesaint84/wealth/actions/runs/39741300759) 성공, ARM64·AMD64 manifest `sha256:f2683c22acd77e8fe8f03b11c5bbfcf60115c095c7a242069a81c4d2ba64d1d8`. Oracle v2.1.3 배포·데이터/Toss/HTTP 307/gzip/restart0 확인(사용자 SSH 로그), 브라우저 7/7 PASS(사용자 보고), v2.1.2 롤백 이미지 보존.
-- **남은 릴리스 기록**: `v2.1.3` Git 태그 및 GitHub Release 생성·원격 검증 **미완료(문서 작성 시점)**. v2.1.2 태그는 보존. 이 절 아래의 미배포 후보 및 HOLD 표현은 과거 작업 당시 기록이다.
+- **남은 릴리스 기록**: [`v2.1.3` annotated Git 태그](https://github.com/sagesaint84/wealth/tree/v2.1.3)는 배포 커밋 `f9cb3cd87644fc8a51cd25488802878ee680613a`를 대상으로 원격 등록·검증 **완료**. GitHub Release는 **아직 미발행**(2026-10-22 확인). v2.1.2 태그는 보존. 이 절 아래의 미배포 후보 및 HOLD 표현은 과거 작업 당시 기록이다.
 - **남은 품질 검토**: 전체 v2.1.3 pytest NOT_RUN. 360px 동일 HTTP 캐시 A/B에서 초기 API 15→12 감소 재현, 합산 8 vs 8 중앙값 자산 -82.9ms·ready -117.2ms이나 개별 실행 변동으로 **PERFORMANCE_NUMERIC_GATE=REVIEW_REQUIRED**. 해당 PR 조건부 머지·배포 승인과 수치 무회귀 PASS를 구분한다. 후속 성능 분석은 증거·환경 통제를 갖추어 별도 계획으로 진행.
 - **다음 개발 백로그(미착수)**: 국장/미장 공포탐욕지수, 보유종목 20/50일 이동평균선 이탈 및 데드크로스. 기존 P0/Route1 보호 worktree·실제 운영 데이터·Toss 설정 및 증거 파일 정리는 별도 검토 없이 수행하지 않는다.
 

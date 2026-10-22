@@ -8,7 +8,7 @@
 - **사용자 실제 운영 화면 7/7 PASS**: 로그인 홈 순자산, 모바일 360px 새로고침, 배당·이자 DAY, 실현손익 및 주식기록 기간, 가계부 월간 현금흐름, IPO, 소유자·기간 전환과 뒤늦은 응답 방어. 운영 사이트 독립 자동 브라우저 E2E는 별도로 하지 않았다.
 - **테스트**: PR #163 GitHub CI 4/4 SUCCESS; v2.1.3 release/SW 실제 Chromium 집중 44 PASS, 이전 초기/IPO/금융/차트 집중 50/54/22/15/20 PASS(중복 검사 합산 금지). **v2.1.3 전체 pytest NOT_RUN**.
 - **성능 및 승인**: 동일 캐시 360px Chromium 2회 A/B에서 API 15→12 감소는 재현. 8표본씩 합산 중앙값 첫 자산 -82.9ms, ready -117.2ms이나 개별 실행에 소폭 역전이 있어 **PERFORMANCE_NUMERIC_GATE=REVIEW_REQUIRED** 유지. 사용자가 2026-10-22 PR #163을 조건부 승인해 머지·운영 배포 진행; 숫자 자체 PASS나 PR #161 한정 waiver 승계 아님.
-- **태그/Release 상태(문서 작성 시점)**: `v2.1.2` Git 태그는 `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`에 존재. `v2.1.3` Git 태그와 GitHub Release는 아직 생성 확인 전이며, 생성 후 별도 검증·기록이 필요.
+- **태그/Release 상태(문서 작성 시점)**: `v2.1.2` Git 태그는 `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`에 존재. [`v2.1.3` annotated Git 태그](https://github.com/sagesaint84/wealth/tree/v2.1.3)는 배포 커밋 `f9cb3cd87644fc8a51cd25488802878ee680613a`를 가리키는 것으로 GitHub에서 검증 완료. **GitHub Release는 2026-10-22 조회 기준 미발행**이며, Release 게시와 후속 기록 정리가 남아 있다.
 - **보호·정리**: 구 P0 원본/통합/최소 및 Route1 작업 worktree, 로컬 PNG/ledger-artifacts, 운영 데이터/Toss/Compose 및 v2.1.2 롤백 이미지는 삭제하지 않는다. `codex/v212-initial-deeplink-paint-fix`의 오류로 생성된 *원격* 임시 브랜치는 2026-10-22 삭제됨(로컬 작업은 보존). PR #163 브랜치 정리는 원격 최신 SHA와 병합 상태 재확인 후 별도 수행.
 
 
