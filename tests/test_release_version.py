@@ -11,15 +11,15 @@ STATIC_DIR = ROOT / "app" / "static"
 class ReleaseVersionTests(unittest.TestCase):
     def test_fastapi_app_version(self):
         main = _import_main_without_loading_real_env()
-        self.assertEqual(getattr(main, "APP_VERSION", None), "2.1.2")
-        self.assertEqual(main.app.version, "2.1.2")
+        self.assertEqual(getattr(main, "APP_VERSION", None), "2.1.3")
+        self.assertEqual(main.app.version, "2.1.3")
 
     def test_index_html_version_metadata_and_cache_busting(self):
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-        self.assertIn('<meta name="application-version" content="2.1.2" />', html)
+        self.assertIn('<meta name="application-version" content="2.1.3" />', html)
         self.assertIn('<meta name="application-assets-revision" content="2.1.3-p0" />', html)
         self.assertIn('id="appVersionDisplay"', html)
-        self.assertIn("앱 버전 v2.1.2", html)
+        self.assertIn("앱 버전 v2.1.3", html)
 
         css_matches = re.findall(r'href="/static/([^"]+\.css)\?v=([^"]+)"', html)
         self.assertTrue(css_matches)
@@ -65,10 +65,12 @@ class ReleaseVersionTests(unittest.TestCase):
 
     def test_documentation_version_sync(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("**Wealth v2.1.3**", readme)
         self.assertIn("**Wealth v2.1.2**", readme)
         self.assertIn("**Wealth v2.1.0**", readme)
 
         changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn("## Wealth v2.1.3 — P0 릴리스 준비", changelog)
         self.assertIn("## Wealth v2.1.2", changelog)
         self.assertIn("## Wealth v2.1.0", changelog)
         self.assertIn("## Wealth v2.0.3", changelog)
