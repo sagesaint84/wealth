@@ -1,6 +1,15 @@
 # Wealth Roadmap
 
-## 현재 완료 단계 — 2026-10-21 / PR #161 운영 배포
+## 현재 완료 단계 — 2026-10-22 / v2.1.3 Oracle 배포
+
+- **완료**: [PR #163](https://github.com/sagesaint84/wealth/pull/163) Squash Merge `f9cb3cd87644fc8a51cd25488802878ee680613a`; 비활성 홈 초기 읽기 지연/공유, 배당 차트 준비-표시 순서·늦은 응답 방어. 코드 APP_VERSION 2.1.3, 변경 JS·SW revision `2.1.3-p0`; IPO·가계부·gzip·Toss WTS 유지.
+- **완료**: PR CI **4/4 SUCCESS**, 44개 release/SW 실제 Chrome 집중 검사 PASS, GHCR [39741300759](https://github.com/sagesaint84/wealth/actions/runs/39741300759) 성공, ARM64·AMD64 manifest `sha256:f2683c22acd77e8fe8f03b11c5bbfcf60115c095c7a242069a81c4d2ba64d1d8`. Oracle v2.1.3 배포·데이터/Toss/HTTP 307/gzip/restart0 확인(사용자 SSH 로그), 브라우저 7/7 PASS(사용자 보고), v2.1.2 롤백 이미지 보존.
+- **남은 릴리스 기록**: `v2.1.3` Git 태그 및 GitHub Release 생성·원격 검증 **미완료(문서 작성 시점)**. v2.1.2 태그는 보존. 이 절 아래의 미배포 후보 및 HOLD 표현은 과거 작업 당시 기록이다.
+- **남은 품질 검토**: 전체 v2.1.3 pytest NOT_RUN. 360px 동일 HTTP 캐시 A/B에서 초기 API 15→12 감소 재현, 합산 8 vs 8 중앙값 자산 -82.9ms·ready -117.2ms이나 개별 실행 변동으로 **PERFORMANCE_NUMERIC_GATE=REVIEW_REQUIRED**. 해당 PR 조건부 머지·배포 승인과 수치 무회귀 PASS를 구분한다. 후속 성능 분석은 증거·환경 통제를 갖추어 별도 계획으로 진행.
+- **다음 개발 백로그(미착수)**: 국장/미장 공포탐욕지수, 보유종목 20/50일 이동평균선 이탈 및 데드크로스. 기존 P0/Route1 보호 worktree·실제 운영 데이터·Toss 설정 및 증거 파일 정리는 별도 검토 없이 수행하지 않는다.
+
+
+## 과거 완료 단계 — 2026-10-21 / PR #161 운영 배포
 
 - **완료**: [PR #161](https://github.com/sagesaint84/wealth/pull/161) 초기 deep-link 라우팅, 숨김 투자 렌더 지연, 가계부 요청 공유·오래된 응답 차단, 검증된 미사용 UI 정리. Squash Merge `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`, 앱 **v2.1.2**, 정적 자산 **2.1.2-route1**.
 - **완료**: GitHub CI 4/4 PASS, [GHCR 이미지](https://github.com/sagesaint84/wealth/actions/runs/39572486587) SUCCESS (`ghcr.io/sagesaint84/wealth:fc0bb10`, Digest `sha256:b82b79c9a3e781810a9c823237473fe09549fa72825c5756c5c97b0774cd05b9`), Oracle Docker 실행 이미지·영구/Toss 마운트·HTTP 307 PASS (사용자 출력), 운영 브라우저 5/5 PASS (사용자 보고).
@@ -10,7 +19,7 @@
 
 - **태그·Release 현황(2026-10-22, 사용자 제공)**: 운영 배포 커밋 `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`에 Git 태그 `v2.1.2` 등록 완료. **GitHub Release는 아직 생성되지 않았다.** 아래 과거 태그 미등록 문구는 당시 조회 기록으로 보존한다.
 
-## 미배포 릴리스 준비 — v2.1.3 P0 (2026-10-22)
+## 과거 릴리스 준비 단계 — v2.1.3 P0 (2026-10-22 당시)
 
 기준 main `9ff5c9719454cb7a0a4b9cd3d18e489158b7b36f`, 작업 브랜치 `codex/v213-mainline-p0-integration`, 릴리스 준비 시작 HEAD `7ade00e68729fcec67a68f288c9efc00e71bcba2`. 사용자 제공 현황은 [Draft PR #163](https://github.com/sagesaint84/wealth/pull/163), 커밋 `7ade00e`, **CI 4/4 PASS**다. 이후의 버전 정리·SW 실동작 테스트 추가는 이 HEAD 위의 미커밋 변경이며 해당 CI 결과에 포함되지 않는다.
 

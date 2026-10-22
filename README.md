@@ -1,6 +1,16 @@
 # Wealth
 
-## 현재 운영 배포 — 2026-10-21 / PR #161
+## 현재 운영 배포 — 2026-10-22 / Wealth v2.1.3
+
+- **운영 앱 v2.1.3**: [PR #163](https://github.com/sagesaint84/wealth/pull/163) Squash Merge `f9cb3cd87644fc8a51cd25488802878ee680613a` 완료. 코드 앱 버전 및 HTML 표시 **2.1.3**, 변경된 JS와 SW 캐시 식별자 **2.1.3-p0**. 미변경 IPO·레이아웃의 개별 asset revision은 유지.
+- **GHCR 발행 완료**: [Docker build #39741300759](https://github.com/sagesaint84/wealth/actions/runs/39741300759) SUCCESS; Linux AMD64/ARM64; `ghcr.io/sagesaint84/wealth:f9cb3cd`, 고정 manifest Digest `sha256:f2683c22acd77e8fe8f03b11c5bbfcf60115c095c7a242069a81c4d2ba64d1d8`.
+- **Oracle ARM64 배포 완료(사용자 SSH 로그)**: /docker/wealth의 dashboard 서비스, `wealth` 컨테이너 이미지 ID `sha256:18076e45b121569d349997d29489adb3335cf6fbc4121914d1f1f3616e7b4d35`; 데이터 /app/data 및 Toss 바이너리·설정 마운트 보존, HTTP / → 307, gzip JS PASS, 재시작 0회. 운영 교체 전 v2.1.2 이미지 `rollback-before-v213` 보존.
+- **실제 운영 브라우저(사용자 확인 7/7 PASS)**: 로그인/홈 자산·추이, 모바일 360px 재진입, 배당 DAY, 실현손익·주식기록, 가계부, IPO, 소유자·기간 변경 시 오래된 데이터 방어. 운영 사이트에 대한 별도 독립 자동 브라우저 E2E는 미실행.
+- **검증 범위**: PR 최신 CI **4/4 PASS**, 릴리스 버전·실제 Chromium SW 집중 테스트 **44 PASS**, 과거 집중 검사 50/54/22/15/20 PASS(중복 가능). v2.1.3 전체 pytest **NOT_RUN**. 초기 API 호출 15→12 감소는 재현됐으나, 360px warm 동일 HTTP 캐시 비교 두 실행에서 속도 편차가 있어 **PERFORMANCE_NUMERIC_GATE=REVIEW_REQUIRED**; 사용자 승인으로 **이 PR에 한해 조건부 머지·배포**. 성능 개선 확정이나 PR #161의 이전 예외 승계를 의미하지 않는다.
+- **릴리스 기록(문서 작성 시점)**: `v2.1.2` 태그는 기존 운영 커밋에 등록됨. `v2.1.3` Git 태그와 GitHub Release는 아직 **생성 확인 전**이므로 완료로 표시하지 않는다. 태그는 반드시 배포 커밋 `f9cb3cd...`에 지정한다. 아래 절은 각 작업 당시 상태를 보존한 과거 기록이다.
+
+
+## 과거 운영 배포 기록 — 2026-10-21 / PR #161
 
 - **운영 앱 v2.1.2** (정적 화면·레이아웃·서비스워커 revision **2.1.2-route1**; core **2.1.2-r1**). [PR #161](https://github.com/sagesaint84/wealth/pull/161) Squash Merge SHA `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`. **v2.1.3 P0 변경 미포함**.
 - GHCR 이미지 `ghcr.io/sagesaint84/wealth:fc0bb10` / 고정 manifest Digest `sha256:b82b79c9a3e781810a9c823237473fe09549fa72825c5756c5c97b0774cd05b9`. [이미지 발행 워크플로](https://github.com/sagesaint84/wealth/actions/runs/39572486587) SUCCESS; Linux AMD64/ARM64 이미지 발행.
@@ -11,7 +21,7 @@
 
 - **태그·Release 현황(2026-10-22, 사용자 제공)**: 운영 배포 커밋 `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`에 Git 태그 `v2.1.2` 등록 완료. **GitHub Release는 아직 생성되지 않았다.** 아래 과거 태그 미등록 문구는 당시 조회 기록으로 보존한다.
 
-## 미배포 릴리스 준비 — v2.1.3 P0 (2026-10-22)
+## 과거 릴리스 준비 기록 — v2.1.3 P0 (2026-10-22 당시)
 
 기준 main `9ff5c9719454cb7a0a4b9cd3d18e489158b7b36f`, 작업 브랜치 `codex/v213-mainline-p0-integration`, 릴리스 준비 시작 HEAD `7ade00e68729fcec67a68f288c9efc00e71bcba2`. 사용자 제공 현황은 [Draft PR #163](https://github.com/sagesaint84/wealth/pull/163), 커밋 `7ade00e`, **CI 4/4 PASS**다. 이후의 버전 정리·SW 실동작 테스트 추가는 이 HEAD 위의 미커밋 변경이며 해당 CI 결과에 포함되지 않는다.
 

@@ -1,5 +1,16 @@
 # Wealth 변경 이력
 
+## 2026-10-22 — Wealth v2.1.3 P0 출시·Oracle 배포
+
+- [PR #163](https://github.com/sagesaint84/wealth/pull/163) Squash Merge `f9cb3cd87644fc8a51cd25488802878ee680613a`. FastAPI APP_VERSION·HTML 표시 v2.1.3, 변경 JS/SW revision `2.1.3-p0`; 기존 IPO·레이아웃 별도 revision 유지.
+- 홈 첫 진입에서 비활성 소득 화면의 읽기 지연, 같은 범위의 진행 중 GET 공유, 쓰기·소유자·범위·세대 변경 시 캐시/늦은 응답 무효화, 360px 배당 차트의 활성 화면 폭 기준 준비 후 렌더. DAY 자산기록 의존성 및 IPO·gzip·Toss WTS 보존.
+- PR 최종 CI **4/4 PASS**, Windows 릴리스 버전·실제 Service Worker Chromium 집중 테스트 **44 PASS**; 앞선 50/54/22/15/20 집중 검사 기록 보존(중복 가능). **전체 v2.1.3 pytest는 실행하지 않음**.
+- 성능: 360px·4x CPU·40ms latency·gzip, JS/CSS HTTP 캐시 양쪽 53/53 적중·SW 우회 A/B 두 실행에서 초기 API 15→12 감소 재현. 합산 각 8표본의 첫 자산 중앙값 main 2239.5ms / P0 2156.6ms (-82.9ms), 준비 main 2589.1ms / P0 2471.9ms (-117.2ms). **한 실행에서는 소폭 악화**, 수치 게이트는 **REVIEW_REQUIRED**. 2026-10-22 사용자 승인은 PR #163에 대한 조건부 릴리스 결정이며 성능 보장이나 과거 PR #161 예외 승계가 아님.
+- [GHCR run #39741300759](https://github.com/sagesaint84/wealth/actions/runs/39741300759) SUCCESS. AMD64/ARM64 `ghcr.io/sagesaint84/wealth:f9cb3cd`, multi-platform manifest `sha256:f2683c22acd77e8fe8f03b11c5bbfcf60115c095c7a242069a81c4d2ba64d1d8`. Oracle 실행 이미지 ID `sha256:18076e45b121569d349997d29489adb3335cf6fbc4121914d1f1f3616e7b4d35`; 데이터·Toss 마운트, HTTP 307, gzip, restart 0 PASS(사용자 SSH 로그). v2.1.2 롤백 이미지 보존.
+- **운영 화면 7/7 PASS (사용자 보고)**: 홈, 360px, 배당 DAY, 주식기록·실현손익, 가계부, IPO, 소유자/기간 전환. 별도 운영 E2E 자동화는 수행하지 않았다.
+- **Git 태그·Release**: 배포 이후 생성 절차 대기 중이며, 본 문서 PR 생성 시점에는 `v2.1.3` 태그와 GitHub Release **미확인**. 출시 태그는 Squash Merge 커밋 `f9cb3cd...`에 고정할 것.
+
+
 ## 2026-10-21 — PR #161 운영 배포 (v2.1.2 / route1)
 
 - [PR #161](https://github.com/sagesaint84/wealth/pull/161) Squash Merge SHA `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`: 초기 deep-link 화면 표시·route 상태 개선, 숨겨진 투자 DOM/가계부 조회의 지연 실행, 중복·오래된 요청 방어, 검증된 미사용 레이아웃 코드 정리. 앱 버전 **v2.1.2** 유지; 정적 asset/SW revision **2.1.2-route1**, core **2.1.2-r1**.
@@ -12,7 +23,7 @@
 
 - **태그·Release 현황(2026-10-22, 사용자 제공)**: 운영 배포 커밋 `fc0bb1092b6d55ee21a786b0d295c48bdcba4c14`에 Git 태그 `v2.1.2` 등록 완료. **GitHub Release는 아직 생성되지 않았다.** 아래 과거 태그 미등록 문구는 당시 조회 기록으로 보존한다.
 
-## Wealth v2.1.3 — P0 릴리스 준비 (미머지·미배포, 2026-10-22)
+## 과거 준비 기록 — Wealth v2.1.3 P0 (2026-10-22, 당시 미머지·미배포)
 
 기준 main `9ff5c9719454cb7a0a4b9cd3d18e489158b7b36f`, 작업 브랜치 `codex/v213-mainline-p0-integration`, 릴리스 준비 시작 HEAD `7ade00e68729fcec67a68f288c9efc00e71bcba2`. 사용자 제공 현황은 [Draft PR #163](https://github.com/sagesaint84/wealth/pull/163), 커밋 `7ade00e`, **CI 4/4 PASS**다. 이후의 버전 정리·SW 실동작 테스트 추가는 이 HEAD 위의 미커밋 변경이며 해당 CI 결과에 포함되지 않는다.
 
