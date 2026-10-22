@@ -133,22 +133,23 @@
       <div class="settings-actions"><button id="saveUserOpenApiBtn" class="button primary" type="submit">💾 설정 저장</button></div>
     </form>
     <h3 class="settings-group-title">데이터 소스</h3>
-    <div class="settings-api-grid"><section id="openapiKrxSection" class="openapi-broker-card" style="margin-top:14px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-          <div><strong>🏛️ KRX Data Marketplace</strong><div class="muted" style="font-size:11px;margin-top:3px;">과거 공모주 전체 조회 전용 로그인 · 사용자별 secrets에 저장</div></div>
+    <div class="settings-api-grid"><section id="openapiKrxSection" class="openapi-broker-card settings-data-source" aria-labelledby="openapiKrxTitle">
+        <div class="settings-data-source-header">
+          <strong id="openapiKrxTitle">🏛️ KRX Data Marketplace</strong>
           <span id="openapiKrxBadge" class="openapi-badge disconnected">미설정</span>
         </div>
-        <div class="form-grid" style="margin-top:10px;">
-          <label>아이디 <input id="openapiKrxLoginId" type="text" autocomplete="off" placeholder="KRX 아이디" /></label>
-          <label>비밀번호 <input id="openapiKrxPassword" type="password" autocomplete="new-password" placeholder="저장된 비밀번호는 표시하지 않음" /></label>
+        <p class="settings-help" id="openapiKrxDescription">과거 공모주 전체 조회용 로그인입니다. 인증정보는 사용자별 secrets에 저장되며 저장된 비밀번호는 다시 표시되지 않습니다.</p>
+        <div class="settings-data-source-fields">
+          <label class="openapi-label" for="openapiKrxLoginId">아이디<input class="openapi-input" id="openapiKrxLoginId" type="text" autocomplete="off" placeholder="KRX 아이디" aria-describedby="openapiKrxDescription" /></label>
+          <label class="openapi-label" for="openapiKrxPassword">비밀번호<input class="openapi-input" id="openapiKrxPassword" type="password" autocomplete="new-password" placeholder="저장된 비밀번호는 표시하지 않음" aria-describedby="openapiKrxDescription" /></label>
         </div>
-        <div id="openapiKrxMessage" class="muted" style="font-size:11px;margin-top:8px;"></div>
-        <div class="settings-actions" style="margin-top:10px;justify-content:flex-start;">
+        <p id="openapiKrxMessage" class="settings-help" role="status" aria-live="polite"></p>
+        <div class="settings-data-source-actions">
           <button type="button" class="button primary compact" onclick="saveKrxMarketplaceConfig()">저장</button>
           <button type="button" class="button secondary compact" onclick="testKrxMarketplaceConfig()">연결 확인</button>
           <button type="button" id="openapiKrxDeleteBtn" class="button secondary compact" onclick="deleteKrxMarketplaceConfig()" style="display:none;">삭제</button>
         </div>
-      </section><section id="openapiDartSection" class="openapi-broker-card" aria-labelledby="openapiDartTitle">
+      </section><section id="openapiDartSection" class="openapi-broker-card settings-data-source" aria-labelledby="openapiDartTitle">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <span id="openapiDartTitle" style="font-weight:700;color:#fbbf24;font-size:13.5px;display:flex;align-items:center;gap:6px;">📊 시장 데이터 API · OpenDART</span>
             <div style="display:flex;align-items:center;gap:6px;">
@@ -159,7 +160,7 @@
           <p style="font-size:11.5px;line-height:1.5;margin:0 0 9px;color:var(--muted,#94a3b8);">공모주 증권신고서 분석 및 의무보유확약·기관경쟁률 수집에 사용됩니다. 저장된 키는 다시 표시되지 않습니다.</p>
           <label class="openapi-label" style="display:block;margin-bottom:4px;" for="openapiDartKey">DART API Key</label>
           <input id="openapiDartKey" class="openapi-input" type="password" placeholder="40자리 OpenDART 인증키 입력" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:6px;font-size:12.5px;" />
-          <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:9px;">
+          <div class="settings-data-source-actions">
             <button id="openapiDartTestBtn" type="button" class="button secondary compact" onclick="handleTestDartApi()">연결 확인</button>
             <button id="openapiDartSaveBtn" type="button" class="button primary compact" onclick="handleSaveDartApi()">저장/교체</button>
           </div>

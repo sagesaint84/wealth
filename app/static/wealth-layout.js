@@ -91,6 +91,18 @@
     button.setAttribute('aria-selected',String(active)); button.classList.toggle('active',active);
   });
   page('assets').prepend(assetCategoryTabs);
+  const revealAssetTab = button => {
+    if (!button || !assetCategoryTabs.getClientRects().length) return;
+    const tab = button.getBoundingClientRect(), strip = assetCategoryTabs.getBoundingClientRect();
+    if (tab.left < strip.left || tab.right > strip.right) {
+      button.scrollIntoView({block:'nearest', inline:'nearest', behavior:'instant'});
+    }
+  };
+  assetCategoryTabs.addEventListener('click', event => revealAssetTab(event.target.closest('button')));
+  assetCategoryTabs.addEventListener('focusin', event => revealAssetTab(event.target.closest('button')));
+  window.addEventListener('wealth:view', ({detail}) => {
+    if (detail === 'assets') revealAssetTab(assetCategoryTabs.querySelector('[aria-selected="true"]'));
+  });
   const incomeTabs = document.createElement('div');
   incomeTabs.id = 'incomeTabs';
   incomeTabs.className = 'wealth-section-tabs income-tabs';

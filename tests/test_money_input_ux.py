@@ -42,7 +42,7 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         revision = assets.revisions[0]
         # P0 core changes independently of the unchanged main layout.
         self.assertEqual(revision, '2.1.3-p0')
-        layout = '/static/wealth-layout.js?v=2.1.2-route1'
+        layout = '/static/wealth-layout.js?v=2.1.3-uiux1'
         self.assertEqual(assets.scripts.count(layout), 1)
         core = '/static/wealth.js?v=2.1.3-p0'
         money = '/static/wealth-money-input.js?v=2.0.3-ai1'

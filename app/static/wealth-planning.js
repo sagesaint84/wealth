@@ -39,7 +39,7 @@
   historyPanel.innerHTML = `<div class="wealth-section-heading wealth-history-heading"><div><p class="wealth-eyebrow">NET WORTH HISTORY</p><h3>순자산 추이</h3><p class="wealth-history-description">확인해 저장한 날짜별 순자산 기록입니다.</p></div></div>
     <p class="wealth-help wealth-history-help">자금 입출금·자산 등록도 반영되므로 투자수익률과는 다릅니다.</p>
     <div class="wealth-periods compact-record-tabs" aria-label="순자산 조회 기간"><button type="button" class="heatmap-tab" data-period="1D">일간</button><button type="button" class="heatmap-tab" data-period="1W">주간</button><button type="button" class="heatmap-tab" data-period="1M">월간</button><button type="button" class="heatmap-tab active" data-period="1Y">연간</button><button type="button" class="heatmap-tab" data-period="ALL">전체</button></div>
-    <p id="wealthHistoryStatus" class="wealth-help" role="status">기록을 불러오는 중입니다.</p><div id="wealthHistorySummary" class="wealth-history-summary" aria-label="순자산 요약"></div><div class="wealth-history-main"><div id="wealthHistoryPlot"></div><details id="wealthHistoryDetails" class="wealth-history-details" open></details></div>`;
+    <p id="wealthHistoryStatus" class="wealth-help" role="status">기록을 불러오는 중입니다.</p><div class="wealth-history-main"><div id="wealthHistoryPlot"></div><details id="wealthHistoryDetails" class="wealth-history-details" open></details></div>`;
   (home.querySelector('#wealthMarketSlot') || home).before(historyPanel);
   const historyManager = document.createElement('div');
   historyManager.className='wealth-history-selection';
@@ -173,11 +173,9 @@
     const records=filterHistoryPeriod(allRecords,range);
     const plot = document.getElementById('wealthHistoryPlot');
     const details = document.getElementById('wealthHistoryDetails');
-    document.getElementById('wealthHistoryStatus').textContent = records.length ? `${summary.owner === '모두' ? '전체 가족' : summary.owner} · ${records.length}개 기록${records.length > 1 ? ' · 기간 증감 '+won(records.at(-1).net_worth-records[0].net_worth) : ' · 두 번째 기록부터 추세를 표시합니다.'}` : '아직 기록이 없습니다. 자산 정보를 확인한 뒤 ‘기록’을 누르세요. 과거 값을 추정하지 않습니다.';
-    const summaryBox=document.getElementById('wealthHistorySummary');
-    if(!records.length) { summaryBox.replaceChildren(); plot.replaceChildren(); renderHistoryDetails(details, records, allRecords); return; }
-    const values=records.map(r=>Number(r.net_worth)||0), firstValue=values[0], latestValue=values.at(-1), minValue=Math.min(...values), maxValue=Math.max(...values);
-    summaryBox.innerHTML=`<div><span>기간 시작</span><strong>${won(firstValue)}</strong></div><div><span>최근 기록</span><strong>${won(latestValue)}</strong></div><div><span>최저 / 최고</span><strong>${won(minValue)} · ${won(maxValue)}</strong></div><div><span>기간 증감</span><strong class="${latestValue-firstValue >= 0 ? 'is-positive' : 'is-negative'}">${latestValue-firstValue >= 0 ? '+' : ''}${won(latestValue-firstValue)}</strong></div>`;
+    document.getElementById('wealthHistoryStatus').textContent = records.length ? '' : '아직 기록이 없습니다. 자산 정보를 확인한 뒤 ‘기록’을 누르세요. 과거 값을 추정하지 않습니다.';
+    if(!records.length) { plot.replaceChildren(); renderHistoryDetails(details, records, allRecords); return; }
+    const values=records.map(r=>Number(r.net_worth)||0);
     const lo=Math.min(...values), hi=Math.max(...values), span=hi-lo || Math.max(Math.abs(hi)*0.05,1);
     const first=Date.parse(records[0].date), duration=Date.parse(records.at(-1).date)-first || 1;
     const containerWidth = plot.clientWidth || 800;

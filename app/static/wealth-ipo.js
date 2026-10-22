@@ -640,13 +640,18 @@
       ipoHistoryMonth = cur.month;
       ipoAllMonthInitialized = true;
     }
-    const sortAsc = (left, right) =>
-      String(left.presentation_sort_date || '').localeCompare(String(right.presentation_sort_date || '')) ||
-      String(left.ipo_id || '').localeCompare(String(right.ipo_id || ''));
-
-    const sortDesc = (left, right) =>
-      String(right.presentation_sort_date || '').localeCompare(String(left.presentation_sort_date || '')) ||
-      String(right.ipo_id || '').localeCompare(String(left.ipo_id || ''));
+    const sortDate = ipo => {
+      const value = String(ipo.presentation_sort_date || '');
+      return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) ? value : '';
+    };
+    const compareSchedule = (left, right, direction) => {
+      const a = sortDate(left), b = sortDate(right);
+      // Unknown dates follow known dates in both directions; IDs break ties.
+      if (!a || !b) return a ? -1 : b ? 1 : String(left.ipo_id || '').localeCompare(String(right.ipo_id || ''));
+      return direction * (a.localeCompare(b) || String(left.ipo_id || '').localeCompare(String(right.ipo_id || '')));
+    };
+    const sortAsc = (left, right) => compareSchedule(left, right, 1);
+    const sortDesc = (left, right) => compareSchedule(left, right, -1);
 
     let visibleIpos = [];
     let fallbackIpos = [];
@@ -699,7 +704,7 @@
       visibleIpos = brokerIpos.slice().sort(sortAsc);
     }
 
-    let html = `<div class="ipo-filter-toolbar" role="group" aria-label="공모주 일정 필터">${controls}<label class="ipo-broker-filter">증권사 <select id="ipoBrokerFilter" aria-label="공모주 주관 증권사"><option value="">전체 증권사</option>${managers.map(([key, name]) => `<option value="${escapeHtml(key)}"${key === ipoBrokerFilter ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></label></div>`;
+    let html = `<div class="ipo-filter-toolbar" role="group" aria-label="공모주 일정 필터">${controls}</div><div class="ipo-list-tools"><label class="ipo-broker-filter" for="ipoBrokerFilter">주관 증권사</label><select id="ipoBrokerFilter" aria-label="공모주 주관 증권사"><option value="">전체 증권사</option>${managers.map(([key, name]) => `<option value="${escapeHtml(key)}"${key === ipoBrokerFilter ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div><p class="ipo-sort-notice">청약 시작일 기준 · 청약일이 없으면 상장 예정일, 실제 상장일 순 · ${!showExcludedSchedules && ipoFilterGroup === 'PAST' ? '최신순' : '오래된순'} · 날짜 미확인 항목은 마지막에 표시</p>`;
     if (monthControlHtml) {
       html += monthControlHtml;
     }
