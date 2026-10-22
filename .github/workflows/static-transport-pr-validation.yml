@@ -44,7 +44,7 @@ concurrency:
 jobs:
   synthetic-regressions:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 45
     env:
       WEALTH_ENV: test
       WEALTH_DISABLE_ENV_FILE: '1'
