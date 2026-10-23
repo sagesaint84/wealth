@@ -90,7 +90,6 @@ def test_official_stop_refresh_still_runs_after_base_provider_failure():
     with patch.object(adapter, "_BASE_REFRESH_MARKET", side_effect=RuntimeError("synthetic portal outage")), \
          patch.object(adapter._base, "_refresh_file_lock", side_effect=lambda: nullcontext()), \
          patch.object(adapter, "discover_and_merge_primary_sources", return_value={"statuses": {"dart_schedule": "sync_ok"}}) as official, \
-         patch.object(adapter, "refresh_missing_metalogos_references", return_value={}), \
          patch.object(adapter, "_targeted_dart_enrichment", return_value={}):
         result = adapter.refresh_ipo_market(username="synthetic", target_date_str="2026-10-19")
     official.assert_called_once()

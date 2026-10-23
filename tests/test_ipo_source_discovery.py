@@ -159,7 +159,7 @@ class IpoSourceDiscoveryTests(unittest.TestCase):
         self.patch.start()
         self.addCleanup(self.patch.stop)
 
-    def test_kind_remains_canonical_while_naver_npay_and_160_enrich_same_record(self):
+    def test_npay_price_wins_while_other_providers_fill_missing_fields(self):
         result = discover_and_merge_primary_sources(
             username="user",
             target_date_str="2026-10-01",
@@ -177,7 +177,7 @@ class IpoSourceDiscoveryTests(unittest.TestCase):
         self.assertEqual(ipo["subscription_start"], "2026-10-02")
         self.assertEqual(ipo["subscription_end"], "2026-10-06")
         self.assertEqual(ipo["expected_listing_date"], "2026-10-15")
-        self.assertEqual(ipo["final_offer_price"], 23500.0)
+        self.assertEqual(ipo["final_offer_price"], 22000.0)
         self.assertEqual(ipo["lead_managers"], ["하나증권"])
         self.assertIn("kind", ipo["sources"])
         self.assertIn("naver_progress", ipo["sources"])
@@ -186,7 +186,7 @@ class IpoSourceDiscoveryTests(unittest.TestCase):
         self.assertEqual(result["total_ipos"], 1)
         self.assertIn("sync_ok", result["statuses"]["kind_discovery"])
 
-    def test_official_dart_schedule_overlays_supplemental_values_last(self):
+    def test_dart_fills_missing_fields_without_overwriting_npay(self):
         result = discover_and_merge_primary_sources(
             username="user",
             target_date_str="2026-10-01",
@@ -198,10 +198,10 @@ class IpoSourceDiscoveryTests(unittest.TestCase):
         )
         ipo = read_market_store()["ipos"][0]
         self.assertEqual(ipo["corp_code"], "01000001")
-        self.assertEqual(ipo["subscription_start"], "2026-10-03")
+        self.assertEqual(ipo["subscription_start"], "2026-10-02")
         self.assertEqual(ipo["subscription_end"], "2026-10-07")
         self.assertEqual(ipo["payment_date"], "2026-10-08")
-        self.assertEqual(ipo["final_offer_price"], 24000.0)
+        self.assertEqual(ipo["final_offer_price"], 22000.0)
         self.assertEqual(ipo["lead_managers"], ["공식증권"])
         self.assertEqual(
             ipo["sources"]["dart_schedule"]["board_reference"],

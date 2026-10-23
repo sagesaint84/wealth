@@ -8,6 +8,15 @@ def market_day():
     return datetime.now(timezone(timedelta(hours=9))).date().isoformat()
 
 
+def schedule_field_confirmed(ipo, key):
+    sources = ipo.get("sources")
+    fields = sources.get("schedule_fields") if isinstance(sources, dict) else None
+    evidence = fields.get(key) if isinstance(fields, dict) else None
+    return (isinstance(evidence, dict)
+            and evidence.get("source") in {"naver", "npay", "kind", "dart"}
+            and bool(ipo.get(key)) and evidence.get("value") == ipo.get(key))
+
+
 def schedule_condition(ipo):
     sources = ipo.get("sources") or {}
     if not isinstance(sources, dict):
@@ -17,7 +26,12 @@ def schedule_condition(ipo):
     status = state.get("status") if isinstance(state, dict) else None
     if status in {"postponed", "withdrawn"}:
         return status
-    if isinstance(verification, dict) and verification.get("status") == "unverified":
+    # DART linkage is disclosure evidence, not a veto on another provider's
+    # observed dates. Require field evidence so a provider logo alone cannot
+    # turn unrelated retained dates into a confirmed schedule.
+    observed = all(schedule_field_confirmed(ipo, key)
+                   for key in ("subscription_start", "subscription_end"))
+    if not observed and isinstance(verification, dict) and verification.get("status") == "unverified":
         return "unverified"
     return "scheduled"
 
@@ -55,7 +69,7 @@ def display_records(records, today=None):
         if not isinstance(row.get("sources"), dict):
             row["sources"] = {}
         sources = row["sources"]
-        for key in ("dart", "dart_schedule", "dart_schedule_status", "dart_schedule_verification", "kind"):
+        for key in ("dart", "dart_schedule", "dart_schedule_status", "dart_schedule_verification", "kind", "schedule_fields"):
             if key in sources and not isinstance(sources[key], dict):
                 sources[key] = {}
         if not row.get("actual_listing_date") and not sources.get("dart_schedule_verification"):
@@ -69,7 +83,10 @@ def display_records(records, today=None):
     for group in groups:
         def rank(row):
             source = row.get("sources", {}).get("dart_schedule", {})
-            return (bool(source), str(source.get("source_date") or ""), str(source.get("rcept_no") or ""))
+            primary = any(e.get("source") in {"naver", "npay"} for e in
+                          (row.get("sources", {}).get("schedule_fields") or {}).values()
+                          if isinstance(e, dict))
+            return (primary, bool(source), str(source.get("source_date") or ""), str(source.get("rcept_no") or ""))
         canonical = max(group, key=rank)
         ids = list(dict.fromkeys(str(value) for r in group for value in
                    ([r["ipo_id"]] + r.get("application_record_ids", [])) if value))

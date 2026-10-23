@@ -157,6 +157,9 @@ def _unique_name_match(item: dict[str, Any], existing: list[dict[str, Any]]) -> 
     if len(candidates) != 1:
         return None
     target = candidates[0]
+    if any(item.get(key) and target.get(key) and item[key] != target[key]
+           for key in ("stock_code", "corp_code")):
+        return None
     incoming_start = str(item.get("subscription_start") or "")[:10]
     target_start = str(target.get("subscription_start") or "")[:10]
     if incoming_start and target_start and incoming_start != target_start:
@@ -260,7 +263,7 @@ def _promote_verified_markets(
 def _source_priority_present(target: dict[str, Any], source_name: str) -> bool:
     sources = target.get("sources") if isinstance(target.get("sources"), dict) else {}
     if source_name in {"naver", "npay"}:
-        return bool(sources.get("kind") or sources.get("dart_schedule"))
+        return False
     if source_name == "metalogos160":
         return bool(
             sources.get("kind")
@@ -273,6 +276,25 @@ def _source_priority_present(target: dict[str, Any], source_name: str) -> bool:
 
 def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_name: str) -> tuple[dict[str, Any], bool]:
     """Merge one source observation under the field-level source priority."""
+    item = copy.deepcopy(item)
+    date_fields = {"demand_forecast_start", "demand_forecast_end", "subscription_start",
+                   "subscription_end", "payment_date", "refund_date",
+                   "expected_listing_date", "actual_listing_date"}
+    for key in date_fields & item.keys():
+        try:
+            valid = date.fromisoformat(str(item[key])).isoformat() == item[key]
+        except (TypeError, ValueError):
+            valid = False
+        if not valid:
+            item.pop(key)
+    price = item.get("final_offer_price")
+    if price is not None and (isinstance(price, bool) or not isinstance(price, (int, float))
+                              or not 0 < price < float("inf")):
+        item.pop("final_offer_price")
+    if (item.get("subscription_start") and item.get("subscription_end")
+            and item["subscription_start"] > item["subscription_end"]):
+        item.pop("subscription_start")
+        item.pop("subscription_end")
     existing = store.get("ipos", [])
     if source_name == "metalogos160":
         # A reference issuer match must never be redirected to a different
@@ -281,6 +303,9 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
         if target is None or not metalogos_identity_matches(target, item):
             return item, True
     else:
+        if item.get("stock_code") and sum(row.get("stock_code") == item["stock_code"]
+                                         for row in existing) > 1:
+            return item, True
         target = _unique_stock_match(item, existing) or _unique_name_match(item, existing)
         if target is None and item.get("corp_code"):
             # A changed offering period must still take the existing record's
@@ -291,7 +316,46 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
                 return item, True
             if corporate_matches:
                 target = corporate_matches[0]
+    if target is not None and any(item.get(key) and target.get(key) and item[key] != target[key]
+                                  for key in ("stock_code", "corp_code")):
+        return item, True
+    observed_at = datetime.now(KST).isoformat()
+    source_meta = item.get("sources", {}).get(
+        {"naver": "naver_progress", "dart": "dart_schedule"}.get(source_name, source_name), {})
+
+    def field_evidence(key):
+        seen_at = observation_time(source_meta.get("observed_at") or observed_at)
+        return {"source": source_name, "value": copy.deepcopy(item[key]),
+                "observed_at": seen_at.isoformat() if seen_at else observed_at,
+                "url": source_meta.get("url") or (
+                    "https://stock.naver.com/market/stock/kr/ipo" if source_name == "naver" else None)}
+
+    def observation_time(value):
+        try:
+            parsed = datetime.fromisoformat(str(value))
+            return parsed.astimezone(KST) if parsed.tzinfo else parsed.replace(tzinfo=KST)
+        except ValueError:
+            return None
+
+    def primary_price_evidence(previous=None):
+        evidence = field_evidence("final_offer_price")
+        evidence["source"] = source_name + "_ipo"
+        evidence["source_date"] = evidence["observed_at"][:10]
+        # Reobserving an unchanged price must not move its score cutoff forward.
+        if (isinstance(previous, dict) and previous.get("source") == evidence["source"]
+                and previous.get("value") == evidence["value"]
+                and previous.get("url") == evidence["url"]):
+            return previous
+        return evidence
+
     if target is None:
+        if source_name in {"naver", "npay", "kind", "dart"}:
+            item.setdefault("sources", {})["schedule_fields"] = {
+                key: field_evidence(key) for key in date_fields | {
+                    "final_offer_price", "offer_band_low", "offer_band_high", "lead_managers"}
+                if item.get(key) not in (None, "", [])}
+        if source_name in {"naver", "npay"} and item.get("final_offer_price"):
+            item["sources"]["final_offer_price"] = primary_price_evidence()
         saved, review = merge_ipo_record(store, item)
         return saved, review
 
@@ -318,7 +382,17 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
                 if (provenance.get("source") != "metalogos_160_public_page"
                         or normalize_observation_date(provenance.get("source_date")) is None):
                     continue
-        if value is None:
+        if value in (None, "", []):
+            continue
+        evidence = target.get("sources", {}).get("schedule_fields", {}).get(key, {})
+        prior_time = observation_time(evidence.get("observed_at"))
+        incoming_time = observation_time(source_meta.get("observed_at") or observed_at)
+        if (source_name in {"naver", "npay"} and evidence.get("source") in {"naver", "npay"}
+                and prior_time and incoming_time and prior_time > incoming_time):
+            continue
+        if (source_name in {"kind", "dart"} and key in protected_fields
+                and evidence.get("source") in {"naver", "npay"}
+                and evidence.get("value") == target.get(key)):
             continue
         if protect and key in protected_fields and target.get(key) not in (None, "", []):
             continue
@@ -353,6 +427,13 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
                     and previous.get("url") == incoming.get("url")):
                 incoming_sources["final_offer_price"] = previous
     target.setdefault("sources", {}).update(incoming_sources)
+    if source_name in {"naver", "npay"} and "final_offer_price" in accepted_fields:
+        target["sources"]["final_offer_price"] = primary_price_evidence(
+            target["sources"].get("final_offer_price"))
+    if source_name in {"naver", "npay", "kind", "dart"}:
+        fields = target["sources"].setdefault("schedule_fields", {})
+        for key in accepted_fields & (protected_fields | date_fields):
+            fields[key] = field_evidence(key)
     target["updated_at"] = datetime.now(KST).isoformat()
     return target, False
 
@@ -580,7 +661,9 @@ def _apply_dart_schedules(
                         or str(item.get("subscription_start") or "").replace("-", "") < order(schedule_source)[0]):
                     ignored += 1
                     continue
-            _apply_observation(market, item, source_name="dart")
+            _, review = _apply_observation(market, item, source_name="dart")
+            if review:
+                raise ValueError("DART offering identity requires review")
             sources["dart_schedule_verification"] = {"status": "verified", "checked_date": target_date_str}
             if status.get("status") in {"postponed", "withdrawn"}:
                 sources["dart_schedule_status"] = {"status": "scheduled",
@@ -643,7 +726,8 @@ def discover_and_merge_primary_sources(
     """Reconcile the main IPO discovery union into market.json.
 
     Canonical schedule priority:
-      DART/OpenDART + KIND > NAVER/Npay > Metalogos 160 > retained market snapshot.
+      NAVER/Npay > KIND/DART fallback > retained market snapshot.
+    Metalogos is optional reference enrichment only when explicitly supplied.
     Existing records and historical provenance survive provider failures.
     """
     start, end = _month_window(target_date_str)
@@ -718,7 +802,7 @@ def discover_and_merge_primary_sources(
             except Exception as exc:
                 statuses[status_key] = f"source_error ({type(exc).__name__})"
 
-    metalogos = metalogos_client or MetalogosIpoClient()
+    metalogos = metalogos_client
     # Both providers see independent snapshots after initial reconciliation.
     # No worker receives the shared mutable market or persists any result.
     snapshot = copy.deepcopy(market)
@@ -729,7 +813,7 @@ def discover_and_merge_primary_sources(
     parallel_started = perf_counter()
     with ThreadPoolExecutor(max_workers=2) as pool:
         metalogos_future = pool.submit(_provider_read, lambda: _fetch_metalogos_candidates(
-            metalogos, candidates, target_date_str=target_date_str))
+            metalogos, candidates, target_date_str=target_date_str) if metalogos is not None else [])
         dart_future = pool.submit(_provider_read, lambda: _fetch_dart_schedules(
             snapshot, dart=dart, target_date_str=target_date_str, start=start, end=end)
             if dart_configured else None)
@@ -748,10 +832,16 @@ def discover_and_merge_primary_sources(
         try:
             reviews = 0
             for item in metalogos_rows:
-                _, review = _apply_observation(market, item, source_name="metalogos160")
+                # Preserve optional reference/score display without promoting its
+                # calendar or prices into the primary schedule.
+                reference = {key: item[key] for key in ("company_name", "stock_code", "corp_code", "sources") if key in item}
+                reference["sources"] = {"metalogos160": item.get("sources", {}).get("metalogos160", {})}
+                _, review = _apply_observation(market, reference, source_name="metalogos160")
                 reviews += int(review)
             statuses["metalogos160"] = (f"sync_ok (matched={len(metalogos_rows)}, "
                                         f"review_required={reviews})")
+            if metalogos is None:
+                statuses["metalogos160"] = "not_requested (optional_reference_only)"
         except Exception as exc:
             statuses["metalogos160"] = f"source_error ({type(exc).__name__})"
 

@@ -95,7 +95,7 @@ def derive_market_state(ipo: dict[str, Any], today: date | None = None) -> str:
         return "SUBSCRIPTION_OPEN"
     if listing is None:
         return "SUBSCRIPTION_CLOSED"
-    return "LISTED" if today >= listing else "LISTING_UPCOMING"
+    return "LISTED" if actual_listing and today >= actual_listing else "LISTING_UPCOMING"
 
 
 _POSITION_PRECEDENCE = ("LINK_DATA_MISSING", "PARTIALLY_SOLD", "ALLOCATED_UNSOLD", "FULLY_SOLD", "APPLIED", "NOT_APPLIED")

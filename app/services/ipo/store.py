@@ -6,7 +6,7 @@ from typing import Any
 
 from app.services.ipo.identity import find_matching_ipo, generate_ipo_id
 from app.services.ipo.models import IpoRecord
-from app.services.ipo.display import display_records, annotate_visibility
+from app.services.ipo.display import display_records, annotate_visibility, schedule_condition, schedule_field_confirmed
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 DATA_DIR = ROOT_DIR / "data" / "ipo"
@@ -162,6 +162,17 @@ def merge_ipo_record(store: dict[str, Any], incoming: dict[str, Any]) -> tuple[d
         for k, v in incoming.items():
             if k == "ipo_id":
                 continue
+            # Base KIND refresh and targeted DART score enrichment also merge
+            # here. They must not overwrite an observed primary-provider field
+            # before a failed NAVER refresh gets a chance to preserve it.
+            prior = matched.get("sources", {}).get("schedule_fields", {}).get(k, {})
+            replacement = incoming.get("sources", {}).get("schedule_fields", {}).get(k, {})
+            if (isinstance(prior, dict) and prior.get("source") in {"naver", "npay"}
+                    and prior.get("value") == matched.get(k)
+                    and not (isinstance(replacement, dict)
+                             and replacement.get("source") in {"naver", "npay"}
+                             and replacement.get("value") == v)):
+                continue
             if k in _CRITICAL_RETAINED_FIELDS:
                 existing_value = matched.get(k)
                 incoming_blank = (not v) if k == "lead_managers" else (v is None or (isinstance(v, str) and not v.strip()) or (k == "final_offer_price" and v == 0))
@@ -243,6 +254,8 @@ def get_ipo_calendar_events(
         if annotate_visibility(ipo, exclusions)["user_excluded"]:
             continue
         verification = ipo.get("sources", {}).get("dart_schedule_verification", {}).get("status")
+        schedule_unknown = schedule_condition(ipo) == "unverified"
+        listing_unknown = schedule_unknown and not schedule_field_confirmed(ipo, "expected_listing_date")
         schedule_status = ipo.get("sources", {}).get("dart_schedule_status", {}).get("status")
         if schedule_status in {"postponed", "withdrawn"}:
             # Keep original dates and user applications intact, but never project
@@ -317,7 +330,7 @@ def get_ipo_calendar_events(
                     "subtype": "공모주",
                     "owner": "모두",
                     "title": (f"🎯 {company} 청약 일정 확인 필요 (기존 예정일)"
-                              if verification == "unverified" else f"🎯 {company} {label}"),
+                              if schedule_unknown else f"🎯 {company} {label}"),
                     "amount_krw": None,
                     "source_id": ipo_id,
                     "meta": event_meta,
@@ -343,7 +356,7 @@ def get_ipo_calendar_events(
 
         if listing_date and (from_date <= listing_date <= to_date):
             label = "신규상장" if listing_status == "actual" else (
-                "상장 일정 확인 필요 (기존 예정일)" if verification == "unverified" else "상장예정")
+                "상장 일정 확인 필요 (기존 예정일)" if listing_unknown else "상장예정")
             event_id = f"ipo_listing:{ipo_id}:{listing_date}"
             if not any(e["id"] == event_id for e in events):
                 listing_meta = dict(meta_base)

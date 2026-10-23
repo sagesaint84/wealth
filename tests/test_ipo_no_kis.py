@@ -58,7 +58,6 @@ def public_sources(tmp_path):
             ("app.services.ipo.source_discovery.NaverIpoDiscoveryClient", naver),
             ("app.services.ipo.source_discovery.NpayIpoClient", npay),
             ("app.services.ipo.source_discovery.MetalogosIpoClient", metalogos),
-            ("app.services.ipo.refresh_adapter.refresh_missing_metalogos_references", {"status": "ok"}),
             ("app.services.ipo.refresh_adapter._targeted_dart_enrichment", {"status": "ok"}),
             ("app.services.ipo.applications.get_user_applications", {}),
         ):
@@ -128,7 +127,7 @@ def test_spac_alias_discovery_retains_one_identity_and_complete_fields(public_so
     assert result["total_ipos"] == len(ipos) == 1
     assert spac_name_key(item) == spac_name_key(dict(item, company_name=alias))
     for key in ("stock_code", "subscription_start", "subscription_end", "final_offer_price", "lead_managers", "expected_listing_date"):
-        assert ipos[0][key] == item[key]
+        assert ipos[0][key] == ("2026-10-16" if key == "expected_listing_date" else item[key])
     assert ipos[0]["score"]["status"] == "NOT_APPLICABLE"
 
 
