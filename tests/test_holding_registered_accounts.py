@@ -59,12 +59,26 @@ def test_manual_input_creates_only_a_new_general_account():
     assert data["bank_accounts"] == before["bank_accounts"]
 
 
+def test_registered_id_is_opaque_and_independent_of_account_position():
+    data = {"accounts": accounts()}
+    selected = data["accounts"][3]
+    selected["id"] = "registered-irp-7f29"
+    raw = payload(selected)
+    data["accounts"].reverse()
+    before = deepcopy(data)
+    assert resolve_holding_account(data, raw)["id"] == "registered-irp-7f29"
+    assert data == before
+
+
 @pytest.mark.parametrize("edit", [False, True])
 def test_save_routes_link_exact_id_without_changing_account_owner(monkeypatch, edit):
     main = import_main_without_loading_real_env()
     data = {"accounts": accounts(), "holdings": [{"id": "existing", "account_id": "0", "code": "005930"}], "settings": {}}
     before_accounts = deepcopy(data["accounts"])
-    writes = Mock()
+    before_holdings = deepcopy(data["holdings"])
+    before_ids = {holding["id"] for holding in before_holdings}
+    persisted = []
+    writes = Mock(side_effect=lambda snapshot, **kw: persisted.append(deepcopy(snapshot)))
     monkeypatch.setattr(main, "financial_user_locks", lambda *a: nullcontext())
     monkeypatch.setattr(main, "read_portfolio", lambda **kw: data)
     monkeypatch.setattr(main, "write_portfolio", writes)
@@ -74,11 +88,24 @@ def test_save_routes_link_exact_id_without_changing_account_owner(monkeypatch, e
     model = main.HoldingCreate(**raw)
     if edit:
         asyncio.run(main.update_holding("existing", model, authenticated_request()))
-        saved = next(h for h in data["holdings"] if h["id"] == "existing")
     else:
         asyncio.run(main.create_holding(model, authenticated_request()))
-        saved = next(h for h in data["holdings"] if h.get("code") == "005930")
+    assert writes.call_count == 1  # Explicit save only, against mocked storage.
+    stored = persisted[0]
+    if edit:
+        assert len(stored["holdings"]) == len(before_holdings)
+        saved = next(h for h in stored["holdings"] if h["id"] == "existing")
+    else:
+        # The same security may be held in multiple accounts. A code-only
+        # lookup returns the pre-existing account 0 holding, not the new row.
+        created = [h for h in stored["holdings"] if h["id"] not in before_ids]
+        assert len(created) == 1
+        assert len(stored["holdings"]) == len(before_holdings) + 1
+        assert [h for h in stored["holdings"] if h["id"] in before_ids] == before_holdings
+        saved = created[0]
     assert saved["account_id"] == "3"
+    assert saved["code"] == "005930"
     assert (saved["broker"], saved["account_name"]) == ("가상증권", "같은 이름")
     assert data["accounts"] == before_accounts
-    assert writes.call_count == 1  # Explicit save only, against mocked storage.
+    assert stored["accounts"] == before_accounts
+    assert next(a for a in stored["accounts"] if a["id"] == saved["account_id"])["owner"] == "엄마"
