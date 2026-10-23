@@ -55,17 +55,14 @@ def test_interactive_window_rolls_with_target_month(target, expected):
 def test_interactive_refresh_runs_bounded_discovery_with_capped_score_recovery():
     base = {'status':'ok','sources':{},'total_ipos':1}
     supplement = {'statuses':{'metalogos160':'sync_ok (matched=1)','dart_schedule':'sync_ok (matched=1, failed=0, ignored=0)'}, 'window_start':'2026-09-01','window_end':'2026-11-30','total_ipos':2}
-    reference = {'status':'ok','candidates':1,'matched':1,'unmatched':0}
     targeted = {'status':'ok','mode':'score_recovery','candidates':1,'enriched':1}
     with patch.object(refresh_adapter, '_BASE_REFRESH_MARKET', return_value=base) as base_refresh, \
          patch.object(refresh_adapter, 'discover_and_merge_primary_sources', return_value=supplement) as discover, \
-         patch.object(refresh_adapter, 'refresh_missing_metalogos_references', return_value=reference) as metalogos_ref, \
          patch.object(refresh_adapter, '_targeted_dart_enrichment', return_value=targeted) as deep, \
          patch.object(refresh_adapter._base, '_refresh_file_lock', return_value=nullcontext()):
         result = refresh_adapter.refresh_ipo_market(username='alice', target_date_str='2026-10-02')
     base_refresh.assert_called_once_with(username='alice', target_date_str='2026-10-02', kind_schedule_snapshot={})
     discover.assert_called_once_with(username='alice', target_date_str='2026-10-02', kind_schedule_snapshot={})
-    metalogos_ref.assert_called_once_with(target_date_str='2026-10-02', prefetched_rows=[])
     deep.assert_called_once_with(
         username='alice',
         target_date_str='2026-10-02',
@@ -73,7 +70,7 @@ def test_interactive_refresh_runs_bounded_discovery_with_capped_score_recovery()
         max_candidates=4,
     )
     assert result['targeted_dart'] == targeted
-    assert result['sources']['metalogos160_reference_fallback'] == 'ok (matched=1, unmatched=0)'
+    assert 'metalogos160_reference_fallback' not in result['sources']
     assert result['interactive_window_start'] == '2026-09-01'
     assert result['interactive_window_end'] == '2026-11-30'
     assert orchestrator.refresh_ipo_market is refresh_adapter.refresh_ipo_market

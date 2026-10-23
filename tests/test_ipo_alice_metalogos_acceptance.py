@@ -176,8 +176,8 @@ def test_discovery_recalculates_alice_score_without_dart_and_reuses_reference_ro
             username=None, target_date_str='2026-10-06', kind_client=kind, npay_client=npay,
             naver_client=naver, metalogos_client=metalogos, dart_client=dart)
     saved = write.call_args.args[0]['ipos'][0]
-    assert saved['score']['coverage'] == 75
-    assert saved['score']['core_missing'] == []
+    assert saved['score']['coverage'] == 67
+    assert saved['score']['core_missing'] == ['pricing_discipline']
     assert saved['score']['score'] == calculate_wealth_ipo_score(saved, [saved])['score']
     assert saved['score']['score'] != 79
     assert result['metalogos_rows'][0]['sources']['metalogos160']['url'] == ALICE_URL

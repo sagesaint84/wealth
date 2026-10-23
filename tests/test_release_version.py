@@ -41,7 +41,7 @@ class ReleaseVersionTests(unittest.TestCase):
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
         versions = {
-            'wealth-ipo.js': '2.1.3-uiux1',
+            'wealth-ipo.js': '2.1.3-ipo-naver1',
             'wealth-ledger-ocr.js': '2.0.2-review2',
             'wealth-money-input.js': '2.0.3-ai1',
             "wealth-financial-income-what-if.js": "2.1.3-p0",

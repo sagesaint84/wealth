@@ -34,7 +34,7 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
         self.assertEqual(result["targeted_dart"]["enriched"], 5)
         self.assertEqual(
             result["discovery_priority"],
-            "DART/KIND + NAVER/Npay > Metalogos160 > retained market",
+            "NAVER/Npay > KIND/DART fallback > retained market",
         )
 
     def test_interactive_refresh_can_recover_from_retained_market_when_main_sources_sync(self):
@@ -64,9 +64,6 @@ class IpoRefreshAdapterOrderTests(unittest.TestCase):
             "_targeted_dart_enrichment",
             return_value=targeted_result,
         ) as targeted, patch.object(
-            refresh_adapter, "refresh_missing_metalogos_references",
-            return_value={"status": "ok", "matched": 0, "unmatched": 0},
-        ), patch.object(
             refresh_adapter._base,
             "_refresh_file_lock",
             return_value=nullcontext(),
