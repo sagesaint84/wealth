@@ -25,7 +25,7 @@ def unchanged_styles(evaluate):
     return evaluate("""[...document.querySelectorAll(`#settingsSurface input,#settingsSurface button,
       #settingsSurface h3,#settingsSurface strong,#settingsSurface .settings-help,
       #settingsSurface .openapi-badge,#settingsSurface label`)]
-      .filter(e=>!e.matches('#openapiKrxSection .form-grid>label'))
+      .filter(e=>!e.matches('#openapiKrxSection .settings-data-source-fields>label'))
       .map(e=>({id:e.id,text:e.textContent,font:getComputedStyle(e).fontSize}))""")
 
 
@@ -50,15 +50,15 @@ def test_phase1_scoped_typography_and_geometry(chrome_preview, width, theme, tmp
     old_settings = unchanged_styles(evaluate)
     old_asset = sample(evaluate, '#savingsGrid')
     old_card = sample(evaluate, '.saving-card')
-    old_krx = sample(evaluate, '#openapiKrxSection .form-grid > label')
+    old_krx = sample(evaluate, '#openapiKrxSection .settings-data-source-fields > label')
     evaluate('WealthSavingsContributions.open("housing")')
     old_summary = sample(evaluate, '#savingContributionSummary')
     old_savings = sample(evaluate, '#savingContributionsDialog')
     evaluate("document.getElementById('savingContributionsDialog').close();densitySheet.disabled=false")
     assert dialog_baselines(evaluate) == old_dialogs
     assert unchanged_styles(evaluate) == old_settings
-    for selector in ('#openapiKrxSection .form-grid > label', '#openapiKrxPassword'):
-        label_selector = selector if 'label' in selector else '#openapiKrxSection .form-grid > label:last-child'
+    for selector in ('#openapiKrxSection .settings-data-source-fields > label', '#openapiKrxPassword'):
+        label_selector = selector if 'label' in selector else '#openapiKrxSection .settings-data-source-fields > label:last-child'
         assert sample(evaluate, label_selector)['font'] == 11.5
     assert sample(evaluate, '#settingsSurface .openapi-label')['font'] == 11.5
     evaluate("location.hash='settings';window.dispatchEvent(new Event('hashchange'));document.getElementById('settingsApiTab').click()")
@@ -166,7 +166,7 @@ def test_phase1_scoped_typography_and_geometry(chrome_preview, width, theme, tmp
     assert evaluate('__contributions.writes.length') == 0
     (tmp_path / 'measurements.json').write_text(json.dumps(dict(width=width, theme=theme,
         savings_before=old_savings, savings_after=savings, summary_before=old_summary,
-        summary_after=summary, krx_before=old_krx, krx_after=sample(evaluate, '#openapiKrxSection .form-grid > label'),
+        summary_after=summary, krx_before=old_krx, krx_after=sample(evaluate, '#openapiKrxSection .settings-data-source-fields > label'),
         asset_before=old_asset, asset_after=asset, card_before=old_card, card_after=card,
         pnl_before=old_pnl, pnl_after=pnl, asset_grids=asset_grids,
         global_dialogs=old_dialogs), indent=2), encoding='utf-8')

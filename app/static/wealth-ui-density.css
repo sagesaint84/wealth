@@ -136,7 +136,6 @@
 #nationalPensionHistoryDialog .np-history-edit-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr) auto; gap: 8px; align-items: end; margin-bottom: 12px; }
 #nationalPensionHistoryDialog .np-history-edit-row input { width: 100%; min-width: 0; }
 @media (max-width: 480px) {
-  .wealth-layout #assetCategoryTabs { flex-wrap: wrap; overflow-x: visible; }
   .wealth-layout #assetCategoryTabs > button { padding: 8px; font-size: 11px; white-space: nowrap; }
   #nationalPensionHistoryDialog .np-history-edit-row { grid-template-columns: minmax(0,1fr) minmax(0,2fr); }
   #nationalPensionHistoryDialog .np-history-edit-row button { grid-column: 1 / -1; justify-self: end; }
@@ -193,7 +192,7 @@
   font-size: 12px;
   line-height: 1.6;
 }
-#openapiKrxSection .form-grid > label {
+#openapiKrxSection .settings-data-source-fields > label {
   font-size: 11.5px;
 }
 @media (max-width: 480px) {
