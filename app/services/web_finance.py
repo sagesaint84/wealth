@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Any
 import xml.etree.ElementTree as ET
@@ -8,6 +9,67 @@ import xml.etree.ElementTree as ET
 import httpx
 
 from app.services.network_policy import external_network_allowed
+from app.services.market_read_cache import MarketReadCache
+
+_signal_series_cache = MarketReadCache(ttl=900)
+
+
+async def fetch_signal_daily_series(code: str, currency: str, market: str) -> dict[str, Any]:
+    """Reuse the existing Yahoo chart route for a single adjusted daily series.
+
+    The existing Naver XML has no explicit adjustment contract. Never mix its
+    raw/unknown basis with Yahoo adjusted closes or infer splits from price jumps.
+    This read is independent of refresh_all_holdings_prices and all writers.
+    """
+    clean = str(code).strip().upper()
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9.\-]{0,19}", clean):
+        return {"value": None, "error": "invalid_symbol", "retrieved_at": None}
+    async def load():
+        if not external_network_allowed():
+            raise RuntimeError("external_network_disabled")
+        # New KRX ETF identifiers can contain letters (e.g. 0015B0).
+        kr = currency == "KRW" and bool(re.fullmatch(r"[A-Z0-9]{6}", clean))
+        if kr:
+            symbols = ([clean + ".KQ"] if market in {"KOSDAQ", "KQ"} else
+                       [clean + ".KS"] if market in {"KOSPI", "KS"} else [clean + ".KS", clean + ".KQ"])
+        elif currency == "USD":
+            symbols = [clean]
+        else:
+            raise ValueError("unsupported_market")
+        found = []
+        async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
+            for symbol in symbols:
+                response = await client.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+                    params={"interval": "1d", "range": "1y", "includeAdjustedClose": "true", "events": "splits"}, headers=HEADERS)
+                if response.status_code != 200:
+                    continue
+                result = response.json().get("chart", {}).get("result") or []
+                if not result:
+                    continue
+                entry = result[0]
+                meta = entry.get("meta") or {}
+                if (meta.get("symbol") != symbol or meta.get("instrumentType") not in {"EQUITY", "ETF"}
+                        or meta.get("currency") != currency):
+                    continue
+                tz = meta.get("exchangeTimezoneName")
+                if tz != ("Asia/Seoul" if kr else "America/New_York"):
+                    continue
+                if not kr and meta.get("exchangeName") not in {"NYQ", "NMS", "NGM", "NCM", "PCX", "ASE", "BTS", "BATS"}:
+                    continue  # OTC/other exchange sessions require their own calendar.
+                from zoneinfo import ZoneInfo
+                adjusted = entry.get("indicators", {}).get("adjclose", [{}])[0].get("adjclose", [])
+                timestamps = entry.get("timestamp", [])
+                if not timestamps or len(adjusted) != len(timestamps):
+                    continue
+                candles = [{"date": datetime.fromtimestamp(ts, ZoneInfo(tz)).date().isoformat(), "close": close}
+                           for ts, close in zip(timestamps, adjusted) if close is not None]
+                found.append({"candles": candles, "adjustment": "adjusted_close", "source": "Yahoo Finance 일봉 조정종가",
+                              "source_url": f"https://finance.yahoo.com/quote/{symbol}/history/",
+                              "calendar": "XKRX" if kr else "XNYS", "exchange": meta.get("exchangeName") or tz})
+        if len(found) != 1:
+            raise ValueError("daily_series_missing_or_ambiguous")
+        return found[0]
+    return await _signal_series_cache.get((clean, currency, market), load)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
