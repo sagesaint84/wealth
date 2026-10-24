@@ -6,3 +6,8 @@ openpyxl>=3.1,<4.0
 itsdangerous
 cryptography>=50.0.1,<51.0.0
 Pillow==12.3.0
+exchange-calendars>=4.13.2,<5
+tzdata>=2025.2
+# Require versions with published CPython 3.14 wheels.
+numpy>=2.3.3; python_version >= "3.14"
+pandas>=2.3.3; python_version >= "3.14"

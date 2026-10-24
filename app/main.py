@@ -53,7 +53,7 @@ from app.services.web_finance import (
 fetch_market_overview = get_web_market_overview
 from app.services.financial_json import FinancialStorageError, financial_user_locks
 from app.services.portfolio import (
-    clear_portfolio, get_dashboard, get_or_add_account, import_rows, normalize_holding,
+    clear_portfolio, get_dashboard, import_rows, normalize_holding,
     read_portfolio, seed_demo, upsert_holdings, write_portfolio, to_number, migrate_add_family_group,
     import_account_rows, normalize_broker_account_no, canonical_broker_account_identity
 )
@@ -1699,6 +1699,7 @@ async def admin_delete_user(target_username: str, request: Request) -> dict:
 
 
 class HoldingCreate(BaseModel):
+    account_id: str | None = Field(default=None, max_length=100)
     broker: str = Field(min_length=1, max_length=60)
     account_name: str = Field(min_length=1, max_length=80)
     code: str = Field(default="", max_length=20)
@@ -5702,21 +5703,35 @@ async def delete_family_member(member_name: str, request: Request) -> dict:
 
 @app.get("/api/market-overview")
 async def market_overview() -> dict:
-    return await fetch_market_overview()
+    try:
+        return await fetch_market_overview()
+    except Exception:
+        from app.services.market_indicators import unavailable_market_indicators
+        return {"markets": [], "exchange_rate": None, "unavailable": True, **unavailable_market_indicators()}
+
+
+@app.get("/api/holdings/signals")
+async def get_holding_signals(request: Request, owner: str = "모두") -> JSONResponse:
+    from app.services.portfolio import read_portfolio_readonly
+    from app.services.holding_signals import holdings_signals
+    snapshot = read_portfolio_readonly(get_current_username(request))
+    if owner not in set(get_family_members(snapshot)) | {"모두"}:
+        raise HTTPException(400, "등록된 가족 구성원을 선택해 주세요.")
+    return JSONResponse(await holdings_signals(snapshot, owner), headers={"Cache-Control": "no-store"})
 
 @app.post("/api/holdings", status_code=201)
 async def create_holding(payload: HoldingCreate, request: Request) -> dict:
     username = get_current_username(request)
     with financial_user_locks(username, 'portfolio.json'):
         data = read_portfolio(username=username)
-        account_id = get_or_add_account(data, payload.broker.strip(), payload.account_name.strip(), "manual")
-        item = normalize_holding(payload.model_dump(), account_id, payload.broker.strip(), payload.account_name.strip(), "manual")
-        # propagate owner to account
-        owner_val = getattr(payload, "owner", "모두") or "모두"
-        for acct in data.get("accounts", []):
-            if acct.get("id") == account_id:
-                acct["owner"] = owner_val
-                break
+        from app.services.holding_accounts import resolve_holding_account
+        if payload.owner not in set(get_family_members(data)) | {"모두"}:
+            raise HTTPException(400, "등록된 가족 구성원을 선택해 주세요.")
+        try:
+            account = resolve_holding_account(data, payload.model_dump())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        item = normalize_holding(payload.model_dump(), account["id"], account["broker"], account["name"], "manual")
         upsert_holdings(data, [item])
         write_portfolio(data, username=username)
         return {"message": "보유종목을 저장했습니다.", "dashboard": get_dashboard(username=username)}
@@ -5865,10 +5880,14 @@ async def update_holding(holding_id: str, payload: HoldingCreate, request: Reque
         current = next((item for item in data["holdings"] if item["id"] == holding_id), None)
         if current is None:
             raise HTTPException(404, "보유종목을 찾지 못했습니다.")
-        broker = payload.broker.strip()
-        account_name = payload.account_name.strip()
-        account_id = get_or_add_account(data, broker, account_name, current.get("source", "manual"))
-        item = normalize_holding(payload.model_dump(), account_id, broker, account_name, current.get("source", "manual"))
+        from app.services.holding_accounts import resolve_holding_account
+        if payload.owner not in set(get_family_members(data)) | {"모두"}:
+            raise HTTPException(400, "등록된 가족 구성원을 선택해 주세요.")
+        try:
+            account = resolve_holding_account(data, payload.model_dump(), current=current)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        item = normalize_holding(payload.model_dump(), account["id"], account["broker"], account["name"], current.get("source", "manual"))
         item["id"] = holding_id
         data["holdings"] = [item if holding["id"] == holding_id else holding for holding in data["holdings"]]
         write_portfolio(data, username=username)

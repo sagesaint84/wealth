@@ -110,6 +110,15 @@ def read_portfolio(username: str | None = None) -> dict[str, Any]:
     return data
 
 
+def read_portfolio_readonly(username: str) -> dict[str, Any]:
+    """Snapshot for analysis GETs: no mkdir, bootstrap, migration or price save."""
+    from app.services import user_manager
+    if not username or Path(username).name != username or username in {".", ".."}:
+        raise ValueError("invalid username")
+    return read_financial_json(user_manager.USERS_DIR / username / "portfolio.json",
+                               default={"accounts": [], "holdings": []})
+
+
 def write_portfolio(data: dict[str, Any], username: str | None = None, *, replace_planning: bool = False,
                     replace_account_display_order: bool = False) -> dict[str, Any]:
     with financial_lock(_get_portfolio_file(username)):

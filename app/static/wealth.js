@@ -1008,7 +1008,9 @@ function renderMarkets(result) {
         change_rate: fxChangeRate,
         series: fxSeries,
       };
-    })()
+    })(),
+    ...(marketOverviewData.rates || []),
+    ...(marketOverviewData.fear_greed ? [{...marketOverviewData.fear_greed, kind:'fear_greed'}] : [])
   ];
 
   // 순서: 코스피 -> 코스닥 -> 달러 -> S&P -> 나스닥 -> 반도체
@@ -1022,8 +1024,11 @@ function renderMarkets(result) {
   if (!grid) return;
 
   grid.innerHTML = rows.map((item) => {
+    const isYield = item.kind === 'yield';
+    const isFearGreed = item.kind === 'fear_greed';
     const isFx = item.symbol === "USD/KRW";
-    const priceText = isFx ? `${number(item.price, 1)}원` : number(item.price, 2);
+    const priceText = isYield ? (item.value == null ? '조회 불가' : `${number(item.value, 3)}%`)
+      : isFearGreed ? '미연동' : isFx ? `${number(item.price, 1)}원` : number(item.price, 2);
 
     const isUp = Number(item.change_rate) > 0;
     const isDown = Number(item.change_rate) < 0;
@@ -1040,18 +1045,29 @@ function renderMarkets(result) {
       changeRateText = "—";
     }
 
-    const chartHtml = sparkline(item.series, item.change_rate);
+    if (isYield) {
+      const yieldSign = item.change_pp > 0 ? '+' : '';
+      changePointText = item.change_bp == null ? '변동 미확인' : `${yieldSign}${number(item.change_bp, 1)}bp · 전일 대비`;
+      changeRateText = item.change_pp == null ? '연% · Yahoo 시세' : `${yieldSign}${number(item.change_pp, 3)}%p · 연%`;
+    }
+    if (isFearGreed) { changePointText = '공식 수치 미연동'; changeRateText = ''; }
+    const chartHtml = isFearGreed || (isYield && !(item.series || []).length) ? '' : sparkline(item.series, item.change_rate);
+    const sourceUrl = /^https:\/\/(finance\.yahoo\.com|www\.cnn\.com)(\/|$)/.test(item.source_url || '') ? item.source_url : '';
+    const sourceMeta = isYield || isFearGreed ? `<small class="market-source-meta">${sourceUrl ? `<a href="${html(sourceUrl)}" target="_blank" rel="noopener noreferrer">${html(item.source)}</a>` : html(item.source || '')}
+      ${isYield ? ` · 관측 ${html(item.observed_at || item.observed_date || '미확인')} · 마지막 확인 ${html(item.retrieved_at || '미조회')}${item.last_attempt_at && item.last_attempt_at !== item.retrieved_at ? ' · 조회 시도 ' + html(item.last_attempt_at) : ''} · ${item.quote_delay_minutes == null ? '시세 지연 여부 미확인' : '거래소 제공 지연 ' + html(item.quote_delay_minutes) + '분'}` : ''}
+      ${item.update_delayed || item.observation_stale ? ' · 업데이트 지연' : ''}${item.status === 'source_error' ? ' · 자료 조회 실패' : ''}${item.reason ? ' · ' + html(item.reason) : ''}</small>` : '';
 
     return `
-      <article class="market-card toss-market-card">
-        <div class="market-chart-col">
+      <article class="market-card toss-market-card${isYield || isFearGreed ? ' market-reference-card' : ''}">
+        ${isFearGreed ? '' : `<div class="market-chart-col">
           ${chartHtml}
-        </div>
+        </div>`}
         <div class="market-info-col">
           <strong class="market-title">${html(item.label)}</strong>
           <strong class="market-price ${colorClass}">${priceText}</strong>
           <span class="market-change-point ${colorClass}">${changePointText}</span>
           <span class="market-change-rate ${colorClass}">${changeRateText}</span>
+          ${sourceMeta}
         </div>
       </article>
     `;
@@ -4990,6 +5006,7 @@ function bindHeatmapInteractions(container) {
 // ── 6. 보유종목 테이블 (정렬 + 섹터 뱃지 + 인터랙티브 차트 모달) ─────────────
 function renderHoldings(data) {
   data = data || dashboard || rawDashboard || {};
+  void loadHoldingSignals();
   const query = $("#searchInput")?.value.trim().toLowerCase() || "";
   const rows = (data.holdings || []).filter((item) => {
     const assetClass = typeof classifyHolding === 'function' ? classifyHolding(item) : '';
@@ -5085,6 +5102,65 @@ function renderHoldings(data) {
   $("#emptyHoldings") && ($("#emptyHoldings").hidden = sorted.length > 0);
   $(".table-wrap") && ($(".table-wrap").hidden = sorted.length === 0);
 }
+
+const holdingSignalState = {key: '', rows: [], generation: 0, pending: false, fetchedAt: 0};
+const holdingSignalLabels = {SMA20_BREAKDOWN:'20일선 이탈',SMA50_BREAKDOWN:'50일선 이탈',GOLDEN_CROSS:'골든크로스',DEAD_CROSS:'데드크로스'};
+function renderHoldingSignals() {
+  const host = $('#holdingSignalsRows');
+  if (!host) return;
+  const filter = $('#holdingSignalsFilter')?.value || 'ALL';
+  const statusLabels = {source_error:'자료 조회 실패',invalid_data:'일봉 검증 실패',calendar_unavailable:'거래일 달력 미준비',
+    missing_sessions:'거래일 자료 누락',identity_conflict:'거래소 식별 정보 충돌',adjustment_unverified:'가격 조정 기준 미확인',stale:'최신 거래일 자료 지연',update_delayed:'업데이트 지연'};
+  const rows = holdingSignalState.rows.filter(r => filter === 'ALL' || (r.events || []).includes(filter));
+  host.innerHTML = rows.map(row => {
+    const events = (row.events || []).map(e => holdingSignalLabels[e]).filter(Boolean);
+    const state = statusLabels[row.status] || (row.status === 'insufficient_data'
+      ? (row.count >= 21 ? '50일선·교차 자료 부족' : '확정 일봉 부족') : (events.length ? '최근 확정 거래일 사건' : '새 이탈·교차 신호 없음'));
+    const below = [row.below_sma20 ? '20일선 아래' : '', row.below_sma50 ? '50일선 아래' : ''].filter(Boolean);
+    const value = n => n == null ? '미정' : number(n, 4);
+    return `<article class="holding-signal-row"><strong>${html(row.name)} · ${html(row.code)}</strong>
+      <p>${html(state)}${events.length ? ' · ' + html(events.join(' / ')) : ''}</p>
+      <p>발생·기준일 ${html(row.as_of || '미확인')} · 조정종가 ${value(row.close)} · SMA20 ${value(row.sma20)} · SMA50 ${value(row.sma50)}</p>
+      <p>현재 상태: ${html(below.join(' / ') || (row.close != null ? '이평선 아래 아님 또는 자료 부족' : '확인 불가'))}</p>
+      <p>${html((row.accounts || []).map(a => `${a.owner} · ${a.broker} · ${a.account_name}`).join(' / '))}</p>
+      <small>${html(row.source || '자료 미확인')} · 마지막 확인 ${html(row.retrieved_at || '미조회')}${row.last_attempt_at && row.last_attempt_at !== row.retrieved_at ? ' · 조회 시도 ' + html(row.last_attempt_at) : ''}${row.update_delayed ? ' · 업데이트 지연' : ''}</small></article>`;
+  }).join('') || '<p>표시할 확정 신호가 없습니다. 자료 부족·조회 실패는 전체에서 확인하세요.</p>';
+}
+async function loadHoldingSignals(force = false) {
+  if (currentWealthView() !== 'invest' || window.WealthInvestTabState?.current() !== 'holdings') return;
+  const owner = currentOwner;
+  const source = rawDashboard || dashboard;
+  if (!source) return;
+  const key = JSON.stringify([owner, (source.accounts || []).map(a => [a.id,a.owner,a.broker,a.name]),
+    (source.holdings || []).map(h => [h.id,h.account_id,h.code,h.name,h.currency,h.market,h.quantity])]);
+  if (!force && key === holdingSignalState.key && (holdingSignalState.pending || Date.now() - holdingSignalState.fetchedAt < 900000)) {
+    renderHoldingSignals(); return;
+  }
+  const generation = ++holdingSignalState.generation;
+  Object.assign(holdingSignalState, {key, rows: [], pending: true});
+  renderHoldingSignals();
+  const status = $('#holdingSignalsStatus');
+  if (status) status.textContent = '확정 거래일 자료 조회 중…';
+  try {
+    const response = await api(`/api/holdings/signals?owner=${encodeURIComponent(owner)}`);
+    if (generation !== holdingSignalState.generation || owner !== currentOwner) return;
+    holdingSignalState.rows = response.items || [];
+    holdingSignalState.fetchedAt = Date.now();
+    if (status) status.textContent = `${holdingSignalState.rows.length}종목 · 계좌 중복 분석 제외 · 조정종가 기준`;
+  } catch (_) {
+    if (generation !== holdingSignalState.generation || owner !== currentOwner) return;
+    holdingSignalState.fetchedAt = 0;
+    if (status) status.textContent = '신호 조회 실패 · 보유종목·계좌 데이터는 변경하지 않았습니다.';
+  } finally {
+    if (generation === holdingSignalState.generation) {
+      holdingSignalState.pending = false;
+      renderHoldingSignals();
+    }
+  }
+}
+$('#holdingSignalsFilter')?.addEventListener('change', renderHoldingSignals);
+$('#holdingSignalsRefresh')?.addEventListener('click', () => { void loadHoldingSignals(true); });
+window.addEventListener('wealth:view', ({detail}) => { if (detail === 'invest') void loadHoldingSignals(); });
 
 // ── 7. 종목 가격 & 거래량 인터랙티브 차트 모달 ──────────────────────────────
 async function openStockChart(code, name, price, currency = 'KRW') {
@@ -6428,6 +6504,13 @@ async function loadAssetRecords(owner) {
 
 // ── 다이얼로그 열기 함수들 ───────────────────────────────────────────────────
 function openImport() { $("#importDialog")?.showModal(); }
+function holdingEligibleAccounts() {
+  // rawDashboard.accounts is the all-owner projection of portfolio.accounts.
+  // Pension/IRP securities accounts live here too; insurance/bank stores do not.
+  const types = new Set(['general', 'isa', 'pension_savings', 'pension', 'irp']);
+  const source = rawDashboard?.accounts || dashboard?.accounts || [];
+  return source.filter(a => a.id && types.has(a.account_type || 'general'));
+}
 function openHoldingDialog(record = null) {
   const form = $("#holdingForm");
   if (!form) return;
@@ -6437,18 +6520,21 @@ function openHoldingDialog(record = null) {
   $("#holdingDialogTitle") && ($("#holdingDialogTitle").textContent = record ? "보유종목 수정" : "보유종목 직접 추가");
 
   // ACCOUNTS 섹션의 등록된 계좌 목록 드롭다운 및 데이터리스트 채우기
-  const accounts = dashboard?.accounts || [];
+  const accounts = holdingEligibleAccounts();
+  const accountTypes = {general:'일반',isa:'ISA',pension_savings:'연금저축',pension:'연금저축(기존)',irp:'IRP'};
   const acctSel = $("#holdingAccountSelect");
   if (acctSel) {
     acctSel.innerHTML = '<option value="">-- 직접 입력 또는 등록된 계좌 선택 --</option>' +
       accounts.map(a => `
         <option value="${html(a.id)}" data-broker="${html(a.broker)}" data-name="${html(a.name)}" data-owner="${html(a.owner || '모두')}">
-          [${html(a.broker)}] ${html(a.name)} (${html(a.owner || '모두')})
+          ${html(a.owner || '모두')} · ${html(a.broker)} · ${html(a.name)} · ${html(accountTypes[a.account_type || 'general'])} · ${html(a.id)}
         </option>
       `).join('');
 
     // 현재 수정 중인 레코드의 계좌 매칭
-    const matchedAcct = accounts.find(a => a.id === record?.account_id || (a.broker === record?.broker && a.name === record?.account_name));
+    const legacyMatches = record && !record.account_id ? accounts.filter(a =>
+      a.broker === record.broker && a.name === record.account_name && (a.owner || '모두') === (record.owner || '모두')) : [];
+    const matchedAcct = accounts.find(a => a.id === record?.account_id) || (legacyMatches.length === 1 ? legacyMatches[0] : null);
     if (matchedAcct) {
       acctSel.value = matchedAcct.id;
     } else {
@@ -6476,7 +6562,7 @@ function openHoldingDialog(record = null) {
   form.market.value = record?.market || "";
   if (form.sector) form.sector.value = record?.sector || "";
   if (form.owner) {
-    const linkedAcct = dashboard?.accounts?.find(a => a.id === record?.account_id);
+    const linkedAcct = accounts.find(a => a.id === record?.account_id);
     form.owner.value = linkedAcct?.owner || record?.owner || "모두";
   }
   $("#holdingDialog")?.showModal();
@@ -7906,6 +7992,15 @@ $("#holdingAccountSelect")?.addEventListener("change", (e) => {
     if (opt.dataset.name) form.account_name.value = opt.dataset.name;
     if (opt.dataset.owner && form.owner) form.owner.value = opt.dataset.owner;
   }
+});
+
+// Editing a linked identity explicitly switches to manual mode. The server
+// also checks the selected ID against broker/name/owner before any write.
+['broker', 'account_name', 'owner'].forEach(name => {
+  document.querySelector(`#holdingForm [name="${name}"]`)?.addEventListener('input', () => {
+    const select = $('#holdingAccountSelect');
+    if (select) select.value = '';
+  });
 });
 
 // 실현손익 추가/수정 팝업 내 등록된 계좌 선택 시 자동 채움
