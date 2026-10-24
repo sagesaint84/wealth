@@ -109,3 +109,24 @@ def test_save_routes_link_exact_id_without_changing_account_owner(monkeypatch, e
     assert data["accounts"] == before_accounts
     assert stored["accounts"] == before_accounts
     assert next(a for a in stored["accounts"] if a["id"] == saved["account_id"])["owner"] == "엄마"
+
+
+@pytest.mark.parametrize("edit", [False, True])
+def test_routes_reject_owner_id_mismatch_before_any_save(monkeypatch, edit):
+    from fastapi import HTTPException
+    main = import_main_without_loading_real_env()
+    data = {"accounts": accounts(), "holdings": [{"id": "existing", "account_id": "3", "code": "005930"}], "settings": {}}
+    before = deepcopy(data)
+    writes = Mock(side_effect=AssertionError("Invalid identity must not save"))
+    monkeypatch.setattr(main, "financial_user_locks", lambda *a: nullcontext())
+    monkeypatch.setattr(main, "read_portfolio", lambda **kw: data)
+    monkeypatch.setattr(main, "write_portfolio", writes)
+    model = main.HoldingCreate(**{**payload(data["accounts"][3]), "owner": "아빠", "code": "005930",
+                                 "name": "합성주식", "quantity": 1, "avg_price": 100, "current_price": 100})
+    with pytest.raises(HTTPException) as error:
+        if edit:
+            asyncio.run(main.update_holding("existing", model, authenticated_request()))
+        else:
+            asyncio.run(main.create_holding(model, authenticated_request()))
+    assert error.value.status_code == 400
+    assert data == before and writes.call_count == 0

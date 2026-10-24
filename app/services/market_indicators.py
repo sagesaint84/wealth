@@ -39,7 +39,8 @@ def parse_yahoo_tnx(payload, *, now=None):
     meta = entry.get("meta") or {}
     if meta.get("symbol") != "^TNX" or meta.get("instrumentType") != "INDEX":
         raise ValueError("TNX identity mismatch")
-    if meta.get("exchangeTimezoneName", "America/New_York") != "America/New_York":
+    exchange_timezone = meta.get("exchangeTimezoneName")
+    if exchange_timezone not in {"America/Chicago", "America/New_York"}:
         raise ValueError("TNX timezone mismatch")
     def numeric(value):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
@@ -49,7 +50,7 @@ def parse_yahoo_tnx(payload, *, now=None):
     observed = datetime.fromtimestamp(numeric(meta.get("regularMarketTime")), timezone.utc)
     if observed.timestamp() <= 0 or observed > now + timedelta(minutes=5):
         raise ValueError("invalid TNX observation time")
-    local_zone = ZoneInfo("America/New_York")
+    local_zone = ZoneInfo(exchange_timezone)
     day = observed.astimezone(local_zone).date().isoformat()
     timestamps = entry.get("timestamp") or []
     closes = entry.get("indicators", {}).get("quote", [{}])[0].get("close") or []
@@ -76,7 +77,8 @@ def parse_yahoo_tnx(payload, *, now=None):
         delay = numeric(delay)
         if delay < 0:
             raise ValueError("invalid TNX delay")
-    return {"value": value, "unit": "연%", "observed_date": day, "observed_at": observed.isoformat(),
+    return {"value": value, "unit": "연%", "exchange_timezone": exchange_timezone,
+            "observed_date": day, "observed_at": observed.isoformat(),
             "previous_observed_date": previous_day, "previous_close": previous,
             "change_pp": round(delta, 6) if delta is not None else None,
             "change_bp": round(delta * 100, 4) if delta is not None else None,

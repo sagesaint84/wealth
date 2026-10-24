@@ -1973,14 +1973,16 @@ body.wealth-layout {
 }
 /* Read-only indicators share the existing market and holdings surfaces. */
 .market-card .market-source-meta { display:block; white-space:normal; overflow-wrap:anywhere; line-height:1.5; }
-.market-reference-card .market-chart-col { width:64px; }
-.market-card.market-reference-card :is(.market-title,.market-change-point,.market-change-rate) { white-space:normal; overflow-wrap:anywhere; }
+.market-source-details { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
+.market-source-details summary, .holding-signal-source summary { cursor:pointer; }
+.market-source-details p { margin:4px 0; }
+.market-reference-note { grid-column:1 / -1; margin:0; color:var(--muted); font-size:11px; }
 .holding-signals { margin-block:16px; padding:12px; border:1px solid var(--line); border-radius:12px; }
 .holding-signals-heading { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
 .holding-signals-heading h3 { flex:1 1 180px; margin:0; }
 .holding-signals-heading select { min-width:0; max-width:100%; }
 #holdingForm .form-grid > label { min-width:0; }
 #holdingAccountSelect { width:100%; min-width:0; max-width:100%; }
-.holding-signal-row { padding-block:12px; border-top:1px solid var(--line); overflow-wrap:anywhere; }
-.holding-signal-row p { margin:6px 0; line-height:1.5; }
+.holding-signal-row { display:grid; gap:4px; padding-block:8px; border-top:1px solid var(--line); overflow-wrap:anywhere; font-size:12px; }
+.holding-signal-row p { margin:4px 0; line-height:1.5; }
 .holding-signal-row small, .holding-signals-note { color:var(--muted); }

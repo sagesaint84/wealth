@@ -15,7 +15,8 @@ from tests.regression_support import authenticated_request, import_main_without_
 
 def tnx_payload(observed=None, **meta_changes):
     observed = observed or datetime.now(timezone.utc) - timedelta(minutes=20)
-    zone = ZoneInfo("America/New_York")
+    name = meta_changes.get("exchangeTimezoneName", "America/New_York")
+    zone = ZoneInfo(name if name in {"America/New_York", "America/Chicago"} else "America/New_York")
     day = observed.astimezone(zone).date()
     return {"chart": {"error": None, "result": [{
         "meta": {"symbol": "^TNX", "instrumentType": "INDEX", "regularMarketPrice": 4.15,
@@ -25,9 +26,11 @@ def tnx_payload(observed=None, **meta_changes):
         "indicators": {"quote": [{"close": [4.0, 4.10, 4.15]}]}}]}}
 
 
-def test_yahoo_tnx_is_already_percent_and_change_is_bp_not_relative_percent():
+@pytest.mark.parametrize("zone", ["America/New_York", "America/Chicago"])
+def test_yahoo_tnx_is_already_percent_and_change_is_bp_not_relative_percent(zone):
     now = datetime.fromisoformat("2026-10-23T20:00:00+00:00")
-    result = indicators.parse_yahoo_tnx(tnx_payload(now), now=now)
+    result = indicators.parse_yahoo_tnx(tnx_payload(now, exchangeTimezoneName=zone), now=now)
+    assert result["exchange_timezone"] == zone
     assert result["value"] == 4.15
     assert result["observed_date"] == "2026-10-23"
     assert result["previous_observed_date"] == "2026-10-22"
@@ -42,7 +45,9 @@ def test_yahoo_tnx_is_already_percent_and_change_is_bp_not_relative_percent():
 
 @pytest.mark.parametrize("meta", [{"regularMarketPrice": None}, {"regularMarketPrice": float("nan")},
                                   {"regularMarketPrice": True}, {"symbol": "^TYX"},
-                                  {"regularMarketTime": None}, {"exchangeDataDelayedBy": -1}])
+                                  {"regularMarketTime": None}, {"exchangeDataDelayedBy": -1},
+                                  {"instrumentType": "EQUITY"}, {"exchangeTimezoneName": "Asia/Seoul"},
+                                  {"exchangeTimezoneName": "UTC"}, {"exchangeTimezoneName": None}])
 def test_tnx_invalid_identity_price_and_timestamp_fail_closed(meta):
     with pytest.raises(ValueError):
         indicators.parse_yahoo_tnx(tnx_payload(**meta))
@@ -67,6 +72,39 @@ def test_tnx_observation_uses_new_york_date_and_unknown_delay_is_not_zero():
     now = datetime.fromisoformat("2026-10-24T00:30:00+00:00")
     result = indicators.parse_yahoo_tnx(tnx_payload(now, exchangeDataDelayedBy=None), now=now)
     assert result["observed_date"] == "2026-10-23" and result["quote_delay_minutes"] is None
+
+
+@pytest.mark.parametrize("zone,expected", [("America/New_York", "2026-10-23"), ("America/Chicago", "2026-10-22")])
+def test_tnx_observation_date_uses_validated_exchange_zone(zone, expected):
+    now = datetime.fromisoformat("2026-10-23T04:30:00+00:00")
+    result = indicators.parse_yahoo_tnx(tnx_payload(now, exchangeTimezoneName=zone), now=now)
+    assert result["observed_date"] == expected
+
+
+@pytest.mark.parametrize("zone,previous_day,bp", [("America/Chicago", "2026-10-22", 8.8), ("America/New_York", None, None)])
+def test_tnx_daily_bar_date_uses_exchange_zone_and_preserves_4988(zone, previous_day, bp):
+    now = datetime.fromisoformat("2026-10-23T05:30:00+00:00")
+    payload = tnx_payload(now, exchangeTimezoneName=zone, regularMarketPrice=4.988)
+    entry = payload["chart"]["result"][0]
+    entry["timestamp"] = [int(datetime.fromisoformat("2026-10-23T04:15:00+00:00").timestamp())]
+    entry["indicators"]["quote"][0]["close"] = [4.9]
+    result = indicators.parse_yahoo_tnx(payload, now=now)
+    assert result["value"] == 4.988 and result["unit"] == "연%"
+    assert result["previous_observed_date"] == previous_day
+    assert result["change_bp"] == bp
+
+
+@pytest.mark.parametrize("close", [None, float("nan"), float("inf"), True])
+def test_tnx_missing_or_invalid_previous_close_never_creates_bp(close):
+    now = datetime.fromisoformat("2026-10-23T20:00:00+00:00")
+    payload = tnx_payload(now, exchangeTimezoneName="America/Chicago")
+    payload["chart"]["result"][0]["indicators"]["quote"][0]["close"] = [None, close, 4.15]
+    if close is None:
+        result = indicators.parse_yahoo_tnx(payload, now=now)
+        assert result["value"] == 4.15 and result["change_bp"] is None
+    else:
+        with pytest.raises(ValueError):
+            indicators.parse_yahoo_tnx(payload, now=now)
 
 
 @pytest.mark.parametrize("failure", [None, "http", "network", "schema"])
@@ -133,13 +171,14 @@ def test_cache_singleflight_failure_keeps_last_success_and_is_bounded(monkeypatc
     asyncio.run(scenario())
 
 
-def test_stale_observation_is_distinct_from_successful_fetch(monkeypatch):
+@pytest.mark.parametrize("zone", ["America/Chicago", "America/New_York"])
+def test_stale_observation_is_distinct_from_successful_fetch(monkeypatch, zone):
     import httpx
     old = datetime.now(timezone.utc) - timedelta(days=6)
     monkeypatch.setattr(indicators, "_cache", MarketReadCache(ttl=300))
     monkeypatch.setattr(indicators, "require_external_network", lambda *a: None)
     async def scenario():
-        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=tnx_payload(old)))) as client:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=tnx_payload(old, exchangeTimezoneName=zone)))) as client:
             us = (await indicators.get_market_indicators(client))["rates"][0]
         assert us["status"] == "stale" and us["observation_stale"]
         assert us["retrieved_at"] and not us["update_delayed"]
