@@ -1028,6 +1028,7 @@ function renderMarkets(result) {
       const change = item.value == null || item.change_bp == null ? '—' : `${item.change_bp > 0 ? '+' : ''}${number(item.change_bp, 1)}bp`;
       const tone = item.change_bp > 0 ? 'up' : item.change_bp < 0 ? 'down' : '';
       return `<article class="market-card toss-market-card" data-market-symbol="${html(item.symbol)}">
+        <div class="market-chart-col">${sparkline(item.value == null ? [] : item.series, item.change_bp)}</div>
         <div class="market-info-col"><strong class="market-title">금리</strong>
           <strong class="market-price ${tone}">${item.value == null ? '조회 불가' : number(item.value, 3) + '%'}</strong>
           <span class="market-change-point ${tone}">${change}</span>

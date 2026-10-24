@@ -167,7 +167,7 @@ def test_issue166_mobile_tabs_history_ipo_and_krx(issue166_preview, width):
       return {rows,scroll:host.scrollWidth,client:host.clientWidth,rect:host.getBoundingClientRect().toJSON(),labels:[...host.children].map(n=>n.textContent.trim())};})()""")
     assert max(tabs['rows']) - min(tabs['rows']) < 1, tabs
     assert tabs['scroll'] <= tabs['client'] + 1, tabs
-    assert tabs['labels'] == ['증권', '은행', '연금·보험', '부동산', '세금']
+    assert tabs['labels'] == ['📈 증권', '🏦 은행', '🛡️ 연금·보험', '🏠 부동산', '🧾 세금']
     assert evaluate("[...document.querySelectorAll('#assetCategoryTabs button')].every(n=>getComputedStyle(n).flexGrow==='1')")
     for category in ('tax','banking','insurance','real_estate','securities'):
         before = evaluate('__issue166.calls.switchAccountCategory')
