@@ -27,10 +27,11 @@ def startup_code(source, *, modern=True):
 
 HARNESS = r"""
 const assert = require('node:assert/strict'), vm = require('node:vm');
-function deferred(){let resolve; const promise=new Promise(r=>resolve=r); return {promise,resolve};}
+function deferred(){let resolve,reject; const promise=new Promise((r,j)=>{resolve=r;reject=j;}); return {promise,resolve,reject};}
 const flush = async()=>{for(let i=0;i<30;i++) await Promise.resolve();};
 async function scenario(code, modern, mode='ok', role='user') {
  const calls=[], renders=[], notices=[], phase=[];
+ let familyReads=0;
  const prices=deferred(), snapshot=deferred(), family=deferred();
  const shown=new Set(['wealthNetWorth','marketGrid','summaryRealizedPnl']);
  const nodes={};
@@ -44,7 +45,7 @@ async function scenario(code, modern, mode='ok', role='user') {
    document:{getElementById:node,querySelector:()=>null},console:{log(){},warn(){},error(){}},
    CustomEvent:class {constructor(type){this.type=type;}},
    toast:message=>notices.push(message),refreshAdminUserList:async()=>{},
-   loadFamilyMembers:()=>family.promise,
+   loadFamilyMembers:()=>{familyReads++;return family.promise;},
    renderWithOwner:data=>{renders.push(data);c.WealthStartup?.count('render');},
  };
  c.window={dispatchEvent(){},location:{}};
@@ -87,7 +88,14 @@ async function scenario(code, modern, mode='ok', role='user') {
    assert(!calls.includes('/api/market-overview'),'dependent supplementary reads wait for recording');
  }
  snapshot.resolve(); await auth; await flush();
- family.resolve(); await c.loadAssetDataForUser.supplementary; await flush();
+ if(mode==='family-fail') family.reject(Error('synthetic family failure'));
+ else family.resolve();
+ await c.loadAssetDataForUser.supplementary; await flush();
+ assert.equal(familyReads,1,'concurrent startup calls must share the family read');
+ if(mode==='family-fail') {
+   assert.equal(renders.length,1,'a late family failure cannot replace the valid dashboard');
+   assert.equal(notices.length,0,'a family failure cannot become a price or snapshot failure');
+ }
  assert.equal(calls.filter(x=>x.startsWith('/api/dashboard')).length,1);
  assert.equal(calls.filter(x=>x==='/api/planning/snapshot-all').length,mode==='prices-fail'?0:1);
  if(modern){
@@ -239,9 +247,16 @@ const clearCache=()=>vm.runInContext('startupIncomeReuse=false;allTimeReadCache.
 """, shared_api, core, filters, str(late_install))
 
 
-@pytest.mark.parametrize('mode',['ok','prices-fail','snapshot-fail'])
+@pytest.mark.parametrize('mode',['ok','prices-fail','snapshot-fail','family-fail'])
 def test_startup_dashboard_and_both_recording_steps_keep_order_without_hidden_details(mode):
-    run(HARNESS + "scenario(process.argv[1],true,process.argv[2]).catch(e=>{console.error(e);process.exitCode=1;});",
+    run(HARNESS + r"""
+let completed=false;
+process.on('beforeExit',()=>{
+ if(!completed){console.error('Startup scenario did not complete');process.exitCode=1;}
+});
+scenario(process.argv[1],true,process.argv[2]).then(()=>{completed=true;})
+ .catch(e=>{console.error(e);process.exitCode=1;});
+""",
         startup_code(SOURCE.read_text(encoding='utf-8')),mode)
 
 
