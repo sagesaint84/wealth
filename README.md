@@ -248,6 +248,8 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 4829
 
 `docker-compose.yml`은 소스에서 직접 빌드하는 로컬용입니다. 운영 표준은 GHCR 이미지와 `docker-compose.ghcr.yml` 및 호스트별 `docker-compose.override.yml` 조합입니다. 배포 전 운영 호스트의 데이터·Toss WTS 마운트를 확인하세요.
 
+배포 전 Docker 저장소의 가용 용량과 inode를 확인하세요. 불필요한 백업 이미지·아카이브·롤백 태그를 자동 생성하지 않으며, 공간 확보를 위해 금융 데이터 볼륨을 삭제하거나 변경하지 않습니다.
+
 ```bash
 docker compose \
   -f docker-compose.ghcr.yml \
