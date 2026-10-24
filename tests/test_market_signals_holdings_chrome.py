@@ -208,7 +208,7 @@ def test_accountinfo_empty_accounts_are_visible_by_category_and_owner(chrome_pre
     evaluate("document.querySelector('.wealth-nav a[href=\"#assets\"]').click();")
     wait_for(evaluate, "document.querySelector('.wealth-workspace').dataset.activeView==='assets'")
     labels = evaluate("[...document.querySelectorAll('#assetCategoryTabs button')].map(n=>n.textContent.trim())")
-    assert [label.split(' ', 1)[-1] for label in labels] == ["증권", "은행", "연금·보험", "부동산", "세금"]
+    assert labels == ["📈 증권", "🏦 은행", "🛡️ 연금·보험", "🏠 부동산", "🧾 세금"]
     assert not any('(' in label or ')' in label or any(c.isdigit() for c in label) for label in labels)
     assert evaluate("document.querySelectorAll('#assetCategoryTabs span').length") == 0
     assert evaluate("[...document.querySelectorAll('#assetCategoryTabs button')].every(n=>getComputedStyle(n).flexGrow==='1')")
@@ -340,8 +340,8 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
                    {"symbol": symbol, "label": label, "price": 2500, "change_rate": 1, "series": [2400, 2500]}
                    for symbol, label in [("^KS11", "코스피"), ("^KQ11", "코스닥"), ("^GSPC", "S&P"), ("^IXIC", "나스닥"), ("^SOX", "반도체")]],
                "exchange_rate": {"rate": 1350}, "rates": [
-                   {"kind": "yield", "symbol": "^TNX", "label": "미국 10년 국채", "value": 4.15,
-                    "change_pp": .05, "change_bp": 5, "series": [4.1, 4.15], "observed_date": "2026-10-22",
+                   {"kind": "yield", "symbol": "^TNX", "label": "미국 10년 국채", "value": 4.988,
+                    "change_pp": .035, "change_bp": 3.5, "series": [4.953, 4.988], "observed_date": "2026-10-22",
                     "observed_at": "2026-10-22T20:00:00Z", "quote_delay_minutes": 15,
                     "retrieved_at": "2026-10-23T01:00:00Z", "source": "Yahoo Finance / CBOE 10-Year Treasury Note Yield",
                     "source_url": "https://finance.yahoo.com/quote/%5ETNX/"}],
@@ -356,19 +356,22 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
     wait_for(evaluate, "location.hash==='#home' && document.querySelector('.wealth-workspace').dataset.activeView==='home' && !document.querySelector('[data-wealth-page=home]').hidden")
     wait_for(evaluate, "__signalsFixture.marketReads.length>0 && document.querySelectorAll('#marketGrid .market-card').length===7 && document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     text = evaluate("document.querySelector('#marketGrid').textContent")
-    for expected in ["코스피", "코스닥", "나스닥", "S&P", "반도체", "금리", "+5bp", "미국 공포·탐욕", "공식 수치 미연동"]:
+    for expected in ["코스피", "코스닥", "나스닥", "S&P", "반도체", "금리", "+3.5bp", "미국 공포·탐욕", "공식 수치 미연동"]:
         assert expected in text
     assert "한국 10년 국채" not in text
     assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 7
     assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://www.cnn.com/markets/fear-and-greed\"]').length") == 1
     assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://finance.yahoo.com/quote/%5ETNX/\"]').length") == 0
     assert evaluate("document.querySelectorAll('#marketGrid a[href*=\"treasury.gov\"],#marketGrid a[href*=\"ecos.bok.or.kr\"]').length") == 0
-    assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX').querySelector('.market-price').textContent") == "4.15%"
+    assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX').querySelector('.market-price').textContent") == "4.988%"
     assert evaluate("document.querySelectorAll('#marketGrid .market-reference-note').length") == 1
     assert evaluate("document.querySelector('#marketGrid .market-reference-note span').title") == "공식 자동 연동 허용 경로 미확인"
     assert not evaluate("document.querySelector('#marketGrid .market-reference-note .market-price')!==null")
-    assert evaluate("document.querySelector('[data-market-symbol=\"^TNX\"]').innerText.split('\\n').map(s=>s.trim()).filter(Boolean)") == ["금리", "4.15%", "+5bp"]
+    assert evaluate("document.querySelector('[data-market-symbol=\"^TNX\"]').innerText.split('\\n').map(s=>s.trim()).filter(Boolean)") == ["금리", "4.988%", "+3.5bp"]
     assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] a,[data-market-symbol=\"^TNX\"] details').length") == 0
+    assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] .market-chart-col svg.sparkline polyline').length") == 1
+    assert evaluate("document.querySelector('[data-market-symbol=\"^TNX\"] polyline').getAttribute('stroke')") == "#ff5c77"
+    assert evaluate("document.querySelectorAll('#marketGrid .market-card:not([data-market-symbol]) .market-chart-col svg.sparkline').length") == 6
     assert evaluate("(()=>{const cards=[...document.querySelectorAll('#marketGrid .market-card')],rate=cards.find(n=>n.dataset.marketSymbol==='^TNX');return rate.getBoundingClientRect().height<=Math.max(...cards.filter(n=>n!==rate).map(n=>n.getBoundingClientRect().height))+1;})()")
     assert evaluate("document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].every(n=>n.getBoundingClientRect().right<=innerWidth)")
@@ -383,8 +386,23 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
             "value": None, "change_pp": None, "change_bp": None, "observed_at": None,
             "observed_date": None, "series": [], "status": "source_error", "reason": "조회 불가", "update_delayed": True}
         evaluate("Object.assign(__marketFixture.rates[0]," + json.dumps(patch, ensure_ascii=False) + ");document.querySelector('.wealth-nav a[href=\"#home\"]').click();")
-        expected_price = "조회 불가" if failed else "4.15%"
+        expected_price = "조회 불가" if failed else "4.988%"
         wait_for(evaluate, f"document.querySelector('.wealth-workspace').dataset.activeView==='home' && __signalsFixture.marketReads.length>{reads} && [...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX')?.querySelector('.market-price').textContent==={json.dumps(expected_price, ensure_ascii=False)}")
         assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX').querySelector('.market-price').textContent") == expected_price
         assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 7
+        assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] svg.sparkline').length") == (0 if failed else 1)
+        assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] a,[data-market-symbol=\"^TNX\"] details').length") == 0
         assert len(writes_since(evaluate, before)) == 0
+    # Reuse the renderer with synthetic falling/flat series; no data writes.
+    for change, points, color in [(-3.5, [5.023, 4.988], "#4f9dff"), (0, [4.988, 4.988], "#98a6c8")]:
+        patch = {"value": 4.988, "change_pp": change / 100, "change_bp": change, "series": points, "status": "ok"}
+        evaluate("Object.assign(__marketFixture.rates[0]," + json.dumps(patch) + ");renderMarkets(__marketFixture);")
+        assert evaluate("document.querySelector('[data-market-symbol=\"^TNX\"] polyline').getAttribute('stroke')") == color
+        assert evaluate("document.querySelector('[data-market-symbol=\"^TNX\"] .market-change-point').textContent") == ("-3.5bp" if change < 0 else "0bp")
+        assert evaluate("document.querySelector('[data-market-symbol=\"^TNX\"] .market-price').textContent") == "4.988%"
+        assert not evaluate("document.querySelector('[data-market-symbol=\"^TNX\"] polyline').getAttribute('points').includes('NaN')")
+        assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 7
+    evaluate("__marketFixture.rates[0].series=[];renderMarkets(__marketFixture);")
+    assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] svg.sparkline').length") == 0
+    assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] a,[data-market-symbol=\"^TNX\"] details').length") == 0
+    assert len(writes_since(evaluate, before)) == 0
