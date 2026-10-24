@@ -1024,10 +1024,17 @@ function renderMarkets(result) {
   if (!grid) return;
 
   grid.innerHTML = rows.map((item) => {
-    const isYield = item.kind === 'yield';
+    if (item.kind === 'yield') {
+      const change = item.value == null || item.change_bp == null ? '—' : `${item.change_bp > 0 ? '+' : ''}${number(item.change_bp, 1)}bp`;
+      const tone = item.change_bp > 0 ? 'up' : item.change_bp < 0 ? 'down' : '';
+      return `<article class="market-card toss-market-card" data-market-symbol="${html(item.symbol)}">
+        <div class="market-info-col"><strong class="market-title">금리</strong>
+          <strong class="market-price ${tone}">${item.value == null ? '조회 불가' : number(item.value, 3) + '%'}</strong>
+          <span class="market-change-point ${tone}">${change}</span>
+        </div></article>`;
+    }
     const isFx = item.symbol === "USD/KRW";
-    const priceText = isYield ? (item.value == null ? '조회 불가' : `${number(item.value, 3)}%`)
-      : isFx ? `${number(item.price, 1)}원` : number(item.price, 2);
+    const priceText = isFx ? `${number(item.price, 1)}원` : number(item.price, 2);
 
     const isUp = Number(item.change_rate) > 0;
     const isDown = Number(item.change_rate) < 0;
@@ -1044,19 +1051,7 @@ function renderMarkets(result) {
       changeRateText = "—";
     }
 
-    if (isYield) {
-      const yieldSign = item.change_pp > 0 ? '+' : '';
-      changePointText = item.change_bp == null ? '변동 미확인' : `${yieldSign}${number(item.change_bp, 1)}bp`;
-      changeRateText = '전일 대비 · 연%';
-    }
-    const chartHtml = isYield && !(item.series || []).length ? '' : sparkline(item.series, item.change_rate);
-    const sourceUrl = /^https:\/\/finance\.yahoo\.com(\/|$)/.test(item.source_url || '') ? item.source_url : '';
-    const sourceMeta = isYield ? `<small class="market-source-meta">${sourceUrl ? `<a href="${html(sourceUrl)}" target="_blank" rel="noopener noreferrer">Yahoo Finance</a>` : 'Yahoo Finance'}${item.update_delayed || item.observation_stale ? ' · 업데이트 지연' : item.quote_delay_minutes > 0 ? ' · 지연 시세' : ''}</small>
-      <details class="market-source-details"><summary>자료 정보</summary>
-        <p>${html(item.source || '')}</p><p>관측 ${html(item.observed_at || item.observed_date || '미확인')} · ${html(item.exchange_timezone || '시간대 미확인')}</p>
-        <p>마지막 확인 ${html(item.retrieved_at || '미조회')}${item.last_attempt_at && item.last_attempt_at !== item.retrieved_at ? ' · 조회 시도 ' + html(item.last_attempt_at) : ''}</p>
-        <p>${item.quote_delay_minutes == null ? '시세 지연 여부 미확인' : '거래소 제공 지연 ' + html(item.quote_delay_minutes) + '분'}${item.change_pp == null ? '' : ' · ' + number(item.change_pp, 3) + '%p'}${item.reason ? ' · ' + html(item.reason) : ''}</p>
-      </details>` : '';
+    const chartHtml = sparkline(item.series, item.change_rate);
 
     return `
       <article class="market-card toss-market-card">
@@ -1068,7 +1063,6 @@ function renderMarkets(result) {
           <strong class="market-price ${colorClass}">${priceText}</strong>
           <span class="market-change-point ${colorClass}">${changePointText}</span>
           <span class="market-change-rate ${colorClass}">${changeRateText}</span>
-          ${sourceMeta}
         </div>
       </article>
     `;
@@ -1811,7 +1805,6 @@ function isTaxAdvantagedAccount(account) {
 // ── 4. 계좌 목록 렌더링 ──────────────────────────────────────────────────────
 function renderAccounts(items) {
   const container = $("#accountList");
-  if ($("#securitiesTabCount")) $("#securitiesTabCount").textContent = (items || []).length;
   if (!container) return;
   if (!items || !items.length) { container.innerHTML = '<div class="empty">동기화된 계좌가 없습니다.</div>'; return; }
   const accountTaxBenefits = calculateOwnerYearPensionTaxBenefits(items);
@@ -2012,7 +2005,6 @@ function renderSavingsWithOwner(owner = '모두') {
   if ($("#banksCount")) $("#banksCount").textContent = filteredBanks.length;
   if ($("#savingsCount")) $("#savingsCount").textContent = filteredSavings.length;
   if ($("#loansCount")) $("#loansCount").textContent = totalLoanListCount;
-  if ($("#bankingTabCount")) $("#bankingTabCount").textContent = totalBankAllCount;
 
   // 서브탭 표시 상태 동기화
   const isAll = currentSavingsSubtab === 'all';
@@ -3158,7 +3150,6 @@ function renderInsuranceWithOwner(owner = '모두') {
   if ($("#totalInsurancePaidVal")) $("#totalInsurancePaidVal").textContent = `₩${number(totalPaid, 0)}`;
   if ($("#totalInsuranceExpectedVal")) $("#totalInsuranceExpectedVal").textContent = `₩${number(totalExpected, 0)}`;
 
-  if ($("#insuranceTabCount")) $("#insuranceTabCount").textContent = filtered.length;
 
   const grid = $("#insuranceGrid");
   if (!grid) return;
@@ -3781,7 +3772,6 @@ function renderRealEstateWithOwner(owner = '모두') {
   if ($("#reRentalCount")) $("#reRentalCount").textContent = rentalList.length;
   if ($("#reLeaseCount")) $("#reLeaseCount").textContent = leaseList.length;
   if ($("#reSoldCount")) $("#reSoldCount").textContent = filteredSold.length;
-  if ($("#realEstateTabCount")) $("#realEstateTabCount").textContent = filtered.length;
 
   // 매도 탭 활성화 시 [➕ 매도 기록 추가] 버튼 노출
   const directBtn = $("#btnDirectAddSoldRe");
@@ -5104,62 +5094,58 @@ function renderHoldings(data) {
   $(".table-wrap") && ($(".table-wrap").hidden = sorted.length === 0);
 }
 
-const holdingSignalState = {context: '', filter: '', rows: [], generation: 0, pending: false, cache: new Map(), requests: new Map()};
+const holdingSignalState = {context: '', rows: [], generation: 0, pending: false, active: false, phase: 'idle', checkedAt: 0, cache: new Map(), requests: new Map()};
 const holdingSignalLabels = {SMA20_BREAKDOWN:'20일선 이탈',SMA50_BREAKDOWN:'50일선 이탈',GOLDEN_CROSS:'골든크로스',DEAD_CROSS:'데드크로스'};
 function holdingSignalsContext() {
   const source = rawDashboard || dashboard;
-  return JSON.stringify([currentOwner, (source?.accounts || []).map(a => [a.id,a.owner,a.broker,a.name]),
-    (source?.holdings || []).map(h => [h.id,h.account_id,h.code,h.name,h.currency,h.market,h.quantity])]);
+  return JSON.stringify([currentUserProfile?.username, currentOwner, (source?.accounts || []).map(a => [a.id,a.owner,a.broker,a.name,a.account_type]),
+    (source?.holdings || []).map(h => [h.id,h.account_id,h.owner,h.code,h.name,h.currency,h.market,h.quantity])]);
 }
-function resetHoldingSignals() {
-  holdingSignalState.generation++;
-  Object.assign(holdingSignalState, {rows: [], pending: false, filter: ''});
-  const filter = $('#holdingSignalsFilter')?.value || '';
-  const button = $('#holdingSignalsRefresh');
-  if (button) button.disabled = !holdingSignalLabels[filter];
-  const status = $('#holdingSignalsStatus');
-  if (status) status.textContent = filter ? '조회 버튼을 눌러 선택한 신호를 확인하세요.' : '신호를 선택한 뒤 조회하세요.';
-  renderHoldingSignals();
+function holdingSignalsActive() {
+  return currentWealthView() === 'invest' && window.WealthInvestTabState?.current() === 'holdings';
 }
 function syncHoldingSignalsContext() {
-  const context = holdingSignalsContext();
-  if (context === holdingSignalState.context) return;
-  holdingSignalState.context = context;
-  resetHoldingSignals();
+  const context = holdingSignalsContext(), active = holdingSignalsActive();
+  if (context !== holdingSignalState.context || active !== holdingSignalState.active) {
+    holdingSignalState.generation++;
+    Object.assign(holdingSignalState, {context, active, rows: [], pending: false, phase: 'idle'});
+    renderHoldingSignals();
+  }
+  if (active) void loadHoldingSignals();
 }
 function renderHoldingSignals() {
-  const host = $('#holdingSignalsRows');
+  const host = $('#holdingSignalsRows'), status = $('#holdingSignalsStatus');
   if (!host) return;
-  const filter = $('#holdingSignalsFilter')?.value || '';
-  const rows = holdingSignalState.filter === filter
-    ? holdingSignalState.rows.filter(row => (row.events || []).includes(filter)) : [];
+  const {rows, phase} = holdingSignalState;
   const value = n => n == null ? '미정' : number(n, 4);
-  host.innerHTML = rows.map(row => {
-    const diagnostic = row.status === 'insufficient_data' ? '50일선·교차 자료 부족' : '';
-    return `<article class="holding-signal-row"><strong>${html(row.name)} · ${html(row.code)}</strong>
-      <span>${html(holdingSignalLabels[filter])} · ${html(row.as_of || '기준일 미확인')}</span>
-      <small>종가 ${value(row.close)} · SMA20 ${value(row.sma20)} · SMA50 ${value(row.sma50)}</small>
-      <details class="holding-signal-source"><summary>자료 정보</summary>
-        <p>${html(row.source || '자료 미확인')} · ${html(diagnostic)}</p>
-        <p>${html((row.accounts || []).map(a => `${a.owner} · ${a.broker} · ${a.account_name}`).join(' / '))}</p>
-        <p>마지막 확인 ${html(row.retrieved_at || '미조회')}</p>
-      </details></article>`;
+  const reliable = row => ['ok','insufficient_data'].includes(row.status);
+  if (status) status.textContent = phase === 'loading' ? '신호 조회 중…' : phase === 'error' ? '자료 조회 불가' : '';
+  host.innerHTML = Object.entries(holdingSignalLabels).map(([signal, label]) => {
+    const matches = rows.filter(row => reliable(row) && (row.events || []).includes(signal));
+    const unavailable = rows.filter(row => !reliable(row) ||
+      (row.status === 'insufficient_data' && !row.available?.[signal] && !(row.events || []).includes(signal))).length;
+    const empty = phase === 'loading' ? '조회 중…' : phase === 'ready' ? '해당 종목 없음' : '자료 미확인';
+    return `<section class="holding-signal-section" data-signal="${signal}" aria-labelledby="signalTitle${signal}">
+      <h4 id="signalTitle${signal}">${html(label)}</h4>
+      ${matches.map(row => `<article class="holding-signal-row"><strong>${html(row.name)} · ${html(row.code)}</strong>
+        <span>${html(row.as_of || '기준일 미확인')} · 종가 ${value(row.close)}</span>
+        <small>SMA20 ${value(row.sma20)} · SMA50 ${value(row.sma50)}</small>
+        <small>${html(row.source || '자료 미확인')} · ${html((row.accounts || []).map(a => a.owner).filter((a,i,all) => all.indexOf(a) === i).join(' / '))}</small>
+      </article>`).join('') || `<p class="holding-signal-empty">${empty}</p>`}
+      ${unavailable ? `<p class="holding-signal-empty">자료 미확인 ${unavailable}종목</p>` : ''}
+    </section>`;
   }).join('');
 }
 async function loadHoldingSignals() {
-  if (currentWealthView() !== 'invest' || window.WealthInvestTabState?.current() !== 'holdings') return;
-  syncHoldingSignalsContext();
-  const filter = $('#holdingSignalsFilter')?.value || '';
-  if (!holdingSignalLabels[filter] || holdingSignalState.pending || !(rawDashboard || dashboard)) return;
+  if (!holdingSignalsActive() || holdingSignalState.pending || !(rawDashboard || dashboard)) return;
   const owner = currentOwner, context = holdingSignalState.context;
+  const cached = holdingSignalState.cache.get(context);
+  if (holdingSignalState.phase === 'ready' && cached && Date.now() - cached.at < 900000) return;
+  if (holdingSignalState.phase === 'error' && Date.now() - holdingSignalState.checkedAt < 30000) return;
   const generation = ++holdingSignalState.generation;
-  Object.assign(holdingSignalState, {rows: [], filter, pending: true});
-  const button = $('#holdingSignalsRefresh'), status = $('#holdingSignalsStatus');
-  if (button) button.disabled = true;
-  if (status) status.textContent = '확정 거래일 자료 조회 중…';
+  Object.assign(holdingSignalState, {rows: [], pending: true, phase: 'loading'});
   renderHoldingSignals();
   try {
-    const cached = holdingSignalState.cache.get(context);
     let response;
     if (cached && Date.now() - cached.at < 900000) {
       response = cached.value;
@@ -5177,28 +5163,20 @@ async function loadHoldingSignals() {
       }
       response = await pending;
     }
-    if (generation !== holdingSignalState.generation || context !== holdingSignalsContext() || filter !== $('#holdingSignalsFilter')?.value) return;
-    const items = response.items || [];
-    holdingSignalState.rows = items.filter(row => (row.events || []).includes(filter));
-    const unavailable = items.filter(row => !['ok','insufficient_data'].includes(row.status) ||
-      (row.status === 'insufficient_data' && !row.available?.[filter] && !(row.events || []).includes(filter))).length;
-    if (status) status.textContent = holdingSignalState.rows.length
-      ? `${holdingSignalState.rows.length}종목 · ${holdingSignalLabels[filter]}${unavailable ? ` · 자료 미확인 ${unavailable}종목` : ''}`
-      : `선택한 신호에 해당하는 종목이 없습니다.${unavailable ? ` 자료 미확인 ${unavailable}종목` : ''}`;
+    if (generation !== holdingSignalState.generation || context !== holdingSignalsContext() || !holdingSignalsActive()) return;
+    Object.assign(holdingSignalState, {rows: response.items || [], phase: 'ready'});
   } catch (_) {
-    if (generation === holdingSignalState.generation && context === holdingSignalsContext()) {
-      if (status) status.textContent = '신호 조회 실패 · 다시 시도하세요.';
+    if (generation === holdingSignalState.generation && context === holdingSignalsContext() && holdingSignalsActive()) {
+      holdingSignalState.phase = 'error';
+      holdingSignalState.checkedAt = Date.now();
     }
   } finally {
     if (generation === holdingSignalState.generation) {
       holdingSignalState.pending = false;
-      if (button) button.disabled = false;
       renderHoldingSignals();
     }
   }
 }
-$('#holdingSignalsFilter')?.addEventListener('change', resetHoldingSignals);
-$('#holdingSignalsRefresh')?.addEventListener('click', () => { void loadHoldingSignals(); });
 window.addEventListener('wealth:view', syncHoldingSignalsContext);
 
 // ── 7. 종목 가격 & 거래량 인터랙티브 차트 모달 ──────────────────────────────

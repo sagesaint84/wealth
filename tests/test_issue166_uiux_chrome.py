@@ -164,16 +164,11 @@ def test_issue166_mobile_tabs_history_ipo_and_krx(issue166_preview, width):
     capture(call, evaluate, width, 'assets')
     tabs = evaluate("""(() => {const host=document.getElementById('assetCategoryTabs');
       const rows=[...host.children].map(n=>n.getBoundingClientRect().top);
-      return {rows,scroll:host.scrollWidth,client:host.clientWidth,rect:host.getBoundingClientRect().toJSON(),count:document.getElementById('securitiesTabCount').textContent};})()""")
+      return {rows,scroll:host.scrollWidth,client:host.clientWidth,rect:host.getBoundingClientRect().toJSON(),labels:[...host.children].map(n=>n.textContent.trim())};})()""")
     assert max(tabs['rows']) - min(tabs['rows']) < 1, tabs
-    if width < 500:
-        assert tabs['scroll'] > tabs['client'], tabs
-        y = tabs['rect']['top'] + 15
-        call('Input.dispatchTouchEvent', {'type':'touchStart','touchPoints':[{'x':width-45,'y':y}]})
-        for step in range(1, 9):
-            call('Input.dispatchTouchEvent', {'type':'touchMove','touchPoints':[{'x':width-45-step*25,'y':y}]})
-        call('Input.dispatchTouchEvent', {'type':'touchEnd','touchPoints':[]})
-        wait_for(evaluate, "document.getElementById('assetCategoryTabs').scrollLeft>0")
+    assert tabs['scroll'] <= tabs['client'] + 1, tabs
+    assert tabs['labels'] == ['증권', '은행', '연금·보험', '부동산', '세금']
+    assert evaluate("[...document.querySelectorAll('#assetCategoryTabs button')].every(n=>getComputedStyle(n).flexGrow==='1')")
     for category in ('tax','banking','insurance','real_estate','securities'):
         before = evaluate('__issue166.calls.switchAccountCategory')
         click(call, evaluate, f'#assetCategoryTabs [data-cat={category}]')
@@ -190,7 +185,8 @@ def test_issue166_mobile_tabs_history_ipo_and_krx(issue166_preview, width):
     wait_for(evaluate, "WealthAssetCategoryState.current()==='banking'")
     evaluate("document.getElementById('assetCategoryTabs').scrollLeft=0;document.querySelector('#assetCategoryTabs [data-cat=tax]').click()")
     wait_for(evaluate, "(()=>{const h=document.getElementById('assetCategoryTabs').getBoundingClientRect(),r=document.querySelector('#assetCategoryTabs [data-cat=tax]').getBoundingClientRect();return r.left>=h.left&&r.right<=h.right})()")
-    assert evaluate("document.getElementById('securitiesTabCount').textContent") == tabs['count']
+    assert evaluate("[...document.querySelectorAll('#assetCategoryTabs button')].map(n=>n.textContent.trim())") == tabs['labels']
+    assert not any('(' in label or ')' in label for label in tabs['labels'])
 
     evaluate("location.hash='#home'")
     headline = '#wealthHistoryPlot .wealth-unified-latest'

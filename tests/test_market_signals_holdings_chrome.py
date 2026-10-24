@@ -74,14 +74,14 @@ def boot_dashboard():
     return data
 
 
-def start(chrome_preview, width, market_payload=None):
+def start(chrome_preview, width, market_payload=None, route="invest"):
     call, evaluate, port = chrome_preview
     boot = BOOT + "\nwindow.__dashboardFixture=" + json.dumps(boot_dashboard(), ensure_ascii=False) + ";"
     if market_payload is not None:
         boot += "\nwindow.__marketFixture=" + json.dumps(market_payload, ensure_ascii=False) + ";"
     call("Page.addScriptToEvaluateOnNewDocument", {"source": boot})
     call("Emulation.setDeviceMetricsOverride", {"width": width, "height": 900, "deviceScaleFactor": 1, "mobile": width < 768})
-    call("Page.navigate", {"url": f"http://127.0.0.1:{port}/#invest"})
+    call("Page.navigate", {"url": f"http://127.0.0.1:{port}/#{route}"})
     wait_for(evaluate, "document.readyState==='complete' && typeof rawDashboard!=='undefined' && rawDashboard && typeof openHoldingDialog==='function'")
     # Dashboard availability precedes the second startup POST. Wait for the
     # existing startup pipeline and supplementary reads before taking a baseline.
@@ -205,6 +205,13 @@ def test_account_uuid_is_internal_and_owner_change_cannot_silently_relink(chrome
 def test_accountinfo_empty_accounts_are_visible_by_category_and_owner(chrome_preview, width):
     _, evaluate = start(chrome_preview, width)
     before = checkpoint(evaluate, "accountinfo-visibility")
+    evaluate("document.querySelector('.wealth-nav a[href=\"#assets\"]').click();")
+    wait_for(evaluate, "document.querySelector('.wealth-workspace').dataset.activeView==='assets'")
+    labels = evaluate("[...document.querySelectorAll('#assetCategoryTabs button')].map(n=>n.textContent.trim())")
+    assert [label.split(' ', 1)[-1] for label in labels] == ["증권", "은행", "연금·보험", "부동산", "세금"]
+    assert not any('(' in label or ')' in label or any(c.isdigit() for c in label) for label in labels)
+    assert evaluate("document.querySelectorAll('#assetCategoryTabs span').length") == 0
+    assert evaluate("[...document.querySelectorAll('#assetCategoryTabs button')].every(n=>getComputedStyle(n).flexGrow==='1')")
     evaluate("""rawDashboard.accounts.push({id:'pdf-empty',owner:'엄마',broker:'합성증권',name:'AccountInfo 빈 증권',account_type:'general',holding_count:0,cash_krw:0,market_value_krw:0});
       rawDashboard.bank_accounts.push({id:'pdf-bank',owner:'엄마',bank_name:'합성은행',account_name:'AccountInfo 빈 은행',balance:0,currency:'KRW'});
       document.querySelector('.wealth-nav a[href="#assets"]').click();""")
@@ -223,78 +230,107 @@ def test_accountinfo_empty_accounts_are_visible_by_category_and_owner(chrome_pre
 
 
 @pytest.mark.parametrize("width", [360, 390, 768, 1280])
-def test_initial_invest_and_money_log_navigation_do_not_fetch_signals(chrome_preview, width):
-    _, evaluate = start(chrome_preview, width)
+def test_navigation_only_loads_signals_in_visible_holdings(chrome_preview, width):
+    _, evaluate = start(chrome_preview, width, route="home")
     before = checkpoint(evaluate, "route-regression")
-    assert evaluate("location.hash") == "#invest"
-    assert evaluate("document.querySelector('.wealth-workspace').dataset.activeView") == "invest"
-    for route in ["income", "home", "invest"]:
+    assert evaluate("__signalsFixture.signalReads.length") == 0
+    for route in ["income", "assets", "home"]:
         evaluate("document.querySelector('.wealth-nav a[href=\"#" + route + "\"]').click();")
         wait_for(evaluate, "document.querySelector('.wealth-workspace').dataset.activeView===" + json.dumps(route))
         assert not evaluate("document.querySelector('[data-wealth-page=" + route + "]').hidden")
-    assert evaluate("document.querySelector('#holdingsBody')!==null")
-    assert evaluate("__signalsFixture.signalReads.length") == 0
+        assert evaluate("__signalsFixture.signalReads.length") == 0
+    evaluate("document.querySelector('.wealth-nav a[href=\"#invest\"]').click();")
+    wait_for(evaluate, "holdingSignalState.phase==='ready'")
+    assert evaluate("__signalsFixture.signalReads.length") == 1
+    evaluate("document.querySelector('[data-invest=overview]').click();selectOwner('엄마');")
+    assert evaluate("__signalsFixture.signalReads.length") == 1
+    evaluate("document.querySelector('[data-invest=holdings]').click();")
+    wait_for(evaluate, "holdingSignalState.phase==='ready' && __signalsFixture.signalReads.length===2")
     assert len(writes_since(evaluate, before)) == 0
 
 
 @pytest.mark.parametrize("width", [360, 390, 768, 1280])
-def test_signals_filters_errors_and_existing_holdings_ui(chrome_preview, width):
+def test_four_signal_sections_errors_and_existing_holdings_ui(chrome_preview, width):
     _, evaluate = start(chrome_preview, width)
+    wait_for(evaluate, "holdingSignalState.phase==='ready'")
     before = checkpoint(evaluate, "signals-success")
-    assert evaluate("__signalsFixture.signalReads.length") == 0
-    assert evaluate("document.querySelector('#holdingSignalsFilter').value") == ""
-    assert evaluate("document.querySelector('#holdingSignalsFilter').options[0].textContent") == "신호를 선택하세요"
-    assert evaluate("document.querySelector('#holdingSignalsRows').children.length") == 0
-    assert evaluate("document.querySelector('#holdingSignalsRefresh').disabled")
+    assert evaluate("__signalsFixture.signalReads.length") == 1
+    assert evaluate("document.querySelectorAll('.holding-signals select,.holding-signals button').length") == 0
     assert evaluate("document.querySelectorAll('.holding-signals').length") == 1
-    assert evaluate("document.querySelector('#holdingsBody')!==null")
-    for value, expected in [("SMA20_BREAKDOWN", True), ("SMA50_BREAKDOWN", False), ("GOLDEN_CROSS", False), ("DEAD_CROSS", True)]:
-        reads = evaluate("__signalsFixture.signalReads.length")
-        evaluate(f"document.querySelector('#holdingSignalsFilter').value='{value}';document.querySelector('#holdingSignalsFilter').dispatchEvent(new Event('change'));")
-        assert evaluate("__signalsFixture.signalReads.length") == reads
-        assert evaluate("document.querySelector('#holdingSignalsRows').children.length") == 0
-        evaluate("document.querySelector('#holdingSignalsRefresh').click();document.querySelector('#holdingSignalsRefresh').click();")
-        wait_for(evaluate, "!holdingSignalState.pending")
-        assert evaluate("!!document.querySelector('.holding-signal-row')") is expected
-        if expected:
-            assert evaluate("document.querySelectorAll('.holding-signal-row').length") == 1
-            assert evaluate("holdingSignalState.rows.every(row=>row.events.includes(document.querySelector('#holdingSignalsFilter').value))")
+    assert evaluate("[...document.querySelectorAll('.holding-signal-section h4')].map(n=>n.textContent)") == [
+        "20일선 이탈", "50일선 이탈", "골든크로스", "데드크로스"]
+    for signal, count in [("SMA20_BREAKDOWN", 1), ("SMA50_BREAKDOWN", 0), ("GOLDEN_CROSS", 0), ("DEAD_CROSS", 1)]:
+        selector = f".holding-signal-section[data-signal={signal}]"
+        assert evaluate(f"document.querySelectorAll('{selector} .holding-signal-row').length") == count
+        if count:
+            assert "가상 주식" in evaluate(f"document.querySelector('{selector}').textContent")
+            assert "2026-10-22" in evaluate(f"document.querySelector('{selector}').textContent")
         else:
-            assert evaluate("document.querySelector('#holdingSignalsStatus').textContent.includes('해당하는 종목이 없습니다')")
-        assert evaluate("__signalsFixture.signalReads.length") == 1  # In-flight/cached reads shared.
+            assert "해당 종목 없음" in evaluate(f"document.querySelector('{selector}').textContent")
+    evaluate("renderHoldings(dashboard);window.dispatchEvent(new CustomEvent('wealth:view',{detail:'invest'}));")
+    assert evaluate("__signalsFixture.signalReads.length") == 1
+    for identity in ["holdingsBody", "searchInput", "addButton", "importButton", "clearAllHoldingsBtn"]:
+        assert evaluate(f"document.getElementById('{identity}')!==null")
     assert evaluate("document.querySelector('.holding-signals').getBoundingClientRect().right<=innerWidth")
     assert evaluate("document.documentElement.scrollWidth<=innerWidth")
     assert len(writes_since(evaluate, before)) == 0
+    # Incomplete sessions remain distinct from confirmed no-event results.
+    evaluate("""__signalRows.push({code:'SHORT',name:'자료부족',status:'insufficient_data',events:[],available:{SMA20_BREAKDOWN:true}});
+      __signalRows.push({code:'ERROR',name:'오류',status:'source_error',events:[]});
+      for(const row of __signalRows)row.accounts=[{owner:'엄마'}];
+      holdingSignalState.cache.clear();loadHoldingSignals();""")
+    wait_for(evaluate, "holdingSignalState.phase==='ready' && __signalsFixture.signalReads.length===2")
+    assert "자료 미확인 1종목" in evaluate("document.querySelector('[data-signal=SMA20_BREAKDOWN]').textContent")
+    assert "자료 미확인 2종목" in evaluate("document.querySelector('[data-signal=SMA50_BREAKDOWN]').textContent")
+    evaluate("""__signalRows.push({code:'CROSS',name:'추가신호',status:'ok',events:['SMA50_BREAKDOWN','GOLDEN_CROSS'],
+      as_of:'2026-10-23',close:101,sma20:100,sma50:99,accounts:[{owner:'엄마'}]});
+      holdingSignalState.cache.clear();void loadHoldingSignals();""")
+    wait_for(evaluate, "holdingSignalState.phase==='ready' && __signalsFixture.signalReads.length===3")
+    for signal in ['SMA50_BREAKDOWN', 'GOLDEN_CROSS']:
+        assert evaluate(f"document.querySelectorAll('[data-signal={signal}] .holding-signal-row').length") == 1
+        assert '추가신호' in evaluate(f"document.querySelector('[data-signal={signal}] .holding-signal-row').textContent")
+    assert '추가신호' not in evaluate("document.querySelector('[data-signal=SMA20_BREAKDOWN] .holding-signal-row').textContent")
     before_failure = checkpoint(evaluate, "signals-failure")
-    reads = evaluate("__signalsFixture.signalReads.length")
-    evaluate("for(const item of holdingSignalState.cache.values())item.at=0;__signalsFixture.fail=true;document.querySelector('#holdingSignalsRefresh').click();")
-    wait_for(evaluate, f"__signalsFixture.signalReads.length>{reads} && !holdingSignalState.pending")
-    wait_for(evaluate, "document.querySelector('#holdingSignalsStatus').textContent.includes('신호 조회 실패')")
-    assert evaluate("document.querySelector('#holdingSignalsRows').children.length") == 0
+    evaluate("holdingSignalState.cache.clear();__signalsFixture.fail=true;loadHoldingSignals();")
+    wait_for(evaluate, "holdingSignalState.phase==='error'")
+    assert evaluate("document.querySelector('#holdingSignalsStatus').textContent") == "자료 조회 불가"
+    assert evaluate("document.querySelectorAll('.holding-signal-row').length") == 0
+    assert evaluate("document.querySelectorAll('.holding-signal-empty').length") == 4
     assert len(writes_since(evaluate, before_failure)) == 0
     assert len(writes_since(evaluate, before)) == 0
 
 
-def test_signals_late_filter_and_owner_responses_are_never_displayed(chrome_preview):
+def test_signals_owner_holdings_and_late_responses_are_never_mixed(chrome_preview):
     _, evaluate = start(chrome_preview, 390)
+    wait_for(evaluate, "holdingSignalState.phase==='ready'")
     before = checkpoint(evaluate, "signals-late-response")
-    evaluate("""selectOwner('엄마');__signalsFixture.holdSignals=true;
-      document.querySelector('#holdingSignalsFilter').value='SMA20_BREAKDOWN';
-      document.querySelector('#holdingSignalsFilter').dispatchEvent(new Event('change'));
-      document.querySelector('#holdingSignalsRefresh').click();""")
+    evaluate("holdingSignalState.cache.clear();__signalsFixture.holdSignals=true;selectOwner('엄마');")
     wait_for(evaluate, "__signalsFixture.pendingSignals.length===1")
-    evaluate("""document.querySelector('#holdingSignalsFilter').value='GOLDEN_CROSS';
-      document.querySelector('#holdingSignalsFilter').dispatchEvent(new Event('change'));
-      document.querySelector('#holdingSignalsRefresh').click();""")
-    assert evaluate("__signalsFixture.signalReads.length") == 1
-    evaluate("selectOwner('아빠');__signalsFixture.holdSignals=false;__signalsFixture.pendingSignals.shift()();")
+    reads = evaluate("__signalsFixture.signalReads.length")
+    evaluate("renderHoldings(dashboard);window.dispatchEvent(new CustomEvent('wealth:view',{detail:'invest'}));")
+    assert evaluate("__signalsFixture.signalReads.length") == reads
+    evaluate("selectOwner('아빠');")
+    wait_for(evaluate, "__signalsFixture.pendingSignals.length===2")
+    evaluate("__signalsFixture.holdSignals=false;__signalsFixture.pendingSignals.pop()();")
+    wait_for(evaluate, "holdingSignalState.phase==='ready'")
+    assert evaluate("document.querySelectorAll('.holding-signal-row').length") == 0
+    evaluate("__signalsFixture.pendingSignals.shift()();")
     wait_for(evaluate, "holdingSignalState.requests.size===0")
-    assert evaluate("document.querySelector('#holdingSignalsRows').children.length") == 0
-    assert evaluate("__signalsFixture.signalReads.length") == 1
-    evaluate("document.querySelector('#holdingSignalsRefresh').click();")
-    wait_for(evaluate, "!holdingSignalState.pending && __signalsFixture.signalReads.length===2")
+    assert evaluate("document.querySelectorAll('.holding-signal-row').length") == 0
     assert evaluate("new URL(__signalsFixture.signalReads.at(-1),location.origin).searchParams.get('owner')") == "아빠"
-    assert evaluate("document.querySelector('#holdingSignalsRows').children.length") == 0
+    # Same owner, changed account/quantity must invalidate the previous context.
+    reads = evaluate("__signalsFixture.signalReads.length")
+    evaluate("rawDashboard.holdings[0].quantity+=1;renderHoldings(dashboard);")
+    wait_for(evaluate, f"holdingSignalState.phase==='ready' && __signalsFixture.signalReads.length==={reads + 1}")
+    evaluate("""holdingSignalState.cache.clear();__signalsFixture.holdSignals=true;void loadHoldingSignals();""")
+    wait_for(evaluate, "__signalsFixture.pendingSignals.length===1")
+    evaluate("document.querySelector('.wealth-nav a[href=\"#home\"]').click();")
+    wait_for(evaluate, "document.querySelector('.wealth-workspace').dataset.activeView==='home'")
+    reads = evaluate("__signalsFixture.signalReads.length")
+    evaluate("__signalsFixture.pendingSignals.shift()();rawDashboard.holdings[0].quantity+=1;renderHoldings(dashboard);")
+    wait_for(evaluate, "holdingSignalState.requests.size===0")
+    assert evaluate("document.querySelectorAll('.holding-signal-row').length") == 0
+    assert evaluate("__signalsFixture.signalReads.length") == reads
     assert len(writes_since(evaluate, before)) == 0
 
 
@@ -320,22 +356,20 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
     wait_for(evaluate, "location.hash==='#home' && document.querySelector('.wealth-workspace').dataset.activeView==='home' && !document.querySelector('[data-wealth-page=home]').hidden")
     wait_for(evaluate, "__signalsFixture.marketReads.length>0 && document.querySelectorAll('#marketGrid .market-card').length===7 && document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     text = evaluate("document.querySelector('#marketGrid').textContent")
-    for expected in ["코스피", "코스닥", "나스닥", "S&P", "반도체", "미국 10년 국채", "%p", "+5bp", "2026-10-22T20:00:00Z", "Yahoo Finance / CBOE 10-Year Treasury Note Yield", "거래소 제공 지연 15분", "미국 공포·탐욕", "공식 수치 미연동"]:
+    for expected in ["코스피", "코스닥", "나스닥", "S&P", "반도체", "금리", "+5bp", "미국 공포·탐욕", "공식 수치 미연동"]:
         assert expected in text
     assert "한국 10년 국채" not in text
     assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 7
     assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://www.cnn.com/markets/fear-and-greed\"]').length") == 1
-    assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://finance.yahoo.com/quote/%5ETNX/\"]').length") == 1
+    assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://finance.yahoo.com/quote/%5ETNX/\"]').length") == 0
     assert evaluate("document.querySelectorAll('#marketGrid a[href*=\"treasury.gov\"],#marketGrid a[href*=\"ecos.bok.or.kr\"]').length") == 0
-    assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.textContent.includes('미국 10년 국채')).querySelector('.market-price').textContent") == "4.15%"
+    assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX').querySelector('.market-price').textContent") == "4.15%"
     assert evaluate("document.querySelectorAll('#marketGrid .market-reference-note').length") == 1
     assert evaluate("document.querySelector('#marketGrid .market-reference-note span').title") == "공식 자동 연동 허용 경로 미확인"
     assert not evaluate("document.querySelector('#marketGrid .market-reference-note .market-price')!==null")
-    assert not evaluate("document.querySelector('#marketGrid .market-source-details').open")
-    assert "2026-10-22" not in evaluate("document.querySelector('#marketGrid .market-source-meta').textContent")
-    evaluate("document.querySelector('#marketGrid .market-source-details summary').click();")
-    assert evaluate("document.querySelector('#marketGrid .market-source-details').open")
-    evaluate("document.querySelector('#marketGrid .market-source-details summary').click();")
+    assert evaluate("document.querySelector('[data-market-symbol=\"^TNX\"]').innerText.split('\\n').map(s=>s.trim()).filter(Boolean)") == ["금리", "4.15%", "+5bp"]
+    assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] a,[data-market-symbol=\"^TNX\"] details').length") == 0
+    assert evaluate("(()=>{const cards=[...document.querySelectorAll('#marketGrid .market-card')],rate=cards.find(n=>n.dataset.marketSymbol==='^TNX');return rate.getBoundingClientRect().height<=Math.max(...cards.filter(n=>n!==rate).map(n=>n.getBoundingClientRect().height))+1;})()")
     assert evaluate("document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].every(n=>n.getBoundingClientRect().right<=innerWidth)")
     assert len(writes_since(evaluate, before)) == 0
@@ -350,7 +384,7 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
             "observed_date": None, "series": [], "status": "source_error", "reason": "조회 불가", "update_delayed": True}
         evaluate("Object.assign(__marketFixture.rates[0]," + json.dumps(patch, ensure_ascii=False) + ");document.querySelector('.wealth-nav a[href=\"#home\"]').click();")
         expected_price = "조회 불가" if failed else "4.15%"
-        wait_for(evaluate, f"document.querySelector('.wealth-workspace').dataset.activeView==='home' && __signalsFixture.marketReads.length>{reads} && document.querySelector('#marketGrid').textContent.includes('업데이트 지연') && [...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.textContent.includes('미국 10년 국채'))?.querySelector('.market-price').textContent==={json.dumps(expected_price, ensure_ascii=False)}")
-        assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.textContent.includes('미국 10년 국채')).querySelector('.market-price').textContent") == expected_price
+        wait_for(evaluate, f"document.querySelector('.wealth-workspace').dataset.activeView==='home' && __signalsFixture.marketReads.length>{reads} && [...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX')?.querySelector('.market-price').textContent==={json.dumps(expected_price, ensure_ascii=False)}")
+        assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX').querySelector('.market-price').textContent") == expected_price
         assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 7
         assert len(writes_since(evaluate, before)) == 0

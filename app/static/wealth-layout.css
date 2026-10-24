@@ -274,7 +274,7 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-layout .income-tabs { margin: 0 0 18px; }
 .wealth-layout .wealth-income-hidden { display: none !important; }
 .wealth-layout .account-category-tabs { margin: 0 0 18px !important; margin-left: 0 !important; min-width: 0; max-width: 100%; overscroll-behavior-x: contain; }
-.wealth-layout #assetCategoryTabs > button { flex: 0 0 auto; }
+.wealth-layout #assetCategoryTabs > button { flex: 1 1 0; padding-inline:6px; }
 .wealth-asset-dashboard { display:grid; grid-template-columns:minmax(0,1.08fr) minmax(340px,.92fr); gap:22px; margin-top:18px; align-items:start; }
 .wealth-home-asset-portfolio { padding:28px 30px; margin-top:24px; }
 .wealth-home-asset-portfolio .wealth-asset-dashboard { gap:28px; }
@@ -1972,17 +1972,16 @@ body.wealth-layout {
   .settings-data-source-fields { grid-template-columns: minmax(0,1fr); }
 }
 /* Read-only indicators share the existing market and holdings surfaces. */
-.market-card .market-source-meta { display:block; white-space:normal; overflow-wrap:anywhere; line-height:1.5; }
-.market-source-details { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
-.market-source-details summary, .holding-signal-source summary { cursor:pointer; }
-.market-source-details p { margin:4px 0; }
 .market-reference-note { grid-column:1 / -1; margin:0; color:var(--muted); font-size:11px; }
 .holding-signals { margin-block:16px; padding:12px; border:1px solid var(--line); border-radius:12px; }
-.holding-signals-heading { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
-.holding-signals-heading h3 { flex:1 1 180px; margin:0; }
-.holding-signals-heading select { min-width:0; max-width:100%; }
+.holding-signals > h3 { margin:0; font-size:14px; }
+#holdingSignalsStatus { margin:6px 0; color:var(--muted); font-size:12px; }
+#holdingSignalsRows { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.holding-signal-section { min-width:0; }
+.holding-signal-section h4 { margin:8px 0; font-size:13px; }
+.holding-signal-empty { margin:8px 0; color:var(--muted); font-size:12px; }
+@media (max-width:760px) { #holdingSignalsRows { grid-template-columns:minmax(0,1fr); } }
 #holdingForm .form-grid > label { min-width:0; }
 #holdingAccountSelect { width:100%; min-width:0; max-width:100%; }
 .holding-signal-row { display:grid; gap:4px; padding-block:8px; border-top:1px solid var(--line); overflow-wrap:anywhere; font-size:12px; }
-.holding-signal-row p { margin:4px 0; line-height:1.5; }
-.holding-signal-row small, .holding-signals-note { color:var(--muted); }
+.holding-signal-row small { color:var(--muted); }

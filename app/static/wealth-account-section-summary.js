@@ -145,7 +145,6 @@
 
   function syncBankCountBadges(actualAccountCount, agreementCount) {
     const values = [
-      ['bankingTabCount', actualAccountCount],
       ['allBankCount', actualAccountCount],
       ['loansCount', agreementCount],
     ];
