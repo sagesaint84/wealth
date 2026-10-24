@@ -2,10 +2,12 @@
 
 ## 현재 운영 배포 — 2026-10-24 / Wealth v2.1.3
 
-- **운영 앱 v2.1.3**: [PR #170](https://github.com/sagesaint84/wealth/pull/170), [PR #171](https://github.com/sagesaint84/wealth/pull/171) 머지 완료. 현재 운영 SHA는 `10dc8bbdbd4c059f216cfc3690dd9e6cc98795ce`이며 앱 버전은 **2.1.3**을 유지한다.
-- **GHCR 발행 완료**: [Docker build #40076601931](https://github.com/sagesaint84/wealth/actions/runs/40076601931) SUCCESS.
-- **Oracle 배포 완료(사용자 확인)**: 이미지 ID `sha256:3e6f00ca4a488f71b7e7f916a0e7ab8b805d745eec6f5d33f4144c801691d0d4`, 컨테이너 정상, HTTP `/` → **307**, 금융 데이터 및 Toss 볼륨 유지. 이번 문서 수정에서 운영 서버에 접속하거나 금융 데이터를 조회하지 않았다.
-- **후속 UI 후보**: [PR #172](https://github.com/sagesaint84/wealth/pull/172)의 자산 탭·금리 카드·기술적 신호 4섹션 변경은 **아직 머지·운영 배포하지 않았다**. 아래 10월 22일 기록은 당시 배포·검증 이력으로 보존한다.
+- **현재 운영 코드**: [PR #172](https://github.com/sagesaint84/wealth/pull/172) Squash Merge `f90e9b7589a2180c518ecb34f9c7343ed0241367` → [PR #173](https://github.com/sagesaint84/wealth/pull/173) Squash Merge `6a14c0d5cd7dda27501db770572d1d3334b37901`; 실제 Oracle에 배포된 앱 버전은 **v2.1.3**, 릴리스 이미지 태그는 `ghcr.io/sagesaint84/wealth:6a14c0d`이다. 문서 전용 후속 커밋은 앱 실행 이미지를 바꾸지 않는다.
+- **GHCR 발행**: [Docker build #40100539869](https://github.com/sagesaint84/wealth/actions/runs/40100539869) **SUCCESS** (Linux AMD64/ARM64); multi-platform manifest `sha256:f4e0e17bafa7158a43b43fc3b5b47d540bbfcb1667dc00ec3accdb79cd9c634e`.
+- **Oracle ARM64 배포 완료 (2026-10-24 사용자 SSH 실행 로그)**: Digest 고정 이미지 다운로드, `qemu_*.core` 검사 **PASS**, 실행 중 이미지 대조 **PASS**, HTTP `/` → **307**, 금융 데이터·Toss 마운트 동일 **PASS**, `DEPLOY_AND_CLEANUP=PASS`. 사용 종료된 직전 Wealth 이미지 `f90e9b7` 삭제 후 파일시스템 약 **194GB 중 164GB 사용 / 31GB 여유(85%)**. Docker 전체 정리·볼륨 삭제·백업 이미지 추가 생성은 수행하지 않았다. **RECLAIMABLE 4.272GB는 선별 검증 없이 지우지 않는다.**
+- **운영 브라우저 (사용자 스크린샷 확인)**: 📈 증권 / 🏦 은행 / 🛡️ 연금·보험 / 🏠 부동산 / 🧾 세금의 5개 균등 탭과 괄호 카운트 제거, 금리 카드 Sparkline·금리(연%)·변동(bp)·링크 제거 확인. PR #172의 기존 보유종목 기술적 신호 4섹션 구조 유지. 운영 전체 E2E·모든 계좌의 데이터 감사 완료를 의미하지 않는다.
+- **검증 기록**: PR #173 최종 GitHub CI Static transport **387 passed**, IPO **239 passed**, Toss WTS Linux **AMD64/ARM64 SUCCESS**; 로컬 표적 **89 passed**, Chromium **30 passed**(320/360/390/768/1280px). PR #172도 병합 당시 CI 통과했다. 이번 작업으로 전체 pytest를 추가 실행했다고 표시하지 않는다.
+- **배포 운영 원칙**: 확정한 GHCR Digest 다운로드 → Wealth 단일 서비스 교체 → 실행 이미지·HTTP 307·데이터/Toss 마운트 확인 → 다른 컨테이너가 사용하지 않는 이전 Wealth 이미지만 정리. 검증 실패 시 정리 금지 및 이전 이미지 복구 시도. 다른 서비스·볼륨·실제 금융 데이터 보존.
 
 ## 과거 운영 배포 기록 — 2026-10-22 / Wealth v2.1.3
 
