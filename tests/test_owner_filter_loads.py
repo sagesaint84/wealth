@@ -40,6 +40,7 @@ const context = {
   computeFilteredSummary: () => ({}), computeFilteredClassifications: () => [],
   computeFilteredSectors: () => [], computeFilteredCurrencySummary: () => ({}),
   computeFilteredDayChange: () => ({}), render() {},
+  syncHoldingSignalsContext() {},
   loadDividends() {}, loadActualDividends() {}, loadRealizedPnl() {},
   updateOverviewCardsAllTime() {},
   renderAssetRecords(records) { recordRenders.push(records[0]?.owner); },
