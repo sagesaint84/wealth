@@ -190,15 +190,15 @@ def test_signals_filters_errors_and_existing_holdings_ui(chrome_preview, width):
 
 @pytest.mark.parametrize("width", [360, 390, 768, 1280])
 def test_existing_market_cards_daily_units_dates_and_official_links(chrome_preview, width):
-    payload = {"markets": [{"symbol": "KOSPI", "label": "코스피", "price": 2500, "change_rate": 1, "series": [2400, 2500]}],
+    payload = {"markets": [
+                   {"symbol": symbol, "label": label, "price": 2500, "change_rate": 1, "series": [2400, 2500]}
+                   for symbol, label in [("^KS11", "코스피"), ("^KQ11", "코스닥"), ("^GSPC", "S&P"), ("^IXIC", "나스닥"), ("^SOX", "반도체")]],
                "exchange_rate": {"rate": 1350}, "rates": [
-                   {"kind": "yield", "symbol": "US10Y", "label": "미국 10년 국채", "value": 4.15,
+                   {"kind": "yield", "symbol": "^TNX", "label": "미국 10년 국채", "value": 4.15,
                     "change_pp": .05, "change_bp": 5, "series": [4.1, 4.15], "observed_date": "2026-10-22",
-                    "retrieved_at": "2026-10-23T01:00:00Z", "source": "U.S. Treasury",
-                    "source_url": "https://home.treasury.gov/treasury-daily-interest-rate-xml-feed"},
-                   {"kind": "yield", "symbol": "KR10Y", "label": "한국 10년 국채", "value": None,
-                    "status": "not_configured", "reason": "ECOS_API_KEY 미설정", "source": "한국은행 ECOS",
-                    "source_url": "https://ecos.bok.or.kr/", "series": []}],
+                    "observed_at": "2026-10-22T20:00:00Z", "quote_delay_minutes": 15,
+                    "retrieved_at": "2026-10-23T01:00:00Z", "source": "Yahoo Finance / CBOE 10-Year Treasury Note Yield",
+                    "source_url": "https://finance.yahoo.com/quote/%5ETNX/"}],
                "fear_greed": {"source": "CNN", "label": "미국 공포·탐욕", "score": None,
                               "reason": "공식 자동 연동 허용 경로 미확인", "source_url": "https://www.cnn.com/markets/fear-and-greed"}}
     _, evaluate = start(chrome_preview, width, market_payload=payload)
@@ -208,16 +208,32 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
     # Use the existing navigation link and hashchange router, as a user would.
     evaluate("document.querySelector('.wealth-nav a[href=\"#home\"]').click();")
     wait_for(evaluate, "location.hash==='#home' && document.querySelector('.wealth-workspace').dataset.activeView==='home' && !document.querySelector('[data-wealth-page=home]').hidden")
-    wait_for(evaluate, "__signalsFixture.marketReads.length>0 && document.querySelectorAll('#marketGrid .market-card').length===5 && document.querySelector('#marketGrid').getBoundingClientRect().width>0")
+    wait_for(evaluate, "__signalsFixture.marketReads.length>0 && document.querySelectorAll('#marketGrid .market-card').length===8 && document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     text = evaluate("document.querySelector('#marketGrid').textContent")
-    for expected in ["코스피", "미국 10년 국채", "%p", "bp", "2026-10-22", "U.S. Treasury", "한국 10년 국채", "한국은행 ECOS", "ECOS_API_KEY 미설정", "미국 공포·탐욕", "공식 수치 미연동", "공식 자동 연동 허용 경로 미확인"]:
+    for expected in ["코스피", "코스닥", "나스닥", "S&P", "반도체", "미국 10년 국채", "%p", "+5bp", "2026-10-22T20:00:00Z", "Yahoo Finance / CBOE 10-Year Treasury Note Yield", "거래소 제공 지연 15분", "미국 공포·탐욕", "공식 수치 미연동", "공식 자동 연동 허용 경로 미확인"]:
         assert expected in text
-    assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 5
+    assert "한국 10년 국채" not in text
+    assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 8
     assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://www.cnn.com/markets/fear-and-greed\"]').length") == 1
-    assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://home.treasury.gov/treasury-daily-interest-rate-xml-feed\"]').length") == 1
-    assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://ecos.bok.or.kr/\"]').length") == 1
+    assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://finance.yahoo.com/quote/%5ETNX/\"]').length") == 1
+    assert evaluate("document.querySelectorAll('#marketGrid a[href*=\"treasury.gov\"],#marketGrid a[href*=\"ecos.bok.or.kr\"]').length") == 0
     assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.textContent.includes('미국 10년 국채')).querySelector('.market-price').textContent") == "4.15%"
-    assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.textContent.includes('한국 10년 국채')).querySelector('.market-price').textContent") == "미연동"
+    assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.textContent.includes('미국 공포·탐욕')).querySelector('.market-price').textContent") == "미연동"
     assert evaluate("document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].every(n=>n.getBoundingClientRect().right<=innerWidth)")
     assert len(writes_since(evaluate, before)) == 0
+    # Re-enter home through the same user navigation to exercise delayed/error
+    # responses without clicking the existing financial price-refresh action.
+    for failed in [False, True]:
+        evaluate("document.querySelector('.wealth-nav a[href=\"#invest\"]').click();")
+        wait_for(evaluate, "document.querySelector('.wealth-workspace').dataset.activeView==='invest'")
+        reads = evaluate("__signalsFixture.marketReads.length")
+        patch = {"observation_stale": True, "status": "stale"} if not failed else {
+            "value": None, "change_pp": None, "change_bp": None, "observed_at": None,
+            "observed_date": None, "series": [], "status": "source_error", "reason": "조회 불가", "update_delayed": True}
+        evaluate("Object.assign(__marketFixture.rates[0]," + json.dumps(patch, ensure_ascii=False) + ");document.querySelector('.wealth-nav a[href=\"#home\"]').click();")
+        expected_price = "조회 불가" if failed else "4.15%"
+        wait_for(evaluate, f"document.querySelector('.wealth-workspace').dataset.activeView==='home' && __signalsFixture.marketReads.length>{reads} && document.querySelector('#marketGrid').textContent.includes('업데이트 지연') && [...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.textContent.includes('미국 10년 국채'))?.querySelector('.market-price').textContent==={json.dumps(expected_price, ensure_ascii=False)}")
+        assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.textContent.includes('미국 10년 국채')).querySelector('.market-price').textContent") == expected_price
+        assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 8
+        assert len(writes_since(evaluate, before)) == 0

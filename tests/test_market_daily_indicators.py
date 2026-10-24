@@ -1,8 +1,9 @@
-"""Official data contracts, cache failures, and zero-write query boundaries."""
+"""Yahoo TNX percentage yields, cache failures, and zero-write query boundaries."""
 import asyncio
 import json
 from copy import deepcopy
-from datetime import date
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from unittest.mock import Mock
 
 import pytest
@@ -12,38 +13,96 @@ from app.services.market_read_cache import MarketReadCache
 from tests.regression_support import authenticated_request, import_main_without_loading_real_env
 
 
-def test_treasury_xml_uses_ten_year_column_and_actual_observation_dates():
-    xml = '''<feed xmlns="http://www.w3.org/2005/Atom" xmlns:d="http://schemas.microsoft.com/ado/2007/08/dataservices">
-      <entry><d:NEW_DATE>2026-10-21T00:00:00</d:NEW_DATE><d:BC_10YEAR>4.10</d:BC_10YEAR><d:BC_2YEAR>9</d:BC_2YEAR></entry>
-      <entry><d:NEW_DATE>2026-10-22T00:00:00</d:NEW_DATE><d:BC_10YEAR>4.15</d:BC_10YEAR></entry>
-      <entry><d:NEW_DATE>2026-10-23T00:00:00</d:NEW_DATE><d:BC_10YEAR/></entry></feed>'''
-    result = indicators.yield_observation(indicators.parse_treasury_yields(xml), date(2026, 10, 23))
-    assert result["value"] == 4.15 and result["observed_date"] == "2026-10-22"
-    assert result["previous_observed_date"] == "2026-10-21"
+def tnx_payload(observed=None, **meta_changes):
+    observed = observed or datetime.now(timezone.utc) - timedelta(minutes=20)
+    zone = ZoneInfo("America/New_York")
+    day = observed.astimezone(zone).date()
+    return {"chart": {"error": None, "result": [{
+        "meta": {"symbol": "^TNX", "instrumentType": "INDEX", "regularMarketPrice": 4.15,
+                 "regularMarketTime": int(observed.timestamp()), "exchangeTimezoneName": "America/New_York",
+                 "exchangeDataDelayedBy": 15, "chartPreviousClose": 99, "previousClose": 88, **meta_changes},
+        "timestamp": [int(datetime.combine(day - timedelta(days=d), time(12), tzinfo=zone).timestamp()) for d in [2, 1, 0]],
+        "indicators": {"quote": [{"close": [4.0, 4.10, 4.15]}]}}]}}
+
+
+def test_yahoo_tnx_is_already_percent_and_change_is_bp_not_relative_percent():
+    now = datetime.fromisoformat("2026-10-23T20:00:00+00:00")
+    result = indicators.parse_yahoo_tnx(tnx_payload(now), now=now)
+    assert result["value"] == 4.15
+    assert result["observed_date"] == "2026-10-23"
+    assert result["previous_observed_date"] == "2026-10-22"
+    assert result["previous_close"] == 4.10  # Ignore range anchors 99 and 88.
     assert result["unit"] == "연%"
     assert result["change_pp"] == pytest.approx(.05)
     assert result["change_bp"] == pytest.approx(5)
-    assert result["series"] == [4.10, 4.15]
+    assert result["observed_at"] == now.isoformat()
+    assert result["quote_delay_minutes"] == 15 and not result["observation_stale"]
+    assert result["series"] == [4.0, 4.10, 4.15]
 
 
-def ecos_payload(**changes):
-    row = {"STAT_CODE": "817Y002", "ITEM_CODE1": "010210000", "UNIT_NAME": "연%",
-           "TIME": "20261022", "DATA_VALUE": "3.125"}
-    return {"StatisticSearch": {"list_total_count": 1, "row": [{**row, **changes}]}}
-
-
-def test_ecos_exact_contract_missing_values_and_errors():
-    assert indicators.parse_ecos_yields(ecos_payload()) == [("2026-10-22", 3.125)]
-    assert indicators.parse_ecos_yields(ecos_payload(DATA_VALUE="-")) == []
-    for changes in [{"ITEM_CODE1": "wrong"}, {"UNIT_NAME": "%p"}, {"TIME": "20260230"}]:
-        with pytest.raises(ValueError):
-            indicators.parse_ecos_yields(ecos_payload(**changes))
+@pytest.mark.parametrize("meta", [{"regularMarketPrice": None}, {"regularMarketPrice": float("nan")},
+                                  {"regularMarketPrice": True}, {"symbol": "^TYX"},
+                                  {"regularMarketTime": None}, {"exchangeDataDelayedBy": -1}])
+def test_tnx_invalid_identity_price_and_timestamp_fail_closed(meta):
     with pytest.raises(ValueError):
-        indicators.parse_ecos_yields({"RESULT": {"CODE": "ERROR-100"}})
-    with pytest.raises(ValueError):
-        indicators.yield_observation([], date(2026, 10, 23))
-    with pytest.raises(ValueError):
-        indicators.yield_observation([("2026-10-22", float("nan"))], date(2026, 10, 23))
+        indicators.parse_yahoo_tnx(tnx_payload(**meta))
+
+
+def test_tnx_previous_trading_observation_and_missing_previous_are_distinct():
+    now = datetime.fromisoformat("2026-10-26T20:00:00+00:00")
+    payload = tnx_payload(now)
+    entry = payload["chart"]["result"][0]
+    entry["timestamp"] = [int((now - timedelta(days=3)).timestamp()), int(now.timestamp())]
+    entry["indicators"]["quote"][0]["close"] = [4.10, 4.15]
+    result = indicators.parse_yahoo_tnx(payload, now=now)
+    assert result["previous_observed_date"] == "2026-10-23"
+    assert result["change_bp"] == 5 and result["series"] == [4.10, 4.15]
+    entry["timestamp"] = [int(now.timestamp())]
+    entry["indicators"]["quote"][0]["close"] = [4.15]
+    result = indicators.parse_yahoo_tnx(payload, now=now)
+    assert result["value"] == 4.15 and result["change_bp"] is None
+
+
+def test_tnx_observation_uses_new_york_date_and_unknown_delay_is_not_zero():
+    now = datetime.fromisoformat("2026-10-24T00:30:00+00:00")
+    result = indicators.parse_yahoo_tnx(tnx_payload(now, exchangeDataDelayedBy=None), now=now)
+    assert result["observed_date"] == "2026-10-23" and result["quote_delay_minutes"] is None
+
+
+@pytest.mark.parametrize("failure", [None, "http", "network", "schema"])
+def test_tnx_cached_yahoo_only_query_and_cnn_reference(monkeypatch, failure):
+    import httpx
+    requests = []
+    def response(request):
+        requests.append(request)
+        assert request.url.host == "query1.finance.yahoo.com"
+        assert request.url.path.endswith("/^TNX")
+        assert dict(request.url.params) == {"interval": "1d", "range": "1mo"}
+        if failure == "network":
+            raise httpx.ConnectError("synthetic offline", request=request)
+        return httpx.Response(503 if failure == "http" else 200,
+                              json={"chart": {"result": []}} if failure == "schema" else tnx_payload())
+    monkeypatch.setattr(indicators, "require_external_network", lambda *a: None)
+    monkeypatch.setattr(indicators, "_cache", MarketReadCache(ttl=300, capacity=1))
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
+            first = await indicators.get_market_indicators(client)
+            second = await indicators.get_market_indicators(client)
+        assert len(requests) == 1
+        assert all(r.url.host == "query1.finance.yahoo.com" for r in requests)
+        assert [r["symbol"] for r in first["rates"]] == ["^TNX"]
+        rate = first["rates"][0]
+        assert rate["source"] == indicators.TNX_SOURCE and rate["unit"] == "연%"
+        if failure:
+            assert rate["value"] is None and rate["status"] == "source_error"
+            assert rate["reason"] == "조회 불가" and rate["retrieved_at"] is None
+        else:
+            assert rate["value"] == 4.15 and rate["change_bp"] == 5
+            assert rate["status"] == "ok" and second["rates"][0]["cache_hit"]
+        assert first["fear_greed"]["score"] is None
+        assert first["fear_greed"]["status"] == "not_connected"
+        assert first["fear_greed"]["source_url"] == "https://www.cnn.com/markets/fear-and-greed"
+    asyncio.run(scenario())
 
 
 def test_cache_singleflight_failure_keeps_last_success_and_is_bounded(monkeypatch):
@@ -74,37 +133,78 @@ def test_cache_singleflight_failure_keeps_last_success_and_is_bounded(monkeypatc
     asyncio.run(scenario())
 
 
-def test_provider_errors_not_configured_and_cnn_reference_are_honest(monkeypatch):
-    monkeypatch.delenv("ECOS_API_KEY", raising=False)
-    monkeypatch.setattr(indicators, "_cache", MarketReadCache(ttl=1))
-    async def failed():
-        raise OSError("no connection")
-    monkeypatch.setattr(indicators, "_treasury", failed)
-    result = asyncio.run(indicators.get_market_indicators())
-    us, kr = result["rates"]
-    assert us["status"] == "source_error" and us["value"] is None and us["retrieved_at"] is None
-    assert kr["status"] == "not_configured" and kr["value"] is None
-    assert result["fear_greed"]["score"] is None
-    assert result["fear_greed"]["status"] == "not_connected"
-    assert result["fear_greed"]["source_url"] == "https://www.cnn.com/markets/fear-and-greed"
-
-
 def test_stale_observation_is_distinct_from_successful_fetch(monkeypatch):
-    monkeypatch.delenv("ECOS_API_KEY", raising=False)
-    monkeypatch.setattr(indicators, "_cache", MarketReadCache(ttl=1))
-    async def old():
-        return indicators.yield_observation([("2000-01-03", 6.58)], date(2000, 1, 3))
-    monkeypatch.setattr(indicators, "_treasury", old)
-    us = asyncio.run(indicators.get_market_indicators())["rates"][0]
-    assert us["status"] == "stale" and us["observation_stale"]
-    assert us["retrieved_at"] and not us["update_delayed"]
+    import httpx
+    old = datetime.now(timezone.utc) - timedelta(days=6)
+    monkeypatch.setattr(indicators, "_cache", MarketReadCache(ttl=300))
+    monkeypatch.setattr(indicators, "require_external_network", lambda *a: None)
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=tnx_payload(old)))) as client:
+            us = (await indicators.get_market_indicators(client))["rates"][0]
+        assert us["status"] == "stale" and us["observation_stale"]
+        assert us["retrieved_at"] and not us["update_delayed"]
+    asyncio.run(scenario())
 
 
-def test_ecos_api_key_in_path_is_redacted():
-    from app.logging_security import redact_credential_urls
-    text = "https://ecos.bok.or.kr/api/StatisticSearch/synthetic-secret/json/kr/1/100/817Y002"
-    assert "synthetic-secret" not in redact_credential_urls(text)
-    assert "/StatisticSearch/[REDACTED]/" in redact_credential_urls(text)
+def test_failed_refresh_is_unavailable_and_keeps_last_success_time(monkeypatch):
+    import httpx
+    import app.services.market_read_cache as cache_module
+    clock = [1000.0]
+    calls = []
+    def response(request):
+        calls.append(request)
+        return httpx.Response(200 if len(calls) == 1 else 503, json=tnx_payload())
+    monkeypatch.setattr(cache_module, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(indicators, "_cache", MarketReadCache(ttl=300))
+    monkeypatch.setattr(indicators, "require_external_network", lambda *a: None)
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
+            first = (await indicators.get_market_indicators(client))["rates"][0]
+            clock[0] += 301
+            failed = (await indicators.get_market_indicators(client))["rates"][0]
+        assert len(calls) == 2 and failed["value"] is None and failed["change_bp"] is None
+        assert failed["reason"] == "조회 불가" and failed["update_delayed"]
+        assert failed["retrieved_at"] == first["retrieved_at"]
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("tnx_error", [False, True])
+def test_overview_reuses_one_client_preserves_indices_and_has_no_other_provider_calls(monkeypatch, tnx_error):
+    import httpx
+    from app.services import web_finance, portfolio, financial_json, secure_files
+    requests, clients = [], []
+    def response(request):
+        requests.append(request)
+        assert request.url.host == "query1.finance.yahoo.com"
+        symbol = request.url.path.rsplit("/", 1)[-1]
+        if symbol == "^TNX":
+            return httpx.Response(503 if tnx_error else 200, json=tnx_payload())
+        entry = {"meta": {"symbol": symbol, "regularMarketPrice": 110, "previousClose": 100},
+                 "timestamp": [1700000000, 1700086400], "indicators": {"quote": [{"close": [100, 110]}]}}
+        return httpx.Response(200, json={"chart": {"result": [entry]}})
+    original = httpx.AsyncClient
+    def client_factory(**kwargs):
+        client = original(transport=httpx.MockTransport(response), **kwargs)
+        clients.append(client)
+        return client
+    monkeypatch.setattr(web_finance, "external_network_allowed", lambda: True)
+    monkeypatch.setattr(indicators, "require_external_network", lambda *a: None)
+    monkeypatch.setattr(indicators, "_cache", MarketReadCache(ttl=300))
+    monkeypatch.setattr(web_finance.httpx, "AsyncClient", client_factory)
+    writes = Mock(side_effect=AssertionError("Market reads must not write financial data"))
+    monkeypatch.setattr(portfolio, "write_portfolio", writes)
+    monkeypatch.setattr(portfolio, "write_financial_json", writes)
+    monkeypatch.setattr(financial_json, "write_financial_json", writes)
+    monkeypatch.setattr(secure_files, "atomic_write_private_json", writes)
+    result = asyncio.run(web_finance.get_web_market_overview())
+    assert len(clients) == 1 and len(requests) == 25
+    assert all(r.url.host == "query1.finance.yahoo.com" for r in requests)
+    assert [m["symbol"] for m in result["markets"]] == ["^KS11", "^KQ11", "^GSPC", "^IXIC", "^SOX"]
+    assert all(m["price"] == 110 and m["periods"] for m in result["markets"])
+    assert len(result["rates"]) == 1 and result["rates"][0]["symbol"] == "^TNX"
+    assert result["rates"][0]["value"] == (None if tnx_error else 4.15)
+    assert result["fear_greed"]["status"] == "not_connected"
+    assert writes.call_count == 0
 
 
 def test_readonly_portfolio_query_never_bootstraps_user_files(tmp_path, monkeypatch):
@@ -133,10 +233,7 @@ def test_signal_and_market_routes_zero_financial_writes(monkeypatch):
     monkeypatch.setattr(main, "read_portfolio", writes)
     async def index_quotes():
         return {"markets": [{"symbol": "KOSPI", "price": 123}], "exchange_rate": None}
-    async def reference_quotes():
-        return {"rates": [], "fear_greed": {"score": None, "status": "not_connected"}}
     monkeypatch.setattr(main, "fetch_market_overview", index_quotes)
-    monkeypatch.setattr(indicators, "get_market_indicators", reference_quotes)
     response = asyncio.run(main.get_holding_signals(authenticated_request()))
     assert json.loads(response.body)["items"] == []
     assert response.headers["Cache-Control"] == "no-store"

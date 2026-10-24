@@ -5703,23 +5703,11 @@ async def delete_family_member(member_name: str, request: Request) -> dict:
 
 @app.get("/api/market-overview")
 async def market_overview() -> dict:
-    from app.services.market_indicators import get_market_indicators
-    base, indicators = await asyncio.gather(fetch_market_overview(), get_market_indicators(), return_exceptions=True)
-    if isinstance(base, Exception):
-        base = {"markets": [], "exchange_rate": None, "unavailable": True}
-    if isinstance(indicators, Exception):
-        indicators = {"rates": [{"symbol": symbol, "label": label, "kind": "yield", "value": None,
-                                 "source": source, "source_url": url, "status": "source_error",
-                                 "series": [], "reason": "자료 조회 실패", "observed_date": None,
-                                 "retrieved_at": None, "change_pp": None, "change_bp": None}
-                                for symbol, label, source, url in [
-                                    ("US10Y", "미국 10년 국채", "U.S. Treasury", "https://home.treasury.gov/treasury-daily-interest-rate-xml-feed"),
-                                    ("KR10Y", "한국 10년 국채", "한국은행 ECOS", "https://ecos.bok.or.kr/")]],
-                      "indicators_status": "source_error",
-                      "fear_greed": {"source": "CNN", "label": "미국 공포·탐욕", "score": None,
-                                     "status": "not_connected", "reason": "공식 자동 연동 허용 경로 미확인",
-                                     "source_url": "https://www.cnn.com/markets/fear-and-greed"}}
-    return {**base, **indicators}
+    try:
+        return await fetch_market_overview()
+    except Exception:
+        from app.services.market_indicators import unavailable_market_indicators
+        return {"markets": [], "exchange_rate": None, "unavailable": True, **unavailable_market_indicators()}
 
 
 @app.get("/api/holdings/signals")

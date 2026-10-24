@@ -12,11 +12,10 @@ _CREDENTIAL_QUERY = re.compile(
     r"([^\s&#\"'<>]*)",
     re.IGNORECASE,
 )
-_ECOS_CREDENTIAL_PATH = re.compile(r"(https?://ecos\.bok\.or\.kr/api/(?:StatisticSearch|StatisticItemList)/)[^/\s\"'<>]+", re.IGNORECASE)
 
 
 def redact_credential_urls(text: str) -> str:
-    return _ECOS_CREDENTIAL_PATH.sub(r"\1[REDACTED]", _CREDENTIAL_QUERY.sub(r"\1[REDACTED]", text))
+    return _CREDENTIAL_QUERY.sub(r"\1[REDACTED]", text)
 
 
 def install_credential_log_redaction() -> None:

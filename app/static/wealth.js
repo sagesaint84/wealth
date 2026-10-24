@@ -1027,7 +1027,7 @@ function renderMarkets(result) {
     const isYield = item.kind === 'yield';
     const isFearGreed = item.kind === 'fear_greed';
     const isFx = item.symbol === "USD/KRW";
-    const priceText = isYield ? (item.value == null ? '미연동' : `${number(item.value, 3)}%`)
+    const priceText = isYield ? (item.value == null ? '조회 불가' : `${number(item.value, 3)}%`)
       : isFearGreed ? '미연동' : isFx ? `${number(item.price, 1)}원` : number(item.price, 2);
 
     const isUp = Number(item.change_rate) > 0;
@@ -1047,14 +1047,14 @@ function renderMarkets(result) {
 
     if (isYield) {
       const yieldSign = item.change_pp > 0 ? '+' : '';
-      changePointText = item.change_pp == null ? '변동 미확인' : `${yieldSign}${number(item.change_pp, 3)}%p`;
-      changeRateText = item.change_bp == null ? '일별 수익률' : `${yieldSign}${number(item.change_bp, 1)}bp · 일별`;
+      changePointText = item.change_bp == null ? '변동 미확인' : `${yieldSign}${number(item.change_bp, 1)}bp · 전일 대비`;
+      changeRateText = item.change_pp == null ? '연% · Yahoo 시세' : `${yieldSign}${number(item.change_pp, 3)}%p · 연%`;
     }
     if (isFearGreed) { changePointText = '공식 수치 미연동'; changeRateText = ''; }
     const chartHtml = isFearGreed || (isYield && !(item.series || []).length) ? '' : sparkline(item.series, item.change_rate);
-    const sourceUrl = /^https:\/\/(home\.treasury\.gov|ecos\.bok\.or\.kr|www\.cnn\.com)(\/|$)/.test(item.source_url || '') ? item.source_url : '';
+    const sourceUrl = /^https:\/\/(finance\.yahoo\.com|www\.cnn\.com)(\/|$)/.test(item.source_url || '') ? item.source_url : '';
     const sourceMeta = isYield || isFearGreed ? `<small class="market-source-meta">${sourceUrl ? `<a href="${html(sourceUrl)}" target="_blank" rel="noopener noreferrer">${html(item.source)}</a>` : html(item.source || '')}
-      ${isYield ? ` · 관측 ${html(item.observed_date || '미확인')} · 마지막 확인 ${html(item.retrieved_at || '미조회')}${item.last_attempt_at && item.last_attempt_at !== item.retrieved_at ? ' · 조회 시도 ' + html(item.last_attempt_at) : ''}` : ''}
+      ${isYield ? ` · 관측 ${html(item.observed_at || item.observed_date || '미확인')} · 마지막 확인 ${html(item.retrieved_at || '미조회')}${item.last_attempt_at && item.last_attempt_at !== item.retrieved_at ? ' · 조회 시도 ' + html(item.last_attempt_at) : ''} · ${item.quote_delay_minutes == null ? '시세 지연 여부 미확인' : '거래소 제공 지연 ' + html(item.quote_delay_minutes) + '분'}` : ''}
       ${item.update_delayed || item.observation_stale ? ' · 업데이트 지연' : ''}${item.status === 'source_error' ? ' · 자료 조회 실패' : ''}${item.reason ? ' · ' + html(item.reason) : ''}</small>` : '';
 
     return `

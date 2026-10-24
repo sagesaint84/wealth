@@ -457,8 +457,9 @@ async def get_web_market_overview() -> dict[str, Any]:
     코스피, 코스닥, S&P 500, 나스닥 종합 4개 지수 및 USD/KRW 환율에 대해
     1D(5분봉), 1W(60분봉), 1M/3M/YTD/1Y(일봉)를 비동기 병렬 조회하여 제공합니다.
     """
+    from app.services.market_indicators import get_market_indicators, unavailable_market_indicators
     if not external_network_allowed():
-        return {"markets": [], "exchange_rate": None, "unavailable": True}
+        return {"markets": [], "exchange_rate": None, "unavailable": True, **unavailable_market_indicators()}
 
     indices = [
         {"symbol": "^KS11", "label": "코스피", "market": "KRX", "currency": "KRW"},
@@ -480,7 +481,10 @@ async def get_web_market_overview() -> dict[str, Any]:
             tasks.append(client.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&range=1y", headers=HEADERS, timeout=6.0))
             # 4) 전체 월봉 (3Y, 5Y, 10Y, MAX 장기용)
             tasks.append(client.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1mo&range=max", headers=HEADERS, timeout=6.0))
-        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        responses = await asyncio.gather(*tasks, get_market_indicators(client), return_exceptions=True)
+        indicators = responses.pop()
+        if isinstance(indicators, Exception):
+            indicators = unavailable_market_indicators()
 
     overview = []
     for i, idx in enumerate(indices):
@@ -566,6 +570,7 @@ async def get_web_market_overview() -> dict[str, Any]:
     fx_stat_1d = fx_periods.get("1D", {})
 
     return {
+        **indicators,
         "markets": overview,
         "exchange_rate": {
             "rate": fx_price,
