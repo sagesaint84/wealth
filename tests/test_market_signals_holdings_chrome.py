@@ -12,13 +12,32 @@ from tests.ui_preview import DASHBOARD
 
 BOOT = r"""
 sessionStorage.setItem('wealth_invest_tab','holdings');
-window.__signalsFixture={writes:[],fail:false,signalReads:[]};
+window.__signalsFixture={requests:[],writes:[],fail:false,signalReads:[],marketReads:[],phase:'startup',assetsReady:false};
+window.addEventListener('wealth:assets-ready',()=>{
+  __signalsFixture.assetsReady=true;
+  __signalsFixture.assetsReadyAt=performance.now();
+  __signalsFixture.phase='ready';
+});
 const originalFetch=window.fetch;
 window.fetch=async function(url,options={}) {
-  const path=new URL(String(url),location.origin).pathname;
-  if(options.method && options.method!=='GET') {
-    __signalsFixture.writes.push({path,method:options.method,payload:JSON.parse(options.body || '{}')});
+  const address=new URL(url instanceof Request ? url.url : String(url),location.origin);
+  const path=address.pathname;
+  const method=String(options.method || (url instanceof Request ? url.method : 'GET')).toUpperCase();
+  let payload={};
+  try { payload=JSON.parse(options.body || '{}'); }
+  catch (_) { payload=String(options.body); }
+  const entry={path,method,payload,url:address.href,sequence:__signalsFixture.requests.length,
+    at_ms:performance.now(),phase:__signalsFixture.phase,ready_state:document.readyState,
+    route:location.hash,stack:new Error('fixture request').stack};
+  __signalsFixture.requests.push(entry);
+  if(!['GET','HEAD'].includes(method)) {
+    entry.intercepted=true;
+    __signalsFixture.writes.push(entry);
     return {ok:true,json:async()=>({message:'synthetic intercepted save'})};
+  }
+  if(path==='/api/market-overview' && window.__marketFixture) {
+    __signalsFixture.marketReads.push(address.href);
+    return {ok:true,json:async()=>structuredClone(window.__marketFixture)};
   }
   if(path==='/api/holdings/signals') {
     __signalsFixture.signalReads.push(String(url));
@@ -50,19 +69,47 @@ def boot_dashboard():
     return data
 
 
-def start(chrome_preview, width):
+def start(chrome_preview, width, market_payload=None):
     call, evaluate, port = chrome_preview
     boot = BOOT + "\nwindow.__dashboardFixture=" + json.dumps(boot_dashboard(), ensure_ascii=False) + ";"
+    if market_payload is not None:
+        boot += "\nwindow.__marketFixture=" + json.dumps(market_payload, ensure_ascii=False) + ";"
     call("Page.addScriptToEvaluateOnNewDocument", {"source": boot})
     call("Emulation.setDeviceMetricsOverride", {"width": width, "height": 900, "deviceScaleFactor": 1, "mobile": width < 768})
     call("Page.navigate", {"url": f"http://127.0.0.1:{port}/#invest"})
     wait_for(evaluate, "document.readyState==='complete' && typeof rawDashboard!=='undefined' && rawDashboard && typeof openHoldingDialog==='function'")
+    # Dashboard availability precedes the second startup POST. Wait for the
+    # existing startup pipeline and supplementary reads before taking a baseline.
+    wait_for(evaluate, "__signalsFixture.assetsReady && !loadAssetDataForUser.pending")
+    evaluate("(async()=>{await loadAssetDataForUser.supplementary;return true;})()")
+    initial = evaluate("__signalsFixture.writes")
+    print("Initial intercepted requests: " + json.dumps(initial, ensure_ascii=False))
+    assert [(r["method"], r["path"]) for r in initial] == [
+        ("POST", "/api/refresh-prices"), ("POST", "/api/planning/snapshot-all")]
+    assert initial[0]["payload"] == {}
+    assert initial[1]["payload"] == {"source": "auto"}
+    assert all(r["phase"] == "startup" and r["intercepted"] for r in initial)
+    assert all(r["ready_state"] in {"interactive", "complete"} for r in initial)
+    assert all(r["at_ms"] <= evaluate("__signalsFixture.assetsReadyAt") for r in initial)
     return call, evaluate
+
+
+def checkpoint(evaluate, phase):
+    evaluate("__signalsFixture.phase=" + json.dumps(phase))
+    return evaluate("__signalsFixture.writes")
+
+
+def writes_since(evaluate, before):
+    actual = evaluate("__signalsFixture.writes")
+    # Retain and compare the complete startup history; never clear or filter it.
+    assert actual[:len(before)] == before, actual
+    return actual[len(before):]
 
 
 @pytest.mark.parametrize("width", [360, 390, 768, 1280])
 def test_all_registered_accounts_ids_owner_filter_and_keyboard(chrome_preview, width):
     call, evaluate = start(chrome_preview, width)
+    before = checkpoint(evaluate, "account-selection")
     evaluate("currentOwner='아빠';renderWithOwner(rawDashboard,'아빠');openHoldingDialog();")
     assert evaluate("[...document.querySelector('#holdingAccountSelect').options].map(o=>o.value)") == [
         "", "father", "mother-isa", "child-pension", "mother-irp", "legacy-pension"]
@@ -79,52 +126,70 @@ def test_all_registered_accounts_ids_owner_filter_and_keyboard(chrome_preview, w
     assert evaluate("document.querySelector('#holdingForm [name=owner]').value") == "엄마"
     assert evaluate("document.querySelectorAll('#holdingAccountSelect').length") == 1
     assert evaluate("document.querySelector('#holdingDialog').getBoundingClientRect().right<=innerWidth")
-    assert evaluate("__signalsFixture.writes.length") == 0
+    assert len(writes_since(evaluate, before)) == 0
 
 
 def test_edit_and_manual_save_preserve_explicit_link(chrome_preview):
     _, evaluate = start(chrome_preview, 390)
+    before = checkpoint(evaluate, "edit-save")
     evaluate("openHoldingDialog(rawDashboard.holdings[0]);")
     assert evaluate("document.querySelector('#holdingAccountSelect').value") == "mother-isa"
     evaluate("document.querySelector('#holdingForm').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));")
-    wait_for(evaluate, "__signalsFixture.writes.length===1")
-    saved = evaluate("__signalsFixture.writes[0]")
-    assert saved["method"] == "PUT" and saved["payload"]["account_id"] == "mother-isa"
-    assert saved["payload"]["owner"] == "엄마"
+    wait_for(evaluate, f"__signalsFixture.writes.slice({len(before)}).some(r=>r.method==='PUT' && r.path==='/api/holdings/synthetic-holding')")
     wait_for(evaluate, "!document.querySelector('#holdingDialog').open")
+    added = writes_since(evaluate, before)
+    assert len(added) == 1, added
+    saved = added[0]
+    assert saved["method"] == "PUT" and saved["payload"]["account_id"] == "mother-isa"
+    assert saved["path"] == "/api/holdings/synthetic-holding"
+    assert saved["payload"]["owner"] == "엄마"
+    assert saved["payload"]["code"] == "TEST"
+    assert (saved["payload"]["broker"], saved["payload"]["account_name"]) == ("가상증권", "동일이름")
+    before = checkpoint(evaluate, "manual-save")
     evaluate("""openHoldingDialog();const form=document.querySelector('#holdingForm');
       form.broker.value='직접증권';form.broker.dispatchEvent(new Event('input',{bubbles:true}));
       form.account_name.value='직접계좌';form.owner.value='자녀';form.code.value='TEST';form.name.value='합성';
       form.quantity.value='1';form.avg_price.value='100';form.current_price.value='100';
       form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));""")
-    wait_for(evaluate, "__signalsFixture.writes.length===2")
-    saved = evaluate("__signalsFixture.writes[1]")
+    wait_for(evaluate, f"__signalsFixture.writes.slice({len(before)}).some(r=>r.method==='POST' && r.path==='/api/holdings')")
+    wait_for(evaluate, "!document.querySelector('#holdingDialog').open")
+    added = writes_since(evaluate, before)
+    assert len(added) == 1, added
+    saved = added[0]
     assert saved["method"] == "POST" and saved["payload"]["account_id"] == ""
+    assert saved["path"] == "/api/holdings"
+    assert saved["payload"]["code"] == "TEST" and saved["payload"]["broker"] == "직접증권"
     assert saved["payload"]["owner"] == "자녀" and saved["payload"]["account_name"] == "직접계좌"
 
 
 @pytest.mark.parametrize("width", [360, 390, 768, 1280])
 def test_signals_filters_errors_and_existing_holdings_ui(chrome_preview, width):
     _, evaluate = start(chrome_preview, width)
+    before = checkpoint(evaluate, "signals-success")
+    reads = evaluate("__signalsFixture.signalReads.length")
     evaluate("window.WealthInvestTabState.select('holdings');window.dispatchEvent(new CustomEvent('wealth:view',{detail:'invest'}));")
+    evaluate("document.querySelector('#holdingSignalsRefresh').click();")
+    wait_for(evaluate, f"__signalsFixture.signalReads.length>{reads} && !holdingSignalState.pending")
     wait_for(evaluate, "document.querySelector('#holdingSignalsRows').textContent.includes('20일선 이탈')")
     assert evaluate("document.querySelectorAll('.holding-signals').length") == 1
     assert evaluate("document.querySelector('#holdingsBody')!==null")
-    assert evaluate("__signalsFixture.writes.length") == 0
+    assert len(writes_since(evaluate, before)) == 0
     for value, expected in [("SMA20_BREAKDOWN", True), ("SMA50_BREAKDOWN", False), ("GOLDEN_CROSS", False), ("DEAD_CROSS", True), ("ALL", True)]:
         evaluate(f"document.querySelector('#holdingSignalsFilter').value='{value}';document.querySelector('#holdingSignalsFilter').dispatchEvent(new Event('change'));")
         assert evaluate("!!document.querySelector('.holding-signal-row')") is expected
     assert evaluate("document.querySelector('.holding-signals').getBoundingClientRect().right<=innerWidth")
     assert evaluate("document.documentElement.scrollWidth<=innerWidth")
+    before_failure = checkpoint(evaluate, "signals-failure")
+    reads = evaluate("__signalsFixture.signalReads.length")
     evaluate("__signalsFixture.fail=true;document.querySelector('#holdingSignalsRefresh').click();")
+    wait_for(evaluate, f"__signalsFixture.signalReads.length>{reads} && !holdingSignalState.pending")
     wait_for(evaluate, "document.querySelector('#holdingSignalsStatus').textContent.includes('신호 조회 실패')")
-    assert evaluate("__signalsFixture.writes.length") == 0
+    assert len(writes_since(evaluate, before_failure)) == 0
+    assert len(writes_since(evaluate, before)) == 0
 
 
 @pytest.mark.parametrize("width", [360, 390, 768, 1280])
 def test_existing_market_cards_daily_units_dates_and_official_links(chrome_preview, width):
-    _, evaluate = start(chrome_preview, width)
-    evaluate("window.WealthInvestTabState.select('overview');")
     payload = {"markets": [{"symbol": "KOSPI", "label": "코스피", "price": 2500, "change_rate": 1, "series": [2400, 2500]}],
                "exchange_rate": {"rate": 1350}, "rates": [
                    {"kind": "yield", "symbol": "US10Y", "label": "미국 10년 국채", "value": 4.15,
@@ -136,12 +201,23 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
                     "source_url": "https://ecos.bok.or.kr/", "series": []}],
                "fear_greed": {"source": "CNN", "label": "미국 공포·탐욕", "score": None,
                               "reason": "공식 자동 연동 허용 경로 미확인", "source_url": "https://www.cnn.com/markets/fear-and-greed"}}
-    evaluate("renderMarkets(" + json.dumps(payload, ensure_ascii=False) + ");")
+    _, evaluate = start(chrome_preview, width, market_payload=payload)
+    before = checkpoint(evaluate, "market-home")
+    assert evaluate("document.querySelector('#marketGrid').closest('[data-wealth-page]').dataset.wealthPage") == "home"
+    assert evaluate("document.querySelector('[data-wealth-page=home]').hidden")
+    # Use the existing navigation link and hashchange router, as a user would.
+    evaluate("document.querySelector('.wealth-nav a[href=\"#home\"]').click();")
+    wait_for(evaluate, "location.hash==='#home' && document.querySelector('.wealth-workspace').dataset.activeView==='home' && !document.querySelector('[data-wealth-page=home]').hidden")
+    wait_for(evaluate, "__signalsFixture.marketReads.length>0 && document.querySelectorAll('#marketGrid .market-card').length===5 && document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     text = evaluate("document.querySelector('#marketGrid').textContent")
-    for expected in ["코스피", "미국 10년 국채", "%p", "bp", "2026-10-22", "U.S. Treasury", "ECOS_API_KEY 미설정", "미국 공포·탐욕"]:
+    for expected in ["코스피", "미국 10년 국채", "%p", "bp", "2026-10-22", "U.S. Treasury", "한국 10년 국채", "한국은행 ECOS", "ECOS_API_KEY 미설정", "미국 공포·탐욕", "공식 수치 미연동", "공식 자동 연동 허용 경로 미확인"]:
         assert expected in text
     assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 5
     assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://www.cnn.com/markets/fear-and-greed\"]').length") == 1
+    assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://home.treasury.gov/treasury-daily-interest-rate-xml-feed\"]').length") == 1
+    assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://ecos.bok.or.kr/\"]').length") == 1
+    assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.textContent.includes('미국 10년 국채')).querySelector('.market-price').textContent") == "4.15%"
+    assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.textContent.includes('한국 10년 국채')).querySelector('.market-price').textContent") == "미연동"
     assert evaluate("document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].every(n=>n.getBoundingClientRect().right<=innerWidth)")
-    assert evaluate("__signalsFixture.writes.length") == 0
+    assert len(writes_since(evaluate, before)) == 0
