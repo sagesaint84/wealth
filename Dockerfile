@@ -18,7 +18,18 @@ COPY vendor/tossctl-auth-helper/ /opt/toss-auth/helper/
 COPY ops/toss-auth/browser_smoke.py /opt/toss-auth/browser_smoke.py
 # No Toss/server access, including Chromium background traffic. Fail the image
 # build if either native or emulated target architecture cannot launch Chromium.
-RUN --network=none /opt/toss-auth/venv/bin/python /opt/toss-auth/browser_smoke.py
+# QEMU guest dumps can otherwise land in / before WORKDIR. Remove any dumps
+# before this RUN commits; cleanup must never mask a failed browser smoke.
+RUN --network=none set -eu; \
+    ulimit -c 0; \
+    smoke_status=0; \
+    /opt/toss-auth/venv/bin/python /opt/toss-auth/browser_smoke.py || smoke_status=$?; \
+    find / -xdev -type f -name 'qemu_*.core' -delete; \
+    remaining_cores="$(find / -xdev -type f -name 'qemu_*.core' -print -quit)"; \
+    if [ -n "$remaining_cores" ]; then \
+        echo 'QEMU core dump remains after Chromium smoke cleanup' >&2; exit 1; \
+    fi; \
+    exit "$smoke_status"
 
 WORKDIR /app
 
