@@ -42,9 +42,9 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         revision = assets.revisions[0]
         # App release metadata and per-file revisions remain separate.
         self.assertEqual(revision, '2.1.3-p0')
-        layout = '/static/wealth-layout.js?v=2.1.3-ui-cleanup1'
+        layout = '/static/wealth-layout.js?v=2.1.3-ui-icons-rate1'
         self.assertEqual(assets.scripts.count(layout), 1)
-        core = '/static/wealth.js?v=2.1.3-ui-cleanup1'
+        core = '/static/wealth.js?v=2.1.3-ui-icons-rate1'
         money = '/static/wealth-money-input.js?v=2.1.3-ui-cleanup1'
         self.assertIn(core, html)
         self.assertIn(money, html)

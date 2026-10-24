@@ -275,6 +275,12 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-layout .wealth-income-hidden { display: none !important; }
 .wealth-layout .account-category-tabs { margin: 0 0 18px !important; margin-left: 0 !important; min-width: 0; max-width: 100%; overscroll-behavior-x: contain; }
 .wealth-layout #assetCategoryTabs > button { flex: 1 1 0; padding-inline:6px; }
+@media (max-width:480px) {
+  .wealth-layout #assetCategoryTabs.account-category-tabs > button { padding-inline:3px; }
+}
+@media (max-width:340px) {
+  .wealth-layout #assetCategoryTabs.account-category-tabs > button { padding-inline:0; }
+}
 .wealth-asset-dashboard { display:grid; grid-template-columns:minmax(0,1.08fr) minmax(340px,.92fr); gap:22px; margin-top:18px; align-items:start; }
 .wealth-home-asset-portfolio { padding:28px 30px; margin-top:24px; }
 .wealth-home-asset-portfolio .wealth-asset-dashboard { gap:28px; }
