@@ -1,6 +1,21 @@
 # Wealth 변경 이력
 
-## 2026-10-24 — PR #172 UI 개선 후보 (미머지·미배포)
+## 2026-10-24 — PR #173 금리 그래프·자산 이모지 복구, 운영 배포 완료
+
+- [PR #173](https://github.com/sagesaint84/wealth/pull/173) Squash Merge `6a14c0d5cd7dda27501db770572d1d3334b37901` (기반 PR #172 운영 커밋 `f90e9b7589a2180c518ecb34f9c7343ed0241367`). 앱 버전은 **v2.1.3** 유지, 정적 자산 revision은 변경 파일에 한해 `2.1.3-ui-icons-rate1`.
+- 다섯 균등 자산 탭에 `📈 증권`, `🏦 은행`, `🛡️ 연금·보험`, `🏠 부동산`, `🧾 세금` 이모지를 복구하고 카운트·구형 텍스트를 재도입하지 않았다. 작은 화면의 탭 좌우 padding만 조정했다.
+- Yahoo `^TNX` 금리 카드에 기존 `sparkline()`·`market-chart-col`을 재사용하여 지수와 동일한 작은 그래프를 복구했다. 표시값은 금리·연%·변동 bp만 유지하고 자료 링크·세부 설명을 재도입하지 않았다. 금리 원천 조회·계산·금융 데이터 쓰기 경로는 변경하지 않았다.
+- 기술적 신호 4개 섹션(20일선 이탈, 50일선 이탈, 골든크로스, 데드크로스)과 구형 필터 제거 상태를 유지했다.
+- GitHub PR 최종 CI **Static transport 387 passed**, **IPO 239 passed**, **Toss WTS AMD64/ARM64 SUCCESS**. 로컬 대상 **89 passed**, Chromium **30 passed**(320/360/390/768/1280px). 전체 pytest 재실행으로 해석하지 않는다.
+- [GHCR build #40100539869](https://github.com/sagesaint84/wealth/actions/runs/40100539869) **SUCCESS**, `ghcr.io/sagesaint84/wealth:6a14c0d`, multi-platform Digest `sha256:f4e0e17bafa7158a43b43fc3b5b47d540bbfcb1667dc00ec3accdb79cd9c634e`. Oracle ARM64 사용자 SSH 로그의 코어 검사·실행 이미지·HTTP 307·금융/Toss 마운트·이전 Wealth 이미지 선택 정리 **PASS**, 최종 여유 **31GB (85% 사용)**.
+- **실제 운영 브라우저 확인 (사용자 스크린샷)**: 다섯 이모지 탭과 금리 Sparkline 표시 **PASS**. 서버 외 독립 운영 E2E 및 실제 금융 데이터 감사는 수행하지 않았다. 문서 전용 정리는 배포 이미지를 교체하지 않는다.
+
+## 2026-10-24 — PR #172 UI 구조 개선, 운영 반영 완료
+
+- [PR #172](https://github.com/sagesaint84/wealth/pull/172) Squash Merge `f90e9b7589a2180c518ecb34f9c7343ed0241367`, [GHCR build #40094864428](https://github.com/sagesaint84/wealth/actions/runs/40094864428) **SUCCESS**, Digest `sha256:4cee609594c45f8e9f0f4e668e7e4521e39606db47161b3a9f3ca81df2c93568`. Oracle 배포 사용자 로그에서 실행 이미지·HTTP 307 확인. 이후 PR #173으로 UI 표현을 보완해 현재 운영 버전이 됐다.
+- PR #172는 자산 탭 카운트 제거·균등 정렬, 금리 정보 간소화, 구형 기술적 신호 필터의 원본 DOM/JS/CSS 제거와 4개 섹션 동시 표시·조회 공유·오래된 응답 방어를 반영했다. 아래 `PR #172 UI 개선 후보` 항목은 당시 미머지 상태에서 기록한 **과거 검증 이력**으로 보존한다.
+
+## 2026-10-24 — PR #172 UI 개선 후보 (당시 미머지·미배포 기록)
 
 - 자산 카테고리 탭의 괄호·카운트와 표시 전용 갱신 코드를 제거하고, 다섯 라벨을 균등 정렬한다. 기존 탭 전환과 내부 자산·계좌 계산은 유지한다.
 - Yahoo `^TNX` 금리 카드는 금리·값(연%)·변동(bp)만 표시하도록 간소화한다. 링크·자료 정보·추가 설명은 제거하고 기존 데이터 소스·계산은 유지한다.
