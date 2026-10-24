@@ -11,6 +11,9 @@ on:
       - 'tests/test_home_initial_html_chrome.py'
       - 'tests/test_view_initial_work_chrome.py'
       - 'tests/test_owner_filter_loads.py'
+      - 'tests/test_market_signals_holdings_chrome.py'
+      - 'tests/test_account_section_summary_10_6b_frontend.py'
+      - 'tests/test_accountinfo_owner_options_frontend.py'
       - 'tests/test_initial_asset_load.py'
       - 'tests/test_income_bucket_drilldown.py'
       - 'app/services/ipo/**'
@@ -100,6 +103,9 @@ jobs:
             tests/test_home_initial_html_chrome.py \
             tests/test_view_initial_work_chrome.py \
             tests/test_owner_filter_loads.py \
+            tests/test_market_signals_holdings_chrome.py \
+            tests/test_account_section_summary_10_6b_frontend.py \
+            tests/test_accountinfo_owner_options_frontend.py \
             tests/test_initial_asset_load.py \
             tests/test_income_bucket_drilldown.py \
             tests/test_ipo_broker_presentation.py \
@@ -141,6 +147,17 @@ jobs:
           report = Path(os.environ['RUNNER_TEMP']) / 'ipo-synthetic-results.xml'
           cases = list(ET.parse(report).iter('testcase'))
           assert cases and not any(c.find('skipped') is not None for c in cases)
+          assert not any(c.find(tag) is not None for c in cases for tag in ('failure', 'error'))
+          expected_ui_counts = {
+              'test_market_signals_holdings_chrome': 23,
+              'test_account_section_summary_10_6b_frontend': 12,
+              'test_accountinfo_owner_options_frontend': 5,
+          }
+          for module, expected in expected_ui_counts.items():
+              selected = [c for c in cases if c.get('classname', '').split('.')[-2:-1] == [module]
+                          or c.get('classname', '').endswith(module)]
+              assert len(selected) == expected and not any(list(c) for c in selected), module
+              print(f'PASS: UI contract {module}: {expected} executed without skips/failures/errors')
           initial_home = [c for c in cases if c.get('classname', '').endswith('test_home_initial_html_chrome')]
           assert len(initial_home) == 10 and not any(list(c) for c in initial_home)
           chart = [c for c in cases if c.get('classname', '').endswith('test_income_bucket_drilldown')]

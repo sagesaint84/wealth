@@ -1,6 +1,13 @@
 # Wealth
 
-## 현재 운영 배포 — 2026-10-22 / Wealth v2.1.3
+## 현재 운영 배포 — 2026-10-24 / Wealth v2.1.3
+
+- **운영 앱 v2.1.3**: [PR #170](https://github.com/sagesaint84/wealth/pull/170), [PR #171](https://github.com/sagesaint84/wealth/pull/171) 머지 완료. 현재 운영 SHA는 `10dc8bbdbd4c059f216cfc3690dd9e6cc98795ce`이며 앱 버전은 **2.1.3**을 유지한다.
+- **GHCR 발행 완료**: [Docker build #40076601931](https://github.com/sagesaint84/wealth/actions/runs/40076601931) SUCCESS.
+- **Oracle 배포 완료(사용자 확인)**: 이미지 ID `sha256:3e6f00ca4a488f71b7e7f916a0e7ab8b805d745eec6f5d33f4144c801691d0d4`, 컨테이너 정상, HTTP `/` → **307**, 금융 데이터 및 Toss 볼륨 유지. 이번 문서 수정에서 운영 서버에 접속하거나 금융 데이터를 조회하지 않았다.
+- **후속 UI 후보**: [PR #172](https://github.com/sagesaint84/wealth/pull/172)의 자산 탭·금리 카드·기술적 신호 4섹션 변경은 **아직 머지·운영 배포하지 않았다**. 아래 10월 22일 기록은 당시 배포·검증 이력으로 보존한다.
+
+## 과거 운영 배포 기록 — 2026-10-22 / Wealth v2.1.3
 
 - **운영 앱 v2.1.3**: [PR #163](https://github.com/sagesaint84/wealth/pull/163) Squash Merge `f9cb3cd87644fc8a51cd25488802878ee680613a` 완료. 코드 앱 버전 및 HTML 표시 **2.1.3**, 변경된 JS와 SW 캐시 식별자 **2.1.3-p0**. 미변경 IPO·레이아웃의 개별 asset revision은 유지.
 - **GHCR 발행 완료**: [Docker build #39741300759](https://github.com/sagesaint84/wealth/actions/runs/39741300759) SUCCESS; Linux AMD64/ARM64; `ghcr.io/sagesaint84/wealth:f9cb3cd`, 고정 manifest Digest `sha256:f2683c22acd77e8fe8f03b11c5bbfcf60115c095c7a242069a81c4d2ba64d1d8`.
