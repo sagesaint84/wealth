@@ -5746,8 +5746,8 @@ async def delete_holding(holding_id: str, request: Request) -> dict:
         data["holdings"] = [holding for holding in data["holdings"] if holding["id"] != holding_id]
         if before == len(data["holdings"]):
             raise HTTPException(404, "보유종목을 찾지 못했습니다.")
-        used_accounts = {holding["account_id"] for holding in data["holdings"]}
-        data["accounts"] = [account for account in data["accounts"] if account["id"] in used_accounts]
+        # Registered accounts (including empty AccountInfo imports) survive a
+        # holding deletion. Account removal has its own explicit endpoint.
         write_portfolio(data, username=username)
         return {"message": "보유종목을 삭제했습니다."}
 

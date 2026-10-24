@@ -76,7 +76,7 @@
     <link rel="stylesheet" href="/static/wealth-savings-contributions.css?v=10.9p" />
     <link rel="stylesheet" href="/static/wealth-account-reorder.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-overrides.css?v=10.9h1" />
-    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.3-signals1" />
+    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.3-postdeploy1" />
     <link rel="stylesheet" href="/static/wealth-color-preferences.css?v=10.9r6" />
   <link rel="stylesheet" href="/static/wealth-color-picker.css?v=10.9r2" />
     <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css?v=2.1.0-b2" />
@@ -450,14 +450,14 @@
           <div class="panel-head holding-signals-heading">
             <h3 id="holdingSignalsTitle">보유종목 기술적 신호</h3>
             <label>신호 필터 <select id="holdingSignalsFilter">
-              <option value="ALL">전체</option><option value="SMA20_BREAKDOWN">20일선 이탈</option>
+              <option value="">신호를 선택하세요</option><option value="SMA20_BREAKDOWN">20일선 이탈</option>
               <option value="SMA50_BREAKDOWN">50일선 이탈</option><option value="GOLDEN_CROSS">골든크로스</option>
               <option value="DEAD_CROSS">데드크로스</option>
             </select></label>
-            <button id="holdingSignalsRefresh" class="button secondary compact" type="button">신호 조회</button>
+            <button id="holdingSignalsRefresh" class="button secondary compact" type="button" disabled>신호 조회</button>
           </div>
-          <p class="holding-signals-note">확정 거래일 조정종가 기준 · 현재 선 아래 상태와 최근 이탈 사건을 구분합니다. 20일선은 21개, 50일선·교차는 51개 일봉이 필요합니다.</p>
-          <p id="holdingSignalsStatus" role="status" aria-live="polite">보유종목 화면에서 조회합니다.</p>
+          <p class="holding-signals-note">신호 선택 후 조회 · 확정 조정종가 기준 · 20일선 21개, 50일선·교차 51개 거래일 필요</p>
+          <p id="holdingSignalsStatus" role="status" aria-live="polite">신호를 선택한 뒤 조회하세요.</p>
           <div id="holdingSignalsRows"></div>
         </section>
         <div class="table-wrap">
@@ -3455,7 +3455,7 @@
     <script src="/static/wealth-settings-surface.js?v=2.1.3-uiux1"></script>
     <script src="/static/wealth-layout.js?v=2.1.3-uiux1"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
-    <script src="/static/wealth.js?v=2.1.3-tnx1"></script>
+    <script src="/static/wealth.js?v=2.1.3-postdeploy1"></script>
     <script src="/static/wealth-ledger-ocr.js?v=2.0.2-review2"></script>
     <script src="/static/wealth-national-pension.js?v=2.0.2"></script>
     <script src="/static/wealth-pension-import.js?v=2.0.2"></script>

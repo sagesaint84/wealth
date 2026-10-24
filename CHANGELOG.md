@@ -1,5 +1,15 @@
 # Wealth 변경 이력
 
+## 2026-10-24 — v2.1.3 운영 후 회귀 수정 (로컬 검증 대기)
+
+- Yahoo `^TNX`는 검증된 `America/Chicago` 또는 `America/New_York`로 관측일·일봉 날짜를 계산한다. 금리 원값(예: 4.988%) 및 `%p × 100` bp 계산, 지연·조회 실패 구분을 유지한다.
+- 기술적 신호는 선택 후 버튼으로 조회하며 일치 종목만 표시한다. 소유자·필터 변경 시 결과를 비우고 진행 중 조회/읽기 캐시를 공유한다. 이평선 계산과 거래일 검증은 변경하지 않았다.
+- 보유종목 추가의 등록 계좌는 선택 소유자로 제한하고 UUID는 내부 ID로만 사용한다. 수정 시 기존 계좌 연결 및 서버의 소유자 검증을 유지한다.
+- 금리 카드는 기존 지수 카드 구조를 재사용하고 상세 출처·시각은 카드의 자료 정보에서 제공한다. CNN은 공식 링크와 작은 미연동 안내만 유지한다. 기존 홈 탭·패널 접기 동작은 변경하지 않았다.
+- AccountInfo PDF는 브라우저에서 CSV로 변환해 증권계좌를 `accounts`에 추가하고, 은행계좌는 별도 `bank_accounts`에 저장한다. Preview의 계좌번호 중복·소유자 충돌 확인과 API의 owner/group 및 화면 category 필터를 유지한다. 보유종목 삭제가 모든 빈 증권계좌를 함께 제거하던 경로만 수정해 등록 계좌를 보존한다.
+- **ACCOUNTINFO_DATA_AUDIT=UNCONFIRMED**: 운영 금융 데이터에 접근하지 않았다. 실제 누락 여부는 같은 인증 사용자에 대해 저장된 증권/은행 ID·소유자·유형별 건수와 `/api/dashboard`, `/api/accounts?group=All&owner=모두`, `/api/savings`의 건수·ID 집합, 현재 소유자·자산 탭을 읽기 전용으로 비교해야 한다. 저장 목록 자체에 없다면 기존 백업·변경 이력에서 명시적 계좌 삭제/전체 삭제/보유종목 삭제 시점을 확인해야 한다. 자동 복원·재가져오기·마이그레이션은 수행하지 않는다. 계좌번호·잔액·인증정보를 공개 로그에 남기지 않는다.
+- Synthetic·Chromium 회귀 테스트 작성. **pytest/Chromium 실행 및 배포는 하지 않음**; 사용자 PowerShell 검증 대상이다. 변경 JS/CSS revision `2.1.3-postdeploy1`.
+
 ## 2026-10-22 — Wealth v2.1.3 P0 출시·Oracle 배포
 
 - [PR #163](https://github.com/sagesaint84/wealth/pull/163) Squash Merge `f9cb3cd87644fc8a51cd25488802878ee680613a`. FastAPI APP_VERSION·HTML 표시 v2.1.3, 변경 JS/SW revision `2.1.3-p0`; 기존 IPO·레이아웃 별도 revision 유지.
