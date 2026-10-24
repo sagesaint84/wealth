@@ -40,12 +40,12 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         # Parse actual tags so comments cannot satisfy order.
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
-        # P0 core changes independently of the unchanged main layout.
+        # App release metadata and per-file revisions remain separate.
         self.assertEqual(revision, '2.1.3-p0')
-        layout = '/static/wealth-layout.js?v=2.1.3-uiux1'
+        layout = '/static/wealth-layout.js?v=2.1.3-ui-cleanup1'
         self.assertEqual(assets.scripts.count(layout), 1)
-        core = '/static/wealth.js?v=2.1.3-p0'
-        money = '/static/wealth-money-input.js?v=2.0.3-ai1'
+        core = '/static/wealth.js?v=2.1.3-ui-cleanup1'
+        money = '/static/wealth-money-input.js?v=2.1.3-ui-cleanup1'
         self.assertIn(core, html)
         self.assertIn(money, html)
         self.assertLess(html.index(core), html.index(money))

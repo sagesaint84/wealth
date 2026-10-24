@@ -330,7 +330,7 @@
   const load = () => {
     if (document.querySelector('script[data-accountinfo-owner-options]')) return;
     const script = document.createElement('script');
-    script.src = '/static/wealth-accountinfo-owner-options.js?v=10.6a1';
+    script.src = '/static/wealth-accountinfo-owner-options.js?v=2.1.3-ui-cleanup1';
     script.defer = true;
     script.dataset.accountinfoOwnerOptions = 'true';
     document.head.appendChild(script);
