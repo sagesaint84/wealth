@@ -3,10 +3,42 @@
 Synthetic loopback APIs only; the application and financial stores are never opened.
 """
 import json
+from html.parser import HTMLParser
+from pathlib import Path
 import pytest
 
 from tests.test_account_reorder_runtime import chrome_preview, wait_for
 from tests.test_static_transport_chrome import transport_server
+
+
+def test_income_panel_start_tags_are_hidden_before_inline_route_selection():
+    html = (Path(__file__).resolve().parents[1] / 'app/static/index.html').read_text(encoding='utf-8')
+    panels = {
+        'calendarPanel': 'calendar', 'realizedPnlPanel': 'pnl',
+        'dividendPanel': 'dividend', 'ledgerSectionPanel': 'ledger', 'ipoPanel': 'ipo',
+    }
+
+    class PanelParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.panels = []
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if attrs.get('id') in panels:
+                self.panels.append(attrs['id'])
+                assert tag == 'section'
+                assert 'wealth-income-hidden' in attrs.get('class', '').split()
+                # Selection must run before any panel content can be painted.
+                start = self.get_starttag_text()
+                selector = f"<script>WealthWorkspaceRoute.select(document.currentScript.parentElement, '{panels[attrs['id']]}');</script>"
+                assert html.count(start) == 1
+                assert start + selector in html
+
+    parser = PanelParser()
+    parser.feed(html)
+    parser.close()
+    assert sorted(parser.panels) == sorted(panels)
 
 
 def test_home_initial_html_and_reload_preserve_current_workspace(chrome_preview):
