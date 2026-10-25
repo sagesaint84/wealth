@@ -168,6 +168,22 @@
       if (logout) actions.append(logout);
     }
   });
+  const homeTabs = document.getElementById('homeTabs');
+  const homeButtons = [...homeTabs.querySelectorAll('[data-home-tab]')];
+  const selectHomeTab = button => {
+    if (!button || button.getAttribute('aria-selected') === 'true') return;
+    location.hash = button.dataset.homeTab === 'portfolio' ? 'home' : `home/${button.dataset.homeTab}`;
+  };
+  homeTabs.addEventListener('click', event => selectHomeTab(event.target.closest('[data-home-tab]')));
+  homeTabs.addEventListener('keydown', event => {
+    const index = homeButtons.indexOf(event.target);
+    if (index < 0) return;
+    const target = {ArrowRight:(index+1)%3, ArrowLeft:(index+2)%3, Home:0, End:2}[event.key];
+    if (target === undefined) return;
+    event.preventDefault();
+    homeButtons[target].focus({preventScroll:true});
+    selectHomeTab(homeButtons[target]);
+  });
   let activeView = null;
   function navigate(focus = false) {
     const { requested, key, incomeTab } = routeState.sync();
