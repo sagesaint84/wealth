@@ -1,0 +1,947 @@
+{
+  "purpose": "diagnostic only; single fresh Chromium per variant; 360px mobile; CPU/network unthrottled; invented nonempty history; instrumented temporary copies; not comparable to prior timed gate and never replaces it",
+  "baseline": "940a42053297059dcbafdc837458876269958086",
+  "candidate_parent": "c30d09a9a0959baca3b2ef0ff2692ea0314f4a2b",
+  "sizes": [
+    {
+      "asset": "index.html",
+      "main": {
+        "raw_bytes": 250207,
+        "gzip5_bytes": 46139
+      },
+      "candidate": {
+        "raw_bytes": 252326,
+        "gzip5_bytes": 46537
+      }
+    },
+    {
+      "asset": "wealth-layout.js",
+      "main": {
+        "raw_bytes": 20419,
+        "gzip5_bytes": 6631
+      },
+      "candidate": {
+        "raw_bytes": 21277,
+        "gzip5_bytes": 6869
+      }
+    },
+    {
+      "asset": "wealth-layout.css",
+      "main": {
+        "raw_bytes": 88639,
+        "gzip5_bytes": 16136
+      },
+      "candidate": {
+        "raw_bytes": 89053,
+        "gzip5_bytes": 16217
+      }
+    },
+    {
+      "asset": "wealth-planning.js",
+      "main": {
+        "raw_bytes": 48450,
+        "gzip5_bytes": 14070
+      },
+      "candidate": {
+        "raw_bytes": 48509,
+        "gzip5_bytes": 14069
+      }
+    }
+  ],
+  "observations": [
+    {
+      "variant": "main",
+      "snapshots": [
+        {
+          "phase": "startup",
+          "counts": {
+            "view": 2,
+            "history-call": 4,
+            "history-svg-write": 3,
+            "unified-networth": 1
+          },
+          "api": [
+            {
+              "path": "/api/account-display-order",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/color-preferences",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/import-destination-defaults",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/auth/me",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/family-members",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/refresh-prices",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/dashboard",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/asset-records",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning/snapshot-all",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/family-members",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/market-overview",
+              "method": "GET",
+              "phase": "startup"
+            }
+          ],
+          "ids": 1132,
+          "historySvg": 1,
+          "hiddenHistory": false,
+          "tabButtons": 0,
+          "errors": [],
+          "metrics": {
+            "JSEventListeners": 756,
+            "Nodes": 14785,
+            "LayoutDuration": 0.177211,
+            "RecalcStyleDuration": 0.0266,
+            "ScriptDuration": 0.155032
+          }
+        }
+      ],
+      "events": [
+        {
+          "kind": "view",
+          "phase": "startup",
+          "t": 472,
+          "detail": "home"
+        },
+        {
+          "kind": "view",
+          "phase": "startup",
+          "t": 558.5,
+          "detail": "invest"
+        },
+        {
+          "kind": "history-call",
+          "phase": "startup",
+          "t": 691.0999999940395,
+          "visible": true,
+          "ms": 0.19999999552965164
+        },
+        {
+          "kind": "history-svg-write",
+          "phase": "startup",
+          "t": 738.5999999940395,
+          "width": 302
+        },
+        {
+          "kind": "history-call",
+          "phase": "startup",
+          "t": 740.1999999955297,
+          "visible": true,
+          "ms": 3.5
+        },
+        {
+          "kind": "history-svg-write",
+          "phase": "startup",
+          "t": 820.1999999955297,
+          "width": 302
+        },
+        {
+          "kind": "history-call",
+          "phase": "startup",
+          "t": 821.2999999970198,
+          "visible": true,
+          "ms": 1.3999999985098839
+        },
+        {
+          "kind": "history-svg-write",
+          "phase": "startup",
+          "t": 994.6999999955297,
+          "width": 302
+        },
+        {
+          "kind": "history-call",
+          "phase": "startup",
+          "t": 995.6999999955297,
+          "visible": true,
+          "ms": 1.2999999970197678
+        },
+        {
+          "kind": "unified-networth",
+          "phase": "startup",
+          "t": 1047,
+          "visible": true,
+          "ms": 8.5
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "snapshots": [
+        {
+          "phase": "startup",
+          "counts": {
+            "view": 2,
+            "history-call": 3
+          },
+          "api": [
+            {
+              "path": "/api/account-display-order",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/color-preferences",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/import-destination-defaults",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/auth/me",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/family-members",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/refresh-prices",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/dashboard",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/asset-records",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning/snapshot-all",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            }
+          ],
+          "ids": 1137,
+          "historySvg": 0,
+          "hiddenHistory": true,
+          "tabButtons": 3,
+          "errors": [],
+          "metrics": {
+            "JSEventListeners": 665,
+            "Nodes": 14073,
+            "LayoutDuration": 0.124549,
+            "RecalcStyleDuration": 0.014057,
+            "ScriptDuration": 0.108409
+          }
+        },
+        {
+          "phase": "history-first",
+          "counts": {
+            "view": 3,
+            "history-call": 5,
+            "history-svg-write": 2,
+            "unified-networth": 1
+          },
+          "api": [
+            {
+              "path": "/api/account-display-order",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/color-preferences",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/import-destination-defaults",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/auth/me",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/family-members",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/refresh-prices",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/dashboard",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/asset-records",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning/snapshot-all",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            }
+          ],
+          "ids": 1137,
+          "historySvg": 1,
+          "hiddenHistory": false,
+          "tabButtons": 3,
+          "errors": [],
+          "metrics": {
+            "JSEventListeners": 736,
+            "Nodes": 14576,
+            "LayoutDuration": 0.157598,
+            "RecalcStyleDuration": 0.026405,
+            "ScriptDuration": 0.146803
+          }
+        },
+        {
+          "phase": "portfolio-return",
+          "counts": {
+            "view": 4,
+            "history-call": 6,
+            "history-svg-write": 2,
+            "unified-networth": 1
+          },
+          "api": [
+            {
+              "path": "/api/account-display-order",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/color-preferences",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/import-destination-defaults",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/auth/me",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/family-members",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/refresh-prices",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/dashboard",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/asset-records",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning/snapshot-all",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            }
+          ],
+          "ids": 1137,
+          "historySvg": 1,
+          "hiddenHistory": true,
+          "tabButtons": 3,
+          "errors": [],
+          "metrics": {
+            "JSEventListeners": 736,
+            "Nodes": 14611,
+            "LayoutDuration": 0.159189,
+            "RecalcStyleDuration": 0.030612,
+            "ScriptDuration": 0.15517
+          }
+        },
+        {
+          "phase": "history-second",
+          "counts": {
+            "view": 5,
+            "history-call": 8,
+            "history-svg-write": 4,
+            "unified-networth": 2
+          },
+          "api": [
+            {
+              "path": "/api/account-display-order",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/color-preferences",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/import-destination-defaults",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/auth/me",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/family-members",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/refresh-prices",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/dashboard",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/asset-records",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning/snapshot-all",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            }
+          ],
+          "ids": 1137,
+          "historySvg": 1,
+          "hiddenHistory": false,
+          "tabButtons": 3,
+          "errors": [],
+          "metrics": {
+            "JSEventListeners": 807,
+            "Nodes": 15088,
+            "LayoutDuration": 0.16529,
+            "RecalcStyleDuration": 0.039962,
+            "ScriptDuration": 0.17628
+          }
+        },
+        {
+          "phase": "markets-first",
+          "counts": {
+            "view": 6,
+            "history-call": 9,
+            "history-svg-write": 4,
+            "unified-networth": 2
+          },
+          "api": [
+            {
+              "path": "/api/account-display-order",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/color-preferences",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/import-destination-defaults",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/auth/me",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/family-members",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/refresh-prices",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/dashboard",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/asset-records",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning/snapshot-all",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/market-overview",
+              "method": "GET",
+              "phase": "markets-first"
+            }
+          ],
+          "ids": 1137,
+          "historySvg": 1,
+          "hiddenHistory": true,
+          "tabButtons": 3,
+          "errors": [],
+          "metrics": {
+            "JSEventListeners": 807,
+            "Nodes": 15173,
+            "LayoutDuration": 0.175579,
+            "RecalcStyleDuration": 0.044622,
+            "ScriptDuration": 0.182635
+          }
+        },
+        {
+          "phase": "portfolio-second",
+          "counts": {
+            "view": 7,
+            "history-call": 10,
+            "history-svg-write": 4,
+            "unified-networth": 2
+          },
+          "api": [
+            {
+              "path": "/api/account-display-order",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/color-preferences",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/import-destination-defaults",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/auth/me",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/family-members",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/refresh-prices",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/dashboard",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/asset-records",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning/snapshot-all",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/market-overview",
+              "method": "GET",
+              "phase": "markets-first"
+            }
+          ],
+          "ids": 1137,
+          "historySvg": 1,
+          "hiddenHistory": true,
+          "tabButtons": 3,
+          "errors": [],
+          "metrics": {
+            "JSEventListeners": 807,
+            "Nodes": 15186,
+            "LayoutDuration": 0.177212,
+            "RecalcStyleDuration": 0.047112,
+            "ScriptDuration": 0.186226
+          }
+        },
+        {
+          "phase": "markets-second",
+          "counts": {
+            "view": 8,
+            "history-call": 11,
+            "history-svg-write": 4,
+            "unified-networth": 2
+          },
+          "api": [
+            {
+              "path": "/api/account-display-order",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/color-preferences",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/import-destination-defaults",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/auth/me",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/family-members",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/refresh-prices",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/dashboard",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/asset-records",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning/snapshot-all",
+              "method": "POST",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/planning",
+              "method": "GET",
+              "phase": "startup"
+            },
+            {
+              "path": "/api/market-overview",
+              "method": "GET",
+              "phase": "markets-first"
+            },
+            {
+              "path": "/api/market-overview",
+              "method": "GET",
+              "phase": "markets-second"
+            }
+          ],
+          "ids": 1137,
+          "historySvg": 1,
+          "hiddenHistory": true,
+          "tabButtons": 3,
+          "errors": [],
+          "metrics": {
+            "JSEventListeners": 807,
+            "Nodes": 15251,
+            "LayoutDuration": 0.178043,
+            "RecalcStyleDuration": 0.05023,
+            "ScriptDuration": 0.191147
+          }
+        }
+      ],
+      "events": [
+        {
+          "kind": "view",
+          "phase": "startup",
+          "t": 239.30000000447035,
+          "detail": "home"
+        },
+        {
+          "kind": "view",
+          "phase": "startup",
+          "t": 337.90000000596046,
+          "detail": "invest"
+        },
+        {
+          "kind": "history-call",
+          "phase": "startup",
+          "t": 462.90000000596046,
+          "visible": false,
+          "ms": 0.20000000298023224
+        },
+        {
+          "kind": "history-call",
+          "phase": "startup",
+          "t": 516.1000000014901,
+          "visible": false,
+          "ms": 0.10000000149011612
+        },
+        {
+          "kind": "history-call",
+          "phase": "startup",
+          "t": 575.5,
+          "visible": false,
+          "ms": 0
+        },
+        {
+          "kind": "view",
+          "phase": "history-first",
+          "t": 904.8000000044703,
+          "detail": "home"
+        },
+        {
+          "kind": "history-svg-write",
+          "phase": "history-first",
+          "t": 919.9000000059605,
+          "width": 302
+        },
+        {
+          "kind": "history-call",
+          "phase": "history-first",
+          "t": 921.3000000044703,
+          "visible": true,
+          "ms": 2.2000000029802322
+        },
+        {
+          "kind": "history-svg-write",
+          "phase": "history-first",
+          "t": 946.8000000044703,
+          "width": 302
+        },
+        {
+          "kind": "history-call",
+          "phase": "history-first",
+          "t": 947.7000000029802,
+          "visible": true,
+          "ms": 1.2999999970197678
+        },
+        {
+          "kind": "unified-networth",
+          "phase": "history-first",
+          "t": 982.4000000059605,
+          "visible": true,
+          "ms": 7.9000000059604645
+        },
+        {
+          "kind": "view",
+          "phase": "portfolio-return",
+          "t": 1114.9000000059605,
+          "detail": "home"
+        },
+        {
+          "kind": "history-call",
+          "phase": "portfolio-return",
+          "t": 1121.1000000014901,
+          "visible": false,
+          "ms": 0
+        },
+        {
+          "kind": "view",
+          "phase": "history-second",
+          "t": 1276.5,
+          "detail": "home"
+        },
+        {
+          "kind": "history-svg-write",
+          "phase": "history-second",
+          "t": 1284.6000000014901,
+          "width": 302
+        },
+        {
+          "kind": "history-call",
+          "phase": "history-second",
+          "t": 1285.6000000014901,
+          "visible": true,
+          "ms": 1.3999999985098839
+        },
+        {
+          "kind": "history-svg-write",
+          "phase": "history-second",
+          "t": 1291,
+          "width": 302
+        },
+        {
+          "kind": "history-call",
+          "phase": "history-second",
+          "t": 1292,
+          "visible": true,
+          "ms": 1.1999999955296516
+        },
+        {
+          "kind": "unified-networth",
+          "phase": "history-second",
+          "t": 1321.5,
+          "visible": true,
+          "ms": 2.5
+        },
+        {
+          "kind": "view",
+          "phase": "markets-first",
+          "t": 1423.6000000014901,
+          "detail": "home"
+        },
+        {
+          "kind": "history-call",
+          "phase": "markets-first",
+          "t": 1435.6000000014901,
+          "visible": false,
+          "ms": 0
+        },
+        {
+          "kind": "view",
+          "phase": "portfolio-second",
+          "t": 1575.6000000014901,
+          "detail": "home"
+        },
+        {
+          "kind": "history-call",
+          "phase": "portfolio-second",
+          "t": 1584.5,
+          "visible": false,
+          "ms": 0
+        },
+        {
+          "kind": "view",
+          "phase": "markets-second",
+          "t": 1708.4000000059605,
+          "detail": "home"
+        },
+        {
+          "kind": "history-call",
+          "phase": "markets-second",
+          "t": 1719.3000000044703,
+          "visible": false,
+          "ms": 0
+        }
+      ]
+    }
+  ]
+}

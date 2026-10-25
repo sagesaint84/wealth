@@ -99,3 +99,10 @@ MERGE_GATE=HOLD
 DEPLOY_GATE=HOLD
 
 Neither historical performance JSON file was modified. No performance threshold was weakened; no new timing sample replaces either failed 360px comparison. No performance fix or root cause is claimed.
+
+
+## Performance mechanism diagnosis and CI follow-up
+
+See `HOME_THREE_TABS_DIAGNOSIS.md`, the synthetic raw `home-three-tabs-diagnostics.json`, and reproducer `tests/home_tabs_diagnostics.py`. Re-entry causes 2 legacy history SVG writes and 1 unified chart render per history entry, but none on initial portfolio. Market reads occur once per market entry. The first-display cause remains UNCONFIRMED. Historical mobile JS/style medians are higher while LayoutDuration medians are lower. No new gate benchmark was run and neither failed timing record was changed.
+
+IPO CI at label HEAD c30d09a failed on an overlooked old CSS revision contract (51 passed, 1 failed). Exact CSS/JS revision expectations were corrected in two additional tests, with 15 local tests passed. This does not erase the failed CI run; successor CI is tracked at its exact SHA in PR #177. FUNCTIONAL_GATE=PASS (19 home/label tests); REGRESSION_GATE=REVIEW_REQUIRED; PERFORMANCE_GATE=FAIL/HOLD; MERGE_GATE=HOLD; DEPLOY_GATE=HOLD.
