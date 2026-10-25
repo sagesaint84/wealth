@@ -65,9 +65,17 @@ class ReleaseVersionTests(unittest.TestCase):
 
     def test_documentation_version_sync(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("**Wealth v2.1.3**", readme)
-        self.assertIn("**Wealth v2.1.2**", readme)
-        self.assertIn("**Wealth v2.1.0**", readme)
+        self.assertIn("# Wealth 사용 설명서", readme)
+        self.assertIn("## 1. 처음 시작하는 순서", readme)
+        self.assertIn("## 7. 설정", readme)
+        self.assertIn("issues/176", readme)
+        self.assertNotIn("## 현재 운영 배포", readme)
+
+        archived = (ROOT / "docs" / "README_OPERATIONS_ARCHIVE.md").read_text(encoding="utf-8")
+        self.assertIn("2026-10-24 / Wealth v2.1.3", archived)
+        self.assertIn("**Wealth v2.1.3**", archived)
+        self.assertIn("**Wealth v2.1.2**", archived)
+        self.assertIn("**Wealth v2.1.0**", archived)
 
         changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         self.assertIn("## 2026-10-22 — Wealth v2.1.3 P0 출시·Oracle 배포", changelog)
