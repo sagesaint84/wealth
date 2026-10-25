@@ -76,13 +76,13 @@
     <link rel="stylesheet" href="/static/wealth-savings-contributions.css?v=10.9p" />
     <link rel="stylesheet" href="/static/wealth-account-reorder.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-overrides.css?v=10.9h1" />
-    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.2-route1" />
+    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.3-ui-icons-rate1" />
     <link rel="stylesheet" href="/static/wealth-color-preferences.css?v=10.9r6" />
   <link rel="stylesheet" href="/static/wealth-color-picker.css?v=10.9r2" />
     <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css?v=2.1.0-b2" />
     <link rel="stylesheet" href="/static/wealth-family-financial-income-risk.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-family-financial-income-allocation.css?v=1.3.0" />
-    <link rel="stylesheet" href="/static/wealth-ui-density.css?v=2.0.1" />
+    <link rel="stylesheet" href="/static/wealth-ui-density.css?v=2.1.3-uiux1" />
     <link rel="stylesheet" href="/static/wealth-national-pension.css?v=2.0.2-r2" />
     <link rel="stylesheet" href="/static/wealth-dialog-system.css?v=2.0.3-ai1" />
   </head>
@@ -446,6 +446,11 @@
             <button id="clearAllHoldingsBtn" class="button secondary danger compact" type="button" title="보유종목 전체 일괄 삭제">🗑️ 일괄삭제</button>
           </div>
         </div>
+        <section class="holding-signals" aria-labelledby="holdingSignalsTitle">
+          <h3 id="holdingSignalsTitle">보유종목 기술적 신호</h3>
+          <p id="holdingSignalsStatus" role="status" aria-live="polite"></p>
+          <div id="holdingSignalsRows"></div>
+        </section>
         <div class="table-wrap">
           <table>
             <thead>
@@ -683,7 +688,7 @@
         </div>
       </section>
 </section><section data-wealth-page="income" aria-label="머니 로그" hidden=""><script>WealthWorkspaceRoute.select(document.currentScript.parentElement);</script>
-<section id="calendarPanel" class="panel calendar-panel"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'calendar');</script>
+<section id="calendarPanel" class="panel calendar-panel wealth-income-hidden"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'calendar');</script>
         <div class="panel-head calendar-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div>
             <p class="eyebrow">FINANCIAL CALENDAR</p>
@@ -705,7 +710,7 @@
           <div id="calendarDetailList" class="calendar-detail-list"></div>
         </div>
       </section>
-<section id="realizedPnlPanel" class="panel dividend-panel pnl-panel"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'pnl');</script>
+<section id="realizedPnlPanel" class="panel dividend-panel pnl-panel wealth-income-hidden"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'pnl');</script>
         <div class="panel-head dividend-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div class="dividend-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div>
@@ -1208,7 +1213,7 @@
 
         </div>
       </section>
-<section id="dividendPanel" class="panel dividend-panel"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'dividend');</script>
+<section id="dividendPanel" class="panel dividend-panel wealth-income-hidden"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'dividend');</script>
         <div class="panel-head dividend-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div class="dividend-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div>
@@ -1373,7 +1378,7 @@
           </div>
         </div>
       </section>
-<section id="ledgerSectionPanel" class="panel ledger-section-panel" style="margin-top:18px;"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'ledger');</script>
+<section id="ledgerSectionPanel" class="panel ledger-section-panel wealth-income-hidden" style="margin-top:18px;"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'ledger');</script>
         <div class="panel-head ledger-panel-head" style="flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;">
           <div class="ledger-head-left" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div class="ledger-title-wrap">
@@ -1473,7 +1478,7 @@
           </div>
         </div>
       </section>
-<section id="ipoPanel" class="panel ipo-panel" style="margin-top:18px;"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'ipo');</script>
+<section id="ipoPanel" class="panel ipo-panel wealth-income-hidden" style="margin-top:18px;"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'ipo');</script>
         <div class="panel-head ipo-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
           <div>
             <p class="eyebrow">IPO SCHEDULE &amp; SCORE</p>
@@ -1547,7 +1552,7 @@
         <div class="form-grid">
           <label style="grid-column: 1 / -1;">
             등록된 계좌 선택 (선택 시 증권사·계좌명·소유자 자동 채움)
-            <select id="holdingAccountSelect">
+            <select id="holdingAccountSelect" name="account_id">
               <option value="">-- 직접 입력 또는 등록된 계좌 선택 --</option>
             </select>
           </label>
@@ -3438,25 +3443,25 @@
 
     <script src="/static/wealth-color-picker.js?v=10.9r5"></script>
     <script src="/static/wealth-color-preferences.js?v=10.9r6"></script>
-    <script src="/static/wealth-settings-surface.js?v=10.9m1"></script>
-    <script src="/static/wealth-layout.js?v=2.1.2-route1"></script>
+    <script src="/static/wealth-settings-surface.js?v=2.1.3-uiux1"></script>
+    <script src="/static/wealth-layout.js?v=2.1.3-ui-icons-rate1"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
-    <script src="/static/wealth.js?v=2.1.3-p0"></script>
+    <script src="/static/wealth.js?v=2.1.3-ui-icons-rate1"></script>
     <script src="/static/wealth-ledger-ocr.js?v=2.0.2-review2"></script>
     <script src="/static/wealth-national-pension.js?v=2.0.2"></script>
     <script src="/static/wealth-pension-import.js?v=2.0.2"></script>
     <script src="/static/wealth-savings-contributions.js?v=1.3.0"></script>
     <script src="/static/wealth-transaction-defaults.js?v=2.0.1"></script>
     <script src="/static/wealth-dividend-source.js?v=2.1.0-b2"></script>
-    <script src="/static/wealth-money-input.js?v=2.0.3-ai1"></script>
+    <script src="/static/wealth-money-input.js?v=2.1.3-ui-cleanup1"></script>
     <script src="/static/wealth-financial-income-what-if.js?v=2.1.3-p0"></script>
     <script src="/static/wealth-family-financial-income-risk.js?v=2.1.3-p0"></script>
     <script src="/static/wealth-family-financial-income-allocation.js?v=2.1.3-p0"></script>
     <script src="/static/wealth-settings.js?v=10.9h1"></script>
-    <script src="/static/wealth-ipo.js?v=2.1.2-ipo-ui1"></script>
+    <script src="/static/wealth-ipo.js?v=2.1.3-ipo-naver1"></script>
     <script src="/static/wealth-calendar.js?v=2.1.2-ipo-ui1"></script>
     <script src="/static/wealth-planning-model.js?v=2.1.3-p0"></script>
-    <script src="/static/wealth-planning.js?v=2.1.3-p0"></script>
+    <script src="/static/wealth-planning.js?v=2.1.3-uiux1"></script>
   </body>
 </html>
 

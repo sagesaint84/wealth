@@ -34,7 +34,7 @@ def test_national_pension_history_edit_restore_missing_zero_and_mobile(chrome_pr
     })()''')
     evaluate(FRAMES)
     assert '연금·보험' in evaluate("document.querySelector('#assetCategoryTabs [data-cat=insurance]').textContent")
-    assert evaluate("document.getElementById('insuranceTabCount').textContent") == '1'
+    assert evaluate("document.getElementById('insuranceTabCount')===null")
     assert evaluate("document.querySelectorAll('[data-national-history-id]').length") == 1
     assert evaluate("(()=>{const tabs=document.getElementById('assetCategoryTabs');return tabs.scrollWidth<=tabs.clientWidth+1;})()")
     assert evaluate("document.querySelector('.np-history').textContent.includes('미확인')")

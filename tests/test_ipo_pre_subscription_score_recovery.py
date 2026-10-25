@@ -60,7 +60,6 @@ def run_interactive(monkeypatch, rows, dart, target='2026-10-07'):
     monkeypatch.setattr(adapter, '_BASE_REFRESH_MARKET', lambda **kwargs:{'status':'ok'})
     monkeypatch.setattr(adapter._base, '_refresh_file_lock', nullcontext)
     monkeypatch.setattr(adapter, 'discover_and_merge_primary_sources', lambda **kwargs:{})
-    monkeypatch.setattr(adapter, 'refresh_missing_metalogos_references', lambda **kwargs:{'status':'ok'})
     return adapter.refresh_ipo_market(username='synthetic-user', target_date_str=target), writes
 
 

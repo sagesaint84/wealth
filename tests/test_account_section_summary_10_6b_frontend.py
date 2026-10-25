@@ -17,7 +17,7 @@ class AccountSectionSummary106BFrontendTests(unittest.TestCase):
 
     def test_loader_registers_versioned_summary_script_once(self) -> None:
         self.assertIn("wealthAccountSectionSummaryScript", self.loader_js)
-        self.assertIn("/static/wealth-account-section-summary.js?v=10.6b3", self.loader_js)
+        self.assertIn("/static/wealth-account-section-summary.js?v=2.1.3-ui-cleanup1", self.loader_js)
         self.assertIn("window.WealthAccountSectionSummary", self.loader_js)
 
     def test_securities_summary_has_requested_account_and_asset_metrics(self) -> None:
@@ -58,7 +58,7 @@ class AccountSectionSummary106BFrontendTests(unittest.TestCase):
 
     def test_bank_visible_counts_follow_actual_accounts_and_separate_agreements(self) -> None:
         self.assertIn("syncBankCountBadges(bankAccounts.length, agreements.length)", self.summary_js)
-        self.assertIn("['bankingTabCount', actualAccountCount]", self.summary_js)
+        self.assertNotIn("bankingTabCount", self.summary_js)
         self.assertIn("['allBankCount', actualAccountCount]", self.summary_js)
         self.assertIn("['loansCount', agreementCount]", self.summary_js)
 

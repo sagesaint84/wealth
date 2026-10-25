@@ -123,6 +123,7 @@ let currentOwner = '모두'; // 선택된 가족 구성원
 function selectOwner(owner) {
   if (currentOwner !== (owner || '모두') && typeof invalidateStartupReads === 'function') invalidateStartupReads();
   currentOwner = owner || '모두';
+  syncHoldingSignalsContext();
   document.querySelectorAll('.family-tabs .family-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.owner === currentOwner);
   });
@@ -1008,7 +1009,8 @@ function renderMarkets(result) {
         change_rate: fxChangeRate,
         series: fxSeries,
       };
-    })()
+    })(),
+    ...(marketOverviewData.rates || [])
   ];
 
   // 순서: 코스피 -> 코스닥 -> 달러 -> S&P -> 나스닥 -> 반도체
@@ -1022,6 +1024,16 @@ function renderMarkets(result) {
   if (!grid) return;
 
   grid.innerHTML = rows.map((item) => {
+    if (item.kind === 'yield') {
+      const change = item.value == null || item.change_bp == null ? '—' : `${item.change_bp > 0 ? '+' : ''}${number(item.change_bp, 1)}bp`;
+      const tone = item.change_bp > 0 ? 'up' : item.change_bp < 0 ? 'down' : '';
+      return `<article class="market-card toss-market-card" data-market-symbol="${html(item.symbol)}">
+        <div class="market-chart-col">${sparkline(item.value == null ? [] : item.series, item.change_bp)}</div>
+        <div class="market-info-col"><strong class="market-title">금리</strong>
+          <strong class="market-price ${tone}">${item.value == null ? '조회 불가' : number(item.value, 3) + '%'}</strong>
+          <span class="market-change-point ${tone}">${change}</span>
+        </div></article>`;
+    }
     const isFx = item.symbol === "USD/KRW";
     const priceText = isFx ? `${number(item.price, 1)}원` : number(item.price, 2);
 
@@ -1055,7 +1067,7 @@ function renderMarkets(result) {
         </div>
       </article>
     `;
-  }).join("");
+  }).join("") + (marketOverviewData.fear_greed ? `<p class="market-reference-note">미국 공포·탐욕 · <a href="https://www.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener noreferrer">CNN</a> · <span title="${html(marketOverviewData.fear_greed.reason || '자동 수치 연동 미구현')}">공식 수치 미연동</span></p>` : '');
 }
 
 // ── 대시보드 전역 기간 탭 연동 (주요지수 ↔ 자산기록 ↔ 자산히트맵) ──────────────
@@ -1794,7 +1806,6 @@ function isTaxAdvantagedAccount(account) {
 // ── 4. 계좌 목록 렌더링 ──────────────────────────────────────────────────────
 function renderAccounts(items) {
   const container = $("#accountList");
-  if ($("#securitiesTabCount")) $("#securitiesTabCount").textContent = (items || []).length;
   if (!container) return;
   if (!items || !items.length) { container.innerHTML = '<div class="empty">동기화된 계좌가 없습니다.</div>'; return; }
   const accountTaxBenefits = calculateOwnerYearPensionTaxBenefits(items);
@@ -1995,7 +2006,6 @@ function renderSavingsWithOwner(owner = '모두') {
   if ($("#banksCount")) $("#banksCount").textContent = filteredBanks.length;
   if ($("#savingsCount")) $("#savingsCount").textContent = filteredSavings.length;
   if ($("#loansCount")) $("#loansCount").textContent = totalLoanListCount;
-  if ($("#bankingTabCount")) $("#bankingTabCount").textContent = totalBankAllCount;
 
   // 서브탭 표시 상태 동기화
   const isAll = currentSavingsSubtab === 'all';
@@ -3141,7 +3151,6 @@ function renderInsuranceWithOwner(owner = '모두') {
   if ($("#totalInsurancePaidVal")) $("#totalInsurancePaidVal").textContent = `₩${number(totalPaid, 0)}`;
   if ($("#totalInsuranceExpectedVal")) $("#totalInsuranceExpectedVal").textContent = `₩${number(totalExpected, 0)}`;
 
-  if ($("#insuranceTabCount")) $("#insuranceTabCount").textContent = filtered.length;
 
   const grid = $("#insuranceGrid");
   if (!grid) return;
@@ -3764,7 +3773,6 @@ function renderRealEstateWithOwner(owner = '모두') {
   if ($("#reRentalCount")) $("#reRentalCount").textContent = rentalList.length;
   if ($("#reLeaseCount")) $("#reLeaseCount").textContent = leaseList.length;
   if ($("#reSoldCount")) $("#reSoldCount").textContent = filteredSold.length;
-  if ($("#realEstateTabCount")) $("#realEstateTabCount").textContent = filtered.length;
 
   // 매도 탭 활성화 시 [➕ 매도 기록 추가] 버튼 노출
   const directBtn = $("#btnDirectAddSoldRe");
@@ -4990,6 +4998,7 @@ function bindHeatmapInteractions(container) {
 // ── 6. 보유종목 테이블 (정렬 + 섹터 뱃지 + 인터랙티브 차트 모달) ─────────────
 function renderHoldings(data) {
   data = data || dashboard || rawDashboard || {};
+  syncHoldingSignalsContext();
   const query = $("#searchInput")?.value.trim().toLowerCase() || "";
   const rows = (data.holdings || []).filter((item) => {
     const assetClass = typeof classifyHolding === 'function' ? classifyHolding(item) : '';
@@ -5085,6 +5094,91 @@ function renderHoldings(data) {
   $("#emptyHoldings") && ($("#emptyHoldings").hidden = sorted.length > 0);
   $(".table-wrap") && ($(".table-wrap").hidden = sorted.length === 0);
 }
+
+const holdingSignalState = {context: '', rows: [], generation: 0, pending: false, active: false, phase: 'idle', checkedAt: 0, cache: new Map(), requests: new Map()};
+const holdingSignalLabels = {SMA20_BREAKDOWN:'20일선 이탈',SMA50_BREAKDOWN:'50일선 이탈',GOLDEN_CROSS:'골든크로스',DEAD_CROSS:'데드크로스'};
+function holdingSignalsContext() {
+  const source = rawDashboard || dashboard;
+  return JSON.stringify([currentUserProfile?.username, currentOwner, (source?.accounts || []).map(a => [a.id,a.owner,a.broker,a.name,a.account_type]),
+    (source?.holdings || []).map(h => [h.id,h.account_id,h.owner,h.code,h.name,h.currency,h.market,h.quantity])]);
+}
+function holdingSignalsActive() {
+  return currentWealthView() === 'invest' && window.WealthInvestTabState?.current() === 'holdings';
+}
+function syncHoldingSignalsContext() {
+  const context = holdingSignalsContext(), active = holdingSignalsActive();
+  if (context !== holdingSignalState.context || active !== holdingSignalState.active) {
+    holdingSignalState.generation++;
+    Object.assign(holdingSignalState, {context, active, rows: [], pending: false, phase: 'idle'});
+    renderHoldingSignals();
+  }
+  if (active) void loadHoldingSignals();
+}
+function renderHoldingSignals() {
+  const host = $('#holdingSignalsRows'), status = $('#holdingSignalsStatus');
+  if (!host) return;
+  const {rows, phase} = holdingSignalState;
+  const value = n => n == null ? '미정' : number(n, 4);
+  const reliable = row => ['ok','insufficient_data'].includes(row.status);
+  if (status) status.textContent = phase === 'loading' ? '신호 조회 중…' : phase === 'error' ? '자료 조회 불가' : '';
+  host.innerHTML = Object.entries(holdingSignalLabels).map(([signal, label]) => {
+    const matches = rows.filter(row => reliable(row) && (row.events || []).includes(signal));
+    const unavailable = rows.filter(row => !reliable(row) ||
+      (row.status === 'insufficient_data' && !row.available?.[signal] && !(row.events || []).includes(signal))).length;
+    const empty = phase === 'loading' ? '조회 중…' : phase === 'ready' ? '해당 종목 없음' : '자료 미확인';
+    return `<section class="holding-signal-section" data-signal="${signal}" aria-labelledby="signalTitle${signal}">
+      <h4 id="signalTitle${signal}">${html(label)}</h4>
+      ${matches.map(row => `<article class="holding-signal-row"><strong>${html(row.name)} · ${html(row.code)}</strong>
+        <span>${html(row.as_of || '기준일 미확인')} · 종가 ${value(row.close)}</span>
+        <small>SMA20 ${value(row.sma20)} · SMA50 ${value(row.sma50)}</small>
+        <small>${html(row.source || '자료 미확인')} · ${html((row.accounts || []).map(a => a.owner).filter((a,i,all) => all.indexOf(a) === i).join(' / '))}</small>
+      </article>`).join('') || `<p class="holding-signal-empty">${empty}</p>`}
+      ${unavailable ? `<p class="holding-signal-empty">자료 미확인 ${unavailable}종목</p>` : ''}
+    </section>`;
+  }).join('');
+}
+async function loadHoldingSignals() {
+  if (!holdingSignalsActive() || holdingSignalState.pending || !(rawDashboard || dashboard)) return;
+  const owner = currentOwner, context = holdingSignalState.context;
+  const cached = holdingSignalState.cache.get(context);
+  if (holdingSignalState.phase === 'ready' && cached && Date.now() - cached.at < 900000) return;
+  if (holdingSignalState.phase === 'error' && Date.now() - holdingSignalState.checkedAt < 30000) return;
+  const generation = ++holdingSignalState.generation;
+  Object.assign(holdingSignalState, {rows: [], pending: true, phase: 'loading'});
+  renderHoldingSignals();
+  try {
+    let response;
+    if (cached && Date.now() - cached.at < 900000) {
+      response = cached.value;
+    } else {
+      let pending = holdingSignalState.requests.get(context);
+      if (!pending) {
+        pending = api(`/api/holdings/signals?owner=${encodeURIComponent(owner)}`).then(value => {
+          holdingSignalState.cache.set(context, {value, at: Date.now()});
+          while (holdingSignalState.cache.size > 8) holdingSignalState.cache.delete(holdingSignalState.cache.keys().next().value);
+          return value;
+        }).finally(() => {
+          if (holdingSignalState.requests.get(context) === pending) holdingSignalState.requests.delete(context);
+        });
+        holdingSignalState.requests.set(context, pending);
+      }
+      response = await pending;
+    }
+    if (generation !== holdingSignalState.generation || context !== holdingSignalsContext() || !holdingSignalsActive()) return;
+    Object.assign(holdingSignalState, {rows: response.items || [], phase: 'ready'});
+  } catch (_) {
+    if (generation === holdingSignalState.generation && context === holdingSignalsContext() && holdingSignalsActive()) {
+      holdingSignalState.phase = 'error';
+      holdingSignalState.checkedAt = Date.now();
+    }
+  } finally {
+    if (generation === holdingSignalState.generation) {
+      holdingSignalState.pending = false;
+      renderHoldingSignals();
+    }
+  }
+}
+window.addEventListener('wealth:view', syncHoldingSignalsContext);
 
 // ── 7. 종목 가격 & 거래량 인터랙티브 차트 모달 ──────────────────────────────
 async function openStockChart(code, name, price, currency = 'KRW') {
@@ -6428,58 +6522,59 @@ async function loadAssetRecords(owner) {
 
 // ── 다이얼로그 열기 함수들 ───────────────────────────────────────────────────
 function openImport() { $("#importDialog")?.showModal(); }
+function holdingEligibleAccounts(owner = currentOwner) {
+  const types = new Set(['general', 'isa', 'pension_savings', 'pension', 'irp']);
+  const source = rawDashboard?.accounts || dashboard?.accounts || [];
+  return source.filter(a => a.id && types.has(a.account_type || 'general') &&
+    (owner === '모두' || (a.owner || '모두') === owner));
+}
+function fillHoldingAccountOptions(owner, selectedId = '') {
+  const accounts = holdingEligibleAccounts(owner);
+  const types = {general:'일반',isa:'ISA',pension_savings:'연금저축',pension:'연금저축',irp:'IRP'};
+  const select = $('#holdingAccountSelect');
+  if (select) {
+    select.innerHTML = '<option value="">직접 입력 또는 등록 계좌 선택</option>' +
+      accounts.map(a => `<option value="${html(a.id)}" data-broker="${html(a.broker)}" data-name="${html(a.name)}" data-owner="${html(a.owner || '모두')}">${html(a.owner || '모두')} · ${html(a.broker)} · ${html(a.name)} · ${html(types[a.account_type || 'general'])}</option>`).join('');
+    select.setCustomValidity('');
+    if (selectedId && !accounts.some(a => a.id === selectedId)) {
+      // Never turn a missing edit link into an implicit new manual account.
+      const option = new Option('기존 연결 계좌 확인 필요', selectedId);
+      select.add(option);
+      select.setCustomValidity('기존 연결 계좌를 확인한 뒤 등록 계좌를 선택하세요.');
+    }
+    select.value = selectedId;
+  }
+  const names = $('#holdingAccountDatalist');
+  if (names) names.innerHTML = [...new Set(accounts.map(a => a.name).filter(Boolean))].map(name => `<option value="${html(name)}"></option>`).join('');
+  return accounts;
+}
 function openHoldingDialog(record = null) {
-  const form = $("#holdingForm");
+  const form = $('#holdingForm');
   if (!form) return;
   form.reset();
-  form.dataset.recordId = record ? String(record.id) : "";
-
-  $("#holdingDialogTitle") && ($("#holdingDialogTitle").textContent = record ? "보유종목 수정" : "보유종목 직접 추가");
-
-  // ACCOUNTS 섹션의 등록된 계좌 목록 드롭다운 및 데이터리스트 채우기
-  const accounts = dashboard?.accounts || [];
-  const acctSel = $("#holdingAccountSelect");
-  if (acctSel) {
-    acctSel.innerHTML = '<option value="">-- 직접 입력 또는 등록된 계좌 선택 --</option>' +
-      accounts.map(a => `
-        <option value="${html(a.id)}" data-broker="${html(a.broker)}" data-name="${html(a.name)}" data-owner="${html(a.owner || '모두')}">
-          [${html(a.broker)}] ${html(a.name)} (${html(a.owner || '모두')})
-        </option>
-      `).join('');
-
-    // 현재 수정 중인 레코드의 계좌 매칭
-    const matchedAcct = accounts.find(a => a.id === record?.account_id || (a.broker === record?.broker && a.name === record?.account_name));
-    if (matchedAcct) {
-      acctSel.value = matchedAcct.id;
-    } else {
-      acctSel.value = "";
-    }
-  }
-
-  const acctDatalist = $("#holdingAccountDatalist");
-  if (acctDatalist) {
-    const uniqueNames = [...new Set(accounts.map(a => a.name).filter(Boolean))];
-    acctDatalist.innerHTML = uniqueNames.map(name => `<option value="${html(name)}"></option>`).join('');
-  }
-
+  form.dataset.recordId = record ? String(record.id) : '';
+  $('#holdingDialogTitle') && ($('#holdingDialogTitle').textContent = record ? '보유종목 수정' : '보유종목 직접 추가');
+  const allAccounts = holdingEligibleAccounts('모두');
+  const linked = allAccounts.find(a => a.id === record?.account_id);
+  const owner = record ? (linked?.owner || record.owner || '모두') : currentOwner;
+  const legacy = record && !record.account_id ? allAccounts.filter(a =>
+    a.broker === record.broker && a.name === record.account_name && (a.owner || '모두') === owner) : [];
+  const selectedId = record?.account_id || (legacy.length === 1 ? legacy[0].id : '');
+  fillHoldingAccountOptions(owner, selectedId);
   populateStockDatalists();
-  attachStockAutoFill("holdingForm");
-
-  form.broker.value = record?.broker || "기타 증권사";
-  form.account_name.value = record?.account_name || "내 주식 계좌";
-  form.code.value = record?.code || "";
-  form.name.value = record?.name || "";
-  form.quantity.value = record?.quantity ?? "";
-  form.avg_price.value = record?.avg_price ?? "";
-  form.current_price.value = record?.current_price ?? "";
-  form.currency.value = record?.currency || "KRW";
-  form.market.value = record?.market || "";
-  if (form.sector) form.sector.value = record?.sector || "";
-  if (form.owner) {
-    const linkedAcct = dashboard?.accounts?.find(a => a.id === record?.account_id);
-    form.owner.value = linkedAcct?.owner || record?.owner || "모두";
-  }
-  $("#holdingDialog")?.showModal();
+  attachStockAutoFill('holdingForm');
+  form.broker.value = linked?.broker || record?.broker || '기타 증권사';
+  form.account_name.value = linked?.name || record?.account_name || '내 주식 계좌';
+  form.code.value = record?.code || '';
+  form.name.value = record?.name || '';
+  form.quantity.value = record?.quantity ?? '';
+  form.avg_price.value = record?.avg_price ?? '';
+  form.current_price.value = record?.current_price ?? '';
+  form.currency.value = record?.currency || 'KRW';
+  form.market.value = record?.market || '';
+  if (form.sector) form.sector.value = record?.sector || '';
+  if (form.owner) form.owner.value = owner;
+  $('#holdingDialog')?.showModal();
 }
 
 function openAssetRecordDialog(record = null) {
@@ -7900,12 +7995,27 @@ $("#holdingAccountSelect")?.addEventListener("change", (e) => {
   const sel = e.target;
   const form = $("#holdingForm");
   if (!form || !sel) return;
+  sel.setCustomValidity('');
   const opt = sel.selectedOptions[0];
   if (opt && opt.value) {
     if (opt.dataset.broker) form.broker.value = opt.dataset.broker;
     if (opt.dataset.name) form.account_name.value = opt.dataset.name;
     if (opt.dataset.owner && form.owner) form.owner.value = opt.dataset.owner;
   }
+});
+
+// Editing a linked identity explicitly switches to manual mode. The server
+// also checks the selected ID against broker/name/owner before any write.
+['broker', 'account_name'].forEach(name => {
+  document.querySelector(`#holdingForm [name="${name}"]`)?.addEventListener('input', () => {
+    const select = $('#holdingAccountSelect');
+    if (select) { select.value = ''; select.setCustomValidity(''); }
+  });
+});
+document.querySelector('#holdingForm [name="owner"]')?.addEventListener('change', (event) => {
+  const selectedId = $('#holdingAccountSelect')?.value;
+  fillHoldingAccountOptions(event.target.value || '모두');
+  if (selectedId) $('#holdingAccountSelect')?.setCustomValidity('소유자에 맞는 등록 계좌를 다시 선택하거나 증권사·계좌명을 직접 입력하세요.');
 });
 
 // 실현손익 추가/수정 팝업 내 등록된 계좌 선택 시 자동 채움
@@ -7944,6 +8054,7 @@ $("#dividendAccountSelect")?.addEventListener("change", (e) => {
 $("#holdingForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.currentTarget;
+  if (!form.reportValidity()) return;
   const payload = Object.fromEntries(new FormData(form));
   if (!payload.owner) payload.owner = "모두";
   ["quantity", "avg_price", "current_price"].forEach(key => { payload[key] = Number(payload[key] || 0); });

@@ -24,7 +24,7 @@ class IpoPresentationStateTests(unittest.TestCase):
         self.assertEqual(derive_market_state(ipo, date(2026, 9, 10)), "SUBSCRIPTION_OPEN")
         self.assertEqual(derive_market_state(ipo, date(2026, 9, 11)), "SUBSCRIPTION_OPEN")
         self.assertEqual(derive_market_state(ipo, date(2026, 9, 12)), "LISTING_UPCOMING")
-        self.assertEqual(derive_market_state(ipo, date(2026, 9, 20)), "LISTED")
+        self.assertEqual(derive_market_state(ipo, date(2026, 9, 20)), "LISTING_UPCOMING")
 
     def test_market_unknown_dates_fail_safe(self):
         self.assertEqual(derive_market_state(self.ipo(subscription_start="bad"), date(2026, 9, 1)), "DATE_UNKNOWN")

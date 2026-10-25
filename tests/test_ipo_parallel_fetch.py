@@ -135,7 +135,7 @@ def test_provider_failure_keeps_other_provider_results(failed_provider):
     else:
         with patch.object(sd, '_fetch_dart_schedules', side_effect=RuntimeError('provider unavailable')):
             result, saved, _ = run_discovery({'ipos': [alice()]}, dart=dart, metalogos=metalogos)
-        assert saved['ipos'][0]['final_offer_price'] == 90500
+        assert saved['ipos'][0]['final_offer_price'] is None  # reference cannot promote a price
         assert result['statuses']['dart_schedule'] == 'source_error (RuntimeError)'
         assert saved['ipos'][0]['sources']['metalogos160']['attractiveness_score'] == 79
 
@@ -241,11 +241,9 @@ def test_interactive_response_preserves_timing_fields_and_adds_parallel_wall():
          patch.object(refresh_adapter._base, '_refresh_file_lock', return_value=nullcontext()), \
          patch.object(refresh_adapter, 'discover_and_merge_primary_sources',
                       return_value={'statuses': {}, 'timings': discovery_timings, 'metalogos_rows': []}), \
-         patch.object(refresh_adapter, 'refresh_missing_metalogos_references', return_value={'status': 'ok'}) as reference, \
          patch.object(refresh_adapter, '_targeted_dart_enrichment', return_value={}) as recovery:
         result = refresh_adapter.refresh_ipo_market(target_date_str='2026-10-06')
     assert discovery_timings.keys() | {'base_refresh_ms', 'metalogos_reference_ms',
                                     'targeted_dart_ms', 'total_ms'} == result['timings'].keys()
-    reference.assert_called_once_with(target_date_str='2026-10-06', prefetched_rows=[])
     assert recovery.call_args.kwargs['score_recovery_only'] is True
     assert recovery.call_args.kwargs['max_candidates'] == 4

@@ -42,9 +42,9 @@ class HomeDashboardBatch2Tests(unittest.TestCase):
         self.assertIn("propertyPurchaseValue: totalREPurchaseVal", self.main)
         self.assertIn("const netWorth = (totalInvestAssets + totalSafeAssets) - totalAllDebt", self.main)
 
-    def test_history_keeps_summary_and_uses_desktop_chart_list_split(self):
+    def test_history_removes_summary_cards_and_uses_desktop_chart_list_split(self):
         for label in ("기간 시작", "최근 기록", "최저 / 최고", "기간 증감"):
-            self.assertIn(label, self.planning)
+            self.assertNotIn(label, self.planning)
         self.assertIn('class="wealth-history-main"', self.planning)
         self.assertIn("grid-template-columns:minmax(0,2fr) minmax(280px,1fr)", self.css)
         self.assertIn("@media (max-width: 980px)", self.css)

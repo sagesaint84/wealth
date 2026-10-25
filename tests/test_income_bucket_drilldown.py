@@ -605,8 +605,10 @@ def test_native_daily_pointer_accuracy(chrome_preview, kind, mobile):
       currentOwner='pointer-accuracy';__pnl=Array.from({length:400},(_,i)=>record('N'+i,WealthTimeseriesPeriodCore.isoDate(new Date(Date.UTC(2025,0,i+1))),i%4===0?-100:i%4===1?1:i%4===2?100:500,{owner:currentOwner}));
       __div=__pnl.map(r=>({...r,amount_krw:Math.abs(r.pnl_krw)}));__interest=__div.map(r=>({...r,id:'I'+r.id,name:'I'+r.name,amount_krw:r.amount_krw/2,income_type:'account_interest'}));
       window.__pointerEvents=[];
-    '''+f"await render('{kind}',modes.DAY);const viewport=document.querySelector('#{chart} .wealth-unified-viewport');"+r'''
-      for(const type of ['pointerdown','pointerup','click'])viewport.addEventListener(type,e=>{const hit=document.elementFromPoint(e.clientX,e.clientY);__pointerEvents.push({type,x:e.clientX,y:e.clientY,key:e.target.dataset.bucketKey,hitKey:hit?.dataset.bucketKey,target:e.target.tagName,scroll:viewport.scrollLeft});},true);
+    '''+f"await render('{kind}',modes.DAY);const chartHost=document.getElementById('{chart}');"+r'''
+      // Queued chart renders can replace the viewport after render() resolves.
+      // Observe native events on its stable host, including replacement viewports.
+      for(const type of ['pointerdown','pointerup','click'])chartHost.addEventListener(type,e=>{const viewport=e.target.closest('.wealth-unified-viewport');if(!viewport)return;const hit=document.elementFromPoint(e.clientX,e.clientY);__pointerEvents.push({type,x:e.clientX,y:e.clientY,key:e.target.dataset.bucketKey,hitKey:hit?.dataset.bucketKey,target:e.target.tagName,scroll:viewport.scrollLeft});},true);
       return true;})()''')
     def point(index,series=0):
         return evaluate(f"(async()=>{{const bs=document.querySelectorAll('#{chart} .wealth-unified-flow-bar[data-bucket-index=\"{index}\"]'),b=bs[{series}];b.scrollIntoView({{block:'center',inline:'center',behavior:'instant'}});for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);const r=b.getBoundingClientRect();const x=r.x+r.width/2,y=r.y+r.height/2;return {{x,y,key:b.dataset.bucketKey,hitKey:document.elementFromPoint(x,y)?.dataset.bucketKey,rect:r.toJSON(),geometry:[...bs].map(b=>['x','y','width','height'].map(a=>b.getAttribute(a)))}};}})()")

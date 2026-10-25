@@ -67,7 +67,25 @@ class DockerAuthRuntimeContractTests(unittest.TestCase):
         self.assertIn("docker/setup-buildx-action@", workflow)
         docker = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertNotIn("--platform=linux/amd64", docker)
-        self.assertIn("RUN --network=none /opt/toss-auth/venv/bin/python /opt/toss-auth/browser_smoke.py", docker)
+        smoke_run = docker.split("RUN --network=none ", 1)[1].split("\n\n", 1)[0]
+        self.assertTrue(smoke_run.startswith("set -eu;"))
+        commands = (
+            "ulimit -c 0;",
+            "smoke_status=0;",
+            "/opt/toss-auth/venv/bin/python /opt/toss-auth/browser_smoke.py || smoke_status=$?;",
+            "find / -xdev -type f -name 'qemu_*.core' -delete;",
+            'remaining_cores="$(find / -xdev -type f -name \'qemu_*.core\' -print -quit)";',
+            'if [ -n "$remaining_cores" ]; then',
+            "echo 'QEMU core dump remains after Chromium smoke cleanup' >&2; exit 1;",
+            'exit "$smoke_status"',
+        )
+        previous = -1
+        for command in commands:
+            position = smoke_run.find(command)
+            self.assertGreater(position, previous, command)
+            previous = position
+        self.assertNotIn("|| true", smoke_run)
+        self.assertNotIn("\nRUN ", smoke_run)
         self.assertIn("Copyright (c) 2026 JungHoon Ghae and contributors", (HELPER.parents[1] / "LICENSE").read_text(encoding="utf-8"))
         provenance = (HELPER.parents[1] / "WEALTH-PATCHES.md").read_text(encoding="utf-8")
         self.assertIn("152d6a5242b9e05ea975991df68a93c1d040bec7", provenance)

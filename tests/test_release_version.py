@@ -29,10 +29,10 @@ class ReleaseVersionTests(unittest.TestCase):
                 'wealth-ledger-ocr.css': '2.0.2-review1',
                 "wealth-color-preferences.css": "10.9r6",
                 "wealth-color-picker.css": "10.9r2",
-                "wealth-layout.css": "2.1.2-route1",
+                "wealth-layout.css": "2.1.3-ui-icons-rate1",
                 "wealth-savings-contributions.css": "10.9p",
                 "wealth-dialog-system.css": "2.0.3-ai1",
-                "wealth-ui-density.css": "2.0.1",
+                "wealth-ui-density.css": "2.1.3-uiux1",
                 "wealth-national-pension.css": "2.0.2-r2",
                 "wealth-overrides.css": "10.9h1",
             }.get(asset, "1.3.0")
@@ -41,19 +41,19 @@ class ReleaseVersionTests(unittest.TestCase):
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
         versions = {
-            'wealth-ipo.js': '2.1.2-ipo-ui1',
+            'wealth-ipo.js': '2.1.3-ipo-naver1',
             'wealth-ledger-ocr.js': '2.0.2-review2',
-            'wealth-money-input.js': '2.0.3-ai1',
+            'wealth-money-input.js': '2.1.3-ui-cleanup1',
             "wealth-financial-income-what-if.js": "2.1.3-p0",
             "wealth-dividend-source.js": "2.1.0-b2",
             "wealth-family-financial-income-risk.js": "2.1.3-p0",
-            "wealth.js": "2.1.3-p0", "wealth-layout.js": "2.1.2-route1",
+            "wealth.js": "2.1.3-ui-icons-rate1", "wealth-layout.js": "2.1.3-ui-icons-rate1",
             "wealth-national-pension.js": "2.0.2", "wealth-pension-import.js": "2.0.2",
             "wealth-transaction-defaults.js": "2.0.1",
-            "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "2.1.3-p0",
+            "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "2.1.3-uiux1",
             "wealth-calendar.js": "2.1.2-ipo-ui1", "wealth-color-picker.js": "10.9r5",
             "wealth-planning-model.js": "2.1.3-p0", "wealth-asset-category-state.js": "2.0.2",
-            "wealth-settings-surface.js": "10.9m1", "wealth-invest-tab-state.js": "10.9k1",
+            "wealth-settings-surface.js": "2.1.3-uiux1", "wealth-invest-tab-state.js": "10.9k1",
             "wealth-settings.js": "10.9h1", "wealth-family-financial-income-allocation.js": "2.1.3-p0",
         }
         for asset, version in js_matches:
@@ -78,7 +78,7 @@ class ReleaseVersionTests(unittest.TestCase):
         self.assertIn("**Wealth v2.1.0**", archived)
 
         changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-        self.assertIn("## Wealth v2.1.3 — P0 릴리스 준비", changelog)
+        self.assertIn("## 2026-10-22 — Wealth v2.1.3 P0 출시·Oracle 배포", changelog)
         self.assertIn("## Wealth v2.1.2", changelog)
         self.assertIn("## Wealth v2.1.0", changelog)
         self.assertIn("## Wealth v2.0.3", changelog)

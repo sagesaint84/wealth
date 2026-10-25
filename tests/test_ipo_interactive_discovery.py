@@ -149,17 +149,15 @@ def test_refresh_reuses_discovery_and_reports_monotonic_stages_with_max_four_dar
     with patch.object(refresh_adapter, '_BASE_REFRESH_MARKET', return_value={'status': 'ok'}), \
          patch.object(refresh_adapter._base, '_refresh_file_lock', return_value=nullcontext()), \
          patch.object(refresh_adapter, 'discover_and_merge_primary_sources', return_value=supplement), \
-         patch.object(refresh_adapter, 'refresh_missing_metalogos_references', return_value={'status': 'ok'}) as ref, \
          patch.object(refresh_adapter, '_targeted_dart_enrichment', return_value={}) as dart, \
          patch.object(refresh_adapter, 'perf_counter', side_effect=lambda: next(elapsed)):
         result = refresh_adapter.refresh_ipo_market(target_date_str='2026-10-06')
-    assert ref.call_args.kwargs['prefetched_rows'] is rows
     assert dart.call_args.kwargs['max_candidates'] == 4
     assert dart.call_args.kwargs['score_recovery_only'] is True
     assert result['timings']['base_refresh_ms'] == 10
-    assert result['timings']['metalogos_reference_ms'] == 10
+    assert result['timings']['metalogos_reference_ms'] == 0
     assert result['timings']['targeted_dart_ms'] == 10
-    assert result['timings']['total_ms'] == 80
+    assert result['timings']['total_ms'] == 50
     assert 'metalogos_rows' not in result
 
 
@@ -198,10 +196,9 @@ def test_interactive_refresh_has_one_external_discovery_even_when_alice_stays_un
          patch('app.services.ipo.metalogos_reference_refresh.read_market_store', side_effect=lambda: copy.deepcopy(state)), \
          patch('app.services.ipo.metalogos_reference_refresh.write_market_store', side_effect=write):
         result = refresh_adapter.refresh_ipo_market(target_date_str='2026-10-06')
-    assert sum(calls.values()) == 2
-    assert calls[shared] == 1
-    assert 'unmatched=1' in result['sources']['metalogos160_reference_fallback']
-    assert state['ipos'][0]['sources']['metalogos160']['attractiveness_score'] == 61
+    assert sum(calls.values()) == 0
+    assert result['sources']['metalogos160'] == 'not_requested (optional_reference_only)'
+    assert 'metalogos160' not in state['ipos'][0]['sources']
     assert state['ipos'][1]['final_offer_price'] is None
     # Missing credentials must remain explicitly unverified, without invented values.
     assert state['ipos'][1] == {

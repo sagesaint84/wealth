@@ -8,7 +8,6 @@ from app.services.ipo import orchestrator as _base
 from app.services.ipo.dart_client import DartClient, extract_document_text_from_zip, select_point_in_time_filing
 from app.services.ipo.dart_parser import DartSemanticParser
 from app.services.ipo.identity import is_spac_ipo
-from app.services.ipo.metalogos_reference_refresh import refresh_missing_metalogos_references
 from app.services.ipo.normalize import normalize_equity_registration_response
 from app.services.ipo.score import calculate_wealth_ipo_score
 from app.services.ipo.source_discovery import discover_and_merge_primary_sources
@@ -18,8 +17,8 @@ from app.services.ipo.store import merge_ipo_record, read_market_store, write_ma
 KST = timezone(timedelta(hours=9))
 _BASE_REFRESH_MARKET = _base.refresh_ipo_market
 _BASE_REFRESH_ENRICHED = _base.refresh_ipo_market_enriched
-_DISCOVERY_PRIORITY = "DART/KIND + NAVER/Npay > Metalogos160 > retained market"
-_MAIN_DISCOVERY_KEYS = ("dart_schedule", "kind_discovery", "naver_progress_discovery", "npay")
+_DISCOVERY_PRIORITY = "NAVER/Npay > KIND/DART fallback > retained market"
+_MAIN_DISCOVERY_KEYS = ("kind_discovery", "naver_progress_discovery", "npay")
 _INTERACTIVE_SCORE_RECOVERY_LIMIT = 4
 _INTERACTIVE_SCORE_RECOVERY_MAX_AGE_DAYS = 14
 _INTERACTIVE_SCORE_RECOVERY_LOOKAHEAD_DAYS = 7
@@ -278,18 +277,6 @@ def _targeted_dart_enrichment(
     }
 
 
-def _record_metalogos_reference_status(
-    supplement: dict[str, Any],
-    reference: dict[str, Any],
-) -> None:
-    statuses = supplement.setdefault("statuses", {})
-    statuses["metalogos160_reference_fallback"] = (
-        f"{reference.get('status', 'unknown')} "
-        f"(matched={reference.get('matched', 0)}, "
-        f"unmatched={reference.get('unmatched', 0)})"
-    )
-
-
 def _run_supplement_and_targeted(*, username: str | None, target_date_str: str,
                                  kind_schedule_snapshot: dict[str, Any] | None = None) -> tuple[dict[str, Any], dict[str, Any]]:
     supplement: dict[str, Any] = {}
@@ -301,11 +288,6 @@ def _run_supplement_and_targeted(*, username: str | None, target_date_str: str,
                 target_date_str=target_date_str,
                 kind_schedule_snapshot=kind_schedule_snapshot,
             )
-            reference = refresh_missing_metalogos_references(
-                target_date_str=target_date_str,
-                prefetched_rows=supplement.get("metalogos_rows", []),
-            )
-            _record_metalogos_reference_status(supplement, reference)
             targeted = _targeted_dart_enrichment(
                 username=username,
                 target_date_str=target_date_str,
@@ -374,13 +356,6 @@ def refresh_ipo_market(*, username: str | None = None, target_date_str: str | No
             )
             timings.update(supplement.get("timings", {}))
             stage_started = perf_counter()
-            reference = refresh_missing_metalogos_references(
-                target_date_str=resolved_target,
-                prefetched_rows=supplement.get("metalogos_rows", []),
-            )
-            timings["metalogos_reference_ms"] = round((perf_counter() - stage_started) * 1000, 3)
-            stage_started = perf_counter()
-            _record_metalogos_reference_status(supplement, reference)
             targeted = _targeted_dart_enrichment(
                 username=username,
                 target_date_str=resolved_target,

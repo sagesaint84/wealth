@@ -77,10 +77,10 @@
   assetCategoryTabs.setAttribute('role', 'tablist');
   assetCategoryTabs.setAttribute('aria-label', '자산 종류 선택');
   assetCategoryTabs.innerHTML = `
-    <button type="button" class="account-cat-tab active" data-cat="securities">📈 증권 (<span id="securitiesTabCount">0</span>)</button>
-    <button type="button" class="account-cat-tab" data-cat="banking">🏦 은행 (<span id="bankingTabCount">0</span>)</button>
-    <button type="button" class="account-cat-tab" data-cat="insurance">🛡️ 연금·보험 (<span id="insuranceTabCount">0</span>)</button>
-    <button type="button" class="account-cat-tab" data-cat="real_estate">🏠 부동산 (<span id="realEstateTabCount">0</span>)</button>
+    <button type="button" class="account-cat-tab active" data-cat="securities">📈 증권</button>
+    <button type="button" class="account-cat-tab" data-cat="banking">🏦 은행</button>
+    <button type="button" class="account-cat-tab" data-cat="insurance">🛡️ 연금·보험</button>
+    <button type="button" class="account-cat-tab" data-cat="real_estate">🏠 부동산</button>
     <button type="button" class="account-cat-tab" data-cat="tax">🧾 세금</button>`;
   const assetPanels = {securities:'catPanelSecurities',banking:'catPanelBanking',insurance:'catPanelInsurance',real_estate:'catPanelRealEstate',tax:'catPanelTax'};
   const taxPanel=document.createElement('section');taxPanel.id='catPanelTax';taxPanel.setAttribute('role','tabpanel');
@@ -91,6 +91,18 @@
     button.setAttribute('aria-selected',String(active)); button.classList.toggle('active',active);
   });
   page('assets').prepend(assetCategoryTabs);
+  const revealAssetTab = button => {
+    if (!button || !assetCategoryTabs.getClientRects().length) return;
+    const tab = button.getBoundingClientRect(), strip = assetCategoryTabs.getBoundingClientRect();
+    if (tab.left < strip.left || tab.right > strip.right) {
+      button.scrollIntoView({block:'nearest', inline:'nearest', behavior:'instant'});
+    }
+  };
+  assetCategoryTabs.addEventListener('click', event => revealAssetTab(event.target.closest('button')));
+  assetCategoryTabs.addEventListener('focusin', event => revealAssetTab(event.target.closest('button')));
+  window.addEventListener('wealth:view', ({detail}) => {
+    if (detail === 'assets') revealAssetTab(assetCategoryTabs.querySelector('[aria-selected="true"]'));
+  });
   const incomeTabs = document.createElement('div');
   incomeTabs.id = 'incomeTabs';
   incomeTabs.className = 'wealth-section-tabs income-tabs';

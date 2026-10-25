@@ -40,7 +40,7 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
         # P0 changes core/What-if assets; the unchanged main layout keeps its
         # independent revision, matching test_release_version.py.
         self.assertEqual(revision, '2.1.3-p0')
-        layout_js = '/static/wealth-layout.js?v=2.1.2-route1'
+        layout_js = '/static/wealth-layout.js?v=2.1.3-uiux1'
         self.assertEqual(assets.scripts.count(layout_js), 1)
         core_js = '/static/wealth.js?v=2.1.3-p0'
         what_if_js = '/static/wealth-financial-income-what-if.js?v=2.1.3-p0'

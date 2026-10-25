@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 LAYOUT_CSS = ROOT / "app" / "static" / "wealth-layout.css"
 INDEX_HTML = ROOT / "app" / "static" / "index.html"
-LAYOUT_CSS_REVISION = "2.1.2-route1"
+LAYOUT_CSS_REVISION = "2.1.3-ui-icons-rate1"
 
 
 def assert_current_layout_stylesheet(html: str) -> None:
