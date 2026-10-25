@@ -1,6 +1,15 @@
 # Wealth
 
-## 현재 운영 배포 — 2026-10-22 / Wealth v2.1.3
+## 현재 운영 배포 — 2026-10-24 / Wealth v2.1.3
+
+- **현재 운영 코드**: [PR #172](https://github.com/sagesaint84/wealth/pull/172) Squash Merge `f90e9b7589a2180c518ecb34f9c7343ed0241367` → [PR #173](https://github.com/sagesaint84/wealth/pull/173) Squash Merge `6a14c0d5cd7dda27501db770572d1d3334b37901`; 실제 Oracle에 배포된 앱 버전은 **v2.1.3**, 릴리스 이미지 태그는 `ghcr.io/sagesaint84/wealth:6a14c0d`이다. 문서 전용 후속 커밋은 앱 실행 이미지를 바꾸지 않는다.
+- **GHCR 발행**: [Docker build #40100539869](https://github.com/sagesaint84/wealth/actions/runs/40100539869) **SUCCESS** (Linux AMD64/ARM64); multi-platform manifest `sha256:f4e0e17bafa7158a43b43fc3b5b47d540bbfcb1667dc00ec3accdb79cd9c634e`.
+- **Oracle ARM64 배포 완료 (2026-10-24 사용자 SSH 실행 로그)**: Digest 고정 이미지 다운로드, `qemu_*.core` 검사 **PASS**, 실행 중 이미지 대조 **PASS**, HTTP `/` → **307**, 금융 데이터·Toss 마운트 동일 **PASS**, `DEPLOY_AND_CLEANUP=PASS`. 사용 종료된 직전 Wealth 이미지 `f90e9b7` 삭제 후 파일시스템 약 **194GB 중 164GB 사용 / 31GB 여유(85%)**. Docker 전체 정리·볼륨 삭제·백업 이미지 추가 생성은 수행하지 않았다. **RECLAIMABLE 4.272GB는 선별 검증 없이 지우지 않는다.**
+- **운영 브라우저 (사용자 스크린샷 확인)**: 📈 증권 / 🏦 은행 / 🛡️ 연금·보험 / 🏠 부동산 / 🧾 세금의 5개 균등 탭과 괄호 카운트 제거, 금리 카드 Sparkline·금리(연%)·변동(bp)·링크 제거 확인. PR #172의 기존 보유종목 기술적 신호 4섹션 구조 유지. 운영 전체 E2E·모든 계좌의 데이터 감사 완료를 의미하지 않는다.
+- **검증 기록**: PR #173 최종 GitHub CI Static transport **387 passed**, IPO **239 passed**, Toss WTS Linux **AMD64/ARM64 SUCCESS**; 로컬 표적 **89 passed**, Chromium **30 passed**(320/360/390/768/1280px). PR #172도 병합 당시 CI 통과했다. 이번 작업으로 전체 pytest를 추가 실행했다고 표시하지 않는다.
+- **배포 운영 원칙**: 확정한 GHCR Digest 다운로드 → Wealth 단일 서비스 교체 → 실행 이미지·HTTP 307·데이터/Toss 마운트 확인 → 다른 컨테이너가 사용하지 않는 이전 Wealth 이미지만 정리. 검증 실패 시 정리 금지 및 이전 이미지 복구 시도. 다른 서비스·볼륨·실제 금융 데이터 보존.
+
+## 과거 운영 배포 기록 — 2026-10-22 / Wealth v2.1.3
 
 - **운영 앱 v2.1.3**: [PR #163](https://github.com/sagesaint84/wealth/pull/163) Squash Merge `f9cb3cd87644fc8a51cd25488802878ee680613a` 완료. 코드 앱 버전 및 HTML 표시 **2.1.3**, 변경된 JS와 SW 캐시 식별자 **2.1.3-p0**. 미변경 IPO·레이아웃의 개별 asset revision은 유지.
 - **GHCR 발행 완료**: [Docker build #39741300759](https://github.com/sagesaint84/wealth/actions/runs/39741300759) SUCCESS; Linux AMD64/ARM64; `ghcr.io/sagesaint84/wealth:f9cb3cd`, 고정 manifest Digest `sha256:f2683c22acd77e8fe8f03b11c5bbfcf60115c095c7a242069a81c4d2ba64d1d8`.
@@ -247,6 +256,8 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 4829
 ## Docker / 운영 배포
 
 `docker-compose.yml`은 소스에서 직접 빌드하는 로컬용입니다. 운영 표준은 GHCR 이미지와 `docker-compose.ghcr.yml` 및 호스트별 `docker-compose.override.yml` 조합입니다. 배포 전 운영 호스트의 데이터·Toss WTS 마운트를 확인하세요.
+
+배포 전 Docker 저장소의 가용 용량과 inode를 확인하세요. 불필요한 백업 이미지·아카이브·롤백 태그를 자동 생성하지 않으며, 공간 확보를 위해 금융 데이터 볼륨을 삭제하거나 변경하지 않습니다.
 
 ```bash
 docker compose \
