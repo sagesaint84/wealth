@@ -85,3 +85,17 @@ The first comparison also had slower mobile medians (+287.8ms asset, +177.1ms re
 | CHANGE_SCOPE_GATE | PASS — UI, tests, CI test registration and candidate docs only |
 | PR_STATUS | DRAFT_AUTHORIZED — user explicitly authorized Commit/Push/Draft PR with PERFORMANCE_GATE=FAIL/HOLD; current CI must be checked on GitHub |
 | DEPLOY_STATUS | NOT_DEPLOYED — no merge, release, Docker publish or Oracle operation |
+
+
+## Exact-label follow-up — 2026-10-25
+
+The home tab labels and native Chromium accessibility names are exactly **자산 포트폴리오 / 순자산 추이 / 주요지수**. The portfolio panel continues to use `aria-labelledby=homeTab-portfolio`, so its accessible name follows the same visible tab label. README and runtime assertions match.
+
+Validation: `PYTHONPATH=.;tests python -m pytest tests/test_home_three_tabs_chrome.py tests/test_home_dashboard_batch2.py tests/test_release_version.py -q`: **19 passed** (39.29s). Native accessibility-tree names were checked at all five requested widths. This is FUNCTIONAL_GATE=PASS for the targeted home tab behavior, while the earlier intermittent regression remains disclosed separately.
+
+FUNCTIONAL_GATE=PASS
+PERFORMANCE_GATE=FAIL/HOLD
+MERGE_GATE=HOLD
+DEPLOY_GATE=HOLD
+
+Neither historical performance JSON file was modified. No performance threshold was weakened; no new timing sample replaces either failed 360px comparison. No performance fix or root cause is claimed.

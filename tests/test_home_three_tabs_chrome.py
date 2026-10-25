@@ -41,7 +41,7 @@ CHECK = r"""(()=>{
  const tabs=[...document.querySelectorAll('#homeTabs [role=tab]')];
  const panels=[...document.querySelectorAll('[data-home-panel]')];
  const ids=[...document.querySelectorAll('[id]')].map(n=>n.id);
- return {selected:tabs.filter(b=>b.getAttribute('aria-selected')==='true').map(b=>b.dataset.homeTab),
+ return {labels:tabs.map(b=>b.textContent.trim()),selected:tabs.filter(b=>b.getAttribute('aria-selected')==='true').map(b=>b.dataset.homeTab),
  shown:panels.filter(n=>n.getClientRects().length).map(n=>n.dataset.homePanel),
  relations:tabs.every(b=>{const p=document.getElementById(b.getAttribute('aria-controls'));return p.getAttribute('aria-labelledby')===b.id&&p.hidden===(b.getAttribute('aria-selected')!=='true')&&b.tabIndex===(p.hidden?-1:0);}),
  duplicate:ids.filter((id,i)=>ids.indexOf(id)!==i),width:document.documentElement.scrollWidth,
@@ -61,6 +61,7 @@ def choose(evaluate, tab):
 
 def check(evaluate, tab, width):
     state=evaluate(CHECK)
+    assert state['labels']==['자산 포트폴리오','순자산 추이','주요지수'],state
     assert state['selected']==state['shown']==[tab],state
     assert state['relations'] and not state['duplicate'] and not state['errors'],state
     assert state['history']==1 and state['width']<=width+1,state
@@ -77,6 +78,11 @@ def test_home_tabs_keyboard_touch_scope_crud_routes(chrome_preview,width):
         wait_for(evaluate,'!!window.WealthUnifiedTimeseries && !!document.querySelector("#wealthHistoryPlot")')
         assert evaluate('document.querySelector("#wealthAssetNetWorth").textContent') == '397,000,000원', evaluate('({text:document.querySelector("#wealthAssetNetWorth").textContent,errors:__tabs.errors,ready:WealthStartup.canRead()})')
         check(evaluate,'portfolio',width)
+        document=call('DOM.getDocument')['root']['nodeId']
+        for tab,label in [('portfolio','자산 포트폴리오'),('history','순자산 추이'),('markets','주요지수')]:
+            node=call('DOM.querySelector',{'nodeId':document,'selector':f'#homeTab-{tab}'})['nodeId']
+            ax=call('Accessibility.getPartialAXTree',{'nodeId':node,'fetchRelatives':False})['nodes'][0]
+            assert ax['role']['value']=='tab' and ax['name']['value']==label,ax
         assert evaluate('__tabs.markets')==0
         # A real keyboard event activates the next tab, retaining tab focus.
         evaluate('document.getElementById("homeTab-portfolio").focus()')
