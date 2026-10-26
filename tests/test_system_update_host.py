@@ -199,15 +199,19 @@ def test_real_authenticated_unix_ipc_roundtrip_and_bad_key(worker,tmp_path,monke
     with make_server(engine,tmp_path,key) as server:
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         guarded=socket.socket.connect
-        native=guarded
-        while hasattr(native,'__globals__') and '_connect' in native.__globals__:
-            native=native.__globals__['_connect']
+        # Both tests/__init__.py and conftest.py wrap Python socket.connect.
+        # Use the C base method ONLY for this one fixture-owned Unix path.
+        native=__import__('_socket').socket.connect
         def connect(sock,address):
             if sock.family==socket.AF_UNIX and address==str(tmp_path/'worker.sock'):return native(sock,address)
             return guarded(sock,address)
         monkeypatch.setattr(socket.socket,'connect',connect)
         try:
             assert HostClient(tmp_path).call('status')['current']['image_id']==OLD_ID
+            assert 'guard' in guarded.__name__
+            with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as outside:
+                with pytest.raises(AssertionError,match='External network is blocked'):
+                    outside.connect(('192.0.2.1',443))
             (tmp_path/'client.key').write_bytes(b'y'*32)
             with pytest.raises(UpdateError,match='IPC_AUTH_FAILED'):HostClient(tmp_path).call('status')
         finally:

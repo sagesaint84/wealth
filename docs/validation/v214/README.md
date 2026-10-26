@@ -21,6 +21,8 @@ New `system-update-pr-validation.yml` has independent jobs:
 
 At initial Draft creation these Linux gates and existing Static/IPO/Toss AMD64/ARM64 workflows are PENDING. Actual exact-head CI results are recorded in the Draft PR, including any failed attempt; prior HEAD successes are never reused. User approval and latest CI SUCCESS are required before merge.
 
+First CI attempt329cfae: isolated Docker/Compose job121436810616 SUCCESS, **2 passed in52.66s**. Synthetic web/IPC job121436810721 FAILURE,112 passed/1 failed: tests/__init__.py has an additional TCP-only network guard, so the attempted Unix fixture allowance still reached that guard. The follow-up test-only fix calls the native C socket connect exclusively for its exact temporary AF_UNIX fixture path; every other connection remains guarded and an explicit external-TCP-rejection assertion is added. No production source or test expectation is weakened. Linux rerun is required before IPC PASS.
+
 ## Operational gates
 
 HOST_INSTALL=NOT_RUN
