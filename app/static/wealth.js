@@ -11296,10 +11296,8 @@ async function handleForcePasswordSubmit(e) {
     if (modal) {
       try { modal.close(); } catch (e) { modal.removeAttribute('open'); }
     }
-    if (currentUserProfile) {
-      currentUserProfile.must_change_password = false;
-      await applyUserRoleView(currentUserProfile);
-    }
+    // Re-read server capability after the pending-password state is cleared.
+    await initAuthSession();
   } catch (err) {
     alert(err.message || '비밀번호 변경에 실패했습니다.');
   }

@@ -14,7 +14,8 @@ const previous=window.fetch;
 const digest=c=>'sha256:'+c.repeat(64),sha=c=>c.repeat(40);
 window.fetch=async function(url,options={}){
  const path=new URL(String(url),location.href).pathname;
- if(path==='/api/auth/me')return {ok:true,json:async()=>({username:__u.identity,role:__u.identity==='admin'?'admin':'user',can_system_update:__u.identity==='admin'||__u.access,must_change_password:false})};
+ if(path==='/api/auth/me')return {ok:true,json:async()=>({username:__u.identity,role:__u.identity==='admin'?'admin':'user',can_system_update:!__u.mustChange&&(__u.identity==='admin'||__u.access),must_change_password:!!__u.mustChange})};
+ if(path==='/api/auth/force-change-password'){__u.mustChange=false;return {ok:true,json:async()=>({message:'synthetic changed'})};}
  if(['/api/dashboard','/api/refresh-prices','/api/planning/snapshot-all'].includes(path))__u.finance.push(path);
  if(path.startsWith('/api/admin/')){
   const body=options.body?JSON.parse(options.body):null;__u.adminRequests.push({path,body});
@@ -219,4 +220,18 @@ def test_delegated_reauth_failure_asks_own_password_without_install(chrome_previ
     assert '관리자 비밀번호' not in evaluate("document.getElementById('updateError').textContent")
     assert evaluate('__u.job') is None
     assert evaluate("document.getElementById('updatePassword').value")==''
+    assert evaluate('__u.errors')==[]
+
+
+def test_pending_admin_password_completion_refreshes_server_capability(chrome_preview):
+    call,evaluate,_=start(chrome_preview,360,"__u.identity='admin';__u.mustChange=true;")
+    wait_for(evaluate,"document.getElementById('forcePasswordModal').open")
+    assert evaluate('__u.requests')==[]
+    assert not evaluate("!!document.getElementById('adminMainPanel').getClientRects().length")
+    evaluate("document.getElementById('forceNewPassword').value='SYNTHETIC-new';document.getElementById('forceNewPasswordConfirm').value='SYNTHETIC-new'")
+    click(call,evaluate,'#forcePasswordForm button[type=submit]')
+    wait_for(evaluate,"document.getElementById('updateVersion').textContent==='v2.1.5' && !!document.getElementById('settingsSystemPanel').getClientRects().length")
+    assert evaluate('currentUserProfile.can_system_update') is True
+    assert not evaluate("document.getElementById('forcePasswordModal').open")
+    assert evaluate('__u.finance')==[]
     assert evaluate('__u.errors')==[]

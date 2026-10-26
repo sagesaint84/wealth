@@ -750,6 +750,8 @@ async def change_password_init_submit(
     user = _get_authenticated_user(request)
     if not user:
         return RedirectResponse("/login")
+    if not user.get('must_change_password', False):
+        raise HTTPException(403, detail={'code': 'PASSWORD_CHANGE_NOT_PENDING'})
     uname = user["username"]
     
     p1 = new_password.strip()
@@ -828,6 +830,8 @@ async def change_password_endpoint(request: Request, response: Response) -> dict
 async def force_change_password_endpoint(request: Request, response: Response) -> dict:
     """must_change_password 상태에서 새 비밀번호 설정"""
     username = get_current_username(request)
+    if not getattr(request.state, 'must_change_password', False):
+        raise HTTPException(403, detail={'code': 'PASSWORD_CHANGE_NOT_PENDING'})
     body = await request.json()
     new_pw = str(body.get("new_password", "")).strip()
     from app.services.user_manager import force_set_user_password

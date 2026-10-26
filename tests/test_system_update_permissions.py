@@ -233,3 +233,25 @@ def test_distinct_logins_have_distinct_session_bound_approvals(persisted):
     first_token=first.get('/api/system-update/cleanup-preview').json()['preview_token']
     body={'images':[IMAGE],'preview_token':first_token,'password':'SYNTHETIC-sagesaint','confirm':True}
     assert second.post('/api/system-update/cleanup',json=body,headers=csrf(second)).status_code==403
+
+
+@pytest.mark.parametrize('form',[False,True])
+def test_force_password_routes_cannot_bypass_own_password_reauthentication(persisted,form):
+    _,_,client=persisted;grant();c=client('sagesaint')
+    before=users.USERS_FILE.read_bytes()
+    if form:r=c.post('/change-password-init',data={'new_password':'SYNTHETIC-hijack','new_password_confirm':'SYNTHETIC-hijack'})
+    else:r=c.post('/api/auth/force-change-password',json={'new_password':'SYNTHETIC-hijack'})
+    assert r.status_code==403
+    assert users.USERS_FILE.read_bytes()==before
+
+
+@pytest.mark.parametrize('form',[False,True])
+def test_legitimate_pending_initial_password_change_still_works(persisted,form):
+    _,_,client=persisted
+    users.admin_reset_password_to_4digit('sagesaint','4321');c=client('sagesaint')
+    if form:r=c.post('/change-password-init',data={'new_password':'SYNTHETIC-new','new_password_confirm':'SYNTHETIC-new'},follow_redirects=False)
+    else:r=c.post('/api/auth/force-change-password',json={'new_password':'SYNTHETIC-new'})
+    assert r.status_code==(303 if form else 200)
+    assert c.get('/api/auth/me').status_code==200
+    assert not users.get_user_by_name('sagesaint')['must_change_password']
+    assert not can_system_update(users.get_user_by_name('sagesaint'))
