@@ -163,7 +163,7 @@ jobs:
               assert len(selected) == expected and not any(list(c) for c in selected), module
               print(f'PASS: UI contract {module}: {expected} executed without skips/failures/errors')
           initial_home = [c for c in cases if c.get('classname', '').endswith('test_home_initial_html_chrome')]
-          assert len(initial_home) == 10 and not any(list(c) for c in initial_home)
+          assert len(initial_home) == 11 and not any(list(c) for c in initial_home)
           chart = [c for c in cases if c.get('classname', '').endswith('test_income_bucket_drilldown')]
           assert len(chart) == 38 and not any(list(c) for c in chart)
           day = [c for c in chart if c.get('name') == 'test_income_bucket_runtime[day_selection_non_painted_geometry]']
