@@ -13,3 +13,10 @@
 .system-update button { min-height: 44px; white-space: normal; max-width: 100%; }
 .system-update a { color: var(--accent, #818cf8); }
 .system-update button:disabled { opacity: .5; cursor: not-allowed; }
+#adminMainPanel [hidden] { display: none !important; }
+#adminMainPanel > .wealth-section-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+#adminMainPanel > .wealth-section-tabs button { flex: 1; min-width: 0; min-height: 44px; white-space: normal; }
+#adminMainPanel > .wealth-section-tabs [aria-selected="true"] { border-color: var(--accent, #818cf8); color: var(--text); }
+.admin-cell-update { padding: 12px; min-width: 135px; }
+.admin-cell-update label { display: flex; align-items: center; gap: 8px; }
+#adminUpdatePermissionApproval { max-width: 720px; }

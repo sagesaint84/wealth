@@ -12,7 +12,7 @@ from app.updater.protocol import UpdateError
 @pytest.fixture
 def boundary(monkeypatch):
     app = FastAPI()
-    user = {'username': 'synthetic-admin', 'id': 'synthetic-id', 'role': 'admin'}
+    user = {'username': 'synthetic-admin', 'id': '11111111-1111-4111-8111-111111111111', 'role': 'admin'}
     @app.middleware('http')
     async def auth(request, call_next):
         request.state.user_id = user['id']
@@ -22,8 +22,9 @@ def boundary(monkeypatch):
     monkeypatch.setattr(web, 'client', host)
     password = Mock(return_value=user.copy())
     monkeypatch.setattr('app.services.user_manager.authenticate_user', password)
-    web.register_update_routes(app, app_version='2.1.4', secret='synthetic-only',
-        role=lambda r:user['role'], username=lambda r:user['username'],
+    monkeypatch.setattr('app.services.user_manager.get_user_by_name',lambda name:user)
+    web.register_update_routes(app, app_version='2.1.5', secret='synthetic-only',
+        session_current=lambda r,u:True, username=lambda r:user['username'],
         origin=lambda r:r.headers.get('origin')=='https://synthetic.invalid')
     client = TestClient(app)
     client.cookies.set('dashboard_session_v2', 'synthetic-session')
@@ -46,7 +47,7 @@ def test_all_endpoints_require_current_admin_not_cookie_role(boundary,path):
 
 def test_read_only_status_and_check_have_no_deploy_calls(boundary):
     client,_,host,password=boundary
-    assert client.get('/api/system-update/status').json()['app_version']=='2.1.4'
+    assert client.get('/api/system-update/status').json()['app_version']=='2.1.5'
     assert client.get('/api/system-update/status').headers['cache-control']=='no-store'
     assert client.get('/api/system-update/check').status_code==200
     assert [c.args[0] for c in host.call.call_args_list]==['status','status','check']
@@ -75,11 +76,16 @@ def test_mutation_security_rejects_without_execution(boundary,mutate):
 @pytest.mark.parametrize('action,args',[('install',{'sha':'b'*40,'digest':'sha256:'+'b'*64}),('confirm',{'job_id':'b'*32}),('cleanup',{'images':['sha256:'+'b'*64]})])
 def test_destructive_actions_reauthenticate_each_time_and_forward_no_password(boundary,action,args):
     client,_,host,password=boundary
-    h=headers(client);host.reset_mock()
+    h=headers(client)
+    expected=args.copy()
+    if action=='cleanup':
+        host.call.return_value={'images':args['images'],'preserved':[]}
+        args={**args,'preview_token':client.get('/api/system-update/cleanup-preview').json()['preview_token']}
+    host.reset_mock()
     response=client.post('/api/system-update/'+action,json={**args,'password':'synthetic-password','confirm':True},headers=h)
     assert response.status_code in (200,202)
     password.assert_called_once_with('synthetic-admin','synthetic-password')
-    host.call.assert_called_once_with(action,args,'synthetic-id')
+    host.call.assert_called_once_with(action,expected,'11111111-1111-4111-8111-111111111111')
     assert 'synthetic-password' not in response.text
 
 

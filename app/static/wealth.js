@@ -11296,10 +11296,8 @@ async function handleForcePasswordSubmit(e) {
     if (modal) {
       try { modal.close(); } catch (e) { modal.removeAttribute('open'); }
     }
-    if (currentUserProfile) {
-      currentUserProfile.must_change_password = false;
-      await applyUserRoleView(currentUserProfile);
-    }
+    // Re-read server capability after the pending-password state is cleared.
+    await initAuthSession();
   } catch (err) {
     alert(err.message || '비밀번호 변경에 실패했습니다.');
   }
@@ -11357,7 +11355,7 @@ async function refreshAdminUserList() {
   const tbodyMain = document.getElementById('adminMainUserListTbody');
   const tbodyDialog = document.getElementById('adminUserListTbody');
 
-  const loadingHtml = '<tr><td colspan="5" class="admin-empty-cell">불러오는 중...</td></tr>';
+  const loadingHtml = '<tr><td colspan="6" class="admin-empty-cell">불러오는 중...</td></tr>';
   if (tbodyMain) tbodyMain.innerHTML = loadingHtml;
   if (tbodyDialog) tbodyDialog.innerHTML = loadingHtml;
 
@@ -11380,7 +11378,7 @@ async function refreshAdminUserList() {
     if (statPending) statPending.textContent = `${pendingCount}명`;
 
     if (!users.length) {
-      const emptyHtml = '<tr><td colspan="5" class="admin-empty-cell">등록된 사용자가 없습니다.</td></tr>';
+      const emptyHtml = '<tr><td colspan="6" class="admin-empty-cell">등록된 사용자가 없습니다.</td></tr>';
       if (tbodyMain) tbodyMain.innerHTML = emptyHtml;
       if (tbodyDialog) tbodyDialog.innerHTML = emptyHtml;
       return;
@@ -11407,6 +11405,9 @@ async function refreshAdminUserList() {
             </span>
           </td>
           <td class="admin-cell-status">${statusBadge}</td>
+          <td class="admin-cell-update">
+            ${isAdminRoot ? '관리자 기본 권한' : !u.id ? '식별자 확인 필요' : `<label><input type="checkbox" data-update-user="${escapeHtml(u.id)}" data-update-name="${escapeHtml(u.username)}" data-update-stored="${u.permissions?.system_update === true}" aria-label="${escapeHtml(u.username)} 시스템 업데이트 권한" ${u.permissions?.system_update === true ? 'checked' : ''} ${(u.must_change_password || u.active === false) && u.permissions?.system_update !== true ? 'disabled' : ''}> 업데이트·이미지 정리</label>`}
+          </td>
           <td class="admin-cell-date">${createdAtStr}</td>
           <td class="admin-cell-actions">
             <div style="display:inline-flex;gap:8px;">
@@ -11426,7 +11427,7 @@ async function refreshAdminUserList() {
     if (tbodyDialog) tbodyDialog.innerHTML = rowsHtml;
   } catch (err) {
     console.error('[ADMIN] 사용자 목록 로드 실패:', err);
-    const errHtml = `<tr><td colspan="5" class="admin-empty-cell" style="color:#ff718c;">목록 로드 실패: ${escapeHtml(err.message || String(err))}</td></tr>`;
+    const errHtml = `<tr><td colspan="6" class="admin-empty-cell" style="color:#ff718c;">목록 로드 실패: ${escapeHtml(err.message || String(err))}</td></tr>`;
     if (tbodyMain) tbodyMain.innerHTML = errHtml;
     if (tbodyDialog) tbodyDialog.innerHTML = errHtml;
   }
