@@ -175,8 +175,52 @@ def record_route(call,evaluate,port,route,width,theme='purple',reload=False):
     if reload:call('Page.reload',{'ignoreCache':False})
     else:call('Page.navigate',{'url':f'http://127.0.0.1:{port}/?route={route}&width={width}&theme={theme}#{route}'})
     wait_for(evaluate,f"performance.timeOrigin!=={previous!r} && document.readyState==='complete' && !!window.WealthUnifiedTimeseries")
+    # A direct actual-dividend entry intentionally hides the data panel until
+    # its asynchronous first chart commit. Four frames after DOM completion is
+    # not that contract. Continue capturing ALL first frames until commit; do
+    # not shorten the trace or permit another panel to paint while waiting.
+    key, tab = route_expectation(route)
+    if key == 'income':
+        panel = INCOME_PANELS[tab]
+        wait_for(evaluate, f"!!document.getElementById('{panel}')?.getClientRects().length && !document.getElementById('incomeTabs')?.hasAttribute('aria-busy')")
     evaluate('(async()=>{for(let n=0;n<4;n++)await new Promise(requestAnimationFrame);__routeFrames.stop=true;})()')
     return assert_route_frames(evaluate,route,width,theme)
+
+
+def test_oled_sw_dividend_pending_commit_is_not_dom_complete(chrome_preview):
+    """Deterministically reproduce the old four-frame completion race."""
+    from tests.test_ledger_single_renderer_chrome import BOOT as LEDGER_BOOT
+    call,evaluate,_=chrome_preview
+    gate=r"""
+    localStorage.setItem('app_theme','oled');
+    window.__frameGate={open:false,releases:[]};
+    const frameFetch=fetch;
+    window.fetch=function(url,options){
+      const pending=frameFetch.apply(this,arguments);
+      if(new URL(String(url),location.href).pathname!=='/api/actual-dividends')return pending;
+      return pending.then(response=>__frameGate.open?response:new Promise(resolve=>__frameGate.releases.push(()=>resolve(response))));
+    };
+    """
+    call('Page.addScriptToEvaluateOnNewDocument',{'source':ROUTE_FRAMES+LEDGER_BOOT+gate})
+    call('Emulation.setDeviceMetricsOverride',{'width':390,'height':900,'deviceScaleFactor':1,'mobile':False})
+    call('Network.setBypassServiceWorker',{'bypass':False})
+    with transport_server(True) as port:
+        call('Page.navigate',{'url':f'http://127.0.0.1:{port}/#home'})
+        wait_for(evaluate,'document.readyState==="complete" && !!window.WealthUnifiedTimeseries')
+        evaluate("navigator.serviceWorker.register('/sw.js').then(()=>navigator.serviceWorker.ready)")
+        wait_for(evaluate,'!!navigator.serviceWorker.controller')
+        for reload in [False,True]:
+            previous=evaluate('performance.timeOrigin')
+            if reload:call('Page.reload',{'ignoreCache':False})
+            else:call('Page.navigate',{'url':f'http://127.0.0.1:{port}/?theme=oled#dividend'})
+            wait_for(evaluate,f'performance.timeOrigin!=={previous!r} && document.readyState==="complete" && !!window.WealthUnifiedTimeseries && __frameGate.releases.length>0')
+            evaluate('(async()=>{for(let n=0;n<4;n++)await new Promise(requestAnimationFrame);return true;})()')
+            assert evaluate("document.getElementById('incomeTabs').getAttribute('aria-busy')")=='true'
+            assert not evaluate("!!document.getElementById('dividendPanel').getClientRects().length")
+            evaluate('__frameGate.open=true;__frameGate.releases.splice(0).forEach(release=>release())')
+            wait_for(evaluate,"!!document.getElementById('dividendPanel').getClientRects().length && !document.getElementById('incomeTabs').hasAttribute('aria-busy')")
+            evaluate('(async()=>{for(let n=0;n<4;n++)await new Promise(requestAnimationFrame);__routeFrames.stop=true;})()')
+            assert_route_frames(evaluate,'dividend',390,'oled')
 
 
 def test_initial_route_first_frames_all_widths_and_normal_reload(chrome_preview):

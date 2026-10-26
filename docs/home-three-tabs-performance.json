@@ -1,0 +1,254 @@
+{
+  "baseline": "940a42053297059dcbafdc837458876269958086",
+  "conditions": "Chromium, synthetic loopback, gzip, cold HTTP cache, SW bypass; mobile CPU 4x/network latency 40ms/250KBps; desktop CPU 1x/20ms/500KBps; 3 alternating samples each",
+  "summary": [
+    {
+      "width": 360,
+      "main": {
+        "fcp_ms": 632,
+        "asset_ms": 3829.89999999851,
+        "ready_ms": 4112.0999999940395,
+        "api_count": 12
+      },
+      "candidate": {
+        "fcp_ms": 664,
+        "asset_ms": 4509.5999999940395,
+        "ready_ms": 4833.89999999851,
+        "api_count": 11
+      }
+    },
+    {
+      "width": 1280,
+      "main": {
+        "fcp_ms": 324,
+        "asset_ms": 1630.7000000029802,
+        "ready_ms": 1787.2000000029802,
+        "api_count": 13
+      },
+      "candidate": {
+        "fcp_ms": 336,
+        "asset_ms": 1628,
+        "ready_ms": 1777.1000000014901,
+        "api_count": 12
+      }
+    }
+  ],
+  "samples": [
+    {
+      "variant": "main",
+      "width": 360,
+      "iteration": 0,
+      "fcp_ms": 1136,
+      "asset_ms": 4572.60000000149,
+      "ready_ms": 5458.60000000149,
+      "api_count": 12,
+      "metrics": {
+        "JSEventListeners": 661,
+        "Nodes": 14128,
+        "LayoutDuration": 1.041026,
+        "RecalcStyleDuration": 0.131763,
+        "ScriptDuration": 0.69351,
+        "TaskDuration": 3.571907,
+        "JSHeapUsedSize": 2784416
+      }
+    },
+    {
+      "variant": "candidate",
+      "width": 360,
+      "iteration": 0,
+      "fcp_ms": 612,
+      "asset_ms": 4509.5999999940395,
+      "ready_ms": 4833.89999999851,
+      "api_count": 11,
+      "metrics": {
+        "JSEventListeners": 1292,
+        "Nodes": 27282,
+        "LayoutDuration": 0.051336,
+        "RecalcStyleDuration": 0.155699,
+        "ScriptDuration": 0.575284,
+        "TaskDuration": 3.113355,
+        "JSHeapUsedSize": 3727612
+      }
+    },
+    {
+      "variant": "candidate",
+      "width": 360,
+      "iteration": 1,
+      "fcp_ms": 668,
+      "asset_ms": 3869.2000000029802,
+      "ready_ms": 4204.10000000149,
+      "api_count": 11,
+      "metrics": {
+        "JSEventListeners": 1923,
+        "Nodes": 40488,
+        "LayoutDuration": 0.056279,
+        "RecalcStyleDuration": 0.084155,
+        "ScriptDuration": 0.471203,
+        "TaskDuration": 2.339718,
+        "JSHeapUsedSize": 4868688
+      }
+    },
+    {
+      "variant": "main",
+      "width": 360,
+      "iteration": 1,
+      "fcp_ms": 604,
+      "asset_ms": 3829.89999999851,
+      "ready_ms": 4057.10000000149,
+      "api_count": 12,
+      "metrics": {
+        "JSEventListeners": 2526,
+        "Nodes": 53438,
+        "LayoutDuration": 0.029754,
+        "RecalcStyleDuration": 0.079028,
+        "ScriptDuration": 0.384714,
+        "TaskDuration": 2.26789,
+        "JSHeapUsedSize": 5586420
+      }
+    },
+    {
+      "variant": "main",
+      "width": 360,
+      "iteration": 2,
+      "fcp_ms": 632,
+      "asset_ms": 3741.7999999970198,
+      "ready_ms": 4112.0999999940395,
+      "api_count": 12,
+      "metrics": {
+        "JSEventListeners": 3167,
+        "Nodes": 66693,
+        "LayoutDuration": 0.056531,
+        "RecalcStyleDuration": 0.131305,
+        "ScriptDuration": 0.439569,
+        "TaskDuration": 2.142398,
+        "JSHeapUsedSize": 6939716
+      }
+    },
+    {
+      "variant": "candidate",
+      "width": 360,
+      "iteration": 2,
+      "fcp_ms": 664,
+      "asset_ms": 4773,
+      "ready_ms": 5160.79999999702,
+      "api_count": 11,
+      "metrics": {
+        "JSEventListeners": 3798,
+        "Nodes": 79903,
+        "LayoutDuration": 0.052374,
+        "RecalcStyleDuration": 0.193307,
+        "ScriptDuration": 0.808859,
+        "TaskDuration": 3.26763,
+        "JSHeapUsedSize": 8027636
+      }
+    },
+    {
+      "variant": "main",
+      "width": 1280,
+      "iteration": 0,
+      "fcp_ms": 316,
+      "asset_ms": 1630.7000000029802,
+      "ready_ms": 1787.2000000029802,
+      "api_count": 12,
+      "metrics": {
+        "JSEventListeners": 4434,
+        "Nodes": 93293,
+        "LayoutDuration": 0.008777,
+        "RecalcStyleDuration": 0.017115,
+        "ScriptDuration": 0.078046,
+        "TaskDuration": 0.33752,
+        "JSHeapUsedSize": 9175344
+      }
+    },
+    {
+      "variant": "candidate",
+      "width": 1280,
+      "iteration": 0,
+      "fcp_ms": 336,
+      "asset_ms": 1626.9000000059605,
+      "ready_ms": 1774.9000000059605,
+      "api_count": 12,
+      "metrics": {
+        "JSEventListeners": 5097,
+        "Nodes": 107393,
+        "LayoutDuration": 0.003899,
+        "RecalcStyleDuration": 0.011234,
+        "ScriptDuration": 0.064861,
+        "TaskDuration": 0.286425,
+        "JSHeapUsedSize": 10438124
+      }
+    },
+    {
+      "variant": "candidate",
+      "width": 1280,
+      "iteration": 1,
+      "fcp_ms": 336,
+      "asset_ms": 1628,
+      "ready_ms": 1777.1000000014901,
+      "api_count": 12,
+      "metrics": {
+        "JSEventListeners": 4434,
+        "Nodes": 93249,
+        "LayoutDuration": 0.003864,
+        "RecalcStyleDuration": 0.011571,
+        "ScriptDuration": 0.064006,
+        "TaskDuration": 0.310418,
+        "JSHeapUsedSize": 10462544
+      }
+    },
+    {
+      "variant": "main",
+      "width": 1280,
+      "iteration": 1,
+      "fcp_ms": 336,
+      "asset_ms": 1618.5,
+      "ready_ms": 1777.6000000014901,
+      "api_count": 13,
+      "metrics": {
+        "JSEventListeners": 5095,
+        "Nodes": 107401,
+        "LayoutDuration": 0.005752,
+        "RecalcStyleDuration": 0.015497,
+        "ScriptDuration": 0.072833,
+        "TaskDuration": 0.30272,
+        "JSHeapUsedSize": 11789532
+      }
+    },
+    {
+      "variant": "main",
+      "width": 1280,
+      "iteration": 2,
+      "fcp_ms": 324,
+      "asset_ms": 1646.8999999985099,
+      "ready_ms": 1799,
+      "api_count": 13,
+      "metrics": {
+        "JSEventListeners": 5756,
+        "Nodes": 121556,
+        "LayoutDuration": 0.006742,
+        "RecalcStyleDuration": 0.019733,
+        "ScriptDuration": 0.080063,
+        "TaskDuration": 0.355373,
+        "JSHeapUsedSize": 13772820
+      }
+    },
+    {
+      "variant": "candidate",
+      "width": 1280,
+      "iteration": 2,
+      "fcp_ms": 344,
+      "asset_ms": 1814.7999999970198,
+      "ready_ms": 2013.7999999970198,
+      "api_count": 11,
+      "metrics": {
+        "JSEventListeners": 4429,
+        "Nodes": 92903,
+        "LayoutDuration": 0.005212,
+        "RecalcStyleDuration": 0.015573,
+        "ScriptDuration": 0.085944,
+        "TaskDuration": 0.433871,
+        "JSHeapUsedSize": 12061180
+      }
+    }
+  ]
+}

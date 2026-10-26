@@ -40,7 +40,7 @@
     <p class="wealth-help wealth-history-help">자금 입출금·자산 등록도 반영되므로 투자수익률과는 다릅니다.</p>
     <div class="wealth-periods compact-record-tabs" aria-label="순자산 조회 기간"><button type="button" class="heatmap-tab" data-period="1D">일간</button><button type="button" class="heatmap-tab" data-period="1W">주간</button><button type="button" class="heatmap-tab" data-period="1M">월간</button><button type="button" class="heatmap-tab active" data-period="1Y">연간</button><button type="button" class="heatmap-tab" data-period="ALL">전체</button></div>
     <p id="wealthHistoryStatus" class="wealth-help" role="status">기록을 불러오는 중입니다.</p><div class="wealth-history-main"><div id="wealthHistoryPlot"></div><details id="wealthHistoryDetails" class="wealth-history-details" open></details></div>`;
-  (home.querySelector('#wealthMarketSlot') || home).before(historyPanel);
+  home.querySelector('#wealthHistorySlot').append(historyPanel);
   const historyManager = document.createElement('div');
   historyManager.className='wealth-history-selection';
   historyManager.innerHTML='<p id="wealthHistoryEditStatus" class="wealth-help" role="status"></p>';
@@ -168,7 +168,7 @@
     renderHistory();
   });
   function renderHistory() {
-    if(home.hidden || !state || !summary) return;
+    if(home.hidden || home.querySelector('#wealthHistorySlot').hidden || !state || !summary) return;
     const allRecords=state.history.filter(r=>r.owner===summary.owner).sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));
     const records=filterHistoryPeriod(allRecords,range);
     const plot = document.getElementById('wealthHistoryPlot');
@@ -178,7 +178,8 @@
     const values=records.map(r=>Number(r.net_worth)||0);
     const lo=Math.min(...values), hi=Math.max(...values), span=hi-lo || Math.max(Math.abs(hi)*0.05,1);
     const first=Date.parse(records[0].date), duration=Date.parse(records.at(-1).date)-first || 1;
-    const containerWidth = plot.clientWidth || 800;
+    const containerWidth = plot.clientWidth;
+    if (!containerWidth) return;
     const width = containerWidth;
     const pad = Math.max(48, Math.min(64, Math.round(width * 0.06)));
     const left = pad, right = width - pad, lineTop = 48, lineBottom = 137, barBaseline = 202;

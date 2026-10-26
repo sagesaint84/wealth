@@ -1,6 +1,18 @@
 # Wealth Project State
 
-## 현재 운영 상태 — 2026-10-22 / v2.1.3 PR #163 배포 완료
+## 2026-10-26 — PR #177 출시 절차 승인
+
+- APP_VERSION=2.1.3. 기존 홈 3탭 및 두 geometry/telemetry 가드 후보를 사용자 승인으로 출시 절차에 올린다. PERFORMANCE_GATE=FAIL/HOLD, RELEASE_EXCEPTION=USER_APPROVED_PR177_ONLY. 아래 과거 HOLD는 수치상 유지하며 사용자 승인에 따라 이번 PR의 출시 차단만 한정 해제한다.
+- 로컬 확대 270개 범위를 재검증하고 새 PR HEAD의 Static/IPO/Toss AMD64·ARM64 SUCCESS 후에만 Ready/Squash Merge한다. 과거 HEAD의 CI 성공을 재사용하지 않는다. 정확한 커밋·CI·Merge·GHCR 상태는 PR #177/Actions와 최종 실행 보고를 따른다.
+- Oracle SSH 경로가 없으면 실제 배포를 주장하지 않고 서버 preflight·Digest 배포·검증·rollback 명령을 제공한다. #179 병합, 금융 데이터·Toss 설정·기존 두 Compose·다른 컨테이너 변경 및 광범위 prune은 금지한다. [릴리스 기록](PR177_RELEASE.md).
+
+## 2026-10-25 — PR #177 로컬 후보, 성능 HOLD
+
+- 원격 PR HEAD `ecd021fb9cc4257344e317cf1ecca143596fdfca`, 기반 main `940a42053297059dcbafdc837458876269958086`. 해당 HEAD의 Static/IPO/Toss AMD64·ARM64 CI는 실제 조회하여 SUCCESS를 확인했다. 이 결과는 미커밋 로컬 패치의 CI가 아니다.
+- 앱 버전 2.1.3 유지. 홈 3탭과 정확한 이름을 유지하며, 로컬 최소 패치·trace·격리 실험·회귀 기록을 [조사 보고서](home-tabs-hold-20261025/REPORT.md)에 보존한다. 성능 무회귀 미검증으로 Commit·Push·Draft 해제·main 병합·Oracle 배포는 보류한다.
+- 현재 운영 배포 이력은 CHANGELOG의 2026-10-24 PR #173 및 운영 보관 문서를 따른다. 아래 2026-10-22 기록은 당시 상태로 보존한다.
+
+## 과거 운영 상태 — 2026-10-22 / v2.1.3 PR #163 배포 완료
 
 - **현재 배포 앱: Wealth v2.1.3.** [PR #163](https://github.com/sagesaint84/wealth/pull/163) Squash Merge `f9cb3cd87644fc8a51cd25488802878ee680613a`; FastAPI APP_VERSION·HTML 사용자 표기 2.1.3, 변경된 JS와 SW `2.1.3-p0`. 기존 IPO·레이아웃 revision 보존. `main` 배포 기준은 이 SHA이며 아래 2.1.2 운영·P0 후보 단락은 **작업 당시의 과거 기록**이다.
 - **빌드**: [GitHub Actions 39741300759](https://github.com/sagesaint84/wealth/actions/runs/39741300759) SUCCESS, native/멀티플랫폼 Linux AMD64·ARM64 발행. GHCR 태그 `ghcr.io/sagesaint84/wealth:f9cb3cd`, Manifest Digest `sha256:f2683c22acd77e8fe8f03b11c5bbfcf60115c095c7a242069a81c4d2ba64d1d8`.

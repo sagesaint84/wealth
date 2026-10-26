@@ -354,6 +354,8 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
     # Use the existing navigation link and hashchange router, as a user would.
     evaluate("document.querySelector('.wealth-nav a[href=\"#home\"]').click();")
     wait_for(evaluate, "location.hash==='#home' && document.querySelector('.wealth-workspace').dataset.activeView==='home' && !document.querySelector('[data-wealth-page=home]').hidden")
+    assert evaluate("__signalsFixture.marketReads.length") == 0
+    evaluate("document.getElementById('homeTab-markets').click()")
     wait_for(evaluate, "__signalsFixture.marketReads.length>0 && document.querySelectorAll('#marketGrid .market-card').length===7 && document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     text = evaluate("document.querySelector('#marketGrid').textContent")
     for expected in ["코스피", "코스닥", "나스닥", "S&P", "반도체", "금리", "+3.5bp", "미국 공포·탐욕", "공식 수치 미연동"]:
@@ -386,6 +388,9 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
             "value": None, "change_pp": None, "change_bp": None, "observed_at": None,
             "observed_date": None, "series": [], "status": "source_error", "reason": "조회 불가", "update_delayed": True}
         evaluate("Object.assign(__marketFixture.rates[0]," + json.dumps(patch, ensure_ascii=False) + ");document.querySelector('.wealth-nav a[href=\"#home\"]').click();")
+        wait_for(evaluate, "location.hash==='#home' && document.querySelector('.wealth-workspace').dataset.activeView==='home'")
+        assert evaluate("__signalsFixture.marketReads.length") == reads
+        evaluate("document.getElementById('homeTab-markets').click()")
         expected_price = "조회 불가" if failed else "4.988%"
         wait_for(evaluate, f"document.querySelector('.wealth-workspace').dataset.activeView==='home' && __signalsFixture.marketReads.length>{reads} && [...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX')?.querySelector('.market-price').textContent==={json.dumps(expected_price, ensure_ascii=False)}")
         assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX').querySelector('.market-price').textContent") == expected_price

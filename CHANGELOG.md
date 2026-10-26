@@ -1,5 +1,19 @@
 # Wealth 변경 이력
 
+## 2026-10-26 — PR #177 홈 3탭 사용자 출시 승인
+
+- 자산 포트폴리오 / 순자산 추이 / 주요지수의 기존 화면·ID·렌더러를 재사용한다. 숨긴 순자산 geometry 조회와 opt-in OFF 계측 조회를 피하는 최소 가드, 관련 캐시 계약·회귀 테스트를 포함한다. APP_VERSION 2.1.3 유지.
+- PERFORMANCE_GATE=FAIL/HOLD, RELEASE_EXCEPTION=USER_APPROVED_PR177_ONLY. 사용자가 이번 릴리스에 한해 명시적으로 승인했다. 성능 PASS·기준 완화·다른 PR 예외 승계가 아니다.
+- 새 HEAD 기능/회귀/CI 성공 후에만 #177 Squash Merge 및 정확한 Merge SHA의 GHCR 이미지 검증을 진행한다. #179 병합은 제외한다. Oracle 실행·운영 브라우저 검증은 별도 기록하며 미실행을 PASS로 표시하지 않는다.
+- [릴리스 범위·성능 실측·D-E 비교·검증 절차](docs/PR177_RELEASE.md). 기존 실패 기록과 로컬 원본 자료는 보존한다.
+
+## 2026-10-25 — PR #177 로컬 후보 조사, 미출시·성능 HOLD
+
+- 앱 버전 2.1.3 유지. 자산 포트폴리오 / 순자산 추이 / 주요지수 이름과 기존 DOM·렌더러를 보존한다.
+- 숨긴 순자산 패널 geometry 검사에 의한 동기 Layout을 피하는 최소 로컬 패치와 planning JS 개별 revision `2.1.3-home-tabs2` 계약을 준비했다. 성능 해결·출시를 의미하지 않는다.
+- 기존 360px 실패 기록 2회 및 새 16표본 비교를 보존한다. 무회귀 기준 미충족으로 PERFORMANCE_GATE=FAIL/HOLD, MERGE_GATE=HOLD, DEPLOY_GATE=HOLD. Commit·Push하지 않는다.
+- [정밀 조사·격리 실험·회귀 결과](docs/home-tabs-hold-20261025/REPORT.md). 아래 운영 배포 기록은 변경하지 않는다.
+
 ## 2026-10-24 — PR #173 금리 그래프·자산 이모지 복구, 운영 배포 완료
 
 - [PR #173](https://github.com/sagesaint84/wealth/pull/173) Squash Merge `6a14c0d5cd7dda27501db770572d1d3334b37901` (기반 PR #172 운영 커밋 `f90e9b7589a2180c518ecb34f9c7343ed0241367`). 앱 버전은 **v2.1.3** 유지, 정적 자산 revision은 변경 파일에 한해 `2.1.3-ui-icons-rate1`.
