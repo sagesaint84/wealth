@@ -1,0 +1,5 @@
+# Install as /docker/wealth/docker-compose.updater.yml; originals stay untouched.
+services:
+  dashboard:
+    volumes:
+      - /run/wealth-updater:/run/wealth-updater:ro

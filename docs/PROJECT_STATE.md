@@ -1,5 +1,14 @@
 # Wealth Project State
 
+## 2026-10-26 — v2.1.4 시스템 업데이트 개발
+
+- 기준 main70acd2719d20c9157069e82a7d33105464aa495d; 새 격리 worktree v214-system-update / codex/v214-system-update. 기존 보호 worktree·249개 증거·금융 데이터·Toss·원래 Compose·이미지 변경 없음.
+- APP_VERSION=2.1.4 후보. 독립 #181 Draft PR 대상. 앱 관리자 UI/API와 별도 호스트 실행기 구현; no docker.sock in app, 고정 digest/성공 빌드/복구/정리 보호 계약. [설계·검증·수동 bootstrap](SYSTEM_UPDATE.md).
+- 로컬 pytest/Chromium과 Linux IPC·실제 Docker 격리 CI는 별도 결과를 기록한다. 전체 pytest 미실행이면 NOT_RUN. 운영 worker 설치/실제 화면/Oracle 업데이트는 사용자 단계이며 현재 NOT_RUN.
+- PR177은 병합·GHCR 완료, Oracle NOT_RUN; 성능 FAIL/HOLD 예외는 PR177 한정. PR179 병합하지 않는다. 이 PR main 병합·배포는 사용자 승인 전 HOLD.
+- #180(v2.1.5), #178(v2.1.6)은 순차 승인 후 최신 main 별도 PR로 진행. 이번 검증이 막히면 다음 단계로 넘어가지 않는다. 세 기능 이후 사용자 상담.
+
+
 ## 2026-10-26 — PR #177 출시 절차 승인
 
 - APP_VERSION=2.1.3. 기존 홈 3탭 및 두 geometry/telemetry 가드 후보를 사용자 승인으로 출시 절차에 올린다. PERFORMANCE_GATE=FAIL/HOLD, RELEASE_EXCEPTION=USER_APPROVED_PR177_ONLY. 아래 과거 HOLD는 수치상 유지하며 사용자 승인에 따라 이번 PR의 출시 차단만 한정 해제한다.

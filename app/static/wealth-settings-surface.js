@@ -5,6 +5,7 @@
   <div id="settingsTabs" class="wealth-section-tabs settings-tabs" role="tablist" aria-label="설정 분류">
     <button id="settingsApiTab" type="button" role="tab" aria-selected="true" aria-controls="settingsApiPanel" data-settings-tab="api" tabindex="0">API 연결</button>
     <button id="settingsNotificationsTab" type="button" role="tab" aria-selected="false" aria-controls="settingsNotificationsPanel" data-settings-tab="notifications" tabindex="-1">알림 · 자동화</button>
+    <button id="settingsSystemTab" type="button" role="tab" aria-selected="false" aria-controls="settingsSystemPanel" data-settings-tab="system" tabindex="-1" hidden>시스템 업데이트</button>
   </div>
   <section id="settingsApiPanel" role="tabpanel" aria-labelledby="settingsApiTab" data-settings-panel="api">
     <p id="settingsApiLoading" class="settings-loading" role="status" hidden>연결 설정을 불러오는 중…</p>
@@ -367,6 +368,36 @@
       </div>
   </fieldset>
       </section>
+  <section id="settingsSystemPanel" class="system-update" role="tabpanel" aria-labelledby="settingsSystemTab" data-settings-panel="system" hidden>
+    <h3>시스템 업데이트</h3>
+    <p>관리자만 설치할 수 있습니다. 설치 중 잠시 연결이 끊길 수 있으며, 서버 검증에 실패하면 이전 이미지로 자동 복구합니다.</p>
+    <dl class="update-facts">
+      <div><dt>현재 앱 버전</dt><dd id="updateVersion">확인 중</dd></div>
+      <div><dt>실행 Git SHA</dt><dd id="updateCurrentSha">확인 전</dd></div>
+      <div><dt>실행 이미지 digest</dt><dd id="updateCurrentDigest">확인 전</dd></div>
+      <div><dt>롤백 이미지</dt><dd id="updateRollback">확인 전</dd></div>
+    </dl>
+    <p id="updateStatus" role="status" aria-live="polite"></p>
+    <p id="updateError" class="settings-error" role="alert" hidden></p>
+    <div class="update-actions"><button id="updateCheck" type="button" class="button secondary" disabled>업데이트 확인</button><button id="updateRefresh" type="button" class="button secondary">실행 상태 새로고침</button></div>
+    <section id="updateRelease" aria-label="최신 배포본" hidden>
+      <h4>최신 검증 배포본</h4><dl class="update-facts">
+        <div><dt>Git SHA</dt><dd id="updateLatestSha"></dd></div><div><dt>고정 digest</dt><dd id="updateLatestDigest"></dd></div>
+        <div><dt>빌드 및 마지막 확인</dt><dd><a id="updateBuild" target="_blank" rel="noopener noreferrer">빌드 성공</a><span id="updateChecked"></span></dd></div>
+        <div><dt>이미지 압축 크기 / 필요 여유 / 현재 여유</dt><dd id="updateSpace"></dd></div>
+      </dl><ul id="updateChanges"></ul>
+    </section>
+    <form id="updateAuthorization" class="update-authorization">
+      <label for="updatePassword">현재 관리자 비밀번호 (작업마다 재입력)</label>
+      <input id="updatePassword" type="password" autocomplete="current-password" maxlength="256">
+      <label class="update-consent"><input id="updateConsent" type="checkbox"> 선택한 설치·운영 확인·이미지 정리 작업을 진행합니다.</label>
+      <div class="update-actions"><button id="updateInstall" type="button" class="button primary" disabled>업데이트 설치</button><button id="updateConfirm" type="button" class="button secondary" disabled>실제 화면 정상 확인</button></div>
+      <p>실제 화면을 확인한 뒤 정상 확인을 눌러 주세요. 이미지 정리는 별도 미리보기·승인 후 진행하며 현재 이미지와 마지막 정상 롤백 이미지는 보존합니다.</p>
+      <button id="updateCleanupPreview" type="button" class="button secondary" disabled>과거 Wealth 이미지 정리 미리보기</button>
+      <ul id="updateCleanupImages"></ul><button id="updateCleanup" type="button" class="button secondary" disabled>미리본 이미지 정리</button>
+    </form>
+    <h4>작업 기록</h4><ol id="updateJobs" aria-live="polite"></ol>
+  </section>
 </div>`;
   const byId = id => document.getElementById(id);
   const notificationHistoryPreferenceKey = 'wealth.notificationHistory.expanded';

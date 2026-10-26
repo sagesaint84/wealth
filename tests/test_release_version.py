@@ -11,15 +11,15 @@ STATIC_DIR = ROOT / "app" / "static"
 class ReleaseVersionTests(unittest.TestCase):
     def test_fastapi_app_version(self):
         main = _import_main_without_loading_real_env()
-        self.assertEqual(getattr(main, "APP_VERSION", None), "2.1.3")
-        self.assertEqual(main.app.version, "2.1.3")
+        self.assertEqual(getattr(main, "APP_VERSION", None), "2.1.4")
+        self.assertEqual(main.app.version, "2.1.4")
 
     def test_index_html_version_metadata_and_cache_busting(self):
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-        self.assertIn('<meta name="application-version" content="2.1.3" />', html)
+        self.assertIn('<meta name="application-version" content="2.1.4" />', html)
         self.assertIn('<meta name="application-assets-revision" content="2.1.3-p0" />', html)
         self.assertIn('id="appVersionDisplay"', html)
-        self.assertIn("앱 버전 v2.1.3", html)
+        self.assertIn("앱 버전 v2.1.4", html)
 
         css_matches = re.findall(r'href="/static/([^"]+\.css)\?v=([^"]+)"', html)
         self.assertTrue(css_matches)
@@ -29,6 +29,7 @@ class ReleaseVersionTests(unittest.TestCase):
                 'wealth-ledger-ocr.css': '2.0.2-review1',
                 "wealth-color-preferences.css": "10.9r6",
                 "wealth-color-picker.css": "10.9r2",
+                "wealth-system-update.css": "2.1.4-update1",
                 "wealth-layout.css": "2.1.3-home-tabs1",
                 "wealth-savings-contributions.css": "10.9p",
                 "wealth-dialog-system.css": "2.0.3-ai1",
@@ -41,6 +42,7 @@ class ReleaseVersionTests(unittest.TestCase):
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
         versions = {
+            'wealth-system-update.js': '2.1.4-update1',
             'wealth-ipo.js': '2.1.3-ipo-naver1',
             'wealth-ledger-ocr.js': '2.0.2-review2',
             'wealth-money-input.js': '2.1.3-ui-cleanup1',
@@ -53,8 +55,8 @@ class ReleaseVersionTests(unittest.TestCase):
             "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "2.1.3-home-tabs2",
             "wealth-calendar.js": "2.1.2-ipo-ui1", "wealth-color-picker.js": "10.9r5",
             "wealth-planning-model.js": "2.1.3-p0", "wealth-asset-category-state.js": "2.0.2",
-            "wealth-settings-surface.js": "2.1.3-uiux1", "wealth-invest-tab-state.js": "10.9k1",
-            "wealth-settings.js": "10.9h1", "wealth-family-financial-income-allocation.js": "2.1.3-p0",
+            "wealth-settings-surface.js": "2.1.4-update1", "wealth-invest-tab-state.js": "10.9k1",
+            "wealth-settings.js": "2.1.4-update1", "wealth-family-financial-income-allocation.js": "2.1.3-p0",
         }
         for asset, version in js_matches:
             self.assertEqual(version, versions.get(asset, "1.3.0"))

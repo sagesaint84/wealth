@@ -22,7 +22,7 @@ def test_settings_entry_surface_and_module_are_wired():
     assert 'id="settingsNotificationsPanel"' in HTML
     assert "window.WealthSettingsSurfaceMarkup()" in LAYOUT_JS
     assert INDEX_HTML.index('wealth-settings-surface.js') < INDEX_HTML.index('wealth-layout.js')
-    assert '/static/wealth-settings.js?v=10.9h1' in INDEX_HTML
+    assert '/static/wealth-settings.js?v=2.1.4-update1' in INDEX_HTML
     assert "topbarFamilyBtn" in LAYOUT_JS
 
 
