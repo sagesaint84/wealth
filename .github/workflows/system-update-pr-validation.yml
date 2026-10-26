@@ -1,0 +1,81 @@
+name: System update isolated safety validation
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/updater/**'
+      - 'app/system_update.py'
+      - 'app/main.py'
+      - 'app/static/**'
+      - 'ops/wealth-updater/**'
+      - 'tests/test_system_update*.py'
+      - 'tests/test_release_version.py'
+      - '.github/workflows/system-update-pr-validation.yml'
+permissions:
+  contents: read
+jobs:
+  synthetic-web-and-ipc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WEALTH_ENV: test
+      WEALTH_DISABLE_ENV_FILE: '1'
+      WEALTH_TEST_SIGNING_SECRET: synthetic-ci-only-system-update
+      PYTHONPATH: '.:tests'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install synthetic test runtime
+        run: |
+          python -m pip install -r requirements.txt pytest pytest-subtests websocket-client playwright
+          python -m playwright install --with-deps chromium
+          python - <<'PY'
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              binary = p.chromium.executable_path
+          wrapper = Path('/tmp/chrome')
+          wrapper.write_text('#!/bin/sh\nexec "' + binary + '" --no-sandbox "$@"\n')
+          wrapper.chmod(0o700)
+          PY
+      - name: Synthetic security, real Unix IPC and five Chromium widths
+        run: |
+          export PATH="/tmp:$PATH"
+          test ! -e data && test ! -e .env
+          export WEALTH_DATA_DIR="$RUNNER_TEMP/synthetic-data" DATA_DIR="$RUNNER_TEMP/synthetic-data"
+          python -m pytest tests/test_system_update_api.py tests/test_system_update_host.py tests/test_system_update_releases.py tests/test_system_update_chrome.py tests/test_release_version.py tests/test_settings_frontend.py tests/test_settings_surface_chrome.py -q --junitxml="$RUNNER_TEMP/update.xml"
+          python - <<'PY'
+          import os,xml.etree.ElementTree as ET
+          cases=list(ET.parse(os.path.join(os.environ['RUNNER_TEMP'],'update.xml')).iter('testcase'))
+          assert cases and all(not list(c) for c in cases)
+          assert len([c for c in cases if 'test_update_ui_readonly_install_progress_confirmation_cleanup_and_width' in c.get('name','')])==5
+          assert len([c for c in cases if c.get('name')=='test_real_authenticated_unix_ipc_roundtrip_and_bad_key'])==1
+          PY
+  isolated-docker-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WEALTH_ENV: test
+      WEALTH_DISABLE_ENV_FILE: '1'
+      WEALTH_UPDATER_DOCKER_TEST: '1'
+      PYTHONPATH: '.:tests'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Prepare disposable synthetic VM
+        run: |
+          python -m pip install pytest
+          docker pull python:3.12-alpine
+          sudo install -d -m 0777 /run/wealth-updater
+      - name: Real Docker replacement and automatic rollback, synthetic mounts only
+        run: |
+          python -m pytest tests/test_system_update_docker.py -q --junitxml="$RUNNER_TEMP/update-docker.xml"
+          python - <<'PY'
+          import os,xml.etree.ElementTree as ET
+          cases=list(ET.parse(os.path.join(os.environ['RUNNER_TEMP'],'update-docker.xml')).iter('testcase'))
+          assert len(cases)==2 and all(not list(c) for c in cases)
+          PY

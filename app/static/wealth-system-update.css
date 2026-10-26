@@ -1,0 +1,15 @@
+.system-update { max-width: 960px; min-width: 0; }
+.system-update p { color: var(--muted); line-height: 1.6; }
+.update-facts { display: grid; gap: 12px; margin: 20px 0; }
+.update-facts > div { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.update-facts dt { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.update-facts dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+.update-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.update-authorization { display: grid; gap: 12px; margin: 24px 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
+.update-authorization > input { width: 100%; min-width: 0; box-sizing: border-box; padding: 10px; border-radius: 8px; background: var(--panel); color: var(--text); border: 1px solid var(--line); }
+.update-consent { display: flex; align-items: flex-start; gap: 8px; line-height: 1.5; }
+.update-consent input { flex: 0 0 auto; margin-top: 5px; }
+.system-update li { overflow-wrap: anywhere; margin: 8px 0; }
+.system-update button { min-height: 44px; white-space: normal; max-width: 100%; }
+.system-update a { color: var(--accent, #818cf8); }
+.system-update button:disabled { opacity: .5; cursor: not-allowed; }

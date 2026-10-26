@@ -672,6 +672,7 @@
   const pendingPanels = new Map();
 
   async function loadPanel(name, force = false) {
+    if (name === 'system') return window.WealthSystemUpdate?.load();
     if (!authenticated || (!force && loadedPanels.has(name))) return;
     if (pendingPanels.has(name)) return pendingPanels.get(name);
     const loading = byId(name === 'api' ? 'settingsApiLoading' : 'settingsLoading');
@@ -709,7 +710,7 @@
 
   function selectSettingsTab(name, focus = false) {
     const tabs = [...document.querySelectorAll('[data-settings-tab]')];
-    if (!tabs.some(tab => tab.dataset.settingsTab === name)) return;
+    if (!tabs.some(tab => tab.dataset.settingsTab === name && !tab.hidden)) return;
     tabs.forEach(tab => {
       const active = tab.dataset.settingsTab === name;
       tab.setAttribute('aria-selected', String(active));
@@ -720,6 +721,7 @@
       panel.hidden = panel.dataset.settingsPanel !== name;
     });
     void loadPanel(name);
+    window.dispatchEvent(new CustomEvent('wealth:settings-tab', {detail: {name}}));
   }
 
   function onSettingsView() {
@@ -1051,7 +1053,7 @@
     document.querySelectorAll('[data-settings-tab]').forEach(tab => {
       tab.addEventListener('click', () => selectSettingsTab(tab.dataset.settingsTab));
       tab.addEventListener('keydown', event => {
-        const tabs = [...document.querySelectorAll('[data-settings-tab]')];
+        const tabs = [...document.querySelectorAll('[data-settings-tab]')].filter(item => !item.hidden);
         const index = tabs.indexOf(tab);
         const next = {ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length,
                       Home: 0, End: tabs.length - 1}[event.key];

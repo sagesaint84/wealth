@@ -1,5 +1,14 @@
 # Wealth 변경 이력
 
+## Wealth v2.1.4 — 시스템 업데이트 후보 (2026-10-26)
+
+- 관리자 설정에 실제 실행 SHA·digest, 최신 성공 main/GHCR 조회, 재인증 설치·진행·오류·복구 결과와 사용자 확인 후 이미지 정리 UI를 추가한다.
+- 앱 Docker 권한 없이 별도 호스트 실행기와 인증 Unix IPC를 사용한다. 고정 digest 검증·작업 잠금·영속 상태·자동 롤백·현재/롤백/타 컨테이너 이미지 보호를 포함한다.
+- APP_VERSION/표시/계약을 2.1.4로 올리고 변경 settings 자산만 revision을 갱신한다. 기존 SW 및 미변경 JS/CSS revision은 유지한다.
+- 독립 Draft PR 대상. 사용자 승인 전 main 병합·Oracle 배포 금지. 최초 호스트 설치와 v2.1.4 bootstrap은 사용자가 수행한다. [설계·테스트·절차](docs/SYSTEM_UPDATE.md).
+- #177은 실제 70acd2719d20c9157069e82a7d33105464aa495d 병합 및 GHCR 게시 완료, Oracle 운영 검증은 NOT_RUN. 기존 성능 FAIL/HOLD와 PR177 한정 예외는 그대로 보존한다.
+
+
 ## 2026-10-26 — PR #177 홈 3탭 사용자 출시 승인
 
 - 자산 포트폴리오 / 순자산 추이 / 주요지수의 기존 화면·ID·렌더러를 재사용한다. 숨긴 순자산 geometry 조회와 opt-in OFF 계측 조회를 피하는 최소 가드, 관련 캐시 계약·회귀 테스트를 포함한다. APP_VERSION 2.1.3 유지.

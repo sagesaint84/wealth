@@ -252,7 +252,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-APP_VERSION = "2.1.3"
+APP_VERSION = "2.1.4"
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -8203,3 +8203,10 @@ async def post_web_action_link_sale(request: Request, token: str) -> HTMLRespons
         action_content=f'<a href="/a/{html.escape(token)}" style="display:block;text-align:center;margin-top:8px;font-size:14px;color:#c4b5fd">추가 연결하기 →</a>',
         status_code=200,
     )
+
+
+# Web boundary only; the Docker executor is installed separately on Oracle.
+from app.system_update import register_update_routes
+register_update_routes(app, app_version=APP_VERSION, secret=SECRET_KEY,
+                       role=get_current_role, username=get_current_username,
+                       origin=_validate_same_origin_request)
