@@ -18,7 +18,7 @@ v2.1.4 합성 테스트는 username=SYNTHETIC/role=admin을 사용해, 실제 us
 - 위험 POST마다 **호출자 본인 비밀번호**로 재인증, 세션·현재 ID·권한 epoch에 묶인 CSRF, 설정 public origin, JSON/body/schema/rate/명시 확인을 검사한다. 재인증 직후 DB를 다시 확인하여 그 사이 회수된 권한을 차단한다.
 - 권한 변경 challenge는 admin-only이며 target UUID+enabled+actor/session을 묶은 5분 일회용 승인이다. POST에서도 현재 admin, 본인 재인증, CSRF/Origin, target UUID/실존/활성을 재검증한다. users.json의 read/validate/write 전체를 기존 reentrant thread+OS file lock으로 직렬화하며 임시 파일+replace+fsync로 저장한다. 생성·초기화·비밀번호 변경 등 기존 사용자 writer도 같은 잠금을 사용하고, 알 수 없는 기존 metadata를 보존한다.
 - 권한 부여/회수와 비밀번호 초기화는 epoch를 갱신한다. 초기화는 위임도 해제한다. 권한이 회수되면 다음 요청은403이며 재부여 후에도 이전 CSRF/승인 토큰은 유효하지 않다. 이미 host에 접수된 작업은 취소하지 않고 호스트의 기존 상태/자동 복구 정책으로 완료한다.
-- v2.1.5 새 로그인 쿠키는 현재 ID와 keyed credential stamp를 묶는다. 비밀번호 초기화·변경/계정 삭제 후 재생성 시 이전 bound cookie는 무효다. 본인 비밀번호 변경 완료 시 현재 세션은 새 쿠키로 갱신한다. **기존 v2.1.4 로그인은 기존 금융 화면 정책을 유지하지만 updater/권한 변경에는 한 번 로그아웃 후 재로그인해야 한다.** 이전 쿠키에는 ID/credential binding이 없어 이를 임의로 신뢰하지 않는다. 이 안내는 worker 재설치 요구가 아니다.
+- v2.1.5 새 로그인 쿠키는 현재 ID와 keyed credential stamp, 로그인마다 새로운 무작위 sid를 묶는다. 같은 계정의 동시 로그인도 서로 다른 승인 세션이다. 비밀번호 초기화·변경/계정 삭제 후 재생성 시 이전 bound cookie는 무효다. 본인 비밀번호 변경 완료 시 현재 세션은 새 쿠키로 갱신한다. **기존 v2.1.4 로그인은 기존 금융 화면 정책을 유지하지만 updater/권한 변경에는 한 번 로그아웃 후 재로그인해야 한다.** 이전 쿠키에는 ID/credential binding이 없어 이를 임의로 신뢰하지 않는다. 이 안내는 worker 재설치 요구가 아니다.
 
 ## 정리 승인과 호스트 호환
 

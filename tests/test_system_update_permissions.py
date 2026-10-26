@@ -81,7 +81,7 @@ def test_delegated_all_dangerous_actions_use_own_password_and_same_ipc(persisted
     assert c.get('/api/admin/system-update-permissions/challenge?target_id='+O+'&enabled=true').status_code==403
 
 
-@pytest.mark.parametrize('fault',['admin_password','no_confirmation','bad_origin','bad_csrf','missing_preview','invalid_preview_type','changed_images','replayed_preview','other_session_preview'])
+@pytest.mark.parametrize('fault',['admin_password','no_confirmation','bad_origin','bad_csrf','missing_preview','invalid_preview_type','changed_images','replayed_preview','other_session_preview','same_user_other_session_preview'])
 def test_delegated_cleanup_requires_preview_own_reauth_origin_csrf_and_confirmation(persisted,fault):
     _,host,client=persisted;grant();c=client('sagesaint');h=csrf(c)
     preview=c.get('/api/system-update/cleanup-preview').json()
@@ -94,6 +94,8 @@ def test_delegated_cleanup_requires_preview_own_reauth_origin_csrf_and_confirmat
     if fault=='invalid_preview_type':body['preview_token']=123
     if fault=='changed_images':body['images']=['sha256:'+'f'*64]
     if fault=='replayed_preview':assert c.post('/api/system-update/cleanup',json=body,headers=h).status_code==202
+    if fault=='same_user_other_session_preview':
+        other=client('sagesaint');body['preview_token']=other.get('/api/system-update/cleanup-preview').json()['preview_token']
     if fault=='other_session_preview':
         other=client('admin');body['preview_token']=other.get('/api/system-update/cleanup-preview').json()['preview_token']
     host.reset_mock()
@@ -220,3 +222,14 @@ def test_failed_atomic_permission_write_preserves_original(persisted,monkeypatch
     monkeypatch.setattr(Path,'replace',replace)
     with pytest.raises(OSError):grant()
     assert users.USERS_FILE.read_bytes()==before
+
+
+def test_distinct_logins_have_distinct_session_bound_approvals(persisted):
+    main,_,client=persisted;grant()
+    first,second=client('sagesaint'),client('sagesaint')
+    claims=[main._serializer.loads(c.cookies.get(main.COOKIE_NAME)) for c in (first,second)]
+    assert all(len(c['sid'])==32 for c in claims)
+    assert claims[0]['sid']!=claims[1]['sid']
+    first_token=first.get('/api/system-update/cleanup-preview').json()['preview_token']
+    body={'images':[IMAGE],'preview_token':first_token,'password':'SYNTHETIC-sagesaint','confirm':True}
+    assert second.post('/api/system-update/cleanup',json=body,headers=csrf(second)).status_code==403

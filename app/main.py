@@ -491,14 +491,16 @@ def _new_session_token(user: dict) -> str:
     if not valid_identity(user):
         return _serializer.dumps({"user": user["username"]})
     return _serializer.dumps({"user": user["username"], "uid": user.get("id"),
-                              "auth_stamp": session_stamp(user, SECRET_KEY)})
+                              "auth_stamp": session_stamp(user, SECRET_KEY), "sid": secrets.token_urlsafe(24)})
 
 
 def _updater_session_current(request: Request, user: dict) -> bool:
     from app.services.update_permissions import session_stamp, valid_identity
     try:
         claims = _serializer.loads(request.cookies.get(COOKIE_NAME, ''), max_age=SESSION_MAX_AGE)
-        return (valid_identity(user) and claims.get('uid') == user['id']
+        return (valid_identity(user) and isinstance(claims.get('sid'), str)
+                and re.fullmatch(r'[A-Za-z0-9_-]{32}', claims['sid']) is not None
+                and claims.get('uid') == user['id']
                 and secrets.compare_digest(str(claims.get('auth_stamp', '')), session_stamp(user, SECRET_KEY)))
     except (BadSignature, SignatureExpired, ValueError, TypeError):
         return False
