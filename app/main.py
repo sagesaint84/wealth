@@ -252,7 +252,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-APP_VERSION = "2.1.4"
+APP_VERSION = "2.1.5"
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -486,6 +486,31 @@ def get_current_role(request: Request) -> str:
     return getattr(request.state, "role", None) or "user"
 
 
+def _new_session_token(user: dict) -> str:
+    from app.services.update_permissions import session_stamp, valid_identity
+    if not valid_identity(user):
+        return _serializer.dumps({"user": user["username"]})
+    return _serializer.dumps({"user": user["username"], "uid": user.get("id"),
+                              "auth_stamp": session_stamp(user, SECRET_KEY)})
+
+
+def _updater_session_current(request: Request, user: dict) -> bool:
+    from app.services.update_permissions import session_stamp, valid_identity
+    try:
+        claims = _serializer.loads(request.cookies.get(COOKIE_NAME, ''), max_age=SESSION_MAX_AGE)
+        return (valid_identity(user) and claims.get('uid') == user['id']
+                and secrets.compare_digest(str(claims.get('auth_stamp', '')), session_stamp(user, SECRET_KEY)))
+    except (BadSignature, SignatureExpired, ValueError, TypeError):
+        return False
+
+
+def _refresh_auth_cookie(response: Response, username: str) -> None:
+    from app.services.user_manager import get_user_by_name
+    user = get_user_by_name(username)
+    response.set_cookie(COOKIE_NAME, _new_session_token(user), httponly=True,
+                        secure=not TESTING, samesite='lax', max_age=SESSION_MAX_AGE)
+
+
 def _get_authenticated_user(request: Request) -> dict[str, Any] | None:
     token = request.cookies.get(COOKIE_NAME)
     if not token or not _serializer:
@@ -495,7 +520,12 @@ def _get_authenticated_user(request: Request) -> dict[str, Any] | None:
         uname = data.get("user")
         if uname:
             from app.services.user_manager import get_user_by_name
-            return get_user_by_name(uname)
+            user = get_user_by_name(uname)
+            # New sessions expire when this identity is recreated or credentials reset.
+            # Legacy sessions retain existing financial access; updater requires re-login.
+            if user and ('uid' in data or 'auth_stamp' in data) and not _updater_session_current(request, user):
+                return None
+            return user
     except (BadSignature, SignatureExpired, Exception):
         pass
     return None
@@ -671,7 +701,7 @@ async def login_submit(
     u = authenticate_user(username.strip(), password.strip())
     safe_return_to = _sanitize_return_to(return_to)
     if u:
-        token = _serializer.dumps({"user": u["username"], "role": u.get("role", "user")})
+        token = _new_session_token(u)
         # 초기 비밀번호 변경 필요 계정이면 대시보드가 아닌 비번 변경 전용 페이지로 즉시 리다이렉트
         if u.get("must_change_password", False):
             response = RedirectResponse("/change-password-init", status_code=303)
@@ -734,7 +764,8 @@ async def change_password_init_submit(
         return RedirectResponse("/change-password-init?error=" + quote(str(e)), status_code=303)
     
     # 변경 완료 -> 정식 세션 갱신 후 비로소 대시보드로 이동!
-    token = _serializer.dumps({"user": uname, "role": user.get("role", "user")})
+    from app.services.user_manager import get_user_by_name
+    token = _new_session_token(get_user_by_name(uname))
     response = RedirectResponse("/dashboard", status_code=303)
     response.set_cookie(
         COOKIE_NAME,
@@ -764,15 +795,19 @@ async def get_my_info(request: Request) -> dict:
     username = get_current_username(request)
     role = get_current_role(request)
     must_change = getattr(request.state, "must_change_password", False)
+    from app.services.user_manager import get_user_by_name
+    from app.services.update_permissions import can_system_update
+    allowed = can_system_update(get_user_by_name(username))
     return {
         "username": username,
         "role": role,
         "must_change_password": must_change,
+        "can_system_update": allowed,
     }
 
 
 @app.post("/api/auth/change-password")
-async def change_password_endpoint(request: Request) -> dict:
+async def change_password_endpoint(request: Request, response: Response) -> dict:
     """사용자 본인 비밀번호 변경"""
     username = get_current_username(request)
     body = await request.json()
@@ -781,13 +816,14 @@ async def change_password_endpoint(request: Request) -> dict:
     from app.services.user_manager import change_user_password
     try:
         change_user_password(username, old_pw, new_pw)
+        _refresh_auth_cookie(response, username)
         return {"message": "비밀번호가 성공적으로 변경되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/auth/force-change-password")
-async def force_change_password_endpoint(request: Request) -> dict:
+async def force_change_password_endpoint(request: Request, response: Response) -> dict:
     """must_change_password 상태에서 새 비밀번호 설정"""
     username = get_current_username(request)
     body = await request.json()
@@ -795,6 +831,7 @@ async def force_change_password_endpoint(request: Request) -> dict:
     from app.services.user_manager import force_set_user_password
     try:
         force_set_user_password(username, new_pw)
+        _refresh_auth_cookie(response, username)
         return {"message": "새 비밀번호가 설정되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -8208,5 +8245,5 @@ async def post_web_action_link_sale(request: Request, token: str) -> HTMLRespons
 # Web boundary only; the Docker executor is installed separately on Oracle.
 from app.system_update import register_update_routes
 register_update_routes(app, app_version=APP_VERSION, secret=SECRET_KEY,
-                       role=get_current_role, username=get_current_username,
-                       origin=_validate_same_origin_request)
+                       username=get_current_username, origin=_validate_same_origin_request,
+                       session_current=_updater_session_current)

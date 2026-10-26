@@ -208,6 +208,12 @@ def test_real_authenticated_unix_ipc_roundtrip_and_bad_key(worker,tmp_path,monke
         monkeypatch.setattr(socket.socket,'connect',connect)
         try:
             assert HostClient(tmp_path).call('status')['current']['image_id']==OLD_ID
+            delegated='22222222-2222-4222-8222-222222222222'
+            assert HostClient(tmp_path).call('status',actor=delegated)['current']['image_id']==OLD_ID
+            # Unchanged v2.1.4 worker understands delegated UUID actors and
+            # the original cleanup shape; its confirmation gate still applies.
+            with pytest.raises(UpdateError,match='USER_CONFIRMATION_REQUIRED'):
+                HostClient(tmp_path).call('cleanup',{'images':[]},actor=delegated)
             assert 'guard' in guarded.__name__
             with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as outside:
                 with pytest.raises(AssertionError,match='External network is blocked'):

@@ -673,7 +673,7 @@
 
   async function loadPanel(name, force = false) {
     if (name === 'system') return window.WealthSystemUpdate?.load();
-    if (!authenticated || (!force && loadedPanels.has(name))) return;
+    if ((typeof currentUserProfile !== 'undefined' && currentUserProfile?.username === 'admin') || !authenticated || (!force && loadedPanels.has(name))) return;
     if (pendingPanels.has(name)) return pendingPanels.get(name);
     const loading = byId(name === 'api' ? 'settingsApiLoading' : 'settingsLoading');
     const errorId = name === 'api' ? 'settingsApiError' : 'settingsNotificationsError';
@@ -725,7 +725,7 @@
   }
 
   function onSettingsView() {
-    const visible = document.querySelector('.wealth-workspace')?.dataset.activeView === 'settings';
+    const visible = currentUserProfile?.username !== 'admin' && document.querySelector('.wealth-workspace')?.dataset.activeView === 'settings';
     if (visible && !inSettings) {
       // A new visit always starts at API connections; tab switching keeps drafts.
       loadedPanels.clear();
@@ -1068,6 +1068,7 @@
     window.addEventListener('wealth:view', onSettingsView);
     window.addEventListener('wealth:role', () => {
       authenticated = true;
+      if (currentUserProfile?.username === 'admin') { inSettings = false; return; }
       if (inSettings) void loadPanel(document.querySelector('[data-settings-tab][aria-selected="true"]').dataset.settingsTab);
     });
     authenticated = typeof currentUserProfile !== 'undefined' && !!currentUserProfile;

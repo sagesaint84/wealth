@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.services.financial_json import (FINANCIAL_FILENAMES, financial_locks,
     read_financial_json, write_financial_json)
 from app.services.test_safety import assert_write_allowed
+from app.services.update_permissions import active_account, stored_permission
 
 import hashlib
 import json
@@ -10,6 +11,7 @@ import logging
 import os
 import secrets
 import shutil
+from functools import wraps
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +34,16 @@ USERS_DIR = DATA_DIR / "users"
 USERS_FILE = DATA_DIR / "users.json"
 
 PBKDF2_ITERATIONS = 100_000
+
+
+def _users_transaction(function):
+    @wraps(function)
+    def locked(*args, **kwargs):
+        # Reentrant thread + OS lock shared by every users.json mutation.
+        from app.services.financial_json import financial_lock
+        with financial_lock(USERS_FILE):
+            return function(*args, **kwargs)
+    return locked
 
 
 def _validate_user_identity_integrity(users: list[dict[str, Any]]) -> None:
@@ -105,6 +117,7 @@ def load_users_db() -> dict[str, Any]:
     return data
 
 
+@_users_transaction
 def save_users_db(data: dict[str, Any]) -> None:
     """users.json 파일에 저장합니다."""
     users = data.get("users", [])
@@ -114,10 +127,20 @@ def save_users_db(data: dict[str, Any]) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     tmp = USERS_FILE.with_suffix(".tmp")
     with open(tmp, "w", encoding="utf-8") as f:
+        os.chmod(tmp, 0o600)
         json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
     tmp.replace(USERS_FILE)
+    if os.name != 'nt':
+        descriptor = os.open(DATA_DIR, os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
 
+@_users_transaction
 def init_users_and_migration() -> None:
     """
     1. users.json이 없으면 초기 admin 계정과 sagesaint 계정을 자동 생성합니다.
@@ -174,7 +197,7 @@ def init_users_and_migration() -> None:
             logger.info("비관리자 계정 '%s'의 역할을 'user'로 조정했습니다.", u.get("username"))
 
     if changed:
-        save_users_db({"users": users})
+        save_users_db({**db, "users": users})
 
     # 3. 기존 sagesaint 데이터 안전 마이그레이션
     target_dir = get_user_data_dir(env_user)
@@ -235,10 +258,13 @@ def list_users() -> list[dict[str, Any]]:
             "role": u.get("role", "user"),
             "must_change_password": bool(u.get("must_change_password", False)),
             "created_at": u.get("created_at", ""),
+            "permissions": {"system_update": stored_permission(u)},
+            "active": not (u.get('disabled') is True or u.get('is_active') is False or u.get('active') is False),
         })
     return results
 
 
+@_users_transaction
 def create_new_user(username: str, initial_password_4digit: str, role: str = "user") -> None:
     """신규 사용자를 생성합니다. (초기 4자리 비밀번호, must_change_password=True)"""
     username = username.strip()
@@ -264,9 +290,10 @@ def create_new_user(username: str, initial_password_4digit: str, role: str = "us
         "password_hash": p_hash,
         "role": role,
         "must_change_password": True,
+        "permissions": {"system_update": False},
         "created_at": datetime.now().isoformat(),
     })
-    save_users_db({"users": users})
+    save_users_db({**db, "users": users})
 
     # 사용자 격리 데이터 디렉터리 및 기본 템플릿 생성
     user_dir = get_user_data_dir(username)
@@ -300,6 +327,7 @@ def init_empty_portfolio(user_dir: Path, overwrite: bool = False) -> None:
             write_financial_json(pnl_file, [])
 
 
+@_users_transaction
 def change_user_password(username: str, old_password: str, new_password: str) -> None:
     """사용자 본인의 비밀번호를 변경합니다."""
     new_password = new_password.strip()
@@ -325,10 +353,11 @@ def change_user_password(username: str, old_password: str, new_password: str) ->
     if not found:
         raise ValueError("사용자를 찾을 수 없습니다.")
 
-    save_users_db({"users": users})
+    save_users_db({**db, "users": users})
     logger.info("비밀번호 변경 완료: %s", username)
 
 
+@_users_transaction
 def force_set_user_password(username: str, new_password: str) -> None:
     """must_change_password 상태에서 새 비밀번호를 설정합니다 (이전 비번 검증 생략 가능)."""
     new_password = new_password.strip()
@@ -352,10 +381,11 @@ def force_set_user_password(username: str, new_password: str) -> None:
     if not found:
         raise ValueError("사용자를 찾을 수 없습니다.")
 
-    save_users_db({"users": users})
+    save_users_db({**db, "users": users})
     logger.info("초기 비밀번호 강제 변경 완료: %s", username)
 
 
+@_users_transaction
 def admin_reset_password_to_4digit(target_username: str, new_4digit_password: str) -> None:
     """관리자가 특정 사용자의 비밀번호를 초기 4자리로 재설정하고 must_change_password=True로 바꿉니다."""
     new_4digit_password = str(new_4digit_password).strip()
@@ -373,16 +403,19 @@ def admin_reset_password_to_4digit(target_username: str, new_4digit_password: st
             u["salt"] = salt
             u["password_hash"] = p_hash
             u["must_change_password"] = True
+            u['system_update_epoch'] = secrets.token_hex(16)
+            u['permissions'] = {**(u.get('permissions') if isinstance(u.get('permissions'), dict) else {}), 'system_update': False}
             u["updated_at"] = datetime.now().isoformat()
             break
 
     if not found:
         raise ValueError(f"사용자를 찾을 수 없습니다: {target_username}")
 
-    save_users_db({"users": users})
+    save_users_db({**db, "users": users})
     logger.info("관리자가 사용자 %s의 비밀번호를 4자리로 초기화했습니다.", target_username)
 
 
+@_users_transaction
 def delete_user_account(target_username: str) -> None:
     """사용자를 삭제하고 격리된 데이터 폴더도 함께 정리합니다. (admin 계정은 삭제 불가)"""
     if target_username == "admin":
@@ -396,7 +429,7 @@ def delete_user_account(target_username: str) -> None:
     if len(users) == initial_len:
         raise ValueError(f"사용자를 찾을 수 없습니다: {target_username}")
 
-    save_users_db({"users": users})
+    save_users_db({**db, "users": users})
 
     # 해당 사용자 전용 데이터 디렉터리 정리
     user_dir = USERS_DIR / target_username
@@ -404,3 +437,27 @@ def delete_user_account(target_username: str) -> None:
         shutil.rmtree(user_dir, ignore_errors=True)
 
     logger.info("사용자 계정 및 데이터 폴더 삭제 완료: %s", target_username)
+
+
+@_users_transaction
+def set_system_update_permission(actor_id: str, target_id: str, enabled: bool, *, credentials: tuple[str, str]) -> dict:
+    """Stable-ID, current-admin, read/validate/write transaction; no role change."""
+    actor_id, target_id = validate_user_id(actor_id), validate_user_id(target_id)
+    if type(enabled) is not bool:
+        raise ValueError('PERMISSION_INVALID')
+    db = load_users_db()
+    actor = next((u for u in db['users'] if u.get('id') == actor_id), None)
+    if not actor or actor.get('role') != 'admin' or not active_account(actor):
+        raise ValueError('ADMIN_REQUIRED')
+    if credentials != (actor.get('salt', ''), actor.get('password_hash', '')):
+        raise ValueError('UPDATE_REAUTH_FAILED')
+    target = next((u for u in db['users'] if u.get('id') == target_id), None)
+    if not target or target.get('role') != 'user' or target.get('username') == 'admin':
+        raise ValueError('PERMISSION_TARGET_INVALID')
+    if enabled and not active_account(target):
+        raise ValueError('PERMISSION_TARGET_INACTIVE')
+    target['system_update_epoch'] = secrets.token_hex(16)
+    target['permissions'] = {**(target.get('permissions') if isinstance(target.get('permissions'), dict) else {}), 'system_update': enabled}
+    save_users_db(db)
+    logger.info('system_update PERMISSION_CHANGED actor=%s target=%s enabled=%s', actor_id, target_id, enabled)
+    return {'id': target_id, 'permissions': {'system_update': enabled}, 'role': 'user'}

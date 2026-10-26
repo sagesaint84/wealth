@@ -5,6 +5,8 @@ on:
     paths:
       - 'app/updater/**'
       - 'app/system_update.py'
+      - 'app/services/user_manager.py'
+      - 'app/services/update_permissions.py'
       - 'app/main.py'
       - 'app/static/**'
       - 'ops/wealth-updater/**'
@@ -45,12 +47,13 @@ jobs:
           export PATH="/tmp:$PATH"
           test ! -e data && test ! -e .env
           export WEALTH_DATA_DIR="$RUNNER_TEMP/synthetic-data" DATA_DIR="$RUNNER_TEMP/synthetic-data"
-          python -m pytest tests/test_system_update_api.py tests/test_system_update_host.py tests/test_system_update_releases.py tests/test_system_update_chrome.py tests/test_release_version.py tests/test_settings_frontend.py tests/test_settings_surface_chrome.py -q --junitxml="$RUNNER_TEMP/update.xml"
+          python -m pytest tests/test_system_update_api.py tests/test_system_update_permissions.py tests/test_system_update_host.py tests/test_system_update_releases.py tests/test_system_update_chrome.py tests/test_release_version.py tests/test_settings_frontend.py tests/test_settings_surface_chrome.py -q --junitxml="$RUNNER_TEMP/update.xml"
           python - <<'PY'
           import os,xml.etree.ElementTree as ET
           cases=list(ET.parse(os.path.join(os.environ['RUNNER_TEMP'],'update.xml')).iter('testcase'))
           assert cases and all(not list(c) for c in cases)
           assert len([c for c in cases if 'test_update_ui_readonly_install_progress_confirmation_cleanup_and_width' in c.get('name','')])==5
+          assert len([c for c in cases if 'test_actual_admin_console_reaches_single_update_panel_and_grants_by_id' in c.get('name','')])==5
           assert len([c for c in cases if c.get('name')=='test_real_authenticated_unix_ipc_roundtrip_and_bad_key'])==1
           PY
   isolated-docker-compose:

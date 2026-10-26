@@ -1,5 +1,14 @@
 # Wealth Project State
 
+## 2026-10-26 — v2.1.5 #184 접근·위임 hotfix
+
+- 기준 main=f6b966b2efaddd76a7def323da45277f8e4651d1 / PR183 merged. codex/v215-updater-permissions 별도 clean worktree. APP_VERSION=2.1.5 후보.
+- 운영자 제공 Issue184 근거상 v2.1.4 앱·worker bootstrap 정상이나 실제 admin/user updater UI 접근 실패. 이 작업의 직접 Oracle 검증은 NOT_RUN이며 worker를 재설치하지 않는다.
+- admin 콘솔 단일 updater UI + 선택 user의 명시적 system_update 권한. 최종 요구는 cleanup도 허용하며 admin-only cleanup 초안은 폐기한다. 모든 요청 actual DB 확인, 본인 재인증/CSRF/Origin/일회용 승인, 역할·금융 격리·호스트 이미지 보호 유지.
+- [상세 계약·세션 재로그인·수동 앱 배포 경계](UPDATER_PERMISSIONS_V215.md). 자동/CI 결과는 별도 PR에 기록. 사용자 승인 전 merge/deploy/실제 이미지 삭제 HOLD.
+- 이후 #180 v2.1.6, #178 미국 CNN v2.1.7, 그 후 상담. 이전 날짜의 버전 예약과 후보 상태는 당시 이력으로 보존한다.
+
+
 ## 2026-10-26 — v2.1.4 시스템 업데이트 개발
 
 - 기준 main70acd2719d20c9157069e82a7d33105464aa495d; 새 격리 worktree v214-system-update / codex/v214-system-update. 기존 보호 worktree·249개 증거·금융 데이터·Toss·원래 Compose·이미지 변경 없음.

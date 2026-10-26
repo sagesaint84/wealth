@@ -1,5 +1,7 @@
 # Wealth v2.1.4 — 시스템 업데이트 설계·설치·검증
 
+> **v2.1.5 현재 정책:** 아래는 v2.1.4 최초 구현/설치 이력이다. 운영자 제공 bootstrap은 완료됐으며 이 hotfix에 worker 재설치가 필요하지 않다. 현재는 명시적으로 위임된 일반 계정도 cleanup을 포함한 여섯 updater API를 사용한다. [v2.1.5 계약과 앱만 수동 배포 경계](UPDATER_PERMISSIONS_V215.md)를 먼저 따른다. 기존 admin-only 문구/최초 설치 절차를 현재 운영에 다시 적용하지 않는다.
+
 범위: [#181](https://github.com/sagesaint84/wealth/issues/181), [확정 순서 #182](https://github.com/sagesaint84/wealth/issues/182). v2.1.4 독립 Draft PR. v2.1.5 접기 제거와 v2.1.6 CNN은 이 PR에 포함하지 않는다. 사용자 승인 전 main 병합·Oracle 배포 금지.
 
 ## 역할과 신뢰 경계
