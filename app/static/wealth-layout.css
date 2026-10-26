@@ -88,7 +88,6 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-layout #accountsPanel > .account-panel-head-row > .panel-head > div:first-child { order: 3; }
 .wealth-layout #accountsPanel .panel-head .eyebrow { display: none; }
 .wealth-layout #accountsPanel .panel-head h2 { font-size: 0; }
-.wealth-layout #accountsPanel .section-collapse-btn { font-size: 13px; }
 .wealth-layout .account-category-tabs { margin: 0 0 18px !important; gap: 4px !important; }
 .wealth-layout #accountsPanel .toolbar { width: auto; margin-left: auto !important; }
 .wealth-row-more { display: inline-flex; position: relative; font-size: 12px; }

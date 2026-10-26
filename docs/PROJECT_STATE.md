@@ -1,5 +1,13 @@
 # Wealth Project State
 
+## 2026-10-26 — v2.1.6 #180 독립 개발 후보
+
+- 기준 main: `b86d5d50dee3d6bf1cb306186f3ad1b08f7133c7`. 앱/표시/계약은 2.1.6 후보. 섹션 접기 버튼·상태·전용 CSS 제거, 탭·상세 입력·lazy loading·기존 렌더러 유지.
+- 변경 정적 자산만 revision 갱신. 기존 updater 권한·worker/IPC/Compose 및 금융 데이터 경로 변경 없음. 보호 worktree·성능 원본 자료 보존.
+- Oracle v2.1.5 앱 배포 PASS는 사용자 제공 상태. **#186 RELEASE_UNAVAILABLE 진단 중으로 v2.1.6 운영 원클릭 설치 금지.** 이번 작업에서 운영 연결/배포/worker 재설치하지 않는다.
+- 별도 Draft PR, CI 결과는 웹 ChatGPT 검토. 사용자 승인 전 병합·배포 HOLD. CNN은 v2.1.7 별도.
+- [로컬 검증·잔여 확인](SECTION_EXPANDED_V216.md). 아래 상태는 당시 이력이다.
+
 ## 2026-10-26 — v2.1.5 #184 접근·위임 hotfix
 
 - 기준 main=f6b966b2efaddd76a7def323da45277f8e4651d1 / PR183 merged. codex/v215-updater-permissions 별도 clean worktree. APP_VERSION=2.1.5 후보.

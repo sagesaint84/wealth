@@ -36,9 +36,9 @@ class DividendOfficialSourceStaticTests(unittest.TestCase):
         revision = assets.revisions[0]
         # P0 core changes independently of the unchanged main layout.
         self.assertEqual(revision, '2.1.3-p0')
-        layout = '/static/wealth-layout.js?v=2.1.3-uiux1'
+        layout = '/static/wealth-layout.js?v=2.1.3-home-tabs1'
         self.assertEqual(assets.scripts.count(layout), 1)
-        core = '/static/wealth.js?v=2.1.3-p0'
+        core = '/static/wealth.js?v=2.1.6-expand1'
         source = '/static/wealth-dividend-source.js?v=2.1.0-b2'
         self.assertIn(core, html)
         self.assertIn(source, html)

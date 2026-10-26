@@ -1697,13 +1697,7 @@ function filterHoldingsByClassification(name) {
 
   if (dashboard) renderHoldings(dashboard);
 
-  // 보유종목 섹션이 접혀있다면 펼침
   const holdingsPanel = document.getElementById('holdingsPanel');
-  if (holdingsPanel && holdingsPanel.classList.contains('is-collapsed')) {
-    if (typeof toggleSection === 'function') {
-      toggleSection('holdings');
-    }
-  }
 
   // 보유종목 섹션으로 부드럽게 스크롤 & 검색창 하이라이트
   if (holdingsPanel) {
@@ -2948,11 +2942,6 @@ function switchAccountCategory(category) {
     tab.classList.toggle('active', tab.dataset.cat === category);
     tab.setAttribute('aria-selected', String(tab.dataset.cat === category));
   });
-
-  const accountsPanel = document.getElementById('accountsPanel');
-  if (accountsPanel && accountsPanel.classList.contains('is-collapsed')) {
-    toggleSection('accounts');
-  }
 
   const secPanel = document.getElementById('catPanelSecurities');
   const bnkPanel = document.getElementById('catPanelBanking');
@@ -5300,14 +5289,9 @@ function renderAssetRecords(records) {
 
   const recordsEyebrow = document.getElementById('recordsEyebrow');
   const recordsHeading = document.getElementById('recordsHeadingText');
-  const recordsCollapse = document.querySelector('#recordsPanel .section-collapse-btn');
   const taxView = currentRecordView === 'tax_accounts';
   if (recordsEyebrow) recordsEyebrow.textContent = taxView ? 'TAX-ADVANTAGED ACCOUNTS' : 'STOCK RECORDS';
   if (recordsHeading) recordsHeading.textContent = taxView ? '절세계좌' : '주식기록';
-  if (recordsCollapse) {
-    recordsCollapse.title = taxView ? '절세계좌 접기/펼치기' : '주식기록 접기/펼치기';
-    recordsCollapse.setAttribute('aria-label', taxView ? '절세계좌 접기/펼치기' : '주식기록 접기/펼치기');
-  }
 
   if (taxView) {
     $("#recordsPanel")?.classList.add("is-tax-view");
@@ -6978,17 +6962,6 @@ function renderFamilyTabs(members) {
 
 // ── 전역 클릭 이벤트 위임 ───────────────────────────────────────────────────
 document.addEventListener('click', async (e) => {
-  // 🔽 섹션 접기 / 펼치기 버튼
-  const collapseBtn = e.target.closest('.section-collapse-btn');
-  if (collapseBtn) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (typeof toggleSection === 'function') {
-      toggleSection(collapseBtn.dataset.section);
-    }
-    return;
-  }
-
   // 🎨 테마 변경 탭 버튼
   const themeTab = e.target.closest('#themeSwitcherTabs .theme-tab');
   if (themeTab) {
@@ -11033,103 +11006,13 @@ function initAppTheme() {
   setAppTheme(savedTheme);
 }
 
-// ── 섹션 접기 / 펼치기 관리 (Accordion / Collapse) ───────────────────────────
-const SECTION_MAP = {
-  summary: '#summaryPanel',
-  records: '#recordsPanel',
-  heatmap: '#assetHeatmapPanel',
-  dividend: '#dividendPanel',
-  pnl: '#realizedPnlPanel',
-  market: '#marketPanel',
-  accounts: '#accountsPanel',
-  holdings: '#holdingsPanel',
-  ledger: '#ledgerSectionPanel',
-  calendar: '#calendarPanel',
-  ipo: '#ipoPanel'
-};
-
-function getCollapsedSections() {
-  try {
-    const raw = JSON.parse(localStorage.getItem('collapsed_sections') || '[]');
-    if (!Array.isArray(raw)) return [];
-    const validKeys = Object.keys(SECTION_MAP);
-    const cleaned = raw.filter(k => validKeys.includes(k));
-    if (cleaned.length !== raw.length) {
-      saveCollapsedSections(cleaned);
-    }
-    return cleaned;
-  } catch (e) {
-    return [];
-  }
-}
-
-function saveCollapsedSections(list) {
-  try {
-    localStorage.setItem('collapsed_sections', JSON.stringify(list));
-  } catch (e) {}
-}
-
-function toggleSection(sectionKey) {
-  if (!sectionKey || !SECTION_MAP[sectionKey]) return;
-  let list = getCollapsedSections();
-  const selector = SECTION_MAP[sectionKey];
-  const panel = selector ? document.querySelector(selector) : null;
-  const isCurrentlyCollapsed = panel ? panel.classList.contains('is-collapsed') : list.includes(sectionKey);
-  const nextCollapsed = !isCurrentlyCollapsed;
-
-  if (nextCollapsed) {
-    if (!list.includes(sectionKey)) list.push(sectionKey);
-  } else {
-    list = list.filter(k => k !== sectionKey);
-  }
-  saveCollapsedSections(list);
-
-  applySectionCollapsedState(sectionKey, nextCollapsed);
-}
-
-function applySectionCollapsedState(sectionKey, isCollapsed) {
-  const selector = SECTION_MAP[sectionKey];
-  const panel = selector ? document.querySelector(selector) : null;
-  const btn = document.querySelector(`.section-collapse-btn[data-section="${sectionKey}"]`);
-
-  if (btn) {
-    btn.classList.toggle('is-collapsed', isCollapsed);
-    btn.textContent = isCollapsed ? '▶' : '▼';
-  }
-
-  if (panel) {
-    panel.classList.toggle('is-collapsed', isCollapsed);
-    panel.querySelectorAll('.panel-head select, .panel-head button:not(.section-collapse-btn)').forEach(el => {
-      if (el.id === 'syncAccountsButton' || el.id === 'refreshButton') {
-        el.disabled = false;
-        return;
-      }
-      el.disabled = isCollapsed;
-    });
-
-    // 섹션이 다시 펼쳐질 때 히트맵 리렌더링 (정확한 너비 반영)
-    if (!isCollapsed && sectionKey === 'heatmap' && dashboard) {
-      requestAnimationFrame(() => {
-        renderHeatmaps(dashboard);
-      });
-    }
-  }
-}
-
-function initCollapsedSections() {
-  const list = getCollapsedSections();
-  Object.keys(SECTION_MAP).forEach(key => {
-    applySectionCollapsedState(key, list.includes(key));
-  });
-}
-
 // 창 크기 변경 시 활성화된 히트맵 재계산
 let heatmapResizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(heatmapResizeTimer);
   heatmapResizeTimer = setTimeout(() => {
-    const p = document.querySelector('#heatmapPanel');
-    if (p && !p.classList.contains('is-collapsed') && dashboard) {
+    heatmapResizeTimer = null;
+    if (dashboard && currentWealthView() === 'invest' && window.WealthInvestTabState?.current() === 'heatmap') {
       renderHeatmaps(dashboard);
     }
   }, 200);
@@ -16830,7 +16713,6 @@ function initDividendMonthNavListeners() {
 async function bootstrap() {
   initAppTheme();
   initAppVersion();
-  initCollapsedSections();
   initSavingsListeners();
   initLedgerListeners();
   initPnlMonthNavListeners();

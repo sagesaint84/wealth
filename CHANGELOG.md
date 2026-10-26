@@ -1,5 +1,13 @@
 # Wealth 변경 이력
 
+## Wealth v2.1.6 — 섹션 접기/펼치기 제거 후보 (2026-10-26)
+
+- #180: 기존 섹션 접기 버튼 9개, SECTION_MAP 11개 항목과 이벤트·자동 펼침·collapsed_sections 저장/복원 및 전용 CSS를 삭제한다. 기존 브라우저 저장값은 읽거나 변경하지 않는다.
+- 선택한 탭의 내용을 항상 펼친다. 홈 3탭·투자/자산/머니 로그 탭, 목적별 상세 입력·OCR·위험 삭제 확인, lazy loading과 금융 렌더러를 유지한다. 히트맵 resize는 기존 debounce를 유지하고 실제 패널에 맞게 활성 투자 화면에서만 실행한다.
+- APP_VERSION·화면 표시·계약 2.1.6. 변경 core JS 및 layout/overrides CSS만 cache revision 2.1.6-expand1. worker/IPC/Compose 변경 없음.
+- 별도 Draft·사용자 승인 대기. Oracle v2.1.5 앱 배포 PASS는 사용자 제공 상태이며, #186 RELEASE_UNAVAILABLE 해결 전 v2.1.6 운영 원클릭 설치 금지. CI 결과는 웹 ChatGPT가 확인한다. CNN 미국 공포탐욕은 v2.1.7 별도 작업.
+- [구현·검증 기록](docs/SECTION_EXPANDED_V216.md). 아래 항목은 당시 이력이다.
+
 ## Wealth v2.1.5 — 관리자 updater 접근·권한 위임 후보 (2026-10-26)
 
 - 실제 admin 콘솔에서 업데이트에 진입하고, 위임된 일반 계정은 설정에서 같은 DOM을 사용한다. v2.1.4 합성 관리자 테스트가 놓친 username 기반 레이아웃 분리를 실제 운영형 테스트로 검증한다.

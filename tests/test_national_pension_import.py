@@ -258,5 +258,10 @@ def test_docker_offline_native_dependencies_and_existing_auth_smoke_preserved():
     root=Path(__file__).resolve().parents[1];docker=(root/'Dockerfile').read_text(encoding='utf-8')
     for name in ('poppler-utils','tesseract-ocr-kor','tesseract-ocr-eng','tesseract-ocr-osd','python:3.11-slim-bookworm'):
         assert name in docker
-    assert 'RUN --network=none /opt/toss-auth/venv/bin/python /opt/toss-auth/browser_smoke.py' in docker
+    # PR #171 wraps the offline smoke to clean QEMU cores without masking failure.
+    offline_run = docker.split('RUN --network=none ', 1)[1].split('\n\n', 1)[0]
+    assert 'set -eu;' in offline_run
+    assert 'smoke_status=0;' in offline_run
+    assert '/opt/toss-auth/venv/bin/python /opt/toss-auth/browser_smoke.py || smoke_status=$?;' in offline_run
+    assert 'exit "$smoke_status"' in offline_run
     assert 'Pillow==12.3.0' in (root/'requirements.txt').read_text(encoding='utf-8')
