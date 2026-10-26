@@ -813,6 +813,7 @@ globalThis.WealthStartup = (() => {
     if (panels && !panels.some(visible) && !explicitDividendEntry) count('inactive_request');
   }
   function dashboardRendered(data) {
+    if (!enabled) return;
     if (data?.summary && Number.isFinite(Number(data.summary.total_value_krw)) &&
         ['wealthAssetNetWorth','wealthNetWorth','totalValue'].some(id => document.getElementById(id)?.getClientRects().length)) count('dashboard:visible');
   }

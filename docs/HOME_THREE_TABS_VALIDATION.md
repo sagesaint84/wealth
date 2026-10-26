@@ -106,3 +106,13 @@ Neither historical performance JSON file was modified. No performance threshold 
 See `HOME_THREE_TABS_DIAGNOSIS.md`, the synthetic raw `home-three-tabs-diagnostics.json`, and reproducer `tests/home_tabs_diagnostics.py`. Re-entry causes 2 legacy history SVG writes and 1 unified chart render per history entry, but none on initial portfolio. Market reads occur once per market entry. The first-display cause remains UNCONFIRMED. Historical mobile JS/style medians are higher while LayoutDuration medians are lower. No new gate benchmark was run and neither failed timing record was changed.
 
 IPO CI at label HEAD c30d09a failed on an overlooked old CSS revision contract (51 passed, 1 failed). Exact CSS/JS revision expectations were corrected in two additional tests, with 15 local tests passed. This does not erase the failed CI run; successor CI is tracked at its exact SHA in PR #177. FUNCTIONAL_GATE=PASS (19 home/label tests); REGRESSION_GATE=REVIEW_REQUIRED; PERFORMANCE_GATE=FAIL/HOLD; MERGE_GATE=HOLD; DEPLOY_GATE=HOLD.
+
+
+## 후속 로컬 조사 — 원격 HEAD ecd021f 이후, 미커밋
+
+[새 정밀 조사 보고서](home-tabs-hold-20261025/REPORT.md)에 같은 조건의 trace, 격리 실험, 16표본 비교와 확대 회귀 전체 재실행 결과를 기록한다. 기존 실패 수치·JSON은 보존한다. 숨긴 history geometry 검사의 동기 Layout 비용을 제거하는 최소 로컬 후보가 있지만 전체 무회귀 기준이 충족되지 않아 성능 HOLD를 유지하며 Commit·Push하지 않는다. 원격 HEAD의 CI 성공과 로컬 성능 판정은 별개이다.
+
+
+## 2026-10-26 — PR177 사용자 릴리스 예외 승인
+
+PERFORMANCE_GATE=FAIL/HOLD, RELEASE_EXCEPTION=USER_APPROVED_PR177_ONLY. 사용자의 명시적 승인은 이번 릴리스의 성능 예외이며 수치 PASS나 다른 PR로의 승계를 뜻하지 않는다. 기존 미배포/HOLD 문구는 당시 기록으로 보존한다. 최종 270개 확대 범위를 다시 실행하고 새 HEAD CI 전부 성공 후에만 #177 Ready/Squash Merge 및 Merge SHA별 GHCR 검증을 진행한다. 실제 Oracle 실행·운영 smoke는 별도이며 #179는 제외한다. [선별 릴리스 범위·D-E 실측·절차](PR177_RELEASE.md)에 정리했다. 원본 대용량 trace/표본은 로컬에서 보존하고 이번 커밋에서 제외한다.

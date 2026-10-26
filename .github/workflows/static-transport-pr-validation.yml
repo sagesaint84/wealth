@@ -10,6 +10,7 @@ on:
       - 'tests/test_static_transport*.py'
       - 'tests/test_home_initial_html_chrome.py'
       - 'tests/test_home_three_tabs_chrome.py'
+      - 'tests/test_dashboard_rendered_opt_in.py'
       - 'tests/test_view_initial_work_chrome.py'
       - 'tests/test_owner_filter_loads.py'
       - 'tests/test_market_signals_holdings_chrome.py'
@@ -103,6 +104,7 @@ jobs:
             tests/test_static_transport_chrome.py \
             tests/test_home_initial_html_chrome.py \
             tests/test_home_three_tabs_chrome.py \
+            tests/test_dashboard_rendered_opt_in.py \
             tests/test_view_initial_work_chrome.py \
             tests/test_owner_filter_loads.py \
             tests/test_market_signals_holdings_chrome.py \

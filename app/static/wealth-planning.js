@@ -168,7 +168,7 @@
     renderHistory();
   });
   function renderHistory() {
-    if(home.hidden || !historyPanel.getClientRects().length || !state || !summary) return;
+    if(home.hidden || home.querySelector('#wealthHistorySlot').hidden || !state || !summary) return;
     const allRecords=state.history.filter(r=>r.owner===summary.owner).sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));
     const records=filterHistoryPeriod(allRecords,range);
     const plot = document.getElementById('wealthHistoryPlot');

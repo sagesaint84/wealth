@@ -177,6 +177,28 @@ def test_market_hidden_late_response_and_failure(chrome_preview):
         assert not evaluate('__tabs.errors')
 
 
+def test_hidden_history_does_not_force_geometry_during_dashboard_render(chrome_preview):
+    call,evaluate,_=chrome_preview
+    probe=r"""
+    const historyRects=Element.prototype.getClientRects;
+    Element.prototype.getClientRects=function(){
+      if(this.classList.contains('wealth-history') && document.getElementById('wealthHistorySlot')?.hidden)
+        throw Error('Hidden history geometry forces synchronous layout');
+      return historyRects.apply(this,arguments);
+    };
+    """
+    call('Page.addScriptToEvaluateOnNewDocument',{'source':BOOT+probe})
+    with transport_server(True) as port:
+        call('Page.navigate',{'url':f'http://127.0.0.1:{port}/#home'})
+        wait_for(evaluate,'window.WealthStartup?.canRead() && !!window.WealthUnifiedTimeseries && !!document.getElementById("wealthHistoryPlot")')
+        assert evaluate('document.getElementById("wealthAssetNetWorth").textContent')=='397,000,000원'
+        choose(evaluate,'history')
+        wait_for(evaluate,'document.querySelector("#wealthHistoryPlot svg")')
+        choose(evaluate,'portfolio')
+        evaluate('selectOwner("아빠")')
+        assert not evaluate('__tabs.errors')
+
+
 FIRST_PAINT = r"""
 window.__firstHome=[];
 const capture=()=>({hash:location.hash,shown:[...document.querySelectorAll('[data-home-panel]')].filter(n=>n.getClientRects().length).map(n=>n.dataset.homePanel)});
