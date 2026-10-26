@@ -6,7 +6,7 @@ import pytest
 
 from app.services import portfolio, savings, user_manager
 from app.services.test_safety import assert_write_allowed
-from regression_support import empty_portfolio
+from tests.regression_support import empty_portfolio
 
 
 @pytest.fixture
