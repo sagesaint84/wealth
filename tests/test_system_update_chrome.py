@@ -31,6 +31,7 @@ window.fetch=async function(url,options={}){
  if(__u.identity!=='admin'&&!__u.access)return {ok:false,status:403,json:async()=>({detail:{code:'SYSTEM_UPDATE_FORBIDDEN'}})};
  __u.requests.push({action,method:options.method||'GET',body});
  if(__u.offline)throw TypeError('synthetic disconnect');
+ if(options.method==='POST'&&__u.reauthFail)return {ok:false,status:403,json:async()=>({detail:{code:'UPDATE_REAUTH_FAILED'}})};
  let result={};
  if(action==='status')result={app_version:'2.1.5',csrf_token:'synthetic-csrf',host_available:true,current:{sha:sha(__u.current),digest:digest(__u.current)},rollback:__u.current==='b'?{digest:digest('a')}:null,busy:__u.job&&['pulling','verifying'].includes(__u.job.stage),jobs:__u.job?[{...__u.job,confirmed:__u.confirmed}]:[]};
  else if(action==='check'){
@@ -203,4 +204,19 @@ def test_delegated_revoke_hides_ui_and_keeps_started_host_job(chrome_preview):
     click(call,evaluate,'#settingsSystemTab')
     wait_for(evaluate,"document.getElementById('updateStatus').textContent.includes('다운로드')")
     assert evaluate('currentUserProfile.role')=='user'
+    assert evaluate('__u.errors')==[]
+
+
+def test_delegated_reauth_failure_asks_own_password_without_install(chrome_preview):
+    call,evaluate,_=start(chrome_preview,360)
+    click(call,evaluate,'#settingsSystemTab')
+    wait_for(evaluate,"!document.getElementById('updateCheck').disabled")
+    click(call,evaluate,'#updateCheck')
+    wait_for(evaluate,"!document.getElementById('updateInstall').disabled")
+    evaluate('__u.reauthFail=true');authorize(evaluate)
+    click(call,evaluate,'#updateInstall')
+    assert '본인 비밀번호' in evaluate("document.getElementById('updateError').textContent")
+    assert '관리자 비밀번호' not in evaluate("document.getElementById('updateError').textContent")
+    assert evaluate('__u.job') is None
+    assert evaluate("document.getElementById('updatePassword').value")==''
     assert evaluate('__u.errors')==[]
