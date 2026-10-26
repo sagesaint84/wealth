@@ -100,7 +100,29 @@ class ReleaseVerifier:
             token = json.loads(raw)['token']
             registry_headers = {'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'}
             def registry(path, expected):
-                content, _, code = self.fetch(f'https://ghcr.io/v2/{REPO}/{path}', registry_headers)
+                content, response_headers, code = self.fetch(f'https://ghcr.io/v2/{REPO}/{path}', registry_headers)
+                if code == 307 and path.startswith('blobs/'):
+                    locations = [v for k, v in response_headers.items() if k.lower() == 'location']
+                    location = locations[0] if len(locations) == 1 else ''
+                    # Only GHCR config blobs may redirect, once, to this exact CDN.
+                    # Check the raw URL before urlsplit strips whitespace/controls.
+                    if (not isinstance(location, str) or not location
+                            or any(ord(c) <= 32 or ord(c) >= 127 for c in location)
+                            or '\\' in location or '#' in location
+                            or re.search(r'%(?![a-fA-F0-9]{2})', location)
+                            or re.search(r'%(?:0[0-9a-f]|1[0-9a-f]|7f)', location, re.IGNORECASE)):
+                        raise UpdateError('REGISTRY_BLOB_REDIRECT_UNTRUSTED')
+                    try:
+                        parts = urllib.parse.urlsplit(location)
+                    except ValueError:
+                        raise UpdateError('REGISTRY_BLOB_REDIRECT_UNTRUSTED') from None
+                    if (parts.scheme != 'https'
+                            or parts.netloc not in ('pkg-containers.githubusercontent.com', 'pkg-containers.githubusercontent.com:443')
+                            or not parts.path.startswith('/') or parts.path.startswith('//')):
+                        raise UpdateError('REGISTRY_BLOB_REDIRECT_UNTRUSTED')
+                    # Never forward registry authorization or the GitHub PAT.
+                    content, _, code = self.fetch(location, {})
+                    # No loop: another redirect fails the existing status/digest check.
                 if code != 200 or 'sha256:' + hashlib.sha256(content).hexdigest() != expected:
                     raise UpdateError('REGISTRY_DIGEST_MISMATCH')
                 return json.loads(content)

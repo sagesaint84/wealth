@@ -1,5 +1,15 @@
 # v2.1.6 — #180 섹션 접기/펼치기 제거
 
+## 2026-10-27 — #186 검증기 통합 후보
+
+- 통합 기준 #187 HEAD: `ca471ca6d0dd2226ff3464a8dd7f780ad9f28b8a`. #188의 검증된 커밋 `56b10d874d3638f0aab52e69b30646d7eb7de435`를 `cherry-pick --no-commit`으로 적용했다. 사용자 PowerShell 통합 검증 PASS 전 커밋·푸시하지 않는다.
+- 추가 코드 범위는 `app/updater/releases.py`와 `tests/test_system_update_releases.py`뿐이다. 원본 #188과 같은 코드를 유지하며 GHCR config blob의 HTTPS 307만 정확한 CDN 호스트로 1회 허용한다. CDN 요청의 빈 헤더, 다운로드 바이트 SHA256, OCI revision·AMD64/ARM64 및 악성 URL·재리다이렉트 거부 검사를 유지한다.
+- 앱 버전 **2.1.6**, 기존 UI·권한·Toss·금융 기능과 정적 자산 revision은 그대로다. 호스트 Docker 제어·IPC·Compose·롤백·이미지 정리 로직은 변경하지 않는다.
+- 사용자 제공 사전 검증: #187 필수 CI 4개 PASS, #188 Linux IPC·Docker 안전성 CI PASS, Windows PowerShell PASS. 이는 **통합 전 각 HEAD의 결과**이며 통합 후보의 PASS로 재사용하지 않는다. 이번 통합 단계에서 Codex의 pytest·Chromium·전체 회귀 실행은 **NOT_RUN**이다.
+- INTEGRATION_GATE=WAITING_USER_POWERSHELL, INTEGRATED_HEAD_CI=NOT_RUN. 통합 검증 PASS 후에만 #187을 커밋·푸시하고 최신 CI는 웹 ChatGPT가 검증한다.
+- ORACLE_VERIFIER_CHECK=NOT_RUN, MERGE_GATE=HOLD_USER_APPROVAL, DEPLOY_GATE=HOLD. 검증기 소스 통합은 운영 #186 해결 완료를 의미하지 않는다. Oracle 작업·worker 재설치/재시작·이미지 정리는 수행하지 않는다.
+- #188은 Draft로 보존한다. 최종 통합 PR이 main에 병합된 뒤 중복 병합하지 않고 반영 이력을 남겨 정리한다. 아래 자동 검증·로컬 판정은 통합 전 기록이다.
+
 ## 소스와 범위
 
 - 기준 `origin/main`: `b86d5d50dee3d6bf1cb306186f3ad1b08f7133c7` (시작 시 fetch 확인).
@@ -22,7 +32,7 @@
 - Windows Unix IPC 통합 1건은 Linux 전용 skip이다. 실제 Unix IPC 및 격리 Docker/Compose는 기존 Linux CI에서 판정해야 한다.
 - 전체 pytest: **NOT_RUN**.
 - 구문 `node --check app/static/wealth.js`, `git diff --check`: PASS.
-- 제거 대상 토큰을 모든 app/static HTML/JS/CSS에서 검사: 0건. 남은 접기 표현은 목적별 상세 보기 기능이다. updater/permission/worker/IPC/Compose 소스 diff는 없다.
+- 접기 제거 단독 검증 당시 제거 대상 토큰을 모든 app/static HTML/JS/CSS에서 검사: 0건. 남은 접기 표현은 목적별 상세 보기 기능이다. 당시 updater/permission/worker/IPC/Compose 소스 diff는 없었으며, 이후 추가한 #186 검증기 범위는 위 통합 기록을 따른다.
 
 ## 초기 표시·요청 보호
 
@@ -30,7 +40,7 @@
 - LF 정규화 소스 크기 비교(줄바꿈 차이를 비용으로 계산하지 않음): index -1,439B, core JS -3,892B, layout CSS -73B, overrides CSS -3,274B. 같은 정규화 gzip 기준 각각 -168/-1,098/-15/-707B. 이는 전송 크기 참고이며 시간 성능 PASS를 의미하지 않는다.
 - 이전 #177 성능 FAIL/HOLD 기록·원본 표본·보호 worktree는 변경하거나 삭제하지 않는다. 새 시간 벤치마크/엄격한 성능 게이트 판정은 이번 범위에서 **NOT_RUN**.
 
-## 최종 로컬 판정
+## 통합 전 로컬 판정
 
 - SOURCE_GATE=PASS, FUNCTIONAL_GATE=PASS, REGRESSION_GATE=LOCAL_PASS (Unix IPC 1건은 Linux CI 대기).
 - MOBILE_CHROMIUM_GATE=PASS (320/360/390/768/1280px, Purple/White/OLED).
