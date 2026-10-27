@@ -987,7 +987,7 @@
   box-sizing: border-box !important;
 }
 
-/* ── 섹션 헤더 타이틀 및 접기 버튼 통일감 ──────────────────────────── */
+/* ── 섹션 헤더 타이틀 통일감 ──────────────────────────── */
 .panel-head h2 {
   font-size: 20px;
   font-weight: 800;
@@ -998,21 +998,6 @@
   margin: 0;
 }
 
-.section-collapse-btn {
-  font-size: 10.5px !important;
-  padding: 2px 6px !important;
-  border-radius: 6px !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  background: rgba(255, 255, 255, 0.05) !important;
-  color: #94a3b8 !important;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  line-height: 1.2 !important;
-}
-.section-collapse-btn:hover {
-  background: rgba(255, 255, 255, 0.15) !important;
-  color: #f8fafc !important;
-}
 
 /* ── 요약 통계 카드 공통 오버플로우 방지 ───────────────────────────── */
 .saving-stat-card,
@@ -1961,97 +1946,6 @@ dialog.dialog .dialog-actions {
   gap: 10px;
 }
 
-/* ── 섹션 접기 / 펼치기 (Accordion / Collapse) ── */
-.section-collapse-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: var(--muted, #94a3b8);
-  font-size: 11px;
-  cursor: pointer;
-  margin-left: 8px;
-  vertical-align: middle;
-  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-  padding: 0;
-  user-select: none;
-}
-
-.section-collapse-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  color: #ffffff;
-  transform: scale(1.1);
-}
-
-.section-collapse-btn.is-collapsed {
-  transform: rotate(-90deg);
-  background: rgba(147, 51, 234, 0.24);
-  color: #c084fc;
-}
-
-.panel.is-collapsed {
-  padding-bottom: 14px !important;
-}
-
-.panel.is-collapsed .panel-body,
-.panel.is-collapsed .records-grid,
-.panel.is-collapsed .heatmap-body,
-.panel.is-collapsed .dividend-body,
-.panel.is-collapsed .overview-body-grid,
-.panel.is-collapsed .summary-item-list,
-.panel.is-collapsed #sectorDonutWrap,
-.panel.is-collapsed #sectorDetailToggleWrap,
-.panel.is-collapsed #classificationList,
-.panel.is-collapsed .table-wrap,
-.panel.is-collapsed #accountList,
-.panel.is-collapsed .cat-panel,
-.panel.is-collapsed #catPanelSecurities,
-.panel.is-collapsed #catPanelBanking,
-.panel.is-collapsed #catPanelInsurance,
-.panel.is-collapsed #marketGrid,
-.panel.is-collapsed #ledgerSectionContent,
-.panel.is-collapsed .section-collapsible-content {
-  display: none !important;
-}
-
-.panel.is-collapsed .heatmap-controls-row,
-.panel.is-collapsed .heatmap-period-tabs,
-.panel.is-collapsed .heatmap-selects-wrap,
-.panel.is-collapsed #allocTabs,
-.panel.is-collapsed .toolbar,
-.panel.is-collapsed .family-tabs,
-.panel.is-collapsed .account-category-tabs,
-.panel.is-collapsed .dividend-head select,
-.panel.is-collapsed #dividendYearSelect,
-.panel.is-collapsed #pnlYearSelect,
-.panel.is-collapsed #dividendModeTabs,
-.panel.is-collapsed #pnlTradeTypeTabs,
-.panel.is-collapsed .dividend-head > div:not(.dividend-title-wrap) {
-  opacity: 0.28 !important;
-  pointer-events: none !important;
-  filter: grayscale(0.9) !important;
-  cursor: not-allowed !important;
-}
-
-.panel.is-collapsed select {
-  pointer-events: none !important;
-  user-select: none !important;
-}
-
-/* 주요지수 섹션 접힘 상태에서도 계좌 연결 및 조회 버튼은 항상 클릭 가능 */
-.panel.is-collapsed #syncAccountsButton,
-.panel.is-collapsed #refreshButton,
-.panel.is-collapsed .market-head .toolbar {
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  cursor: pointer !important;
-  filter: none !important;
-}
-
 /* ── 화면 테마 설정 (Theme Switcher) ── */
 .theme-switcher-wrap {
   display: flex;
@@ -2626,11 +2520,6 @@ dialog.dialog .dialog-actions {
   color: #cbd5e1 !important;
 }
 
-[data-theme="white"] .section-collapse-btn {
-  background: #e2e8f0 !important;
-  border-color: #cbd5e1 !important;
-  color: #475569 !important;
-}
 
 [data-theme="white"] .empty strong {
   color: #334155 !important;

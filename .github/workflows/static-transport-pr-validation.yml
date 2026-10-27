@@ -10,6 +10,12 @@ on:
       - 'tests/test_static_transport*.py'
       - 'tests/test_home_initial_html_chrome.py'
       - 'tests/test_home_three_tabs_chrome.py'
+      - 'tests/test_section_expanded_chrome.py'
+      - 'tests/test_national_pension_import.py'
+      - 'tests/test_dividend_official_source_static.py'
+      - 'tests/test_financial_income_what_if_static.py'
+      - 'tests/test_money_input_ux.py'
+      - 'tests/test_ledger_single_renderer_chrome.py'
       - 'tests/test_dashboard_rendered_opt_in.py'
       - 'tests/test_view_initial_work_chrome.py'
       - 'tests/test_owner_filter_loads.py'
@@ -104,6 +110,11 @@ jobs:
             tests/test_static_transport_chrome.py \
             tests/test_home_initial_html_chrome.py \
             tests/test_home_three_tabs_chrome.py \
+            tests/test_section_expanded_chrome.py \
+            tests/test_national_pension_import.py \
+            tests/test_dividend_official_source_static.py \
+            tests/test_financial_income_what_if_static.py \
+            tests/test_money_input_ux.py \
             tests/test_dashboard_rendered_opt_in.py \
             tests/test_view_initial_work_chrome.py \
             tests/test_owner_filter_loads.py \
@@ -153,6 +164,7 @@ jobs:
           assert cases and not any(c.find('skipped') is not None for c in cases)
           assert not any(c.find(tag) is not None for c in cases for tag in ('failure', 'error'))
           expected_ui_counts = {
+              'test_section_expanded_chrome': 17,
               'test_market_signals_holdings_chrome': 23,
               'test_account_section_summary_10_6b_frontend': 12,
               'test_accountinfo_owner_options_frontend': 5,

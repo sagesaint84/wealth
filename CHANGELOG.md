@@ -1,5 +1,20 @@
 # Wealth 변경 이력
 
+## 2026-10-27 — v2.1.6 릴리스 통합 후보
+
+- #187에 #188의 #186 GHCR config blob HTTPS 307 검증기 수정과 합성 테스트를 원본 그대로 통합한다. 인증 헤더 미전달·최대 1회·실제 바이트 Digest·OCI·양쪽 플랫폼 검증을 유지한다.
+- 앱 버전 2.1.6 및 기존 UI·권한·Toss·금융 기능 유지. 별도 추가 정적 자산 변경 없음. 호스트 Docker 제어·IPC·Compose·롤백·정리 로직 변경 없음.
+- 각 PR의 사전 CI/Windows PASS는 사용자 제공 근거이며, 통합 후보의 PowerShell·새 HEAD CI·운영 검증은 대기다. Codex 테스트 재실행 없음. 사용자 PASS 전 커밋·푸시하지 않고, 승인 전 병합·Oracle 작업·worker 재시작·이미지 정리는 금지한다. #188 Draft는 보존한다.
+- [통합 범위·검증 대기 상태](docs/SECTION_EXPANDED_V216.md). 아래 항목은 통합 전 이력이다.
+
+## Wealth v2.1.6 — 섹션 접기/펼치기 제거 후보 (2026-10-26)
+
+- #180: 기존 섹션 접기 버튼 9개, SECTION_MAP 11개 항목과 이벤트·자동 펼침·collapsed_sections 저장/복원 및 전용 CSS를 삭제한다. 기존 브라우저 저장값은 읽거나 변경하지 않는다.
+- 선택한 탭의 내용을 항상 펼친다. 홈 3탭·투자/자산/머니 로그 탭, 목적별 상세 입력·OCR·위험 삭제 확인, lazy loading과 금융 렌더러를 유지한다. 히트맵 resize는 기존 debounce를 유지하고 실제 패널에 맞게 활성 투자 화면에서만 실행한다.
+- APP_VERSION·화면 표시·계약 2.1.6. 변경 core JS 및 layout/overrides CSS만 cache revision 2.1.6-expand1. worker/IPC/Compose 변경 없음.
+- 별도 Draft·사용자 승인 대기. Oracle v2.1.5 앱 배포 PASS는 사용자 제공 상태이며, #186 RELEASE_UNAVAILABLE 해결 전 v2.1.6 운영 원클릭 설치 금지. CI 결과는 웹 ChatGPT가 확인한다. CNN 미국 공포탐욕은 v2.1.7 별도 작업.
+- [구현·검증 기록](docs/SECTION_EXPANDED_V216.md). 아래 항목은 당시 이력이다.
+
 ## Wealth v2.1.5 — 관리자 updater 접근·권한 위임 후보 (2026-10-26)
 
 - 실제 admin 콘솔에서 업데이트에 진입하고, 위임된 일반 계정은 설정에서 같은 DOM을 사용한다. v2.1.4 합성 관리자 테스트가 놓친 username 기반 레이아웃 분리를 실제 운영형 테스트로 검증한다.

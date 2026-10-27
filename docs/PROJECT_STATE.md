@@ -1,5 +1,20 @@
 # Wealth Project State
 
+## 2026-10-27 — v2.1.6 #187 + #186 검증기 통합 후보
+
+- #187 기준 `ca471ca6d0dd2226ff3464a8dd7f780ad9f28b8a`에 #188 커밋 `56b10d874d3638f0aab52e69b30646d7eb7de435`를 커밋 없이 cherry-pick했다. 검증기·합성 테스트 2개 파일을 원본 그대로 재사용한다. APP_VERSION=2.1.6 및 기존 UI·권한·Toss·금융 코드는 유지한다.
+- 사용자 제공 사전 결과는 #187 필수 CI 4개 PASS, #188 Linux IPC·Docker 안전성 CI PASS, Windows PASS다. 통합 후보의 PowerShell 검증 및 새 HEAD CI는 별도 대기이며 Codex 테스트 실행은 NOT_RUN이다.
+- 사용자 통합 PASS 전 커밋·푸시 보류. #187/#188 Draft 유지, main 병합·Oracle 배포·worker 재설치/재시작·이미지 정리 금지. #186 운영 검증 대기이며 소스 통합을 운영 해결 완료로 표시하지 않는다.
+- 최종 통합 main 병합 후 #188은 반영 이력을 기록해 중복 병합 없이 정리한다. [상세 통합 기록](SECTION_EXPANDED_V216.md). 아래 내용은 통합 전 이력이다.
+
+## 2026-10-26 — v2.1.6 #180 독립 개발 후보
+
+- 기준 main: `b86d5d50dee3d6bf1cb306186f3ad1b08f7133c7`. 앱/표시/계약은 2.1.6 후보. 섹션 접기 버튼·상태·전용 CSS 제거, 탭·상세 입력·lazy loading·기존 렌더러 유지.
+- 변경 정적 자산만 revision 갱신. 기존 updater 권한·worker/IPC/Compose 및 금융 데이터 경로 변경 없음. 보호 worktree·성능 원본 자료 보존.
+- Oracle v2.1.5 앱 배포 PASS는 사용자 제공 상태. **#186 RELEASE_UNAVAILABLE 진단 중으로 v2.1.6 운영 원클릭 설치 금지.** 이번 작업에서 운영 연결/배포/worker 재설치하지 않는다.
+- 별도 Draft PR, CI 결과는 웹 ChatGPT 검토. 사용자 승인 전 병합·배포 HOLD. CNN은 v2.1.7 별도.
+- [로컬 검증·잔여 확인](SECTION_EXPANDED_V216.md). 아래 상태는 당시 이력이다.
+
 ## 2026-10-26 — v2.1.5 #184 접근·위임 hotfix
 
 - 기준 main=f6b966b2efaddd76a7def323da45277f8e4651d1 / PR183 merged. codex/v215-updater-permissions 별도 clean worktree. APP_VERSION=2.1.5 후보.
