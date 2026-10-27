@@ -127,6 +127,8 @@ RECOVERY_VERIFIED와 실제 화면 확인 전에는 복구 완료로 판단하�
 
 ## 자동 테스트와 사용자 게이트
 
+용량 우선 운영 중 이미 삭제된 이미지의 rollback 참조만 남은 경우에는 [#189 오프라인 유지보수 계약](STALE_ROLLBACK_MAINTENANCE.md)을 따른다. root·worker 정지·기존 배타 잠금·정확한 기대값·이미지 부재가 모두 필요하며, 존재하는 롤백 이미지 삭제나 운영 state 직접 편집은 허용하지 않는다. 새 도구는 사용자 검증·운영 승인 전 실행하지 않는다.
+
 - 읽기 전용/웹 보안: synthetic users, CSRF/session/role/rate/body, 외부 조회 실패와 성공 빌드·digest 증거, 실제 Linux Unix IPC. 금융 데이터/비밀키 사용 없음.
 - 실행기: injected Docker adapter로 pull 실패·교체 timeout·health 실패·복구 실패·worker restart·state 손상·중복·정리 보호를 검증한다.
 - 실제 Docker/Compose: 별도 disposable GitHub VM에서만 합성 A/B 이미지·가짜 data/Toss/IPC mount·별도 sentinel 컨테이너로 실제 교체/HTTP/gzip/자동 rollback을 검사한다. 로컬 빌드에 registry digest가 없으므로 fixture RepoDigest만 테스트 adapter가 보충하며 이 테스트를 실제 GHCR 신뢰 검증으로 오인하지 않는다. 기본 로컬 실행은 NOT_RUN; CI에서 두 case 모두 실행하고 skip을 금지한다.

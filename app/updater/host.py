@@ -208,7 +208,7 @@ class DockerHost:
 
 
 class Engine:
-    def __init__(self, driver, verifier, directory, spawn=None):
+    def __init__(self, driver, verifier, directory, spawn=None, *, recover=True):
         self.driver, self.verifier = driver, verifier
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -221,7 +221,8 @@ class Engine:
                 raise ValueError()
         except (ValueError, KeyError, OSError):
             raise UpdateError('STATE_CORRUPT') from None
-        self.recover()
+        if recover:
+            self.recover()
 
     def save(self):
         atomic(self.path, canonical(self.state))
