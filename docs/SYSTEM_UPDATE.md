@@ -1,5 +1,11 @@
 # Wealth v2.1.4 — 시스템 업데이트 설계·설치·검증
 
+## 2026-10-28 — v2.1.7 통합 후보의 호스트 적용 경계
+
+v2.1.7 로컬 출시 후보에는 #191 CNN 중계와 #190 root 전용 누락 rollback 참조 유지보수가 함께 들어 있다. 각 원본 PR 검증은 완료됐으나 **신규 통합 테스트/CI는 NOT_RUN**이다. 현재 Oracle 앱은 사용자 수락된 v2.1.6이며 그대로 유지한다.
+
+앱 저장소·이미지에 호스트 코드가 포함되어도 `/opt/wealth-updater`는 자동 갱신되지 않는다. 호스트 코드 교체/worker 재설치·재시작/systemd/state.json/Compose/pin/IPC key 변경·rollback CLI·이미지 정리는 이번 단계에서 실행하지 않는다. 이후 별도 읽기 전용 감사·사용자 승인·검증된 host 파일 계획과 복구 절차가 필요하다. [유지보수 검증 근거·적용 경계](STALE_ROLLBACK_MAINTENANCE.md). 아래 내용은 기존 설계/버전별 기록이다.
+
 > **v2.1.5 현재 정책:** 아래는 v2.1.4 최초 구현/설치 이력이다. 운영자 제공 bootstrap은 완료됐으며 이 hotfix에 worker 재설치가 필요하지 않다. 현재는 명시적으로 위임된 일반 계정도 cleanup을 포함한 여섯 updater API를 사용한다. [v2.1.5 계약과 앱만 수동 배포 경계](UPDATER_PERMISSIONS_V215.md)를 먼저 따른다. 기존 admin-only 문구/최초 설치 절차를 현재 운영에 다시 적용하지 않는다.
 
 범위: [#181](https://github.com/sagesaint84/wealth/issues/181), [확정 순서 #182](https://github.com/sagesaint84/wealth/issues/182). v2.1.4 독립 Draft PR. v2.1.5 접기 제거와 v2.1.6 CNN은 이 PR에 포함하지 않는다. 사용자 승인 전 main 병합·Oracle 배포 금지.
@@ -126,6 +132,8 @@ sudo systemctl start wealth-updater
 RECOVERY_VERIFIED와 실제 화면 확인 전에는 복구 완료로 판단하지 않는다.
 
 ## 자동 테스트와 사용자 게이트
+
+용량 우선 운영 중 이미 삭제된 이미지의 rollback 참조만 남은 경우에는 [#189 오프라인 유지보수 계약](STALE_ROLLBACK_MAINTENANCE.md)을 따른다. root·worker 정지·기존 배타 잠금·정확한 기대값·이미지 부재가 모두 필요하며, 존재하는 롤백 이미지 삭제나 운영 state 직접 편집은 허용하지 않는다. 새 도구는 사용자 검증·운영 승인 전 실행하지 않는다.
 
 - 읽기 전용/웹 보안: synthetic users, CSRF/session/role/rate/body, 외부 조회 실패와 성공 빌드·digest 증거, 실제 Linux Unix IPC. 금융 데이터/비밀키 사용 없음.
 - 실행기: injected Docker adapter로 pull 실패·교체 timeout·health 실패·복구 실패·worker restart·state 손상·중복·정리 보호를 검증한다.

@@ -1,5 +1,13 @@
 # Wealth Project State
 
+## 2026-10-28 — v2.1.7 통합 후보 / 운영 v2.1.6 유지
+
+- 새 worktree `v217-release-integration/wealth`, branch `codex/v217-release-integration`, 기준 main/현재 커밋 HEAD `bfdc874ec9f4e802604d452dcc5368d4348edc0e`. #190의 `fd8b7045d267d9ffbad4cf77518f5f780575c0c7` → `d8d8434cb63ed6a121b14e299bc7dd16727abbe6` → #191 `3897f0bea3806732553eaf01da16b0c961f23363`을 `cherry-pick -n`으로 통합한 로컬 미커밋 후보다.
+- APP_VERSION/meta/화면/버전 계약=2.1.7. wealth.js·wealth-layout.css만 `2.1.7-cnn1`. 기존 홈 3탭·금융·권한·Toss/OCR 및 미변경 자산/SW 계약 유지.
+- 사용자 제공 사전 근거: #191 Windows 96 unit PASS·66 Chromium PASS, 원본 HEAD CI 전체 SUCCESS. #190 Windows 256 PASS/1 SKIP, Linux 304+2 PASS·정적 검토 PASS. **새 통합 테스트와 새 통합 CI는 NOT_RUN**이다.
+- 통합 소스는 개발 완료된 원본을 재사용한 출시 후보이며 운영 배포 완료가 아니다. 운영 v2.1.6 원클릭 업데이트·사용자 수락 PASS는 사용자 제공 사실이며 현재 이미지 유지. #189의 호스트 코드 적용·state 변경·worker 재설치/교체/재시작·이미지 정리는 미실행이다.
+- 사용자 Windows 통합 PASS 및 별도 승인 전 commit/push/PR/merge/deploy 금지. 원본 #190/#191 Draft와 worktree 불변. GHCR 발행·Oracle outbound·v2.1.7 설치 NOT_RUN. [통합 검증 안내](CNN_RELAY_V217.md). 아래는 당시 이력이다.
+
 ## 2026-10-27 — v2.1.6 #187 + #186 검증기 통합 후보
 
 - #187 기준 `ca471ca6d0dd2226ff3464a8dd7f780ad9f28b8a`에 #188 커밋 `56b10d874d3638f0aab52e69b30646d7eb7de435`를 커밋 없이 cherry-pick했다. 검증기·합성 테스트 2개 파일을 원본 그대로 재사용한다. APP_VERSION=2.1.6 및 기존 UI·권한·Toss·금융 코드는 유지한다.

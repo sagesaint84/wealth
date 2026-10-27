@@ -1,5 +1,14 @@
 # Wealth 변경 이력
 
+## Wealth v2.1.7 — CNN 중계·호스트 유지보수 통합 후보 (2026-10-28)
+
+- 기준 main `bfdc874ec9f4e802604d452dcc5368d4348edc0e`에서 #190 코드 `fd8b7045d267d9ffbad4cf77518f5f780575c0c7`, 문서 `d8d8434cb63ed6a121b14e299bc7dd16727abbe6`, #191 `3897f0bea3806732553eaf01da16b0c961f23363`을 순서대로 커밋 없이 통합했다.
+- 홈 주요지수의 개인용 CNN 원점수 중계, 30분 캐시/singleflight/backoff·입력/신선도 검증·오류 시 숫자 미표시·출처 링크를 포함한다. 기존 Yahoo/TNX·금융 데이터 경로는 유지한다.
+- #189의 root 전용 오프라인 유지보수 도구는 존재하지 않는 특정 rollback 참조만 엄격한 감사/잠금·atomic 백업/저장 조건으로 해제한다. 앱 저장소 통합과 Oracle `/opt/wealth-updater` 갱신은 별개다. 호스트 코드/서비스/state/이미지 작업은 이번 단계에서 미실행이다.
+- APP_VERSION·HTML meta/표시·계약 2.1.7. 실제 변경된 wealth.js·wealth-layout.css만 revision `2.1.7-cnn1`. 미변경 자산과 SW cache 이름은 유지한다.
+- 사전 근거(사용자 제공): #191 Windows 96 unit PASS·66 Chromium PASS(CNN 15건 포함), 해당 HEAD GitHub CI 전체 SUCCESS. #190 코드 HEAD Linux synthetic-web-and-ipc 304 PASS·isolated-docker-compose 2 PASS, Windows 256 PASS/1 SKIP/1 warning. 원본 검증을 통합 후보 PASS로 승계하지 않는다.
+- 새 통합 테스트/CI NOT_RUN. 커밋·푸시·PR·병합·GHCR 발행·Oracle outbound/설치 NOT_RUN. 운영 v2.1.6 고정 이미지는 그대로 유지한다. 원본 Draft #190/#191은 미병합 보존한다. 아래 버전별 기록은 삭제하지 않는다.
+
 ## 2026-10-27 — v2.1.6 릴리스 통합 후보
 
 - #187에 #188의 #186 GHCR config blob HTTPS 307 검증기 수정과 합성 테스트를 원본 그대로 통합한다. 인증 헤더 미전달·최대 1회·실제 바이트 Digest·OCI·양쪽 플랫폼 검증을 유지한다.
