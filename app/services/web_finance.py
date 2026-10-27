@@ -458,6 +458,7 @@ async def get_web_market_overview() -> dict[str, Any]:
     1D(5분봉), 1W(60분봉), 1M/3M/YTD/1Y(일봉)를 비동기 병렬 조회하여 제공합니다.
     """
     from app.services.market_indicators import get_market_indicators, unavailable_market_indicators
+    from app.services.cnn_fear_greed import get_cnn_fear_greed, unavailable as unavailable_cnn
     if not external_network_allowed():
         return {"markets": [], "exchange_rate": None, "unavailable": True, **unavailable_market_indicators()}
 
@@ -481,10 +482,12 @@ async def get_web_market_overview() -> dict[str, Any]:
             tasks.append(client.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&range=1y", headers=HEADERS, timeout=6.0))
             # 4) 전체 월봉 (3Y, 5Y, 10Y, MAX 장기용)
             tasks.append(client.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1mo&range=max", headers=HEADERS, timeout=6.0))
-        responses = await asyncio.gather(*tasks, get_market_indicators(client), return_exceptions=True)
+        responses = await asyncio.gather(*tasks, get_market_indicators(client), get_cnn_fear_greed(), return_exceptions=True)
+        cnn = responses.pop()
         indicators = responses.pop()
         if isinstance(indicators, Exception):
             indicators = unavailable_market_indicators()
+        indicators['fear_greed'] = unavailable_cnn() if isinstance(cnn, Exception) else cnn
 
     overview = []
     for i, idx in enumerate(indices):

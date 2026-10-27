@@ -47,7 +47,7 @@ jobs:
           export PATH="/tmp:$PATH"
           test ! -e data && test ! -e .env
           export WEALTH_DATA_DIR="$RUNNER_TEMP/synthetic-data" DATA_DIR="$RUNNER_TEMP/synthetic-data"
-          python -m pytest tests/test_system_update_api.py tests/test_system_update_permissions.py tests/test_system_update_host.py tests/test_system_update_releases.py tests/test_system_update_chrome.py tests/test_release_version.py tests/test_settings_frontend.py tests/test_settings_surface_chrome.py -q --junitxml="$RUNNER_TEMP/update.xml"
+          python -m pytest tests/test_system_update_api.py tests/test_system_update_permissions.py tests/test_system_update_host.py tests/test_system_update_maintenance.py tests/test_system_update_releases.py tests/test_system_update_chrome.py tests/test_release_version.py tests/test_settings_frontend.py tests/test_settings_surface_chrome.py -q --junitxml="$RUNNER_TEMP/update.xml"
           python - <<'PY'
           import os,xml.etree.ElementTree as ET
           cases=list(ET.parse(os.path.join(os.environ['RUNNER_TEMP'],'update.xml')).iter('testcase'))

@@ -7,9 +7,14 @@ on:
       - 'app/main.py'
       - 'app/static_transport.py'
       - 'app/static/**'
+      - 'app/services/cnn_fear_greed.py'
+      - 'app/services/web_finance.py'
+      - 'app/services/market_indicators.py'
       - 'tests/test_static_transport*.py'
       - 'tests/test_home_initial_html_chrome.py'
       - 'tests/test_home_three_tabs_chrome.py'
+      - 'tests/test_cnn_fear_greed*.py'
+      - 'tests/test_market_daily_indicators.py'
       - 'tests/test_section_expanded_chrome.py'
       - 'tests/test_national_pension_import.py'
       - 'tests/test_dividend_official_source_static.py'
@@ -110,6 +115,9 @@ jobs:
             tests/test_static_transport_chrome.py \
             tests/test_home_initial_html_chrome.py \
             tests/test_home_three_tabs_chrome.py \
+            tests/test_cnn_fear_greed.py \
+            tests/test_cnn_fear_greed_chrome.py \
+            tests/test_market_daily_indicators.py \
             tests/test_section_expanded_chrome.py \
             tests/test_national_pension_import.py \
             tests/test_dividend_official_source_static.py \
@@ -164,6 +172,7 @@ jobs:
           assert cases and not any(c.find('skipped') is not None for c in cases)
           assert not any(c.find(tag) is not None for c in cases for tag in ('failure', 'error'))
           expected_ui_counts = {
+              'test_cnn_fear_greed_chrome': 15,
               'test_section_expanded_chrome': 17,
               'test_market_signals_holdings_chrome': 23,
               'test_account_section_summary_10_6b_frontend': 12,

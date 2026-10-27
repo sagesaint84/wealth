@@ -1,5 +1,23 @@
 # Wealth v2.1.4 — 시스템 업데이트 설계·설치·검증
 
+## 2026-10-28 — v2.1.7 통합 후보 최종 정리 / 운영 미배포
+
+- **APP_VERSION=2.1.7 릴리스 후보**, [PR #192](https://github.com/sagesaint84/wealth/pull/192)는 **Draft / 미병합**이다. 원래 통합 커밋 `f19ab03c7b07dbeaaa7608e2cef40687d5ebfc49`의 27개 변경 파일을 유지한다. 원본 #190의 코드 `fd8b7045`·문서 `d8d8434` 및 #191 `3897f0b`의 기술 계약과 검증 이력을 보존한다. 정적 자산 revision `2.1.7-cnn1` 및 기능 코드는 이번 정리에서 변경하지 않는다.
+- **Windows 통합 근거:** Unit **369 PASS / 예상 Unix IPC SKIP 1**, Chromium **132 PASS**. DAY 전체 모듈 **38 PASS**. 기존 Starlette 경고 1건. 이는 이미 완료된 검증이며 이번 정리 후 전체 통합 검증을 반복했다는 뜻이 아니다.
+- **진단 커밋 `20b6c3565f8d75bb0d3ed83a18682323042bc108`의 Linux CI:** 전체 워크플로 **4/4 SUCCESS**, Static transport **567 PASS / SKIP 0**, DAY **38 PASS**, CNN Chromium **15 PASS**, Toss **AMD64 / ARM64 PASS**, System update **synthetic IPC / isolated Docker PASS**, IPO schedule **PASS**. [Static transport 실행 40555628384](https://github.com/sagesaint84/wealth/actions/runs/40555628384). Windows 및 Linux 결과는 사용자 확인 근거다.
+- **이전 Linux DAY 실패 ROOT_CAUSE=UNCONFIRMED.** 위 Linux 성공은 임시 진단 코드가 포함된 커밋의 결과다. 이번에는 DAY 테스트만 원래 통합 커밋과 동일한 blob으로 복원하여 instrumentation을 제거한다. 진단 커밋은 Git 이력에 보존한다. 정리가 원인 해결 또는 단순 flaky 판정의 근거는 아니다. **진단 제거 이후 새 HEAD CI=NOT_RUN**이며 위 PASS를 승계하지 않는다. 정리 후 로컬 집중 검증 결과는 별도 실행 기록으로 구분한다.
+- **Oracle 읽기 전용 사전검사=PASS (사용자 제공):** 운영 **v2.1.6 유지**, 실행 이미지 SHA/digest 일치, Running=true / RestartCount=0, HTTP **307**, 여유 공간 **33G**. updater **active/running**, 진행 중 job **0**, rollback_failed job **0**, 마지막 설치 **succeeded/confirmed**. 오래된 rollback 참조가 남아 있고 해당 이미지는 **MISSING**이다. 참조를 해제하거나 이미지를 다시 받지 않았다.
+- **CNN outbound:** Oracle에서 relay **HTTP 200 / 구조·신선도 PASS**. 이 사전검사는 v2.1.7 앱의 운영 설치·화면 수락을 의미하지 않는다. 오류·만료 시 숫자 숨김과 개인용 비공식 중계 표기를 유지한다.
+- **운영 게이트:** HOST_MAINTENANCE=NOT_RUN, Git 태그=**NOT_CREATED**, main 병합=**NOT_RUN**, GHCR v2.1.7=**NOT_RELEASED**, Oracle v2.1.7=**NOT_DEPLOYED**. 앱 이미지 배포와 `/opt/wealth-updater` 호스트 코드 갱신은 별도 승인·검증 대상이다. 컨테이너/worker/systemd/state/Compose/pin/IPC key/금융·Toss 데이터/이미지는 이번 정리에서 변경하지 않는다. 원본 PR #190/#191은 보존한다.
+
+아래 기존 후보 작성·버전별 검증/배포 상태 문구는 **당시 이력**이며, 현재 상태는 위 기록을 우선한다. 기존 기술 계약과 승인 후 적용·복구 절차는 계속 유효하다.
+
+## 2026-10-28 — v2.1.7 통합 후보의 호스트 적용 경계
+
+v2.1.7 로컬 출시 후보에는 #191 CNN 중계와 #190 root 전용 누락 rollback 참조 유지보수가 함께 들어 있다. 각 원본 PR 검증은 완료됐으나 **신규 통합 테스트/CI는 NOT_RUN**이다. 현재 Oracle 앱은 사용자 수락된 v2.1.6이며 그대로 유지한다.
+
+앱 저장소·이미지에 호스트 코드가 포함되어도 `/opt/wealth-updater`는 자동 갱신되지 않는다. 호스트 코드 교체/worker 재설치·재시작/systemd/state.json/Compose/pin/IPC key 변경·rollback CLI·이미지 정리는 이번 단계에서 실행하지 않는다. 이후 별도 읽기 전용 감사·사용자 승인·검증된 host 파일 계획과 복구 절차가 필요하다. [유지보수 검증 근거·적용 경계](STALE_ROLLBACK_MAINTENANCE.md). 아래 내용은 기존 설계/버전별 기록이다.
+
 > **v2.1.5 현재 정책:** 아래는 v2.1.4 최초 구현/설치 이력이다. 운영자 제공 bootstrap은 완료됐으며 이 hotfix에 worker 재설치가 필요하지 않다. 현재는 명시적으로 위임된 일반 계정도 cleanup을 포함한 여섯 updater API를 사용한다. [v2.1.5 계약과 앱만 수동 배포 경계](UPDATER_PERMISSIONS_V215.md)를 먼저 따른다. 기존 admin-only 문구/최초 설치 절차를 현재 운영에 다시 적용하지 않는다.
 
 범위: [#181](https://github.com/sagesaint84/wealth/issues/181), [확정 순서 #182](https://github.com/sagesaint84/wealth/issues/182). v2.1.4 독립 Draft PR. v2.1.5 접기 제거와 v2.1.6 CNN은 이 PR에 포함하지 않는다. 사용자 승인 전 main 병합·Oracle 배포 금지.
@@ -126,6 +144,8 @@ sudo systemctl start wealth-updater
 RECOVERY_VERIFIED와 실제 화면 확인 전에는 복구 완료로 판단하지 않는다.
 
 ## 자동 테스트와 사용자 게이트
+
+용량 우선 운영 중 이미 삭제된 이미지의 rollback 참조만 남은 경우에는 [#189 오프라인 유지보수 계약](STALE_ROLLBACK_MAINTENANCE.md)을 따른다. root·worker 정지·기존 배타 잠금·정확한 기대값·이미지 부재가 모두 필요하며, 존재하는 롤백 이미지 삭제나 운영 state 직접 편집은 허용하지 않는다. 새 도구는 사용자 검증·운영 승인 전 실행하지 않는다.
 
 - 읽기 전용/웹 보안: synthetic users, CSRF/session/role/rate/body, 외부 조회 실패와 성공 빌드·digest 증거, 실제 Linux Unix IPC. 금융 데이터/비밀키 사용 없음.
 - 실행기: injected Docker adapter로 pull 실패·교체 timeout·health 실패·복구 실패·worker restart·state 손상·중복·정리 보호를 검증한다.

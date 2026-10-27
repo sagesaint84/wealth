@@ -358,7 +358,7 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
     evaluate("document.getElementById('homeTab-markets').click()")
     wait_for(evaluate, "__signalsFixture.marketReads.length>0 && document.querySelectorAll('#marketGrid .market-card').length===7 && document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     text = evaluate("document.querySelector('#marketGrid').textContent")
-    for expected in ["코스피", "코스닥", "나스닥", "S&P", "반도체", "금리", "+3.5bp", "미국 공포·탐욕", "공식 수치 미연동"]:
+    for expected in ["코스피", "코스닥", "나스닥", "S&P", "반도체", "금리", "+3.5bp", "미국 공포·탐욕", "점수 조회 불가", "CNN 지수 · 비공식 데이터 중계"]:
         assert expected in text
     assert "한국 10년 국채" not in text
     assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 7
@@ -367,7 +367,8 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
     assert evaluate("document.querySelectorAll('#marketGrid a[href*=\"treasury.gov\"],#marketGrid a[href*=\"ecos.bok.or.kr\"]').length") == 0
     assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX').querySelector('.market-price').textContent") == "4.988%"
     assert evaluate("document.querySelectorAll('#marketGrid .market-reference-note').length") == 1
-    assert evaluate("document.querySelector('#marketGrid .market-reference-note span').title") == "공식 자동 연동 허용 경로 미확인"
+    assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://github.com/chirag127/fear-greed-index-api\"]').length") == 1
+    assert evaluate("document.querySelectorAll('#marketFearGreed [data-cnn-score]').length") == 0
     assert not evaluate("document.querySelector('#marketGrid .market-reference-note .market-price')!==null")
     assert evaluate("document.querySelector('[data-market-symbol=\"^TNX\"]').innerText.split('\\n').map(s=>s.trim()).filter(Boolean)") == ["금리", "4.988%", "+3.5bp"]
     assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] a,[data-market-symbol=\"^TNX\"] details').length") == 0

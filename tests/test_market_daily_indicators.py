@@ -208,9 +208,19 @@ def test_failed_refresh_is_unavailable_and_keeps_last_success_time(monkeypatch):
 
 
 @pytest.mark.parametrize("tnx_error", [False, True])
-def test_overview_reuses_one_client_preserves_indices_and_has_no_other_provider_calls(monkeypatch, tnx_error):
+@pytest.mark.parametrize("cnn_state", ["ok", "source_error", "raises"])
+def test_overview_keeps_yahoo_request_contract_and_isolates_relay(monkeypatch, tnx_error, cnn_state):
     import httpx
     from app.services import web_finance, portfolio, financial_json, secure_files
+    from app.services import cnn_fear_greed
+    async def relay():
+        if cnn_state == "raises":
+            raise ValueError("synthetic relay failure")
+        result = cnn_fear_greed.unavailable(status=cnn_state)
+        if cnn_state == "ok":
+            result.update(score=42.25, rating="Fear", reason=None)
+        return result
+    monkeypatch.setattr(cnn_fear_greed, "get_cnn_fear_greed", relay)
     requests, clients = [], []
     def response(request):
         requests.append(request)
@@ -242,7 +252,8 @@ def test_overview_reuses_one_client_preserves_indices_and_has_no_other_provider_
     assert all(m["price"] == 110 and m["periods"] for m in result["markets"])
     assert len(result["rates"]) == 1 and result["rates"][0]["symbol"] == "^TNX"
     assert result["rates"][0]["value"] == (None if tnx_error else 4.15)
-    assert result["fear_greed"]["status"] == "not_connected"
+    assert result["fear_greed"]["status"] == ("ok" if cnn_state == "ok" else "source_error")
+    assert result["fear_greed"]["score"] == (42.25 if cnn_state == "ok" else None)
     assert writes.call_count == 0
 
 

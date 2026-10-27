@@ -1978,6 +1978,9 @@ body.wealth-layout {
 }
 /* Read-only indicators share the existing market and holdings surfaces. */
 .market-reference-note { grid-column:1 / -1; margin:0; color:var(--muted); font-size:11px; }
+.market-sentiment { overflow-wrap:anywhere; }
+.market-sentiment-score { display:block; margin:6px 0; color:var(--text); font-size:20px; }
+.market-sentiment-time { display:block; margin:4px 0; }
 .holding-signals { margin-block:16px; padding:12px; border:1px solid var(--line); border-radius:12px; }
 .holding-signals > h3 { margin:0; font-size:14px; }
 #holdingSignalsStatus { margin:6px 0; color:var(--muted); font-size:12px; }

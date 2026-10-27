@@ -965,6 +965,41 @@ function buildPreviousRecordMap(records) {
 let currentMarketPeriod = '1D';
 let currentMarketAllSub = '3Y'; // '3Y' | '5Y' | '10Y' | 'MAX'
 let marketOverviewData = null;
+let marketFearGreedExpiryTimer = null;
+
+function renderMarketFearGreed(item) {
+  clearTimeout(marketFearGreedExpiryTimer);
+  marketFearGreedExpiryTimer = null;
+  if (!item) return '';
+  const labels = {'Extreme Fear':'극도의 공포','Fear':'공포','Neutral':'중립','Greed':'탐욕','Extreme Greed':'극도의 탐욕'};
+  const until = typeof item.valid_until === 'string' ? Date.parse(item.valid_until) : NaN;
+  const updated = typeof item.relay_updated_at === 'string' ? Date.parse(item.relay_updated_at) : NaN;
+  const day = typeof item.observed_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.observed_date) ? item.observed_date : null;
+  const good = item.status === 'ok' && typeof item.score === 'number' && Number.isFinite(item.score)
+    && item.score >= 0 && item.score <= 100 && Object.hasOwn(labels, item.rating)
+    && day && Number.isFinite(updated) && Number.isFinite(until) && until > Date.now();
+  let value = '출처 오류 · 점수 조회 불가';
+  if (good) {
+    value = `<strong class="market-sentiment-score" data-cnn-score>${html(number(item.score, 2))} / 100 · ${html(labels[item.rating])}</strong>`;
+    marketFearGreedExpiryTimer = setTimeout(() => {
+      marketFearGreedExpiryTimer = null;
+      const node = document.getElementById('marketFearGreed');
+      if (node && marketOverviewData?.fear_greed === item) node.outerHTML = renderMarketFearGreed(item);
+    }, Math.min(2147483647, Math.max(1, until - Date.now() + 1)));
+  } else if (item.status === 'stale' || (item.status === 'ok' && Number.isFinite(until) && until <= Date.now())) {
+    value = '갱신 지연 · 오래된 점수는 표시하지 않습니다';
+  } else if (item.status === 'not_connected') {
+    value = '출처 조회 불가 · 점수 미연동';
+  }
+  const stamp = Number.isFinite(updated)
+    ? new Date(updated).toLocaleString('ko-KR', {timeZone:'Asia/Seoul', hour12:false}) : null;
+  return `<article id="marketFearGreed" class="market-reference-note market-sentiment" aria-label="미국 CNN 공포·탐욕">
+    <strong>미국 공포·탐욕</strong><span class="market-sentiment-time">CNN 지수 · 비공식 데이터 중계</span><div role="status">${value}</div>
+    ${day ? `<span class="market-sentiment-time">중계 기준일 ${html(day)}</span>` : ''}
+    ${stamp ? `<span class="market-sentiment-time">중계 파일 갱신 ${html(stamp)} KST</span>` : ''}
+    <span>실시간 보장 없음 · <a href="https://www.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener noreferrer">CNN 공식 페이지</a>
+    · <a href="https://github.com/chirag127/fear-greed-index-api" target="_blank" rel="noopener noreferrer">중계 GitHub 프로젝트</a></span></article>`;
+}
 
 function renderMarkets(result) {
   if (result) marketOverviewData = result;
@@ -1068,7 +1103,7 @@ function renderMarkets(result) {
         </div>
       </article>
     `;
-  }).join("") + (marketOverviewData.fear_greed ? `<p class="market-reference-note">미국 공포·탐욕 · <a href="https://www.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener noreferrer">CNN</a> · <span title="${html(marketOverviewData.fear_greed.reason || '자동 수치 연동 미구현')}">공식 수치 미연동</span></p>` : '');
+  }).join("") + renderMarketFearGreed(marketOverviewData.fear_greed);
 }
 
 // ── 대시보드 전역 기간 탭 연동 (주요지수 ↔ 자산기록 ↔ 자산히트맵) ──────────────
