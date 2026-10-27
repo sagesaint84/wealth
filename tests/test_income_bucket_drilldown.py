@@ -1,6 +1,5 @@
 """Exact filtered bucket detail behavior in the real application DOM."""
 from pathlib import Path
-import json
 import subprocess
 import base64
 
@@ -296,43 +295,14 @@ SCENARIOS = {
     """,
     'day_selection_non_painted_geometry': r"""
       const frames=async()=>{for(let i=0;i<4;i++)await new Promise(requestAnimationFrame);};
-      window.__dayGeometryDiagnostic=[];
       for(const kind of ['pnl','dividend']){
-        await render(kind,modes.DAY);const n=target(kind,'2026-10-07');
-        const initialSvg=n?.ownerSVGElement;
-        const describe=node=>{
-          if(!node)return null;
-          const s=getComputedStyle(node);
-          return {connected:node.isConnected,contained:document.contains(node),
-            className:node.getAttribute('class'),fill:s.fill,stroke:s.stroke,outline:s.outlineStyle,
-            pointer:s.pointerEvents,active:document.activeElement===node,pressed:node.getAttribute('aria-pressed')};
-        };
-        const mark=phase=>{
-          const current=target(kind,'2026-10-07');
-          const style=document.getElementById('wealthUnifiedTimeseriesStyles');
-          let rules=[],cssError=null;
-          try{rules=[...(style?.sheet?.cssRules||[])].map(rule=>rule.cssText)
-            .filter(text=>text.includes('.wealth-unified-bucket-target'));}
-          catch(error){cssError=String(error);}
-          window.__dayGeometryPhase={kind,phase};
-          __dayGeometryDiagnostic.push({kind,phase,time:performance.now(),original:describe(n),current:describe(current),
-            currentExists:!!current,selectedKey:u.getDetail(kind)?.key??null,
-            fonts:document.fonts.status,ready:document.readyState,
-            style:{exists:!!style,connected:style?.isConnected??false,disabled:style?.sheet?.disabled??null,
-              dayRulePresent:rules.some(text=>text.includes('.wealth-unified-day-target')),rules,cssError},
-            sameTarget:current===n,originalSvgConnected:initialSvg?.isConnected,
-            currentSvgConnected:current?.ownerSVGElement?.isConnected??false,
-            sameSvg:current?.ownerSVGElement===initialSvg});
-        };
-        mark('captured');
-        n.scrollIntoView({block:'center',inline:'center',behavior:'instant'});mark('after-scroll');await frames();mark('after-scroll-frames');
+        await render(kind,modes.DAY);const n=target(kind,'2026-10-07');n.scrollIntoView({block:'center',inline:'center',behavior:'instant'});await frames();
         const svg=n.ownerSVGElement;
         const geometry=()=>[...svg.querySelectorAll('.wealth-unified-flow-bar')].map(b=>['x','y','width','height'].map(a=>b.getAttribute(a)));
         const before=geometry(),layout=()=>[host(kind).querySelector('.wealth-unified-content').getBoundingClientRect().width,host(kind).querySelector('.wealth-unified-viewport').getBoundingClientRect().width,host(kind).querySelector('.wealth-unified-axis').textContent,...[...svg.querySelectorAll('text')].map(t=>[t.textContent,t.style.visibility])];
         const beforeLayout=layout();
         const invisible=()=>{const s=getComputedStyle(n);check(s.fill==='none'&&s.stroke==='none'&&s.outlineStyle==='none'&&s.pointerEvents==='none','DAY keyboard target unpainted and pointer-inert '+JSON.stringify({kind,connected:n.isConnected,fill:s.fill,stroke:s.stroke,outline:s.outlineStyle,pointer:s.pointerEvents,active:document.activeElement===n,fonts:document.fonts.status,ready:document.readyState}));};
-        invisible();window.__dayGeometryPhase={kind,phase:'select'};await select(kind,'2026-10-07');mark('after-select');n.focus();mark('after-focus');
-        n.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));mark('after-keydown');await frames();mark('after-keyboard-frames');
+        invisible();await select(kind,'2026-10-07');n.focus();n.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await frames();
         invisible();check(u.getDetail(kind).key==='2026-10-07','detail opens');eq(geometry(),before,'selection does not change bar geometry');eq(layout(),beforeLayout,'selection does not change axes/width/labels');
         check(svg.getAttribute('preserveAspectRatio')==='none','existing SVG scale retained');
         const bars=[...svg.querySelectorAll('.wealth-unified-flow-bar.is-selected')];check(bars.length>0,'separate bar selection');
@@ -525,29 +495,7 @@ def test_income_bucket_runtime(chrome_preview, scenario):
     call('Emulation.setDeviceMetricsOverride', {'width': 390, 'height': 844, 'deviceScaleFactor': 1, 'mobile': True})
     call('Page.navigate', {'url': f'http://127.0.0.1:{port}/#pnl'})
     wait_for(evaluate, "document.readyState==='complete' && !!window.WealthUnifiedTimeseries && !!window.WealthTimeseriesVisibleRange")
-    if scenario == 'day_selection_non_painted_geometry':
-        # Preserve the rejected Promise and raw CDP envelope, without changing
-        # the shared fixture or accepting anything except the original JS true.
-        result = call('Runtime.evaluate', {
-            'expression': '(async()=>{window.__dayGeometryFailure=null;try{' + SETUP + SCENARIOS[scenario] + r''';return true;
-              }catch(error){window.__dayGeometryFailure={message:String(error?.message??error),stack:String(error?.stack??'')};
-                throw error;}})()''',
-            'returnByValue': True, 'awaitPromise': True,
-        })
-        if 'exceptionDetails' in result or result.get('result', {}).get('value') is not True:
-            diagnostic = call('Runtime.evaluate', {
-                'expression': '({failure:window.__dayGeometryFailure,phase:window.__dayGeometryPhase,dayGeometry:window.__dayGeometryDiagnostic||[]})',
-                'returnByValue': True, 'awaitPromise': True,
-            })
-            details = result.get('exceptionDetails', {})
-            payload = {'cdpResult': result, 'exceptionDetails': details,
-                       'exceptionDescription': details.get('exception', {}).get('description'),
-                       'text': details.get('text'), 'stackTrace': details.get('stackTrace'),
-                       'lineNumber': details.get('lineNumber'), 'columnNumber': details.get('columnNumber'),
-                       'jsDiagnostic': diagnostic}
-            pytest.fail('DAY_CDP_EXCEPTION_JSON=' + json.dumps(payload, ensure_ascii=False, indent=2), pytrace=False)
-    else:
-        assert evaluate('(async()=>{' + SETUP + SCENARIOS[scenario] + ';return true;})()')
+    assert evaluate('(async()=>{' + SETUP + SCENARIOS[scenario] + ';return true;})()')
     assert evaluate('document.documentElement.scrollWidth<=innerWidth')
 
 

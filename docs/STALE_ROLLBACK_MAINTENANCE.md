@@ -1,5 +1,17 @@
 # #189 — 존재하지 않는 rollback 참조의 안전한 해제
 
+## 2026-10-28 — v2.1.7 통합 후보 최종 정리 / 운영 미배포
+
+- **APP_VERSION=2.1.7 릴리스 후보**, [PR #192](https://github.com/sagesaint84/wealth/pull/192)는 **Draft / 미병합**이다. 원래 통합 커밋 `f19ab03c7b07dbeaaa7608e2cef40687d5ebfc49`의 27개 변경 파일을 유지한다. 원본 #190의 코드 `fd8b7045`·문서 `d8d8434` 및 #191 `3897f0b`의 기술 계약과 검증 이력을 보존한다. 정적 자산 revision `2.1.7-cnn1` 및 기능 코드는 이번 정리에서 변경하지 않는다.
+- **Windows 통합 근거:** Unit **369 PASS / 예상 Unix IPC SKIP 1**, Chromium **132 PASS**. DAY 전체 모듈 **38 PASS**. 기존 Starlette 경고 1건. 이는 이미 완료된 검증이며 이번 정리 후 전체 통합 검증을 반복했다는 뜻이 아니다.
+- **진단 커밋 `20b6c3565f8d75bb0d3ed83a18682323042bc108`의 Linux CI:** 전체 워크플로 **4/4 SUCCESS**, Static transport **567 PASS / SKIP 0**, DAY **38 PASS**, CNN Chromium **15 PASS**, Toss **AMD64 / ARM64 PASS**, System update **synthetic IPC / isolated Docker PASS**, IPO schedule **PASS**. [Static transport 실행 40555628384](https://github.com/sagesaint84/wealth/actions/runs/40555628384). Windows 및 Linux 결과는 사용자 확인 근거다.
+- **이전 Linux DAY 실패 ROOT_CAUSE=UNCONFIRMED.** 위 Linux 성공은 임시 진단 코드가 포함된 커밋의 결과다. 이번에는 DAY 테스트만 원래 통합 커밋과 동일한 blob으로 복원하여 instrumentation을 제거한다. 진단 커밋은 Git 이력에 보존한다. 정리가 원인 해결 또는 단순 flaky 판정의 근거는 아니다. **진단 제거 이후 새 HEAD CI=NOT_RUN**이며 위 PASS를 승계하지 않는다. 정리 후 로컬 집중 검증 결과는 별도 실행 기록으로 구분한다.
+- **Oracle 읽기 전용 사전검사=PASS (사용자 제공):** 운영 **v2.1.6 유지**, 실행 이미지 SHA/digest 일치, Running=true / RestartCount=0, HTTP **307**, 여유 공간 **33G**. updater **active/running**, 진행 중 job **0**, rollback_failed job **0**, 마지막 설치 **succeeded/confirmed**. 오래된 rollback 참조가 남아 있고 해당 이미지는 **MISSING**이다. 참조를 해제하거나 이미지를 다시 받지 않았다.
+- **CNN outbound:** Oracle에서 relay **HTTP 200 / 구조·신선도 PASS**. 이 사전검사는 v2.1.7 앱의 운영 설치·화면 수락을 의미하지 않는다. 오류·만료 시 숫자 숨김과 개인용 비공식 중계 표기를 유지한다.
+- **운영 게이트:** HOST_MAINTENANCE=NOT_RUN, Git 태그=**NOT_CREATED**, main 병합=**NOT_RUN**, GHCR v2.1.7=**NOT_RELEASED**, Oracle v2.1.7=**NOT_DEPLOYED**. 앱 이미지 배포와 `/opt/wealth-updater` 호스트 코드 갱신은 별도 승인·검증 대상이다. 컨테이너/worker/systemd/state/Compose/pin/IPC key/금융·Toss 데이터/이미지는 이번 정리에서 변경하지 않는다. 원본 PR #190/#191은 보존한다.
+
+아래 기존 후보 작성·버전별 검증/배포 상태 문구는 **당시 이력**이며, 현재 상태는 위 기록을 우선한다. 기존 기술 계약과 승인 후 적용·복구 절차는 계속 유효하다.
+
 ## 2026-10-28 — v2.1.7 저장소 통합 후보 / 호스트 미적용
 
 - 원본 #190의 코드 `fd8b7045d267d9ffbad4cf77518f5f780575c0c7`·문서 `d8d8434cb63ed6a121b14e299bc7dd16727abbe6`를 #191 CNN 커밋 `3897f0bea3806732553eaf01da16b0c961f23363`과 함께 새 `codex/v217-release-integration`에 커밋 없이 통합했다. 기준 main/커밋 HEAD는 `bfdc874ec9f4e802604d452dcc5368d4348edc0e`다. APP_VERSION=2.1.7 후보이며 현재 운영은 v2.1.6이다.
