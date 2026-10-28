@@ -2008,17 +2008,46 @@ body.wealth-layout {
 #marketGrid .market-sentiment details { font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
 #marketGrid .market-sentiment strong { white-space:normal; }
 #marketGrid .market-sentiment a { color:var(--workspace-accent); }
-#marketCardDialog { max-width:calc(100vw - 24px); }
-.market-card-choices { display:grid; gap:4px; }
-.market-card-choices label { display:flex; align-items:center; gap:10px; min-height:44px; }
+/* Scope fixes to these dialogs: other form inputs keep their existing rules. */
+#marketCardDialog.dialog { width:calc(100vw - 24px) !important; max-width:560px !important; overflow:hidden !important; padding:20px !important; }
+#marketCardDialog form { display:grid; grid-template-rows:auto minmax(0,1fr) auto auto; max-height:calc(90dvh - 40px); min-width:0; }
+#marketCardDialog .dialog-head h2 { white-space:normal; color:var(--text); }
+#marketCardDialog .market-card-choices { display:grid; gap:8px; overflow-y:auto; min-height:0; padding:2px; }
+#marketCardDialog .market-card-choices label { display:flex; align-items:center; gap:12px; width:100%; min-width:0; min-height:46px; padding:8px 10px; box-sizing:border-box; border:1px solid var(--line); border-radius:8px; color:var(--text); cursor:pointer; }
+#marketCardDialog .market-card-choices label:has(:checked) { border-color:var(--workspace-accent); }
+#marketCardDialog .market-card-choices span { flex:1; min-width:0; overflow-wrap:anywhere; }
+#marketCardDialog input[type=checkbox], #ipoSharedDetailDialog input[type=checkbox] { width:20px !important; min-width:20px; max-width:20px; height:20px; min-height:20px; flex:0 0 20px; padding:0; accent-color:var(--workspace-accent); }
+#marketCardDialog input:focus-visible, #ipoSharedDetailDialog :is(input,select,button):focus-visible { outline:2px solid var(--workspace-accent); outline-offset:2px; }
+#marketCardDialog .dialog-actions { margin-top:16px; display:flex; justify-content:flex-end; gap:8px; }
 
 .wealth-bucket-target-edit { grid-column:2 / -1; display:flex; justify-content:space-between; gap:8px; align-items:center; min-height:44px; width:100%; border:0; border-radius:6px; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 .wealth-bucket-target-edit:focus-visible { outline:2px solid var(--workspace-accent); }
 #wealthBucketTargetDialog { width:min(400px,calc(100vw - 24px)); }
 #wealthBucketTargetDialog form { min-width:0; }
 
-#ipoSharedDetailDialog { width:min(860px,calc(100vw - 24px)); max-height:calc(100dvh - 32px); overflow:auto; overscroll-behavior:contain; }
-.ipo-shared-detail { padding:16px; min-width:0; overflow-wrap:anywhere; }
-#ipoSharedDetailDialog .ipo-applicant-account { display:flex; flex-wrap:wrap; gap:8px; min-width:0; }
+#ipoSharedDetailDialog.dialog { width:calc(100vw - 24px) !important; max-width:1000px !important; max-height:90dvh !important; overflow-y:auto !important; overscroll-behavior:contain; padding:20px !important; }
+.ipo-shared-detail { min-width:0; overflow-wrap:anywhere; }
+#ipoSharedDetailDialog .dialog-head { gap:8px; flex-wrap:wrap; }
+#ipoSharedDetailDialog .dialog-head h2 { color:var(--text); margin-right:auto; }
+#ipoSharedDetailDialog .ipo-shared-card { display:grid; gap:16px; padding:0; border:0; background:transparent; }
+#ipoSharedDetailDialog .ipo-detail-company h3 { margin:0 0 12px; font-size:20px; }
+#ipoSharedDetailDialog .ipo-detail-dates { display:flex; flex-wrap:wrap; gap:12px 24px; margin:0; }
+#ipoSharedDetailDialog .ipo-detail-dates dt { color:var(--muted); font-size:12px; }
+#ipoSharedDetailDialog .ipo-detail-dates dd { margin:4px 0 0; }
+#ipoSharedDetailDialog .ipo-family-members-row { display:flex; flex-wrap:wrap; gap:8px; }
+#ipoSharedDetailDialog .ipo-member-checkbox-label { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; min-height:44px; border:1px solid var(--line); border-radius:8px; }
+#ipoSharedDetailDialog .ipo-applicant-accounts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+#ipoSharedDetailDialog .ipo-applicant-account { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; min-width:0; padding:14px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
 #ipoSharedDetailDialog :is(input,select,button) { max-width:100%; min-width:0; min-height:44px; }
-#ipoSharedDetailDialog .ipo-allocation-control { width:100%; }
+#ipoSharedDetailDialog :is(select,input:not([type=checkbox])) { width:100%; color:var(--text); background:var(--panel); border-color:var(--line); }
+#ipoSharedDetailDialog :is(.ipo-applicant-account-title,.ipo-applicant-account-status,.ipo-allocation-control) { grid-column:1 / -1; }
+#ipoSharedDetailDialog .ipo-allocation-control { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:end; gap:10px; width:100%; }
+#ipoSharedDetailDialog .ipo-allocation-control label { display:grid; gap:6px; min-width:0; }
+#ipoSharedDetailDialog :is(.ipo-allocation-summary,.ipo-sale-candidate,.ipo-sale-links) { grid-column:1 / -1; min-width:0; }
+#ipoSharedDetailDialog .ipo-applicant-account-status:empty { display:none; }
+#accountsPanel #savingsSummaryCards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)) !important; gap:12px; }
+#savingsSummaryCards .saving-stat-card { min-width:0; }
+#savingsSummaryCards strong { overflow-wrap:anywhere; font-size:clamp(18px,1.8vw,24px); }
+#savingsSummaryCards .bank-summary-sub { color:var(--muted); font-size:12px; margin-top:6px; }
+@media(max-width:980px) { #accountsPanel #savingsSummaryCards { grid-template-columns:repeat(2,minmax(0,1fr)) !important; } }
+@media(max-width:620px) { #accountsPanel #savingsSummaryCards { grid-template-columns:minmax(0,1fr) !important; } #ipoSharedDetailDialog .ipo-applicant-accounts { grid-template-columns:minmax(0,1fr); } #ipoSharedDetailDialog.dialog { padding:14px !important; } }

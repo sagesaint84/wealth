@@ -988,9 +988,9 @@ function marketCardSettings(items) {
     document.body.append(dialog);
     button.addEventListener('click',()=>{
       const hidden=hiddenMarketCards(),identity=marketPreferenceKey();
-      dialog.innerHTML='<form><h2 id="marketCardDialogTitle">표시할 지수 선택</h2><div class="market-card-choices"></div><p role="status"></p><div class="dialog-actions"><button type="button" class="button secondary">취소</button><button type="submit" class="button primary">저장</button></div></form>';
+      dialog.innerHTML='<form><div class="dialog-head"><h2 id="marketCardDialogTitle">표시할 지수 선택</h2></div><div class="market-card-choices"></div><p role="status"></p><div class="dialog-actions"><button type="button" class="button secondary">취소</button><button type="submit" class="button primary">저장</button></div></form>';
       for(const item of button.marketItems){
-        const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.value=item.key;check.checked=!hidden.has(item.key);label.append(check,document.createTextNode(item.label));dialog.querySelector('.market-card-choices').append(label);
+        const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.value=item.key;check.checked=!hidden.has(item.key);const title=document.createElement('span');title.textContent=item.label;label.append(check,title);dialog.querySelector('.market-card-choices').append(label);
       }
       dialog.querySelector('[type=button]').onclick=()=>dialog.close();
       dialog.querySelector('form').onsubmit=e=>{
@@ -1020,7 +1020,7 @@ function renderMarketFearGreed(item) {
     && day && Number.isFinite(updated) && Number.isFinite(until) && until > Date.now();
   let value = '출처 오류 · 점수 조회 불가';
   if (good) {
-    value = `<strong class="market-sentiment-score market-price" data-cnn-score>${html(number(item.score, 2))} / 100 · ${html(labels[item.rating])}</strong>`;
+    value = `<strong class="market-sentiment-score market-price" data-cnn-score>${html(number(item.score, 2))} (${html(labels[item.rating])})</strong>`;
     marketFearGreedExpiryTimer = setTimeout(() => {
       marketFearGreedExpiryTimer = null;
       const node = document.getElementById('marketFearGreed');
@@ -1034,7 +1034,7 @@ function renderMarketFearGreed(item) {
   const stamp = Number.isFinite(updated)
     ? new Date(updated).toLocaleString('ko-KR', {timeZone:'Asia/Seoul', hour12:false}) : null;
   return `<article id="marketFearGreed" class="market-card toss-market-card market-sentiment" aria-label="미국 CNN 공포·탐욕">
-    <strong class="market-title">미국 공포·탐욕</strong><div role="status">${value}</div><details><summary>출처 및 기준 시각</summary><span class="market-sentiment-time">CNN 지수 · 비공식 데이터 중계</span>
+    <strong class="market-title">공포탐욕지수</strong><div role="status">${value}</div><details><summary>출처 및 기준 시각</summary><span class="market-sentiment-time">CNN 지수 · 비공식 데이터 중계</span>
     ${day ? `<span class="market-sentiment-time">중계 기준일 ${html(day)}</span>` : ''}
     ${stamp ? `<span class="market-sentiment-time">중계 파일 갱신 ${html(stamp)} KST</span>` : ''}
     <span>실시간 보장 없음 · <a href="https://www.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener noreferrer">CNN 공식 페이지</a>
@@ -1100,7 +1100,7 @@ function renderMarkets(result) {
   if (!grid) return;
 
   const hidden=hiddenMarketCards();
-  marketCardSettings([...rows.map(item=>({key:marketCardKey(item),label:item.kind==='yield'?'금리':item.label})),{key:'cnn-fng',label:'CNN 공포·탐욕'}]);
+  marketCardSettings([...rows.map(item=>({key:marketCardKey(item),label:item.kind==='yield'?'금리':item.label})),{key:'cnn-fng',label:'공포탐욕지수'}]);
   clearTimeout(marketFearGreedExpiryTimer);marketFearGreedExpiryTimer=null;
   grid.innerHTML = rows.filter(item=>!hidden.has(marketCardKey(item))).map((item) => {
     if (item.kind === 'yield') {
@@ -2048,7 +2048,11 @@ function renderSavingsWithOwner(owner = '모두') {
   const minusOrCreditLineBanks = filteredBanks.filter(b => (Number(b.balance) || 0) < 0 || (Number(b.limit_amount) || 0) > 0);
 
   const totalPositiveBank = positiveBanks.reduce((sum, b) => sum + (Number(b.balance) || 0), 0);
-  const totalMinusDebt = minusDebtBanks.reduce((sum, b) => sum + Math.abs(Number(b.balance) || 0), 0);
+  const representedOverdraftBanks = new Set(filteredLoans
+    .filter(l => l.loan_type === 'minus' && Number(l.current_balance) > 0 && l.overdraft_bank_account_id)
+    .map(l => `${l.owner || '모두'}\u0000${l.overdraft_bank_account_id}`));
+  const unrepresentedMinusBanks = minusDebtBanks.filter(b => !representedOverdraftBanks.has(`${b.owner || '모두'}\u0000${b.id}`));
+  const totalMinusDebt = unrepresentedMinusBanks.reduce((sum, b) => sum + Math.abs(Number(b.balance) || 0), 0);
 
   const totalPaid = filteredSavings.reduce((sum, s) => sum + (Number(s.current_value) || Number(s.current_paid_amount) || 0), 0);
   const totalMaturity = filteredSavings.reduce((sum, s) => sum + (Number(s.calc?.maturity_total) || 0), 0);
@@ -2056,7 +2060,7 @@ function renderSavingsWithOwner(owner = '모두') {
   const totalCombinedDebt = totalPureLoan + totalMinusDebt;
 
   // 순수 대출 이자 + 자유연동 마통 월 예상 이자 합산 (실제 음수 잔고일 때만 이자 발생)
-  const totalMinusInterest = minusDebtBanks.reduce((sum, b) => {
+  const totalMinusInterest = unrepresentedMinusBanks.reduce((sum, b) => {
     const debt = Math.abs(Number(b.balance || 0));
     const rate = Number(b.interest_rate || 0);
     return sum + (rate > 0 ? Math.round(debt * (rate / 100) / 12) : 0);

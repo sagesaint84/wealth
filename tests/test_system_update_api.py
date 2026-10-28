@@ -32,8 +32,8 @@ def boundary(monkeypatch):
 
 
 def headers(client):
-    token=client.get('/api/system-update/status').json()['csrf_token']
-    return {'Origin':'https://synthetic.invalid','X-Wealth-Update-CSRF':token}
+    data=client.get('/api/system-update/status').json()
+    return {'Origin':'https://synthetic.invalid','X-Wealth-Update-CSRF':data['csrf_token'],'X-Wealth-Update-Approval':data['operation_token']}
 
 
 @pytest.mark.parametrize('path',['status','check','cleanup-preview','install','confirm','cleanup'])
@@ -54,17 +54,17 @@ def test_read_only_status_and_check_have_no_deploy_calls(boundary):
     password.assert_not_called()
 
 
-@pytest.mark.parametrize('mutate', ['origin','csrf','cookie','identity','missing_confirmation','wrong_password','extra_command'])
+@pytest.mark.parametrize('mutate', ['origin','csrf','cookie','identity','missing_confirmation','unexpected_password','extra_command'])
 def test_mutation_security_rejects_without_execution(boundary,mutate):
     client,user,host,password=boundary
     h=headers(client)
-    body={'sha':'b'*40,'digest':'sha256:'+'b'*64,'password':'synthetic-password','confirm':True}
+    body={'sha':'b'*40,'digest':'sha256:'+'b'*64,'confirm':True}
     if mutate=='origin': h['Origin']='https://evil.invalid'
     if mutate=='csrf': h['X-Wealth-Update-CSRF']='tampered'
     if mutate=='cookie': client.cookies.set('dashboard_session_v2','different-session')
     if mutate=='identity': user['id']='new-identity'
     if mutate=='missing_confirmation': body['confirm']=False
-    if mutate=='wrong_password': password.return_value=None
+    if mutate=='unexpected_password': body['password']='synthetic-password'
     if mutate=='extra_command': body['command']='rm -rf /'
     host.reset_mock()
     response=client.post('/api/system-update/install',json=body,headers=h)
@@ -74,7 +74,7 @@ def test_mutation_security_rejects_without_execution(boundary,mutate):
 
 
 @pytest.mark.parametrize('action,args',[('install',{'sha':'b'*40,'digest':'sha256:'+'b'*64}),('confirm',{'job_id':'b'*32}),('cleanup',{'images':['sha256:'+'b'*64]})])
-def test_destructive_actions_reauthenticate_each_time_and_forward_no_password(boundary,action,args):
+def test_operations_need_no_password_and_forward_same_host_arguments(boundary,action,args):
     client,_,host,password=boundary
     h=headers(client)
     expected=args.copy()
@@ -82,17 +82,17 @@ def test_destructive_actions_reauthenticate_each_time_and_forward_no_password(bo
         host.call.return_value={'images':args['images'],'preserved':[]}
         args={**args,'preview_token':client.get('/api/system-update/cleanup-preview').json()['preview_token']}
     host.reset_mock()
-    response=client.post('/api/system-update/'+action,json={**args,'password':'synthetic-password','confirm':True},headers=h)
+    response=client.post('/api/system-update/'+action,json={**args,'confirm':True},headers=h)
     assert response.status_code in (200,202)
-    password.assert_called_once_with('synthetic-admin','synthetic-password')
+    password.assert_not_called()
     host.call.assert_called_once_with(action,expected,'11111111-1111-4111-8111-111111111111')
     assert 'synthetic-password' not in response.text
 
 
-def test_reauth_and_check_rate_limits(boundary):
+def test_operation_approval_and_check_rate_limits(boundary):
     client,_,host,password=boundary
-    h=headers(client);password.return_value=None
-    body={'sha':'b'*40,'digest':'sha256:'+'b'*64,'password':'bad','confirm':True}
+    h=headers(client);h['X-Wealth-Update-Approval']='invalid'
+    body={'sha':'b'*40,'digest':'sha256:'+'b'*64,'confirm':True}
     assert [client.post('/api/system-update/install',json=body,headers=h).status_code for _ in range(6)]==[403]*5+[429]
     assert [client.get('/api/system-update/check').status_code for _ in range(4)]==[200]*3+[429]
 
@@ -115,3 +115,16 @@ def test_oversized_body_wrong_content_type_and_expired_csrf(boundary,monkeypatch
         m.setattr('itsdangerous.timed.TimestampSigner.get_timestamp',lambda self:int(__import__('time').time())+601)
         assert client.post('/api/system-update/install',json={},headers=h).status_code==403
     host.call.assert_not_called()
+
+
+@pytest.mark.parametrize('fault',['missing','forged','replay','session'])
+def test_passwordless_operations_keep_single_use_session_approval(boundary,fault):
+    client,_,host,password=boundary;h=headers(client)
+    body={'sha':'b'*40,'digest':'sha256:'+'b'*64,'confirm':True}
+    if fault=='missing':h.pop('X-Wealth-Update-Approval')
+    if fault=='forged':h['X-Wealth-Update-Approval']='forged'
+    if fault=='replay':assert client.post('/api/system-update/install',json=body,headers=h).status_code==202
+    if fault=='session':client.cookies.set('dashboard_session_v2','other-session')
+    host.reset_mock()
+    assert client.post('/api/system-update/install',json=body,headers=h).status_code==403
+    host.call.assert_not_called();password.assert_not_called()

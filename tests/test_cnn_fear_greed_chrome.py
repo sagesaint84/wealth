@@ -34,7 +34,7 @@ def test_relay_tab_lazy_states_sources_expiry_late_response_and_width(chrome_pre
         choose(evaluate,'markets')
         wait_for(evaluate,"!!document.querySelector('#marketFearGreed [data-cnn-score]')")
         assert evaluate('__tabs.markets')==1
-        assert '42.25 / 100' in evaluate("document.getElementById('marketFearGreed').textContent")
+        assert '42.25 (공포)' in evaluate("document.getElementById('marketFearGreed').textContent")
         for expected in ['CNN 지수 · 비공식 데이터 중계','중계 기준일','중계 파일 갱신','KST','실시간 보장 없음']:
             assert expected in evaluate("document.getElementById('marketFearGreed').textContent")
         assert evaluate("[...document.querySelectorAll('#marketFearGreed a')].map(a=>a.href)")==[

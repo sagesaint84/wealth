@@ -363,7 +363,7 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
     evaluate("document.getElementById('homeTab-markets').click()")
     wait_for(evaluate, "__signalsFixture.marketReads.length>0 && document.querySelectorAll('#marketGrid .market-card').length===8 && document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     text = evaluate("document.querySelector('#marketGrid').textContent")
-    for expected in ["코스피", "코스닥", "나스닥", "S&P", "반도체", "금리", "+3.5bp", "미국 공포·탐욕", "점수 조회 불가", "CNN 지수 · 비공식 데이터 중계"]:
+    for expected in ["코스피", "코스닥", "나스닥", "S&P", "반도체", "금리", "+3.5bp", "공포탐욕지수", "점수 조회 불가", "CNN 지수 · 비공식 데이터 중계"]:
         assert expected in text
     assert "한국 10년 국채" not in text
     assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 8

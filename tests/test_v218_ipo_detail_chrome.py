@@ -49,6 +49,13 @@ def test_calendar_shares_account_allocation_link_and_failure_inputs(ui_chrome_pr
     wait_for(evaluate,'!!document.querySelector("#ipoSharedDetailDialog .ipo-allocation-quantity:not(:disabled)")')
     assert evaluate('document.querySelector("#ipoSharedDetailDialog .ipo-applicant-account").dataset.ipo')=='long'
     evaluate('window.__firstIpoDialog=document.getElementById("ipoSharedDetailDialog")')
+    assert evaluate('document.querySelector("#ipoSharedDetailDialog .ipo-detail-dates").textContent.includes("청약 기간")')
+    assert evaluate('document.querySelector("#ipoSharedDetailDialog .ipo-detail-dates").textContent.includes("공모가")')
+    assert evaluate('document.querySelector("#ipoSharedDetailDialog .ipo-member-chk").getBoundingClientRect().width')==20
+    if width==1280:
+        assert evaluate('document.getElementById("ipoSharedDetailDialog").getBoundingClientRect().width')>700
+    assert evaluate("(()=>{const d=document.getElementById('ipoSharedDetailDialog'),b=d.getBoundingClientRect();return [...d.querySelectorAll('input,select,button')].filter(n=>n.getClientRects().length).every(n=>{const r=n.getBoundingClientRect();return r.left>=b.left && r.right<=b.right;});})()")
+
     assert not evaluate('document.getElementById("ipoSharedDetailDialog").textContent.includes("청약 신청 수량")')
     assert not evaluate('document.getElementById("ipoSharedDetailDialog").textContent.includes("매도 기록이 없으면")')
     assert evaluate('document.querySelector("#ipoSharedDetailDialog .ipo-applicant-account-select").value')=='synthetic-father'

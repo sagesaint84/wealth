@@ -2,8 +2,8 @@
   'use strict';
   const byId = id => document.getElementById(id);
   const stages = {queued:'대기',checking:'사전 검사',pulling:'이미지 다운로드',replacing:'컨테이너 교체',verifying:'서버 검증',succeeded:'완료',failed:'실패',rolling_back:'자동 롤백 중',rolled_back:'이전 이미지 복구 확인',rollback_failed:'자동 복구 실패 · 운영자 확인 필요',interrupted:'재시작으로 중단',cleaning:'선별 이미지 정리'};
-  const errors = {UPDATER_UNAVAILABLE:'호스트 실행기에 연결할 수 없습니다. 기존 서버 연결 상태를 확인해 주세요.',UPDATER_NOT_INSTALLED:'기존 호스트 실행기의 연결 상태를 확인해 주세요.',BUILD_NOT_READY:'최신 main 이미지가 아직 준비되지 않았습니다.',BUILD_NOT_SUCCESSFUL:'최신 main 빌드가 성공하지 않아 설치할 수 없습니다.',BUILD_EVIDENCE_UNAVAILABLE:'빌드 증거에 접근할 수 없습니다. 호스트의 GitHub 읽기 권한을 확인해 주세요.',RELEASE_UNAVAILABLE:'최신 배포 정보를 확인하지 못했습니다. 현재 운영은 유지됩니다.',UPDATE_REAUTH_FAILED:'본인 비밀번호를 다시 확인해 주세요.',UPDATE_CSRF_INVALID:'보안 확인이 만료됐습니다. 실행 상태를 새로고침해 주세요.',UPDATE_ORIGIN_FORBIDDEN:'설정의 공개 주소와 현재 접속 주소가 일치하는지 확인해 주세요.',UPDATE_RATE_LIMIT:'요청이 많습니다. 잠시 후 다시 시도해 주세요.',INSUFFICIENT_SPACE:'안전한 설치에 필요한 디스크 여유가 부족합니다.',RELEASE_CHANGED_RECHECK:'배포본이 변경됐습니다. 업데이트 확인을 다시 눌러 주세요.',UPDATE_LOCKED:'다른 작업이 진행 중이거나 복구 확인이 필요합니다.',USER_CONFIRMATION_REQUIRED:'실제 화면의 정상 동작을 먼저 확인해 주세요.'};
-  let snapshot = null, latest = null, preview = null, csrf = '', pending = false, timer = null, loading = null, reconnect = false;
+  const errors = {UPDATER_UNAVAILABLE:'호스트 실행기에 연결할 수 없습니다. 기존 서버 연결 상태를 확인해 주세요.',UPDATER_NOT_INSTALLED:'기존 호스트 실행기의 연결 상태를 확인해 주세요.',BUILD_NOT_READY:'최신 main 이미지가 아직 준비되지 않았습니다.',BUILD_NOT_SUCCESSFUL:'최신 main 빌드가 성공하지 않아 설치할 수 없습니다.',BUILD_EVIDENCE_UNAVAILABLE:'빌드 증거에 접근할 수 없습니다. 호스트의 GitHub 읽기 권한을 확인해 주세요.',RELEASE_UNAVAILABLE:'최신 배포 정보를 확인하지 못했습니다. 현재 운영은 유지됩니다.',UPDATE_REAUTH_FAILED:'본인 비밀번호를 다시 확인해 주세요.',UPDATE_APPROVAL_INVALID:'작업 승인이 만료되었거나 이미 사용되었습니다. 실행 상태를 새로고침해 주세요.',UPDATE_CSRF_INVALID:'보안 확인이 만료됐습니다. 실행 상태를 새로고침해 주세요.',UPDATE_ORIGIN_FORBIDDEN:'설정의 공개 주소와 현재 접속 주소가 일치하는지 확인해 주세요.',UPDATE_RATE_LIMIT:'요청이 많습니다. 잠시 후 다시 시도해 주세요.',INSUFFICIENT_SPACE:'안전한 설치에 필요한 디스크 여유가 부족합니다.',RELEASE_CHANGED_RECHECK:'배포본이 변경됐습니다. 업데이트 확인을 다시 눌러 주세요.',UPDATE_LOCKED:'다른 작업이 진행 중이거나 복구 확인이 필요합니다.',USER_CONFIRMATION_REQUIRED:'실제 화면의 정상 동작을 먼저 확인해 주세요.'};
+  let snapshot = null, latest = null, preview = null, csrf = '', operationToken = '', pending = false, timer = null, loading = null, reconnect = false;
   let sessionExpired = false, metadataPending = null, grant = null, grantPending = false;
   const profile = () => typeof currentUserProfile !== 'undefined' ? currentUserProfile : null;
   const consoleAdmin = () => profile()?.username === 'admin' && profile()?.role === 'admin' && !profile()?.must_change_password;
@@ -14,7 +14,7 @@
   const error = message => { text('updateError', message); byId('updateError').hidden = !message; };
   const message = code => errors[code] || `작업을 완료하지 못했습니다 (${String(code).replace(/[^A-Z0-9_]/g, '').slice(0,80)}). 현재 상태를 확인해 주세요.`;
   async function api(path, body) {
-    const response = await fetch('/api/system-update/' + path, {credentials:'same-origin', cache:'no-store', ...(body ? {method:'POST', headers:{'Content-Type':'application/json','X-Wealth-Update-CSRF':csrf}, body:JSON.stringify(body)} : {})});
+    const response = await fetch('/api/system-update/' + path, {credentials:'same-origin', cache:'no-store', ...(body ? {method:'POST', headers:{'Content-Type':'application/json','X-Wealth-Update-CSRF':csrf,'X-Wealth-Update-Approval':operationToken}, body:JSON.stringify(body)} : {})});
     const data = await response.json();
     if (!response.ok) {
       const code = data.detail?.code || 'UPDATER_UNAVAILABLE';
@@ -61,7 +61,7 @@
     if (!active()) return;
     if (loading) return loading;
     loading = (async()=>{
-      try { snapshot = await api('status'); csrf = snapshot.csrf_token; if (snapshot.host_available) reconnect = false; render(); }
+      try { snapshot = await api('status'); csrf = snapshot.csrf_token; operationToken = snapshot.operation_token; if (snapshot.host_available) reconnect = false; render(); }
       catch (e) {
         if (sessionExpired) error('로그인 상태가 변경되었습니다. 다시 로그인해 주세요.');
         else if (allowed()) { reconnect = true; text('updateStatus','서버 재연결 대기 중 · 작업은 호스트에서 계속됩니다.'); }
@@ -88,8 +88,8 @@
       if (!allowed() && !panel.hidden) window.WealthSettings.selectSettingsTab('api');
     }
     if (!allowed()) {
-      latest = null; preview = null; csrf = ''; snapshot = null; reconnect = false;
-      byId('updatePassword').value = ''; byId('updateConsent').checked = false;
+      latest = null; preview = null; csrf = ''; operationToken = ''; snapshot = null; reconnect = false;
+      byId('updateConsent').checked = false;
       clearTimeout(timer);
     }
   }
@@ -134,18 +134,16 @@
   async function action(kind) {
     if (pending || !active()) return;
     error('');
-    const password = byId('updatePassword').value;
-    byId('updatePassword').value = '';
     const consent = byId('updateConsent').checked;
     byId('updateConsent').checked = false;
-    if (!password || !consent) { error('본인 비밀번호와 작업 확인이 필요합니다.'); return; }
+    if (!consent) { error('선택한 작업의 확인이 필요합니다.'); return; }
     let args;
     if (kind === 'install') { if (!latest?.available) return; args = {sha:latest.sha,digest:latest.digest}; }
     else if (kind === 'confirm') { const installed = snapshot.jobs.filter(j=>j.kind==='install'&&j.stage==='succeeded').at(-1); if (!installed) return; args = {job_id:installed.id}; }
     else { if (!preview?.images?.length || !preview.preview_token) return; args = {images:preview.images,preview_token:preview.preview_token}; }
     pending = true; render();
     try {
-      await api(kind, {...args,password,confirm:true});
+      await api(kind, {...args,confirm:true});
       preview = null; list('updateCleanupImages',[]);
       if (kind === 'install') { latest = null; byId('updateRelease').hidden = true; }
       await load();

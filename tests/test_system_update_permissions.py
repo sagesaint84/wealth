@@ -52,7 +52,8 @@ def grant(enabled=True):
 
 
 def csrf(client):
-    return {'Origin':'https://synthetic.invalid','X-Wealth-Update-CSRF':client.get('/api/system-update/status').json()['csrf_token']}
+    data=client.get('/api/system-update/status').json()
+    return {'Origin':'https://synthetic.invalid','X-Wealth-Update-CSRF':data['csrf_token'],'X-Wealth-Update-Approval':data['operation_token']}
 
 
 @pytest.mark.parametrize('path',['status','check','cleanup-preview','install','confirm','cleanup'])
@@ -68,11 +69,11 @@ def test_default_denied_and_immediate_revoke_for_all_six_endpoints(persisted,pat
 
 
 @pytest.mark.parametrize('action,args',[('install',{'sha':'b'*40,'digest':'sha256:'+'b'*64}),('confirm',{'job_id':'b'*32}),('cleanup',{'images':[IMAGE]})])
-def test_delegated_all_dangerous_actions_use_own_password_and_same_ipc(persisted,action,args):
+def test_delegated_operations_without_password_keep_same_ipc_and_no_admin_power(persisted,action,args):
     _,host,client=persisted;grant();c=client('sagesaint');h=csrf(c)
     if action=='cleanup':args={**args,'preview_token':c.get('/api/system-update/cleanup-preview').json()['preview_token']}
     host.reset_mock()
-    assert c.post('/api/system-update/'+action,json={**args,'password':'SYNTHETIC-sagesaint','confirm':True},headers=h).status_code in (200,202)
+    assert c.post('/api/system-update/'+action,json={**args,'confirm':True},headers=h).status_code in (200,202)
     expected={k:v for k,v in args.items() if k!='preview_token'}
     host.call.assert_called_once_with(action,expected,U)
     assert c.get('/api/system-update/check').status_code==200
@@ -81,19 +82,21 @@ def test_delegated_all_dangerous_actions_use_own_password_and_same_ipc(persisted
     assert c.get('/api/admin/system-update-permissions/challenge?target_id='+O+'&enabled=true').status_code==403
 
 
-@pytest.mark.parametrize('fault',['admin_password','no_confirmation','bad_origin','bad_csrf','missing_preview','invalid_preview_type','changed_images','replayed_preview','other_session_preview','same_user_other_session_preview'])
-def test_delegated_cleanup_requires_preview_own_reauth_origin_csrf_and_confirmation(persisted,fault):
+@pytest.mark.parametrize('fault',['unexpected_password','no_confirmation','bad_origin','bad_csrf','missing_preview','invalid_preview_type','changed_images','replayed_preview','other_session_preview','same_user_other_session_preview'])
+def test_delegated_cleanup_requires_preview_session_approval_origin_csrf_and_confirmation(persisted,fault):
     _,host,client=persisted;grant();c=client('sagesaint');h=csrf(c)
     preview=c.get('/api/system-update/cleanup-preview').json()
-    body={'images':[IMAGE],'preview_token':preview['preview_token'],'password':'SYNTHETIC-sagesaint','confirm':True}
-    if fault=='admin_password':body['password']='SYNTHETIC-admin'
+    body={'images':[IMAGE],'preview_token':preview['preview_token'],'confirm':True}
+    if fault=='unexpected_password':body['password']='SYNTHETIC-admin'
     if fault=='no_confirmation':body['confirm']=False
     if fault=='bad_origin':h['Origin']='https://evil.invalid'
     if fault=='bad_csrf':h['X-Wealth-Update-CSRF']='forged'
     if fault=='missing_preview':body.pop('preview_token')
     if fault=='invalid_preview_type':body['preview_token']=123
     if fault=='changed_images':body['images']=['sha256:'+'f'*64]
-    if fault=='replayed_preview':assert c.post('/api/system-update/cleanup',json=body,headers=h).status_code==202
+    if fault=='replayed_preview':
+        assert c.post('/api/system-update/cleanup',json=body,headers=h).status_code==202
+        h=csrf(c)
     if fault=='same_user_other_session_preview':
         other=client('sagesaint');body['preview_token']=other.get('/api/system-update/cleanup-preview').json()['preview_token']
     if fault=='other_session_preview':
@@ -159,17 +162,19 @@ def test_profile_flag_is_safe_and_old_records_new_users_default_deny(persisted):
     assert new['role']=='user' and new['permissions']=={'system_update':False}
 
 
-def test_revocation_during_reauthentication_and_regrant_expire_old_csrf(persisted,monkeypatch):
+def test_revocation_during_authorization_and_regrant_expire_old_csrf(persisted,monkeypatch):
     _,host,client=persisted;grant();c=client('sagesaint');h=csrf(c)
-    authenticate=users.authenticate_user
-    def revoke(name,password):
-        result=authenticate(name,password);grant(False);return result
-    monkeypatch.setattr(users,'authenticate_user',revoke)
+    take=system_update.RateLimit.take
+    def revoke(limiter,actor,action,limit):
+        result=take(limiter,actor,action,limit)
+        if action=='operation':grant(False)
+        return result
+    monkeypatch.setattr(system_update.RateLimit,'take',revoke)
     host.reset_mock()
-    body={'sha':'b'*40,'digest':'sha256:'+'b'*64,'password':'SYNTHETIC-sagesaint','confirm':True}
+    body={'sha':'b'*40,'digest':'sha256:'+'b'*64,'confirm':True}
     assert c.post('/api/system-update/install',json=body,headers=h).status_code==403
     host.call.assert_not_called()
-    monkeypatch.setattr(users,'authenticate_user',authenticate);grant()
+    monkeypatch.setattr(system_update.RateLimit,'take',take);grant()
     assert c.post('/api/system-update/install',json=body,headers=h).status_code==403
 
 
@@ -231,7 +236,7 @@ def test_distinct_logins_have_distinct_session_bound_approvals(persisted):
     assert all(len(c['sid'])==32 for c in claims)
     assert claims[0]['sid']!=claims[1]['sid']
     first_token=first.get('/api/system-update/cleanup-preview').json()['preview_token']
-    body={'images':[IMAGE],'preview_token':first_token,'password':'SYNTHETIC-sagesaint','confirm':True}
+    body={'images':[IMAGE],'preview_token':first_token,'confirm':True}
     assert second.post('/api/system-update/cleanup',json=body,headers=csrf(second)).status_code==403
 
 
