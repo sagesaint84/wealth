@@ -2,7 +2,7 @@
 
 ## 현재 운영 기준 상태 — 2026-10-28 / Wealth v2.1.9
 
-**현재 운영 앱 APP_VERSION=2.1.9. Oracle 실제 화면 사용자 확인 완료는 사용자 보고에 근거한다.** 이번 문서 작업에서 Oracle에 접속하거나 운영 상태·호스트를 재검증하지 않았다.
+**현재 운영 앱 APP_VERSION=2.1.9. Oracle 실제 화면 사용자 확인 완료는 사용자 보고에 근거한다.** Issue #189의 현재 이미지·rollback 상태는 별도 읽기 전용 감사로 확인했으며, 이번 문서 갱신에서 운영 서비스·이미지·state는 변경하지 않는다.
 
 GitHub에서 직접 확인한 릴리스 이력(annotated 태그의 원격 역참조 SHA도 일치):
 
@@ -15,8 +15,14 @@ GitHub에서 직접 확인한 릴리스 이력(annotated 태그의 원격 역참
 - **직접 검증한 CI:** v2.1.9 PR HEAD `031ab646513fccbc615ab0cd6e6655667e0281d9`의 Linux CI **4/4 SUCCESS**. [Static transport](https://github.com/sagesaint84/wealth/actions/runs/40627717046) **642 PASS / SKIP 0**, 기존 경고 1건, 실제 Chromium/SKIP 금지 검증 단계 성공. [IPO](https://github.com/sagesaint84/wealth/actions/runs/40627717081), [Toss WTS](https://github.com/sagesaint84/wealth/actions/runs/40627717113), [System update](https://github.com/sagesaint84/wealth/actions/runs/40627717108)도 SUCCESS. 이는 해당 릴리스 코드의 결과이며 새 문서 PR HEAD의 결과로 승계하지 않는다.
 - **직접 검증한 GHCR:** [docker-publish run 40636503851](https://github.com/sagesaint84/wealth/actions/runs/40636503851)의 build-and-push SUCCESS 및 checkout SHA `4c62a5e8ef2e65d98d835a5e8a70c534ccf53f3d` 확인. 이 작업에서 이미지 발행/태그 변경/설치를 실행하지 않는다.
 - **중복 통합 정리:** [#190](https://github.com/sagesaint84/wealth/pull/190)·[#191](https://github.com/sagesaint84/wealth/pull/191)은 #192 통합 및 #193/#194 후속 변경 감사 후 **미병합 CLOSED**. 삭제 승인된 원격 feature 브랜치 7개를 정리해 이번 문서 브랜치 생성 전 원격에는 main만 남았다. 이 문서 Draft 제출 시 문서 브랜치/PR은 새로 추가되며, 이전의 열린 PR 0개 상태와 구분한다. 로컬 보호 브랜치·worktree·증거는 삭제하지 않는다.
-- **남은 Issue:** [#178](https://github.com/sagesaint84/wealth/issues/178)은 미국 CNN 비공식 중계 완료 / 한국 시장심리 출처·이용조건·산식 별도 검토로 OPEN. [#182](https://github.com/sagesaint84/wealth/issues/182)는 태그 보완 완료, 문서·배포 정책 후속 설계로 OPEN. [#189](https://github.com/sagesaint84/wealth/issues/189)는 저장소 코드 통합 완료와 별개로 **Oracle 호스트 유지보수 코드 적용·CLI 실행·현재 rollback 참조 상태 미확인**이므로 OPEN이다. 앱 수락이 host maintenance 완료를 의미하지 않는다.
+- **남은 Issue:** [#178](https://github.com/sagesaint84/wealth/issues/178)은 미국 CNN 비공식 중계 완료 / 한국 시장심리 출처·이용조건·산식 별도 검토로 OPEN. [#182](https://github.com/sagesaint84/wealth/issues/182)는 태그 보완 완료, 문서·배포 정책 후속 설계로 OPEN. [#189](https://github.com/sagesaint84/wealth/issues/189)는 **Oracle 읽기 전용 감사에서 현재·rollback 이미지 존재 및 SHA/digest/image ID 일치를 확인해 CLOSED** 처리했다. worker ACTIVE, 진행 중/rollback_failed 0, 마지막 install succeeded/confirmed, 디스크 여유 29.75 GiB로 현재 누락 참조 해제 조치는 불필요하다. **maintenance 모듈은 호스트 미설치·도구 미실행**이며, 도구로 참조를 해제해서 해결한 것이 아니다. 과거 누락 참조 기록은 당시 이력으로 보존한다.
 - **검증 한계 보존:** 전체 pytest=NOT_RUN. 과거 DAY 간헐 실패 원인=UNCONFIRMED. 이후 집중/CI PASS를 원인 해결 또는 단순 flaky 확정의 근거로 사용하지 않으며 과거 실패 로그·JUnit과 아래 당시 판단을 보존한다.
+
+### Issue #189 현재 운영 감사 결과 — 조치 불필요
+
+현재 이미지 EXISTS, worker ACTIVE, ACTIVE_JOBS=0, ROLLBACK_FAILED_JOBS=0, 마지막 install succeeded/confirmed=True, rollback 참조 SET, rollback 이미지 EXISTS, SHA/DIGEST/IMAGE_ID_MATCH=PASS, 현재·rollback 보호 및 다른 컨테이너 사용 0, 디스크 여유 29.75 GiB를 읽기 전용으로 확인했다. 추가 사용자 제공 감사값은 JOB_STAGE_COUNTS={'succeeded': 5}, CURRENT_IN_MANAGED=True다.
+
+HOST_MAINTENANCE_NEEDED=NO. 호스트 maintenance 모듈 미설치 상태이며 CLI dry-run/apply, 코드 교체, state 직접 편집, worker 재시작, Docker 이미지 조작을 하지 않았다. 현재 실제 존재하는 정상 rollback 참조는 해제하지 않는다. 과거 누락된 v2.1.5 이미지 참조를 현재 대상으로 재사용하지 않는다. Issue 종료는 현 상태 감사 및 조치 불필요에 근거하며, 과거 누락 원인이나 maintenance 적용 성공을 새로 주장하지 않는다.
 
 ### 배포 계약 — 이번 문서 작업에서 변경하지 않음
 
