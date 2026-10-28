@@ -3,7 +3,6 @@
 
   const STYLE_ID = 'wealthAccountSectionSummaryStyle';
   const SECURITIES_HOST_ID = 'securitiesAccountSectionSummary';
-  const BANK_HOST_ID = 'bankAccountSectionSummary';
   let refreshToken = 0;
   let refreshTimer = 0;
 
@@ -156,42 +155,18 @@
   }
 
   function renderBankSummary(payload, owner) {
-    const host = ensureHost('catPanelBanking', BANK_HOST_ID, 'savingsSummaryCards');
-    if (!host) return;
-    const { banks, savings, loans, agreements } = bankAgreementState(payload, owner);
-
-    // Deposit accounts are counted once. A loan/overdraft is a separate agreement,
-    // including legacy bank-account credit lines represented by limit_amount > 0.
+    const { banks, savings, agreements } = bankAgreementState(payload, owner);
     const bankAccounts = [...banks, ...savings];
-    const institutions = new Set(bankAccounts.map((item) => text(item?.bank_name)).filter(Boolean)).size;
-    const loanDebt = loans.reduce((sum, item) => sum + Math.max(0, number(item?.current_balance)), 0);
-    const representedOverdraftBanks = new Set(
-      loans
-        .filter((item) => (
-          text(item?.loan_type) === 'minus'
-          && number(item?.current_balance) > 0
-          && text(item?.overdraft_bank_account_id)
-        ))
-        .map((item) => `${text(item?.owner || '모두')}\u0000${text(item?.overdraft_bank_account_id)}`)
-    );
-    const legacyMinusDebt = banks.reduce((sum, item) => {
-      const balance = number(item?.balance);
-      const relationshipKey = `${text(item?.owner || '모두')}\u0000${text(item?.id)}`;
-      if (representedOverdraftBanks.has(relationshipKey)) return sum;
-      return sum + (balance < 0 ? Math.abs(balance) : 0);
-    }, 0);
-    const currentDebt = loanDebt + legacyMinusDebt;
-    const ownerLine = owner === '모두' ? ownerBreakdown(bankAccounts) : '';
-    const markup = `
-      <div class="account-section-summary-grid">
-        ${card('총 은행계좌', `${bankAccounts.length.toLocaleString('ko-KR')}개`, `${institutions.toLocaleString('ko-KR')}개 금융기관`)}
-        ${card('자유입출금', `${banks.length.toLocaleString('ko-KR')}개`, '일반 은행계좌')}
-        ${card('예·적금', `${savings.length.toLocaleString('ko-KR')}개`, '예금 · 적금 · 청약')}
-        ${card('대출·한도약정', `${agreements.length.toLocaleString('ko-KR')}개`, `현재 부채 ${moneyKrw(currentDebt)}`)}
-      </div>
-      ${ownerLine ? `<div class="account-section-owner-line"><strong>소유자별 계좌</strong>${ownerLine}</div>` : ''}
-    `;
-    renderInto(host, markup);
+    const institutions = institutionCount(bankAccounts, 'bank_name');
+    const values = {
+      bankAccountSummarySub: `자유입출금 ${banks.length}개 · 전체 은행계좌 ${bankAccounts.length}개 · 금융기관 ${institutions}개`,
+      savingsAccountSummarySub: `예·적금 ${savings.length}개`,
+      loanAccountSummarySub: `대출·한도약정 ${agreements.length}건`,
+    };
+    for (const [id,value] of Object.entries(values)) {
+      const node=document.getElementById(id);
+      if(node && node.textContent!==value)node.textContent=value;
+    }
     syncBankCountBadges(bankAccounts.length, agreements.length);
   }
 
@@ -209,7 +184,7 @@
       if (token !== refreshToken) return;
       const message = `<div class="account-section-summary-error">계좌 요약을 불러오지 못했습니다. 기존 계좌 목록은 그대로 사용할 수 있습니다.</div>`;
       renderInto(ensureHost('catPanelSecurities', SECURITIES_HOST_ID, 'accountList'), message);
-      renderInto(ensureHost('catPanelBanking', BANK_HOST_ID, 'savingsSummaryCards'), message);
+
       console.warn('[account-section-summary] refresh failed', error);
     }
   }
@@ -244,7 +219,6 @@
   function install() {
     ensureStyle();
     ensureHost('catPanelSecurities', SECURITIES_HOST_ID, 'accountList');
-    ensureHost('catPanelBanking', BANK_HOST_ID, 'savingsSummaryCards');
     installObservers();
     document.addEventListener('click', (event) => {
       if (event.target?.closest?.('.family-tab[data-owner]')) scheduleRefresh(0);
