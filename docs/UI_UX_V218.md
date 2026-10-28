@@ -165,3 +165,11 @@ if ($LASTEXITCODE -ne 0) { throw 'v2.1.8 candidate verification failed; preserve
 이전 HOLD_CI_COUNT_CONTRACT는 당시 제출 중단 이력으로 보존한다. 사용자 승인에 따라 workflow의 UI 기대 건수 **26→27 한 곳만** 수정했다. UI 27 / 버킷 16 / IPO 상세 16의 실제 pytest collection 및 YAML을 제출 전 검증한다. DAY 38/CNN 15/실제 Chromium/SKIP 0/네트워크 격리/trigger 계약은 유지한다. 기존 기능·테스트 소스는 추가 변경하지 않는다.
 
 최신 로컬 DAY 38 PASS / Windows 집중 63 PASS 및 일 수익률 12 PASS / UI 15 PASS는 기존 XML·로그 근거다. 전체 pytest=NOT_RUN, 새 Linux CI=NOT_RUN(제출 후 새 HEAD 상태 별도 보고). 과거 DAY filters 실패 원인은 UNCONFIRMED이며 운영 v2.1.7 및 호스트 유지보수 미실행 상태를 유지한다. 커밋·Push·Draft PR 결과는 실제 제출 결과로 별도 보고하며 성공을 선기록하지 않는다.
+
+## Static transport 자산 계약 후속 수정 (2026-10-28)
+
+이전 HEAD a83291286b5586b4a99bf34f67cd7a30b68b2741의 Static transport run 40611401686은 244 PASS / 1 FAIL이었다. 실패는 test_dividend_official_source_static의 core 기대 URL ui1과 실제 index.html의 wealth.js ui2 불일치다. 실행 코드 또는 금융 계산 오류로 해석하지 않는다.
+
+전체 Git 소스/테스트·정적 계약 감사에서 같은 오래된 core 기대값이 배당금·financial_income_what_if·money_input_ux 테스트의 각 한 곳, 총 세 곳에 있었다. 실제 HTML과 대조 후 **해당 문자열만 ui1→ui2**로 동기화했다. 기존 순서/중복/파일 존재 assertion은 보존하며 다른 자산의 정상 ui1 revision과 앱 코드는 변경하지 않았다.
+
+별도 TEMP synthetic 집중 검사 **19 PASS** (2.95초): 위 정적 계약 3개 모듈 14건 + release_version 5건. 증거는 wealth-v218-static-revision-2229ee76f5ab4233b1f1f9d80642bfd1/contracts.log 및 .xml. 대규모 단위/Chromium 재실행 없음. Python 문법·자산 URL·diff check를 제출 전 확인한다. 새 후속 HEAD Linux CI=NOT_RUN이며 제출 후 별도 확인한다. 이전 HEAD의 다른 세 워크플로 성공을 새 HEAD에 승계하지 않는다. Oracle 운영 v2.1.7·main·GHCR·host updater는 불변이다.
