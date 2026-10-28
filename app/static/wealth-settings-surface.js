@@ -395,9 +395,9 @@
       <div class="update-actions"><button id="updateInstall" type="button" class="button primary" disabled>업데이트 설치</button><button id="updateConfirm" type="button" class="button secondary" disabled>실제 화면 정상 확인</button></div>
       <p>실제 화면을 확인한 뒤 정상 확인을 눌러 주세요. 이미지 정리는 별도 미리보기·승인 후 진행하며 현재 이미지와 마지막 정상 롤백 이미지는 보존합니다.</p>
       <button id="updateCleanupPreview" type="button" class="button secondary" disabled>과거 Wealth 이미지 정리 미리보기</button>
-      <ul id="updateCleanupImages"></ul><p>보존할 현재·롤백 이미지</p><ul id="updateCleanupPreserved"></ul><button id="updateCleanup" type="button" class="button secondary" disabled>미리본 이미지 정리</button>
+      <p id="updateCleanupHint" role="status"></p><ul id="updateCleanupImages"></ul><p>보존할 현재·롤백 이미지</p><ul id="updateCleanupPreserved"></ul><button id="updateCleanup" type="button" class="button secondary" disabled>미리본 이미지 정리</button>
     </form>
-    <h4>작업 기록</h4><ol id="updateJobs" aria-live="polite"></ol>
+
   </section>
 </div>`;
   const byId = id => document.getElementById(id);

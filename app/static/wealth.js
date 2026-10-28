@@ -967,6 +967,46 @@ let currentMarketAllSub = '3Y'; // '3Y' | '5Y' | '10Y' | 'MAX'
 let marketOverviewData = null;
 let marketFearGreedExpiryTimer = null;
 
+// Display preferences are local to this browser and authenticated account.
+// Unknown/new cards are visible by default; an empty selection is intentional.
+const marketCardKey = item => String(item.symbol || item.label);
+function marketPreferenceKey() {
+  const id=currentUserProfile?.id || currentUserProfile?.username;
+  return id ? `wealth.market-cards.v1:${encodeURIComponent(String(id))}` : null;
+}
+function hiddenMarketCards() {
+  try {const value=JSON.parse(localStorage.getItem(marketPreferenceKey()) || '[]');
+    return new Set(Array.isArray(value) ? value.filter(v=>typeof v==='string'&&v.length<=100).slice(0,64) : []);
+  } catch (_) {return new Set();}
+}
+function marketCardSettings(items) {
+  let button=document.getElementById('marketCardSettings');
+  if(!button){
+    button=document.createElement('button');button.id='marketCardSettings';button.type='button';button.className='button secondary';button.textContent='표시 설정';button.setAttribute('aria-haspopup','dialog');
+    document.querySelector('#marketPanel .panel-head')?.append(button);
+    const dialog=document.createElement('dialog');dialog.id='marketCardDialog';dialog.className='dialog';dialog.setAttribute('aria-labelledby','marketCardDialogTitle');
+    document.body.append(dialog);
+    button.addEventListener('click',()=>{
+      const hidden=hiddenMarketCards(),identity=marketPreferenceKey();
+      dialog.innerHTML='<form><h2 id="marketCardDialogTitle">표시할 지수 선택</h2><div class="market-card-choices"></div><p role="status"></p><div class="dialog-actions"><button type="button" class="button secondary">취소</button><button type="submit" class="button primary">저장</button></div></form>';
+      for(const item of button.marketItems){
+        const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.value=item.key;check.checked=!hidden.has(item.key);label.append(check,document.createTextNode(item.label));dialog.querySelector('.market-card-choices').append(label);
+      }
+      dialog.querySelector('[type=button]').onclick=()=>dialog.close();
+      dialog.querySelector('form').onsubmit=e=>{
+        e.preventDefault();if(!identity||identity!==marketPreferenceKey()){dialog.close();return;}
+        const next=new Set(hiddenMarketCards());
+        dialog.querySelectorAll('input').forEach(n=>n.checked?next.delete(n.value):next.add(n.value));
+        try{localStorage.setItem(identity,JSON.stringify([...next]));dialog.close();renderMarkets();}
+        catch(_){dialog.querySelector('[role=status]').textContent='이 브라우저에 설정을 저장하지 못했습니다.';}
+      };
+      dialog.showModal();
+    });
+    window.addEventListener('wealth:role',()=>{dialog.close();renderMarkets();});
+  }
+  button.marketItems=items;button.disabled=!marketPreferenceKey();
+}
+
 function renderMarketFearGreed(item) {
   clearTimeout(marketFearGreedExpiryTimer);
   marketFearGreedExpiryTimer = null;
@@ -980,7 +1020,7 @@ function renderMarketFearGreed(item) {
     && day && Number.isFinite(updated) && Number.isFinite(until) && until > Date.now();
   let value = '출처 오류 · 점수 조회 불가';
   if (good) {
-    value = `<strong class="market-sentiment-score" data-cnn-score>${html(number(item.score, 2))} / 100 · ${html(labels[item.rating])}</strong>`;
+    value = `<strong class="market-sentiment-score market-price" data-cnn-score>${html(number(item.score, 2))} / 100 · ${html(labels[item.rating])}</strong>`;
     marketFearGreedExpiryTimer = setTimeout(() => {
       marketFearGreedExpiryTimer = null;
       const node = document.getElementById('marketFearGreed');
@@ -993,12 +1033,12 @@ function renderMarketFearGreed(item) {
   }
   const stamp = Number.isFinite(updated)
     ? new Date(updated).toLocaleString('ko-KR', {timeZone:'Asia/Seoul', hour12:false}) : null;
-  return `<article id="marketFearGreed" class="market-reference-note market-sentiment" aria-label="미국 CNN 공포·탐욕">
-    <strong>미국 공포·탐욕</strong><span class="market-sentiment-time">CNN 지수 · 비공식 데이터 중계</span><div role="status">${value}</div>
+  return `<article id="marketFearGreed" class="market-card toss-market-card market-sentiment" aria-label="미국 CNN 공포·탐욕">
+    <strong class="market-title">미국 공포·탐욕</strong><div role="status">${value}</div><details><summary>출처 및 기준 시각</summary><span class="market-sentiment-time">CNN 지수 · 비공식 데이터 중계</span>
     ${day ? `<span class="market-sentiment-time">중계 기준일 ${html(day)}</span>` : ''}
     ${stamp ? `<span class="market-sentiment-time">중계 파일 갱신 ${html(stamp)} KST</span>` : ''}
     <span>실시간 보장 없음 · <a href="https://www.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener noreferrer">CNN 공식 페이지</a>
-    · <a href="https://github.com/chirag127/fear-greed-index-api" target="_blank" rel="noopener noreferrer">중계 GitHub 프로젝트</a></span></article>`;
+    · <a href="https://github.com/chirag127/fear-greed-index-api" target="_blank" rel="noopener noreferrer">중계 GitHub 프로젝트</a></span></details></article>`;
 }
 
 function renderMarkets(result) {
@@ -1059,7 +1099,10 @@ function renderMarkets(result) {
   const grid = $("#marketGrid");
   if (!grid) return;
 
-  grid.innerHTML = rows.map((item) => {
+  const hidden=hiddenMarketCards();
+  marketCardSettings([...rows.map(item=>({key:marketCardKey(item),label:item.kind==='yield'?'금리':item.label})),{key:'cnn-fng',label:'CNN 공포·탐욕'}]);
+  clearTimeout(marketFearGreedExpiryTimer);marketFearGreedExpiryTimer=null;
+  grid.innerHTML = rows.filter(item=>!hidden.has(marketCardKey(item))).map((item) => {
     if (item.kind === 'yield') {
       const change = item.value == null || item.change_bp == null ? '—' : `${item.change_bp > 0 ? '+' : ''}${number(item.change_bp, 1)}bp`;
       const tone = item.change_bp > 0 ? 'up' : item.change_bp < 0 ? 'down' : '';
@@ -1103,7 +1146,10 @@ function renderMarkets(result) {
         </div>
       </article>
     `;
-  }).join("") + renderMarketFearGreed(marketOverviewData.fear_greed);
+  }).join("") + (hidden.has('cnn-fng') ? '' : renderMarketFearGreed(marketOverviewData.fear_greed));
+  if(!grid.childElementCount){
+    const empty=document.createElement('p'),button=document.createElement('button');empty.textContent='표시할 지수를 선택하세요';button.type='button';button.className='button secondary';button.textContent='표시 설정';button.onclick=()=>document.getElementById('marketCardSettings').click();empty.append(button);grid.append(empty);
+  }
 }
 
 // ── 대시보드 전역 기간 탭 연동 (주요지수 ↔ 자산기록 ↔ 자산히트맵) ──────────────
@@ -1561,28 +1607,27 @@ function renderSummary(data) {
   // and FX translation effects.
   const day = data.day_change || {};
   if ($("#dayProfitVal")) {
-    if (day.day_profit_krw != null) {
+    const dayProfit = day.day_profit_krw;
+    const stockValue = s.total_stock_value_krw;
+    const rate = Number.isFinite(dayProfit) && Number.isFinite(stockValue)
+      && stockValue > 0 && day.price_profit_status === 'complete'
+      ? dayProfit / stockValue * 100 : null;
+    const rateText = Number.isFinite(rate) ? `${rate >= 0 ? '+' : ''}${rate.toFixed(2)}%` : '—';
+    $("#dayProfitVal").title = '당일 가격변동 손익 ÷ 총 주식자산';
+    if (Number.isFinite(dayProfit)) {
       const sign = day.day_profit_krw >= 0 ? "+" : "";
       const partial = day.price_profit_status === 'partial' ? ' · 일부 종목 기준 없음' : '';
-      $("#dayProfitVal").textContent = `당일 가격변동 손익 ${sign}${money(day.day_profit_krw)}${partial}`;
+      $("#dayProfitVal").textContent = `일 수익 ${sign}${money(day.day_profit_krw)} (${rateText})${partial}`;
       $("#dayProfitVal").style.color = day.day_profit_krw >= 0 ? "#f43f5e" : "#38bdf8";
     } else {
-      $("#dayProfitVal").textContent = `당일 가격변동 손익 —`;
+      $("#dayProfitVal").textContent = `일 수익 — (—)`;
       $("#dayProfitVal").style.color = "#94a3b8";
     }
   }
-  if ($("#recordChangeVal")) {
-    if (day.record_change_krw != null) {
-      const sign = day.record_change_krw >= 0 ? "+" : "";
-      const rateSign = (day.record_change_rate || 0) >= 0 ? "+" : "";
-      $("#recordChangeVal").textContent = `전 기록 대비 평가액 변화 ${sign}${money(day.record_change_krw)} (${rateSign}${number(day.record_change_rate)}%)`;
-    } else {
-      $("#recordChangeVal").textContent = `전 기록 대비 평가액 변화 —`;
-    }
+  if ($("#dayCaption")) {
+    $("#dayCaption").textContent = day.date ? `${day.date} 기록 기준` : '기록 기준 없음';
+    $("#dayCaption").title = '일 수익은 시장 session 가격변동 손익이며 전 기록 대비 평가액 변화와 다릅니다.';
   }
-  if ($("#dayCaption")) $("#dayCaption").textContent = day.date
-    ? `${day.date} 기록 기준 · 가격손익은 시장 session 기준`
-    : "가격손익 기준 없음";
 
   const krwStock = krw.stock_value_krw || (Number(krw.market_value_krw || 0) - Number(krw.cash || 0));
   $("#krwValue") && ($("#krwValue").textContent = money(krw.market_value_krw || 0));
@@ -5128,7 +5173,8 @@ function holdingSignalsContext() {
     (source?.holdings || []).map(h => [h.id,h.account_id,h.owner,h.code,h.name,h.currency,h.market,h.quantity])]);
 }
 function holdingSignalsActive() {
-  return currentWealthView() === 'invest' && window.WealthInvestTabState?.current() === 'holdings';
+  return globalThis.WealthStartup?.canRead() && window.WealthWorkspaceRoute?.resolve().key === 'home' && window.WealthWorkspaceRoute.resolve().homeTab === 'markets'
+    && currentWealthView() === 'home' && document.getElementById('homeTab-markets')?.getAttribute('aria-selected') === 'true';
 }
 function syncHoldingSignalsContext() {
   const context = holdingSignalsContext(), active = holdingSignalsActive();
@@ -5156,7 +5202,7 @@ function renderHoldingSignals() {
       ${matches.map(row => `<article class="holding-signal-row"><strong>${html(row.name)} · ${html(row.code)}</strong>
         <span>${html(row.as_of || '기준일 미확인')} · 종가 ${value(row.close)}</span>
         <small>SMA20 ${value(row.sma20)} · SMA50 ${value(row.sma50)}</small>
-        <small>${html(row.source || '자료 미확인')} · ${html((row.accounts || []).map(a => a.owner).filter((a,i,all) => all.indexOf(a) === i).join(' / '))}</small>
+        <small>${html(row.source || '자료 미확인')} · ${html((row.accounts || []).map(a => [a.owner,a.broker,a.account_name].filter(Boolean).join(' · ')).filter((a,i,all) => all.indexOf(a) === i).join(' / '))}</small>
       </article>`).join('') || `<p class="holding-signal-empty">${empty}</p>`}
       ${unavailable ? `<p class="holding-signal-empty">자료 미확인 ${unavailable}종목</p>` : ''}
     </section>`;
@@ -5204,6 +5250,7 @@ async function loadHoldingSignals() {
   }
 }
 window.addEventListener('wealth:view', syncHoldingSignalsContext);
+window.addEventListener('wealth:assets-ready', syncHoldingSignalsContext);
 
 // ── 7. 종목 가격 & 거래량 인터랙티브 차트 모달 ──────────────────────────────
 async function openStockChart(code, name, price, currency = 'KRW') {

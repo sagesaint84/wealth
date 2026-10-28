@@ -118,9 +118,9 @@ class DashboardDailyMetricFrontendTests(IsolatedDataTestCase):
     def test_dashboard_labels_price_profit_and_record_change_separately(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "app/static/wealth.js").read_text(encoding="utf-8")
         html = (Path(__file__).resolve().parents[1] / "app/static/index.html").read_text(encoding="utf-8")
-        self.assertIn("당일 가격변동 손익", source)
+        self.assertIn("일 수익", source)
         self.assertIn("전 기록 대비 평가액 변화", source)
         self.assertIn("day.day_profit_krw", source)
-        self.assertIn("day.record_change_krw", source)
-        self.assertIn('id="recordChangeVal"', html)
+        self.assertNotIn('$("#recordChangeVal")', source)
+        self.assertNotIn('id="recordChangeVal"', html)
         self.assertNotIn("`일간 수익 ${sign}${money(day.change_krw)}", source)

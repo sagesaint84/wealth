@@ -638,8 +638,7 @@
     const label = options.kind === 'stock' ? '주식자산' : '순자산';
     const latestNode = document.createElement('div');
     latestNode.className = 'wealth-unified-latest';
-    latestNode.style.cssText = 'font-size:clamp(14px,3vw,22px);font-weight:700;overflow-wrap:anywhere;padding:8px 0;grid-column:1 / -1';
-    latestNode.textContent = `최신 ${label} ${Number(latest.close).toLocaleString('ko-KR')}원 · ${latest.last?.date || latest.key} 기준`;
+    latestNode.innerHTML = `<span class="wealth-latest-label">최신 ${label}</span> <strong class="wealth-latest-amount">${html(Number(latest.close).toLocaleString('ko-KR'))}원</strong> <span class="wealth-latest-date">${html(latest.last?.date || latest.key)} 기준</span>`;
     host.firstElementChild.prepend(latestNode);
     installAmountTooltip(host, buckets, bucket => [[label, bucket.close], [options.changeLabel || '변화', bucket.change]], {state:true});
     const viewport = host.querySelector('.wealth-unified-viewport');

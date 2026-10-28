@@ -756,53 +756,7 @@
 
       // Preserve each original application/account/allocation endpoint after
       // read-only company deduplication; never union or overwrite owner records.
-      const renderApplicationControls = (ipoId, app) => {
-        const appliedSet = new Set(app.applied_owners || []);
-        const targetList = app.target_owners?.length ? app.target_owners : familyMembers;
-      // Tri-state for '모두'
-      const allChecked = targetList.length > 0 && targetList.every(m => appliedSet.has(m));
-      const someChecked = !allChecked && targetList.some(m => appliedSet.has(m));
 
-      // Family member checkboxes
-      let memberCheckboxesHtml = '';
-      targetList.forEach(member => {
-        const checked = appliedSet.has(member) ? 'checked' : '';
-        memberCheckboxesHtml += `
-          <label class="ipo-member-checkbox-label">
-            <input type="checkbox" class="ipo-member-chk" data-ipo="${escapeHtml(ipoId)}" data-member="${escapeHtml(member)}" ${checked} />
-            <span>${escapeHtml(member)}</span>
-          </label>`;
-      });
-
-      // Account authorization is deliberately populated from backend responses.
-      // This UI never normalizes broker aliases or filters portfolio accounts.
-      let applicantAccountsHtml = '';
-      targetList.filter(member => appliedSet.has(member)).forEach(member => {
-        applicantAccountsHtml += `
-          <div class="ipo-applicant-account" data-ipo="${escapeHtml(ipoId)}" data-owner="${escapeHtml(member)}">
-            <span class="ipo-applicant-account-title">${escapeHtml(member)} 청약 계좌</span>
-            <select class="ipo-applicant-broker" aria-label="${escapeHtml(member)} 증권사" disabled>
-              <option>증권사 불러오는 중…</option>
-            </select>
-            <select class="ipo-applicant-account-select" aria-label="${escapeHtml(member)} Wealth 계좌" disabled>
-              <option>계좌를 선택하세요</option>
-            </select>
-            <button type="button" class="button secondary compact ipo-applicant-account-save" disabled>계좌 연결</button>
-            <span class="ipo-applicant-account-status" aria-live="polite"></span>
-            <div class="ipo-allocation-control">
-              <label>배정수량 <input class="ipo-allocation-quantity" type="number" min="0" step="1" disabled /></label>
-              <button type="button" class="button secondary compact ipo-allocation-save" disabled>배정 저장</button>
-              <span class="ipo-allocation-summary" aria-live="polite"></span>
-              <select class="ipo-sale-candidate" aria-label="매도 실현손익 후보" disabled><option value="">매도 후보 없음</option></select>
-              <input class="ipo-sale-match-quantity" type="number" min="1" step="1" aria-label="연결 매도 수량" disabled />
-              <button type="button" class="button secondary compact ipo-sale-link-save" disabled>매도 연결</button>
-              <div class="ipo-sale-links" aria-live="polite"></div>
-            </div>
-          </div>`;
-      });
-
-        return {allChecked,someChecked,memberCheckboxesHtml,applicantAccountsHtml};
-      };
       let {allChecked,someChecked,memberCheckboxesHtml,applicantAccountsHtml} = renderApplicationControls(ipoId, app);
       for (const aliasId of ipo.identity_alias_ids || []) {
         const related = renderApplicationControls(aliasId, userApplications[aliasId] || {});
@@ -874,7 +828,7 @@
       const scheduleObserved = observedDates.length ? observedDates[0].slice(0, 10) : '미확인';
 
       cardHtml += `
-        <article class="ipo-card ipo-compact-card${expanded ? ' ipo-card-expanded' : ''}" data-ipo-id="${escapeHtml(ipoId)}">
+        <article class="ipo-card ipo-compact-card${expanded ? ' ipo-card-expanded' : ''}" data-ipo-id="${escapeHtml(ipoId)}" data-application-revision="${currentRevision}">
           <div class="ipo-card-header">
             <div class="ipo-card-title-group">
               <div class="ipo-card-identity"><h3 class="ipo-company-name">${escapeHtml(ipo.company_name)}</h3>
@@ -1089,6 +1043,95 @@
     hydrateApplicantAccountControls();
   }
 
+  const renderApplicationControls = (ipoId, app) => {
+        const appliedSet = new Set(app.applied_owners || []);
+        const targetList = app.target_owners?.length ? app.target_owners : familyMembers;
+      // Tri-state for '모두'
+      const allChecked = targetList.length > 0 && targetList.every(m => appliedSet.has(m));
+      const someChecked = !allChecked && targetList.some(m => appliedSet.has(m));
+
+      // Family member checkboxes
+      let memberCheckboxesHtml = '';
+      targetList.forEach(member => {
+        const checked = appliedSet.has(member) ? 'checked' : '';
+        memberCheckboxesHtml += `
+          <label class="ipo-member-checkbox-label">
+            <input type="checkbox" class="ipo-member-chk" data-ipo="${escapeHtml(ipoId)}" data-member="${escapeHtml(member)}" ${checked} />
+            <span>${escapeHtml(member)}</span>
+          </label>`;
+      });
+
+      // Account authorization is deliberately populated from backend responses.
+      // This UI never normalizes broker aliases or filters portfolio accounts.
+      let applicantAccountsHtml = '';
+      targetList.filter(member => appliedSet.has(member)).forEach(member => {
+        applicantAccountsHtml += `
+          <div class="ipo-applicant-account" data-ipo="${escapeHtml(ipoId)}" data-owner="${escapeHtml(member)}">
+            <span class="ipo-applicant-account-title">${escapeHtml(member)} 청약 계좌</span>
+            <select class="ipo-applicant-broker" aria-label="${escapeHtml(member)} 증권사" disabled>
+              <option>증권사 불러오는 중…</option>
+            </select>
+            <select class="ipo-applicant-account-select" aria-label="${escapeHtml(member)} Wealth 계좌" disabled>
+              <option>계좌를 선택하세요</option>
+            </select>
+            <button type="button" class="button secondary compact ipo-applicant-account-save" disabled>계좌 연결</button>
+            <span class="ipo-applicant-account-status" aria-live="polite"></span>
+            <div class="ipo-allocation-control">
+              <label>배정수량 <input class="ipo-allocation-quantity" type="number" min="0" step="1" disabled /></label>
+              <button type="button" class="button secondary compact ipo-allocation-save" disabled>배정 저장</button>
+              <span class="ipo-allocation-summary" aria-live="polite"></span>
+              <select class="ipo-sale-candidate" aria-label="매도 실현손익 후보" disabled><option value="">매도 후보 없음</option></select>
+              <input class="ipo-sale-match-quantity" type="number" min="1" step="1" aria-label="연결 매도 수량" disabled />
+              <button type="button" class="button secondary compact ipo-sale-link-save" disabled>매도 연결</button>
+              <div class="ipo-sale-links" aria-live="polite"></div>
+            </div>
+          </div>`;
+      });
+
+        return {allChecked,someChecked,memberCheckboxesHtml,applicantAccountsHtml};
+      };
+
+  // Both entry points share the original application/account/allocation controls.
+  const ipoDetailDialog=document.createElement('dialog');ipoDetailDialog.id='ipoSharedDetailDialog';ipoDetailDialog.className='dialog';ipoDetailDialog.setAttribute('aria-labelledby','ipoSharedDetailTitle');document.body.append(ipoDetailDialog);
+  let detailEpoch=0,detailTrigger=null;
+  ipoDetailDialog.addEventListener('close',()=>{detailEpoch++;detailTrigger?.focus();});
+  window.addEventListener('wealth:role',()=>ipoDetailDialog.close());
+  async function openIpoDetail(id,trigger=null){
+    if(typeof id!=='string'||!id.trim())return;
+    if(trigger)detailTrigger=trigger;
+    const epoch=++detailEpoch,identity=currentUserProfile?.id||currentUserProfile?.username;
+    ipoDetailDialog.dataset.ipo=id;
+    ipoDetailDialog.innerHTML='<div class="ipo-shared-detail"><div class="dialog-head"><h2 id="ipoSharedDetailTitle">공모주 자세히</h2><button type="button" class="button secondary" data-reload-ipo>다시 불러오기</button><button type="button" class="button secondary" data-close-ipo>닫기</button></div><div role="status">불러오는 중…</div><div data-ipo-detail-content></div></div>';
+    ipoDetailDialog.querySelector('[data-close-ipo]').onclick=()=>ipoDetailDialog.close();
+    ipoDetailDialog.querySelector('[data-reload-ipo]').onclick=()=>{if(window.confirm('입력값을 버리고 최신 상태를 다시 불러올까요?'))void openIpoDetail(id);};
+    if(!ipoDetailDialog.open)ipoDetailDialog.showModal();
+    const status=ipoDetailDialog.querySelector('[role=status]');
+    try{
+      const [marketResponse,appResponse]=await Promise.all([fetch('/api/ipo/market'),fetch('/api/ipo/applications')]);
+      if(!marketResponse.ok||!appResponse.ok)throw Error('공모주 원본을 조회하지 못했습니다.');
+      const [market,apps]=await Promise.all([marketResponse.json(),appResponse.json()]);
+      if(!ipoDetailDialog.open||epoch!==detailEpoch||identity!==(currentUserProfile?.id||currentUserProfile?.username))return;
+      const matches=(market.ipos||[]).filter(ipo=>ipo.ipo_id===id);
+      if(matches.length!==1)throw Error('공모주 원본 식별이 모호합니다. 저장할 수 없습니다.');
+      const ipo=matches[0];currentRevision=apps.revision;userApplications=apps.applications||{};
+      if(Array.isArray(apps.family_members))familyMembers=apps.family_members;
+      const app=userApplications[id]||{},controls=renderApplicationControls(id,app);
+      const content=ipoDetailDialog.querySelector('[data-ipo-detail-content]');
+      content.innerHTML=`<article class="ipo-card" data-ipo-id="${escapeHtml(id)}" data-application-revision="${apps.revision}"><h3>${escapeHtml(ipo.company_name)}</h3><p>청약 ${escapeHtml(ipo.subscription_start||'미정')} ~ ${escapeHtml(ipo.subscription_end||'미정')} · 공모가 ${formatMoney(ipo.final_offer_price)}원 · 상장 ${escapeHtml(ipo.actual_listing_date||ipo.expected_listing_date||'미정')}</p><p>청약 신청 수량: 기존 저장 모델 미지원 · 배정수량과 구분합니다.</p><div class="ipo-family-members-row">${controls.memberCheckboxesHtml}</div><div class="ipo-applicant-accounts">${controls.applicantAccountsHtml}</div><p>매도 기록이 없으면 기존 실현손익 입력 화면을 사용하세요.</p><button type="button" class="button secondary" data-ipo-pnl>실현손익 입력</button></article>`;
+      content.querySelector('[data-ipo-pnl]').onclick=()=>{ipoDetailDialog.close();location.hash='#pnl';if(typeof openPnlRecordDialog==='function')openPnlRecordDialog();};
+      attachCheckboxListeners(content);
+      await Promise.all([...content.querySelectorAll('.ipo-applicant-account')].map(hydrateApplicantAccountControl));
+      status.textContent='';
+    }catch(error){if(epoch===detailEpoch)status.textContent=error.message;}
+  }
+  async function refreshApplicantViews(id){
+    const panel=document.getElementById('ipoPanel');
+    if(panel&&!panel.classList.contains('wealth-income-hidden'))await loadIpoSchedule();
+    if(ipoDetailDialog.open&&ipoDetailDialog.dataset.ipo===id)await openIpoDetail(id);
+    window.dispatchEvent(new CustomEvent('wealth-ipo-app-updated',{detail:{ipo_id:id,revision:currentRevision}}));
+  }
+  window.WealthIpoDetail={open:openIpoDetail};
+
   const resolutionMessage = (status) => ({
     MAPPED: '연결된 계좌',
     AUTO_SELECTED: '등록 계좌 자동선택',
@@ -1106,6 +1149,12 @@
   }
 
   async function hydrateApplicantAccountControl(control) {
+    if(control.dataset.hydrated)return;control.dataset.hydrated='true';
+    const identity=currentUserProfile?.id||currentUserProfile?.username;
+    const sameIdentity=()=>identity===(currentUserProfile?.id||currentUserProfile?.username);
+    let controlRevision=currentRevision,pending=false;
+    const acceptRevision=revision=>{controlRevision=revision;if(!sameIdentity())return false;currentRevision=revision;return true;};
+    const runMutation=async action=>{if(pending||!control.isConnected||!sameIdentity())return;pending=true;control.inert=true;try{await action();}finally{pending=false;control.inert=false;}};
     const ipoId = control.dataset.ipo;
     const owner = control.dataset.owner;
     const brokerSelect = control.querySelector('.ipo-applicant-broker');
@@ -1131,7 +1180,9 @@
       if (currentMapping && brokers.some(item => item.broker_id === currentMapping.broker_id)) {
         brokerSelect.value = currentMapping.broker_id;
       }
+      let candidateGeneration=0;
       const reloadCandidates = async () => {
+        const generation=++candidateGeneration;
         const broker = brokerSelect.value;
         if (!broker) return;
         accountSelect.disabled = true;
@@ -1140,6 +1191,7 @@
         const candidateResponse = await fetch(`/api/ipo/applications/${encodeURIComponent(ipoId)}/account-candidates?owner=${encodeURIComponent(owner)}&broker=${encodeURIComponent(broker)}${remap ? '&remap=true' : ''}`);
         if (!candidateResponse.ok) throw new Error('account candidates unavailable');
         const result = await candidateResponse.json();
+        if(!sameIdentity()||!control.isConnected||generation!==candidateGeneration||broker!==brokerSelect.value)return;
         accountSelect.innerHTML = '<option value="">계좌를 선택하세요</option>' + (result.candidates || []).map(item => {
           const label = [item.account_name, item.owner, item.account_type].filter(Boolean).join(' · ') || '등록 계좌';
           return `<option value="${escapeHtml(item.account_id)}">${escapeHtml(label)}</option>`;
@@ -1153,7 +1205,7 @@
       };
       brokerSelect.addEventListener('change', () => reloadCandidates().catch(() => { status.textContent = '계좌 후보를 불러오지 못했습니다'; }));
       accountSelect.addEventListener('change', () => { saveButton.disabled = !accountSelect.value; });
-      saveButton.addEventListener('click', async () => {
+      saveButton.addEventListener('click', () => runMutation(async () => {
         saveButton.disabled = true;
         try {
           const isRemap = Boolean(currentMapping);
@@ -1161,7 +1213,7 @@
           const endpoint = isRemap
             ? `/api/ipo/applications/${encodeURIComponent(ipoId)}/applicants/${encodeURIComponent(owner)}/account/remap`
             : `/api/ipo/applications/${encodeURIComponent(ipoId)}/applicants/${encodeURIComponent(owner)}/account`;
-          const payload = { broker: brokerSelect.value, account_id: accountSelect.value, revision: currentRevision };
+          const payload = { broker: brokerSelect.value, account_id: accountSelect.value, revision: controlRevision };
           if (isRemap) payload.expected_current_account_id = currentMapping.account_id;
           const response = await fetch(endpoint, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -1169,20 +1221,20 @@
           });
           if (!response.ok) throw new Error('account mapping rejected');
           const result = await response.json();
-          currentRevision = result.revision;
+          if(!acceptRevision(result.revision))return;
           userApplications[ipoId] = userApplications[ipoId] || {};
           userApplications[ipoId].applicants = userApplications[ipoId].applicants || {};
           currentMapping = { broker_id: result.broker_id, account_id: result.account_id };
           userApplications[ipoId].applicants[owner] = currentMapping;
           saveButton.textContent = '계좌 변경';
           status.textContent = isRemap ? '계좌 변경됨' : '계좌 연결됨';
-          await loadIpoSchedule();
+          await refreshApplicantViews(ipoId);
         } catch (err) {
           status.textContent = '계좌 연결에 실패했습니다';
         } finally {
           saveButton.disabled = !accountSelect.value;
         }
-      });
+      }));
       const loadAllocation = async () => {
         if (!currentMapping) return;
         const response = await fetch(`/api/ipo/applications/${encodeURIComponent(ipoId)}/applicants/${encodeURIComponent(owner)}/allocation`);
@@ -1200,18 +1252,30 @@
             const label = link.missing_pnl_record
               ? `${escapeHtml(link.matched_quantity)}주 · 연결된 실현손익 기록을 찾을 수 없음`
               : `${escapeHtml(link.date || '')} · ${escapeHtml(link.matched_quantity)}주 연결됨`;
-            return `<div class="ipo-sale-link-row"><span>${label}</span><button type="button" class="button secondary compact ipo-sale-unlink" data-pnl-record-id="${escapeHtml(link.pnl_record_id)}">연결 해제</button></div>`;
+            return `<div class="ipo-sale-link-row"><span>${label}</span>${link.missing_pnl_record?'':`<button type="button" class="button secondary compact ipo-pnl-detail" data-pnl-record-id="${escapeHtml(link.pnl_record_id)}">기록 상세</button>`}<button type="button" class="button secondary compact ipo-sale-unlink" data-pnl-record-id="${escapeHtml(link.pnl_record_id)}">연결 해제</button></div>`;
           }).join('');
-          saleLinks.querySelectorAll('.ipo-sale-unlink').forEach(button => button.addEventListener('click', async () => {
+          saleLinks.querySelectorAll('.ipo-pnl-detail').forEach(button=>button.addEventListener('click',async()=>{
+            const identity=currentUserProfile?.id||currentUserProfile?.username;
+            button.disabled=true;
+            try{
+              const result=await api(`/api/realized-pnl?owner=${encodeURIComponent(owner)}&year=all&trade_type=all`);
+              if(identity!==(currentUserProfile?.id||currentUserProfile?.username)||!control.isConnected)return;
+              const record=(result.records||[]).find(record=>String(record.id)===button.dataset.pnlRecordId&&record.owner===owner);
+              if(!record)throw Error('연결된 실현손익 기록을 확인하지 못했습니다.');
+              ipoDetailDialog.close();await openPnlRecordDialog(record);
+            }catch(error){allocationSummary.textContent=error.message;}
+            finally{button.disabled=false;}
+          }));
+          saleLinks.querySelectorAll('.ipo-sale-unlink').forEach(button => button.addEventListener('click', () => runMutation(async () => {
             if (!window.confirm('이 매도 기록과 공모주 배정의 연결을 해제하시겠습니까?\n실현손익 기록 자체는 삭제되지 않습니다.')) return;
             try {
               const response = await fetch(`/api/ipo/applications/${encodeURIComponent(ipoId)}/applicants/${encodeURIComponent(owner)}/allocation/links/${encodeURIComponent(button.dataset.pnlRecordId)}`, {
-                method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: currentRevision }),
+                method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ revision: controlRevision }),
               });
               if (!response.ok) throw new Error('sale unlink rejected');
-              const result = await response.json(); currentRevision = result.revision; await loadIpoSchedule();
+              const result = await response.json(); if(!acceptRevision(result.revision))return; await refreshApplicantViews(ipoId);
             } catch (err) { allocationSummary.textContent = '매도 연결 해제에 실패했습니다'; }
-          }));
+          })));
         } else allocationSummary.textContent = '공모가 기준 배정수량을 입력하세요';
         const salesResponse = await fetch(`/api/ipo/applications/${encodeURIComponent(ipoId)}/applicants/${encodeURIComponent(owner)}/allocation/sale-candidates`);
         const sales = salesResponse.ok ? (await salesResponse.json()).candidates || [] : [];
@@ -1220,31 +1284,31 @@
         saleQuantity.disabled = saleSelect.disabled;
         saleLinkSave.disabled = saleSelect.disabled;
       };
-      allocationSave.addEventListener('click', async () => {
+      allocationSave.addEventListener('click', () => runMutation(async () => {
         try {
           const response = await fetch(`/api/ipo/applications/${encodeURIComponent(ipoId)}/applicants/${encodeURIComponent(owner)}/allocation`, {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ quantity: allocationInput.value, revision: currentRevision }),
+            body: JSON.stringify({ quantity: allocationInput.value, revision: controlRevision }),
           });
           if (!response.ok) throw new Error('allocation rejected');
-          const result = await response.json(); currentRevision = result.revision; await loadIpoSchedule();
+          const result = await response.json(); if(!acceptRevision(result.revision))return; await refreshApplicantViews(ipoId);
         } catch (err) { allocationSummary.textContent = '배정수량 저장에 실패했습니다'; }
-      });
+      }));
       saleSelect.addEventListener('change', () => {
         const option = saleSelect.options[saleSelect.selectedIndex];
         saleQuantity.value = option?.dataset.available || '';
         saleQuantity.max = option?.dataset.available || '';
       });
-      saleLinkSave.addEventListener('click', async () => {
+      saleLinkSave.addEventListener('click', () => runMutation(async () => {
         try {
           const response = await fetch(`/api/ipo/applications/${encodeURIComponent(ipoId)}/applicants/${encodeURIComponent(owner)}/allocation/links`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pnl_record_id: saleSelect.value, matched_quantity: saleQuantity.value, revision: currentRevision }),
+            body: JSON.stringify({ pnl_record_id: saleSelect.value, matched_quantity: saleQuantity.value, revision: controlRevision }),
           });
           if (!response.ok) throw new Error('sale link rejected');
-          const result = await response.json(); currentRevision = result.revision; await loadIpoSchedule();
+          const result = await response.json(); if(!acceptRevision(result.revision))return; await refreshApplicantViews(ipoId);
         } catch (err) { allocationSummary.textContent = '매도 연결에 실패했습니다'; }
-      });
+      }));
       await reloadCandidates();
       await loadAllocation();
     } catch (err) {
@@ -1253,8 +1317,7 @@
     }
   }
 
-  function attachCheckboxListeners() {
-    const wrapper = document.getElementById('ipoListWrapper');
+  function attachCheckboxListeners(wrapper = document.getElementById('ipoListWrapper')) {
     if (!wrapper) return;
 
     // Member checkbox change
@@ -1291,17 +1354,22 @@
     });
   }
 
+  const applicationSaves=new WeakSet();
   async function saveApplicationState(ipoId, appliedOwners, cardElement) {
+    const identity=currentUserProfile?.id||currentUserProfile?.username;
+    if(applicationSaves.has(cardElement))return;
+    applicationSaves.add(cardElement);cardElement.inert=true;
     try {
       const res = await fetch(`/api/ipo/applications/${encodeURIComponent(ipoId)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           applied_owners: appliedOwners,
-          revision: currentRevision,
+          revision: Number(cardElement.dataset.applicationRevision),
         }),
       });
 
+      if(identity!==(currentUserProfile?.id||currentUserProfile?.username))return;
       if (res.status === 409) {
         alert('다른 화면이나 기기에서 청약 신청 정보가 변경되었습니다. 최신 정보를 불러옵니다.');
         await loadIpoSchedule();
@@ -1314,7 +1382,7 @@
       }
 
       const data = await res.json();
-      currentRevision = data.revision;
+      currentRevision = data.revision;cardElement.dataset.applicationRevision=String(data.revision);
       userApplications[ipoId] = {
         ipo_id: ipoId,
         target_owners: data.target_owners,
@@ -1341,11 +1409,12 @@
       console.error('Failed to update IPO application:', err);
       alert(`신청 상태 저장 실패: ${err.message}`);
       await loadIpoSchedule();
-    }
+    } finally { applicationSaves.delete(cardElement);cardElement.inert=false; }
   }
 
   // Synchronize when applications are modified in other views (e.g. Calendar)
   window.addEventListener('wealth-ipo-app-updated', async (e) => {
+    if(ipoDetailDialog.open&&e.detail?.applications)await openIpoDetail(ipoDetailDialog.dataset.ipo);
     const ipoPanel = document.getElementById('ipoPanel');
     if (ipoPanel && !ipoPanel.classList.contains('wealth-income-hidden')) {
       await loadIpoSchedule();
