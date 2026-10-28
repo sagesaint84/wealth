@@ -12,7 +12,7 @@
     (consoleAdmin() ? byId('adminMainPanel')?.style.display !== 'none' : document.querySelector('.wealth-workspace')?.dataset.activeView === 'settings' && byId('userAssetDashboardWrapper')?.style.display !== 'none');
   const text = (id, value) => { if (byId(id)) byId(id).textContent = value ?? '확인 전'; };
   const error = message => { text('updateError', message); byId('updateError').hidden = !message; };
-  const message = code => errors[code] || `작업을 완료하지 못했습니다 (${String(code).replace(/[^A-Z0-9_]/g, '').slice(0,80)}). 현재 작업 기록을 확인해 주세요.`;
+  const message = code => errors[code] || `작업을 완료하지 못했습니다 (${String(code).replace(/[^A-Z0-9_]/g, '').slice(0,80)}). 현재 상태를 확인해 주세요.`;
   async function api(path, body) {
     const response = await fetch('/api/system-update/' + path, {credentials:'same-origin', cache:'no-store', ...(body ? {method:'POST', headers:{'Content-Type':'application/json','X-Wealth-Update-CSRF':csrf}, body:JSON.stringify(body)} : {})});
     const data = await response.json();
@@ -42,7 +42,6 @@
     text('updateRollback', snapshot.rollback?.digest || '아직 기록된 롤백 이미지 없음');
     const job = snapshot.jobs?.at(-1);
     text('updateStatus', snapshot.host_available ? (job ? `${stages[job.stage] || job.stage}${job.error ? ' · '+message(job.error) : ''}` : '호스트 실행기 연결됨 · 업데이트 확인을 눌러 주세요.') : message(snapshot.error));
-    list('updateJobs', (snapshot.jobs || []).slice().reverse().map(j => `${new Date(j.created_at*1000).toLocaleString()} · ${j.kind} · ${stages[j.stage] || j.stage}${j.error ? ' · '+message(j.error) : ''}${j.rollback_result ? ' · 복구: '+j.rollback_result : ''}${j.removed ? ' · 정리 '+j.removed.length+'개 / 보존·실패 '+(j.skipped?.length || 0)+'개' : ''}`));
     const busy = pending || snapshot.busy || reconnect || sessionExpired;
     byId('updateCheck').disabled = busy || !snapshot.host_available;
     byId('updateInstall').disabled = busy || !snapshot.host_available || !latest?.available || latest.free_bytes < latest.required_bytes;
@@ -50,6 +49,9 @@
     byId('updateConfirm').disabled = busy || !installed || installed.confirmed || installed.digest !== snapshot.current?.digest;
     byId('updateCleanupPreview').disabled = busy || !installed?.confirmed;
     byId('updateCleanup').disabled = busy || !preview?.images?.length;
+    text('updateCleanupHint', preview && !preview.images.length
+      ? '정리할 이미지가 없습니다. 현재 이미지와 롤백 이미지는 보호됩니다.'
+      : '현재 이미지와 롤백 이미지는 보호됩니다. 정리 전 미리보기가 필요합니다.');
   }
   function schedule() {
     clearTimeout(timer); timer = null;
@@ -211,7 +213,19 @@
     byId('updateCleanupPreview').addEventListener('click',async()=>{
       if(pending || !active()) return;
       pending=true; error(''); render();
-      try { preview=await api('cleanup-preview'); list('updateCleanupImages',preview.images.length ? preview.images : ['정리할 과거 Wealth 이미지가 없습니다.']); list('updateCleanupPreserved',preview.preserved || []); }
+      try {
+        preview=await api('cleanup-preview');
+        list('updateCleanupImages',preview.images.length ? preview.images : ['정리할 과거 Wealth 이미지가 없습니다.']);
+        const protectedList=byId('updateCleanupPreserved');protectedList.replaceChildren();
+        for(const id of preview.preserved || []){
+          const li=document.createElement('li'),details=document.createElement('details'),label=document.createElement('summary'),full=document.createElement('code');
+          const roles=[];
+          if(id===snapshot.current?.image_id)roles.push('현재 사용 이미지');
+          if(id===snapshot.rollback?.image_id)roles.push('롤백 이미지');
+          label.textContent=`${roles.join(' · ') || '보존 이미지'} — 보호 중 · ${id.slice(0,19)}…`;
+          full.textContent=id;details.append(label,full);li.append(details);protectedList.append(li);
+        }
+      }
       catch(e) { preview=null; error(message(e.message)); }
       finally { pending=false; render(); }
     });

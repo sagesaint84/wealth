@@ -36,8 +36,7 @@
   window.addEventListener('beforeunload', e => { if(dirty || editingRecord) { e.preventDefault(); e.returnValue = ''; } });
   const historyPanel = document.createElement('article');
   historyPanel.className = 'wealth-history wealth-composition';
-  historyPanel.innerHTML = `<div class="wealth-section-heading wealth-history-heading"><div><p class="wealth-eyebrow">NET WORTH HISTORY</p><h3>순자산 추이</h3><p class="wealth-history-description">확인해 저장한 날짜별 순자산 기록입니다.</p></div></div>
-    <p class="wealth-help wealth-history-help">자금 입출금·자산 등록도 반영되므로 투자수익률과는 다릅니다.</p>
+  historyPanel.innerHTML = `<div class="wealth-section-heading wealth-history-heading"><div><p class="wealth-eyebrow">NET WORTH HISTORY</p><h3>순자산 추이</h3></div></div>
     <div class="wealth-periods compact-record-tabs" aria-label="순자산 조회 기간"><button type="button" class="heatmap-tab" data-period="1D">일간</button><button type="button" class="heatmap-tab" data-period="1W">주간</button><button type="button" class="heatmap-tab" data-period="1M">월간</button><button type="button" class="heatmap-tab active" data-period="1Y">연간</button><button type="button" class="heatmap-tab" data-period="ALL">전체</button></div>
     <p id="wealthHistoryStatus" class="wealth-help" role="status">기록을 불러오는 중입니다.</p><div class="wealth-history-main"><div id="wealthHistoryPlot"></div><details id="wealthHistoryDetails" class="wealth-history-details" open></details></div>`;
   home.querySelector('#wealthHistorySlot').append(historyPanel);
@@ -299,11 +298,46 @@
     });
     return segments.length ? `conic-gradient(${segments.join(',')})` : 'var(--surface-2)';
   }
+  const targetDialog=document.createElement('dialog');targetDialog.className='dialog';targetDialog.id='wealthBucketTargetDialog';
+  targetDialog.setAttribute('aria-labelledby','wealthBucketTargetTitle');
+  targetDialog.innerHTML='<form><h3 id="wealthBucketTargetTitle">목표 비중 편집</h3><p id="wealthBucketTargetCurrent"></p><label>목표 %<input name="weight" type="number" min="0" max="100" step="0.1" required></label><p role="status"></p><div class="dialog-actions"><button type="button" class="button secondary">취소</button><button type="submit" class="button primary">저장</button></div></form>';
+  document.body.append(targetDialog);let targetDraft=null,targetSaving=false;
+  targetDialog.querySelector('[type=button]').onclick=()=>targetDialog.close();
+  targetDialog.addEventListener('cancel',e=>{if(targetSaving)e.preventDefault();});
+  targetDialog.addEventListener('close',()=>{const id=targetDraft?.id;targetDraft=null;[...document.querySelectorAll('[data-bucket-target]')].find(n=>n.dataset.bucketTarget===id)?.focus();});
+  window.addEventListener('wealth:role',()=>{if(targetDialog.open)targetDialog.close();});
+  function openBucketTarget(id){
+    const status=document.getElementById('wealthBucketStatus'),bucket=state?.buckets.find(b=>b.id===id);
+    if(dirty||inlineBucketSaving){status.textContent='저장하지 않은 버킷 설정 또는 저장 중인 작업이 있습니다. 먼저 완료해 주세요.';return;}
+    if(!bucket)return;
+    targetDraft={id,revision:state.revision,identity:currentUserProfile?.id||currentUserProfile?.username};
+    targetDialog.querySelector('h3').textContent=`${bucket.name} 목표 비중 편집`;
+    targetDialog.querySelector('#wealthBucketTargetCurrent').textContent=`현재 목표 ${Number(bucket.target).toFixed(1)}%`;
+    targetDialog.querySelector('input').value=bucket.target;targetDialog.querySelector('[role=status]').textContent='';
+    targetDialog.showModal();
+  }
+  targetDialog.querySelector('form').addEventListener('submit',async e=>{
+    e.preventDefault();if(!targetDraft||targetSaving)return;
+    const notice=targetDialog.querySelector('[role=status]'),input=targetDialog.querySelector('input'),value=Number(input.value);
+    if(!input.value.trim()||!Number.isFinite(value)||value<0||value>100||Math.abs(value*10-Math.round(value*10))>1e-7){notice.textContent='0~100%를 0.1% 단위로 입력하세요.';return;}
+    if(dirty||inlineBucketSaving||state.revision!==targetDraft.revision||targetDraft.identity!==(currentUserProfile?.id||currentUserProfile?.username)){notice.textContent='설정이 변경되었습니다. 취소 후 최신 설정을 다시 확인해 주세요.';return;}
+    const buckets=state.buckets.map(b=>({...b,...(b.id===targetDraft.id?{target:value}:{})}));
+    if(buckets.reduce((sum,b)=>sum+Number(b.target),0)>100.000001){notice.textContent='목표 비중 합계는 100% 이하여야 합니다.';return;}
+    targetSaving=true;inlineBucketSaving=true;targetDialog.querySelector('form').inert=true;
+    try{
+      const identity=targetDraft.identity,next=await request('/buckets',{revision:targetDraft.revision,buckets,accounts:{...state.accounts},holdings:{...state.holdings}});
+      if(identity!==(currentUserProfile?.id||currentUserProfile?.username)){targetDialog.close();return;}
+      state=next;renderEditor();renderBucketSummary();targetDialog.close();
+    }catch(error){
+      notice.textContent=error.message+' 입력값은 보존했습니다. 최신 설정을 확인한 뒤 다시 시도하세요.';
+      try{state=await request('');if(!dirty)renderEditor();renderBucketSummary();}catch(_){}
+    }finally{targetSaving=false;inlineBucketSaving=false;targetDialog.querySelector('form').inert=false;}
+  });
   function allocationLegend(items, valueField, showAmount=false, chartKey='') {
     return items.map(item=>{
       const editable=state.buckets.some(b=>b.id===item.id)&&!['__cash__','__unclassified__','__unallocated__'].includes(item.id);
       const control=editable?`<button type="button" class="wealth-inline-color-control" data-bucket-color="${esc(item.id)}" data-color-group="planning_bucket_colors" data-color-key="${esc(item.id)}" data-color-label="${esc(item.name)}" aria-label="${esc(item.name)} 색상 변경" aria-haspopup="dialog" style="--chosen-color:${bucketColor(item.id)}"></button>`:'';
-      return `<div class="wealth-bucket-legend-row${editable?' has-color-control':''}" data-bucket-chart="${chartKey}" data-bucket-key="${esc(item.id)}" tabindex="0" style="--bucket-color:${bucketColor(item.id)}">${control}<span>${esc(item.name)}</span><strong>${Number(item[valueField]||0).toFixed(1)}%</strong>${showAmount?`<small>${won(item.value)}</small>`:''}</div>`;
+      return `<div class="wealth-bucket-legend-row${editable?' has-color-control':''}" data-bucket-chart="${chartKey}" data-bucket-key="${esc(item.id)}" tabindex="${chartKey==='target'&&editable?-1:0}" style="--bucket-color:${bucketColor(item.id)}">${control}${chartKey==='target'&&editable?`<button type="button" class="wealth-bucket-target-edit" data-bucket-target="${esc(item.id)}" aria-haspopup="dialog"><span>${esc(item.name)}</span><strong>${Number(item[valueField]||0).toFixed(1)}%</strong></button>`:`<span>${esc(item.name)}</span><strong>${Number(item[valueField]||0).toFixed(1)}%</strong>`}${showAmount?`<small>${won(item.value)}</small>`:''}</div>`;
     }).join('');
   }
   function openBucketColor(button) {
@@ -362,6 +396,10 @@
       button.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();openBucketColor(button);});
       button.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();openBucketColor(button);}});
     });
+    summaryEl.querySelectorAll('[data-bucket-target]').forEach(button=>{
+      button.addEventListener('click',()=>openBucketTarget(button.dataset.bucketTarget));
+      button.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();openBucketTarget(button.dataset.bucketTarget);}});
+    });
     summaryEl.querySelectorAll('[data-bucket-filter]').forEach(button=>button.addEventListener('click',()=>{
       const key=button.dataset.bucketFilter;
       selectedBucket=selectedBucket===key?null:key;
@@ -370,8 +408,8 @@
     }));
     const chartItems={target:[target,'value'],current:[current,'percent']};
     const activate=(chart,key)=>{const donut=summaryEl.querySelector(`.wealth-bucket-donut[data-bucket-chart="${chart}"]`), data=chartItems[chart];if(!donut||!data)return;donut.style.background=donutGradient(data[0],data[1],key);donut.classList.toggle('has-donut-hover',Boolean(key));summaryEl.querySelectorAll(`[data-bucket-chart="${chart}"][data-bucket-key]`).forEach(row=>row.classList.toggle('is-donut-active',row.dataset.bucketKey===key));};
-    summaryEl.querySelectorAll('.wealth-bucket-legend-row').forEach(row=>{const chart=row.dataset.bucketChart,key=row.dataset.bucketKey;row.onpointerenter=()=>activate(chart,key);row.onpointerleave=()=>activate(chart,null);row.onfocus=()=>activate(chart,key);row.onblur=()=>activate(chart,null);});
-    summaryEl.querySelectorAll('.wealth-bucket-donut').forEach(donut=>{const chart=donut.dataset.bucketChart;donut.onpointermove=e=>{const rect=donut.getBoundingClientRect(),x=e.clientX-rect.left-rect.width/2,y=e.clientY-rect.top-rect.height/2,dist=Math.hypot(x,y),outer=Math.min(rect.width,rect.height)/2;if(dist<outer*.42||dist>outer)return activate(chart,null);const pct=((Math.atan2(y,x)*180/Math.PI+450)%360)/3.6;let cursor=0;const item=chartItems[chart][0].find(value=>{const start=cursor;cursor+=Number(value[chartItems[chart][1]]||0);return pct>=start&&pct<cursor;});activate(chart,item?.id||null);};donut.onpointerleave=()=>activate(chart,null);});
+    summaryEl.querySelectorAll('.wealth-bucket-legend-row').forEach(row=>{const chart=row.dataset.bucketChart,key=row.dataset.bucketKey;row.onpointerenter=()=>activate(chart,key);row.onpointerleave=()=>activate(chart,null);row.onfocusin=()=>activate(chart,key);row.onfocusout=()=>activate(chart,null);});
+    summaryEl.querySelectorAll('.wealth-bucket-donut').forEach(donut=>{const chart=donut.dataset.bucketChart;const hit=e=>{const rect=donut.getBoundingClientRect(),x=e.clientX-rect.left-rect.width/2,y=e.clientY-rect.top-rect.height/2,dist=Math.hypot(x,y),outer=Math.min(rect.width,rect.height)/2,inset=parseFloat(getComputedStyle(donut,'::after').top),inner=Number.isFinite(inset)&&donut.clientWidth?Math.max(0,outer-inset*rect.width/donut.clientWidth):outer;if(dist<=inner||dist>outer)return null;const pct=((Math.atan2(y,x)*180/Math.PI+450)%360)/3.6;let cursor=0;const item=chartItems[chart][0].find(value=>{const start=cursor;cursor+=Number(value[chartItems[chart][1]]||0);return pct>=start&&pct<cursor;});return item?.id||null;};donut.onpointermove=e=>activate(chart,hit(e));donut.onpointerleave=()=>activate(chart,null);if(chart==='target')donut.onclick=e=>{const key=hit(e);if(key)openBucketTarget(key);};});
   }
   function bucketRow(bucket) {
     const row=document.createElement('div'); row.className='wealth-bucket-edit-row'; row.dataset.id=bucket.id;

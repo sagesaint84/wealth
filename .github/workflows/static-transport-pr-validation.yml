@@ -14,6 +14,7 @@ on:
       - 'tests/test_home_initial_html_chrome.py'
       - 'tests/test_home_three_tabs_chrome.py'
       - 'tests/test_cnn_fear_greed*.py'
+      - 'tests/test_v218*.py'
       - 'tests/test_market_daily_indicators.py'
       - 'tests/test_section_expanded_chrome.py'
       - 'tests/test_national_pension_import.py'
@@ -117,6 +118,9 @@ jobs:
             tests/test_home_three_tabs_chrome.py \
             tests/test_cnn_fear_greed.py \
             tests/test_cnn_fear_greed_chrome.py \
+            tests/test_v218_ui_chrome.py \
+            tests/test_v218_bucket_chrome.py \
+            tests/test_v218_ipo_detail_chrome.py \
             tests/test_market_daily_indicators.py \
             tests/test_section_expanded_chrome.py \
             tests/test_national_pension_import.py \
@@ -173,6 +177,9 @@ jobs:
           assert not any(c.find(tag) is not None for c in cases for tag in ('failure', 'error'))
           expected_ui_counts = {
               'test_cnn_fear_greed_chrome': 15,
+              'test_v218_ui_chrome': 27,
+              'test_v218_bucket_chrome': 16,
+              'test_v218_ipo_detail_chrome': 16,
               'test_section_expanded_chrome': 17,
               'test_market_signals_holdings_chrome': 23,
               'test_account_section_summary_10_6b_frontend': 12,

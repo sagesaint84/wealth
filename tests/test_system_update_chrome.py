@@ -121,14 +121,14 @@ def test_status_resume_reload_build_failure_and_reconnection(chrome_preview):
     call('Page.reload',{'ignoreCache':True})
     wait_for(evaluate,f"performance.timeOrigin!=={previous!r} && document.readyState==='complete' && !!window.WealthSystemUpdate && !!document.getElementById('settingsSystemTab') && !!currentUserProfile")
     click(call,evaluate,'#settingsSystemTab')
-    wait_for(evaluate,"document.getElementById('updateJobs').textContent.includes('서버 검증')")
+    wait_for(evaluate,"document.getElementById('updateStatus').textContent.includes('서버 검증')")
     assert evaluate("document.getElementById('updateInstall').disabled")
     evaluate("__u.offline=true")
     click(call,evaluate,'#updateRefresh')
     wait_for(evaluate,"document.getElementById('updateStatus').textContent.includes('재연결')")
     evaluate("__u.offline=false;__u.job.stage='rolled_back';__u.job.rollback_result='verified'")
     click(call,evaluate,'#updateRefresh')
-    wait_for(evaluate,"document.getElementById('updateJobs').textContent.includes('이전 이미지 복구 확인')")
+    wait_for(evaluate,"document.getElementById('updateStatus').textContent.includes('이전 이미지 복구 확인')")
     assert evaluate('__u.errors')==[]
 
 

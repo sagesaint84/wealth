@@ -409,6 +409,7 @@
               </div>
               ${metaDetails.length > 0 ? `<div class="event-meta">${escapeHtml(metaDetails.join(' · '))}</div>` : ''}
               ${ipoAppControlsHtml}
+              ${ev.meta?.ipo_id ? `<button type="button" class="button secondary compact cal-ipo-details" data-ipo="${escapeHtml(ev.meta.ipo_id)}">자세히</button>` : ""}
               ${ev.meta?.ipo_id ? `<button type="button" class="button secondary compact ipo-schedule-control cal-ipo-exclude" data-ipo="${escapeHtml(ev.meta.ipo_id)}">일정 제외</button>` : ""}
             </div>
           </div>
@@ -438,6 +439,7 @@
       }
     });
 
+    list.querySelectorAll('.cal-ipo-details').forEach(button=>button.addEventListener('click',()=>window.WealthIpoDetail?.open(button.dataset.ipo,button)));
     attachCalendarIpoListeners(list);
   }
 

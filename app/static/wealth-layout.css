@@ -338,8 +338,6 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 .wealth-history { padding: 22px 24px; margin: 18px 0 24px; }
 .wealth-history-heading { align-items: flex-start; }
 .wealth-history-heading h3 { font-size: 17px; font-weight: 650; }
-.wealth-history-description { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
-.wealth-history-help { margin: 8px 0 14px; font-size: 11px; }
 .wealth-history-actions { margin: 0 0 12px; }
 .wealth-history-actions .button { min-height: 38px; padding: 8px 12px; font-size: 11px; }
 .wealth-history-selection { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; margin: 0 0 12px; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
@@ -1977,7 +1975,6 @@ body.wealth-layout {
   .settings-data-source-fields { grid-template-columns: minmax(0,1fr); }
 }
 /* Read-only indicators share the existing market and holdings surfaces. */
-.market-reference-note { grid-column:1 / -1; margin:0; color:var(--muted); font-size:11px; }
 .market-sentiment { overflow-wrap:anywhere; }
 .market-sentiment-score { display:block; margin:6px 0; color:var(--text); font-size:20px; }
 .market-sentiment-time { display:block; margin:4px 0; }
@@ -1998,3 +1995,30 @@ body.wealth-layout {
 .wealth-layout .wealth-home-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
 .wealth-layout .wealth-home-tabs > button { min-width:0; min-height:44px; padding:10px 6px; white-space:nowrap; }
 .wealth-layout .wealth-home-tabs > button:focus-visible { outline:2px solid var(--workspace-accent); outline-offset:-2px; }
+
+/* Scoped record summaries: preserve numeric precision and chart geometry. */
+.wealth-unified-latest { display:grid; gap:4px; padding:8px 0; grid-column:1 / -1; min-width:0; font-variant-numeric:tabular-nums; }
+.wealth-latest-label { font-size:13px; color:var(--muted); }
+.wealth-latest-amount { font-size:clamp(18px,2.2vw,26px); line-height:1.35; overflow-wrap:anywhere; }
+.wealth-latest-date { font-size:12px; color:var(--muted); }
+#expectedProfitRow .wealth-profit-label { margin-right:auto; font-size:12px; color:var(--muted); }
+#expectedProfitRow .summary-row-val { min-width:0; }
+
+#marketGrid .market-sentiment { display:flex; flex-direction:column; justify-content:flex-start; gap:8px; min-width:0; }
+#marketGrid .market-sentiment details { font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+#marketGrid .market-sentiment strong { white-space:normal; }
+#marketGrid .market-sentiment a { color:var(--workspace-accent); }
+#marketCardDialog { max-width:calc(100vw - 24px); }
+.market-card-choices { display:grid; gap:4px; }
+.market-card-choices label { display:flex; align-items:center; gap:10px; min-height:44px; }
+
+.wealth-bucket-target-edit { grid-column:2 / -1; display:flex; justify-content:space-between; gap:8px; align-items:center; min-height:44px; width:100%; border:0; border-radius:6px; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
+.wealth-bucket-target-edit:focus-visible { outline:2px solid var(--workspace-accent); }
+#wealthBucketTargetDialog { width:min(400px,calc(100vw - 24px)); }
+#wealthBucketTargetDialog form { min-width:0; }
+
+#ipoSharedDetailDialog { width:min(860px,calc(100vw - 24px)); max-height:calc(100dvh - 32px); overflow:auto; overscroll-behavior:contain; }
+.ipo-shared-detail { padding:16px; min-width:0; overflow-wrap:anywhere; }
+#ipoSharedDetailDialog .ipo-applicant-account { display:flex; flex-wrap:wrap; gap:8px; min-width:0; }
+#ipoSharedDetailDialog :is(input,select,button) { max-width:100%; min-width:0; min-height:44px; }
+#ipoSharedDetailDialog .ipo-allocation-control { width:100%; }

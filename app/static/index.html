@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Wealth" />
     <meta name="application-name" content="Wealth" />
-    <meta name="application-version" content="2.1.7" />
+    <meta name="application-version" content="2.1.8" />
     <meta name="application-assets-revision" content="2.1.3-p0" />
     <script>
       // Restore the validated theme before the render-blocking stylesheets.
@@ -24,8 +24,8 @@
       // One route contract for parser-time selection and later hash navigation.
       (() => {
   const views = {
-    home: ['홈', '가족의 자산을 한눈에', '지금의 자산 현황을 확인하고, 필요한 관리로 이어가세요.'],
-    invest: ['주식 투자', '주식 현황', '주식 포트폴리오, 보유종목과 투자 기록을 한곳에서 확인하세요.'],
+    home: ['홈', '가족의 자산을 한눈에', ''],
+    invest: ['주식 투자', '주식 현황', ''],
     assets: ['종합 자산', '자산과 계좌 관리', '증권·은행·보험·부동산과 대출을 관리하세요.'],
     income: ['머니 로그', '머니 로그', '실현손익, 배당·이자, 수입·지출 내역을 한곳에서 확인하세요.'],
     settings: ['설정', '설정', 'API 연결, 알림과 자동화, 계정과 데이터를 관리하세요.'],
@@ -64,7 +64,10 @@
           const title = document.getElementById('wealthPageTitle');
           const description = document.getElementById('wealthPageDescription');
           if (title && title.textContent !== views[route.key][1]) title.textContent = views[route.key][1];
-          if (description && description.textContent !== views[route.key][2]) description.textContent = views[route.key][2];
+          if (description) {
+            if (description.textContent !== views[route.key][2]) description.textContent = views[route.key][2];
+            if (description.hidden !== !views[route.key][2]) description.hidden = !views[route.key][2];
+          }
           const documentTitle = `Wealth · ${views[route.key][0]}`;
           if (document.title !== documentTitle) document.title = documentTitle;
           const workspace = document.querySelector('.wealth-workspace');
@@ -85,11 +88,11 @@
     <link rel="stylesheet" href="/static/wealth-ledger-ocr.css?v=2.0.2-review1" />
     <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/static/wealth.css?v=1.3.0" />
+    <link rel="stylesheet" href="/static/wealth.css?v=2.1.8-ui1" />
     <link rel="stylesheet" href="/static/wealth-savings-contributions.css?v=10.9p" />
     <link rel="stylesheet" href="/static/wealth-account-reorder.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-overrides.css?v=2.1.6-expand1" />
-    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.7-cnn1" />
+    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.8-ui1" />
     <link rel="stylesheet" href="/static/wealth-color-preferences.css?v=10.9r6" />
   <link rel="stylesheet" href="/static/wealth-color-picker.css?v=10.9r2" />
     <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css?v=2.1.0-b2" />
@@ -226,7 +229,7 @@
       <div class="wealth-nav-bottom"><a href="#settings" data-wealth-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16"></path><circle cx="8" cy="7" r="3"></circle><circle cx="16" cy="17" r="3"></circle></svg><span>설정</span></a><small>개인 · 가족 자산관리</small></div>
     </nav><script>WealthWorkspaceRoute.sync();</script>
     <div class="wealth-content">
-      <div class="wealth-page-head"><div><p class="wealth-eyebrow">YOUR FINANCIAL OVERVIEW</p><h2 id="wealthPageTitle" tabindex="-1">가족의 자산을 한눈에</h2><p id="wealthPageDescription">지금의 자산 현황을 확인하고, 필요한 관리로 이어가세요.</p></div><a class="wealth-settings-link" href="#settings" aria-label="설정 열기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16"></path><circle cx="8" cy="7" r="3"></circle><circle cx="16" cy="17" r="3"></circle></svg></a></div><script>WealthWorkspaceRoute.sync();</script>
+      <div class="wealth-page-head"><div><p class="wealth-eyebrow">YOUR FINANCIAL OVERVIEW</p><h2 id="wealthPageTitle" tabindex="-1">가족의 자산을 한눈에</h2><p id="wealthPageDescription" hidden></p></div><a class="wealth-settings-link" href="#settings" aria-label="설정 열기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16"></path><circle cx="8" cy="7" r="3"></circle><circle cx="16" cy="17" r="3"></circle></svg></a></div><script>WealthWorkspaceRoute.sync();</script>
       <div class="wealth-owner-bar"><span>조회 범위</span><div id="wealthOwnerSlot"><div class="family-tabs topbar-family-tabs" id="topbarFamilyTabs" style="margin-left:4px;">
               <button type="button" class="family-tab active" data-owner="모두">모두</button>
             </div></div><div class="wealth-refresh-actions"><button id="refreshButton" title="시세를 갱신합니다. 증권사 잔고 동기화와 별개입니다." class="button secondary compact" type="button">시세 갱신</button><button id="syncAccountsButton" title="설정된 증권사에서 잔고와 보유종목을 가져옵니다." class="button secondary compact" type="button">계좌 동기화</button></div></div>
@@ -236,7 +239,7 @@
           <button type="button" id="homeTab-history" data-home-tab="history" role="tab" aria-controls="wealthHistorySlot" aria-selected="false" tabindex="-1">순자산 추이</button>
           <button type="button" id="homeTab-markets" data-home-tab="markets" role="tab" aria-controls="wealthMarketSlot" aria-selected="false" tabindex="-1">주요지수</button>
         </div><script>WealthWorkspaceRoute.syncHome();</script>
-        <article class="wealth-composition wealth-home-asset-portfolio" id="homeAssetPortfolioPanel" data-home-panel="portfolio" role="tabpanel" aria-labelledby="homeTab-portfolio" tabindex="0"><script>WealthWorkspaceRoute.selectHome(document.currentScript.parentElement);</script><div class="wealth-section-heading"><div><p class="wealth-eyebrow">ASSET PORTFOLIO</p><h3>자산 포트폴리오</h3></div><a href="#assets">자산 상세보기 ↗</a></div><p class="wealth-help">전체 자산의 핵심 지표와 자산군별 구성을 한눈에 확인하세요.</p><div class="wealth-asset-dashboard"><div id="wealthAssetKpis" class="wealth-asset-kpis" aria-label="자산 포트폴리오 요약"><article class="wealth-asset-kpi tone-net"><span class="wealth-asset-kpi-icon">◆</span><div><span>순자산</span><strong id="wealthAssetNetWorth">—</strong><span class="wealth-asset-secondary-row is-debt"><em>총부채</em><small id="wealthAssetDebtDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-invest"><span class="wealth-asset-kpi-icon">◈</span><div><span>투자자산</span><strong id="wealthAssetInvest">—</strong><span class="wealth-asset-secondary-row"><em>주식</em><small id="wealthAssetStockDetail">—</small></span><span class="wealth-asset-secondary-row"><em>부동산</em><small id="wealthAssetPropertyDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-profit"><span class="wealth-asset-kpi-icon">↗</span><div><span>기대수익</span><strong id="wealthAssetExpected">—</strong><span class="wealth-asset-secondary-row"><em>주식 기대수익</em><small id="wealthAssetStockExpected">—</small></span><span class="wealth-asset-secondary-row"><em>부동산 기대수익</em><small id="wealthAssetPropertyExpected">—</small></span></div></article><article class="wealth-asset-kpi tone-realized"><span class="wealth-asset-kpi-icon">▤</span><div><span>실현손익</span><strong id="wealthAssetRealized">—</strong><span class="wealth-asset-secondary-row"><em>배당/이자</em><small id="wealthAssetDividendDetail">—</small></span><span class="wealth-asset-secondary-row"><em>매매차익</em><small id="wealthAssetTradeDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-safe"><span class="wealth-asset-kpi-icon">◇</span><div><span>안전자산</span><strong id="wealthAssetSafe">—</strong><span class="wealth-asset-secondary-row"><em>보험</em><small id="wealthAssetInsuranceDetail">—</small></span><span class="wealth-asset-secondary-row"><em>임차보증금</em><small id="wealthAssetDepositDetail">—</small></span><span class="wealth-asset-secondary-row"><em>예수금 및 예금</em><small id="wealthAssetSafeDetail">—</small></span></div></article></div><div class="wealth-asset-allocation"><div class="wealth-asset-allocation-head"><div><span class="wealth-eyebrow">ASSET ALLOCATION</span><h4>전체 자산 구성</h4></div><div id="homeAssetAllocationDonut" class="wealth-asset-donut" role="img" aria-label="전체 자산 구성"><span>전체 자산</span><strong id="homeAssetAllocationTotal">—</strong></div><div id="homeAssetAllocationLegend" class="wealth-asset-donut-legend"></div></div><div id="wealthMixLegend" class="wealth-mix-legend wealth-asset-breakdown"><p class="wealth-help">자산 정보가 준비되면 구성을 표시합니다.</p></div></div></div></article>
+        <article class="wealth-composition wealth-home-asset-portfolio" id="homeAssetPortfolioPanel" data-home-panel="portfolio" role="tabpanel" aria-labelledby="homeTab-portfolio" tabindex="0"><script>WealthWorkspaceRoute.selectHome(document.currentScript.parentElement);</script><div class="wealth-section-heading"><div><p class="wealth-eyebrow">ASSET PORTFOLIO</p><h3>자산 포트폴리오</h3></div><a href="#assets">자산 상세보기 ↗</a></div><div class="wealth-asset-dashboard"><div id="wealthAssetKpis" class="wealth-asset-kpis" aria-label="자산 포트폴리오 요약"><article class="wealth-asset-kpi tone-net"><span class="wealth-asset-kpi-icon">◆</span><div><span>순자산</span><strong id="wealthAssetNetWorth">—</strong><span class="wealth-asset-secondary-row is-debt"><em>총부채</em><small id="wealthAssetDebtDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-invest"><span class="wealth-asset-kpi-icon">◈</span><div><span>투자자산</span><strong id="wealthAssetInvest">—</strong><span class="wealth-asset-secondary-row"><em>주식</em><small id="wealthAssetStockDetail">—</small></span><span class="wealth-asset-secondary-row"><em>부동산</em><small id="wealthAssetPropertyDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-profit"><span class="wealth-asset-kpi-icon">↗</span><div><span>기대수익</span><strong id="wealthAssetExpected">—</strong><span class="wealth-asset-secondary-row"><em>주식 기대수익</em><small id="wealthAssetStockExpected">—</small></span><span class="wealth-asset-secondary-row"><em>부동산 기대수익</em><small id="wealthAssetPropertyExpected">—</small></span></div></article><article class="wealth-asset-kpi tone-realized"><span class="wealth-asset-kpi-icon">▤</span><div><span>실현손익</span><strong id="wealthAssetRealized">—</strong><span class="wealth-asset-secondary-row"><em>배당/이자</em><small id="wealthAssetDividendDetail">—</small></span><span class="wealth-asset-secondary-row"><em>매매차익</em><small id="wealthAssetTradeDetail">—</small></span></div></article><article class="wealth-asset-kpi tone-safe"><span class="wealth-asset-kpi-icon">◇</span><div><span>안전자산</span><strong id="wealthAssetSafe">—</strong><span class="wealth-asset-secondary-row"><em>보험</em><small id="wealthAssetInsuranceDetail">—</small></span><span class="wealth-asset-secondary-row"><em>임차보증금</em><small id="wealthAssetDepositDetail">—</small></span><span class="wealth-asset-secondary-row"><em>예수금 및 예금</em><small id="wealthAssetSafeDetail">—</small></span></div></article></div><div class="wealth-asset-allocation"><div class="wealth-asset-allocation-head"><div><span class="wealth-eyebrow">ASSET ALLOCATION</span><h4>전체 자산 구성</h4></div><div id="homeAssetAllocationDonut" class="wealth-asset-donut" role="img" aria-label="전체 자산 구성"><span>전체 자산</span><strong id="homeAssetAllocationTotal">—</strong></div><div id="homeAssetAllocationLegend" class="wealth-asset-donut-legend"></div></div><div id="wealthMixLegend" class="wealth-mix-legend wealth-asset-breakdown"><p class="wealth-help">자산 정보가 준비되면 구성을 표시합니다.</p></div></div></div></article>
         <div id="wealthHistorySlot" data-home-panel="history" role="tabpanel" aria-labelledby="homeTab-history" tabindex="0" hidden><script>WealthWorkspaceRoute.selectHome(document.currentScript.parentElement);</script></div>
         <div id="wealthMarketSlot" data-home-panel="markets" role="tabpanel" aria-labelledby="homeTab-markets" tabindex="0" hidden><script>WealthWorkspaceRoute.selectHome(document.currentScript.parentElement);</script><section id="marketPanel" class="panel market-panel user-asset-section" style="margin-top:16px;">
         <div class="panel-head market-head" style="flex-wrap:wrap;gap:0.75rem;align-items:center;">
@@ -269,6 +272,11 @@
           </div>
         </div>
         <div id="marketGrid" class="market-grid" aria-label="주요 시장 지수" style="margin-top:16px;"></div>
+        <section class="holding-signals" aria-labelledby="holdingSignalsTitle">
+          <h3 id="holdingSignalsTitle">보유종목 기술적 신호</h3>
+          <p id="holdingSignalsStatus" role="status" aria-live="polite"></p>
+          <div id="holdingSignalsRows"></div>
+        </section>
       </section></div>
       </section>
       <section data-wealth-page="invest" aria-label="주식 투자" hidden=""><script>WealthWorkspaceRoute.select(document.currentScript.parentElement);</script>
@@ -342,12 +350,11 @@
                 </div>
                 <div class="summary-row-val">
                   <div class="val-line" style="display:flex;align-items:baseline;justify-content:flex-end;gap:6px;">
-                    <strong id="totalProfit" style="font-size:16px;">—</strong>
+                    <span class="wealth-profit-label" tabindex="0" title="미실현 평가손익입니다. 실현손익은 포함하지 않습니다.">총 수익</span><strong id="totalProfit" style="font-size:16px;">—</strong>
                     <span id="profitRate" class="sub-rate" style="font-size:13.5px;font-weight:700;">—</span>
                   </div>
                   <div id="dayProfitSubLine" style="margin-top:4px;font-size:12px;line-height:1.5;display:flex;flex-direction:column;align-items:flex-end;">
-                    <span id="dayProfitVal" style="font-weight:700;display:block;">당일 가격변동 손익 —</span>
-                    <span id="recordChangeVal" style="display:block;color:#cbd5e1;">전 기록 대비 평가액 변화 —</span>
+                    <span id="dayProfitVal" style="font-weight:700;display:block;">일 수익 — (—)</span>
                     <span id="dayCaption" style="color:#a78bfa;display:block;font-size:11px;margin-top:1px;">가격손익 기준 없음</span>
                   </div>
                 </div>
@@ -483,11 +490,7 @@
             <button id="clearAllHoldingsBtn" class="button secondary danger compact" type="button" title="보유종목 전체 일괄 삭제">🗑️ 일괄삭제</button>
           </div>
         </div>
-        <section class="holding-signals" aria-labelledby="holdingSignalsTitle">
-          <h3 id="holdingSignalsTitle">보유종목 기술적 신호</h3>
-          <p id="holdingSignalsStatus" role="status" aria-live="polite"></p>
-          <div id="holdingSignalsRows"></div>
-        </section>
+
         <div class="table-wrap">
           <table>
             <thead>
@@ -2687,7 +2690,7 @@
     </div>
     <div style="text-align:center;">
       <p id="updatedAt" class="muted" style="margin:0;font-size:12px;opacity:0.75;">데이터를 불러오는 중입니다.</p>
-      <p id="appVersionDisplay" class="muted" style="margin:4px 0 0;font-size:12px;opacity:0.65;">앱 버전 v2.1.7</p>
+      <p id="appVersionDisplay" class="muted" style="margin:4px 0 0;font-size:12px;opacity:0.65;">앱 버전 v2.1.8</p>
     </div>
   </footer>
 
@@ -3482,10 +3485,10 @@
 
     <script src="/static/wealth-color-picker.js?v=10.9r5"></script>
     <script src="/static/wealth-color-preferences.js?v=10.9r6"></script>
-    <script src="/static/wealth-settings-surface.js?v=2.1.5-update1"></script>
+    <script src="/static/wealth-settings-surface.js?v=2.1.8-ui1"></script>
     <script src="/static/wealth-layout.js?v=2.1.3-home-tabs1"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
-    <script src="/static/wealth.js?v=2.1.7-cnn1"></script>
+    <script src="/static/wealth.js?v=2.1.8-ui2"></script>
     <script src="/static/wealth-ledger-ocr.js?v=2.0.2-review2"></script>
     <script src="/static/wealth-national-pension.js?v=2.0.2"></script>
     <script src="/static/wealth-pension-import.js?v=2.0.2"></script>
@@ -3497,11 +3500,11 @@
     <script src="/static/wealth-family-financial-income-risk.js?v=2.1.3-p0"></script>
     <script src="/static/wealth-family-financial-income-allocation.js?v=2.1.3-p0"></script>
     <script src="/static/wealth-settings.js?v=2.1.5-update1"></script>
-    <script src="/static/wealth-system-update.js?v=2.1.5-update1"></script>
-    <script src="/static/wealth-ipo.js?v=2.1.3-ipo-naver1"></script>
-    <script src="/static/wealth-calendar.js?v=2.1.2-ipo-ui1"></script>
-    <script src="/static/wealth-planning-model.js?v=2.1.3-p0"></script>
-    <script src="/static/wealth-planning.js?v=2.1.3-home-tabs2"></script>
+    <script src="/static/wealth-system-update.js?v=2.1.8-ui1"></script>
+    <script src="/static/wealth-ipo.js?v=2.1.8-ui2"></script>
+    <script src="/static/wealth-calendar.js?v=2.1.8-ui1"></script>
+    <script src="/static/wealth-planning-model.js?v=2.1.8-ui1"></script>
+    <script src="/static/wealth-planning.js?v=2.1.8-ui1"></script>
   </body>
 </html>
 

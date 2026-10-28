@@ -240,18 +240,23 @@ def test_navigation_only_loads_signals_in_visible_holdings(chrome_preview, width
         assert not evaluate("document.querySelector('[data-wealth-page=" + route + "]').hidden")
         assert evaluate("__signalsFixture.signalReads.length") == 0
     evaluate("document.querySelector('.wealth-nav a[href=\"#invest\"]').click();")
+    wait_for(evaluate, "document.querySelector('.wealth-workspace').dataset.activeView==='invest'")
+    assert evaluate("__signalsFixture.signalReads.length")==0
+    evaluate("location.hash='#home/markets'")
     wait_for(evaluate, "holdingSignalState.phase==='ready'")
-    assert evaluate("__signalsFixture.signalReads.length") == 1
-    evaluate("document.querySelector('[data-invest=overview]').click();selectOwner('엄마');")
-    assert evaluate("__signalsFixture.signalReads.length") == 1
-    evaluate("document.querySelector('[data-invest=holdings]').click();")
+    assert evaluate("__signalsFixture.signalReads.length")==1
+    assert not evaluate("!!document.querySelector('#holdingsPanel .holding-signals')")
+    assert evaluate("!!document.querySelector('#marketPanel .holding-signals')")
+    evaluate("document.getElementById('homeTab-portfolio').click();selectOwner('엄마');")
+    assert evaluate("__signalsFixture.signalReads.length")==1
+    evaluate("document.getElementById('homeTab-markets').click()")
     wait_for(evaluate, "holdingSignalState.phase==='ready' && __signalsFixture.signalReads.length===2")
     assert len(writes_since(evaluate, before)) == 0
 
 
 @pytest.mark.parametrize("width", [360, 390, 768, 1280])
 def test_four_signal_sections_errors_and_existing_holdings_ui(chrome_preview, width):
-    _, evaluate = start(chrome_preview, width)
+    _, evaluate = start(chrome_preview, width, route="home/markets")
     wait_for(evaluate, "holdingSignalState.phase==='ready'")
     before = checkpoint(evaluate, "signals-success")
     assert evaluate("__signalsFixture.signalReads.length") == 1
@@ -301,7 +306,7 @@ def test_four_signal_sections_errors_and_existing_holdings_ui(chrome_preview, wi
 
 
 def test_signals_owner_holdings_and_late_responses_are_never_mixed(chrome_preview):
-    _, evaluate = start(chrome_preview, 390)
+    _, evaluate = start(chrome_preview, 390, route="home/markets")
     wait_for(evaluate, "holdingSignalState.phase==='ready'")
     before = checkpoint(evaluate, "signals-late-response")
     evaluate("holdingSignalState.cache.clear();__signalsFixture.holdSignals=true;selectOwner('엄마');")
@@ -356,20 +361,20 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
     wait_for(evaluate, "location.hash==='#home' && document.querySelector('.wealth-workspace').dataset.activeView==='home' && !document.querySelector('[data-wealth-page=home]').hidden")
     assert evaluate("__signalsFixture.marketReads.length") == 0
     evaluate("document.getElementById('homeTab-markets').click()")
-    wait_for(evaluate, "__signalsFixture.marketReads.length>0 && document.querySelectorAll('#marketGrid .market-card').length===7 && document.querySelector('#marketGrid').getBoundingClientRect().width>0")
+    wait_for(evaluate, "__signalsFixture.marketReads.length>0 && document.querySelectorAll('#marketGrid .market-card').length===8 && document.querySelector('#marketGrid').getBoundingClientRect().width>0")
     text = evaluate("document.querySelector('#marketGrid').textContent")
     for expected in ["코스피", "코스닥", "나스닥", "S&P", "반도체", "금리", "+3.5bp", "미국 공포·탐욕", "점수 조회 불가", "CNN 지수 · 비공식 데이터 중계"]:
         assert expected in text
     assert "한국 10년 국채" not in text
-    assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 7
+    assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 8
     assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://www.cnn.com/markets/fear-and-greed\"]').length") == 1
     assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://finance.yahoo.com/quote/%5ETNX/\"]').length") == 0
     assert evaluate("document.querySelectorAll('#marketGrid a[href*=\"treasury.gov\"],#marketGrid a[href*=\"ecos.bok.or.kr\"]').length") == 0
     assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX').querySelector('.market-price').textContent") == "4.988%"
-    assert evaluate("document.querySelectorAll('#marketGrid .market-reference-note').length") == 1
+    assert evaluate("document.querySelectorAll('#marketGrid .market-sentiment').length") == 1
     assert evaluate("document.querySelectorAll('#marketGrid a[href=\"https://github.com/chirag127/fear-greed-index-api\"]').length") == 1
     assert evaluate("document.querySelectorAll('#marketFearGreed [data-cnn-score]').length") == 0
-    assert not evaluate("document.querySelector('#marketGrid .market-reference-note .market-price')!==null")
+    assert not evaluate("document.querySelector('#marketGrid .market-sentiment .market-price')!==null")
     assert evaluate("document.querySelector('[data-market-symbol=\"^TNX\"]').innerText.split('\\n').map(s=>s.trim()).filter(Boolean)") == ["금리", "4.988%", "+3.5bp"]
     assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] a,[data-market-symbol=\"^TNX\"] details').length") == 0
     assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] .market-chart-col svg.sparkline polyline').length") == 1
@@ -395,7 +400,7 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
         expected_price = "조회 불가" if failed else "4.988%"
         wait_for(evaluate, f"document.querySelector('.wealth-workspace').dataset.activeView==='home' && __signalsFixture.marketReads.length>{reads} && [...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX')?.querySelector('.market-price').textContent==={json.dumps(expected_price, ensure_ascii=False)}")
         assert evaluate("[...document.querySelectorAll('#marketGrid .market-card')].find(n=>n.dataset.marketSymbol==='^TNX').querySelector('.market-price').textContent") == expected_price
-        assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 7
+        assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 8
         assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] svg.sparkline').length") == (0 if failed else 1)
         assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] a,[data-market-symbol=\"^TNX\"] details').length") == 0
         assert len(writes_since(evaluate, before)) == 0
@@ -407,7 +412,7 @@ def test_existing_market_cards_daily_units_dates_and_official_links(chrome_previ
         assert evaluate("document.querySelector('[data-market-symbol=\"^TNX\"] .market-change-point').textContent") == ("-3.5bp" if change < 0 else "0bp")
         assert evaluate("document.querySelector('[data-market-symbol=\"^TNX\"] .market-price').textContent") == "4.988%"
         assert not evaluate("document.querySelector('[data-market-symbol=\"^TNX\"] polyline').getAttribute('points').includes('NaN')")
-        assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 7
+        assert evaluate("document.querySelectorAll('#marketGrid .market-card').length") == 8
     evaluate("__marketFixture.rates[0].series=[];renderMarkets(__marketFixture);")
     assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] svg.sparkline').length") == 0
     assert evaluate("document.querySelectorAll('[data-market-symbol=\"^TNX\"] a,[data-market-symbol=\"^TNX\"] details').length") == 0
