@@ -32,9 +32,9 @@ window.fetch=async function(url,options={}){
  if(__u.identity!=='admin'&&!__u.access)return {ok:false,status:403,json:async()=>({detail:{code:'SYSTEM_UPDATE_FORBIDDEN'}})};
  __u.requests.push({action,method:options.method||'GET',body});
  if(__u.offline)throw TypeError('synthetic disconnect');
- if(options.method==='POST'&&__u.reauthFail)return {ok:false,status:403,json:async()=>({detail:{code:'UPDATE_REAUTH_FAILED'}})};
+ if(options.method==='POST'&&__u.reauthFail)return {ok:false,status:403,json:async()=>({detail:{code:'UPDATE_APPROVAL_INVALID'}})};
  let result={};
- if(action==='status')result={app_version:'2.1.5',csrf_token:'synthetic-csrf',host_available:true,current:{sha:sha(__u.current),digest:digest(__u.current)},rollback:__u.current==='b'?{digest:digest('a')}:null,busy:__u.job&&['pulling','verifying'].includes(__u.job.stage),jobs:__u.job?[{...__u.job,confirmed:__u.confirmed}]:[]};
+ if(action==='status')result={app_version:'2.1.5',csrf_token:'synthetic-csrf',operation_token:'synthetic-operation',host_available:true,current:{sha:sha(__u.current),digest:digest(__u.current)},rollback:__u.current==='b'?{digest:digest('a')}:null,busy:__u.job&&['pulling','verifying'].includes(__u.job.stage),jobs:__u.job?[{...__u.job,confirmed:__u.confirmed}]:[]};
  else if(action==='check'){
   if(__u.fail)return {ok:false,json:async()=>({detail:{code:'BUILD_NOT_SUCCESSFUL'}})};
   result={sha:sha('b'),digest:digest('b'),available:__u.current!=='b',build:'success',url:'https://github.com/sagesaint84/wealth/actions/runs/123',checked_at:123,compressed_bytes:100,free_bytes:9999999999,required_bytes:2147483648,changes:[{message:'Synthetic change <img id="unsafeUpdateNode" src=x onerror=alert(1)>'}]};
@@ -57,7 +57,7 @@ def start(preview,width,extra='',route='settings'):
 
 
 def authorize(evaluate):
-    evaluate("document.getElementById('updatePassword').value='SYNTHETIC-PASSWORD';document.getElementById('updateConsent').checked=true")
+    evaluate("document.getElementById('updateConsent').checked=true")
 
 
 @pytest.mark.parametrize('width',[320,360,390,768,1280])
@@ -78,9 +78,10 @@ def test_update_ui_readonly_install_progress_confirmation_cleanup_and_width(chro
     assert not evaluate("__u.requests.some(r=>r.method==='POST')")
     authorize(evaluate);click(call,evaluate,'#updateInstall')
     wait_for(evaluate,"__u.requests.some(r=>r.action==='install')")
-    assert evaluate("document.getElementById('updatePassword').value") == ''
+    assert not evaluate("!!document.getElementById('updatePassword')")
     assert not evaluate("document.getElementById('updateConsent').checked")
     assert evaluate("__u.requests.filter(r=>r.action==='install').length")==1
+    assert evaluate("__u.requests.filter(r=>r.method==='POST').every(r=>!('password' in r.body))")
     evaluate("__u.current='b';__u.job.stage='succeeded'")
     click(call,evaluate,'#updateRefresh')
     wait_for(evaluate,"!document.getElementById('updateConfirm').disabled")
@@ -208,7 +209,7 @@ def test_delegated_revoke_hides_ui_and_keeps_started_host_job(chrome_preview):
     assert evaluate('__u.errors')==[]
 
 
-def test_delegated_reauth_failure_asks_own_password_without_install(chrome_preview):
+def test_delegated_expired_operation_approval_blocks_install_without_password(chrome_preview):
     call,evaluate,_=start(chrome_preview,360)
     click(call,evaluate,'#settingsSystemTab')
     wait_for(evaluate,"!document.getElementById('updateCheck').disabled")
@@ -216,10 +217,10 @@ def test_delegated_reauth_failure_asks_own_password_without_install(chrome_previ
     wait_for(evaluate,"!document.getElementById('updateInstall').disabled")
     evaluate('__u.reauthFail=true');authorize(evaluate)
     click(call,evaluate,'#updateInstall')
-    assert '본인 비밀번호' in evaluate("document.getElementById('updateError').textContent")
+    assert '작업 승인' in evaluate("document.getElementById('updateError').textContent")
     assert '관리자 비밀번호' not in evaluate("document.getElementById('updateError').textContent")
     assert evaluate('__u.job') is None
-    assert evaluate("document.getElementById('updatePassword').value")==''
+    assert not evaluate("!!document.getElementById('updatePassword')")
     assert evaluate('__u.errors')==[]
 
 

@@ -389,8 +389,6 @@
       </dl><ul id="updateChanges"></ul>
     </section>
     <form id="updateAuthorization" class="update-authorization">
-      <label for="updatePassword">본인 비밀번호 (작업마다 재입력)</label>
-      <input id="updatePassword" type="password" autocomplete="current-password" maxlength="256">
       <label class="update-consent"><input id="updateConsent" type="checkbox"> 선택한 설치·운영 확인·이미지 정리 작업을 진행합니다.</label>
       <div class="update-actions"><button id="updateInstall" type="button" class="button primary" disabled>업데이트 설치</button><button id="updateConfirm" type="button" class="button secondary" disabled>실제 화면 정상 확인</button></div>
       <p>실제 화면을 확인한 뒤 정상 확인을 눌러 주세요. 이미지 정리는 별도 미리보기·승인 후 진행하며 현재 이미지와 마지막 정상 롤백 이미지는 보존합니다.</p>

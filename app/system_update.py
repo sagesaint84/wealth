@@ -101,7 +101,8 @@ def register_update_routes(app, *, app_version, secret, username, origin, sessio
     async def status(request: Request):
         _, actor, _ = identity(request)
         limiter.take(actor, 'status', 60)
-        base = {'app_version': app_version, 'csrf_token': signer.dumps(csrf_context(request, actor))}
+        base = {'app_version': app_version, 'csrf_token': signer.dumps(csrf_context(request, actor)),
+                'operation_token': issue(request, actor, 'operation', {})}
         try:
             return {**base, 'host_available': True, **await rpc('status', actor)}
         except HTTPException as exc:
@@ -120,7 +121,7 @@ def register_update_routes(app, *, app_version, secret, username, origin, sessio
         result = await rpc('cleanup_preview', actor)
         return {**result, 'preview_token': issue(request, actor, 'cleanup', {'images': result['images']})}
 
-    async def authorize(request, expected, admin_only=False):
+    async def authorize(request, expected, *, reauthenticate, admin_only=False):
         name, actor, _ = identity(request, admin_only)
         if not origin(request):
             raise HTTPException(403, detail={'code': 'UPDATE_ORIGIN_FORBIDDEN'})
@@ -142,8 +143,18 @@ def register_update_routes(app, *, app_version, secret, username, origin, sessio
             body = json.loads(raw)
         except (ValueError, UnicodeError):
             raise HTTPException(400, detail={'code': 'UPDATE_BODY_INVALID'}) from None
-        if not isinstance(body, dict) or set(body) != expected | {'password', 'confirm'} or body['confirm'] is not True or not isinstance(body['password'], str) or not 1 <= len(body['password']) <= 256:
+        fields = expected | ({'password', 'confirm'} if reauthenticate else {'confirm'})
+        if not isinstance(body, dict) or set(body) != fields or body.get('confirm') is not True or (reauthenticate and (not isinstance(body.get('password'), str) or not 1 <= len(body['password']) <= 256)):
             raise HTTPException(400, detail={'code': 'UPDATE_BODY_INVALID'})
+        if not reauthenticate:
+            limiter.take(actor, 'operation', 5)
+            consume(request, actor, request.headers.get('x-wealth-update-approval'), 'operation', {})
+            _, current, fresh = identity(request)
+            if current != actor:
+                raise HTTPException(403, detail={'code': 'SYSTEM_UPDATE_FORBIDDEN'})
+            body.pop('confirm')
+            logger.info('system_update SESSION_AUTHORIZED actor=%s action=%s', actor, request.url.path.rsplit('/', 1)[-1])
+            return actor, body, fresh
         limiter.take(actor, 'reauth', 5)
         from app.services.user_manager import authenticate_user
         user = await asyncio.to_thread(authenticate_user, name, body.pop('password'))
@@ -158,19 +169,25 @@ def register_update_routes(app, *, app_version, secret, username, origin, sessio
         logger.info('system_update AUTHORIZED actor=%s action=%s', actor, request.url.path.rsplit('/', 1)[-1])
         return actor, body, user
 
+    async def authorize_operation(request, expected):
+        return await authorize(request, expected, reauthenticate=False)
+
+    async def authorize_permission(request, expected):
+        return await authorize(request, expected, reauthenticate=True, admin_only=True)
+
     @app.post('/api/system-update/install', status_code=202)
     async def install(request: Request):
-        actor, args, _ = await authorize(request, {'sha', 'digest'})
+        actor, args, _ = await authorize_operation(request, {'sha', 'digest'})
         return await rpc('install', actor, args)
 
     @app.post('/api/system-update/confirm')
     async def confirm(request: Request):
-        actor, args, _ = await authorize(request, {'job_id'})
+        actor, args, _ = await authorize_operation(request, {'job_id'})
         return await rpc('confirm', actor, args)
 
     @app.post('/api/system-update/cleanup', status_code=202)
     async def cleanup(request: Request):
-        actor, args, _ = await authorize(request, {'images', 'preview_token'})
+        actor, args, _ = await authorize_operation(request, {'images', 'preview_token'})
         consume(request, actor, args.pop('preview_token'), 'cleanup', args)
         return await rpc('cleanup', actor, args)
 
@@ -188,7 +205,7 @@ def register_update_routes(app, *, app_version, secret, username, origin, sessio
 
     @app.post('/api/admin/users/{target_id}/system-update')
     async def permission_change(request: Request, target_id: str):
-        actor, args, user = await authorize(request, {'enabled', 'intent_token'}, admin_only=True)
+        actor, args, user = await authorize_permission(request, {'enabled', 'intent_token'})
         from app.services.user_identity import validate_user_id
         from app.services.user_manager import set_system_update_permission
         try:
