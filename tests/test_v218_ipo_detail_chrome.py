@@ -12,9 +12,9 @@ window.fetch=async function(url,options={}){
  if(path==='/api/realized-pnl')return reply({records:[{id:'synthetic-sale',owner:'아빠',date:'2026-10-29',name:'가상기업',code:'123456',quantity:2,is_ipo:true,pnl:12345,pnl_krw:12345,currency:'KRW'}]});
  if(path==='/api/ipo/applications')return reply({revision:__detail.revision,applications:__uiApps,family_members:['아빠','엄마','자녀']});
  if(/^\/api\/ipo\/applications\/[^/]+$/.test(path)&&options.method==='PUT'){
-   const body=JSON.parse(options.body),id=decodeURIComponent(path.split('/').pop());__detail.writes.push({path,body,method:'PUT'});
-   if(body.revision!==__detail.revision)return reply({detail:'revision conflict'},409);
-   __uiApps[id].applied_owners=body.applied_owners;__detail.revision++;return reply({...__uiApps[id],revision:__detail.revision});
+   const body=JSON.parse(options.body),id=decodeURIComponent(path.split('/').pop()),entry={path,body,method:'PUT'};__detail.writes.push(entry);
+   if(body.revision!==__detail.revision){entry.status=409;return reply({detail:'revision conflict'},409);}
+   entry.status=200;__uiApps[id].applied_owners=body.applied_owners;__detail.revision++;return reply({...__uiApps[id],revision:__detail.revision});
  }
  if(path.startsWith('/api/ipo/applications/')&&path.includes('/applicants/')){
    if(options.method && options.method!=='GET'){
@@ -43,10 +43,14 @@ def test_calendar_shares_account_allocation_link_and_failure_inputs(ui_chrome_pr
     call('Page.addScriptToEvaluateOnNewDocument',{'source':f"localStorage.setItem('app_theme',{theme!r});"+BOOT+DETAIL})
     call('Page.navigate',{'url':f'http://127.0.0.1:{port}/#calendar'})
     wait_for(evaluate,'!!window.WealthCalendar && !!window.WealthIpoDetail')
+    assert not evaluate('!!document.getElementById("ipoSharedDetailDialog")')
     open_calendar(evaluate)
     evaluate('document.querySelector(".cal-ipo-details[data-ipo=long]").click()')
     wait_for(evaluate,'!!document.querySelector("#ipoSharedDetailDialog .ipo-allocation-quantity:not(:disabled)")')
     assert evaluate('document.querySelector("#ipoSharedDetailDialog .ipo-applicant-account").dataset.ipo')=='long'
+    evaluate('window.__firstIpoDialog=document.getElementById("ipoSharedDetailDialog")')
+    assert not evaluate('document.getElementById("ipoSharedDetailDialog").textContent.includes("청약 신청 수량")')
+    assert not evaluate('document.getElementById("ipoSharedDetailDialog").textContent.includes("매도 기록이 없으면")')
     assert evaluate('document.querySelector("#ipoSharedDetailDialog .ipo-applicant-account-select").value')=='synthetic-father'
     evaluate('document.querySelector("#ipoSharedDetailDialog .ipo-allocation-quantity").value="5";document.querySelector("#ipoSharedDetailDialog .ipo-allocation-save").click()')
     wait_for(evaluate,'document.querySelector("#ipoSharedDetailDialog .ipo-allocation-quantity")?.value==="5" && !document.querySelector("#ipoSharedDetailDialog .ipo-applicant-account").inert && document.querySelector("#ipoSharedDetailDialog .ipo-sale-link-save")?.disabled===false')
@@ -59,6 +63,7 @@ def test_calendar_shares_account_allocation_link_and_failure_inputs(ui_chrome_pr
     wait_for(evaluate,'document.getElementById("pnlRecordDialog").open && document.getElementById("pnlRecordForm").dataset.recordId==="synthetic-sale"')
     evaluate('document.getElementById("pnlRecordDialog").close()')
     evaluate('(async()=>{await WealthIpoDetail.open("long");return true;})()')
+    assert evaluate('document.getElementById("ipoSharedDetailDialog")===__firstIpoDialog && document.querySelectorAll("#ipoSharedDetailDialog").length===1')
     evaluate('window.confirm=()=>true;document.querySelector("#ipoSharedDetailDialog .ipo-sale-unlink").click()')
     wait_for(evaluate,'document.querySelector("#ipoSharedDetailDialog .ipo-allocation-summary")?.textContent.includes("매도 0주")')
     assert evaluate('__detail.pnl')==12345
@@ -76,13 +81,38 @@ def test_application_uses_card_revision_after_other_detail_refresh(ui_chrome_pre
     call,evaluate,port=ui_chrome_preview
     call('Page.addScriptToEvaluateOnNewDocument',{'source':BOOT+DETAIL+'window.alert=message=>window.__appAlert=message;'})
     call('Page.navigate',{'url':f'http://127.0.0.1:{port}/#ipo'})
-    wait_for(evaluate,'!!window.WealthIpoDetail && !!window.WealthIpoState && WealthStartup.canRead() && !loadAssetDataForUser.pending && !window.setIncomeTab.pendingTarget')
-    evaluate('(async()=>{await loadAssetDataForUser.supplementary;return true;})()')
-    evaluate('(async()=>{await loadIpoSchedule();WealthIpoState.setFilterGroup("ALL");WealthIpoState.setHistoryYear(2026);WealthIpoState.setHistoryMonth(10);WealthIpoState.setMonthExplicitlySelected(true);WealthIpoState.renderIpoList();window.__staleCard=document.querySelector("#ipoListWrapper .ipo-card[data-ipo-id=long]");__detail.revision=1;__uiApps.long.applied_owners=["엄마"];await WealthIpoDetail.open("listing");return true;})()')
+    # This extension mounts asynchronously and renders the list independently
+    # of loadIpoSchedule/supplementary. Wait for its actual script load too.
+    wait_for(evaluate,'document.readyState==="complete" && document.getElementById("wealthIpoEventMonthsScript")?.dataset.loaded==="true" && !!window.WealthIpoDetail && !!window.WealthIpoState && WealthStartup.canRead() && !loadAssetDataForUser.pending && !window.setIncomeTab.pendingTarget && location.hash==="#ipo" && document.querySelector(".wealth-workspace").dataset.incomeTab==="ipo"')
+    evaluate('(async()=>{await loadAssetDataForUser.supplementary;window.__ipoListRenders=0;window.addEventListener("wealth:ipo-market-rendered",()=>__ipoListRenders++);await loadIpoSchedule();WealthIpoState.setFilterGroup("ALL");WealthIpoState.setHistoryYear(2026);WealthIpoState.setHistoryMonth(10);WealthIpoState.setMonthExplicitlySelected(true);WealthIpoState.renderIpoList();return true;})()')
+    wait_for(evaluate,'__ipoListRenders>0 && document.querySelector("#ipoListWrapper .ipo-card[data-ipo-id=long]")?.isConnected===true')
+    evaluate('window.__staleCard=document.querySelector("#ipoListWrapper .ipo-card[data-ipo-id=long]")')
+    assert evaluate('__staleCard.isConnected')
+    assert evaluate('__staleCard.dataset.applicationRevision')=='0'
+    assert evaluate('__detail.revision')==0
+    evaluate('__detail.revision=1;__uiApps.long.applied_owners=["엄마"];window.__serverAppsBefore=JSON.stringify(__uiApps)')
+    evaluate('(async()=>{await WealthIpoDetail.open("listing");return true;})()')
     assert evaluate('document.querySelector("#ipoSharedDetailDialog .ipo-card").dataset.applicationRevision')=='1'
     assert evaluate('__staleCard.isConnected')
     assert evaluate('__staleCard.dataset.applicationRevision')=='0'
+    assert evaluate('__staleCard===document.querySelector("#ipoListWrapper .ipo-card[data-ipo-id=long]")')
+    assert evaluate('__detail.revision')==1
+    assert evaluate('__detail.writes.length')==0
     evaluate('document.getElementById("ipoSharedDetailDialog").close();__staleCard.querySelector(".ipo-member-chk[data-member=자녀]").click()')
     wait_for(evaluate,'!!window.__appAlert')
     assert evaluate('__detail.writes.at(-1).body.revision')==0
+    assert evaluate('__detail.writes.at(-1).method')=='PUT'
+    assert evaluate('__detail.writes.at(-1).path')=='/api/ipo/applications/long'
+    assert evaluate('__detail.writes.at(-1).status')==409
+    assert '다른 화면이나 기기' in evaluate('__appAlert')
     assert evaluate('__uiApps.long.applied_owners')==['엄마']
+    assert evaluate('JSON.stringify(__uiApps)===__serverAppsBefore')
+    assert evaluate('__detail.revision')==1
+    # The conflict reload must leave a connected current card usable for save.
+    wait_for(evaluate,'document.querySelector("#ipoListWrapper .ipo-card[data-ipo-id=long]")?.dataset.applicationRevision==="1"')
+    evaluate('document.querySelector("#ipoListWrapper .ipo-card[data-ipo-id=long] .ipo-member-chk[data-member=자녀]").click()')
+    wait_for(evaluate,'__detail.writes.length===2 && __detail.revision===2')
+    assert evaluate('__detail.writes.at(-1).body.revision')==1
+    assert evaluate('__detail.writes.at(-1).status')==200
+    assert evaluate('__uiApps.long.applied_owners')==['엄마','자녀']
+    assert evaluate('JSON.stringify(Object.fromEntries(Object.entries(__uiApps).filter(([id])=>id!=="long")))===JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(__serverAppsBefore)).filter(([id])=>id!=="long")))')

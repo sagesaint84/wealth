@@ -1092,12 +1092,23 @@
       };
 
   // Both entry points share the original application/account/allocation controls.
-  const ipoDetailDialog=document.createElement('dialog');ipoDetailDialog.id='ipoSharedDetailDialog';ipoDetailDialog.className='dialog';ipoDetailDialog.setAttribute('aria-labelledby','ipoSharedDetailTitle');document.body.append(ipoDetailDialog);
-  let detailEpoch=0,detailTrigger=null;
-  ipoDetailDialog.addEventListener('close',()=>{detailEpoch++;detailTrigger?.focus();});
-  window.addEventListener('wealth:role',()=>ipoDetailDialog.close());
+  let ipoDetailDialog=null,detailEpoch=0,detailTrigger=null;
+  function ensureIpoDetailDialog(){
+    if(ipoDetailDialog)return;
+    ipoDetailDialog=document.getElementById('ipoSharedDetailDialog');
+    if(!ipoDetailDialog){
+      ipoDetailDialog=document.createElement('dialog');
+      ipoDetailDialog.id='ipoSharedDetailDialog';
+      ipoDetailDialog.className='dialog';
+      ipoDetailDialog.setAttribute('aria-labelledby','ipoSharedDetailTitle');
+      document.body.append(ipoDetailDialog);
+    }
+    ipoDetailDialog.addEventListener('close',()=>{detailEpoch++;detailTrigger?.focus();});
+  }
+  window.addEventListener('wealth:role',()=>{detailEpoch++;ipoDetailDialog?.close();});
   async function openIpoDetail(id,trigger=null){
     if(typeof id!=='string'||!id.trim())return;
+    ensureIpoDetailDialog();
     if(trigger)detailTrigger=trigger;
     const epoch=++detailEpoch,identity=currentUserProfile?.id||currentUserProfile?.username;
     ipoDetailDialog.dataset.ipo=id;
@@ -1117,7 +1128,7 @@
       if(Array.isArray(apps.family_members))familyMembers=apps.family_members;
       const app=userApplications[id]||{},controls=renderApplicationControls(id,app);
       const content=ipoDetailDialog.querySelector('[data-ipo-detail-content]');
-      content.innerHTML=`<article class="ipo-card" data-ipo-id="${escapeHtml(id)}" data-application-revision="${apps.revision}"><h3>${escapeHtml(ipo.company_name)}</h3><p>청약 ${escapeHtml(ipo.subscription_start||'미정')} ~ ${escapeHtml(ipo.subscription_end||'미정')} · 공모가 ${formatMoney(ipo.final_offer_price)}원 · 상장 ${escapeHtml(ipo.actual_listing_date||ipo.expected_listing_date||'미정')}</p><p>청약 신청 수량: 기존 저장 모델 미지원 · 배정수량과 구분합니다.</p><div class="ipo-family-members-row">${controls.memberCheckboxesHtml}</div><div class="ipo-applicant-accounts">${controls.applicantAccountsHtml}</div><p>매도 기록이 없으면 기존 실현손익 입력 화면을 사용하세요.</p><button type="button" class="button secondary" data-ipo-pnl>실현손익 입력</button></article>`;
+      content.innerHTML=`<article class="ipo-card" data-ipo-id="${escapeHtml(id)}" data-application-revision="${apps.revision}"><h3>${escapeHtml(ipo.company_name)}</h3><p>청약 ${escapeHtml(ipo.subscription_start||'미정')} ~ ${escapeHtml(ipo.subscription_end||'미정')} · 공모가 ${formatMoney(ipo.final_offer_price)}원 · 상장 ${escapeHtml(ipo.actual_listing_date||ipo.expected_listing_date||'미정')}</p><div class="ipo-family-members-row">${controls.memberCheckboxesHtml}</div><div class="ipo-applicant-accounts">${controls.applicantAccountsHtml}</div><button type="button" class="button secondary" data-ipo-pnl>실현손익 입력</button></article>`;
       content.querySelector('[data-ipo-pnl]').onclick=()=>{ipoDetailDialog.close();location.hash='#pnl';if(typeof openPnlRecordDialog==='function')openPnlRecordDialog();};
       attachCheckboxListeners(content);
       await Promise.all([...content.querySelectorAll('.ipo-applicant-account')].map(hydrateApplicantAccountControl));
@@ -1127,7 +1138,7 @@
   async function refreshApplicantViews(id){
     const panel=document.getElementById('ipoPanel');
     if(panel&&!panel.classList.contains('wealth-income-hidden'))await loadIpoSchedule();
-    if(ipoDetailDialog.open&&ipoDetailDialog.dataset.ipo===id)await openIpoDetail(id);
+    if(ipoDetailDialog?.open&&ipoDetailDialog.dataset.ipo===id)await openIpoDetail(id);
     window.dispatchEvent(new CustomEvent('wealth-ipo-app-updated',{detail:{ipo_id:id,revision:currentRevision}}));
   }
   window.WealthIpoDetail={open:openIpoDetail};
@@ -1262,7 +1273,7 @@
               if(identity!==(currentUserProfile?.id||currentUserProfile?.username)||!control.isConnected)return;
               const record=(result.records||[]).find(record=>String(record.id)===button.dataset.pnlRecordId&&record.owner===owner);
               if(!record)throw Error('연결된 실현손익 기록을 확인하지 못했습니다.');
-              ipoDetailDialog.close();await openPnlRecordDialog(record);
+              ipoDetailDialog?.close();await openPnlRecordDialog(record);
             }catch(error){allocationSummary.textContent=error.message;}
             finally{button.disabled=false;}
           }));
@@ -1414,7 +1425,7 @@
 
   // Synchronize when applications are modified in other views (e.g. Calendar)
   window.addEventListener('wealth-ipo-app-updated', async (e) => {
-    if(ipoDetailDialog.open&&e.detail?.applications)await openIpoDetail(ipoDetailDialog.dataset.ipo);
+    if(ipoDetailDialog?.open&&e.detail?.applications)await openIpoDetail(ipoDetailDialog.dataset.ipo);
     const ipoPanel = document.getElementById('ipoPanel');
     if (ipoPanel && !ipoPanel.classList.contains('wealth-income-hidden')) {
       await loadIpoSchedule();

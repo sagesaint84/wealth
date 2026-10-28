@@ -44,7 +44,7 @@ class ReleaseVersionTests(unittest.TestCase):
         self.assertTrue(js_matches)
         versions = {
             'wealth-system-update.js': "2.1.8-ui1",
-            'wealth-ipo.js': "2.1.8-ui1",
+            'wealth-ipo.js': "2.1.8-ui2",
             'wealth-ledger-ocr.js': '2.0.2-review2',
             'wealth-money-input.js': '2.1.3-ui-cleanup1',
             "wealth-financial-income-what-if.js": "2.1.3-p0",

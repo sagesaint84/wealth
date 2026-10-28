@@ -3,6 +3,15 @@
 기준 main: `c03256dcb8b0ece7c558637c94e7cc0aa422426d`.
 Branch: `codex/v218-ui-ux-ipo-integration`. Oracle 운영 v2.1.7은 사용자 수락된 상태 그대로 유지한다.
 
+## PR #193 IPO 후속 수정·검증 (2026-10-28)
+
+- Linux IPO 날짜 단위 실패 원인은 wealth-ipo.js 모듈 초기화의 즉시 dialog DOM 생성이다. 최초 open 시 한 번 생성/재사용하도록 변경하고 미생성 참조를 보호했다. role 변경/닫기 시 epoch 무효화·focus 복원·기존 revision/입력 보존 계약을 유지한다. 불필요한 신청수량/매도 안내 문단 두 개만 제거하며 배정수량·실현손익 입력/연결 기능은 유지한다.
+- 별도 비동기 로더의 wealthIpoEventMonthsScript는 스크립트 실행 중 mount→applyMonth→renderIpoList를 수행한다. 기존 TEMP trace.json의 실제 호출 stack에서도 이 렌더를 확인했다. 이전 테스트는 이 모듈의 완료를 기다리지 않았다. 테스트는 해당 script.dataset.loaded, 문서/화면·자산 준비, 기존 supplementary/loadIpoSchedule Promise와 wealth:ipo-market-rendered 완료를 확인한 후 연결된 revision 0 카드를 캡처한다. sleep/timeout 증가/조건 완화 없음. 이 준비 조건 누락 확인과 과거 실패의 직접 원인 입증은 구분한다: **HISTORICAL_DOM_DETACH_ROOT_CAUSE=UNCONFIRMED**.
+- 연결된 카드 revision 0 / 서버 revision 1을 유지한 실제 PUT→409, 충돌 안내, 서버 최신 전체 신청 상태 보존 및 재조회 revision 1→정상 PUT 200까지 검증한다. 다른 IPO/가족 상태도 보존한다. 분리된 카드를 억지로 클릭하거나 revision을 덮어쓰지 않는다.
+- 지정 순서 실행: 단일 revision 테스트 **1 PASS** (2.70초), 전체 상세 Chromium 정상 순서 1회 **16 PASS** (43.40초), 날짜·상태 unit **18 PASS** + release contract **5 PASS** (합계 23, 2.89초), 관련 calendar/single renderer Chromium **6 PASS** (21.02초). 새 단일 성공으로 이전 15 PASS/1 FAIL을 삭제하지 않으며 과거 증거를 보존한다.
+- 증거: TEMP `wealth-v218-ipo-ready-f22a9986b73a49efac350936681dbe38`의 single/module/unit/related.log 및 .xml. 전체 pytest·489/230 확대 재실행 없음. Python/JS 문법 및 diff check PASS. wealth-ipo.js revision만 ui1→**2.1.8-ui2**로 갱신해 HTML/계약 동기화. wealth.js도 기존 ui2 유지, 나머지 변경 자산 8개는 ui1 유지.
+- 금융 서비스/host updater/Compose/Docker 및 원본 DAY blob 불변. 앱 버전 2.1.8, 운영 Oracle v2.1.7 유지. 새 HEAD CI 결과는 제출 후 별도 확인하며 아래 문서의 이전 NOT_RUN/HOLD는 당시 이력이다. 이 항목은 로컬 검증 결과이며 원격 성공을 선기록하지 않는다.
+
 ## 최신 판정 및 확정 요구 (2026-10-28)
 
 사용자 PowerShell 집중 검사 **63 PASS / DAY 38 PASS**, 277.74초, exit 0. 동적 차트 캐시 보완 이후 결과이며 `wealth-v218-final-review-eb0310c92ebe47e6b9a56c96843c1c23/final.xml`의 63건/실패 0건을 확인했다. LATEST_DAY_38=PASS, FINAL_FOCUSED_REGRESSION=PASS. 과거 DAY `filters` 실패 원인은 **UNCONFIRMED**이며 아래 실패 기록은 삭제하지 않는다. 이는 이전 코드의 검증이며 일 수익률 수정 후 영향 범위는 아래에 별도로 기록한다.
