@@ -77,15 +77,67 @@ jobs:
           # Checkout contains code only; refuse any repository data or env input.
           test ! -e data
           test ! -e .env
+          # Observe this run's collection and completion; never execute tests twice.
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          plugin = """
+          import json
+          import os
+          from pathlib import Path
+          from _pytest.junitxml import mangle_test_address
+
+          expected = []
+          phases = {}
+          collection_errors = []
+          subtest_failures = []
+          subtest_cases = []
+
+          def save(name, value):
+              Path(os.environ['IPO_REPORT_DIR'], name).write_text(json.dumps(value), encoding='utf-8')
+
+          def pytest_collectreport(report):
+              if report.failed:
+                  collection_errors.append(report.nodeid)
+
+          def pytest_collection_finish(session):
+              for item in session.items:
+                  address = mangle_test_address(item.nodeid)
+                  expected.append({'nodeid': item.nodeid, 'classname': '.'.join(address[:-1]), 'name': address[-1]})
+              save('ipo-expected-nodes.json', {'nodes': expected, 'collection_errors': collection_errors})
+
+          def pytest_runtest_logreport(report):
+              if hasattr(report, 'context'):
+                  address = mangle_test_address(report.nodeid)
+                  subtest_cases.append({'parent_nodeid': report.nodeid, 'classname': '.'.join(address[:-1]),
+                                        'name': address[-1], 'report_type': type(report).__module__ + '.' + type(report).__name__})
+                  if not report.passed:
+                      subtest_failures.append(report.nodeid)
+                  return
+              phases.setdefault(report.nodeid, {})[report.when] = report.outcome
+
+          def pytest_sessionfinish(session, exitstatus):
+              save('ipo-completed-nodes.json', {'phases': phases, 'subtest_failures': subtest_failures,
+                                              'collection_errors': collection_errors, 'subtest_cases': subtest_cases, 'exit_code': int(exitstatus)})
+          """
+          Path(os.environ['RUNNER_TEMP'], 'ipo_ci_collection.py').write_text(plugin, encoding='utf-8')
+          PY
           # Separate network namespace: Python AND Chromium can reach the
           # synthetic loopback server, but cannot reach financial/external APIs.
           sudo env "PATH=$PATH" "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}" \
             WEALTH_ENV=test WEALTH_DISABLE_ENV_FILE=1 PYTHONDONTWRITEBYTECODE=1 \
             PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTEST_ADDOPTS= DART_API_KEY= \
+            "PYTHONPATH=$RUNNER_TEMP" "IPO_REPORT_DIR=$RUNNER_TEMP" \
             "WEALTH_DATA_DIR=$WEALTH_DATA_DIR" "DATA_DIR=$DATA_DIR" "TMPDIR=$TMPDIR" \
             unshare --net bash -c 'ip link set lo up && exec "$@"' -- \
-            "$(command -v python)" -B -m pytest -q -p no:cacheprovider --maxfail=1 \
+            "$(command -v python)" -B -m pytest -q -p no:cacheprovider -p ipo_ci_collection --maxfail=1 \
             --basetemp="$TMPDIR/pytest" --junitxml="$RUNNER_TEMP/ipo-synthetic-results.xml" \
+            tests/test_ipo_naver_client.py \
+            tests/test_ipo_naver_discovery.py \
+            tests/test_ipo_naver_primary.py \
+            tests/test_ipo_naver_primary_chrome.py \
+            tests/test_ipo_npay_client.py \
+            tests/test_ipo_interactive_discovery.py \
             tests/test_ipo_schedule_lifecycle.py \
             tests/test_ipo_schedule_lifecycle_chrome.py \
             tests/test_ipo_stored_compat.py \
@@ -114,6 +166,81 @@ jobs:
             tests/test_ipo_refresh_scope.py \
             tests/test_ipo_refresh_adapter_order.py \
             tests/test_ipo_fast_refresh_and_krx_auth.py
+      - name: Report NAVER and Npay contracts independently of later regressions
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          try:
+              expected = json.loads((root / 'ipo-expected-nodes.json').read_text(encoding='utf-8'))
+              completed = json.loads((root / 'ipo-completed-nodes.json').read_text(encoding='utf-8'))
+              cases = list(ET.parse(root / 'ipo-synthetic-results.xml').iter('testcase'))
+          except (OSError, ValueError, ET.ParseError) as exc:
+              raise SystemExit('HOLD: missing or invalid collection/completion/JUnit evidence: ' + type(exc).__name__)
+          assert not expected['collection_errors'] and not completed['collection_errors'], 'HOLD: collection errors'
+          # Classify every JUnit row, including rows outside the six primary modules.
+          from collections import Counter
+          node_by_id = {n['nodeid']: n for n in expected['nodes']}
+          key_of = lambda n: (n['classname'], n['name'])
+          normal_keys = [key_of(n) for n in expected['nodes']]
+          assert len(node_by_id) == len(expected['nodes']), 'HOLD: duplicate collected node ID'
+          assert len(set(normal_keys)) == len(normal_keys), 'HOLD: collected-node JUnit mapping collision'
+          normal_keys = set(normal_keys)
+          separate_subtests = set()
+          for sub in completed.get('subtest_cases', []):
+              parent = node_by_id.get(sub['parent_nodeid'])
+              assert parent is not None, 'HOLD: orphan subtest parent'
+              assert sub['report_type'] == '_pytest.subtests.SubtestReport', 'HOLD: unrecognized subtest report format'
+              key = key_of(sub)
+              if key == key_of(parent):
+                  # pytest aggregates this subtest into its parent's single JUnit row.
+                  continue
+              assert completed['phases'].get(sub['parent_nodeid']) == {'setup': 'passed', 'call': 'passed', 'teardown': 'passed'}, 'HOLD: unfinished separate-subtest parent'
+              assert key not in normal_keys, 'HOLD: subtest/normal mapping collision'
+              assert key not in separate_subtests, 'HOLD: ambiguous separate subtest mapping'
+              separate_subtests.add(key)
+          counts = Counter((c.get('classname'), c.get('name')) for c in cases)
+          duplicates = [key for key, count in counts.items() if count != 1]
+          unmapped = set(counts) - normal_keys - separate_subtests
+          if duplicates:
+              if any(c.find(tag) is not None for c in cases for tag in ('failure', 'error', 'skipped')):
+                  print('FAIL: failure/error/skip in duplicate JUnit evidence', flush=True)
+              print('HOLD: duplicate JUnit cases: ' + repr(duplicates), flush=True)
+          if unmapped:
+              print('HOLD: unmapped JUnit cases: ' + repr(sorted(unmapped, key=repr)), flush=True)
+          missing_subtests = separate_subtests - set(counts)
+          assert not missing_subtests, 'HOLD: missing separately reported subtest cases'
+          assert not duplicates and not unmapped, 'HOLD: JUnit classification failed'
+          modules = (
+              'test_ipo_naver_client', 'test_ipo_naver_discovery',
+              'test_ipo_naver_primary', 'test_ipo_naver_primary_chrome',
+              'test_ipo_npay_client', 'test_ipo_interactive_discovery',
+          )
+          incomplete = []
+          for module in modules:
+              nodes = [n for n in expected['nodes'] if n['nodeid'].split('::')[0] == 'tests/' + module + '.py']
+              selected = [c for c in cases if module in c.get('classname', '').split('.')]
+              expected_keys = {(n['classname'], n['name']) for n in nodes}
+              actual_keys = {(c.get('classname'), c.get('name')) for c in selected
+                             if (c.get('classname'), c.get('name')) in normal_keys}
+              missing = [n['nodeid'] for n in nodes
+                         if (n['classname'], n['name']) not in actual_keys
+                         or completed['phases'].get(n['nodeid']) != {'setup': 'passed', 'call': 'passed', 'teardown': 'passed'}]
+              bad = any(c.find(tag) is not None for c in selected for tag in ('failure', 'error', 'skipped'))
+              bad = bad or any(n['nodeid'] in completed['subtest_failures'] for n in nodes)
+              passed = bool(nodes) and len(expected_keys) == len(nodes) and not missing and not bad and actual_keys == expected_keys
+              status = 'PASS' if passed else 'FAIL' if bad else 'INCOMPLETE/HOLD'
+              print(f'{status}: {module}: expected={len(nodes)}, completed={len(nodes) - len(missing)}, junit={len(selected)}', flush=True)
+              if missing:
+                  print('Missing or unfinished node IDs: ' + ', '.join(missing), flush=True)
+              if not passed:
+                  incomplete.append(module)
+          assert not incomplete, 'HOLD: primary contracts not fully passed: ' + ', '.join(incomplete)
+          PY
       - name: Require actual Chromium execution without skipped regressions
         run: |
           python - <<'PY'
