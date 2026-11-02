@@ -27,7 +27,28 @@ def test_v211_dividend_visible_chart_cards_and_optional_record_fields(chrome_pre
     call, evaluate, port = chrome_preview
     call('Emulation.setDeviceMetricsOverride', {'width':width, 'height':900, 'deviceScaleFactor':1, 'mobile':width < 500})
     call('Page.navigate', {'url':f'http://127.0.0.1:{port}/#dividend'})
-    wait_for(evaluate, "!!window.WealthUnifiedTimeseries && !!document.getElementById('divTotalAnnual')")
+    # Presence of the chart API is earlier than startup reads and the late filter's catch-up.
+    # Observe existing completion signals only; do not issue reads or change the selected period.
+    wait_for(evaluate, """(() => {
+      const startup = window.WealthStartup;
+      if (!window.WealthUnifiedTimeseries || !startup?.canRead()
+          || typeof loadAssetDataForUser !== 'function') return false;
+      const panel = document.getElementById('dividendPanel');
+      const host = document.getElementById('dividendBarChartWrap');
+      const filterScript = document.getElementById('wealthIncomePeriodBrokerFilterScript');
+      return currentIncomeTab === 'dividend' && currentDividendMode === 'actual'
+        && !loadAssetDataForUser.pending && startupIncomeReuse === false
+        && !setIncomeTab.pendingTarget && startupReadPending.size === 0
+        && !!window.WealthIncomePeriodBrokerFilter && filterScript?.dataset.loaded === 'true'
+        && actualDividendData?.__dividend_filtered_view === true
+        && String(actualDividendData.year) === String(selectedDividendYear)
+        && Array.isArray(actualDividendData.records)
+        && window.__divTrace.actualCalls > 0
+        && !!panel?.getClientRects().length && getComputedStyle(panel).visibility !== 'hidden'
+        && ['ready', 'empty'].includes(host?.dataset.unifiedState)
+        && !!host?.querySelector('.wealth-unified-chart-shell, .wealth-unified-empty')
+        && !!document.getElementById('divTotalAnnual');
+    })()""")
     result = evaluate("""(() => {
       currentOwner='모두'; selectedDividendYear='2026'; selectedDividendMonth=10;
       const rows=[{id:'v211-a',code:'316140',name:'합성 우리금융',owner:'모두',date:'2026-04-08',currency:'KRW',amount:212800,amount_krw:212800,fx_rate:1,

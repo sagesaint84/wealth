@@ -294,6 +294,66 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-layout .button:disabled { opacity: .42; cursor: not-allowed; filter: none; transform: none; box-shadow: none; }
 .wealth-layout :is(.button,input,select,textarea):focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 3px; }
 .wealth-layout .button[hidden], .wealth-history-dialog [hidden] { display: none !important; }
+/* M1 Button owner: opt-in only; legacy buttons retain their existing cascade.
+   compact is intentionally absent on migrated buttons, so no precedence bridge is needed.
+   busy() still owns disabled/text updates; aria-busy is styled if a controller supplies it. */
+.wealth-layout .button.wealth-ui-button[data-ui="button"] {
+  --button-height: 31px;
+  --button-gap: 4px;
+  --button-padding-inline: 10px;
+  --button-radius: 8px;
+  --button-font-size: 11.5px;
+  --button-font-weight: 600;
+  --button-background: var(--surface-2);
+  --button-foreground: var(--text);
+  --button-border: var(--border-subtle);
+  display: inline-flex; align-items: center; justify-content: center;
+  box-sizing: border-box; flex-shrink: 0; max-width: 100%;
+  height: var(--button-height); min-height: var(--button-height);
+  gap: var(--button-gap); padding: 0 var(--button-padding-inline);
+  border: 1px solid var(--button-border); border-radius: var(--button-radius);
+  font-family: inherit; font-size: var(--button-font-size); font-weight: var(--button-font-weight);
+  line-height: 1; white-space: nowrap; word-break: keep-all; text-align: center;
+  color: var(--button-foreground); background: var(--button-background);
+  cursor: pointer; transform: none; filter: none;
+  transition: background-color .15s, border-color .15s, box-shadow .15s;
+}
+.wealth-layout .button.wealth-ui-button.primary[data-ui="button"] {
+  --button-background: var(--violet); --button-foreground: #fff; --button-border: var(--purple);
+  box-shadow: none;
+}
+.wealth-layout .button.wealth-ui-button.danger[data-ui="button"] {
+  --button-background: color-mix(in srgb,var(--red) 9%,var(--surface-1));
+  --button-foreground: var(--red); --button-border: color-mix(in srgb,var(--red) 45%,var(--border-subtle));
+}
+.wealth-layout .button.wealth-ui-button:is(.text,.ghost,.neutral)[data-ui="button"] {
+  --button-background: transparent; --button-foreground: var(--workspace-accent); --button-border: transparent;
+}
+@media (hover: hover) {
+  .wealth-layout .button.wealth-ui-button[data-ui="button"]:not(:disabled):hover {
+    background: var(--surface-hover); border-color: var(--workspace-accent); transform: none; filter: none;
+  }
+  .wealth-layout .button.wealth-ui-button.primary[data-ui="button"]:not(:disabled):hover {
+    background: color-mix(in srgb,var(--violet) 88%,var(--text)); color: var(--button-foreground);
+  }
+  .wealth-layout .button.wealth-ui-button.danger[data-ui="button"]:not(:disabled):hover {
+    background: color-mix(in srgb,var(--red) 16%,var(--surface-1)); color: var(--red);
+  }
+}
+.wealth-layout .button.wealth-ui-button[data-ui="button"]:not(:disabled):active {
+  transform: none; box-shadow: inset 0 2px 4px #0003;
+}
+.wealth-layout .button.wealth-ui-button[data-ui="button"]:focus-visible {
+  outline: 2px solid var(--workspace-accent); outline-offset: 3px;
+}
+.wealth-layout .button.wealth-ui-button[data-ui="button"]:disabled {
+  opacity: .42; cursor: not-allowed; transform: none; filter: none; box-shadow: none;
+}
+.wealth-layout .button.wealth-ui-button[data-ui="button"][aria-busy="true"] { cursor: progress; }
+@media (prefers-reduced-motion: reduce) {
+  .wealth-layout .button.wealth-ui-button[data-ui="button"] { transition: none; }
+}
+/* End M1 Button owner. */
 .wealth-layout :is(.panel,.summary-card,.market-card,.wealth-composition,.wealth-settings-card) {
   background: var(--surface-1); border-color: var(--border-subtle); border-radius: 16px; box-shadow: 0 2px 10px #0001;
 }
