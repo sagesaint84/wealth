@@ -1,5 +1,6 @@
 """Real DOM: legacy calendar/list consistency and original-ID application edits."""
 import json
+from tests.test_ipo_calendar_ui_chrome import navigate_calendar_month
 from copy import deepcopy
 from tests.test_account_reorder_runtime import chrome_preview, wait_for
 from tests.test_ipo_stored_compat import presented, aliases
@@ -54,7 +55,9 @@ def test_legacy_list_calendar_and_alias_application_ids(chrome_preview):
     evaluate("(async()=>{__phase=1;await loadIpoSchedule();return true;})()")
     wait_for(evaluate, "document.querySelector('#ipoListWrapper').textContent.includes('청약 연기')")
     assert evaluate("!document.querySelector('#ipoListWrapper').textContent.includes('청약중')")
-    evaluate("(async()=>{setIncomeTab('calendar');WealthCalendar.setSelectedDate('2026-10-19');await WealthCalendar.loadCalendar();return true;})()")
+    evaluate("setIncomeTab('calendar')")
+    navigate_calendar_month(evaluate, 2026, 10)
+    evaluate("(async()=>{WealthCalendar.setSelectedDate('2026-10-19');await WealthCalendar.loadCalendar();return true;})()")
     wait_for(evaluate, "document.querySelector('#calendarPanel').getClientRects().length>0")
     assert evaluate("!document.querySelector('#calendarDetailPanel').textContent.includes('유캐스트')")
     evaluate("(async()=>{WealthCalendar.setSelectedDate('2026-10-20');await WealthCalendar.loadCalendar();return true;})()")
@@ -101,7 +104,10 @@ def test_user_exclusion_restore_in_real_list_and_calendar(chrome_preview):
     """})
     call("Page.navigate", {"url": f"http://127.0.0.1:{port}/#ipo"})
     wait_for(evaluate, "!!window.WealthIpoState && !!window.WealthCalendar && typeof window.setIpoScheduleExcluded==='function'")
-    evaluate("(async()=>{await loadIpoSchedule();WealthIpoState.setFilterGroup('ALL');WealthIpoState.setHistoryYear(2026);WealthIpoState.setHistoryMonth(10);WealthIpoState.setMonthExplicitlySelected(true);WealthIpoState.renderIpoList();setIncomeTab('calendar');WealthCalendar.setSelectedDate('2026-10-19');await WealthCalendar.loadCalendar();return true;})()")
+    evaluate("(async()=>{await loadIpoSchedule();WealthIpoState.setFilterGroup('ALL');WealthIpoState.setHistoryYear(2026);WealthIpoState.setHistoryMonth(10);WealthIpoState.setMonthExplicitlySelected(true);WealthIpoState.renderIpoList();return true;})()")
+    evaluate("setIncomeTab('calendar')")
+    navigate_calendar_month(evaluate, 2026, 10)
+    evaluate("(async()=>{WealthCalendar.setSelectedDate('2026-10-19');await WealthCalendar.loadCalendar();return true;})()")
     wait_for(evaluate, "!!document.querySelector('#calendarDetailPanel .cal-ipo-exclude')")
     assert evaluate("document.querySelector('#calendarDetailPanel .cal-ipo-exclude').getClientRects().length>0")
     evaluate("document.querySelector('#calendarDetailPanel .cal-ipo-exclude').click();true")
