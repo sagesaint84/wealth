@@ -92,7 +92,7 @@
     <link rel="stylesheet" href="/static/wealth-savings-contributions.css?v=10.9p" />
     <link rel="stylesheet" href="/static/wealth-account-reorder.css?v=1.3.0" />
     <link rel="stylesheet" href="/static/wealth-overrides.css?v=2.1.6-expand1" />
-    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.9-m1-button1" />
+    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.9-m1-m2-ui1" />
     <link rel="stylesheet" href="/static/wealth-color-preferences.css?v=10.9r6" />
   <link rel="stylesheet" href="/static/wealth-color-picker.css?v=10.9r2" />
     <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css?v=2.1.0-b2" />
@@ -754,9 +754,9 @@
         </div>
       </section>
 <section id="realizedPnlPanel" class="panel dividend-panel pnl-panel wealth-income-hidden"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'pnl');</script>
-        <div class="panel-head dividend-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
-          <div class="dividend-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <div>
+        <div class="panel-head dividend-head wealth-ui-section-header" data-ui="section-header">
+          <div class="dividend-title-wrap wealth-ui-section-header__leading">
+            <div class="wealth-ui-section-header__heading">
               <p class="eyebrow">PROFIT & LOSS</p>
               <h2>실현손익</h2>
             </div>
@@ -775,13 +775,13 @@
             <button type="button" class="heatmap-tab active" data-trade-type="all">🏢 전체</button>
             <button type="button" class="heatmap-tab" data-trade-type="ipo">📦 공모주</button>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
+          <div class="wealth-ui-section-header__auxiliary">
             <select id="pnlYearSelect" class="heatmap-select" style="min-width:90px;font-size:12px;" aria-label="실현손익 연도 선택">
               <option value="">—</option>
               <option value="all">전체 기간</option>
             </select>
           </div>
-          <div class="toolbar" style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <div class="toolbar wealth-ui-section-header__actions">
             <button id="addPnlBtn" class="button secondary compact" type="button" title="매도 실현손익 추가">➕ 손익 추가</button>
             <button id="importPnlBtn" class="button secondary compact" type="button" title="매도 실현손익 엑셀 가져오기">📂 가져오기</button>
             <button id="clearAllPnlBtn" class="button secondary danger compact" type="button" title="매도 실현손익 전체 일괄 삭제">🗑️ 일괄삭제</button>
@@ -1257,9 +1257,9 @@
         </div>
       </section>
 <section id="dividendPanel" class="panel dividend-panel wealth-income-hidden"><script>WealthWorkspaceRoute.select(document.currentScript.parentElement, 'dividend');</script>
-        <div class="panel-head dividend-head" style="flex-wrap:wrap;gap:0.5rem;align-items:center;">
-          <div class="dividend-title-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <div>
+        <div class="panel-head dividend-head wealth-ui-section-header" data-ui="section-header">
+          <div class="dividend-title-wrap wealth-ui-section-header__leading">
+            <div class="wealth-ui-section-header__heading">
               <p class="eyebrow">DIVIDEND</p>
               <h2>배당금</h2>
             </div>
@@ -1278,13 +1278,13 @@
             <button type="button" class="heatmap-tab active" data-div-mode="actual">💵 실제</button>
             <button type="button" class="heatmap-tab" data-div-mode="estimated">🔮 예상</button>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;margin-left:8px;">
+          <div class="wealth-ui-section-header__auxiliary">
             <select id="dividendYearSelect" class="heatmap-select" style="min-width:90px;font-size:12px;" aria-label="배당 연도 선택">
               <option value="">—</option>
               <option value="all">전체 기간</option>
             </select>
           </div>
-          <div class="toolbar" style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+          <div class="toolbar wealth-ui-section-header__actions">
             <button id="refreshDividendBtn" class="button secondary compact" type="button" title="배당 정보 재조회" style="display:none;">↻ 조회</button>
             <button id="addDividendBtn" class="button secondary compact" type="button" title="실제 입금 배당금 추가">➕ 배당 추가</button>
             <button id="importDividendBtn" class="button secondary compact" type="button" title="실제 배당금 엑셀 가져오기">📂 가져오기</button>

@@ -149,6 +149,52 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-layout [data-wealth-page] > .panel:first-child { margin-top: 0 !important; }
 .wealth-composition, .wealth-settings-card { border: 1px solid var(--line); border-radius: 20px; padding: 26px; background: var(--panel); min-width: 0; }
 .wealth-section-heading a { color: var(--workspace-accent); text-decoration: none; font-size: 12px; white-space: nowrap; }
+/* M2 SectionHeader owner: section-level h2 headers only, opt-in and parent-independent.
+   Keep the dividend-head hook: startup temporarily moves the same header node. */
+.wealth-layout .wealth-ui-section-header[data-ui="section-header"] {
+  --section-header-gap: 8px;
+  --section-header-leading-gap: 10px;
+  --section-header-action-gap: 6px;
+  --section-header-title-size: 20px;
+  --section-header-eyebrow-size: 10px;
+  --section-header-eyebrow-spacing: 1.5px;
+  --section-header-eyebrow-margin: 4px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--section-header-gap); min-width: 0; font-family: inherit;
+}
+.wealth-layout .wealth-ui-section-header[data-ui="section-header"] > .wealth-ui-section-header__leading {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: var(--section-header-leading-gap); min-width: 0; max-width: 100%;
+}
+.wealth-layout .wealth-ui-section-header[data-ui="section-header"] .wealth-ui-section-header__heading {
+  min-width: 0; max-width: 100%;
+}
+.wealth-layout .wealth-ui-section-header[data-ui="section-header"] .wealth-ui-section-header__heading > h2 {
+  display: block; margin: 0; font-family: inherit;
+  font-size: var(--section-header-title-size); font-weight: 800;
+  letter-spacing: -.4px; overflow-wrap: anywhere;
+}
+.wealth-layout .wealth-ui-section-header[data-ui="section-header"] .wealth-ui-section-header__heading > .eyebrow {
+  margin: 0 0 var(--section-header-eyebrow-margin);
+  font-size: var(--section-header-eyebrow-size); letter-spacing: var(--section-header-eyebrow-spacing);
+}
+.wealth-layout .wealth-ui-section-header[data-ui="section-header"] > .wealth-ui-section-header__auxiliary,
+.wealth-layout .wealth-ui-section-header[data-ui="section-header"] > .wealth-ui-section-header__actions {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: var(--section-header-action-gap); min-width: 0; max-width: 100%;
+}
+.wealth-layout .wealth-ui-section-header[data-ui="section-header"] > .wealth-ui-section-header__auxiliary { margin-left: 8px; }
+.wealth-layout .wealth-ui-section-header[data-ui="section-header"] > .wealth-ui-section-header__actions { margin-left: auto; }
+@media (max-width: 600px) {
+  .wealth-layout .wealth-ui-section-header[data-ui="section-header"] {
+    --section-header-gap: 10px;
+    --section-header-title-size: 17.5px;
+    --section-header-eyebrow-size: 9px;
+    --section-header-eyebrow-spacing: 1px;
+    --section-header-eyebrow-margin: 2px;
+  }
+}
+/* End M2 SectionHeader owner. */
 .wealth-home-asset-portfolio { margin: 20px 0; }
 .wealth-section-heading { display: flex; align-items: center; justify-content: space-between; }
 .wealth-content h3 { letter-spacing: -.35px; }
