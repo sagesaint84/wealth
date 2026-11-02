@@ -1,5 +1,6 @@
 """Real DOM: legacy calendar/list consistency and original-ID application edits."""
 import json
+from tests.test_ipo_calendar_ui_chrome import navigate_calendar_month
 from copy import deepcopy
 from tests.test_account_reorder_runtime import chrome_preview, wait_for
 from tests.test_ipo_stored_compat import presented, aliases
@@ -54,7 +55,9 @@ def test_legacy_list_calendar_and_alias_application_ids(chrome_preview):
     evaluate("(async()=>{__phase=1;await loadIpoSchedule();return true;})()")
     wait_for(evaluate, "document.querySelector('#ipoListWrapper').textContent.includes('청약 연기')")
     assert evaluate("!document.querySelector('#ipoListWrapper').textContent.includes('청약중')")
-    evaluate("(async()=>{setIncomeTab('calendar');WealthCalendar.setSelectedDate('2026-10-19');await WealthCalendar.loadCalendar();return true;})()")
+    evaluate("setIncomeTab('calendar')")
+    navigate_calendar_month(evaluate, 2026, 10)
+    evaluate("(async()=>{WealthCalendar.setSelectedDate('2026-10-19');await WealthCalendar.loadCalendar();return true;})()")
     wait_for(evaluate, "document.querySelector('#calendarPanel').getClientRects().length>0")
     assert evaluate("!document.querySelector('#calendarDetailPanel').textContent.includes('유캐스트')")
     evaluate("(async()=>{WealthCalendar.setSelectedDate('2026-10-20');await WealthCalendar.loadCalendar();return true;})()")

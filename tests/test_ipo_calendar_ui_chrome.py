@@ -56,8 +56,30 @@ def open_list(call, evaluate, port, width):
     wait_for(evaluate,"document.querySelectorAll('#ipoListWrapper .ipo-card').length===4")
 
 
+
+def navigate_calendar_month(evaluate, year, month):
+    """Use real month controls; do not confuse selected date with visible month."""
+    assert 1 <= month <= 12
+    target = year * 12 + month
+    current = evaluate("WealthCalendar.getCurrentYear()*12+WealthCalendar.getCurrentMonth()")
+    assert isinstance(current, int)
+    steps = abs(target - current)
+    assert steps <= 240, "Calendar month navigation exceeds 20-year test guard"
+    for _ in range(steps):
+        previous = current
+        button = 'calendarPrevMonthBtn' if current > target else 'calendarNextMonthBtn'
+        evaluate(f"document.getElementById({json.dumps(button)}).click()")
+        evaluate("(async()=>{await WealthCalendar.loadCalendar();return true;})()")
+        current = evaluate("WealthCalendar.getCurrentYear()*12+WealthCalendar.getCurrentMonth()")
+        assert current == previous + (-1 if previous > target else 1)
+    assert current == target
+    evaluate("(async()=>{await WealthCalendar.loadCalendar();return true;})()")
+
+
 def open_calendar(evaluate):
-    evaluate("(async()=>{setIncomeTab('calendar');WealthCalendar.setSelectedDate('2026-10-19');await WealthCalendar.loadCalendar();return true;})()")
+    evaluate("setIncomeTab('calendar')")
+    navigate_calendar_month(evaluate, 2026, 10)
+    evaluate("(async()=>{WealthCalendar.setSelectedDate('2026-10-19');await WealthCalendar.loadCalendar();return true;})()")
     wait_for(evaluate,"document.querySelector('#calendarDetailPanel .cal-ipo-exclude')?.getClientRects().length>0")
 
 
