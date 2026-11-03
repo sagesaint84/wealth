@@ -1,5 +1,13 @@
 # #189 — 존재하지 않는 rollback 참조의 안전한 해제
 
+이 문서는 rollback 참조 도구의 기술 계약과 과거 감사 기록이다. 최신 앱 운영 상태는 [PROJECT_STATE](PROJECT_STATE.md)를 따르며, 과거 수치나 누락 참조를 현재 상태로 재사용하지 않는다.
+
+## 2026-10-28 Issue #189 운영 감사 기록 — 당시 조치 불필요
+
+현재 이미지 EXISTS, worker ACTIVE, ACTIVE_JOBS=0, ROLLBACK_FAILED_JOBS=0, 마지막 install succeeded/confirmed=True, rollback 참조 SET, rollback 이미지 EXISTS, SHA/DIGEST/IMAGE_ID_MATCH=PASS, 현재·rollback 보호 및 다른 컨테이너 사용 0, 디스크 여유 29.75 GiB를 읽기 전용으로 확인했다. 추가 사용자 제공 감사값은 JOB_STAGE_COUNTS={'succeeded': 5}, CURRENT_IN_MANAGED=True다.
+
+HOST_MAINTENANCE_NEEDED=NO. 호스트 maintenance 모듈 미설치 상태이며 CLI dry-run/apply, 코드 교체, state 직접 편집, worker 재시작, Docker 이미지 조작을 하지 않았다. 현재 실제 존재하는 정상 rollback 참조는 해제하지 않는다. 과거 누락된 v2.1.5 이미지 참조를 현재 대상으로 재사용하지 않는다. Issue 종료는 현 상태 감사 및 조치 불필요에 근거하며, 과거 누락 원인이나 maintenance 적용 성공을 새로 주장하지 않는다.
+
 ## 2026-10-28 — v2.1.7 통합 후보 최종 정리 / 운영 미배포
 
 - **APP_VERSION=2.1.7 릴리스 후보**, [PR #192](https://github.com/sagesaint84/wealth/pull/192)는 **Draft / 미병합**이다. 원래 통합 커밋 `f19ab03c7b07dbeaaa7608e2cef40687d5ebfc49`의 27개 변경 파일을 유지한다. 원본 #190의 코드 `fd8b7045`·문서 `d8d8434` 및 #191 `3897f0b`의 기술 계약과 검증 이력을 보존한다. 정적 자산 revision `2.1.7-cnn1` 및 기능 코드는 이번 정리에서 변경하지 않는다.

@@ -1,5 +1,7 @@
 # Wealth v2.1.9 운영 피드백 후보
 
+이 문서는 v2.1.9 출시 전 개선 설계와 당시 검증 기록을 보존한다. 아래 후보·Draft·NOT_RUN은 현재 미출시를 뜻하지 않는다. 최신 M1·M2 운영 근거는 [PROJECT_STATE](PROJECT_STATE.md)를 따른다.
+
 Base main: 72a7b0c97bfa6e94e6d5b38d9710c2439d9c4dd7. Branch: codex/v219-ui-ux-polish. 운영 v2.1.8은 사용자 확인 근거로 보존한다. 기존 worktree/PR190/191/운영 데이터 변경 없음.
 
 ## 구현 경계

@@ -1,5 +1,17 @@
 # Wealth 변경 이력
 
+## Wealth v2.1.9 — M1·M2 공통 UI 운영 반영 (2026-11-03 KST)
+
+- [M1 #196](https://github.com/sagesaint84/wealth/pull/196): 공통 Button 스타일을 상단 시세 갱신·계좌 동기화에 opt-in 적용. 병합 SHA `892e745695e4791ec5ab47e78c0b6ff8d5539829`.
+- [M2 #197](https://github.com/sagesaint84/wealth/pull/197): 실현손익·배당금 SectionHeader 공통화와 M1 통합. **배포 SHA `f330dbeb50e1831968a1be7216954f602e992dc2`**, 앱 버전 2.1.9 유지, 공통 CSS revision `2.1.9-m1-m2-ui1`.
+- Windows Model·Compatibility·Chromium 통합 PASS, GitHub CI 6/6 job PASS, GHCR 빌드·게시 PASS 및 Oracle 화면 사용자 정상 확인. 금융 계산·API·DB 변경 없음. 세부 수치·이미지 Digest·근거 구분은 [운영 상태](docs/PROJECT_STATE.md)에 모은다.
+- 병합된 QA: [#198](https://github.com/sagesaint84/wealth/pull/198) NAVER/Npay 합성 CI 계약, [#199](https://github.com/sagesaint84/wealth/pull/199) 배당 startup readiness, [#200](https://github.com/sagesaint84/wealth/pull/200) IPO 달력 표시 월 선택. 모두 최신 main에 포함되며 제품 금융 계산·API·DB 변경이 아니다.
+- 과거 IPO 달력 날짜 의존 CI 실패 이후 월 선택 수정과 NAVER/Npay CI 계약을 main에 반영했다. 자동 3폭×3테마 전후 이미지 증거는 PENDING이며 기존 rollback 이미지는 보존한다.
+
+## 이전 릴리스·후보 기록
+
+아래 후보·NOT_RUN·미배포 내용은 작성 당시 기록이다. 현재 상태는 [PROJECT_STATE](docs/PROJECT_STATE.md)를 따른다.
+
 ## Wealth v2.1.9 — 운영 피드백 개선 후보
 
 **Wealth v2.1.9 후보**는 운영 v2.1.8 사용자 확인 기준 main `72a7b0c97bfa6e94e6d5b38d9710c2439d9c4dd7`에서 별도 개발한다. 기존 v2.1.8 이력은 아래에 보존한다. 설치·정상 확인·정리만 비밀번호 재입력 없이 현재 세션/실제 권한/CSRF/Origin/일회성 작업 승인으로 처리하며, 관리자 권한 부여·회수의 비밀번호 재인증은 유지한다. 공포탐욕 명칭·표시 설정·은행 4개 금액 카드·공모주 상세 배치를 개선한다. 금융 서비스/host updater·Oracle·GHCR은 변경하지 않는다. 새 버전은 개발 후보이며 CI/병합/운영 완료로 간주하지 않는다. 상세: docs/UI_UX_V219.md.
@@ -82,7 +94,7 @@
 - 앱 버전 2.1.3 유지. 자산 포트폴리오 / 순자산 추이 / 주요지수 이름과 기존 DOM·렌더러를 보존한다.
 - 숨긴 순자산 패널 geometry 검사에 의한 동기 Layout을 피하는 최소 로컬 패치와 planning JS 개별 revision `2.1.3-home-tabs2` 계약을 준비했다. 성능 해결·출시를 의미하지 않는다.
 - 기존 360px 실패 기록 2회 및 새 16표본 비교를 보존한다. 무회귀 기준 미충족으로 PERFORMANCE_GATE=FAIL/HOLD, MERGE_GATE=HOLD, DEPLOY_GATE=HOLD. Commit·Push하지 않는다.
-- [정밀 조사·격리 실험·회귀 결과](docs/home-tabs-hold-20261025/REPORT.md). 아래 운영 배포 기록은 변경하지 않는다.
+- 정밀 조사·격리 실험·회귀 결과（당시 로컬 증거 경로 `docs/home-tabs-hold-20261025/REPORT.md`, 현재 저장소에 파일 미포함）. 아래 운영 배포 기록은 변경하지 않는다.
 
 ## 2026-10-24 — PR #173 금리 그래프·자산 이모지 복구, 운영 배포 완료
 
