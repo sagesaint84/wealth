@@ -1,32 +1,16 @@
 # Wealth 변경 이력
 
-## 현재 운영 기준 상태 — 2026-10-28 / Wealth v2.1.9
+## Wealth v2.1.9 — M1·M2 공통 UI 운영 반영 (2026-11-03 KST)
 
-**현재 운영 앱 APP_VERSION=2.1.9. Oracle 실제 화면 사용자 확인 완료는 사용자 보고에 근거한다.** Issue #189의 현재 이미지·rollback 상태는 별도 읽기 전용 감사로 확인했으며, 이번 문서 갱신에서 운영 서비스·이미지·state는 변경하지 않는다.
+- [M1 #196](https://github.com/sagesaint84/wealth/pull/196): 공통 Button 스타일을 상단 시세 갱신·계좌 동기화에 opt-in 적용. 병합 SHA `892e745695e4791ec5ab47e78c0b6ff8d5539829`.
+- [M2 #197](https://github.com/sagesaint84/wealth/pull/197): 실현손익·배당금 SectionHeader 공통화와 M1 통합. **배포 SHA `f330dbeb50e1831968a1be7216954f602e992dc2`**, 앱 버전 2.1.9 유지, 공통 CSS revision `2.1.9-m1-m2-ui1`.
+- Windows Model·Compatibility·Chromium 통합 PASS, GitHub CI 6/6 job PASS, GHCR 빌드·게시 PASS 및 Oracle 화면 사용자 정상 확인. 금융 계산·API·DB 변경 없음. 세부 수치·이미지 Digest·근거 구분은 [운영 상태](docs/PROJECT_STATE.md)에 모은다.
+- 병합된 QA: [#198](https://github.com/sagesaint84/wealth/pull/198) NAVER/Npay 합성 CI 계약, [#199](https://github.com/sagesaint84/wealth/pull/199) 배당 startup readiness, [#200](https://github.com/sagesaint84/wealth/pull/200) IPO 달력 표시 월 선택. 모두 최신 main에 포함되며 제품 금융 계산·API·DB 변경이 아니다.
+- 과거 IPO 달력 날짜 의존 CI 실패 이후 월 선택 수정과 NAVER/Npay CI 계약을 main에 반영했다. 자동 3폭×3테마 전후 이미지 증거는 PENDING이며 기존 rollback 이미지는 보존한다.
 
-GitHub에서 직접 확인한 릴리스 이력(annotated 태그의 원격 역참조 SHA도 일치):
+## 이전 릴리스·후보 기록
 
-| 버전·태그 | 병합 PR | 정확한 병합 커밋 |
-|---|---|---|
-| v2.1.7 | [#192](https://github.com/sagesaint84/wealth/pull/192) | `c03256dcb8b0ece7c558637c94e7cc0aa422426d` |
-| v2.1.8 | [#193](https://github.com/sagesaint84/wealth/pull/193) | `72a7b0c97bfa6e94e6d5b38d9710c2439d9c4dd7` |
-| v2.1.9 | [#194](https://github.com/sagesaint84/wealth/pull/194) | `4c62a5e8ef2e65d98d835a5e8a70c534ccf53f3d` |
-
-- **직접 검증한 CI:** v2.1.9 PR HEAD `031ab646513fccbc615ab0cd6e6655667e0281d9`의 Linux CI **4/4 SUCCESS**. [Static transport](https://github.com/sagesaint84/wealth/actions/runs/40627717046) **642 PASS / SKIP 0**, 기존 경고 1건, 실제 Chromium/SKIP 금지 검증 단계 성공. [IPO](https://github.com/sagesaint84/wealth/actions/runs/40627717081), [Toss WTS](https://github.com/sagesaint84/wealth/actions/runs/40627717113), [System update](https://github.com/sagesaint84/wealth/actions/runs/40627717108)도 SUCCESS. 이는 해당 릴리스 코드의 결과이며 새 문서 PR HEAD의 결과로 승계하지 않는다.
-- **직접 검증한 GHCR:** [docker-publish run 40636503851](https://github.com/sagesaint84/wealth/actions/runs/40636503851)의 build-and-push SUCCESS 및 checkout SHA `4c62a5e8ef2e65d98d835a5e8a70c534ccf53f3d` 확인. 이 작업에서 이미지 발행/태그 변경/설치를 실행하지 않는다.
-- **중복 통합 정리:** [#190](https://github.com/sagesaint84/wealth/pull/190)·[#191](https://github.com/sagesaint84/wealth/pull/191)은 #192 통합 및 #193/#194 후속 변경 감사 후 **미병합 CLOSED**. 삭제 승인된 원격 feature 브랜치 7개를 정리해 이번 문서 브랜치 생성 전 원격에는 main만 남았다. 이 문서 Draft 제출 시 문서 브랜치/PR은 새로 추가되며, 이전의 열린 PR 0개 상태와 구분한다. 로컬 보호 브랜치·worktree·증거는 삭제하지 않는다.
-- **남은 Issue:** [#178](https://github.com/sagesaint84/wealth/issues/178)은 미국 CNN 비공식 중계 완료 / 한국 시장심리 출처·이용조건·산식 별도 검토로 OPEN. [#182](https://github.com/sagesaint84/wealth/issues/182)는 태그 보완 완료, 문서·배포 정책 후속 설계로 OPEN. [#189](https://github.com/sagesaint84/wealth/issues/189)는 **Oracle 읽기 전용 감사에서 현재·rollback 이미지 존재 및 SHA/digest/image ID 일치를 확인해 CLOSED** 처리했다. worker ACTIVE, 진행 중/rollback_failed 0, 마지막 install succeeded/confirmed, 디스크 여유 29.75 GiB로 현재 누락 참조 해제 조치는 불필요하다. **maintenance 모듈은 호스트 미설치·도구 미실행**이며, 도구로 참조를 해제해서 해결한 것이 아니다. 과거 누락 참조 기록은 당시 이력으로 보존한다.
-- **검증 한계 보존:** 전체 pytest=NOT_RUN. 과거 DAY 간헐 실패 원인=UNCONFIRMED. 이후 집중/CI PASS를 원인 해결 또는 단순 flaky 확정의 근거로 사용하지 않으며 과거 실패 로그·JUnit과 아래 당시 판단을 보존한다.
-
-### 배포 계약 — 이번 문서 작업에서 변경하지 않음
-
-`app/updater/releases.py`의 ReleaseVerifier는 **최신 main HEAD에 대응하는 성공한 GHCR 빌드**를 요구한다. `.github/workflows/docker-publish.yml`은 main Push마다 실행된다. 문서 PR도 main에 병합하면 새 SHA와 GHCR 빌드가 생길 수 있으므로 **사용자 승인 전 이 문서 PR을 Ready/병합하지 않는다.** 이 작업은 feature 브랜치 Push와 Draft PR 제출만 허용하며 main Push·APP_VERSION 변경·버전 태그 이동·GHCR 발행·Oracle Docker/worker/state 변경을 하지 않는다.
-
-문서 전용 변경을 발행하지 않는 정책은 **Issue #182의 별도 설계 대상**이다. 단순 paths-ignore 추가는 최신 main용 빌드가 없어 업데이트 확인을 막을 수 있으므로, ReleaseVerifier·배포/검증 계약을 함께 검토하고 별도 승인하기 전에는 적용하지 않는다.
-
-**아래의 개발 후보·NOT_RUN·HOLD·Draft·미배포 문구는 각 절 작성 당시의 역사적 기록이다. 현재 운영 상태는 이 상단 절을 우선하며, 기술 계약·사용자 설명과 과거 버전 이력은 삭제하지 않는다.**
-
----
+아래 후보·NOT_RUN·미배포 내용은 작성 당시 기록이다. 현재 상태는 [PROJECT_STATE](docs/PROJECT_STATE.md)를 따른다.
 
 ## Wealth v2.1.9 — 운영 피드백 개선 후보
 
@@ -110,7 +94,7 @@ GitHub에서 직접 확인한 릴리스 이력(annotated 태그의 원격 역참
 - 앱 버전 2.1.3 유지. 자산 포트폴리오 / 순자산 추이 / 주요지수 이름과 기존 DOM·렌더러를 보존한다.
 - 숨긴 순자산 패널 geometry 검사에 의한 동기 Layout을 피하는 최소 로컬 패치와 planning JS 개별 revision `2.1.3-home-tabs2` 계약을 준비했다. 성능 해결·출시를 의미하지 않는다.
 - 기존 360px 실패 기록 2회 및 새 16표본 비교를 보존한다. 무회귀 기준 미충족으로 PERFORMANCE_GATE=FAIL/HOLD, MERGE_GATE=HOLD, DEPLOY_GATE=HOLD. Commit·Push하지 않는다.
-- [정밀 조사·격리 실험·회귀 결과](docs/home-tabs-hold-20261025/REPORT.md). 아래 운영 배포 기록은 변경하지 않는다.
+- 정밀 조사·격리 실험·회귀 결과（당시 로컬 증거 경로 `docs/home-tabs-hold-20261025/REPORT.md`, 현재 저장소에 파일 미포함）. 아래 운영 배포 기록은 변경하지 않는다.
 
 ## 2026-10-24 — PR #173 금리 그래프·자산 이모지 복구, 운영 배포 완료
 

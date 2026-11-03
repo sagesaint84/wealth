@@ -1,32 +1,32 @@
 # Wealth Roadmap
 
-## 현재 운영 기준 상태 — 2026-10-28 / Wealth v2.1.9
+## 현재 모듈화 계획 — 2026-11-03 KST
 
-**현재 운영 앱 APP_VERSION=2.1.9. Oracle 실제 화면 사용자 확인 완료는 사용자 보고에 근거한다.** Issue #189의 현재 이미지·rollback 상태는 별도 읽기 전용 감사로 확인했으며, 이번 문서 갱신에서 운영 서비스·이미지·state는 변경하지 않는다.
+아래 상태는 2026-11-03 KST 작성·검증 당시 기록이다. 이후 문서 제출·병합의 최종 결과는 [GitHub PR #195](https://github.com/sagesaint84/wealth/pull/195)에서 확인한다. 운영 버전·SHA·검증 수치·배포 근거는 [PROJECT_STATE](PROJECT_STATE.md)에서 관리한다. 완료 기준은 픽셀 동일성이 아니라 공통 책임을 한 곳에서 구현하고 실제 여러 화면이 재사용하는지다. 금융 계산·API·DB·사용자 데이터 계약은 보존한다.
 
-GitHub에서 직접 확인한 릴리스 이력(annotated 태그의 원격 역참조 SHA도 일치):
-
-| 버전·태그 | 병합 PR | 정확한 병합 커밋 |
+| 단계 | 상태 | 책임과 다음 범위 |
 |---|---|---|
-| v2.1.7 | [#192](https://github.com/sagesaint84/wealth/pull/192) | `c03256dcb8b0ece7c558637c94e7cc0aa422426d` |
-| v2.1.8 | [#193](https://github.com/sagesaint84/wealth/pull/193) | `72a7b0c97bfa6e94e6d5b38d9710c2439d9c4dd7` |
-| v2.1.9 | [#194](https://github.com/sagesaint84/wealth/pull/194) | `4c62a5e8ef2e65d98d835a5e8a70c534ccf53f3d` |
+| M1 Button | **완료 · #196 main 반영 · 운영 사용자 확인** | 기존 공통 CSS를 시세 갱신·계좌 동기화 두 버튼이 재사용. 다른 버튼 전체 전환 완료를 뜻하지 않음 |
+| M2 SectionHeader | **완료 · #197 main 반영 · 운영 사용자 확인** | 실현손익·배당금 제목/보조 영역/액션이 공통 규칙 재사용. M1과 단일 asset revision 유지 |
+| 기존 자원 1차 정리 | **부분 완료 · HOLD 1개** | 승인 대상 정리 결과와 보존 사유는 PROJECT_STATE에서 관리. 추가 삭제 없음 |
+| PR #195 문서 통합 | **2026-11-03 작성·검증 당시: 진행 중 · Draft / 미커밋** | 기존 문서 8개 최종 정합성 검토. 사용자 승인 전 commit/push/merge 없음 |
+| M3 Card | **로컬 후보 존재 · 최신 main 통합 및 통합 후 검증 전** | 기존 `.div-summary-card` 기반 후보·검증 증거·체크포인트 재사용. 운영 미반영이며 기존 PASS를 새 통합 후보의 PASS로 승계하지 않음 |
+| M4 Date/Format/Validation | 대기 | 기존 날짜·KST·금액 포맷·입력 검증 소유자와 호출자를 먼저 조사. 금융 수식과 표시 계약 보존 |
+| M5 Input/Select/Dialog | 대기 | 기존 Dialog·money input을 우선 재사용하고 variant·접근성·저장 이벤트 책임 분리 |
+| M6 Navigation/Tabs/FilterBar/MonthNavigator | 대기 | 기존 라우트·기간 선택 상태와 공통 UI 구조 분리. 선택 월·표시 월 계약 유지 |
+| M7 Table/Badge/Alert/EmptyState/LoadingState | 대기 | 중복 상태 표현을 공통화하고 기능별 데이터·오류 판단은 기능 모듈이 소유 |
+| M8 Chart/ChartControls | 대기 | 기존 통합 시계열/차트 모듈 우선 재사용. 데이터 계산과 표시 컨트롤 책임 분리 |
 
-- **직접 검증한 CI:** v2.1.9 PR HEAD `031ab646513fccbc615ab0cd6e6655667e0281d9`의 Linux CI **4/4 SUCCESS**. [Static transport](https://github.com/sagesaint84/wealth/actions/runs/40627717046) **642 PASS / SKIP 0**, 기존 경고 1건, 실제 Chromium/SKIP 금지 검증 단계 성공. [IPO](https://github.com/sagesaint84/wealth/actions/runs/40627717081), [Toss WTS](https://github.com/sagesaint84/wealth/actions/runs/40627717113), [System update](https://github.com/sagesaint84/wealth/actions/runs/40627717108)도 SUCCESS. 이는 해당 릴리스 코드의 결과이며 새 문서 PR HEAD의 결과로 승계하지 않는다.
-- **직접 검증한 GHCR:** [docker-publish run 40636503851](https://github.com/sagesaint84/wealth/actions/runs/40636503851)의 build-and-push SUCCESS 및 checkout SHA `4c62a5e8ef2e65d98d835a5e8a70c534ccf53f3d` 확인. 이 작업에서 이미지 발행/태그 변경/설치를 실행하지 않는다.
-- **중복 통합 정리:** [#190](https://github.com/sagesaint84/wealth/pull/190)·[#191](https://github.com/sagesaint84/wealth/pull/191)은 #192 통합 및 #193/#194 후속 변경 감사 후 **미병합 CLOSED**. 삭제 승인된 원격 feature 브랜치 7개를 정리해 이번 문서 브랜치 생성 전 원격에는 main만 남았다. 이 문서 Draft 제출 시 문서 브랜치/PR은 새로 추가되며, 이전의 열린 PR 0개 상태와 구분한다. 로컬 보호 브랜치·worktree·증거는 삭제하지 않는다.
-- **남은 Issue:** [#178](https://github.com/sagesaint84/wealth/issues/178)은 미국 CNN 비공식 중계 완료 / 한국 시장심리 출처·이용조건·산식 별도 검토로 OPEN. [#182](https://github.com/sagesaint84/wealth/issues/182)는 태그 보완 완료, 문서·배포 정책 후속 설계로 OPEN. [#189](https://github.com/sagesaint84/wealth/issues/189)는 **Oracle 읽기 전용 감사에서 현재·rollback 이미지 존재 및 SHA/digest/image ID 일치를 확인해 CLOSED** 처리했다. worker ACTIVE, 진행 중/rollback_failed 0, 마지막 install succeeded/confirmed, 디스크 여유 29.75 GiB로 현재 누락 참조 해제 조치는 불필요하다. **maintenance 모듈은 호스트 미설치·도구 미실행**이며, 도구로 참조를 해제해서 해결한 것이 아니다. 과거 누락 참조 기록은 당시 이력으로 보존한다.
-- **검증 한계 보존:** 전체 pytest=NOT_RUN. 과거 DAY 간헐 실패 원인=UNCONFIRMED. 이후 집중/CI PASS를 원인 해결 또는 단순 flaky 확정의 근거로 사용하지 않으며 과거 실패 로그·JUnit과 아래 당시 판단을 보존한다.
+- 이번 단계에서는 M3 기존 로컬 후보를 보존하고 추가 구현하지 않는다. 자원 1차 정리는 부분 완료됐으며 남은 HOLD는 별도 검토한다. 문서 commit/push/merge는 사용자 승인 후 진행한다. 상세 경로·판정과 실제 회수 결과는 [PROJECT_STATE](PROJECT_STATE.md)에 한 번만 기록한다.
+- 새 ZIP/TAR·전체 복사본·중복 TEMP 보고서와 불필요한 재검증을 만들지 않는다. 원본·미통합 변경·문제 재현 증거·현재/rollback 이미지는 먼저 보호한다.
+- 각 단계는 기존 구현·토큰 조사 → 작은 opt-in 전환 → 원래 호출자/접근성/이벤트 보존 → 필요한 범위의 검증 순서로 진행한다. 이름만 같은 중복 CSS/JS나 불필요한 초소형 모듈·순환 의존성을 만들지 않는다.
+- Purple/White/OLED, Fold7 412/750px와 PC1280px, Pretendard/Tossface를 유지한다. 금액 잘림·겹침·접근성 저하·기능 오류는 허용하지 않는다. 사용자가 승인한 사소한 시각 차이는 기록해 관리한다.
+- 자동 전후 이미지 증거와 glyph 확인의 미완료 상태를 유지한다. 기존 PASS를 다른 통합 후보의 PASS로 승계하거나 같은 검증을 불필요하게 반복하지 않는다.
+- IPO 내부 모듈화는 M3~M8 공통 부품 이후로 보류한다. 수집 정확성·출처 우선순위·원본 IPO ID·가족별 신청/배정/매도/실현손익·제외/복원·사용자 격리를 먼저 보호한다.
 
-### 배포 계약 — 이번 문서 작업에서 변경하지 않음
+## 과거 로드맵 기록
 
-`app/updater/releases.py`의 ReleaseVerifier는 **최신 main HEAD에 대응하는 성공한 GHCR 빌드**를 요구한다. `.github/workflows/docker-publish.yml`은 main Push마다 실행된다. 문서 PR도 main에 병합하면 새 SHA와 GHCR 빌드가 생길 수 있으므로 **사용자 승인 전 이 문서 PR을 Ready/병합하지 않는다.** 이 작업은 feature 브랜치 Push와 Draft PR 제출만 허용하며 main Push·APP_VERSION 변경·버전 태그 이동·GHCR 발행·Oracle Docker/worker/state 변경을 하지 않는다.
-
-문서 전용 변경을 발행하지 않는 정책은 **Issue #182의 별도 설계 대상**이다. 단순 paths-ignore 추가는 최신 main용 빌드가 없어 업데이트 확인을 막을 수 있으므로, ReleaseVerifier·배포/검증 계약을 함께 검토하고 별도 승인하기 전에는 적용하지 않는다.
-
-**아래의 개발 후보·NOT_RUN·HOLD·Draft·미배포 문구는 각 절 작성 당시의 역사적 기록이다. 현재 운영 상태는 이 상단 절을 우선하며, 기술 계약·사용자 설명과 과거 버전 이력은 삭제하지 않는다.**
-
----
+아래의 v2.1.9 개발 후보 및 이전 일정·승인·미배포 표기는 당시 계획이다. 완료 현황은 위 표, 실제 운영 상태는 PROJECT_STATE를 따른다.
 
 ## 2026-10-28 — v2.1.9 개발 후보
 
@@ -695,4 +695,4 @@ Phase 10.5D 완료:
 ## 2026-10-25 PR #177 로컬 성능 조사
 
 - 기존 360px 실패 2회 기록을 보존하고 16표본씩 비교했다. 숨긴 순자산 패널의 geometry 검사로 동기 Layout이 발생하는 경로를 확인해 로컬 최소 패치를 작성했으나, 전체 무회귀 기준은 충족하지 못했다. 최초 표시 지연의 전체 원인은 UNCONFIRMED, PERFORMANCE_GATE=FAIL/HOLD를 유지한다.
-- main/수정 전/수정 후 비교, 격리 실험·trace·API 타이밍과 전체 회귀 결과는 [조사 보고서](home-tabs-hold-20261025/REPORT.md)를 따른다. 모든 게이트 PASS 전 Commit·Push하지 않으며 Draft 해제·머지·Oracle 배포는 금지한다.
+- main/수정 전/수정 후 비교, 격리 실험·trace·API 타이밍과 전체 회귀 결과는 조사 보고서（당시 로컬 증거 경로 `home-tabs-hold-20261025/REPORT.md`, 현재 저장소에 파일 미포함）를 따른다. 모든 게이트 PASS 전 Commit·Push하지 않으며 Draft 해제·머지·Oracle 배포는 금지한다.

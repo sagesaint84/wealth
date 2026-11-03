@@ -1,6 +1,85 @@
 # Wealth Project State
 
-## 현재 운영 기준 상태 — 2026-10-28 / Wealth v2.1.9
+## 현재 운영 상태 — 2026-11-03 KST
+
+이 절은 2026-11-03 KST 작성·검증 당시 운영 상태의 기준 기록이다. 이후 PR #195 제출·병합 결과는 [GitHub PR #195](https://github.com/sagesaint84/wealth/pull/195)에서 확인한다. 아래 날짜별 개발 후보·PENDING·미배포 기록은 당시 상태이며 현재 상태로 승계하지 않는다.
+
+| 항목 | 확인 결과와 근거 |
+|---|---|
+| 앱 버전 | **v2.1.9 유지**. M1·M2에서 금융 계산·API·DB 계약 변경 없음 |
+| M1·M2 운영 검증 기준 main SHA | `f330dbeb50e1831968a1be7216954f602e992dc2`. 운영 실행 SHA 일치는 아래 사용자 제공 운영 확인 근거에 따른다. 향후 PR #195 병합 커밋과 구분한다 |
+| M1 Button | [PR #196](https://github.com/sagesaint84/wealth/pull/196) MERGED. 상단 시세 갱신·계좌 동기화 두 native button이 공통 opt-in 규칙 재사용 |
+| M2 SectionHeader | [PR #197](https://github.com/sagesaint84/wealth/pull/197) MERGED. 실현손익·배당금 두 헤더가 공통 규칙 재사용. M1 계약 보존 |
+| QA 통합 | [#198](https://github.com/sagesaint84/wealth/pull/198) NAVER/Npay 합성 CI, [#199](https://github.com/sagesaint84/wealth/pull/199) 배당 startup readiness, [#200](https://github.com/sagesaint84/wealth/pull/200) IPO 달력 표시 월 수정 모두 MERGED |
+| 문서 PR | **2026-11-03 작성·검증 당시:** [#195](https://github.com/sagesaint84/wealth/pull/195) Draft, `codex/v219-postdeploy-docs` HEAD `58e276e91a62a522700a14630302ba271354dcb6`. 기존 문서 8개 미커밋 수정 중. commit/push/merge 미실행 |
+| 자원 정리 | 승인 13개 중 **12개 삭제 완료 / 1개 HOLD**. **1차 정리 완료 시점** 원격 브랜치 **3개**, 로컬 worktree **27개**. Oracle 정리는 **HOLD·미실행** |
+| M3 Card | 기존 로컬 개발 후보·검증 증거 보존. 최신 main 통합 및 통합 후 검증 전, 운영 미반영 |
+| 공통 CSS revision | `2.1.9-m1-m2-ui1` — 앱 버전과 별도 관리 |
+| Oracle 실제 화면 | **사용자 정상 확인**. 2026-11-03 KST 시스템 업데이트 화면에서 실행 SHA·이미지 Digest 일치 및 실제 화면 정상 확인을 제공함. 이번 문서 작업에서 서버 직접 조회·배포는 하지 않음 |
+
+### 검증 근거와 한계
+
+- **Windows 통합:** 사용자 실행 Model **8/8 PASS**, Compatibility **2/2 PASS**, Chromium UI **4/4 PASS**, Native crash 미검출. 기존 증거를 재사용하며 이번 문서 작업에서 테스트를 반복하지 않는다.
+- **GitHub CI:** PR #197 HEAD `8e753496f2d7642c6ff208f486182d513a791cf1`의 **4개 workflow / 6개 job SUCCESS**를 읽기 전용으로 확인했다. [IPO](https://github.com/sagesaint84/wealth/actions/runs/41473951113) **310 PASS + 3 subtests PASS**, [Static transport](https://github.com/sagesaint84/wealth/actions/runs/41473951202) **642 PASS**, [Toss WTS](https://github.com/sagesaint84/wealth/actions/runs/41473951115) amd64·arm64 SUCCESS, [System update](https://github.com/sagesaint84/wealth/actions/runs/41473951292) isolated Docker·synthetic web/IPC SUCCESS다. 이 결과를 향후 문서 PR의 새 HEAD CI 결과로 주장하지 않는다.
+- **GHCR:** main `f330dbeb50e1831968a1be7216954f602e992dc2`의 [build-and-push 41477835622](https://github.com/sagesaint84/wealth/actions/runs/41477835622) SUCCESS. 빌드 로그의 멀티아키텍처 manifest 및 `containerimage.digest`는 `sha256:adfc1c215cde190d2d4394916c726b03e51350d906d687d0595472ef7d683cde`다. 사용자 입력의 `sha256` 축약값을 임의 보완한 것이 아니라 해당 빌드 로그에서 확인했다. 운영 화면의 전체 Digest를 Codex가 별도로 직접 읽은 것은 아니며, 운영 일치 판정은 사용자 제공 근거다.
+- **시각 증거:** 자동 **3폭(412/750/1280px) × 3테마(Purple/White/OLED) 전후 이미지 증거는 PENDING**이다. 사용자 운영 화면 정상 확인과 자동 전체 매트릭스 증거를 구분한다. 실제 Pretendard/Tossface glyph·fallback의 독립 검증도 미완료로 보존한다.
+- **IPO 이력:** 과거 표시 월과 선택 날짜 불일치로 발생한 CI 실패는 당시 HEAD의 기록이다. 이후 [PR #200](https://github.com/sagesaint84/wealth/pull/200)의 달력 월 선택 수정과 [PR #198](https://github.com/sagesaint84/wealth/pull/198)의 NAVER/Npay 합성 CI 계약이 main에 반영됐다. 새 통합 CI의 위 PASS와 과거 실패를 구분하며, 합성 CI가 네이버 실시간 수집 성공을 증명한다고 해석하지 않는다.
+
+### 보존·배포 정책과 후속 사항
+
+- 기존 정상 rollback 이미지는 보존한다. 이번 작업에서 이미지·실제 금융 데이터·설정·Compose·서버 권한을 수정하거나 삭제하지 않는다. 아래 Issue #189 기록은 2026-10-28 감사 당시의 사실이며 현재 rollback 상태를 새로 조회했다는 뜻이 아니다.
+- 불필요한 ZIP/TAR·전체 저장소 사본·중복 TEMP 보고서·반복 PNG를 만들지 않는다. 이전 코드 복원에는 Git 이력과 기존 GitHub/GHCR 이미지·보호된 rollback을 우선 사용한다.
+- 777 권한으로 보고된 기존 Compose 파일은 별도 보안 개선 대상으로 남긴다. 이번 문서 작업에서 권한을 변경하지 않는다.
+- main push는 기존 Docker workflow에 따라 새 GHCR 빌드를 유발한다. ReleaseVerifier의 최신 main·성공 빌드 계약을 유지하며, 문서 전용 발행 정책 변경은 별도 설계·승인 대상이다. PR #195 commit/push/PR 변경/merge 및 운영 배포는 이번 작업에 포함하지 않는다.
+- M3 이후는 기존 후보와 공통 구현을 먼저 감사하고 한 책임·한 소유 위치·여러 실제 호출자의 재사용을 기준으로 진행한다. [단계별 계획](ROADMAP.md)을 따른다.
+
+### 2026-11-03 자원 1차 정리 결과 — 12개 삭제 / 1개 HOLD
+
+사용자 승인된 3개 그룹, 총 13개 대상만 정리했다. 실행 직전 SHA·병합 상태·파일 내용 등 해당 안전 조건을 통과한 대상만 삭제했으며 추가 자원 정리는 하지 않았다.
+
+| 그룹 | 실제 결과 |
+|---|---|
+| 원격 브랜치 | **PASS — 5개 삭제**. 아래 표의 삭제 직전 SHA와 PR 병합 상태 확인 후 일반 branch 삭제 |
+| 로컬 QA worktree | **부분 완료 / HOLD — 2개 삭제, 1개 보호**. 삭제 대상은 clean·main 포함·미추적/무시 파일 및 진행 중 작업 없음 확인 후 강제 옵션 없이 제거 |
+| TEMP 중복 소스 | **PASS — 지정 폴더 5개 삭제**. 각각 보존 ZIP의 751개 경로·크기·SHA256과 일치 |
+| 보호 범위 | 보호 worktree **26개 파일 해시 불변**, 로컬 branch 전부 보존. 기존 ZIP·manifest·로그·테스트/PNG 증거 보존 |
+
+#### 삭제한 Git 자원과 잔여 참조
+
+| 병합 PR | 삭제한 원격 브랜치 | 삭제 직전 SHA |
+|---|---|---|
+| #196 | `codex/m1-shared-button` | `708de38f9a77b1fc1d5ce432e138dd38ffd011d7` |
+| #197 | `codex/m2-shared-section-header` | `8e753496f2d7642c6ff208f486182d513a791cf1` |
+| #198 | `codex/qa-ipo-primary-ci-contract` | `ac1a08da5521a0b3d6e3c7ac1db2e009c7bb18ac` |
+| #199 | `codex/qa-dividend-startup-readiness` | `5fb86c3cdba3ca11b0899246594285fa6d119aae` |
+| #200 | `codex/qa-ipo-calendar-month-anchor` | `0fa6a629c9168fc1008f8f1a9dfbda54060459a3` |
+
+- 로컬에서는 `~/.codex/worktrees/qa-ipo-primary-ci-contract/wealth`와 `~/.codex/worktrees/qa-ipo-calendar-month-anchor/wealth`만 삭제했다. 연결된 로컬 branch는 삭제하지 않았다.
+- 2026-11-03 1차 정리 완료 시점의 잔여 원격 branch **3개**는 `main`, `codex/v219-postdeploy-docs`, `codex/qa-native-windows-stage-a`다. 같은 시점 로컬은 **27 worktree / 28 branch**이며 dirty **15개**를 보존했다.
+- **HOLD 1개:** `~/.codex/worktrees/qa-dividend-startup-readiness/wealth`는 M3 미리보기의 `wealth-m3-pnl-preview-contract-5d8896160c4d45398a9c130bce4e47c2/SOURCE_MANIFEST.json` 및 `wealth-m3-card-preview-preparation-2a95dea9e0ea48c2bade00555b297b5e/SOURCE_MANIFEST.json`에서 참조하므로 보존했다. 두 manifest는 사용자 TEMP 아래의 기존 파일이며 임의 수정하지 않는다.
+- M1 자동 캡처 참조 worktree와 원래 M2 worktree는 이번 로컬 삭제 대상이 아니다. `m2-integration-submit-e77a6ace02ff/wealth`의 detached HEAD `d92bf4be45857871862f12896027c885b2221e7b`, MERGE_HEAD `892e745695e4791ec5ab47e78c0b6ff8d5539829` 및 736개 status 불일치 재현 상태도 보존했다.
+- clean이어도 main 미포함 독립 이력이 있는 `issue186-ghcr-redirect`, `issue189-stale-rollback`, `v212-home-initial-flash-fix`, `v216-remove-section-collapse`, `v217-cnn-relay`, `v217-release-integration`, `v218-ui-ux-ipo-integration`, `v219-ui-ux-polish`는 보존한다. M3 Card·Foundation/Stock/Phase/손익 후보·문서 PR #195 미커밋 변경·Stage A도 그대로 유지한다.
+
+#### 삭제한 TEMP 사본과 용량 해석
+
+삭제한 정확한 사본은 사용자 TEMP의 `wealth-m2-main-integration-0287db87d8784882a4694d8653e43ac7/{baseline,candidate}`와 `C:/Users/Public/Documents/ESTsoft/CreatorTemp/` 아래 `wealth-m2-original-restore-ba1x1wo3`, `wealth-m2-integration-restore-_0b20d1l`, `wealth-m2-submit-tree-restore-aex_2v8c`다. 상위 폴더·기존 ZIP·manifest·로그는 삭제하지 않았다.
+
+- 삭제 파일 전체의 논리 크기: **73,968,143 bytes (70.54 MiB)**. 이 중 TEMP 사본 5개는 **52,854,327 bytes (약 50.4 MiB)**다.
+- C: 여유 공간은 **104.73 MiB 증가**로 관측됐다. 다른 시스템 활동을 포함할 수 있으므로 이를 이번 삭제만의 정확한 디스크 회수량으로 단정하지 않는다. 원격 branch 삭제를 공유 Git 객체 회수량으로 환산하지 않는다.
+- 이전 읽기 전용 분류에서 측정한 약 **1.99 GiB**는 223개 최상위 조사 항목의 파일 논리 길이였으며 삭제 승인량·실제 회수량이 아니다. 기존 `wealth-qa-313` 및 소유권·사용 여부 미확정 환경은 보존한다.
+- 새 ZIP/TAR·백업·저장소 사본·중복 보고서·반복 테스트/PNG 생성은 없었다. Windows PASS 로그/JUnit, Native Crash 및 캡처 실패 증거, M3 실제 PNG와 사용자 시각 승인 예외 기록을 유지한다.
+
+#### Oracle 및 후속 승인 경계
+
+**Oracle 정리=HOLD·미실행.** 확정된 접속 대상·인증 연결 수단이 없어 이번 정리에서는 현재/rollback 이미지, updater 참조 및 다른 컨테이너 사용 여부를 조회하지 못했다. 예상 회수량도 미확인이다. 사용자 제공 운영 정상 확인과 별개이며 과거 감사 수치를 현재 값으로 재사용하지 않는다. 서비스·금융 DB·설정·state·권한·이미지는 변경하지 않았다.
+
+다음 단계는 PR #195 문서 검토·통합 승인과 M3 기존 후보의 최신 main 통합 범위 검토다. 남은 worktree 참조 해소와 Oracle 정리는 별도 판단 대상으로 유지한다. 이번 문서 갱신은 추가 삭제·commit/push/merge·배포를 수행하지 않는다.
+
+## 과거 운영·개발 기록
+
+이하의 현재·최신·미배포·HOLD 표현은 각 기록 작성일 기준이다. 현재 판정은 위 2026-11-03 절을 따른다.
+
+## 2026-10-28 운영 감사 기록 — 당시 Wealth v2.1.9 상태
 
 **현재 운영 앱 APP_VERSION=2.1.9. Oracle 실제 화면 사용자 확인 완료는 사용자 보고에 근거한다.** Issue #189의 현재 이미지·rollback 상태는 별도 읽기 전용 감사로 확인했으며, 이번 문서 갱신에서 운영 서비스·이미지·state는 변경하지 않는다.
 
@@ -24,7 +103,7 @@ GitHub에서 직접 확인한 릴리스 이력(annotated 태그의 원격 역참
 
 문서 전용 변경을 발행하지 않는 정책은 **Issue #182의 별도 설계 대상**이다. 단순 paths-ignore 추가는 최신 main용 빌드가 없어 업데이트 확인을 막을 수 있으므로, ReleaseVerifier·배포/검증 계약을 함께 검토하고 별도 승인하기 전에는 적용하지 않는다.
 
-**아래의 개발 후보·NOT_RUN·HOLD·Draft·미배포 문구는 각 절 작성 당시의 역사적 기록이다. 현재 운영 상태는 이 상단 절을 우선하며, 기술 계약·사용자 설명과 과거 버전 이력은 삭제하지 않는다.**
+**위 감사 절의 현재·최신 및 아래 후보·NOT_RUN·HOLD·Draft·미배포 문구는 2026-10-28 당시 기록이다. 현재 운영 판정은 이 문서 첫머리의 2026-11-03 절을 따르며 기술 계약과 과거 버전 이력은 보존한다.**
 
 ---
 
@@ -107,7 +186,7 @@ GitHub에서 직접 확인한 릴리스 이력(annotated 태그의 원격 역참
 ## 2026-10-25 — PR #177 로컬 후보, 성능 HOLD
 
 - 원격 PR HEAD `ecd021fb9cc4257344e317cf1ecca143596fdfca`, 기반 main `940a42053297059dcbafdc837458876269958086`. 해당 HEAD의 Static/IPO/Toss AMD64·ARM64 CI는 실제 조회하여 SUCCESS를 확인했다. 이 결과는 미커밋 로컬 패치의 CI가 아니다.
-- 앱 버전 2.1.3 유지. 홈 3탭과 정확한 이름을 유지하며, 로컬 최소 패치·trace·격리 실험·회귀 기록을 [조사 보고서](home-tabs-hold-20261025/REPORT.md)에 보존한다. 성능 무회귀 미검증으로 Commit·Push·Draft 해제·main 병합·Oracle 배포는 보류한다.
+- 앱 버전 2.1.3 유지. 홈 3탭과 정확한 이름을 유지하며, 로컬 최소 패치·trace·격리 실험·회귀 기록을 조사 보고서（당시 로컬 증거 경로 `home-tabs-hold-20261025/REPORT.md`, 현재 저장소에 파일 미포함）에 보존한다. 성능 무회귀 미검증으로 Commit·Push·Draft 해제·main 병합·Oracle 배포는 보류한다.
 - 현재 운영 배포 이력은 CHANGELOG의 2026-10-24 PR #173 및 운영 보관 문서를 따른다. 아래 2026-10-22 기록은 당시 상태로 보존한다.
 
 ## 과거 운영 상태 — 2026-10-22 / v2.1.3 PR #163 배포 완료
