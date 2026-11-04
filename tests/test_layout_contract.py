@@ -175,7 +175,7 @@ class LayoutContractTests(unittest.TestCase):
 
     def test_m1_changed_layout_asset_has_its_own_revision(self):
         source = (STATIC / 'index.html').read_text(encoding='utf-8')
-        self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-m1-m2-ui1'), 1)
+        self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-m1-m2-m3-card2'), 1)
         self.assertIn('<meta name="application-version" content="2.1.9" />', source)
 
 
@@ -251,9 +251,84 @@ class LayoutContractTests(unittest.TestCase):
 
     def test_m2_header_layout_revision_is_exact_without_app_version_change(self):
         source = (STATIC / 'index.html').read_text(encoding='utf-8')
-        self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-m1-m2-ui1'), 1)
+        self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-m1-m2-m3-card2'), 1)
         self.assertIn('<meta name="application-version" content="2.1.9" />', source)
 
+
+    def test_m3_metric_card_scope_and_existing_dom_contract(self):
+        tree = SectionHeaderElements((STATIC / 'index.html').read_text(encoding='utf-8'))
+        cards = [n for n in tree.nodes if n['attrs'].get('data-ui') == 'card']
+        metrics = [n for n in tree.nodes if 'div-summary-card' in n['attrs'].get('class', '').split()]
+        expected = {
+            'realizedPnlPanel': ['pnlTotal', 'pnlTotalWin', 'pnlTotalLoss', 'pnlWinRate'],
+            'dividendPanel': ['divTotalAnnual', 'divYield', 'divMonthlyAvg', 'divPayingCount'],
+        }
+        self.assertEqual(len(cards), 8)
+        self.assertEqual(len(metrics), 8)
+        self.assertEqual(cards, metrics)
+        for panel_id, ids in expected.items():
+            panel = next(n for n in tree.nodes if n['attrs'].get('id') == panel_id)
+            selected = []
+            for card in cards:
+                parent = card
+                while parent is not None and parent is not panel:
+                    parent = parent['parent']
+                if parent is panel:
+                    selected.append(card)
+            self.assertEqual(len(selected), 4)
+            self.assertEqual([c['children'][1]['attrs']['id'] for c in selected], ids)
+        for card in cards:
+            self.assertEqual(card['tag'], 'div')
+            self.assertEqual(set(card['attrs']['class'].split()), {'div-summary-card', 'wealth-ui-card'})
+            self.assertEqual(card['attrs'].get('data-card-variant'), 'metric')
+            self.assertEqual([n['tag'] for n in card['children']], ['span', 'strong', 'small'])
+            self.assertIn('div-card-label', card['children'][0]['attrs']['class'])
+            self.assertIn('div-card-val', card['children'][1]['attrs']['class'])
+            self.assertNotIn('role', card['attrs'])
+            self.assertNotIn('tabindex', card['attrs'])
+
+    def test_m3_shared_frame_has_one_opt_in_owner_and_theme_tokens(self):
+        css = (STATIC / 'wealth-layout.css').read_text(encoding='utf-8')
+        block = css.split('/* M3 Shared Card owner.', 1)[1].split('/* End M3 Shared Card owner. */', 1)[0]
+        owner = '.wealth-layout .wealth-ui-card[data-ui="card"][data-card-variant="metric"]'
+        self.assertIn(owner + ' {', block)
+        self.assertNotIn('!important', block)
+        for declaration in ('box-sizing: border-box', 'min-width: 0', 'gap: var(--card-gap)',
+                            'padding: var(--card-padding)', 'background: var(--card-metric-surface)',
+                            'border: 1px solid var(--card-metric-border)', 'border-radius: var(--card-radius)',
+                            'box-shadow: var(--card-metric-shadow)', 'transform: translateY(-2px)'):
+            self.assertIn(declaration, block)
+        self.assertIn('[data-theme="white"] .wealth-layout', block)
+        self.assertIn('[data-theme="oled"] .wealth-layout', block)
+        for color in ('#0d1527', '#1e2c4d', '#f8fafc', '#e2e8f0', '#070709', '#1a1a24'):
+            self.assertIn(color, block)
+        self.assertNotIn('grid-template', block)
+        self.assertNotIn('.gain', block)
+        self.assertNotIn('.loss', block)
+        self.assertNotIn('wealth-ui-button', block)
+        self.assertNotIn('wealth-ui-section-header', block)
+
+    def test_m3_summary_frames_have_no_legacy_override(self):
+        css = (STATIC / 'wealth-overrides.css').read_text(encoding='utf-8')
+        selectors = [line.strip() for line in css.splitlines() if '.div-summary-card' in line]
+        self.assertEqual(selectors, ['[data-theme="white"] .div-summary-card small,'])
+        # Feature text/semantic colors and the summary grid remain outside Card.
+        for selector in ('.div-card-label {', '.div-card-val {', '.div-card-val.gain {',
+                         '.pnl-panel .div-card-val.gain {', '.pnl-panel .div-card-val.loss {',
+                         '.dividend-summary-cards {'):
+            self.assertIn(selector, css)
+
+    def test_m3_pnl_mobile_density_and_renderer_hooks_remain_owned_correctly(self):
+        css = (STATIC / 'wealth-layout.css').read_text(encoding='utf-8')
+        self.assertIn('.wealth-layout #realizedPnlPanel .wealth-ui-card[data-ui="card"][data-card-variant="metric"]', css)
+        self.assertIn('--card-padding: 12px;', css)
+        self.assertIn('--card-overflow-wrap: anywhere;', css)
+        density = (STATIC / 'wealth-ui-density.css').read_text(encoding='utf-8')
+        self.assertIn('#realizedPnlPanel .div-summary-card {', density)
+        js = (STATIC / 'wealth.js').read_text(encoding='utf-8')
+        self.assertIn('const totalEl = $("#pnlTotal");', js)
+        self.assertIn('$("#divTotalAnnual").textContent = money(totalAnnual)', js)
+        self.assertNotIn('wealth-ui-card', js)
 
 if __name__ == '__main__':
     unittest.main()
