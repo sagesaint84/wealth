@@ -44,7 +44,7 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         self.assertEqual(revision, '2.1.3-p0')
         layout = '/static/wealth-layout.js?v=2.1.3-home-tabs1'
         self.assertEqual(assets.scripts.count(layout), 1)
-        core = '/static/wealth.js?v=2.1.9-ui1'
+        core = '/static/wealth.js?v=2.1.9-profit-label1'
         money = '/static/wealth-money-input.js?v=2.1.9-ui1'
         self.assertIn(core, html)
         self.assertIn(money, html)

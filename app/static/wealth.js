@@ -1558,12 +1558,20 @@ function renderSummary(data) {
   if ($("#profitLabelText")) $("#profitLabelText").textContent = "주식 기대수익";
   if ($("#totalProfit")) {
     $("#totalProfit").textContent = money(s.profit_krw);
-    $("#totalProfit").style.color = (s.profit_krw || 0) >= 0 ? "#f43f5e" : "#38bdf8";
   }
   const profitRateEl = $("#profitRate");
   if (profitRateEl) {
     profitRateEl.textContent = `(${s.return_rate >= 0 ? "+" : ""}${number(s.return_rate)}%)`;
-    profitRateEl.style.color = (s.profit_krw || 0) >= 0 ? "#f43f5e" : "#38bdf8";
+  }
+  // Share the existing stock-profit tone, including its zero/missing fallback.
+  const totalProfitNonnegative = (s.profit_krw || 0) >= 0;
+  const totalProfitColor = totalProfitNonnegative ? "#f43f5e" : "#38bdf8";
+  for (const node of [$("#expectedProfitRow .wealth-profit-label"), $("#totalProfit"), profitRateEl]) {
+    if (!node) continue;
+    node.style.color = totalProfitColor;
+    // Existing semantic rules also exclude this amount from White's neutral strong override.
+    node.classList.toggle("up", totalProfitNonnegative);
+    node.classList.toggle("down", !totalProfitNonnegative);
   }
 
   // 4. 주식 실현손익
