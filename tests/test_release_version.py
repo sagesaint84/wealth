@@ -31,12 +31,12 @@ class ReleaseVersionTests(unittest.TestCase):
                 "wealth-color-preferences.css": "10.9r6",
                 "wealth-color-picker.css": "10.9r2",
                 "wealth-system-update.css": "2.1.5-update1",
-                "wealth-layout.css": "2.1.9-m1-m2-ui1",
+                "wealth-layout.css": "2.1.9-m1-m2-m3-card2",
                 "wealth-savings-contributions.css": "10.9p",
                 "wealth-dialog-system.css": "2.0.3-ai1",
                 "wealth-ui-density.css": "2.1.3-uiux1",
                 "wealth-national-pension.css": "2.0.2-r2",
-                "wealth-overrides.css": "2.1.6-expand1",
+                "wealth-overrides.css": "2.1.9-m1-m2-m3-card2",
             }.get(asset, "1.3.0")
             self.assertEqual(version, expected)
 

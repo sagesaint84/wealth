@@ -357,6 +357,51 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-layout :is(.panel,.summary-card,.market-card,.wealth-composition,.wealth-settings-card) {
   background: var(--surface-1); border-color: var(--border-subtle); border-radius: 16px; box-shadow: 0 2px 10px #0001;
 }
+/* M3 Shared Card owner. Opt-in metric frames only; labels/amounts remain domain-owned.
+   These tokens retain existing div-summary-card colors, geometry and hover behavior. */
+.wealth-layout {
+  --card-metric-surface: #0d1527;
+  --card-metric-border: #1e2c4d;
+  --card-metric-shadow: none;
+  --card-metric-hover-border: #8e70fa;
+}
+[data-theme="white"] .wealth-layout {
+  --card-metric-surface: #f8fafc;
+  --card-metric-border: #e2e8f0;
+  --card-metric-hover-border: var(--card-metric-border);
+}
+[data-theme="oled"] .wealth-layout {
+  --card-metric-surface: #070709;
+  --card-metric-border: #1a1a24;
+  --card-metric-shadow: 0 4px 24px rgba(0,0,0,0.85);
+  --card-metric-hover-border: var(--card-metric-border);
+}
+.wealth-layout .wealth-ui-card[data-ui="card"][data-card-variant="metric"] {
+  --card-padding: 14px 16px;
+  --card-radius: 10px;
+  --card-gap: 4px;
+  --card-overflow-wrap: anywhere;
+  display: flex; flex-direction: column;
+  box-sizing: border-box; min-width: 0;
+  gap: var(--card-gap); padding: var(--card-padding);
+  background: var(--card-metric-surface);
+  border: 1px solid var(--card-metric-border); border-radius: var(--card-radius);
+  box-shadow: var(--card-metric-shadow);
+  overflow-wrap: var(--card-overflow-wrap);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.wealth-layout .wealth-ui-card[data-ui="card"][data-card-variant="metric"]:hover {
+  transform: translateY(-2px); border-color: var(--card-metric-hover-border);
+}
+@media (max-width: 480px) {
+  /* Preserve the existing PnL density contract without changing its grid or siblings. */
+  .wealth-layout #realizedPnlPanel .wealth-ui-card[data-ui="card"][data-card-variant="metric"] {
+    --card-padding: 12px;
+    --card-overflow-wrap: anywhere;
+    min-width: 0; padding: var(--card-padding); overflow-wrap: var(--card-overflow-wrap);
+  }
+}
+/* End M3 Shared Card owner. */
 .wealth-layout .wealth-invest-tabs { display: flex; flex-wrap: nowrap; gap: 4px; margin: 0 0 18px; padding: 4px; overflow-x: auto; scrollbar-width: thin; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
 .wealth-layout .wealth-invest-tabs button { flex: 1 1 0; min-height: 38px; min-width: max-content; padding: 9px 13px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 650; line-height: normal; white-space: nowrap; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .wealth-layout .wealth-invest-tabs button:hover { color: var(--text); background: var(--surface-1); }

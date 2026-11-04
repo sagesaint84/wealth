@@ -1000,8 +1000,7 @@
 
 
 /* ── 요약 통계 카드 공통 오버플로우 방지 ───────────────────────────── */
-.saving-stat-card,
-.div-summary-card {
+.saving-stat-card {
   min-width: 0 !important;
   box-sizing: border-box !important;
 }
@@ -1598,22 +1597,6 @@
   }
 }
 
-.div-summary-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
-  background: #0d1527;
-  border: 1px solid #1e2c4d;
-  border-radius: 10px;
-  transition: transform 0.15s ease, border-color 0.15s ease;
-}
-
-.div-summary-card:hover {
-  transform: translateY(-2px);
-  border-color: #8e70fa;
-}
-
 .div-card-label {
   font-size: 12px;
   font-weight: 600;
@@ -2028,7 +2011,6 @@ dialog.dialog .dialog-actions {
 [data-theme="oled"] .record-chart-meta div,
 [data-theme="oled"] .record-side-summary,
 [data-theme="oled"] .record-row,
-[data-theme="oled"] .div-summary-card,
 [data-theme="oled"] .dividend-chart-section,
 [data-theme="oled"] .broker-group,
 [data-theme="oled"] .div-item-card,
@@ -2272,7 +2254,6 @@ dialog.dialog .dialog-actions {
 }
 
 /* 배당 & 실현손익 섹션 상단 4대 요약 카드 및 차트 */
-[data-theme="white"] .div-summary-card,
 [data-theme="white"] .dividend-chart-section {
   background: #f8fafc !important;
   border-color: #e2e8f0 !important;
