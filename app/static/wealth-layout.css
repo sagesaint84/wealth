@@ -2152,7 +2152,11 @@ body.wealth-layout {
 .wealth-latest-label { font-size:13px; color:var(--muted); }
 .wealth-latest-amount { font-size:clamp(18px,2.2vw,26px); line-height:1.35; overflow-wrap:anywhere; }
 .wealth-latest-date { font-size:12px; color:var(--muted); }
-#expectedProfitRow .wealth-profit-label { margin-right:auto; font-size:12px; color:var(--muted); }
+/* Stock-profit presentation only: keep the label beside one amount/rate group. */
+#expectedProfitRow .wealth-profit-total { display:flex; align-items:baseline; justify-content:flex-end; gap:6px; min-width:0; }
+#expectedProfitRow .wealth-profit-label { flex:0 0 auto; margin:0; font-size:12px; color:var(--muted); }
+#expectedProfitRow .wealth-profit-numbers { display:inline-flex; align-items:baseline; justify-content:flex-end; flex-wrap:wrap; gap:4px; min-width:0; max-width:100%; }
+#expectedProfitRow .wealth-profit-numbers > strong { max-width:100%; overflow-wrap:anywhere; }
 #expectedProfitRow .summary-row-val { min-width:0; }
 
 #marketGrid .market-sentiment { display:flex; flex-direction:column; justify-content:flex-start; gap:8px; min-width:0; }

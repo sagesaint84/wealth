@@ -1,5 +1,8 @@
 """Static shell contract; interactive checks use the isolated ui_preview server."""
 import unittest
+import tempfile
+import subprocess
+import json
 import re
 from collections import Counter
 from html.parser import HTMLParser
@@ -175,7 +178,7 @@ class LayoutContractTests(unittest.TestCase):
 
     def test_m1_changed_layout_asset_has_its_own_revision(self):
         source = (STATIC / 'index.html').read_text(encoding='utf-8')
-        self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-m1-m2-m3-card2'), 1)
+        self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-profit-label1'), 1)
         self.assertIn('<meta name="application-version" content="2.1.9" />', source)
 
 
@@ -251,7 +254,7 @@ class LayoutContractTests(unittest.TestCase):
 
     def test_m2_header_layout_revision_is_exact_without_app_version_change(self):
         source = (STATIC / 'index.html').read_text(encoding='utf-8')
-        self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-m1-m2-m3-card2'), 1)
+        self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-profit-label1'), 1)
         self.assertIn('<meta name="application-version" content="2.1.9" />', source)
 
 
@@ -329,6 +332,100 @@ class LayoutContractTests(unittest.TestCase):
         self.assertIn('const totalEl = $("#pnlTotal");', js)
         self.assertIn('$("#divTotalAnnual").textContent = money(totalAnnual)', js)
         self.assertNotIn('wealth-ui-card', js)
+
+    def test_stock_profit_alignment_preserves_ids_and_scopes_the_frame(self):
+        tree = SectionHeaderElements((STATIC / 'index.html').read_text(encoding='utf-8'))
+        nodes = {n['attrs']['id']: n for n in tree.nodes if 'id' in n['attrs']}
+        amount, rate = nodes['totalProfit'], nodes['profitRate']
+        self.assertIs(amount['parent'], rate['parent'])
+        self.assertEqual(amount['parent']['attrs']['class'], 'wealth-profit-numbers')
+        total = amount['parent']['parent']
+        self.assertEqual(total['attrs']['class'], 'val-line wealth-profit-total')
+        label = total['children'][0]
+        self.assertEqual(label['text'], '총 수익')
+        self.assertEqual(label['attrs']['tabindex'], '0')
+        self.assertEqual(label['attrs']['title'], '미실현 평가손익입니다. 실현손익은 포함하지 않습니다.')
+        self.assertEqual(amount['tag'], 'strong')
+        self.assertEqual(rate['attrs']['class'], 'sub-rate')
+        css = (STATIC / 'wealth-layout.css').read_text(encoding='utf-8')
+        self.assertIn('#expectedProfitRow .wealth-profit-label { flex:0 0 auto; margin:0;', css)
+        self.assertIn('#expectedProfitRow .wealth-profit-numbers > strong { max-width:100%; overflow-wrap:anywhere; }', css)
+        for selector in ('wealth-profit-total', 'wealth-profit-numbers'):
+            for line in css.splitlines():
+                if '.' + selector in line:
+                    self.assertTrue(line.startswith('#expectedProfitRow '))
+        html = (STATIC / 'index.html').read_text(encoding='utf-8')
+        self.assertLess(html.index('/static/wealth.css?v='), html.index('/static/wealth-overrides.css?v='))
+        theme = (STATIC / 'wealth-overrides.css').read_text(encoding='utf-8')
+        self.assertIn('.up,\n.gain,\n.pnl-gain-val {\n  color: #f43f5e !important;', theme)
+        self.assertIn('.down,\n.loss,\n.pnl-loss-val {\n  color: #38bdf8 !important;', theme)
+
+    def test_stock_profit_values_fallback_and_reentry_match_original_renderer(self):
+        # User-run Node contract only; no app/server/API is started.
+        source = (STATIC / 'wealth.js').read_text(encoding='utf-8')
+        candidate = source[source.index('  // 3. 주식 기대수익'):source.index('  // 4. 주식 실현손익')]
+        formatters = source[source.index('const number ='):source.index('\nfunction formatKoreanMoneyFriendly')]
+        lookup = next(line for line in source.splitlines() if line.startswith('const $ ='))
+        self.assertEqual(lookup, 'const $ = (selector) => document.querySelector(selector);')
+        baseline = '  // 3. 주식 기대수익 (주식 평가손익) & 일간 수익\n  if ($("#expectedProfitRow")) $("#expectedProfitRow").style.display = "flex";\n  if ($("#profitLabelText")) $("#profitLabelText").textContent = "주식 기대수익";\n  if ($("#totalProfit")) {\n    $("#totalProfit").textContent = money(s.profit_krw);\n    $("#totalProfit").style.color = (s.profit_krw || 0) >= 0 ? "#f43f5e" : "#38bdf8";\n  }\n  const profitRateEl = $("#profitRate");\n  if (profitRateEl) {\n    profitRateEl.textContent = `(${s.return_rate >= 0 ? "+" : ""}${number(s.return_rate)}%)`;\n    profitRateEl.style.color = (s.profit_krw || 0) >= 0 ? "#f43f5e" : "#38bdf8";\n  }\n\n'
+        code = r"""
+const vm=require('node:vm'),assert=require('node:assert/strict');
+function context(block,missing){
+ const nodes={};
+ for(const id of ['expectedProfitRow','profitLabelText','totalProfit','profitRate','label']){
+  if(id===missing)continue;
+  const classes=new Set(id==='label'?['wealth-profit-label']:id==='profitRate'?['sub-rate']:[]);
+  nodes[id]={textContent:id==='label'?'총 수익':'—',style:{},classes,
+   classList:{toggle(k,on){if(on)classes.add(k);else classes.delete(k);}}};
+ }
+ const sandbox=vm.createContext({document:{querySelector(q){
+  if(q==='#expectedProfitRow .wealth-profit-label')return nodes.label||null;
+  if(/^#[A-Za-z][A-Za-z0-9]*$/.test(q))return nodes[q.slice(1)]||null;
+  throw new Error('UNSUPPORTED_FAKE_DOM_SELECTOR: '+q);
+ }}});
+ // Both renderers use the actual production DOM lookup helper in this same fake DOM.
+ vm.runInContext(LOOKUP+'\n'+FORMATTERS+'\n'+ 'globalThis.render=(s)=>{'+block+'};',sandbox);
+ return {nodes,render:sandbox.render};
+}
+function snapshot(c){
+ return Object.fromEntries(Object.entries(c.nodes).map(([id,n])=>[id,{text:n.textContent,display:n.style.display||''}]));
+}
+for(const missing of [null,'label','totalProfit','profitRate']){
+ const legacy=context(BASELINE,missing),current=context(CANDIDATE,missing);
+ for(const profit_krw of [8000000,-8000000,0,-0,null,undefined,NaN,Infinity,-Infinity,'8000000','-8000000','bad',3,-4,0,null,5]){
+  const s=Object.freeze({profit_krw,return_rate:-11.11}),input=JSON.stringify(s);
+  legacy.render(s);current.render(s);
+  assert.deepEqual(snapshot(current),snapshot(legacy));
+  assert.equal(JSON.stringify(s),input);
+  const nonnegative=(profit_krw||0)>=0,expected=nonnegative?'#f43f5e':'#38bdf8';
+  for(const id of ['totalProfit','profitRate']){
+   if(!current.nodes[id])continue;
+   assert.equal(current.nodes[id].style.color,legacy.nodes[id].style.color,id);
+  }
+  for(const id of ['label','totalProfit','profitRate']){
+   const n=current.nodes[id];if(!n)continue;
+   assert.equal(n.style.color,expected,id);
+   assert.equal(n.classes.has('up'),nonnegative,id);
+   assert.equal(n.classes.has('down'),!nonnegative,id);
+  }
+  if(current.nodes.label)assert.ok(current.nodes.label.classes.has('wealth-profit-label'));
+  if(current.nodes.profitRate)assert.ok(current.nodes.profitRate.classes.has('sub-rate'));
+ }
+}
+console.log('PASS');
+"""
+        code = ('const LOOKUP=' + json.dumps(lookup) + ';\n'
+                + 'const FORMATTERS=' + json.dumps(formatters) + ';\n'
+                + 'const BASELINE=' + json.dumps(baseline) + ';\n'
+                + 'const CANDIDATE=' + json.dumps(candidate) + ';\n' + code)
+        with tempfile.TemporaryDirectory(prefix='wealth-stock-profit-contract-') as temporary:
+            script = Path(temporary) / 'contract.cjs'
+            script.write_text(code, encoding='utf-8')
+            result = subprocess.run(['node', str(script)], capture_output=True, text=True,
+                                    encoding='utf-8', timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), 'PASS')
+
 
 if __name__ == '__main__':
     unittest.main()
