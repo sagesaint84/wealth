@@ -310,9 +310,16 @@ class ProcessBoundaryTests(unittest.TestCase):
         with self.assertRaises(login.TossLoginLockError):
             login.start_toss_login({"enabled": True, "executable": "synthetic"}, username="alice", reauthenticate=True, _popen=spawn)
         spawn.assert_not_called()
-        # Session extend uses exactly this same per-user durable guard.
-        source = (Path(__file__).resolve().parents[1] / "app/services/toss_wts_session.py").read_text(encoding="utf-8")
-        self.assertIn("check_active_login_operation(owner_username)", source)
+        # Exercise the extension entry against the SAME persistent owner marker.
+        before = guard._active_op_path("alice").read_bytes()
+        rejected = Mock(side_effect=AssertionError("Incomplete auth must block extend"))
+        with patch.object(login, "_IS_LINUX", True):
+            with self.assertRaises(login.TossLoginLockError):
+                login._start_toss_auth({"enabled":True,"executable":"synthetic"},
+                                      username="alice", operation="extend", _popen=rejected)
+        rejected.assert_not_called()
+        self.assertEqual(guard._active_op_path("alice").read_bytes(), before)
+        self.assertFalse(guard.check_active_login_operation("bob"))
 
     def test_receipt_identity_owner_nonce_boot_and_exit_all_required(self):
         proof = {**self.boundary, "owner": "alice", "attempt_id": "fixture-attempt",
@@ -575,6 +582,14 @@ class LinuxSyntheticProcessTests(unittest.TestCase):
                         process.process_identity(pid)
                 if operation == "extend":
                     from app.services import toss_wts_session as session
+                    # Inspect the genuine supervisor evidence BEFORE finalization deletes it.
+                    proof = process.private_receipt(receipt)
+                    self.assertTrue(proof["cleanup_complete"])
+                    self.assertEqual(proof["timed_out"], expire)
+                    self.assertEqual(proof["owner"], "synthetic")
+                    self.assertEqual(proof["attempt_id"], attempt)
+                    self.assertEqual(proof["supervisor_pid"], proc.pid)
+                    self.assertEqual(proof["supervisor_start"], start)
                     # Lose all web-process watcher state, retain ONLY real OS receipt.
                     with login._watcher_lock:
                         login._watcher_registry.pop(attempt, None)
@@ -588,8 +603,9 @@ class LinuxSyntheticProcessTests(unittest.TestCase):
                     self.assertEqual(result["action"], "extension_failed" if cancel or expire else "extended")
                     self.assertEqual(result["extension_succeeded"], not cancel and not expire)
                     if expire:
-                        self.assertTrue(process.private_receipt(receipt)["timed_out"])
+                        self.assertTrue(proof["timed_out"])
                         self.assertEqual(result["error_code"],"AUTH_EXTEND_TIMEOUT")
+                    self.assertFalse(receipt.exists())
                     self.assertFalse(guard.check_active_login_operation("synthetic"))
                     for private in ("_pid", "_process_boundary", "stdout", "stderr", "config_dir"):
                         self.assertNotIn(private, result)

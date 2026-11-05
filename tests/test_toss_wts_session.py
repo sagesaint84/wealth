@@ -137,13 +137,19 @@ class TossWtsSessionTests(unittest.TestCase):
             (168,0,False,True,"extended"), (24,0,False,True,"unchanged"),
             (23,0,False,True,"extension_failed"), (24,1,False,True,"extension_failed"),
             (24,-15,True,True,"extension_failed"), (168,0,False,False,"reauth_required"),
+            (168,1,False,True,"extension_failed"), (168,0,True,True,"extension_failed"),
+            (168,-15,True,True,"extension_failed"), (24,0,True,True,"extension_failed"),
         ):
             with self.subTest(hours=hours, exit_code=exit_code, timeout=timeout, valid=valid):
                 status = {"active":valid,"valid":valid,"server_expires_at":(self.now + timedelta(hours=hours)).isoformat(),
                           "hours_remaining":hours,"error_code":None if valid else "SESSION_INVALID"}
                 result = classify_toss_extension(before,status,cli_exit_code=exit_code,timed_out=timeout,now=self.now)
                 self.assertEqual(result["action"], expected)
-                if timeout:
+                if valid and hours > 24 and (timeout or exit_code != 0):
+                    self.assertEqual(result["error_code"], "AUTH_EXTEND_RESULT_UNCONFIRMED")
+                    self.assertEqual(result["status"], "failed")
+                    self.assertEqual(result["server_expires_at"],status["server_expires_at"])
+                elif timeout:
                     self.assertEqual(result["error_code"], "AUTH_EXTEND_TIMEOUT")
 
     def test_status_errors_are_stable(self):

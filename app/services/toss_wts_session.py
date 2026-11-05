@@ -351,7 +351,7 @@ def run_toss_session_maintenance(
     succeeded = result.get("action") == "extended"
     unchanged = result.get("action") == "unchanged"
     post_verify_failed = not succeeded and not unchanged and result.get("error_code") not in {
-        "AUTH_EXTEND_TIMEOUT", "AUTH_EXTEND_FAILED"
+        "AUTH_EXTEND_TIMEOUT", "AUTH_EXTEND_FAILED", "AUTH_EXTEND_RESULT_UNCONFIRMED"
     }
     _notify_maintenance_event(
         result, owner=owner_username,
@@ -436,12 +436,16 @@ def classify_toss_extension(before: str | None, verified: dict[str, Any], *,
     previous = _parse_expiry({"server_expires_at": before}, now)
     expiry = _parse_expiry(verified, now)
     valid = verified["active"] and verified["valid"]
-    extended = bool(valid and previous and expiry and expiry > previous)
-    unchanged = bool(cli_exit_code == 0 and valid and previous is not None and expiry == previous)
+    completed_normally = cli_exit_code == 0 and not timed_out
+    expiry_increased = bool(valid and previous and expiry and expiry > previous)
+    extended = completed_normally and expiry_increased
+    unchanged = bool(completed_normally and valid and previous is not None and expiry == previous)
+    uncertain = expiry_increased and not completed_normally
     needs_qr = verified.get("error_code") in {"SESSION_INACTIVE", "SESSION_INVALID", "SESSION_MISSING", "CONFIG_DIR_MISSING"}
     return {"active": verified["active"], "valid": verified["valid"],
             "server_expires_at": verified["server_expires_at"], "hours_remaining": verified["hours_remaining"],
             "action": "extended" if extended else "unchanged" if unchanged else "reauth_required" if needs_qr else "extension_failed",
             "status": "success" if extended or unchanged else "failed",
-            "error_code": None if extended or unchanged else "AUTH_EXTEND_TIMEOUT" if timed_out else
+            "error_code": None if extended or unchanged else "AUTH_EXTEND_RESULT_UNCONFIRMED" if uncertain else
+                          "AUTH_EXTEND_TIMEOUT" if timed_out else
                           "AUTH_EXTEND_FAILED" if cli_exit_code != 0 else verified.get("error_code") or "AUTH_EXTEND_VERIFY_FAILED"}
