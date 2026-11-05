@@ -167,10 +167,37 @@ class ExistingWealthAuthBoundariesTests(unittest.TestCase):
         source = (ROOT / "app/services/toss_wts_login.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         start = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "start_toss_login")
-        argv = next(n.value for n in ast.walk(start) if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "argv" for t in n.targets))
+        shared = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_start_toss_auth")
+        forwarded = next(n.value for n in start.body if isinstance(n, ast.Return))
+        self.assertIsInstance(forwarded, ast.Call)
+        self.assertEqual(ast.unparse(forwarded.func), "_start_toss_auth")
+        self.assertEqual([ast.unparse(n) for n in forwarded.args], ["settings"])
+        self.assertEqual({n.arg: ast.unparse(n.value) for n in forwarded.keywords}, {
+            "username":"username", "reauthenticate":"reauthenticate",
+            "now_provider":"now_provider", "_popen":"_popen",
+        })
+        defaults = dict(zip((n.arg for n in shared.args.kwonlyargs), shared.args.kw_defaults))
+        self.assertEqual(ast.literal_eval(defaults["operation"]), "login")
+        assignments = [n for n in ast.walk(shared) if isinstance(n, ast.Assign)
+                       and any(isinstance(t, ast.Name) and t.id == "argv" for t in n.targets)]
+        qr = [n for n in assignments if isinstance(n.value, ast.List)
+              and any(isinstance(item, ast.Constant) and item.value == "login" for item in n.value.elts)]
+        self.assertEqual(len(qr), 1)
+        argv = qr[0].value
         literals = [n.value for n in argv.elts if isinstance(n, ast.Constant)]
         self.assertEqual(literals, ["--config-dir", "auth", "login", "--headless", "--link"])
-        spawn = next(n for n in ast.walk(start) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "_popen")
+        expected = ast.parse('[str(settings["executable"]), "--config-dir", str(user_config_dir), "auth", "login", "--headless", "--link", _AUTH_LOGIN_QR_FLAG, str(qr)]', mode="eval").body
+        self.assertEqual(ast.dump(argv), ast.dump(expected))
+        self.assertEqual(len(assignments), 2)
+        override = next(n for n in ast.walk(shared) if isinstance(n, ast.If)
+                        and ast.unparse(n.test) == "operation == 'extend'"
+                        and any(item is not qr[0] and item in assignments for item in n.body))
+        self.assertFalse(override.orelse)
+        spawns = [n for n in ast.walk(shared) if isinstance(n, ast.Call)
+                  and isinstance(n.func, ast.Name) and n.func.id == "_popen"]
+        self.assertEqual(len(spawns), 1)
+        spawn = spawns[0]
+        self.assertEqual([ast.unparse(n) for n in spawn.args], ["launch_argv"])
         keywords = {n.arg: ast.unparse(n.value) for n in spawn.keywords}
         self.assertEqual(keywords["shell"], "False")
         for key in ("stdin", "stdout", "stderr"):
@@ -200,13 +227,35 @@ class ExistingWealthAuthBoundariesTests(unittest.TestCase):
         from datetime import datetime, timezone
         from app.services import toss_wts_login as login
         meta = {"attempt_id": "synthetic", "owner": "alice", "status": login.STATUS_PENDING, "_pid": 123, "error_code": None}
-        with patch.dict(login._watcher_registry, {"synthetic": {"reaped": True, "exit_code": 0}}), \
-             patch.object(login, "_verify_post_login", return_value=False), \
+        # The legacy watcher model is explicitly Windows-only, not Linux proof.
+        with patch.object(login, "_IS_LINUX", False), patch.object(login, "_IS_WINDOWS", True), \
+             patch.dict(login._watcher_registry, {"synthetic": {"reaped": True, "exit_code": 0}}), \
+             patch.object(login, "_verify_post_login", return_value=False) as verify, \
              patch.object(login, "_terminal_cleanup") as cleanup:
             result = login._check_and_finalize(meta, {}, now_provider=lambda: datetime(2026, 10, 12, tzinfo=timezone.utc))
         self.assertEqual(result["status"], login.STATUS_FAILED)
         self.assertEqual(result["error_code"], "AUTH_LOGIN_VERIFY_FAILED")
+        verify.assert_called_once_with({}, "alice")
         cleanup.assert_called_once_with("synthetic", "alice", meta)
+
+        # On Linux, neither a reaped leader nor exit code zero replaces a receipt.
+        # Check both legacy PID-only metadata and the managed missing-receipt case.
+        from app.services import toss_wts_auth_process as process
+        with TemporaryDirectory() as temp, patch.dict(os.environ, {"WEALTH_DATA_DIR":temp}):
+            for boundary in (None, {"kind":process.BOUNDARY_KIND,"token":"synthetic-token","boot_id":"synthetic-boot"}):
+                pending = {"attempt_id":"synthetic","owner":"alice","status":login.STATUS_PENDING,
+                           "_pid":123,"_pid_start_time":"synthetic-start","error_code":None}
+                if boundary is not None:
+                    pending["_process_boundary"] = boundary
+                with patch.object(login, "_IS_LINUX", True), patch.object(login, "_IS_WINDOWS", False), \
+                     patch.dict(login._watcher_registry, {"synthetic":{"reaped":True,"exit_code":0}}), \
+                     patch.object(login, "_verify_post_login") as verify, \
+                     patch.object(login, "_terminal_cleanup") as cleanup:
+                    result = login._check_and_finalize(pending, {}, now_provider=lambda: datetime(2026, 10, 12, tzinfo=timezone.utc))
+                self.assertEqual(result["status"], login.STATUS_PENDING)
+                self.assertEqual(result["error_code"], "AUTH_LOGIN_TERMINATION_PENDING")
+                verify.assert_not_called()
+                cleanup.assert_not_called()
 
     def test_timeout_cannot_release_marker_until_exit_confirmed(self):
         from datetime import datetime, timezone

@@ -8,13 +8,14 @@ from tests.test_workflow_ux_chrome import click, no_overflow
 
 BOOT=r'''
 window.__u={requests:[],errors:[],current:'a',job:null,confirmed:false,offline:false,fail:false,identity:'sagesaint',access:true,userGrant:false,adminRequests:[],finance:[]};
+__u.approvals=new Set();__u.tokenSequence=0;__u.authChecks=0;
 addEventListener('error',e=>__u.errors.push(e.message));
 addEventListener('unhandledrejection',e=>__u.errors.push(String(e.reason)));
 const previous=window.fetch;
 const digest=c=>'sha256:'+c.repeat(64),sha=c=>c.repeat(40);
 window.fetch=async function(url,options={}){
  const path=new URL(String(url),location.href).pathname;
- if(path==='/api/auth/me')return {ok:true,json:async()=>({username:__u.identity,role:__u.identity==='admin'?'admin':'user',can_system_update:!__u.mustChange&&(__u.identity==='admin'||__u.access),must_change_password:!!__u.mustChange})};
+ if(path==='/api/auth/me'){__u.authChecks++;return {ok:true,json:async()=>({username:__u.identity,role:__u.identity==='admin'?'admin':'user',can_system_update:!__u.mustChange&&(__u.identity==='admin'||__u.access),must_change_password:!!__u.mustChange})};}
  if(path==='/api/auth/force-change-password'){__u.mustChange=false;return {ok:true,json:async()=>({message:'synthetic changed'})};}
  if(['/api/dashboard','/api/refresh-prices','/api/planning/snapshot-all'].includes(path))__u.finance.push(path);
  if(path.startsWith('/api/admin/')){
@@ -30,11 +31,20 @@ window.fetch=async function(url,options={}){
  if(!path.startsWith('/api/system-update/'))return previous.apply(this,arguments);
  const action=path.split('/').at(-1),body=options.body?JSON.parse(options.body):null;
  if(__u.identity!=='admin'&&!__u.access)return {ok:false,status:403,json:async()=>({detail:{code:'SYSTEM_UPDATE_FORBIDDEN'}})};
- __u.requests.push({action,method:options.method||'GET',body});
+ __u.requests.push({action,method:options.method||'GET',body,headers:{...(options.headers||{})}});
  if(__u.offline)throw TypeError('synthetic disconnect');
+ if(options.method==='POST'){
+   const approval=options.headers?.['X-Wealth-Update-Approval'];
+   if(options.headers?.['X-Wealth-Update-CSRF']!=='synthetic-csrf')return {ok:false,status:403,json:async()=>({detail:{code:'UPDATE_CSRF_INVALID'}})};
+   if(!__u.approvals.has(approval)||body?.confirm!==true)return {ok:false,status:403,json:async()=>({detail:{code:'UPDATE_APPROVAL_INVALID'}})};
+   __u.approvals.delete(approval);
+ }
  if(options.method==='POST'&&__u.reauthFail)return {ok:false,status:403,json:async()=>({detail:{code:'UPDATE_APPROVAL_INVALID'}})};
  let result={};
- if(action==='status')result={app_version:'2.1.5',csrf_token:'synthetic-csrf',operation_token:'synthetic-operation',host_available:true,current:{sha:sha(__u.current),digest:digest(__u.current)},rollback:__u.current==='b'?{digest:digest('a')}:null,busy:__u.job&&['pulling','verifying'].includes(__u.job.stage),jobs:__u.job?[{...__u.job,confirmed:__u.confirmed}]:[]};
+ if(action==='status'){
+   const approval='synthetic-operation-'+(++__u.tokenSequence);__u.approvals.add(approval);
+   result={app_version:'2.1.5',csrf_token:'synthetic-csrf',operation_token:approval,host_available:true,current:{sha:sha(__u.current),digest:digest(__u.current)},rollback:__u.current==='b'?{digest:digest('a')}:null,busy:__u.job&&['pulling','verifying'].includes(__u.job.stage),jobs:__u.job?[{...__u.job,confirmed:__u.confirmed}]:[]};
+ }
  else if(action==='check'){
   if(__u.fail)return {ok:false,json:async()=>({detail:{code:'BUILD_NOT_SUCCESSFUL'}})};
   result={sha:sha('b'),digest:digest('b'),available:__u.current!=='b',build:'success',url:'https://github.com/sagesaint84/wealth/actions/runs/123',checked_at:123,compressed_bytes:100,free_bytes:9999999999,required_bytes:2147483648,changes:[{message:'Synthetic change <img id="unsafeUpdateNode" src=x onerror=alert(1)>'}]};
@@ -56,8 +66,10 @@ def start(preview,width,extra='',route='settings'):
     return call,evaluate,port
 
 
-def authorize(evaluate):
-    evaluate("document.getElementById('updateConsent').checked=true")
+def confirm_action(call,evaluate):
+    wait_for(evaluate,"document.getElementById('updateActionDialog').open")
+    click(call,evaluate,'#updateActionAccept')
+    wait_for(evaluate,"!document.getElementById('updateActionDialog').open")
 
 
 @pytest.mark.parametrize('width',[320,360,390,768,1280])
@@ -75,25 +87,52 @@ def test_update_ui_readonly_install_progress_confirmation_cleanup_and_width(chro
     assert 'Synthetic change <img' in evaluate("document.getElementById('updateChanges').textContent")
     assert not evaluate("__u.requests.some(r=>r.method==='POST')")
     click(call,evaluate,'#updateInstall')
+    wait_for(evaluate,"document.getElementById('updateActionDialog').open")
+    assert 'b'*40 in evaluate("document.getElementById('updateActionDetails').textContent")
+    assert 'sha256:'+'b'*64 in evaluate("document.getElementById('updateActionDetails').textContent")
+    checks=evaluate('__u.authChecks')
     assert not evaluate("__u.requests.some(r=>r.method==='POST')")
-    authorize(evaluate);click(call,evaluate,'#updateInstall')
+    click(call,evaluate,'#updateActionDialog button.button[value=cancel]')
+    wait_for(evaluate,"!document.getElementById('updateActionDialog').open&&!document.getElementById('updateInstall').disabled")
+    assert not evaluate("__u.requests.some(r=>r.method==='POST')")
+    assert evaluate('__u.authChecks')==checks
+    assert evaluate('document.activeElement.id')=='updateInstall'
+    click(call,evaluate,'#updateInstall');confirm_action(call,evaluate)
     wait_for(evaluate,"__u.requests.some(r=>r.action==='install')")
     assert not evaluate("!!document.getElementById('updatePassword')")
-    assert not evaluate("document.getElementById('updateConsent').checked")
+    assert not evaluate("!!document.getElementById('updateConsent')")
+    assert not evaluate("document.getElementById('updateActionDialog').open")
+    assert evaluate('__u.authChecks')>checks
     assert evaluate("__u.requests.filter(r=>r.action==='install').length")==1
     assert evaluate("__u.requests.filter(r=>r.method==='POST').every(r=>!('password' in r.body))")
     evaluate("__u.current='b';__u.job.stage='succeeded'")
     click(call,evaluate,'#updateRefresh')
     wait_for(evaluate,"!document.getElementById('updateConfirm').disabled")
     assert evaluate("document.getElementById('updateCleanupPreview').disabled")
-    authorize(evaluate);click(call,evaluate,'#updateConfirm')
+    click(call,evaluate,'#updateConfirm')
+    assert not evaluate("document.getElementById('updateActionDialog').open")
     wait_for(evaluate,"!document.getElementById('updateCleanupPreview').disabled")
     click(call,evaluate,'#updateCleanupPreview')
     wait_for(evaluate,"!document.getElementById('updateCleanup').disabled")
     assert evaluate("document.getElementById('updateCleanupImages').textContent")=='sha256:'+'e'*64
-    authorize(evaluate);click(call,evaluate,'#updateCleanup')
+    click(call,evaluate,'#updateCleanup')
+    wait_for(evaluate,"document.getElementById('updateActionDialog').open")
+    assert '1개' in evaluate("document.getElementById('updateActionDescription').textContent")
+    assert 'sha256:'+'e'*64 in evaluate("document.getElementById('updateActionDetails').textContent")
+    call('Input.dispatchKeyEvent',{'type':'keyDown','key':'Escape','code':'Escape','windowsVirtualKeyCode':27})
+    call('Input.dispatchKeyEvent',{'type':'keyUp','key':'Escape','code':'Escape','windowsVirtualKeyCode':27})
+    wait_for(evaluate,"!document.getElementById('updateActionDialog').open&&!document.getElementById('updateCleanup').disabled")
+    assert not evaluate("__u.requests.some(r=>r.action==='cleanup')")
+    assert evaluate('document.activeElement.id')=='updateCleanup'
+    click(call,evaluate,'#updateCleanup');confirm_action(call,evaluate)
     wait_for(evaluate,"__u.requests.some(r=>r.action==='cleanup')")
     assert evaluate("__u.requests.find(r=>r.action==='cleanup').body.images")==['sha256:'+'e'*64]
+    assert evaluate("__u.requests.find(r=>r.action==='cleanup').body.preview_token")=='synthetic-preview'
+    assert evaluate("__u.requests.find(r=>r.action==='confirm').body.job_id")=='b'*32
+    posts=evaluate("__u.requests.filter(r=>r.method==='POST')")
+    assert [r['action'] for r in posts]==['install','confirm','cleanup']
+    assert all(r['body']['confirm'] is True and r['headers']['X-Wealth-Update-CSRF']=='synthetic-csrf' for r in posts)
+    assert len({r['headers']['X-Wealth-Update-Approval'] for r in posts})==len(posts)
     assert not evaluate("JSON.stringify(localStorage).includes('SYNTHETIC-PASSWORD')||JSON.stringify(sessionStorage).includes('SYNTHETIC-PASSWORD')")
     no_overflow(evaluate,width)
     assert evaluate("(()=>{const ids=[...document.querySelectorAll('[id]')].map(n=>n.id);return new Set(ids).size===ids.length})()")
@@ -215,12 +254,34 @@ def test_delegated_expired_operation_approval_blocks_install_without_password(ch
     wait_for(evaluate,"!document.getElementById('updateCheck').disabled")
     click(call,evaluate,'#updateCheck')
     wait_for(evaluate,"!document.getElementById('updateInstall').disabled")
-    evaluate('__u.reauthFail=true');authorize(evaluate)
-    click(call,evaluate,'#updateInstall')
+    evaluate('__u.reauthFail=true')
+    click(call,evaluate,'#updateInstall');confirm_action(call,evaluate)
+    wait_for(evaluate,"document.getElementById('updateError').textContent.includes('작업 승인')")
     assert '작업 승인' in evaluate("document.getElementById('updateError').textContent")
     assert '관리자 비밀번호' not in evaluate("document.getElementById('updateError').textContent")
     assert evaluate('__u.job') is None
+    assert evaluate("__u.requests.filter(r=>r.action==='install').length")==1
     assert not evaluate("!!document.getElementById('updatePassword')")
+    assert evaluate('__u.errors')==[]
+
+
+@pytest.mark.parametrize('change',['permission','target'])
+def test_install_dialog_rechecks_permission_and_target_before_post(chrome_preview,change):
+    call,evaluate,_=start(chrome_preview,360)
+    click(call,evaluate,'#settingsSystemTab')
+    wait_for(evaluate,"!document.getElementById('updateCheck').disabled")
+    click(call,evaluate,'#updateCheck')
+    wait_for(evaluate,"!document.getElementById('updateInstall').disabled")
+    click(call,evaluate,'#updateInstall')
+    wait_for(evaluate,"document.getElementById('updateActionDialog').open")
+    checks=evaluate('__u.authChecks')
+    evaluate("__u.access=false" if change=='permission' else "__u.current='c'")
+    confirm_action(call,evaluate)
+    wait_for(evaluate,"document.getElementById('settingsSystemTab').hidden" if change=='permission' else
+             "document.getElementById('updateError').textContent.includes('상태가 변경')")
+    assert evaluate('__u.authChecks')>checks
+    assert not evaluate("__u.requests.some(r=>r.method==='POST')")
+    assert evaluate('__u.job') is None
     assert evaluate('__u.errors')==[]
 
 

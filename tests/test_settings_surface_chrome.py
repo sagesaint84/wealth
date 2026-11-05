@@ -10,6 +10,7 @@ from tests.test_workflow_ux_chrome import FRAMES, click, no_overflow
 
 BOOT = r'''
 window.__settingsProbe={requests:[],legacy:0,forms:0,moves:0,dialogs:0,errors:[],legacyVisibleFrames:0,hold:false,pending:[],fail:false};
+__settingsProbe.extension={action:'idle'};__settingsProbe.extendResolvers=[];__settingsProbe.confirms=[];
 const banned=['userOpenApiModal','notificationSettingsDialog','userOpenApiBtn','notificationSettingsBtn'];
 const seenForms=new WeakSet();
 const inspect=node=>{
@@ -32,7 +33,7 @@ const show=HTMLDialogElement.prototype.showModal;
 HTMLDialogElement.prototype.showModal=function(){__settingsProbe.dialogs++;return show.call(this);};
 window.addEventListener('error',e=>__settingsProbe.errors.push(e.message));
 window.addEventListener('unhandledrejection',e=>__settingsProbe.errors.push(String(e.reason)));
-window.confirm=()=>true;window.alert=message=>__settingsProbe.errors.push(message);
+window.confirm=message=>{__settingsProbe.confirms.push(message);return __settingsProbe.confirmAllowed!==false;};window.alert=message=>__settingsProbe.errors.push(message);
 const config=Object.fromEntries(['toss','kb','nh','kis','kiwoom'].map(name=>[name,{app_key:name+'****',app_secret:'********',account_no:'1234****',configured:true,has_app_key:true,has_app_secret:true}]));
 config.dart={configured:true,has_api_key:true};
 const notifications={telegram:{enabled:true,chat_id:101,allowed_user_id:202,allowed_chat_id:101,bot_token_configured:true,bot_token_source:'stored',webhook_secret_configured:true,webhook_secret_source:'stored'},discord:{enabled:true},kakao:{enabled:true}};
@@ -47,6 +48,14 @@ window.fetch=async function(url,options={}){
  const path=new URL(String(url),location.href).pathname,method=options.method||'GET',body=options.body?JSON.parse(options.body):null;
  if(!path.startsWith('/api/settings/')&&!path.startsWith('/api/user/openapi-config')&&!path.startsWith('/api/user/krx-marketplace-config'))return nativeFetch.apply(this,arguments);
  __settingsProbe.requests.push({path,method,body});
+ if(path==='/api/settings/toss-wts/session/extend'){
+   if(__settingsProbe.extendNetworkError)throw new TypeError('Synthetic response lost');
+   if(__settingsProbe.holdExtend)await new Promise(resolve=>__settingsProbe.extendResolvers.push(resolve));
+   __settingsProbe.extension={action:'pending'};
+   return {ok:true,status:200,json:async()=>({action:'pending',attempt_id:'synthetic-extension'})};
+ }
+ if(path==='/api/settings/toss-wts/session/extension')return {ok:true,status:200,json:async()=>structuredClone(__settingsProbe.extension)};
+ if(path==='/api/settings/toss-wts/status'&&__settingsProbe.sessionStatusFail)return {ok:false,status:503,json:async()=>({detail:{code:'AUTH_STATUS_FAILED'}})};
  if(__settingsProbe.hold&&method==='GET')await new Promise(resolve=>__settingsProbe.pending.push(resolve));
  if((__settingsProbe.fail||__settingsProbe.failPath===path)&&method==='GET')return {ok:false,status:503,json:async()=>({detail:'SYNTHETIC_UNAVAILABLE'})};
  let result={valid:true,message:'synthetic success'};
@@ -271,4 +280,64 @@ def test_krx_failure_and_notification_retry_are_local(chrome_preview, width):
     click(call, evaluate, '[data-settings-retry=notifications]')
     loaded(evaluate, 'Notifications')
     assert evaluate("document.getElementById('settingsTelegramEnabled').checked")
+    assert_single_surface(evaluate)
+
+@pytest.mark.parametrize('width', [412,750,1280])
+@pytest.mark.parametrize('theme', ['purple','white','oled'])
+def test_toss_extension_progress_result_and_shared_button(chrome_preview, width, theme):
+    call, evaluate = start(chrome_preview,width)
+    loaded(evaluate)
+    evaluate(f'setAppTheme({json.dumps(theme)})')
+    wait_for(evaluate,"!document.getElementById('settingsExtendTossSession').disabled")
+    assert evaluate("document.documentElement.getAttribute('data-theme')") == (None if theme=='purple' else theme)
+    assert evaluate("document.querySelectorAll('button.wealth-ui-button[data-ui=button]#settingsExtendTossSession').length") == 1
+    assert evaluate("getComputedStyle(document.getElementById('settingsExtendTossSession')).fontFamily") == evaluate("getComputedStyle(document.getElementById('settingsTossSessionSection')).fontFamily")
+    evaluate('__settingsProbe.holdExtend=true')
+    click(call,evaluate,'#settingsExtendTossSession')
+    wait_for(evaluate,'__settingsProbe.extendResolvers.length===1')
+    assert evaluate("document.getElementById('settingsExtendTossSession').disabled")
+    assert evaluate("document.getElementById('settingsExtendTossSession').getAttribute('aria-busy')") == 'true'
+    assert evaluate("document.getElementById('settingsTossLoginStart').disabled")
+    assert '휴대전화' in evaluate("document.getElementById('settingsTossExtensionStatus').textContent")
+    evaluate("document.getElementById('settingsExtendTossSession').click();__settingsProbe.holdExtend=false;__settingsProbe.extendResolvers.splice(0).forEach(resolve=>resolve())")
+    wait_for(evaluate,"__settingsProbe.requests.some(r=>r.path==='/api/settings/toss-wts/session/extension')&&__settingsProbe.extension.action==='pending'")
+    for action, text in [('extended','연장 완료'),('unchanged','변경 없음'),('not_required','연장 불필요'),('extension_failed','결과 확인 필요'),('reauth_required','재인증 필요')]:
+        evaluate(f'__settingsProbe.extension={{action:{json.dumps(action)},server_expires_at:"2099-01-01T00:00:00+09:00"}}')
+        click(call,evaluate,'#settingsCheckTossSession')
+        wait_for(evaluate,f'document.getElementById("settingsTossExtensionStatus").textContent.includes({json.dumps(text)})')
+    posts = evaluate("__settingsProbe.requests.filter(r=>r.path==='/api/settings/toss-wts/session/extend')")
+    assert len(posts) == 1 and posts[0]['method'] == 'POST' and posts[0]['body'] is None
+    no_overflow(evaluate,width)
+    assert evaluate("document.documentElement.scrollWidth<=document.documentElement.clientWidth")
+    assert_single_surface(evaluate)
+
+
+def test_toss_extension_connection_loss_requires_get_not_post_retry(chrome_preview):
+    call,evaluate = start(chrome_preview,412)
+    loaded(evaluate)
+    wait_for(evaluate,"!document.getElementById('settingsExtendTossSession').disabled")
+    evaluate('__settingsProbe.extendNetworkError=true')
+    click(call,evaluate,'#settingsExtendTossSession')
+    wait_for(evaluate,"document.getElementById('settingsTossExtensionStatus').textContent.includes('결과 확인 필요')")
+    assert evaluate("document.getElementById('settingsExtendTossSession').disabled")
+    evaluate("__settingsProbe.extension={action:'idle'}")
+    click(call,evaluate,'#settingsCheckTossSession')
+    wait_for(evaluate,"!document.getElementById('settingsExtendTossSession').disabled")
+    assert evaluate("__settingsProbe.requests.filter(r=>r.path==='/api/settings/toss-wts/session/extend').length") == 1
+    assert_single_surface(evaluate)
+
+
+def test_toss_qr_fresh_status_cancel_and_probe_failure_never_start_login(chrome_preview):
+    call,evaluate = start(chrome_preview,412)
+    loaded(evaluate)
+    wait_for(evaluate,"!document.getElementById('settingsTossLoginStart').disabled")
+    evaluate('__settingsProbe.confirmAllowed=false')
+    click(call,evaluate,'#settingsTossLoginStart')
+    wait_for(evaluate,"__settingsProbe.confirms.length===1&&!document.getElementById('settingsTossLoginStart').disabled")
+    assert '초기화' in evaluate('__settingsProbe.confirms[0]')
+    evaluate('__settingsProbe.sessionStatusFail=true')
+    click(call,evaluate,'#settingsTossLoginStart')
+    wait_for(evaluate,"!document.getElementById('settingsTossError').hidden&&!document.getElementById('settingsTossLoginStart').disabled")
+    assert evaluate("__settingsProbe.requests.filter(r=>r.path==='/api/settings/toss-wts/status').length") == 2
+    assert evaluate("__settingsProbe.requests.filter(r=>r.path==='/api/settings/toss-wts/login/start').length") == 0
     assert_single_surface(evaluate)

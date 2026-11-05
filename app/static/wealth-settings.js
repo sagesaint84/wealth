@@ -310,6 +310,8 @@
     byId('settingsTossSessionPresent').textContent = '확인하지 않음';
     byId('settingsTossSessionEnabled').checked = toss.session_check_enabled === true;
     for (const id of ['settingsTossSessionEnabled','settingsCheckTossSession','settingsSaveTossSession','settingsTossLoginStart']) byId(id).disabled = !toss.enabled || !toss.allowed;
+    updateTossAuthButtons();
+    if (toss.enabled && toss.allowed) void refreshTossExtensionStatus();
   }
 
   async function saveTossSessionSettings() {
@@ -331,6 +333,7 @@
       byId('settingsTossLiveStatus').textContent=status.active && status.valid ? 'active / valid' : (status.error_code || 'invalid');
       byId('settingsTossExpiry').textContent=status.server_expires_at ? `${status.server_expires_at} · ${status.hours_remaining}시간` : '없음';
       byId('settingsTossCheckedAt').textContent=status.checked_at || '없음';
+      await refreshTossExtensionStatus();
     } catch (error) { const message=safeMessage(error,'Toss 세션 상태를 확인하지 못했습니다.'); setError('settingsTossError',message); toast(message,true); }
     finally { busy(button,false); }
   }
@@ -339,6 +342,83 @@
   // Toss WTS QR login lifecycle
   // Verified tossctl v0.50.3: auth login --headless --link --qr-output <path>
   // -----------------------------------------------------------------------
+  let _tossExtendRequestBusy = false, _tossExtendActive = false, _tossExtendUnknown = false;
+  let _tossExtendSupported = true;
+  let _tossExtendPollBusy = false, _tossExtendTimer = null, _tossExtendPollUntil = 0;
+  const tossViewer = () => typeof currentUserProfile !== 'undefined' ? currentUserProfile?.username : null;
+  function updateTossAuthButtons() {
+    const enabled = tossSessionSnapshot?.enabled && tossSessionSnapshot?.allowed;
+    const extending = _tossExtendRequestBusy || _tossExtendActive || _tossExtendUnknown;
+    const button = byId('settingsExtendTossSession');
+    button.disabled = !enabled || !_tossExtendSupported || extending || _tossExtendPollBusy || _tossLoginStarting || !!_tossLoginAttemptId;
+    button.setAttribute('aria-busy', String(_tossExtendRequestBusy || _tossExtendActive));
+    byId('settingsTossLoginStart').disabled = !enabled || extending || _tossExtendPollBusy || _tossLoginStarting || !!_tossLoginAttemptId;
+  }
+  function renderTossExtension(result) {
+    if (result.supported === false) _tossExtendSupported = false;
+    _tossExtendActive = result.action === 'pending';
+    _tossExtendUnknown = result.action === 'unknown';
+    const labels = {
+      idle:'세션 상태 확인 전 · 연장은 만료 임계시간 이내에서만 요청합니다.',
+      unavailable:'이 환경은 안전한 세션 연장 감독 기능을 지원하지 않습니다. 기존 QR 인증을 사용해 주세요.',
+      pending:'세션 연장 요청 중 · 휴대전화 승인이 필요할 수 있습니다.',
+      extended:`연장 완료 · 새 만료 시각: ${result.server_expires_at || '확인 필요'}`,
+      unchanged:`만료 시각 변경 없음 · ${result.server_expires_at || '세션 상태를 다시 확인해 주세요.'}`,
+      not_required:`연장 불필요 · 현재 만료 시각: ${result.server_expires_at || '확인 필요'}`,
+      reauth_required:'재인증 필요 · 세션 상태를 확인한 뒤 QR 인증을 시작해 주세요.',
+      deferred:'다른 인증 작업 진행 중 · 세션 상태 확인으로 결과를 조회해 주세요.',
+      extension_failed:'연장 결과 확인 필요 · 세션 상태를 다시 조회해 주세요.',
+      status_failed:'세션 연장을 시작하지 못했습니다. 세션 상태를 다시 확인해 주세요.',
+      unknown:'결과 확인 필요 · 연장을 다시 요청하지 말고 세션 상태를 조회해 주세요.',
+    };
+    byId('settingsTossExtensionStatus').textContent = labels[result.action] || labels.unknown;
+    if (_tossExtendActive && result.error_code) byId('settingsTossExtensionStatus').textContent = '결과 확인 필요 · 인증 작업 종료 증거를 기다립니다. 세션 상태 확인으로 다시 조회할 수 있습니다.';
+    updateTossAuthButtons();
+  }
+  async function refreshTossExtensionStatus() {
+    if (_tossExtendPollBusy || _tossExtendRequestBusy) return;
+    const viewer = tossViewer();
+    clearTimeout(_tossExtendTimer);
+    _tossExtendPollBusy = true;
+    updateTossAuthButtons();
+    try {
+      const result = await api('/api/settings/toss-wts/session/extension');
+      if (viewer !== tossViewer()) return;
+      renderTossExtension(result);
+      if (_tossExtendActive && !document.hidden) {
+        if (!_tossExtendPollUntil) _tossExtendPollUntil = Date.now() + 660000;
+        if (Date.now() < _tossExtendPollUntil) _tossExtendTimer = setTimeout(refreshTossExtensionStatus, 3000);
+        else renderTossExtension({action:'unknown'});
+      } else if (!_tossExtendActive) _tossExtendPollUntil = 0;
+    } catch (error) {
+      if (viewer === tossViewer()) renderTossExtension({action:'unknown'});
+    } finally { _tossExtendPollBusy = false; updateTossAuthButtons(); }
+  }
+  async function extendTossSession() {
+    if (!_tossExtendSupported || _tossExtendRequestBusy || _tossExtendActive || _tossExtendUnknown || _tossExtendPollBusy || _tossLoginStarting || _tossLoginAttemptId) return;
+    const viewer = tossViewer();
+    _tossExtendRequestBusy = true;
+    clearTimeout(_tossExtendTimer);
+    renderTossExtension({action:'pending'});
+    setError('settingsTossError');
+    try {
+      const result = await api('/api/settings/toss-wts/session/extend', {method:'POST'});
+      if (viewer !== tossViewer()) return;
+      renderTossExtension(result);
+    } catch (error) {
+      if (viewer !== tossViewer()) return;
+      renderTossExtension({action:['TOSS_AUTH_OPERATION_BUSY','AUTH_LOGIN_IN_PROGRESS'].includes(error?.code) ? 'deferred' : 'unknown'});
+      setError('settingsTossError',['TOSS_AUTH_OPERATION_BUSY','AUTH_LOGIN_IN_PROGRESS'].includes(error?.code)
+        ? '다른 인증 작업이 진행 중입니다.' : '요청 결과를 확인하지 못했습니다. 자동 재요청하지 않습니다. 세션 상태 확인을 눌러 주세요.');
+    } finally {
+      _tossExtendRequestBusy = false;
+      updateTossAuthButtons();
+      // Only GET may follow a successful start; never retry the POST.
+      if (viewer === tossViewer() && _tossExtendActive) void refreshTossExtensionStatus();
+    }
+  }
+
+  let _tossLoginStarting = false;
   let _tossLoginAttemptId = null;
   let _tossLoginPollTimer = null;
   let _tossLoginPollBusy = false;
@@ -376,33 +456,35 @@
     if (statusEl) statusEl.textContent = '';
     if (startBtn) { startBtn.disabled = false; startBtn.hidden = false; }
     if (cancelBtn) cancelBtn.hidden = true;
+    updateTossAuthButtons();
   }
 
   async function startTossLogin() {
+    if (_tossLoginStarting || _tossLoginAttemptId || _tossExtendRequestBusy || _tossExtendActive || _tossExtendUnknown || _tossExtendPollBusy) return;
     setError('settingsTossError');
     const startBtn = byId('settingsTossLoginStart');
     const cancelBtn = byId('settingsTossLoginCancel');
     const qrArea = byId('settingsTossLoginQrArea');
     const statusEl = byId('settingsTossLoginStatus');
 
-    // Re-auth guard: if we already know the session is active+valid, require
-    // explicit confirmation before sending reauthenticate=true.
-    let reauthenticate = false;
-    const knownValid = _lastKnownTossStatus && _lastKnownTossStatus.active && _lastKnownTossStatus.valid;
-    if (knownValid) {
-      const confirmed = window.confirm(
-        '현재 Toss WTS 세션이 유효한 상태입니다.\n' +
-        '재인증을 시작하면 세션이 초기화될 수 있습니다.\n\n' +
-        '계속하시겠습니까? (재인증 시작)'
-      );
-      if (!confirmed) return;
-      reauthenticate = true;
-    } else {
-      if (!window.confirm('Toss WTS QR 인증을 시작합니다.\n진행 중인 세션 연장과 충돌할 수 있습니다. 계속하시겠습니까?')) return;
-    }
-
+    _tossLoginStarting = true;
+    busy(startBtn, true);
+    updateTossAuthButtons();
     try {
-      busy(startBtn, true);
+      // A cached status must never authorize destructive reauthentication.
+      const status = await api('/api/settings/toss-wts/status', {method:'POST'});
+      _lastKnownTossStatus = status;
+      if (!status || typeof status.active !== 'boolean' || typeof status.valid !== 'boolean'
+          || (status.error_code && !['SESSION_INACTIVE','SESSION_INVALID','SESSION_MISSING','CONFIG_DIR_MISSING'].includes(status.error_code))) {
+        throw new Error('Toss 세션 상태를 확인하지 못했습니다. 세션 상태 확인 후 다시 시도해 주세요.');
+      }
+      let reauthenticate = false;
+      if (status.active && status.valid) {
+        if (!window.confirm('현재 Toss WTS 세션이 유효한 상태입니다.\n재인증을 시작하면 기존 세션이 초기화될 수 있습니다.\n\n계속하시겠습니까? (재인증 시작)')) return;
+        reauthenticate = true;
+      } else {
+        if (!window.confirm('Toss WTS QR 인증을 시작합니다.\n진행 중인 세션 연장과 충돌할 수 있습니다. 계속하시겠습니까?')) return;
+      }
       const result = await api('/api/settings/toss-wts/login/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -430,7 +512,9 @@
       toast(message, true);
       _tossLoginReset();
     } finally {
+      _tossLoginStarting = false;
       busy(startBtn, false);
+      updateTossAuthButtons();
     }
   }
 
@@ -982,6 +1066,7 @@
     byId('settingsClearAutomationOwner')?.addEventListener('click', clearAutomationOwner);
     byId('settingsSaveTossSession')?.addEventListener('click', saveTossSessionSettings);
     byId('settingsCheckTossSession')?.addEventListener('click', checkTossSessionStatus);
+    byId('settingsExtendTossSession')?.addEventListener('click', extendTossSession);
     byId('settingsTossLoginStart')?.addEventListener('click', startTossLogin);
     byId('settingsTossLoginCancel')?.addEventListener('click', cancelTossLogin);
     byId('settingsAddReminder')?.addEventListener('click', () => addReminderRow('').focus());

@@ -78,6 +78,19 @@ def _reset_thread_lock_for_user(env: dict | None, username: str = USERNAME):
             pass
 
 
+def _legacy_windows_model(test):
+    """Synthetic PID/watcher unit contracts, NOT Linux completion evidence.
+
+    Real Linux gates live in test_toss_wts_auth_process.LinuxSyntheticProcessTests.
+    Keep this explicit when executing the legacy model suite on Linux CI.
+    """
+    from app.services import toss_wts_login as login, toss_wts_auth_guard as guard
+    for module, name, value in ((login,"_IS_WINDOWS",True),(login,"_IS_LINUX",False),(guard,"_IS_WINDOWS",True)):
+        option = patch.object(module,name,value)
+        option.start()
+        test.addCleanup(option.stop)
+
+
 class DataRootTests(unittest.TestCase):
     def test_default_data_root_matches_app_persistent_data_directory(self):
         import app.services.toss_wts_auth_guard as g
@@ -89,6 +102,7 @@ class DataRootTests(unittest.TestCase):
 
 class ConfigBootstrapTests(unittest.TestCase):
     def test_login_bootstraps_missing_per_user_config_before_spawn(self):
+        _legacy_windows_model(self)
         import app.services.toss_wts_login as m
 
         temp = tempfile.TemporaryDirectory()
@@ -138,6 +152,7 @@ class _LoginBase(unittest.TestCase):
     """Base: temp dir, settings, env, _start() helper."""
 
     def setUp(self):
+        _legacy_windows_model(self)
         self.temp = tempfile.TemporaryDirectory()
         self.env = {"WEALTH_DATA_DIR": self.temp.name}
         self.settings = _make_settings(Path(self.temp.name))
@@ -534,7 +549,7 @@ class TerminateBeforeClearTests(_LoginBase):
     def test_marker_kept_blocks_login_and_extend(self):
         import app.services.toss_wts_login as m
         import subprocess as sp
-        from app.services.toss_wts_session import run_toss_session_maintenance
+        from app.services.toss_wts_session import start_toss_session_extension
         aid = self._start(pid=54325)
         future = NOW + timedelta(seconds=m.LOGIN_ATTEMPT_MAX_SECONDS + 1)
         with patch.dict(os.environ, self.env), \
@@ -562,12 +577,10 @@ class TerminateBeforeClearTests(_LoginBase):
         runner = Mock(return_value=sp.CompletedProcess([], 0, st_json, ""))
         with patch.dict(os.environ, self.env), \
              patch.object(os, "kill", return_value=None), \
-             patch("app.services.toss_wts_session.resolve_telegram_config",
-                   return_value=Mock()):
-            res = run_toss_session_maintenance(
-                USERNAME, now=NOW, settings=self.settings,
-                run=runner, sender=Mock(),
-            )
+             patch.object(m, "_IS_LINUX", True), \
+             patch("app.services.toss_wts_session.resolve_toss_wts_settings",
+                   return_value=self.settings):
+            res = start_toss_session_extension(USERNAME)
         self.assertEqual(res["action"], "deferred")
         self.assertEqual(res["error_code"], "AUTH_LOGIN_IN_PROGRESS")
 
@@ -580,19 +593,18 @@ class RaceConditionTests(_LoginBase):
 
     def test_extend_deferred_when_login_marker_exists(self):
         import subprocess as sp
-        from app.services.toss_wts_session import run_toss_session_maintenance
+        import app.services.toss_wts_login as m
+        from app.services.toss_wts_session import start_toss_session_extension
         self._write_marker()
         expiry = (NOW + timedelta(hours=24)).isoformat()
         st = f'{{"active": true, "valid": true, "server_expires_at": "{expiry}"}}'
         runner = Mock(return_value=sp.CompletedProcess([], 0, st, ""))
         with patch.dict(os.environ, self.env), \
              patch.object(os, "kill", return_value=None), \
-             patch("app.services.toss_wts_session.resolve_telegram_config",
-                   return_value=Mock()):
-            result = run_toss_session_maintenance(
-                USERNAME, now=NOW, settings=self.settings,
-                run=runner, sender=Mock(),
-            )
+             patch.object(m, "_IS_LINUX", True), \
+             patch("app.services.toss_wts_session.resolve_toss_wts_settings",
+                   return_value=self.settings):
+            result = start_toss_session_extension(USERNAME)
         self.assertEqual(result["action"], "deferred")
         self.assertEqual(result["error_code"], "AUTH_LOGIN_IN_PROGRESS")
         self.assertFalse(result["extension_attempted"])
@@ -1093,5 +1105,106 @@ class CancelProcessCompletionRaceTests(_LoginBase):
                          "_terminate_and_reap must not be called when process already done")
 
 
+
+class ManualExtensionApiTests(unittest.TestCase):
+    """API delegation/security models; no Toss, subprocess or fake receipt."""
+    def setUp(self):
+        import importlib
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        env = patch.dict(os.environ,{"WEALTH_DATA_DIR":self.temp.name,"WEALTH_ENV":"test","WEALTH_DISABLE_ENV_FILE":"1"})
+        env.start(); self.addCleanup(env.stop)
+        self.main = importlib.import_module("app.main")
+        boundary = patch("app.services.toss_wts_login._start_toss_auth",side_effect=AssertionError("API models must not enter the real auth boundary"))
+        boundary.start(); self.addCleanup(boundary.stop)
+        no_spawn = patch.object(subprocess,"Popen",side_effect=AssertionError("API model must not spawn"))
+        no_spawn.start(); self.addCleanup(no_spawn.stop)
+
+    def request(self, username=None):
+        from starlette.requests import Request
+        async def forbidden_body():
+            raise AssertionError("Client command/config/user fields must not be read")
+        return Request({"type":"http","method":"POST","path":"/api/settings/toss-wts/session/extend",
+                        "headers":[],"state":{} if username is None else {"username":username}}, receive=forbidden_body)
+
+    def test_manual_api_requires_authenticated_owner_and_permission(self):
+        import asyncio
+        from fastapi import HTTPException
+        with patch("app.services.toss_wts_session.start_toss_session_extension") as start, \
+             patch("app.services.toss_wts_session.get_toss_session_extension") as observe:
+            for endpoint in (self.main.toss_wts_session_extend_api,self.main.toss_wts_session_extension_status_api):
+                with self.assertRaises(HTTPException) as denied:
+                    asyncio.run(endpoint(self.request()))
+                self.assertEqual(denied.exception.status_code,401)
+                self.assertEqual(denied.exception.headers["Cache-Control"],"no-store")
+                with patch.object(self.main,"_toss_wts_user_allowed",return_value=False), self.assertRaises(HTTPException) as forbidden:
+                    asyncio.run(endpoint(self.request("alice")))
+                self.assertEqual(forbidden.exception.status_code,403)
+                self.assertEqual(forbidden.exception.headers["Cache-Control"],"no-store")
+            start.assert_not_called(); observe.assert_not_called()
+
+    def test_http_cookie_auth_allowlist_and_untrusted_body_are_enforced(self):
+        from starlette.testclient import TestClient
+        from app.services.user_identity import generate_user_id
+        records = {name:{"username":name,"id":generate_user_id(),"role":"user","must_change_password":False,
+                         "salt":"synthetic","password_hash":"synthetic"} for name in ("alice","bob")}
+        # Match existing API tests: no lifespan/startup automation is started.
+        client = TestClient(self.main.app)
+        self.addCleanup(client.close)
+        with patch("app.services.user_manager.get_user_by_name",side_effect=records.get), \
+             patch("app.services.system_settings.resolve_toss_wts_settings",return_value={"enabled":True,"allowed_users":["alice"]}) as settings, \
+             patch("app.services.toss_wts_session.start_toss_session_extension",side_effect=[
+                 {"action":"pending"},{"action":"deferred","error_code":"TOSS_AUTH_OPERATION_BUSY"}]) as start, \
+             patch("app.services.toss_wts_session.get_toss_session_extension",side_effect=lambda owner:{"action":"pending","owner":owner}) as observe:
+            path = "/api/settings/toss-wts/session/extend"
+            anonymous = client.post(path)
+            self.assertEqual(anonymous.status_code,401)
+            self.assertEqual(anonymous.headers["cache-control"],"no-store")
+            forged = client.post(path,headers={"Cookie":self.main.COOKIE_NAME+"=invalid-signature"})
+            self.assertEqual(forged.status_code,401)
+            start.assert_not_called()
+            alice = {"Cookie":self.main.COOKIE_NAME+"="+self.main._new_session_token(records["alice"])}
+            response = client.post(path,headers=alice,json={"username":"bob","config_dir":"do-not-use","executable":"do-not-execute","args":["forbidden"]})
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.json(),{"action":"pending"})
+            self.assertEqual(response.headers["cache-control"],"no-store")
+            start.assert_called_once_with("alice")
+            busy = client.post(path,headers=alice)
+            self.assertEqual(busy.status_code,409)
+            self.assertEqual(busy.headers["cache-control"],"no-store")
+            bob = {"Cookie":self.main.COOKIE_NAME+"="+self.main._new_session_token(records["bob"])}
+            denied = client.get("/api/settings/toss-wts/session/extension",headers=bob)
+            self.assertEqual(denied.status_code,403)
+            observe.assert_not_called()
+            settings.return_value = {"enabled":True,"allowed_users":["alice","bob"]}
+            own = client.get("/api/settings/toss-wts/session/extension?username=alice",headers=bob)
+            self.assertEqual(own.json(),{"action":"pending","owner":"bob"})
+            self.assertEqual(own.headers["cache-control"],"no-store")
+            observe.assert_called_once_with("bob")
+            self.assertEqual(start.call_count,2)
+
+    def test_manual_api_no_client_fields_no_retry_and_owner_scoped_result(self):
+        import asyncio
+        from fastapi import HTTPException
+        with patch.object(self.main,"_toss_wts_user_allowed",return_value=True) as permission, \
+             patch("app.services.toss_wts_session.start_toss_session_extension",side_effect=[
+                {"action":"pending","attempt_id":"model-id"},
+                {"action":"deferred","error_code":"TOSS_AUTH_OPERATION_BUSY"}]) as start, \
+             patch("app.services.toss_wts_session.get_toss_session_extension",return_value={"action":"pending"}) as observe:
+            response = asyncio.run(self.main.toss_wts_session_extend_api(self.request("alice")))
+            self.assertEqual(response.headers["cache-control"],"no-store")
+            self.assertEqual(json.loads(response.body),{"action":"pending","attempt_id":"model-id"})
+            with self.assertRaises(HTTPException) as busy:
+                asyncio.run(self.main.toss_wts_session_extend_api(self.request("alice")))
+            self.assertEqual(busy.exception.status_code,409)
+            self.assertEqual(busy.exception.headers["Cache-Control"],"no-store")
+            status = asyncio.run(self.main.toss_wts_session_extension_status_api(self.request("bob")))
+            self.assertEqual(json.loads(status.body),{"action":"pending"})
+            self.assertEqual(status.headers["cache-control"],"no-store")
+            self.assertEqual(start.call_count,2)
+            for call in start.call_args_list:
+                self.assertEqual(call.args,("alice",))
+            observe.assert_called_once_with("bob")
+            self.assertEqual(permission.call_count,3)
 if __name__ == "__main__":
     unittest.main()

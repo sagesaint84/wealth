@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import unittest
+import uuid
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,6 +47,93 @@ class ProcessBoundaryTests(unittest.TestCase):
         guard.write_active_op_marker("alice", "fixture-attempt", 123,
                                      self.meta["started_at"], process_boundary=self.boundary,
                                      process_start="100")
+
+    def test_extend_common_guard_owner_scope_and_restart_without_receipt(self):
+        cfg = {"enabled":True,"executable":"synthetic-cli","session_extend_threshold_hours":48,
+               "session_extend_timeout_seconds":600}
+        status = {"active":True,"valid":True,"hours_remaining":24,"error_code":None,
+                  "server_expires_at":"2099-01-02T00:00:00+09:00"}
+        def spawn(argv, **options):
+            self.assertIn("extend", argv)
+            self.assertIn("--if-expiring", argv)
+            self.assertEqual(argv[-2:], ["--timeout","600s"])
+            context = json.loads(options["env"]["TOSSCTL_AUTH_PROCESS_CONTEXT"])
+            self.assertEqual(context["max_seconds"],615)
+            self.assertEqual(guard._get_active_op_data(context["owner"])["pid"],0)
+            return Mock(pid=123)
+        with patch.object(login,"_IS_LINUX",True), patch.object(login,"_resolve_settings",return_value=cfg), \
+             patch("app.services.toss_wts_session.get_toss_session_status",return_value=status) as status_probe, \
+             patch.object(process,"boot_id",return_value="synthetic-boot"), \
+             patch.object(process,"atomic_private_json",side_effect=lambda path,data: path.write_text(json.dumps(data),encoding="utf-8")), \
+             patch.object(guard,"get_pid_start_time",return_value="100"), patch.object(login,"_start_watcher"), \
+             patch.object(process,"boundary_complete",return_value=False):
+            first = login._start_toss_auth(cfg,username="alice",operation="extend",_popen=spawn)
+            rejected = Mock(side_effect=AssertionError("Duplicate must not spawn"))
+            with self.assertRaises(login.TossLoginLockError):
+                login._start_toss_auth(cfg,username="alice",operation="extend",_popen=rejected)
+            with self.assertRaises(login.TossLoginLockError):
+                login.start_toss_login(cfg,username="alice",reauthenticate=True,_popen=rejected)
+            other = login._start_toss_auth(cfg,username="bob",operation="extend",_popen=spawn)
+            self.assertNotEqual(first,other)
+            rejected.assert_not_called()
+            status_probe.reset_mock()
+            with login._watcher_lock:
+                login._watcher_registry.pop(first,None)
+            result = login.get_login_attempt(first,requesting_username="alice",settings=cfg)
+            self.assertEqual(result["action"],"pending")
+            status_probe.assert_not_called()
+            self.assertTrue(guard.check_active_login_operation("alice"))
+            with self.assertRaises(login.TossLoginNotFoundError):
+                login.get_login_attempt(first,requesting_username="bob",settings=cfg)
+
+    def test_extend_budget_timeout_receipt_and_invalid_budget_never_spawns(self):
+        for budget in (None,True,30,616):
+            with self.subTest(budget=budget), patch.object(process.subprocess,"Popen") as spawn, \
+                 patch.object(process,"atomic_private_json") as receipt:
+                self.assertEqual(process.supervise(["synthetic"],{"operation":"extend","max_seconds":budget},Path(self.temp.name)/"none.json"),1)
+                spawn.assert_not_called(); receipt.assert_not_called()
+        with patch.object(process,"enable_subreaper"), patch.object(process.signal,"signal"), \
+             patch.object(process.subprocess,"Popen",return_value=Mock(pid=123)), \
+             patch.object(process.os,"waitpid",side_effect=[(0,0),(123,15),ChildProcessError()]), \
+             patch.object(process.os,"waitstatus_to_exitcode",return_value=-15), \
+             patch.object(process.time,"monotonic",side_effect=[0,616,617,618]), \
+             patch.object(process.time,"sleep"), patch.object(process,"direct_children",return_value=[]), \
+             patch.object(process,"atomic_private_json") as receipt:
+            self.assertEqual(process.supervise(["synthetic"],{"operation":"extend","max_seconds":615},Path(self.temp.name)/"unit.json"),0)
+        self.assertTrue(receipt.call_args.args[1]["timed_out"])
+        self.assertTrue(receipt.call_args.args[1]["cleanup_complete"])
+        self.assertEqual(receipt.call_args.args[1]["cli_exit_code"],-15)
+
+    def test_extend_definite_spawn_failure_vs_uncertain_reservation(self):
+        cfg = {"enabled":True,"executable":"synthetic","session_extend_threshold_hours":48,"session_extend_timeout_seconds":300}
+        status = {"active":True,"valid":True,"error_code":None,"hours_remaining":24,"server_expires_at":"2099-01-01T00:00:00+09:00"}
+        spawn = Mock(side_effect=[FileNotFoundError(errno.ENOENT,"synthetic"), OSError(errno.EIO,"uncertain")])
+        with patch.object(login,"_IS_LINUX",True), patch.object(login,"_resolve_settings",return_value=cfg), \
+             patch("app.services.toss_wts_session.get_toss_session_status",return_value=status), \
+             patch.object(process,"boot_id",return_value="synthetic-boot"):
+            with self.assertRaises(login.TossLoginError):
+                login._start_toss_auth(cfg,username="alice",operation="extend",_popen=spawn)
+            self.assertFalse(guard.check_active_login_operation("alice"))
+            with self.assertRaises(login.TossLoginError):
+                login._start_toss_auth(cfg,username="alice",operation="extend",_popen=spawn)
+            marker = guard._get_active_op_data("alice")
+            self.assertEqual((marker["pid"],marker["type"]),(0,"extend"))
+            with self.assertRaises(login.TossLoginLockError):
+                login._start_toss_auth(cfg,username="alice",operation="extend",_popen=spawn)
+            self.assertEqual(spawn.call_count,2)
+            self.assertTrue(guard.check_active_login_operation("alice"))
+
+    def test_missing_or_corrupt_receipt_never_releases_marker(self):
+        self.marker()
+        path = process.receipt_path(guard.user_login_dir("alice"),"fixture-attempt")
+        path.parent.mkdir(parents=True,exist_ok=True)
+        self.assertFalse(login._boundary_complete(self.meta))
+        for text in ('{broken','[]','null'):
+            path.write_text(text,encoding="utf-8")
+            path.chmod(0o600)
+            self.assertFalse(login._boundary_complete(self.meta))
+            self.assertFalse(guard.clear_active_op_marker("alice","fixture-attempt"))
+            self.assertTrue(guard.check_active_login_operation("alice"))
 
     def test_definite_popen_failure_releases_only_reservation_and_allows_retry(self):
         real_lock = guard.auth_operation_lock
@@ -222,9 +310,16 @@ class ProcessBoundaryTests(unittest.TestCase):
         with self.assertRaises(login.TossLoginLockError):
             login.start_toss_login({"enabled": True, "executable": "synthetic"}, username="alice", reauthenticate=True, _popen=spawn)
         spawn.assert_not_called()
-        # Session extend uses exactly this same per-user durable guard.
-        source = (Path(__file__).resolve().parents[1] / "app/services/toss_wts_session.py").read_text(encoding="utf-8")
-        self.assertIn("check_active_login_operation(owner_username)", source)
+        # Exercise the extension entry against the SAME persistent owner marker.
+        before = guard._active_op_path("alice").read_bytes()
+        rejected = Mock(side_effect=AssertionError("Incomplete auth must block extend"))
+        with patch.object(login, "_IS_LINUX", True):
+            with self.assertRaises(login.TossLoginLockError):
+                login._start_toss_auth({"enabled":True,"executable":"synthetic"},
+                                      username="alice", operation="extend", _popen=rejected)
+        rejected.assert_not_called()
+        self.assertEqual(guard._active_op_path("alice").read_bytes(), before)
+        self.assertFalse(guard.check_active_login_operation("bob"))
 
     def test_receipt_identity_owner_nonce_boot_and_exit_all_required(self):
         proof = {**self.boundary, "owner": "alice", "attempt_id": "fixture-attempt",
@@ -413,10 +508,22 @@ class LinuxSyntheticProcessTests(unittest.TestCase):
     def test_cancel_reaps_detached_descendants(self):
         self.run_synthetic(cancel=True)
 
-    def run_synthetic(self, *, cancel):
+    def test_extend_restart_recovers_real_descendant_receipt(self):
+        self.run_synthetic(cancel=False, operation="extend")
+
+    def test_extend_cancel_reaps_real_detached_descendants(self):
+        self.run_synthetic(cancel=True, operation="extend")
+
+    def test_extend_deadline_reaps_real_detached_descendants(self):
+        self.run_synthetic(cancel=False, operation="extend", expire=True)
+
+    def run_synthetic(self, *, cancel, operation="login", expire=False):
         """No network or browser: detached Python descendants model Chromium."""
-        with TemporaryDirectory() as temp:
-            root = Path(temp)
+        with TemporaryDirectory() as temp, patch.dict(os.environ, {"WEALTH_DATA_DIR": ""}):
+            os.environ["WEALTH_DATA_DIR"] = temp
+            root = guard.user_login_dir("synthetic") if operation == "extend" else Path(temp)
+            root.mkdir(parents=True, exist_ok=True)
+            attempt = str(uuid.uuid4()) if operation == "extend" else "native-attempt"
             pids = root / "synthetic-pids.json"
             script = root / "synthetic-cli.py"
             # Descendant lifespan is deliberate; supervisor must terminate it.
@@ -433,15 +540,32 @@ class LinuxSyntheticProcessTests(unittest.TestCase):
                 f"while not Path({str(pids)!r}).exists():\n"
                 "    if time.monotonic()>deadline: raise RuntimeError('synthetic readiness')\n"
                 "    time.sleep(0.01)\n"
-                + ("time.sleep(60)\n" if cancel else ""), encoding="utf-8"
+                + ("time.sleep(60)\n" if cancel or expire else ""), encoding="utf-8"
             )
             boundary = {"kind": process.BOUNDARY_KIND, "token": "native-fixture", "boot_id": process.boot_id()}
-            receipt = process.receipt_path(root, "native-attempt")
-            env = {**os.environ, "TOSSCTL_AUTH_PROCESS_CONTEXT": json.dumps({**boundary, "attempt_id": "native-attempt", "owner": "synthetic"}),
+            receipt = process.receipt_path(root, attempt)
+            context = {**boundary, "attempt_id": attempt, "owner": "synthetic"}
+            if operation == "extend":
+                context.update(operation="extend", max_seconds=45)
+                with guard.auth_operation_lock("synthetic"):
+                    guard.write_active_op_marker("synthetic", attempt, 0, datetime.now(timezone.utc).isoformat(),
+                                                 process_boundary=boundary, operation="extend")
+            env = {**os.environ, "TOSSCTL_AUTH_PROCESS_CONTEXT": json.dumps(context),
                    "TOSSCTL_AUTH_PROCESS_RECEIPT": str(receipt)}
             proc = subprocess.Popen([sys.executable, str(Path(process.__file__)), sys.executable, str(script)],
                                     env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             start = guard.get_pid_start_time(proc.pid)
+            if operation == "extend":
+                before = datetime.now(timezone.utc)
+                from datetime import timedelta
+                previous = (before + timedelta(hours=24)).isoformat()
+                with guard.auth_operation_lock("synthetic"):
+                    guard.write_active_op_marker("synthetic", attempt, proc.pid, before.isoformat(),
+                                                 process_boundary=boundary, process_start=start, operation="extend")
+                    login._write_meta(attempt, "synthetic", {"attempt_id":attempt,"owner":"synthetic",
+                        "operation":"extend","action":"pending","status":"pending","started_at":before.isoformat(),
+                        "previous_expires_at":previous,"_pid":proc.pid,"_pid_start_time":start,"_process_boundary":boundary,"_max_seconds":45})
+                    process.atomic_private_json(root/"extension-latest.json",{"attempt_id":attempt,"owner":"synthetic"})
             try:
                 if cancel:
                     ready_deadline = time.monotonic() + 10
@@ -451,11 +575,40 @@ class LinuxSyntheticProcessTests(unittest.TestCase):
                         time.sleep(0.01)
                     self.assertTrue(pids.exists())
                     self.assertTrue(process.signal_supervisor(proc.pid, start, boundary["boot_id"]))
-                self.assertEqual(proc.wait(timeout=15), 0)
-                self.assertTrue(process.boundary_complete(root, "native-attempt", "synthetic", boundary, proc.pid, start))
+                self.assertEqual(proc.wait(timeout=60 if expire else 15), 0)
+                self.assertTrue(process.boundary_complete(root, attempt, "synthetic", boundary, proc.pid, start))
                 for pid in json.loads(pids.read_text(encoding="utf-8")):
                     with self.assertRaises(FileNotFoundError):
                         process.process_identity(pid)
+                if operation == "extend":
+                    from app.services import toss_wts_session as session
+                    # Inspect the genuine supervisor evidence BEFORE finalization deletes it.
+                    proof = process.private_receipt(receipt)
+                    self.assertTrue(proof["cleanup_complete"])
+                    self.assertEqual(proof["timed_out"], expire)
+                    self.assertEqual(proof["owner"], "synthetic")
+                    self.assertEqual(proof["attempt_id"], attempt)
+                    self.assertEqual(proof["supervisor_pid"], proc.pid)
+                    self.assertEqual(proof["supervisor_start"], start)
+                    # Lose all web-process watcher state, retain ONLY real OS receipt.
+                    with login._watcher_lock:
+                        login._watcher_registry.pop(attempt, None)
+                    verified = {"active":True,"valid":True,"server_expires_at":previous if cancel or expire else
+                                (before + timedelta(hours=168)).isoformat(),"hours_remaining":24 if cancel or expire else 168,"error_code":None}
+                    with patch.object(session, "get_toss_session_status", return_value=verified), \
+                         patch.object(subprocess, "Popen", side_effect=AssertionError("Result lookup must not spawn")):
+                        result = session.get_toss_session_extension("synthetic")
+                        restored = session.get_toss_session_extension("synthetic")
+                        self.assertEqual(result, restored)
+                    self.assertEqual(result["action"], "extension_failed" if cancel or expire else "extended")
+                    self.assertEqual(result["extension_succeeded"], not cancel and not expire)
+                    if expire:
+                        self.assertTrue(proof["timed_out"])
+                        self.assertEqual(result["error_code"],"AUTH_EXTEND_TIMEOUT")
+                    self.assertFalse(receipt.exists())
+                    self.assertFalse(guard.check_active_login_operation("synthetic"))
+                    for private in ("_pid", "_process_boundary", "stdout", "stderr", "config_dir"):
+                        self.assertNotIn(private, result)
             finally:
                 if proc.poll() is None:
                     process.signal_supervisor(proc.pid, start, boundary["boot_id"])

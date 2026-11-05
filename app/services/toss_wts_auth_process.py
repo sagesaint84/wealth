@@ -148,7 +148,15 @@ def signal_owned_child(pid: int, sig: int) -> None:
 
 def supervise(argv: list[str], proof: dict, path: Path) -> int:
     """Return only after kernel ECHILD, or remain alive on uncertain cleanup."""
+    # QR keeps its original budget. Extension settings permit up to 600s;
+    # allow only the server-issued, bounded CLI budget plus its 15s grace.
+    budget = AUTH_MAX_SECONDS
+    if proof.get("operation") == "extend":
+        budget = proof.get("max_seconds")
+        if type(budget) is not int or not 45 <= budget <= 615:
+            return 1  # No CLI spawn and no completion receipt on invalid proof.
     stopping = False
+    timed_out = False
     def request_stop(_sig, _frame):
         nonlocal stopping
         stopping = True
@@ -166,7 +174,7 @@ def supervise(argv: list[str], proof: dict, path: Path) -> int:
     except (OSError, ValueError):
         cli_exit = -1
     cleanup_started = None
-    auth_deadline = time.monotonic() + AUTH_MAX_SECONDS
+    auth_deadline = time.monotonic() + budget
     while True:
         no_children = False
         try:
@@ -185,12 +193,14 @@ def supervise(argv: list[str], proof: dict, path: Path) -> int:
         if no_children and cli_exit is not None:
             try:
                 atomic_private_json(path, {**proof, "cleanup_complete": True,
-                                           "cli_exit_code": cli_exit})
+                                           "cli_exit_code": cli_exit,
+                                           **({"timed_out": timed_out} if proof.get("operation") == "extend" else {})})
             except OSError:
                 return 1  # Missing proof keeps the durable guard closed.
             return 0
         if time.monotonic() >= auth_deadline:
             stopping = True  # Independent deadline survives web-server restart.
+            timed_out = True
         if stopping or cli_exit is not None:
             if cleanup_started is None:
                 cleanup_started = time.monotonic()
