@@ -242,7 +242,7 @@ def _read_meta(attempt_id: str, username: str) -> dict[str, Any]:
 
 def _safe_public(meta: dict[str, Any]) -> dict[str, Any]:
     """Return only fields safe for API exposure — no paths, PID, or output."""
-    return {
+    result = {
         "attempt_id": meta.get("attempt_id"),
         "owner": meta.get("owner"),
         "status": meta.get("status"),
@@ -250,6 +250,15 @@ def _safe_public(meta: dict[str, Any]) -> dict[str, Any]:
         "finished_at": meta.get("finished_at"),
         "error_code": meta.get("error_code"),
     }
+    if meta.get("operation") == "extend":
+        result.update(operation="extend", action=meta.get("action", "pending"),
+                      server_expires_at=meta.get("server_expires_at"),
+                      previous_expires_at=meta.get("previous_expires_at"),
+                      active=meta.get("active", False), valid=meta.get("valid", False),
+                      hours_remaining=meta.get("hours_remaining"),
+                      extension_attempted=True,
+                      extension_succeeded=meta.get("action") == "extended")
+    return result
 
 
 def _kst_now(provider: Callable[[], datetime] | None = None) -> datetime:
@@ -553,6 +562,18 @@ def _check_and_finalize(
 
     # Process has exited. Post-login session verification.
     now = _kst_now(now_provider)
+    if meta.get("operation") == "extend":
+        from app.services.toss_wts_auth_process import private_receipt, receipt_path
+        from app.services.toss_wts_auth_guard import user_login_dir
+        from app.services.toss_wts_session import get_toss_session_status, classify_toss_extension
+        # _boundary_complete above established owner/boot/start/token/descendant proof.
+        proof = private_receipt(receipt_path(user_login_dir(username), attempt_id))
+        verified = get_toss_session_status(username=username, now=now, settings=settings)
+        meta.update(classify_toss_extension(meta.get("previous_expires_at"), verified,
+                    cli_exit_code=proof.get("cli_exit_code", -1), timed_out=bool(proof.get("timed_out")), now=now))
+        meta["finished_at"] = now.isoformat()
+        _terminal_cleanup(attempt_id, username, meta)
+        return meta
     if _verify_post_login(settings, username):
         meta["status"] = STATUS_SUCCESS
         meta["finished_at"] = now.isoformat()
@@ -596,6 +617,8 @@ def _handle_timeout(
     meta["status"] = STATUS_TIMEOUT
     meta["finished_at"] = now.isoformat()
     meta["error_code"] = "AUTH_LOGIN_TIMEOUT"
+    if meta.get("operation") == "extend":
+        meta.update(action="extension_failed", error_code="AUTH_EXTEND_TIMEOUT")
     _terminal_cleanup(attempt_id, username, meta)
     return meta
 
@@ -605,13 +628,23 @@ def _handle_timeout(
 # ---------------------------------------------------------------------------
 
 def start_toss_login(
+    settings: dict[str, Any], *, username: str, reauthenticate: bool = False,
+    now_provider: Callable[[], datetime] | None = None,
+    _popen: Callable[..., Any] = subprocess.Popen,
+) -> str:
+    return _start_toss_auth(settings, username=username, reauthenticate=reauthenticate,
+                            now_provider=now_provider, _popen=_popen)
+
+
+def _start_toss_auth(
     settings: dict[str, Any],
     *,
     username: str,
     reauthenticate: bool = False,
     now_provider: Callable[[], datetime] | None = None,
     _popen: Callable[..., Any] = subprocess.Popen,
-) -> str:
+    operation: str = "login",
+) -> str | dict[str, Any]:
     """Start a per-user background ``tossctl auth login`` attempt.
 
     Verified tossctl v0.50.3 argv (shell=False):
@@ -628,7 +661,9 @@ def start_toss_login(
     TossSessionAlreadyValidError   Session active+valid, reauthenticate=False.
     TossLoginLockError             Active-op marker exists, or lock busy.
     """
-    if not _AUTH_LOGIN_FLAG_VERIFIED:
+    if operation not in {"login", "extend"} or operation == "extend" and not _IS_LINUX:
+        raise TossLoginError("AUTH_PROCESS_BOUNDARY_UNAVAILABLE")
+    if operation == "login" and not _AUTH_LOGIN_FLAG_VERIFIED:
         raise TossLoginFlagUnverifiedError(
             "tossctl auth login QR output flag has not been verified. "
             "Run: docker exec wealth /opt/toss-wts/tossctl auth login --help"
@@ -661,8 +696,24 @@ def start_toss_login(
                     "TOSS_AUTH_OPERATION_BUSY: another login attempt is already active"
                 )
 
+            before = None
+            if operation == "extend":
+                # Recheck global enable/allowlist and status under the common lock.
+                settings = _resolve_settings()
+                permitted = settings.get("allowed_users") or []
+                if not settings.get("enabled") or permitted and username not in permitted:
+                    raise TossLoginError("TOSS_WTS_NOT_ALLOWED")
+                from app.services.toss_wts_session import get_toss_session_status
+                before = get_toss_session_status(username=username, settings=settings)
+                if before.get("error_code") or not before["active"] or not before["valid"]:
+                    return {**before, "action": "reauth_required" if before.get("error_code") in {
+                        "SESSION_MISSING", "CONFIG_DIR_MISSING", "SESSION_INACTIVE", "SESSION_INVALID"
+                    } else "status_failed", "extension_attempted": False, "extension_succeeded": False}
+                if before["hours_remaining"] > settings["session_extend_threshold_hours"]:
+                    return {**before, "action": "not_required", "extension_attempted": False, "extension_succeeded": False}
+
             # TOCTOU-safe re-auth check INSIDE lock (per-user)
-            if not reauthenticate:
+            if operation == "login" and not reauthenticate:
                 try:
                     from app.services.toss_wts_session import get_toss_session_status
                     current = get_toss_session_status(username=username, settings=settings)
@@ -706,12 +757,21 @@ def start_toss_login(
                 "--link",
                 _AUTH_LOGIN_QR_FLAG, str(qr),
             ]
+            max_seconds = LOGIN_ATTEMPT_MAX_SECONDS
+            if operation == "extend":
+                max_seconds = int(settings["session_extend_timeout_seconds"]) + 15
+                argv = [str(settings["executable"]), "--config-dir", str(user_config_dir),
+                        "auth", "extend", "--if-expiring", f"{settings['session_extend_threshold_hours']}h",
+                        "--timeout", f"{settings['session_extend_timeout_seconds']}s"]
             boundary = None
             try:
                 if not _IS_WINDOWS:
                     os.chmod(str(qr.parent), 0o700)
                 auth_env = os.environ.copy()
-                auth_env["TOSSCTL_AUTH_CONFIRMATION_FILE"] = str(_confirmation_path(attempt_id, username))
+                if operation == "login":
+                    auth_env["TOSSCTL_AUTH_CONFIRMATION_FILE"] = str(_confirmation_path(attempt_id, username))
+                else:
+                    auth_env.pop("TOSSCTL_AUTH_CONFIRMATION_FILE", None)
                 auth_env["TOSSCTL_AUTH_HELPER_QUIET"] = "1"
                 launch_argv = argv
                 if _IS_LINUX:
@@ -719,10 +779,14 @@ def start_toss_login(
                     boundary = {"kind": BOUNDARY_KIND, "token": uuid.uuid4().hex, "boot_id": boot_id()}
                     # Reserve BEFORE spawn, protecting the server-crash window.
                     write_active_op_marker(username, attempt_id, 0, started_at,
-                                           process_boundary=boundary)
-                    auth_env["TOSSCTL_AUTH_PROCESS_CONTEXT"] = json.dumps({
+                                           process_boundary=boundary,
+                                           **({"operation": "extend"} if operation == "extend" else {}))
+                    context = {
                         **boundary, "attempt_id": attempt_id, "owner": username,
-                    })
+                    }
+                    if operation == "extend":
+                        context.update(operation="extend", max_seconds=max_seconds)
+                    auth_env["TOSSCTL_AUTH_PROCESS_CONTEXT"] = json.dumps(context)
                     auth_env["TOSSCTL_AUTH_PROCESS_RECEIPT"] = str(receipt_path(qr.parent, attempt_id))
                     launch_argv = [sys.executable, str(Path(__file__).with_name("toss_wts_auth_process.py")), *argv]
             except OSError as exc:
@@ -755,7 +819,8 @@ def start_toss_login(
                     write_active_op_marker(username, attempt_id, proc.pid, started_at)
                 else:
                     write_active_op_marker(username, attempt_id, proc.pid, started_at,
-                                           process_boundary=boundary, process_start=pid_start_time)
+                                           process_boundary=boundary, process_start=pid_start_time,
+                                           **({"operation": "extend"} if operation == "extend" else {}))
                 meta: dict[str, Any] = {
                     "attempt_id": attempt_id,
                     "owner": username,
@@ -768,7 +833,13 @@ def start_toss_login(
                 }
                 if boundary is not None:
                     meta["_process_boundary"] = boundary
+                if operation == "extend":
+                    meta.update(operation="extend", action="pending", _max_seconds=max_seconds,
+                                previous_expires_at=before["server_expires_at"])
                 _write_meta(attempt_id, username, meta)
+                if operation == "extend":
+                    from app.services.toss_wts_auth_process import atomic_private_json
+                    atomic_private_json(qr.parent / "extension-latest.json", {"attempt_id": attempt_id, "owner": username})
             except Exception as setup_exc:
                 if boundary is None:
                     _rollback_spawn(attempt_id, username, proc)
@@ -821,7 +892,7 @@ def get_login_attempt(
                 try:
                     started = datetime.fromisoformat(started_raw)
                     now = _kst_now(now_provider)
-                    if (now - started).total_seconds() > LOGIN_ATTEMPT_MAX_SECONDS:
+                    if (now - started).total_seconds() > meta.get("_max_seconds", LOGIN_ATTEMPT_MAX_SECONDS):
                         meta = _handle_timeout(attempt_id, requesting_username, meta, now)
                 except (ValueError, TypeError):
                     pass
@@ -833,7 +904,7 @@ def get_login_attempt(
                 pass
 
     public = _safe_public(meta)
-    if (meta.get("status") == STATUS_PENDING and meta.get("owner") == requesting_username
+    if (meta.get("operation") != "extend" and meta.get("status") == STATUS_PENDING and meta.get("owner") == requesting_username
             and not meta.get("error_code")):
         public.update(_read_confirmation(attempt_id, requesting_username))
     return public

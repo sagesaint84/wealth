@@ -240,8 +240,11 @@ def _windows_lock(
 def write_active_op_marker(
     username: str, attempt_id: str, pid: int, started_at: str,
     *, process_boundary: dict | None = None, process_start: str | None = None,
+    operation: str = "login",
 ) -> None:
     """Write the durable active-auth-op.json marker (must be called under lock)."""
+    if operation not in {"login", "extend"}:
+        raise ValueError("AUTH_OPERATION_INVALID")
     path = _active_op_path(username)
     path.parent.mkdir(parents=True, exist_ok=True)
     data: dict[str, Any] = {
@@ -249,7 +252,7 @@ def write_active_op_marker(
         "pid": pid,
         "pid_start_time": process_start if process_boundary is not None else get_pid_start_time(pid),
         "started_at": started_at,
-        "type": "login",
+        "type": operation,
         "owner": username,
     }
     if process_boundary is not None:
@@ -287,7 +290,7 @@ def _release_unspawned_reservation_locked(
             return False
         boundary = data.get("process_boundary")
         if (data.get("owner") != username or data.get("attempt_id") != attempt_id
-                or data.get("type") != "login" or type(data.get("pid")) is not int
+                or data.get("type") not in {"login", "extend"} or type(data.get("pid")) is not int
                 or data["pid"] != 0 or "pid_start_time" not in data
                 or data["pid_start_time"] is not None
                 or boundary != {"kind": BOUNDARY_KIND, "token": token, "boot_id": boot_id}):

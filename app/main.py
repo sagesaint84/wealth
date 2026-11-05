@@ -643,7 +643,8 @@ async def require_login(request: Request, call_next):
         if path.startswith("/a/"):
             return RedirectResponse(f"/login?return_to={quote(path, safe='')}")
         if path.startswith("/api/"):
-            return JSONResponse({"detail": "로그인이 필요합니다."}, status_code=401)
+            return JSONResponse({"detail": "로그인이 필요합니다."}, status_code=401,
+                                headers={"Cache-Control":"no-store"} if path.startswith("/api/settings/toss-wts/session/") else None)
         return RedirectResponse("/login")
     
     request.state.username = user["username"]
@@ -656,7 +657,8 @@ async def require_login(request: Request, call_next):
         if path.startswith("/api/"):
             allowed_api = {"/api/auth/me", "/api/auth/force-change-password"}
             if path not in allowed_api:
-                return JSONResponse({"detail": "비밀번호 변경이 필요합니다."}, status_code=403)
+                return JSONResponse({"detail": "비밀번호 변경이 필요합니다."}, status_code=403,
+                                    headers={"Cache-Control":"no-store"} if path.startswith("/api/settings/toss-wts/session/") else None)
         else:
             if path not in ("/change-password-init", "/logout"):
                 return RedirectResponse("/change-password-init")
@@ -1050,6 +1052,40 @@ async def toss_wts_session_status_api(request: Request) -> dict:
     from app.services.toss_wts_session import get_toss_session_status
     from app.services.system_settings import resolve_toss_wts_settings
     return get_toss_session_status(username=username, settings=resolve_toss_wts_settings())
+
+@app.post("/api/settings/toss-wts/session/extend")
+async def toss_wts_session_extend_api(request: Request) -> JSONResponse:
+    """Start only the logged-in user's extension; no client command/config fields."""
+    headers = {"Cache-Control": "no-store", "Pragma": "no-cache"}
+    try:
+        username = get_current_username(request)
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), **headers}
+        raise
+    if not _toss_wts_user_allowed(username):
+        raise HTTPException(status_code=403, detail={"code": "TOSS_WTS_NOT_ALLOWED"}, headers=headers)
+    from app.services.toss_wts_session import start_toss_session_extension
+    result = await asyncio.to_thread(start_toss_session_extension, username)
+    if result.get("action") == "deferred":
+        raise HTTPException(status_code=409, detail={"code": result["error_code"]}, headers=headers)
+    return JSONResponse(result, headers=headers)
+
+
+@app.get("/api/settings/toss-wts/session/extension")
+async def toss_wts_session_extension_status_api(request: Request) -> JSONResponse:
+    """Reconnect to the user's persisted result; does not resubmit extension."""
+    headers = {"Cache-Control": "no-store", "Pragma": "no-cache"}
+    try:
+        username = get_current_username(request)
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), **headers}
+        raise
+    if not _toss_wts_user_allowed(username):
+        raise HTTPException(status_code=403, detail={"code": "TOSS_WTS_NOT_ALLOWED"}, headers=headers)
+    from app.services.toss_wts_session import get_toss_session_extension
+    result = await asyncio.to_thread(get_toss_session_extension, username)
+    return JSONResponse(result, headers=headers)
+
 
 @app.post("/api/settings/toss-wts/login/start")
 async def toss_wts_login_start_api(request: Request) -> dict:

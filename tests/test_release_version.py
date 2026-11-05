@@ -30,7 +30,7 @@ class ReleaseVersionTests(unittest.TestCase):
                 'wealth-ledger-ocr.css': '2.0.2-review1',
                 "wealth-color-preferences.css": "10.9r6",
                 "wealth-color-picker.css": "10.9r2",
-                "wealth-system-update.css": "2.1.5-update1",
+                "wealth-system-update.css": "2.1.9-action-confirm1",
                 "wealth-layout.css": "2.1.9-profit-label1",
                 "wealth-savings-contributions.css": "10.9p",
                 "wealth-dialog-system.css": "2.0.3-ai1",
@@ -43,7 +43,7 @@ class ReleaseVersionTests(unittest.TestCase):
         js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
         self.assertTrue(js_matches)
         versions = {
-            'wealth-system-update.js': "2.1.9-ui1",
+            'wealth-system-update.js': "2.1.9-action-confirm1",
             'wealth-ipo.js': "2.1.9-ui1",
             'wealth-ledger-ocr.js': '2.0.2-review2',
             'wealth-money-input.js': '2.1.9-ui1',
@@ -56,8 +56,8 @@ class ReleaseVersionTests(unittest.TestCase):
             "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "2.1.8-ui1",
             "wealth-calendar.js": "2.1.8-ui1", "wealth-color-picker.js": "10.9r5",
             "wealth-planning-model.js": "2.1.8-ui1", "wealth-asset-category-state.js": "2.0.2",
-            "wealth-settings-surface.js": "2.1.9-ui1", "wealth-invest-tab-state.js": "10.9k1",
-            "wealth-settings.js": "2.1.5-update1", "wealth-family-financial-income-allocation.js": "2.1.3-p0",
+            "wealth-settings-surface.js": "2.1.9-toss-session1", "wealth-invest-tab-state.js": "10.9k1",
+            "wealth-settings.js": "2.1.9-toss-session1", "wealth-family-financial-income-allocation.js": "2.1.3-p0",
         }
         for asset, version in js_matches:
             self.assertEqual(version, versions.get(asset, "1.3.0"))

@@ -24,6 +24,9 @@ on:
       - 'tests/test_ledger_document*.py'
       - 'tests/test_toss_wts*.py'
       - 'tests/test_settings_frontend.py'
+      - 'tests/test_settings_surface_chrome.py'
+      - 'tests/test_kakao_settings_frontend.py'
+      - 'tests/test_release_version.py'
       - 'tests/conftest.py'
       - '.github/workflows/toss-auth-pr-validation.yml'
 
@@ -69,6 +72,8 @@ jobs:
         run: |
           printf 'WEALTH_DATA_DIR=%s/toss-auth-synthetic-data\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'PROCESS_TEST_REPORT=%s/toss-auth-process-tests.xml\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'SESSION_TEST_REPORT=%s/toss-session-model-tests.xml\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          printf 'SESSION_UI_REPORT=%s/toss-session-ui-tests.xml\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'LEDGER_TEST_REPORT=%s/ledger-safety-tests.xml\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           printf 'OCR_FIXTURE_DIR=%s/wealth-synthetic-ocr\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
 
@@ -147,7 +152,7 @@ jobs:
             --tb=short --junitxml="$PROCESS_TEST_REPORT" \
             --basetemp="${RUNNER_TEMP}/toss-auth-pytest"
 
-      - name: Require both real Linux integration tests to pass without skipping
+      - name: Require QR and extension real Linux integration tests without skipping
         run: |
           python - <<'PY'
           import os
@@ -155,8 +160,14 @@ jobs:
           required = {
               "test_detached_descendants_are_reaped_after_cli_exit",
               "test_cancel_reaps_detached_descendants",
+              "test_extend_restart_recovers_real_descendant_receipt",
+              "test_extend_cancel_reaps_real_detached_descendants",
+              "test_extend_deadline_reaps_real_detached_descendants",
           }
           cases = list(ET.parse(os.environ["PROCESS_TEST_REPORT"]).iter("testcase"))
+          if not cases or any(case.find(tag) is not None for case in cases
+                              for tag in ('skipped', 'failure', 'error')):
+              raise SystemExit('Process boundary test missing, skipped or failed')
           for name in sorted(required):
               matches = [case for case in cases
                          if case.get("classname", "").endswith(".LinuxSyntheticProcessTests")
@@ -166,6 +177,69 @@ jobs:
               if any(matches[0].find(tag) is not None for tag in ("skipped", "failure", "error")):
                   raise SystemExit(f"Required Linux integration test did not pass: {name}")
               print(f"PASS (executed, not skipped): LinuxSyntheticProcessTests::{name}")
+          PY
+
+      - name: Run Toss session API notification and explicit legacy model contracts
+        run: |
+          python -m pytest -q \
+            tests/test_toss_wts_session.py tests/test_toss_wts_login.py \
+            tests/test_toss_wts_auth_runtime.py tests/test_settings_frontend.py \
+            tests/test_kakao_settings_frontend.py tests/test_release_version.py \
+            --tb=short --junitxml="$SESSION_TEST_REPORT" \
+            --basetemp="${RUNNER_TEMP}/toss-session-model-pytest"
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          cases = list(ET.parse(os.environ['SESSION_TEST_REPORT']).iter('testcase'))
+          for module in ('test_toss_wts_session', 'test_toss_wts_login', 'test_toss_wts_auth_runtime',
+                         'test_settings_frontend', 'test_kakao_settings_frontend', 'test_release_version'):
+              selected = [case for case in cases if module in case.get('classname', '').split('.')]
+              if not selected or any(case.find(tag) is not None for case in selected
+                                     for tag in ('skipped', 'failure', 'error')):
+                  raise SystemExit('Required model contract missing, skipped or failed: ' + module)
+          for name in ('test_manual_api_requires_authenticated_owner_and_permission',
+                       'test_manual_api_no_client_fields_no_retry_and_owner_scoped_result',
+                       'test_http_cookie_auth_allowlist_and_untrusted_body_are_enforced'):
+              selected = [case for case in cases if case.get('name') == name
+                          and case.get('classname', '').endswith('.ManualExtensionApiTests')]
+              if len(selected) != 1:
+                  raise SystemExit('Manual API contract missing/duplicated: ' + name)
+          for name in ('test_maintenance_only_extends_within_threshold_and_post_checks',
+                       'test_post_extension_timestamp_uses_now_provider',
+                       'test_extend_timeout_yields_auth_extend_timeout_code',
+                       'test_extend_nonzero_exit_yields_auth_extend_failed_code',
+                       'test_extend_oserror_yields_auth_extend_failed_code',
+                       'test_extend_deferred_while_login_active',
+                       'test_extend_deferred_when_advisory_lock_held',
+                       'test_session_valid_without_reauth_raises',
+                       'test_session_valid_with_reauth_proceeds',
+                       'test_session_invalid_proceeds_without_reauth'):
+              if not any(case.get('name') == name for case in cases):
+                  raise SystemExit('Required model condition did not execute: ' + name)
+          print('PASS: model/API contracts; legacy Windows mocks do not replace the separate native Linux gate')
+          PY
+
+      - name: Run existing Chromium settings contracts and Toss three-theme matrix
+        run: |
+          export PATH="$RUNNER_TEMP:$PATH"
+          python -m pytest -q tests/test_settings_surface_chrome.py \
+            --tb=short --junitxml="$SESSION_UI_REPORT" \
+            --basetemp="${RUNNER_TEMP}/toss-session-ui-pytest"
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          cases = list(ET.parse(os.environ['SESSION_UI_REPORT']).iter('testcase'))
+          if not cases or any(case.find(tag) is not None for case in cases
+                              for tag in ('skipped', 'failure', 'error')):
+              raise SystemExit('Chromium settings tests missing, skipped or failed')
+          required = {'test_toss_extension_connection_loss_requires_get_not_post_retry',
+                      'test_toss_qr_fresh_status_cancel_and_probe_failure_never_start_login'}
+          required.update(f'test_toss_extension_progress_result_and_shared_button[{theme}-{width}]'
+                          for theme in ('purple','white','oled') for width in (412,750,1280))
+          for name in sorted(required):
+              if sum(case.get('name') == name for case in cases) != 1:
+                  raise SystemExit('Required Chromium condition missing/duplicated: ' + name)
+          print('PASS: actual Chromium settings rendering/actions; no live Toss authentication')
           PY
 
       # No QEMU: each runner builds only its own native platform.
@@ -219,4 +293,4 @@ jobs:
 
       - name: Remove transient synthetic test report
         if: always()
-        run: rm -f -- "$PROCESS_TEST_REPORT" "$LEDGER_TEST_REPORT"
+        run: rm -f -- "$PROCESS_TEST_REPORT" "$SESSION_TEST_REPORT" "$SESSION_UI_REPORT" "$LEDGER_TEST_REPORT"

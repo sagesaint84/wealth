@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -254,19 +256,17 @@ def run_toss_session_maintenance(
     settings: dict[str, Any] | None = None,
     run: Callable[..., Any] = subprocess.run,
     sender: Callable[..., Any] | None = None,
+    _start_extension: Callable[..., Any] | None = None,
+    _observe_extension: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Perform at most one approval-gated extension and always post-verify it.
 
     Cross-process race protection
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    The shared ``auth_operation_lock`` from ``toss_wts_auth_guard`` is acquired
-    before extension begins and held for the ENTIRE subprocess lifetime
-    (including phone-approval wait).  While the lock is held, any concurrent
-    admin login-start request fails immediately with TOSS_AUTH_OPERATION_BUSY.
-
-    Conversely, if an admin login is already running (marker file exists),
-    this function detects it inside the lock and returns
-    ``action="deferred" / AUTH_LOGIN_IN_PROGRESS`` without calling auth extend.
+    Automatic and manual extension share the QR lifecycle: reserve a durable
+    owner marker under auth_operation_lock before spawning the supervisor.
+    That marker blocks QR and extension until descendant-completion receipt
+    and supervisor exit are proven. Caller disconnect/restart cannot release it.
 
     ``now`` fixes the pre-extension wall-clock time (for deterministic testing).
     ``now_provider`` is called *after* the extension completes to obtain the
@@ -308,128 +308,140 @@ def run_toss_session_maintenance(
         result.update({"action": "not_required", "error_code": None})
         return result
 
-    # Extension required.
-    # Acquire the shared advisory lock and hold it for the full subprocess.
-    # -----------------------------------------------------------------------
-    # Race directions closed:
-    #   (A) Login marker already exists → we return AUTH_LOGIN_IN_PROGRESS
-    #       inside the lock (marker check is atomic with lock acquisition).
-    #   (B) We hold the lock during the entire extend subprocess → any
-    #       concurrent login start cannot acquire the lock and immediately
-    #       gets TOSS_AUTH_OPERATION_BUSY.
-    # -----------------------------------------------------------------------
-    from app.services.toss_wts_auth_guard import (
-        auth_operation_lock,
-        check_active_login_operation,
-        TossAuthOperationBusyError,
-        _user_toss_root,
-    )
-    user_config_dir = _user_toss_root(owner_username) / "config"
-    argv = [
-        str(cfg["executable"]),
-        "--config-dir", str(user_config_dir),
-        "auth", "extend",
-        "--if-expiring", f"{cfg['session_extend_threshold_hours']}h",
-        "--timeout", f"{cfg['session_extend_timeout_seconds']}s",
-    ]
-    extend_error: str | None = None
-    extended = False
+    if (_start_extension is None) != (_observe_extension is None):
+        raise ValueError("Both supervised-boundary dependencies are required")
+    if run is not subprocess.run and _start_extension is None:
+        # A legacy injected auth-status runner must not accidentally launch a
+        # real background CLI. Supervisor lifecycle injection needs its own
+        # explicit regression contract when dynamic testing resumes.
+        result.update(action="deferred", error_code="AUTH_PROCESS_RUNNER_UNSUPPORTED")
+        return result
 
-    try:
-        with auth_operation_lock(owner_username, acquire_timeout_seconds=5.0):
-
-            # --- Inside lock: marker check is now race-free (per-user) ---
-            if check_active_login_operation(owner_username):
-                result.update({
-                    "action": "deferred",
-                    "error_code": "AUTH_LOGIN_IN_PROGRESS",
-                })
-                return result
-
-            # Flag intention and notify before the blocking subprocess
-            result["extension_attempted"] = True
+    # Automatic and manual requests enter the SAME durable QR auth lifecycle.
+    started = (_start_extension or start_toss_session_extension)(owner_username)
+    result.update(started)
+    if started.get("action") != "pending":
+        if started.get("action") in {"status_failed", "reauth_required"}:
             _notify_maintenance_event(
-                result,
-                owner=owner_username,
-                message="Wealth: Toss WTS 세션 연장을 요청합니다. Toss 앱 승인이 필요할 수 있습니다.",
-                event_key=f"toss_wts:{owner_username}:{current.date().isoformat()}:extension_requested",
-                event_type="toss_wts_extension_requested",
-                sender=sender,
+                result, owner=owner_username,
+                message="Wealth: Toss WTS 세션 연장에 실패했습니다. 세션 상태 확인 또는 QR 재인증이 필요할 수 있습니다.",
+                event_key=f"toss_wts:{owner_username}:{current.date().isoformat()}:extension_failed",
+                event_type="toss_wts_extension_failed", sender=sender,
             )
-
-            # Run extend subprocess while holding the advisory lock
-            try:
-                completed = run(
-                    argv,
-                    shell=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=int(cfg["session_extend_timeout_seconds"]) + 15,
-                )
-                if getattr(completed, "returncode", 1) == 0:
-                    extended = True
-                else:
-                    extend_error = "AUTH_EXTEND_FAILED"
-            except subprocess.TimeoutExpired:
-                extend_error = "AUTH_EXTEND_TIMEOUT"
-            except OSError:
-                extend_error = "AUTH_EXTEND_FAILED"
-        # Lock released here — post-verification runs without the lock
-
-    except TossAuthOperationBusyError:
-        # Login holds the lock; extension cannot start
-        result.update({
-            "action": "deferred",
-            "error_code": "TOSS_AUTH_OPERATION_BUSY",
-        })
         return result
-    except Exception:
-        # Failing open here would permit a concurrent interactive extension.
-        # Preserve the per-user lock invariant even if its infrastructure is
-        # unexpectedly unavailable.
-        result.update({"action": "deferred", "error_code": "AUTH_OPERATION_GUARD_FAILED"})
+    _notify_maintenance_event(
+        result, owner=owner_username,
+        message="Wealth: Toss WTS 세션 연장을 요청합니다. Toss 앱 승인이 필요할 수 있습니다.",
+        event_key=f"toss_wts:{owner_username}:{current.date().isoformat()}:extension_requested",
+        event_type="toss_wts_extension_requested", sender=sender,
+    )
+    # Poll evidence, never retry auth extend. The supervisor independently owns
+    # its deadline; uncertainty at this bounded caller deadline retains marker.
+    deadline = time.monotonic() + int(cfg["session_extend_timeout_seconds"]) + 60
+    while time.monotonic() < deadline:
+        observed = (_observe_extension or get_toss_session_extension)(owner_username, attempt_id=started["attempt_id"],
+                                                                     now_provider=_post_clock)
+        result.update(observed)
+        if observed.get("action") != "pending":
+            break
+        time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+    if result.get("action") == "pending":
+        result.update(action="deferred", error_code="AUTH_EXTEND_TERMINATION_PENDING")
         return result
-
-    if not extended:
-        result.update({"action": "extension_failed", "error_code": extend_error})
-        _notify_maintenance_event(
-            result,
-            owner=owner_username,
-            message="Wealth: Toss WTS 세션 연장에 실패했습니다. 수동 연장 또는 QR 재인증이 필요할 수 있습니다.",
-            event_key=f"toss_wts:{owner_username}:{current.date().isoformat()}:extension_failed",
-            event_type="toss_wts_extension_failed",
-            sender=sender,
-        )
-        return result
-
-    # Post-extension verification (no lock needed — read-only)
-    verified_at = _now(_post_clock())
-    verified = get_toss_session_status(username=owner_username, now=verified_at, settings=cfg, run=run)
-    result.update({
-        "active": verified["active"],
-        "valid": verified["valid"],
-        "server_expires_at": verified["server_expires_at"],
-        "hours_remaining": verified["hours_remaining"],
-        "error_code": verified["error_code"],
-    })
-    if verified["active"] and verified["valid"]:
-        result.update({"action": "extended", "extension_succeeded": True, "error_code": None})
-        _notify_maintenance_event(
-            result,
-            owner=owner_username,
-            message=f"Wealth: Toss WTS 세션 연장이 확인되었습니다. 서버 만료: {verified['server_expires_at']}",
-            event_key=f"toss_wts:{owner_username}:{verified_at.date().isoformat()}:extension_succeeded",
-            event_type="toss_wts_extension_succeeded",
-            sender=sender,
-        )
-    else:
-        result["action"] = "extension_failed"
-        _notify_maintenance_event(
-            result,
-            owner=owner_username,
-            message="Wealth: Toss WTS 세션 연장 후 상태 확인에 실패했습니다. 수동 확인이 필요합니다.",
-            event_key=f"toss_wts:{owner_username}:{verified_at.date().isoformat()}:post_verify_failed",
-            event_type="toss_wts_post_verify_failed",
-            sender=sender,
-        )
+    succeeded = result.get("action") == "extended"
+    unchanged = result.get("action") == "unchanged"
+    post_verify_failed = not succeeded and not unchanged and result.get("error_code") not in {
+        "AUTH_EXTEND_TIMEOUT", "AUTH_EXTEND_FAILED"
+    }
+    _notify_maintenance_event(
+        result, owner=owner_username,
+        message=(f"Wealth: Toss WTS 세션 연장이 확인되었습니다. 서버 만료: {result.get('server_expires_at')}"
+                 if succeeded else "Wealth: Toss WTS 세션 만료 시각이 변경되지 않았습니다. 상태 확인이 필요합니다."
+                 if unchanged else "Wealth: Toss WTS 세션 연장 후 상태 확인에 실패했습니다. 수동 확인이 필요합니다."),
+        event_key=f"toss_wts:{owner_username}:{_now(_post_clock()).date().isoformat()}:" +
+                  ("extension_succeeded" if succeeded else "extension_unchanged" if unchanged else
+                   "post_verify_failed" if post_verify_failed else "extension_failed"),
+        event_type="toss_wts_extension_succeeded" if succeeded else
+                   "toss_wts_post_verify_failed" if post_verify_failed else "toss_wts_extension_failed",
+        sender=sender,
+    )
     return result
+
+
+def get_toss_session_extension(username: str, *, attempt_id: str | None = None,
+                               now_provider: Callable[[], datetime] | None = None) -> dict[str, Any]:
+    """Owner-scoped durable evidence lookup; never starts or retries auth."""
+    if sys.platform != "linux":
+        return {"action": "unavailable", "supported": False, "extension_succeeded": False,
+                "error_code": "AUTH_PROCESS_BOUNDARY_UNAVAILABLE"}
+    from app.services.toss_wts_auth_guard import user_login_dir, _get_active_op_data
+    from app.services.toss_wts_auth_process import private_receipt
+    from app.services.toss_wts_login import _read_meta, get_login_attempt, TossLoginNotFoundError
+    import uuid
+    marker = _get_active_op_data(username)
+    try:
+        if attempt_id is not None:
+            pass  # Internal scheduled caller pins its own attempt, never a later job.
+        elif marker and marker.get("type") == "extend":
+            attempt_id = marker["attempt_id"]
+        else:
+            pointer = private_receipt(user_login_dir(username) / "extension-latest.json")
+            if pointer.get("owner") != username:
+                raise ValueError("OWNER_MISMATCH")
+            attempt_id = pointer["attempt_id"]
+        if str(uuid.UUID(attempt_id)) != attempt_id:
+            raise ValueError("INVALID_ATTEMPT")
+        meta = _read_meta(attempt_id, username)
+        if meta.get("owner") != username or meta.get("operation") != "extend":
+            raise ValueError("OPERATION_MISMATCH")
+        return get_login_attempt(attempt_id, requesting_username=username, now_provider=now_provider)
+    except FileNotFoundError:
+        if not marker:
+            return {"action": "idle", "extension_attempted": False, "extension_succeeded": False}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, TossLoginNotFoundError):
+        pass
+    # Missing/corrupt metadata or missing completion proof must never release guard.
+    return {"action": "pending" if marker and marker.get("type") == "extend" else "unknown",
+            "extension_succeeded": False, "error_code": "AUTH_EXTEND_RESULT_UNCONFIRMED"}
+
+
+def start_toss_session_extension(username: str) -> dict[str, Any]:
+    """Shared entry for scheduled and user-requested extension, Linux only."""
+    from app.services.toss_wts_login import _start_toss_auth, TossLoginLockError, TossLoginError
+    # Reconcile completed prior attempt after restart before trying the same guard.
+    get_toss_session_extension(username)
+    try:
+        started = _start_toss_auth(resolve_toss_wts_settings(), username=username, operation="extend")
+        if isinstance(started, dict):
+            return started
+        return {"attempt_id": started, "action": "pending", "extension_attempted": True,
+                "extension_succeeded": False}
+    except TossLoginLockError:
+        from app.services.toss_wts_auth_guard import _get_active_op_data
+        marker = _get_active_op_data(username)
+        return {"action": "deferred", "error_code": "AUTH_LOGIN_IN_PROGRESS" if marker and marker.get("type") == "login" else "TOSS_AUTH_OPERATION_BUSY",
+                "extension_attempted": False, "extension_succeeded": False}
+    except TossLoginError:
+        return {"action": "status_failed", "error_code": "AUTH_EXTEND_START_FAILED",
+                "extension_attempted": False, "extension_succeeded": False}
+
+
+def classify_toss_extension(before: str | None, verified: dict[str, Any], *,
+                            cli_exit_code: int, timed_out: bool, now: datetime) -> dict[str, Any]:
+    """Pure result policy, called only AFTER the lifecycle proves whole-tree exit.
+
+    This function produces no receipt and cannot release a marker or spawn auth.
+    Orchestration unit tests may exercise it without claiming Linux exit proof.
+    """
+    previous = _parse_expiry({"server_expires_at": before}, now)
+    expiry = _parse_expiry(verified, now)
+    valid = verified["active"] and verified["valid"]
+    extended = bool(valid and previous and expiry and expiry > previous)
+    unchanged = bool(cli_exit_code == 0 and valid and previous is not None and expiry == previous)
+    needs_qr = verified.get("error_code") in {"SESSION_INACTIVE", "SESSION_INVALID", "SESSION_MISSING", "CONFIG_DIR_MISSING"}
+    return {"active": verified["active"], "valid": verified["valid"],
+            "server_expires_at": verified["server_expires_at"], "hours_remaining": verified["hours_remaining"],
+            "action": "extended" if extended else "unchanged" if unchanged else "reauth_required" if needs_qr else "extension_failed",
+            "status": "success" if extended or unchanged else "failed",
+            "error_code": None if extended or unchanged else "AUTH_EXTEND_TIMEOUT" if timed_out else
+                          "AUTH_EXTEND_FAILED" if cli_exit_code != 0 else verified.get("error_code") or "AUTH_EXTEND_VERIFY_FAILED"}

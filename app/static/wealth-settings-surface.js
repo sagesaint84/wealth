@@ -181,8 +181,10 @@
             </div>
             <div class="settings-management-actions">
               <button id="settingsCheckTossSession" type="button" class="button secondary compact">세션 상태 확인</button>
+              <button id="settingsExtendTossSession" type="button" class="button secondary wealth-ui-button" data-ui="button" aria-describedby="settingsTossExtensionStatus">세션 연장 요청</button>
               <button id="settingsSaveTossSession" type="button" class="button secondary compact">Toss 세션 설정 저장</button>
             </div>
+            <p id="settingsTossExtensionStatus" class="settings-help" role="status" aria-live="polite">세션 상태 확인 전 · 연장은 만료 임계시간 이내에서만 요청합니다.</p>
             <div id="settingsTossLoginSection" class="settings-subsection">
               <h5>초기 인증 / 재인증 (QR)</h5>
               <p class="settings-help">세션이 없거나 만료된 경우 내 Toss WTS 계정을 QR 코드로 인증하거나 재인증할 수 있습니다.</p>

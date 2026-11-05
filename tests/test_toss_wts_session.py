@@ -55,11 +55,96 @@ class TossWtsSessionTests(unittest.TestCase):
         expiry = (self.now + timedelta(hours=hours)).isoformat()
         return subprocess.CompletedProcess([], 0, f'{{"active": {str(active).lower()}, "valid": {str(valid).lower()}, "server_expires_at": "{expiry}"}}', "")
 
+    def maintenance(self, username, *, run, settings, now, now_provider=None, sender=None):
+        """Model only the supervised-boundary interface; never fabricate a receipt.
+
+        Real Linux tree/receipt behavior is tested in test_toss_wts_auth_process.
+        Keep legacy condition/notification assertions and the three probe/command
+        observations while replacing the old unsupervised process dependency.
+        """
+        from app.services import toss_wts_session as session
+        from app.services import toss_wts_auth_guard as guard
+        real_status = get_toss_session_status
+        self.assertIsNot(run, subprocess.run)
+        before = {}
+        completion = {}
+
+        def probe(**kwargs):
+            value = real_status(**{**kwargs, "run": run})
+            before.update(value)
+            return value
+
+        def start(owner):
+            self.assertEqual(owner, username)
+            try:
+                with guard.auth_operation_lock(owner):
+                    if guard.check_active_login_operation(owner):
+                        return {"action":"deferred", "error_code":"AUTH_LOGIN_IN_PROGRESS", "extension_attempted":False}
+                    argv = [settings["executable"], "--config-dir", str(guard._user_toss_root(owner) / "config"),
+                            "auth", "extend", "--if-expiring", f"{settings['session_extend_threshold_hours']}h",
+                            "--timeout", f"{settings['session_extend_timeout_seconds']}s"]
+                    try:
+                        completion["exit"] = run(argv, shell=False, capture_output=True, text=True,
+                                                 timeout=settings["session_extend_timeout_seconds"] + 15).returncode
+                    except subprocess.TimeoutExpired:
+                        completion.update(exit=-1, timed_out=True)
+                    except OSError:
+                        completion["exit"] = -1
+            except guard.TossAuthOperationBusyError:
+                return {"action":"deferred", "error_code":"TOSS_AUTH_OPERATION_BUSY", "extension_attempted":False}
+            return {"action":"pending", "attempt_id":"boundary-unit-model", "extension_attempted":True}
+
+        def observe(owner, *, attempt_id, now_provider):
+            self.assertEqual((owner, attempt_id), (username, "boundary-unit-model"))
+            post_now = now_provider() if now_provider else now
+            if completion["exit"] == 0:
+                verified = real_status(username=owner, now=post_now, settings=settings, run=run)
+            else:
+                verified = {**before, "active":False, "valid":False, "error_code":None}
+            result = session.classify_toss_extension(before["server_expires_at"], verified,
+                         cli_exit_code=completion["exit"], timed_out=completion.get("timed_out",False), now=post_now)
+            return {**result, "extension_attempted":True, "extension_succeeded":result["action"] == "extended"}
+
+        with patch.object(session, "get_toss_session_status", side_effect=probe), \
+             patch.object(session, "start_toss_session_extension", side_effect=AssertionError("Use the injected boundary only")), \
+             patch.object(session, "get_toss_session_extension", side_effect=AssertionError("Use the injected boundary only")), \
+             patch.object(subprocess, "Popen", side_effect=AssertionError("Unit boundary must never spawn a real CLI")):
+            return run_toss_session_maintenance(username, now=now, now_provider=now_provider or (lambda: now),
+                       settings=settings, run=run, sender=sender,
+                       _start_extension=start, _observe_extension=observe)
+
     def test_status_is_safe_and_calculates_hours(self):
         with patch.dict(os.environ, self.env):
             status = get_toss_session_status(username=USERNAME, now=self.now, settings=self.settings, run=Mock(return_value=self._status(hours=24)))
         self.assertTrue(status["active"]); self.assertEqual(status["hours_remaining"], 24.0)
         self.assertNotIn("stdout", status); self.assertNotIn("stderr", status); self.assertNotIn("session.json", str(status))
+
+    def test_unadapted_run_injection_cannot_spawn_auth(self):
+        from app.services import toss_wts_session as session
+        with patch.dict(os.environ, self.env), \
+             patch.object(session, "start_toss_session_extension") as start, \
+             patch.object(subprocess, "Popen", side_effect=AssertionError("No real auth")):
+            result = run_toss_session_maintenance(USERNAME, now=self.now, settings=self.settings,
+                        run=Mock(return_value=self._status(hours=24)), sender=Mock())
+        self.assertEqual(result["action"], "deferred")
+        self.assertEqual(result["error_code"], "AUTH_PROCESS_RUNNER_UNSUPPORTED")
+        start.assert_not_called()
+
+    def test_expiry_growth_and_unchanged_are_separate_from_cli_exit(self):
+        from app.services.toss_wts_session import classify_toss_extension
+        before = (self.now + timedelta(hours=24)).isoformat()
+        for hours, exit_code, timeout, valid, expected in (
+            (168,0,False,True,"extended"), (24,0,False,True,"unchanged"),
+            (23,0,False,True,"extension_failed"), (24,1,False,True,"extension_failed"),
+            (24,-15,True,True,"extension_failed"), (168,0,False,False,"reauth_required"),
+        ):
+            with self.subTest(hours=hours, exit_code=exit_code, timeout=timeout, valid=valid):
+                status = {"active":valid,"valid":valid,"server_expires_at":(self.now + timedelta(hours=hours)).isoformat(),
+                          "hours_remaining":hours,"error_code":None if valid else "SESSION_INVALID"}
+                result = classify_toss_extension(before,status,cli_exit_code=exit_code,timed_out=timeout,now=self.now)
+                self.assertEqual(result["action"], expected)
+                if timeout:
+                    self.assertEqual(result["error_code"], "AUTH_EXTEND_TIMEOUT")
 
     def test_status_errors_are_stable(self):
         with patch.dict(os.environ, self.env):
@@ -71,12 +156,12 @@ class TossWtsSessionTests(unittest.TestCase):
         runner = Mock(return_value=self._status(hours=72))
         with patch.dict(os.environ, self.env), \
              patch("app.services.toss_wts_session.resolve_telegram_config", return_value=Mock()):
-            result = run_toss_session_maintenance(USERNAME, now=self.now, settings=self.settings, run=runner, sender=Mock())
+            result = self.maintenance(USERNAME, now=self.now, settings=self.settings, run=runner, sender=Mock())
         self.assertEqual(result["action"], "not_required"); self.assertEqual(runner.call_count, 1)
         runner = Mock(side_effect=[self._status(hours=24), subprocess.CompletedProcess([], 0, "", ""), self._status(hours=168)])
         with patch.dict(os.environ, self.env), \
              patch("app.services.toss_wts_session.resolve_telegram_config", return_value=Mock()):
-            result = run_toss_session_maintenance(USERNAME, now=self.now, settings=self.settings, run=runner, sender=Mock())
+            result = self.maintenance(USERNAME, now=self.now, settings=self.settings, run=runner, sender=Mock())
         self.assertEqual(result["action"], "extended"); self.assertTrue(result["extension_succeeded"]); self.assertEqual(runner.call_count, 3)
         self.assertIn("auth", runner.call_args_list[1].args[0]); self.assertIn("extend", runner.call_args_list[1].args[0])
 
@@ -141,7 +226,7 @@ class TossWtsSessionTests(unittest.TestCase):
         bad_sender = Mock(side_effect=RuntimeError("telegram down"))
         with patch.dict(os.environ, self.env), \
              patch("app.services.toss_wts_session.resolve_telegram_config", return_value=Mock()):
-            result = run_toss_session_maintenance(USERNAME, now=self.now, settings=self.settings, run=runner, sender=bad_sender)
+            result = self.maintenance(USERNAME, now=self.now, settings=self.settings, run=runner, sender=bad_sender)
         self.assertIn("action", result)
 
     # ------------------------------------------------------------------
@@ -172,7 +257,7 @@ class TossWtsSessionTests(unittest.TestCase):
 
         with patch.dict(os.environ, self.env), \
              patch("app.services.toss_wts_session.resolve_telegram_config", return_value=Mock()):
-            result = run_toss_session_maintenance(
+            result = self.maintenance(
                 USERNAME, now=pre_now, now_provider=now_prov,
                 settings=self.settings, run=run_stub, sender=Mock()
             )
@@ -191,7 +276,7 @@ class TossWtsSessionTests(unittest.TestCase):
             return self._status(hours=24)
         with patch.dict(os.environ, self.env), \
              patch("app.services.toss_wts_session.resolve_telegram_config", return_value=Mock()):
-            result = run_toss_session_maintenance(USERNAME, now=self.now, settings=self.settings, run=run_stub, sender=Mock())
+            result = self.maintenance(USERNAME, now=self.now, settings=self.settings, run=run_stub, sender=Mock())
         self.assertEqual(result["action"], "extension_failed")
         self.assertEqual(result["error_code"], "AUTH_EXTEND_TIMEOUT")
 
@@ -202,7 +287,7 @@ class TossWtsSessionTests(unittest.TestCase):
             return self._status(hours=24)
         with patch.dict(os.environ, self.env), \
              patch("app.services.toss_wts_session.resolve_telegram_config", return_value=Mock()):
-            result = run_toss_session_maintenance(USERNAME, now=self.now, settings=self.settings, run=run_stub, sender=Mock())
+            result = self.maintenance(USERNAME, now=self.now, settings=self.settings, run=run_stub, sender=Mock())
         self.assertEqual(result["action"], "extension_failed")
         self.assertEqual(result["error_code"], "AUTH_EXTEND_FAILED")
 
@@ -213,7 +298,7 @@ class TossWtsSessionTests(unittest.TestCase):
             return self._status(hours=24)
         with patch.dict(os.environ, self.env), \
              patch("app.services.toss_wts_session.resolve_telegram_config", return_value=Mock()):
-            result = run_toss_session_maintenance(USERNAME, now=self.now, settings=self.settings, run=run_stub, sender=Mock())
+            result = self.maintenance(USERNAME, now=self.now, settings=self.settings, run=run_stub, sender=Mock())
         self.assertEqual(result["action"], "extension_failed")
         self.assertEqual(result["error_code"], "AUTH_EXTEND_FAILED")
 
@@ -230,7 +315,7 @@ class TossWtsSessionTests(unittest.TestCase):
             runner = Mock(return_value=self._status(hours=24))
             with patch("app.services.toss_wts_session.resolve_telegram_config",
                        return_value=Mock()):
-                result = run_toss_session_maintenance(
+                result = self.maintenance(
                     USERNAME, now=self.now, settings=self.settings,
                     run=runner, sender=Mock(),
                 )
@@ -265,7 +350,7 @@ class TossWtsSessionTests(unittest.TestCase):
                     "app.services.toss_wts_session.resolve_telegram_config",
                     return_value=Mock(),
                 ):
-                    r = run_toss_session_maintenance(
+                    r = self.maintenance(
                         USERNAME,
                         now=self.now,
                         settings=self.settings,
@@ -542,7 +627,7 @@ class TossWtsSessionTests(unittest.TestCase):
             "app.services.toss_wts_session.send_toss_session_notifications",
             return_value=notification,
         ) as notify:
-            result = run_toss_session_maintenance(
+            result = self.maintenance(
                 USERNAME,
                 now=self.now,
                 settings=self.settings,
@@ -604,7 +689,7 @@ class TossWtsSessionTests(unittest.TestCase):
             "app.services.toss_wts_session.send_toss_session_notifications",
             side_effect=notify,
         ):
-            result = run_toss_session_maintenance(
+            result = self.maintenance(
                 USERNAME,
                 now=self.now,
                 now_provider=lambda: self.now + timedelta(minutes=1),
@@ -642,7 +727,7 @@ class TossWtsSessionTests(unittest.TestCase):
             "app.services.toss_wts_session.send_toss_session_notifications",
             side_effect=RuntimeError(secret_text),
         ):
-            result = run_toss_session_maintenance(
+            result = self.maintenance(
                 USERNAME,
                 now=self.now,
                 settings=self.settings,
@@ -665,7 +750,7 @@ class TossWtsSessionTests(unittest.TestCase):
             "app.services.toss_wts_session.resolve_telegram_config",
             return_value=Mock(),
         ):
-            result = run_toss_session_maintenance(
+            result = self.maintenance(
                 USERNAME,
                 now=self.now,
                 settings=self.settings,
