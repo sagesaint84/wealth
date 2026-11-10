@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import csv
-import io
 import json
 import math
 import re
@@ -9,19 +7,22 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-import openpyxl
 
 from app.services.broker_realized_import import canonicalize_realized_date
 from app.services.financial_json import (FinancialStorageError, financial_rmw,
     ensure_financial_json, read_financial_json, write_financial_json)
 from app.services.historical_fx import get_historical_fx_rate, lookup_historical_fx_strict
 from app.services.stock_master import resolve_stock_info
+from app.services.file_import_excel_reader import open_import_workbook
 from app.services.file_import_identity import (
     FILE_IMPORT_FINGERPRINT_FIELD,
     build_file_import_fingerprint,
     canonical_number,
     canonical_text,
+    map_import_columns,
+    read_csv_import_rows,
     retain_new_occurrences,
+    strip_import_text as _clean_str,
 )
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -597,12 +598,6 @@ def get_pnl_summary(owner: str = "모두", year: int | str | None = None, trade_
     }
 
 
-def _clean_str(val: Any) -> str:
-    if val is None:
-        return ""
-    return str(val).strip()
-
-
 def _clean_num(val: Any) -> float:
     if val is None or val == "":
         return 0.0
@@ -682,51 +677,17 @@ def _pnl_file_import_fingerprint(record: dict[str, Any]) -> str | None:
 
 @financial_rmw('realized_pnl_records.json')
 def import_pnl_file_data(content: bytes, filename: str, fx_rate: float = 1385.0, username: str | None = None) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    
     if filename.lower().endswith(".xlsx"):
-        wb = None
-        for opts in (
-            {"read_only": True, "data_only": True},
-            {"read_only": True, "data_only": False},
-            {"data_only": True},
-            {},
-        ):
-            try:
-                wb = openpyxl.load_workbook(io.BytesIO(content), **opts)
-                break
-            except Exception:
-                continue
-        if wb is None:
-            raise ValueError("엑셀 파일을 열 수 없습니다. 파일 손상 여부를 확인하세요.")
-        
-        ws = wb.active
-        all_rows = list(ws.iter_rows(values_only=True))
-        if not all_rows:
-            return []
-        
-        headers = [_clean_str(h) for h in all_rows[0]]
-        for raw in all_rows[1:]:
-            if not any(raw):
-                continue
-            row_dict = {}
-            for h, v in zip(headers, raw):
-                if h:
-                    row_dict[h] = v
-            rows.append(row_dict)
+        with open_import_workbook(content) as wb:
+
+            ws = wb.active
+            all_rows = list(ws.iter_rows(values_only=True))
+            if not all_rows:
+                return []
+
+            rows = map_import_columns(all_rows[0], (raw for raw in all_rows[1:] if any(raw)))
     else:
-        # CSV
-        text = ""
-        for enc in ("utf-8-sig", "utf-8", "cp949", "euc-kr"):
-            try:
-                text = content.decode(enc)
-                break
-            except Exception:
-                continue
-        reader = csv.DictReader(io.StringIO(text))
-        for r in reader:
-            if any(r.values()):
-                rows.append({_clean_str(k): v for k, v in r.items() if k})
+        rows = read_csv_import_rows(content)
 
     from app.services.stock_master import resolve_stock_info
 

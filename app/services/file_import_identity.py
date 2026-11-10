@@ -4,15 +4,53 @@ from __future__ import annotations
 
 from collections import Counter
 from decimal import Decimal, InvalidOperation
+import csv
 import hashlib
+import io
 import json
 import math
 import unicodedata
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 
 FILE_IMPORT_FINGERPRINT_FIELD = "file_import_fingerprint"
 FILE_IMPORT_OCCURRENCE_FIELD = "file_import_occurrence"
+
+
+def strip_import_text(val: Any) -> str:
+    """Trim file input text while preserving internal whitespace and Unicode."""
+    if val is None:
+        return ""
+    return str(val).strip()
+
+
+def map_import_columns(
+    header: Iterable[Any], rows: Iterable[Iterable[Any]]
+) -> list[dict[str, Any]]:
+    """Map already decoded and selected rows using trimmed column names."""
+    headers = [strip_import_text(value) for value in header]
+    return [
+        {name: value for name, value in zip(headers, row) if name}
+        for row in rows
+    ]
+
+
+def read_csv_import_rows(content: bytes) -> list[dict[str, Any]]:
+    """Decode legacy CSV uploads and return selected rows with trimmed headers."""
+    text = ""
+    for encoding in ("utf-8-sig", "utf-8", "cp949", "euc-kr"):
+        try:
+            text = content.decode(encoding)
+            break
+        except Exception:
+            continue
+
+    reader = csv.DictReader(io.StringIO(text))
+    return [
+        {strip_import_text(key): value for key, value in row.items() if key}
+        for row in reader
+        if any(row.values())
+    ]
 
 
 def canonical_text(value: Any) -> str:
