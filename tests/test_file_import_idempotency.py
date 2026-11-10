@@ -5,10 +5,10 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import openpyxl
 
-from app.services import dividend_records, ledger, pnl_records
+from app.services import dividend_records, file_import_excel_reader, ledger, pnl_records
 
 
 def csv_bytes(rows: list[dict[str, object]]) -> bytes:
@@ -60,6 +60,144 @@ class FileImportIdempotencyTests(unittest.TestCase):
         for item in reversed(self.patches):
             item.stop()
         self.temp.cleanup()
+
+    def test_import_workbook_keeps_stream_open_through_first_and_fallback_reads(self) -> None:
+        original_load = file_import_excel_reader.openpyxl.load_workbook
+        options = [
+            {"read_only": True, "data_only": True},
+            {"read_only": True, "data_only": False},
+            {"data_only": True},
+            {},
+        ]
+
+        for failed_attempts in (0, 3):
+            streams = []
+            opened = []
+
+            def track_load(stream, **load_options):
+                streams.append(stream)
+                if len(streams) <= failed_attempts:
+                    raise OSError("synthetic option fallback")
+                workbook = original_load(stream, **load_options)
+                workbook.close = Mock(wraps=workbook.close)
+                opened.append(workbook)
+                return workbook
+
+            with self.subTest(failed_attempts=failed_attempts), patch.object(
+                file_import_excel_reader.openpyxl, "load_workbook", side_effect=track_load
+            ) as load:
+                with file_import_excel_reader.open_import_workbook(xlsx_bytes([])) as workbook:
+                    self.assertIs(workbook, opened[0])
+                    self.assertTrue(all(stream.closed for stream in streams[:-1]))
+                    self.assertFalse(streams[-1].closed)
+                    self.assertFalse(workbook.close.called)
+                    self.assertEqual(list(workbook.active.iter_rows(values_only=True)), [])
+                    self.assertFalse(streams[-1].closed)
+
+                self.assertTrue(all(stream.closed for stream in streams))
+                opened[0].close.assert_called_once_with()
+                self.assertEqual([call.kwargs for call in load.call_args_list], options[:failed_attempts + 1])
+
+    def test_pnl_and_dividend_excel_imports_close_after_success_and_empty_return(self) -> None:
+        original_load = file_import_excel_reader.openpyxl.load_workbook
+        services = (
+            ("pnl", pnl_records.import_pnl_file_data,
+             xlsx_bytes([self.pnl_row("2026-01-02", "A", "10")])),
+            ("dividend", dividend_records.import_dividend_file_data,
+             xlsx_bytes([self.dividend_row("2026-01-02", "A", "10")])),
+            ("pnl-empty", pnl_records.import_pnl_file_data, xlsx_bytes([])),
+            ("dividend-empty", dividend_records.import_dividend_file_data, xlsx_bytes([])),
+        )
+
+        for label, importer, content in services:
+            opened = []
+
+            def track_load(stream, **options):
+                workbook = original_load(stream, **options)
+                workbook.close = Mock(wraps=workbook.close)
+                opened.append((stream, workbook))
+                return workbook
+
+            with self.subTest(path=label), patch.object(
+                file_import_excel_reader.openpyxl, "load_workbook", side_effect=track_load
+            ):
+                result = importer(content, f"{label}.xlsx")
+                if label.endswith("-empty"):
+                    self.assertEqual(result, [])
+                else:
+                    self.assertTrue(result)
+                self.assertEqual(len(opened), 1)
+                self.assertTrue(opened[0][0].closed)
+                opened[0][1].close.assert_called_once_with()
+
+    def test_pnl_and_dividend_excel_imports_close_after_row_iteration_error(self) -> None:
+        class BrokenWorksheet:
+            def iter_rows(self, *, values_only: bool = False):
+                raise RuntimeError("synthetic row iteration failure")
+
+        class TrackedWorkbook:
+            active = BrokenWorksheet()
+
+            def __init__(self) -> None:
+                self.close = Mock()
+
+        for importer in (pnl_records.import_pnl_file_data, dividend_records.import_dividend_file_data):
+            workbook = TrackedWorkbook()
+            streams = []
+
+            def return_workbook(stream, **options):
+                streams.append(stream)
+                return workbook
+
+            with self.subTest(importer=importer.__module__), patch.object(
+                file_import_excel_reader.openpyxl, "load_workbook", side_effect=return_workbook
+            ):
+                with self.assertRaisesRegex(RuntimeError, "synthetic row iteration failure"):
+                    importer(b"synthetic", "broken.xlsx")
+                workbook.close.assert_called_once_with()
+                self.assertEqual(len(streams), 1)
+                self.assertTrue(streams[0].closed)
+
+    def test_import_workbook_closes_each_stream_after_all_open_retries_fail(self) -> None:
+        original_bytes_io = io.BytesIO
+        streams = []
+
+        def track_stream(content: bytes):
+            stream = original_bytes_io(content)
+            streams.append(stream)
+            return stream
+
+        options = [
+            {"read_only": True, "data_only": True},
+            {"read_only": True, "data_only": False},
+            {"data_only": True},
+            {},
+        ]
+        with patch.object(file_import_excel_reader.io, "BytesIO", side_effect=track_stream), patch.object(
+            file_import_excel_reader.openpyxl, "load_workbook",
+            side_effect=[OSError("synthetic open failure") for _ in options],
+        ) as load:
+            with self.assertRaises(ValueError) as caught:
+                with file_import_excel_reader.open_import_workbook(b"synthetic"):
+                    self.fail("Workbook should not open after all retries fail")
+
+        self.assertEqual(str(caught.exception), "엑셀 파일을 열 수 없습니다. 파일 손상 여부를 확인하세요.")
+        self.assertEqual(len(streams), 4)
+        self.assertTrue(all(stream.closed for stream in streams))
+        self.assertEqual([call.kwargs for call in load.call_args_list], options)
+
+    def test_import_workbook_preserves_consumer_error_if_close_fails(self) -> None:
+        workbook = Mock()
+        workbook.close.side_effect = OSError("synthetic close failure")
+        original_error = RuntimeError("synthetic consumer failure")
+
+        with patch.object(file_import_excel_reader.openpyxl, "load_workbook", return_value=workbook):
+            with self.assertRaises(RuntimeError) as caught:
+                with file_import_excel_reader.open_import_workbook(b"synthetic"):
+                    raise original_error
+
+        self.assertIs(caught.exception, original_error)
+        workbook.close.assert_called_once_with()
 
     @staticmethod
     def pnl_row(day: str, code: str, pnl: object, quantity: object = "1", **extra: object) -> dict[str, object]:
