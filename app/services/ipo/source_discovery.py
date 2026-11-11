@@ -163,8 +163,168 @@ def _unique_name_match(item: dict[str, Any], existing: list[dict[str, Any]]) -> 
     incoming_start = str(item.get("subscription_start") or "")[:10]
     target_start = str(target.get("subscription_start") or "")[:10]
     if incoming_start and target_start and incoming_start != target_start:
-        return None
+        if not _schedule_change_identity_is_supported(item, target):
+            return None
     return target
+
+
+def _schedule_window(ipo: dict[str, Any]) -> tuple[date, date] | None:
+    try:
+        start = date.fromisoformat(str(ipo.get("subscription_start") or "")[:10])
+        end = date.fromisoformat(str(ipo.get("subscription_end") or "")[:10])
+    except ValueError:
+        return None
+    return (start, end) if start <= end else None
+
+
+def _schedule_is_current_at(ipo: dict[str, Any], observed_at: str) -> bool:
+    window = _schedule_window(ipo)
+    if window is None:
+        return False
+    try:
+        observed_day = datetime.fromisoformat(observed_at).astimezone(KST).date()
+    except ValueError:
+        observed_day = datetime.now(KST).date()
+    return window[1] >= observed_day
+
+
+def _schedule_change_identity_is_supported(item: dict[str, Any], target: dict[str, Any]) -> bool:
+    """Require offering evidence before a name-only schedule date can move."""
+    if any(item.get(key) and target.get(key) and item[key] != target[key]
+           for key in ("market", "listing_track", "stock_code", "corp_code")):
+        return False
+    source_meta = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+    trusted_source = any(isinstance(source_meta.get(key), dict) for key in ("npay", "naver_progress", "kind", "dart"))
+    if not trusted_source:
+        return False
+
+    stable_pairs = (
+        ("stock_code", str(item.get("stock_code") or "").strip()),
+        ("corp_code", str(item.get("corp_code") or "").strip()),
+        ("kind_bz_procs_no", str(item.get("kind_bz_procs_no") or
+            ((source_meta.get("kind") or {}).get("kind_bz_procs_no")
+             if isinstance(source_meta.get("kind"), dict) else "") or "").strip()),
+    )
+    if any(value and value == str(target.get(key) or "").strip() for key, value in stable_pairs):
+        return True
+
+    # The public Npay list may only confirm a new start date. A name-only match
+    # is safe only when the new date still falls in the stored offering window
+    # and both published price-band endpoints corroborate the same offering.
+    old_window = _schedule_window(target)
+    new_start = str(item.get("subscription_start") or "")[:10]
+    try:
+        parsed_new_start = date.fromisoformat(new_start)
+    except ValueError:
+        return False
+    if old_window is None or not old_window[0] <= parsed_new_start <= old_window[1]:
+        return False
+    return all(
+        item.get(key) not in (None, "")
+        and target.get(key) not in (None, "")
+        and item.get(key) == target.get(key)
+        for key in ("offer_band_low", "offer_band_high")
+    )
+
+
+def _exact_name_candidates(item: dict[str, Any], existing: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    name = normalize_company_name(str(item.get("company_name") or ""))
+    if not name:
+        return []
+    return [row for row in existing
+            if normalize_company_name(str(row.get("company_name") or "")) == name]
+
+
+def _record_schedule_review(
+    store: dict[str, Any], item: dict[str, Any], *, source_name: str,
+    reason: str, candidate_ids: list[str], observed_at: str,
+    observed_schedule: dict[str, Any] | None = None,
+) -> None:
+    """Keep ambiguous observations reviewable without creating/mutating an IPO."""
+    reviews = store.setdefault("schedule_reviews", [])
+    if not isinstance(reviews, list):
+        reviews = store["schedule_reviews"] = []
+    observed_schedule = observed_schedule or {key: item.get(key) for key in (
+        "subscription_start", "subscription_end", "payment_date", "refund_date")
+        if item.get(key) not in (None, "")}
+    normalized_name = normalize_company_name(str(item.get("company_name") or ""))
+    existing_review = next((review for review in reviews if isinstance(review, dict)
+        and review.get("status") == "review_required"
+        and review.get("source") == source_name
+        and review.get("normalized_company_name") == normalized_name
+        and review.get("observed_schedule") == observed_schedule), None)
+    source_map = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+    source_key = {"naver": "naver_progress"}.get(source_name, source_name)
+    source_details = source_map.get(source_key)
+    record = {
+        "status": "review_required", "reason": reason, "source": source_name,
+        "company_name": str(item.get("company_name") or ""),
+        "normalized_company_name": normalized_name,
+        "candidate_ipo_ids": list(dict.fromkeys(value for value in candidate_ids if value)),
+        "observed_schedule": observed_schedule, "observed_at": observed_at,
+        "source_observed_at": source_details.get("observed_at") if isinstance(source_details, dict) else None,
+        "source_url": source_details.get("url") if isinstance(source_details, dict) else None,
+    }
+    if existing_review is None:
+        reviews.append(record)
+    else:
+        existing_review.update(record)
+
+
+def _set_schedule_reconciliation(
+    target: dict[str, Any], item: dict[str, Any], *, source_name: str,
+    status: str, reason: str, observed_at: str,
+    observed_schedule: dict[str, Any] | None = None,
+) -> None:
+    if not isinstance(target.get("sources"), dict):
+        target["sources"] = {}
+    source_map = item.get("sources") if isinstance(item.get("sources"), dict) else {}
+    source_key = {"naver": "naver_progress"}.get(source_name, source_name)
+    source_details = source_map.get(source_key)
+    target["sources"]["schedule_reconciliation"] = {
+        "status": status, "reason": reason, "source": source_name,
+        "observed_at": observed_at,
+        "source_observed_at": source_details.get("observed_at") if isinstance(source_details, dict) else None,
+        "source_url": source_details.get("url") if isinstance(source_details, dict) else None,
+        "observed_schedule": observed_schedule or {key: item.get(key) for key in (
+            "subscription_start", "subscription_end", "payment_date", "refund_date")
+            if item.get(key) not in (None, "")},
+    }
+
+
+def _resolve_schedule_reviews(
+    store: dict[str, Any], target: dict[str, Any], item: dict[str, Any], *, resolved_at: str,
+) -> None:
+    reviews = store.get("schedule_reviews")
+    if not isinstance(reviews, list):
+        return
+    name = normalize_company_name(str(item.get("company_name") or ""))
+    incoming_start = str(item.get("subscription_start") or "")[:10]
+    for review in reviews:
+        if (not isinstance(review, dict) or review.get("status") != "review_required"
+                or review.get("normalized_company_name") != name):
+            continue
+        review_start = str((review.get("observed_schedule") or {}).get("subscription_start") or "")[:10]
+        if incoming_start and review_start and incoming_start != review_start:
+            continue
+        review.update({"status": "resolved", "resolved_at": resolved_at,
+                       "resolved_ipo_id": target.get("ipo_id")})
+
+
+def _record_schedule_attempt(
+    market: dict[str, Any], *, source_name: str, start: date, end: date,
+    attempted_at: str, outcome: str,
+) -> None:
+    """Record fetch attempts separately from per-field successful evidence."""
+    for ipo in market.get("ipos", []):
+        if not isinstance(ipo, dict) or not _relevant_schedule(ipo, start, end):
+            continue
+        if not isinstance(ipo.get("sources"), dict):
+            ipo["sources"] = {}
+        attempts = ipo["sources"].setdefault("schedule_refresh_attempts", {})
+        if not isinstance(attempts, dict):
+            attempts = ipo["sources"]["schedule_refresh_attempts"] = {}
+        attempts[source_name] = {"last_attempt_at": attempted_at, "outcome": outcome}
 
 
 def _unique_stock_match(item: dict[str, Any], existing: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -277,6 +437,10 @@ def _source_priority_present(target: dict[str, Any], source_name: str) -> bool:
 def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_name: str) -> tuple[dict[str, Any], bool]:
     """Merge one source observation under the field-level source priority."""
     item = copy.deepcopy(item)
+    observed_schedule = {key: item.get(key) for key in (
+        "subscription_start", "subscription_end", "payment_date", "refund_date")
+        if item.get(key) not in (None, "")}
+    incoming_schedule_invalid = False
     date_fields = {"demand_forecast_start", "demand_forecast_end", "subscription_start",
                    "subscription_end", "payment_date", "refund_date",
                    "expected_listing_date", "actual_listing_date"}
@@ -293,9 +457,11 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
         item.pop("final_offer_price")
     if (item.get("subscription_start") and item.get("subscription_end")
             and item["subscription_start"] > item["subscription_end"]):
+        incoming_schedule_invalid = True
         item.pop("subscription_start")
         item.pop("subscription_end")
     existing = store.get("ipos", [])
+    observed_at = datetime.now(KST).isoformat()
     if source_name == "metalogos160":
         # A reference issuer match must never be redirected to a different
         # company merely because the provider reports a conflicting stock code.
@@ -305,6 +471,18 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
     else:
         if item.get("stock_code") and sum(row.get("stock_code") == item["stock_code"]
                                          for row in existing) > 1:
+            duplicate_rows = [row for row in existing if row.get("stock_code") == item["stock_code"]]
+            for row in duplicate_rows:
+                if _schedule_is_current_at(row, observed_at):
+                    _set_schedule_reconciliation(
+                        row, item, source_name=source_name, status="review_required",
+                        reason="duplicate_stock_identifier", observed_at=observed_at,
+                        observed_schedule=observed_schedule,
+                    )
+            _record_schedule_review(store, item, source_name=source_name,
+                reason="duplicate_stock_identifier", candidate_ids=[
+                    str(row.get("ipo_id") or "") for row in duplicate_rows], observed_at=observed_at,
+                observed_schedule=observed_schedule)
             return item, True
         target = _unique_stock_match(item, existing) or _unique_name_match(item, existing)
         if target is None and item.get("corp_code"):
@@ -313,15 +491,83 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
             corporate_matches = [row for row in existing
                 if str(row.get("corp_code") or "").strip() == str(item["corp_code"]).strip()]
             if len(corporate_matches) > 1:
+                for row in corporate_matches:
+                    if _schedule_is_current_at(row, observed_at):
+                        _set_schedule_reconciliation(
+                            row, item, source_name=source_name, status="review_required",
+                            reason="ambiguous_corporate_identifier", observed_at=observed_at,
+                            observed_schedule=observed_schedule,
+                        )
+                _record_schedule_review(store, item, source_name=source_name,
+                    reason="ambiguous_corporate_identifier", candidate_ids=[
+                        str(row.get("ipo_id") or "") for row in corporate_matches], observed_at=observed_at,
+                    observed_schedule=observed_schedule)
                 return item, True
             if corporate_matches:
                 target = corporate_matches[0]
     if target is not None and any(item.get(key) and target.get(key) and item[key] != target[key]
                                   for key in ("stock_code", "corp_code")):
+        if _schedule_is_current_at(target, observed_at):
+            _set_schedule_reconciliation(
+                target, item, source_name=source_name, status="review_required",
+                reason="conflicting_official_identifier", observed_at=observed_at,
+                observed_schedule=observed_schedule,
+            )
+        _record_schedule_review(store, item, source_name=source_name,
+            reason="conflicting_official_identifier",
+            candidate_ids=[str(target.get("ipo_id") or "")], observed_at=observed_at,
+            observed_schedule=observed_schedule)
         return item, True
-    observed_at = datetime.now(KST).isoformat()
     source_meta = item.get("sources", {}).get(
         {"naver": "naver_progress", "dart": "dart_schedule"}.get(source_name, source_name), {})
+    if not isinstance(source_meta, dict):
+        source_meta = {}
+
+    schedule_conflict = incoming_schedule_invalid
+    if target is not None:
+        merged_start = str(item.get("subscription_start") or target.get("subscription_start") or "")[:10]
+        merged_end = str(item.get("subscription_end") or target.get("subscription_end") or "")[:10]
+        if merged_start and merged_end and merged_start > merged_end:
+            schedule_conflict = True
+            item.pop("subscription_start", None)
+            item.pop("subscription_end", None)
+
+    if target is None:
+        name_candidates = _exact_name_candidates(item, existing)
+        # A name-only collision is kept outside the IPO list for review. It
+        # cannot create a second offering or redirect any applicant records.
+        if name_candidates or schedule_conflict:
+            review_reason = "invalid_schedule" if schedule_conflict else "identity_or_schedule_ambiguous"
+            candidate_ids = [str(row.get("ipo_id") or "") for row in name_candidates]
+            if (len(name_candidates) == 1 and not any(
+                    item.get(key) and name_candidates[0].get(key)
+                    and item[key] != name_candidates[0][key]
+                    for key in ("stock_code", "corp_code"))
+                    and _schedule_is_current_at(name_candidates[0], observed_at)):
+                _set_schedule_reconciliation(
+                    name_candidates[0], item, source_name=source_name,
+                    status="review_required", reason=review_reason,
+                    observed_at=observed_at, observed_schedule=observed_schedule,
+                )
+            _record_schedule_review(
+                store, item, source_name=source_name, reason=review_reason,
+                candidate_ids=candidate_ids,
+                observed_at=observed_at,
+                observed_schedule=observed_schedule,
+            )
+            return item, True
+
+    if schedule_conflict:
+        _set_schedule_reconciliation(
+            target, item, source_name=source_name, status="review_required",
+            reason="schedule_date_conflict", observed_at=observed_at,
+            observed_schedule=observed_schedule,
+        )
+        _record_schedule_review(
+            store, item, source_name=source_name, reason="schedule_date_conflict",
+            candidate_ids=[str(target.get("ipo_id") or "")], observed_at=observed_at,
+            observed_schedule=observed_schedule,
+        )
 
     def field_evidence(key):
         seen_at = observation_time(source_meta.get("observed_at") or observed_at)
@@ -357,8 +603,14 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
         if source_name in {"naver", "npay"} and item.get("final_offer_price"):
             item["sources"]["final_offer_price"] = primary_price_evidence()
         saved, review = merge_ipo_record(store, item)
+        if review:
+            _record_schedule_review(
+                store, item, source_name=source_name, reason="identity_or_schedule_ambiguous",
+                candidate_ids=[], observed_at=observed_at,
+            )
         return saved, review
 
+    previous_subscription_start = target.get("subscription_start")
     protect = _source_priority_present(target, source_name)
     if (source_name != "dart" and target.get("sources", {}).get(
             "dart_schedule_status", {}).get("status") in {"postponed", "withdrawn"}):
@@ -383,6 +635,8 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
                         or normalize_observation_date(provenance.get("source_date")) is None):
                     continue
         if value in (None, "", []):
+            continue
+        if schedule_conflict and key in {"subscription_start", "subscription_end"}:
             continue
         evidence = target.get("sources", {}).get("schedule_fields", {}).get(key, {})
         prior_time = observation_time(evidence.get("observed_at"))
@@ -434,6 +688,24 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
         fields = target["sources"].setdefault("schedule_fields", {})
         for key in accepted_fields & (protected_fields | date_fields):
             fields[key] = field_evidence(key)
+    incoming_start = str(item.get("subscription_start") or "")[:10]
+    incoming_end = str(item.get("subscription_end") or "")[:10]
+    if schedule_conflict:
+        pass
+    elif incoming_start and incoming_end and target.get("subscription_start") == incoming_start \
+            and target.get("subscription_end") == incoming_end:
+        _set_schedule_reconciliation(
+            target, item, source_name=source_name, status="verified",
+            reason="complete_schedule_observation", observed_at=observed_at,
+        )
+        _resolve_schedule_reviews(store, target, item, resolved_at=observed_at)
+    elif (incoming_start and not incoming_end
+            and incoming_start != str(previous_subscription_start or "")[:10]
+            and target.get("subscription_start") == incoming_start):
+        _set_schedule_reconciliation(
+            target, item, source_name=source_name, status="partial",
+            reason="end_date_not_confirmed", observed_at=observed_at,
+        )
     target["updated_at"] = datetime.now(KST).isoformat()
     return target, False
 
@@ -723,166 +995,79 @@ def discover_and_merge_primary_sources(
     dart_client: DartClient | None = None,
     kind_schedule_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Reconcile the main IPO discovery union into market.json.
+    """Refresh the shared IPO schedule from Npay's public schedule only.
 
-    Canonical schedule priority:
-      NAVER/Npay > KIND/DART fallback > retained market snapshot.
-    Metalogos is optional reference enrichment only when explicitly supplied.
-    Existing records and historical provenance survive provider failures.
+    Legacy provider arguments remain accepted for source compatibility but are
+    intentionally never instantiated or called. Existing records are merged
+    in place and are never deleted when Npay returns an empty result or fails.
     """
+    del username, kind_client, naver_client, metalogos_client, dart_client, kind_schedule_snapshot
     start, end = _month_window(target_date_str)
     market = copy.deepcopy(read_market_store())
-    statuses: dict[str, str] = {}
+    statuses = {
+        "kind_discovery": "not_requested (npay_only_policy)",
+        "naver_progress_discovery": "not_requested (npay_only_policy)",
+        "metalogos160": "not_requested (npay_only_policy)",
+        "dart_schedule": "not_requested (npay_only_policy)",
+        "dart_feed": "not_requested (npay_only_policy)",
+    }
     timings: dict[str, float] = {}
-    metalogos_rows: list[dict[str, Any]] = []
-
-    dart = dart_client or DartClient(username=username)
-    dart_rows: list[dict[str, Any]] = []
-    dart_by_name: dict[str, dict[str, Any]] = {}
-    if dart.is_configured():
-        # Schedule reconciliation is intentionally company-scoped. The prior
-        # global C001 feed could truncate at the artificial 20-page/2,000-row
-        # cap and is not needed once Npay/NAVER/KIND discover issuer identity.
-        statuses["dart_feed"] = "not_requested (company_scoped)"
-    else:
-        statuses["dart_feed"] = "source_unavailable (api_key_missing)"
-
-    kind = kind_client or KindClient()
+    attempted_at = datetime.now(KST).isoformat()
     npay = npay_client or NpayIpoClient()
-    naver = naver_client or NaverIpoDiscoveryClient()
-
-    def timed_read(name, read):
-        began = perf_counter()
-        try:
-            return read()
-        finally:
-            timings[f"{name}_discovery_ms"] = round((perf_counter() - began) * 1000, 3)
-
-    def naver_read():
-        if hasattr(naver, "fetch_ipo_discovery_items"):
-            return naver.fetch_ipo_discovery_items()
-        return naver.fetch_ipo_progress_items()
-
-    # Only independent external reads overlap. Reconciliation and store writes
-    # remain on this thread in canonical source order, under the caller's lock.
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        reads = {
-            "kind": pool.submit(timed_read, "kind", lambda: _kind_items(
-                kind, target_date_str=target_date_str, start=start, end=end,
-                snapshot=kind_schedule_snapshot)),
-            "npay": pool.submit(timed_read, "npay", lambda: npay.fetch_upcoming_ipos(
-                target_date_str=target_date_str)),
-            "naver": pool.submit(timed_read, "naver", naver_read),
+    began = perf_counter()
+    try:
+        raw_items = npay.fetch_upcoming_ipos(target_date_str=target_date_str)
+        if not isinstance(raw_items, list):
+            raise TypeError("Npay IPO response must be a list")
+    except Exception as exc:
+        status = ("source_unavailable (external_network_disabled)"
+                  if isinstance(exc, ExternalNetworkDisabled)
+                  else f"source_error ({type(exc).__name__})")
+        statuses["npay"] = status
+        _record_schedule_attempt(market, source_name="npay", start=start, end=end,
+                                 attempted_at=attempted_at, outcome=status)
+        write_market_store(market)
+        timings["npay_discovery_ms"] = round((perf_counter() - began) * 1000, 3)
+        return {
+            "status": "preserved", "statuses": statuses, "timings": timings,
+            "window_start": start.isoformat(), "window_end": end.isoformat(),
+            "total_ipos": len(market.get("ipos", [])), "relevant": 0,
+            "review_required": 0, "failed": 1,
         }
-        for source, status_key in (("kind", "kind_discovery"), ("npay", "npay"),
-                                   ("naver", "naver_progress_discovery")):
-            try:
-                raw_items = reads[source].result()
-                items = [copy.deepcopy(item) for item in raw_items
-                         if _relevant_schedule(item, start, end)
-                         or (source == "naver" and _known_observation(item, market.get("ipos", [])))]
-                reviews = 0
-                observed_at = datetime.now(KST).isoformat()
-                for item in items:
-                    if source == "naver":
-                        item.setdefault("sources", {})["naver_progress"] = {
-                            "schedule_source": "stock.naver.com ipo progress",
-                            "raw_ipo_code": item.get("raw_ipo_code"),
-                            "progress_container": item.get("progress_container"),
-                            "expected_listing_date": item.get("expected_listing_date"),
-                            "market_type": item.get("market"),
-                            "observed_at": observed_at,
-                        }
-                    _attach_dart_identity(item, dart_by_name)
-                    _, review = _apply_observation(market, item, source_name=source)
-                    reviews += int(review)
-                statuses[status_key] = f"sync_ok (relevant={len(items)}, review_required={reviews})"
-            except ExternalNetworkDisabled:
-                statuses[status_key] = "source_unavailable (external_network_disabled)"
-            except Exception as exc:
-                statuses[status_key] = f"source_error ({type(exc).__name__})"
 
-    metalogos = metalogos_client
-    # Both providers see independent snapshots after initial reconciliation.
-    # No worker receives the shared mutable market or persists any result.
-    snapshot = copy.deepcopy(market)
-    candidates = [ipo for ipo in copy.deepcopy(snapshot["ipos"])
-                  if isinstance(ipo, dict) and _relevant_schedule(ipo, start, end)
-                  and str(ipo.get("company_name") or "").strip()]
-    dart_configured = dart.is_configured()
-    parallel_started = perf_counter()
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        metalogos_future = pool.submit(_provider_read, lambda: _fetch_metalogos_candidates(
-            metalogos, candidates, target_date_str=target_date_str) if metalogos is not None else [])
-        dart_future = pool.submit(_provider_read, lambda: _fetch_dart_schedules(
-            snapshot, dart=dart, target_date_str=target_date_str, start=start, end=end)
-            if dart_configured else None)
-        metalogos_result = metalogos_future.result()
-        dart_result = dart_future.result()
-    timings["primary_provider_parallel_wall_ms"] = round((perf_counter() - parallel_started) * 1000, 3)
-    timings["metalogos_discovery_ms"] = metalogos_result["elapsed_ms"]
-    timings["dart_schedule_ms"] = dart_result["elapsed_ms"]
-
-    # Completion order is irrelevant: preserve the existing Metalogos then DART
-    # reconciliation order and canonical field/provenance authority.
-    if metalogos_result["error"]:
-        statuses["metalogos160"] = metalogos_result["error"]
-    else:
-        metalogos_rows = metalogos_result["data"]
+    observed_at = datetime.now(KST).isoformat()
+    relevant_items = [
+        copy.deepcopy(item) for item in raw_items
+        if isinstance(item, dict) and (
+            _relevant_schedule(item, start, end)
+            or bool(_exact_name_candidates(item, market.get("ipos", [])))
+        )
+    ]
+    reviews = 0
+    failed = 0
+    for item in relevant_items:
+        source_meta = item.setdefault("sources", {}).setdefault("npay", {})
+        source_meta.setdefault("schedule_source", "npay_unlisted_public_ipo")
+        source_meta.setdefault("url", "https://ustock.naver.com/service/ipo?schedule=toBeIPOList")
+        source_meta.setdefault("observed_at", observed_at)
         try:
-            reviews = 0
-            for item in metalogos_rows:
-                # Preserve optional reference/score display without promoting its
-                # calendar or prices into the primary schedule.
-                reference = {key: item[key] for key in ("company_name", "stock_code", "corp_code", "sources") if key in item}
-                reference["sources"] = {"metalogos160": item.get("sources", {}).get("metalogos160", {})}
-                _, review = _apply_observation(market, reference, source_name="metalogos160")
-                reviews += int(review)
-            statuses["metalogos160"] = (f"sync_ok (matched={len(metalogos_rows)}, "
-                                        f"review_required={reviews})")
-            if metalogos is None:
-                statuses["metalogos160"] = "not_requested (optional_reference_only)"
-        except Exception as exc:
-            statuses["metalogos160"] = f"source_error ({type(exc).__name__})"
+            _, review = _apply_observation(market, item, source_name="npay")
+            reviews += int(review)
+        except Exception:
+            failed += 1
 
-    statuses["dart_identity_attached"] = "company_scoped"
-    if not dart_configured:
-        statuses["dart_schedule"] = "source_unavailable (api_key_missing)"
-        for ipo in market.get("ipos", []):
-            if _relevant_schedule(ipo, start, end):
-                ipo.setdefault("sources", {})["dart_schedule_verification"] = {
-                    "status": "unverified", "reason": "api_key_missing"}
-    elif dart_result["error"]:
-        statuses["dart_schedule"] = dart_result["error"]
-        for ipo in market.get("ipos", []):
-            if _relevant_schedule(ipo, start, end):
-                ipo.setdefault("sources", {})["dart_schedule_verification"] = {
-                    "status": "unverified", "reason": "dart_read_failed"}
-    else:
-        matched, failed, ignored = _apply_dart_schedules(
-            market, dart=dart, target_date_str=target_date_str, start=start, end=end,
-            prefetched=dart_result["data"])
-        statuses["dart_schedule"] = f"sync_ok (matched={matched}, failed={failed}, ignored={ignored})"
-
-    promoted_markets = _promote_verified_markets(
-        market,
-        start=start,
-        end=end,
-    )
-    statuses["market_confirmation"] = (
-        f"sync_ok (promoted={promoted_markets})"
-    )
-
-    from app.services.ipo.score import calculate_wealth_ipo_score
-    for ipo in market.get("ipos", []):
-        if isinstance(ipo, dict):
-            ipo["score"] = calculate_wealth_ipo_score(ipo, market["ipos"])
+    outcome = "read_ok" if failed == 0 else "partial_item_error"
+    _record_schedule_attempt(market, source_name="npay", start=start, end=end,
+                             attempted_at=attempted_at, outcome=outcome)
     write_market_store(market)
+    timings["npay_discovery_ms"] = round((perf_counter() - began) * 1000, 3)
+    statuses["npay"] = (
+        f"sync_ok (relevant={len(relevant_items)}, review_required={reviews}, failed={failed})"
+    )
     return {
-        "statuses": statuses,
-        "timings": timings,
-        "metalogos_rows": metalogos_rows,
-        "window_start": start.isoformat(),
-        "window_end": end.isoformat(),
-        "total_ipos": len(market.get("ipos", [])),
+        "status": "partial" if failed else "ok", "statuses": statuses, "timings": timings,
+        "window_start": start.isoformat(), "window_end": end.isoformat(),
+        "total_ipos": len(market.get("ipos", [])), "relevant": len(relevant_items),
+        "review_required": reviews, "failed": failed,
+        "npay_observed_at": observed_at,
     }

@@ -1576,12 +1576,11 @@
     <dialog id="ipoHistoricalImportDialog" class="dialog dialog--wide">
       <form id="ipoHistoricalImportForm" method="dialog">
         <div class="dialog-head"><h2>과거 공모주 가져오기</h2><button value="cancel" class="close" aria-label="닫기">×</button></div>
-        <p class="muted dialog-description">온라인 전체 조회는 KRX Data Marketplace [20001] 신규상장종목 현황의 2020년~현재 자료를 연도별로 조회합니다. 조회 자체는 데이터를 변경하지 않으며, 미리보기 확인 후 반영할 때만 KRX 공식값으로 과거 공모주의 상장시장·실제 상장일·확정 공모가·주관사를 정정/보완합니다.</p>
-        <div class="dialog-actions"><button type="button" id="ipoHistoricalOnlinePreviewBtn" class="button secondary">🌐 KRX 전체 과거자료 조회</button></div>
-        <p class="muted dialog-description">또는 KRX Data Marketplace [20001] / KIND에서 직접 다운로드한 공식 Excel/CSV 파일을 불러올 수 있습니다. KIND는 선택조건에서 <strong>공모가</strong>를 포함해 주세요.</p>
+        <p class="muted dialog-description">기존에 저장된 과거 공모주 기록은 그대로 조회할 수 있습니다. 공식 자료 파일을 직접 내려받아 안전한 신규·보완 항목을 미리 확인한 뒤 가져올 수 있습니다.</p>
+        <p class="muted dialog-description">KRX Data Marketplace [20001] 또는 KIND에서 공식 Excel/CSV 파일을 내려받아 불러오세요. KIND는 선택조건에서 <strong>공모가</strong>를 포함해 주세요.</p>
         <label>공식 파일 <input id="ipoHistoricalImportFile" type="file" accept=".xlsx,.xlsm,.xls,.csv" /></label>
         <div id="ipoHistoricalImportPreview" class="muted" aria-live="polite" aria-atomic="false"></div>
-        <p class="muted">온라인 KRX 조회는 미리보기에 표시된 공식값 변경만 반영합니다. 파일 가져오기는 기존처럼 신규 및 안전하게 보완 가능한 값만 반영하며 기존 비어 있지 않은 값은 덮어쓰지 않습니다.</p>
+        <p class="muted">파일 가져오기는 신규 및 안전하게 보완 가능한 값만 반영하며 기존 비어 있지 않은 값은 덮어쓰지 않습니다. 온라인 과거자료 재수집은 비활성화되어 있습니다.</p>
         <div class="dialog-actions"><button value="cancel" class="button secondary">취소</button><button type="button" id="ipoHistoricalPreviewBtn" class="button secondary">파일 미리보기</button><button type="button" id="ipoHistoricalCommitBtn" class="button primary" disabled>확인 후 반영</button></div>
       </form>
     </dialog>
@@ -3504,7 +3503,7 @@
     <script src="/static/wealth-family-financial-income-allocation.js?v=2.1.3-p0"></script>
     <script src="/static/wealth-settings.js?v=2.1.9-toss-session1"></script>
     <script src="/static/wealth-system-update.js?v=2.1.9-action-confirm1"></script>
-    <script src="/static/wealth-ipo.js?v=2.1.9-ui1"></script>
+    <script src="/static/wealth-ipo.js?v=2.1.9-p0n-integration1"></script>
     <script src="/static/wealth-calendar.js?v=2.1.8-ui1"></script>
     <script src="/static/wealth-planning-model.js?v=2.1.8-ui1"></script>
     <script src="/static/wealth-planning.js?v=2.1.8-ui1"></script>

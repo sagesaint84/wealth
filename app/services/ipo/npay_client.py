@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from html import unescape
 import re
 from typing import Any
@@ -13,6 +13,7 @@ from app.services.network_policy import require_external_network
 
 NPAY_IPO_URL = "https://ustock.naver.com/service/ipo?schedule=toBeIPOList"
 NPAY_OFFICIAL_HOSTS = frozenset({"ustock.naver.com", "www.ustock.naver.com"})
+KST = timezone(timedelta(hours=9))
 
 
 class NpayIpoClientError(RuntimeError):
@@ -66,7 +67,7 @@ def _parse_price(text: str) -> tuple[float | None, float | None, float | None]:
 
 
 def parse_npay_ipo_html(html_text: str, *, target_date_str: str) -> list[dict[str, Any]]:
-    """Parse the public Npay unlisted IPO upcoming list into discovery rows.
+    """Parse the visible upcoming and active Npay IPO rows into discovery rows.
 
     This parser intentionally consumes only facts visibly exposed by the public
     IPO schedule page. It does not infer subscription end dates, listing dates,
@@ -83,9 +84,15 @@ def parse_npay_ipo_html(html_text: str, *, target_date_str: str) -> list[dict[st
     if "다가오는 청약 종목" not in text:
         raise NpayIpoClientError("Npay IPO page contract marker is missing")
 
-    pattern = re.compile(
+    upcoming_pattern = re.compile(
         r"D-(?P<dminus>\d+)\s+"
         r"(?P<month>\d{1,2})\.(?P<day>\d{1,2})\s+예정\s+"
+        r"(?P<body>.*?)"
+        r"(?=(?:진행중\s+\d{1,2}\.\d{1,2}\s+마감)|(?:D-\d+\s+\d{1,2}\.\d{1,2}\s+예정)|(?:청약 전에도)|(?:지금 거래 많은)|$)",
+        flags=re.IGNORECASE,
+    )
+    active_pattern = re.compile(
+        r"진행중\s+(?P<month>\d{1,2})\.(?P<day>\d{1,2})\s+마감\s+"
         r"(?P<body>.*?)"
         r"(?=(?:D-\d+\s+\d{1,2}\.\d{1,2}\s+예정)|(?:청약 전에도)|(?:지금 거래 많은)|$)",
         flags=re.IGNORECASE,
@@ -93,21 +100,23 @@ def parse_npay_ipo_html(html_text: str, *, target_date_str: str) -> list[dict[st
 
     results: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
-    for match in pattern.finditer(text):
+    observed_at = datetime.now(KST).isoformat()
+
+    def append_row(match: re.Match[str], *, status: str) -> None:
         body = match.group("body").strip()
         if "공모가" not in body:
-            continue
+            return
         name_part, remainder = body.split("공모가", 1)
         company_name = _clean_company_name(name_part)
         if not company_name:
-            continue
+            return
 
         price_part, competition_part = (remainder.split("기관경쟁률", 1) + [""])[:2]
         schedule_date = _infer_schedule_date(int(match.group("month")), int(match.group("day")), target)
-        subscription_start = schedule_date.isoformat()
-        signature = (company_name, subscription_start)
+        schedule_field = "subscription_start" if status == "upcoming" else "subscription_end"
+        signature = (company_name, f"{status}:{schedule_date.isoformat()}")
         if signature in seen:
-            continue
+            return
         seen.add(signature)
 
         final_offer_price, offer_band_low, offer_band_high = _parse_price(price_part)
@@ -122,16 +131,19 @@ def parse_npay_ipo_html(html_text: str, *, target_date_str: str) -> list[dict[st
         source = {
             "schedule_source": "npay_unlisted_public_ipo",
             "url": NPAY_IPO_URL,
-            "observed_at": datetime.now().astimezone().isoformat(),
-            "d_minus": int(match.group("dminus")),
+            "observed_at": observed_at,
+            "subscription_status": status,
             "institutional_competition_ratio_reference": competition_ratio,
         }
         item: dict[str, Any] = {
             "company_name": company_name,
-            "subscription_start": subscription_start,
+            schedule_field: schedule_date.isoformat(),
+            "npay_subscription_status": status,
             "listing_track": _listing_track(company_name),
             "sources": {"npay": source},
         }
+        if status == "upcoming":
+            item["sources"]["npay"]["d_minus"] = int(match.group("dminus"))
         if final_offer_price is not None:
             item["final_offer_price"] = final_offer_price
         if offer_band_low is not None and offer_band_high is not None:
@@ -139,8 +151,15 @@ def parse_npay_ipo_html(html_text: str, *, target_date_str: str) -> list[dict[st
             item["offer_band_high"] = offer_band_high
         results.append(item)
 
-    if not results:
-        raise NpayIpoClientError("Npay IPO page contained no parsable upcoming rows")
+    for match in active_pattern.finditer(text):
+        append_row(match, status="active")
+    for match in upcoming_pattern.finditer(text):
+        append_row(match, status="upcoming")
+
+    # An intact page with both schedule section labels and no listings is a
+    # successful empty result. A changed or blocked page still fails closed.
+    if not results and not ("청약진행중" in text and "청약예정" in text):
+        raise NpayIpoClientError("Npay IPO page contained no parsable schedule sections")
     return results
 
 
@@ -159,10 +178,12 @@ class NpayIpoClient:
             "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.5",
         }
         try:
-            with httpx.Client(timeout=self.timeout_seconds, follow_redirects=True) as client:
+            with httpx.Client(timeout=self.timeout_seconds, follow_redirects=False) as client:
                 response = client.get(self.url, headers=headers)
         except Exception as exc:
             raise NpayIpoClientError(f"Npay IPO request failed: {exc}") from exc
+        if response.is_redirect:
+            raise NpayIpoClientError(f"Npay IPO redirect refused (HTTP {response.status_code})")
         if response.status_code != 200:
             raise NpayIpoClientError(f"Npay IPO HTTP error {response.status_code}")
         return parse_npay_ipo_html(response.text, target_date_str=target_date_str)
