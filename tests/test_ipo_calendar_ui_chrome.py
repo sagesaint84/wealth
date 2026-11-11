@@ -144,7 +144,7 @@ def test_ipo_calendar_dark_ui_and_actions(ui_chrome_preview, width, tmp_path):
     assert evaluate("parseFloat(getComputedStyle(document.querySelector('.ipo-source-meta')).fontSize)<=11.5"), width
     assert evaluate("[...document.querySelectorAll('.ipo-card-actions .button')].every(b=>{const s=getComputedStyle(b);return parseFloat(s.fontSize)<=12&&b.offsetHeight>=30&&b.offsetHeight<=36})"), width
     assert evaluate("[...document.querySelectorAll('.ipo-card')].every(c=>{const a=c.querySelector('.ipo-card-actions').getBoundingClientRect(),t=c.querySelector('.ipo-card-title-group').getBoundingClientRect();return a.left>=t.right-1||a.top>=t.bottom-1})"), width
-    assert evaluate("[...document.querySelectorAll('.ipo-source-meta')].every(n=>n.clientWidth>0&&getComputedStyle(n).textOverflow==='ellipsis')"), width
+    assert evaluate("[...document.querySelectorAll('.ipo-source-meta')].every(n=>n.clientWidth>0&&getComputedStyle(n).overflowWrap==='anywhere')"), width
     screenshot(call,tmp_path/'list.png')
     evaluate("document.querySelector('[data-ipo-id=long] .ipo-card-detail-toggle').click();true")
     assert evaluate("document.querySelector('[data-ipo-id=long] .ipo-card-body').getClientRects().length>0 && document.querySelector('[data-ipo-id=long] .ipo-member-chk').getClientRects().length>0")
