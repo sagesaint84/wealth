@@ -122,6 +122,20 @@
     button.setAttribute('aria-selected', String(active));
   });
   page('income').prepend(incomeTabs);
+  const revealIncomeTab = () => {
+    if (page('income').hidden) return;
+    const button = incomeTabs.querySelector('[aria-selected="true"]');
+    if (!button) return;
+    const tab = button.getBoundingClientRect(), strip = incomeTabs.getBoundingClientRect();
+    if (tab.left < strip.left || tab.right > strip.right) {
+      incomeTabs.scrollLeft += tab.left < strip.left
+        ? tab.left - strip.left : tab.right - strip.right;
+    }
+  };
+  incomeTabs.addEventListener('focusin', revealIncomeTab);
+  window.addEventListener('wealth:income-view', revealIncomeTab);
+  window.addEventListener('resize', revealIncomeTab);
+
   const accountsPanel = document.getElementById('accountsPanel');
   function enhanceAccountLists() {
     accountsPanel.querySelectorAll('.mini-delete-button').forEach(button => {
@@ -195,6 +209,7 @@
     activeView = key;
     if (key === 'income') {
       window.setIncomeTab?.(incomeTab, { updateHash: false });
+      revealIncomeTab();
     }
     window.dispatchEvent(new CustomEvent('wealth:view', { detail: requested === 'ledger' ? 'ledger' : key }));
   }

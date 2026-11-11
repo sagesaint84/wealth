@@ -105,13 +105,16 @@ class IpoPresentationStateTests(unittest.TestCase):
 
     def test_frontend_uses_backend_states_for_filtering(self):
         source = (Path(__file__).resolve().parents[1] / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")
-        self.assertIn("ipo.filter_group", source)
+        self.assertIn("const labels = { ACTIVE: '진행중', LISTED: '상장완료' };", source)
         self.assertIn("ipo.market_state", source)
         self.assertIn("ipo.user_state", source)
         self.assertIn("전체", source)
         self.assertIn("예정", source)
         self.assertIn("진행", source)
-        self.assertIn("과거", source)
+        self.assertIn("상장 상태 미확인", source)
+        self.assertIn("마지막 출처 관측", source)
+        self.assertIn("마지막 새로고침 시도", source)
+        self.assertIn("if (revision !== marketSnapshotRevision) return;", source)
 
     def test_presentation_read_does_not_create_missing_portfolio(self):
         with tempfile.TemporaryDirectory() as directory:

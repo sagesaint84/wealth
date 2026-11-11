@@ -88,11 +88,12 @@
     <link rel="stylesheet" href="/static/wealth-ledger-ocr.css?v=2.0.2-review1" />
     <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/static/wealth.css?v=2.1.8-ui1" />
+    <link rel="stylesheet" href="/static/fonts/pretendard/1.3.9/pretendardvariable.css?v=1.3.9" />
+    <link rel="stylesheet" href="/static/wealth.css?v=2.1.9-ipo-common-integration1" />
     <link rel="stylesheet" href="/static/wealth-savings-contributions.css?v=10.9p" />
     <link rel="stylesheet" href="/static/wealth-account-reorder.css?v=1.3.0" />
-    <link rel="stylesheet" href="/static/wealth-overrides.css?v=2.1.9-m1-m2-m3-card2" />
-    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.9-profit-label1" />
+    <link rel="stylesheet" href="/static/wealth-overrides.css?v=2.1.9-ipo-common-integration1" />
+    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.9-ipo-ui-fix1" />
     <link rel="stylesheet" href="/static/wealth-color-preferences.css?v=10.9r6" />
   <link rel="stylesheet" href="/static/wealth-color-picker.css?v=10.9r2" />
     <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css?v=2.1.0-b2" />
@@ -484,7 +485,7 @@
             <div class="family-tabs" id="holdingsFamilyTabs" style="margin-left:4px;"></div>
           </div>
           <div class="toolbar" style="margin-left:auto;">
-            <input id="searchInput" type="search" placeholder="종목명·코드·증권사 검색" />
+            <input id="searchInput" type="search" class="wealth-ui-input" data-ui="input" placeholder="종목명·코드·증권사 검색" />
             <button id="addButton" class="button secondary compact" type="button">➕ 종목추가</button>
             <button id="importButton" class="button secondary compact" type="button">📂 가져오기</button>
             <button id="clearAllHoldingsBtn" class="button secondary danger compact" type="button" title="보유종목 전체 일괄 삭제">🗑️ 일괄삭제</button>
@@ -1505,13 +1506,13 @@
                 </h3>
               </div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                <select id="ledgerFilterType" onchange="filterLedgerList()" class="ledger-filter-select">
+                <select id="ledgerFilterType" onchange="filterLedgerList()" class="ledger-filter-select wealth-ui-select" data-ui="select" data-select-variant="compact">
                   <option value="all">전체 내역</option>
                   <option value="expense">지출만</option>
                   <option value="income">수입만</option>
                   <option value="transfer">이체만</option>
                 </select>
-                <input id="ledgerSearchInput" oninput="filterLedgerList()" type="text" placeholder="내용/가맹점/메모 검색" class="ledger-search-input" />
+                <input id="ledgerSearchInput" oninput="filterLedgerList()" type="text" placeholder="내용/가맹점/메모 검색" class="ledger-search-input wealth-ui-input" data-ui="input" data-input-variant="compact" />
               </div>
             </div>
 
@@ -3488,22 +3489,23 @@
     <script src="/static/wealth-color-picker.js?v=10.9r5"></script>
     <script src="/static/wealth-color-preferences.js?v=10.9r6"></script>
     <script src="/static/wealth-settings-surface.js?v=2.1.9-toss-session1"></script>
-    <script src="/static/wealth-layout.js?v=2.1.3-home-tabs1"></script>
+    <script src="/static/wealth-layout.js?v=2.1.9-ipo-ui-fix1"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
-    <script src="/static/wealth.js?v=2.1.9-profit-label1"></script>
+    <script src="/static/wealth-format.js?v=2.1.9-ipo-common-integration1"></script>
+    <script src="/static/wealth.js?v=2.1.9-ipo-common-integration1"></script>
     <script src="/static/wealth-ledger-ocr.js?v=2.0.2-review2"></script>
     <script src="/static/wealth-national-pension.js?v=2.0.2"></script>
     <script src="/static/wealth-pension-import.js?v=2.0.2"></script>
     <script src="/static/wealth-savings-contributions.js?v=1.3.0"></script>
     <script src="/static/wealth-transaction-defaults.js?v=2.0.1"></script>
-    <script src="/static/wealth-dividend-source.js?v=2.1.0-b2"></script>
+    <script src="/static/wealth-dividend-source.js?v=2.1.9-ipo-common-integration1"></script>
     <script src="/static/wealth-money-input.js?v=2.1.9-ui1"></script>
     <script src="/static/wealth-financial-income-what-if.js?v=2.1.3-p0"></script>
     <script src="/static/wealth-family-financial-income-risk.js?v=2.1.3-p0"></script>
     <script src="/static/wealth-family-financial-income-allocation.js?v=2.1.3-p0"></script>
     <script src="/static/wealth-settings.js?v=2.1.9-toss-session1"></script>
     <script src="/static/wealth-system-update.js?v=2.1.9-action-confirm1"></script>
-    <script src="/static/wealth-ipo.js?v=2.1.9-p0n-integration1"></script>
+    <script src="/static/wealth-ipo.js?v=2.1.9-ipo-common-integration1"></script>
     <script src="/static/wealth-calendar.js?v=2.1.8-ui1"></script>
     <script src="/static/wealth-planning-model.js?v=2.1.8-ui1"></script>
     <script src="/static/wealth-planning.js?v=2.1.8-ui1"></script>
