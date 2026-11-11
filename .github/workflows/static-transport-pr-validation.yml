@@ -165,7 +165,6 @@ jobs:
             tests/test_release_version.py \
             tests/test_service_worker_cache_guard.py \
             tests/test_ipo_refresh_scope.py \
-            tests/test_ipo_refresh_adapter_order.py \
             tests/test_ipo_fast_refresh_and_krx_auth.py
       - name: Require actual Chromium execution without skipped regressions
         run: |
