@@ -108,11 +108,45 @@ def test_conflicting_identifiers_and_duplicate_identities_never_redirect_observa
     item = younggwang()
     item["stock_code"] = "999999"
     _, review = discovery._apply_observation(market, item, source_name="npay")
-    assert review and market == before
+    assert review
+    assert market["ipos"] == before["ipos"]
+    assert {key: value for key, value in market.items() if key != "schedule_reviews"} == {
+        key: value for key, value in before.items() if key != "schedule_reviews"
+    }
+    assert len(market["schedule_reviews"]) == 1
+    recorded = market["schedule_reviews"][0]
+    assert recorded["status"] == "review_required"
+    assert recorded["source"] == "npay"
+    assert recorded["reason"] == 'identity_or_schedule_ambiguous'
+    assert recorded["candidate_ipo_ids"] == ['kept-359410']
+    assert recorded["company_name"] == younggwang()["company_name"]
+    assert recorded["observed_schedule"] == {
+        "subscription_start": "2026-10-22", "subscription_end": "2026-10-23"
+    }
+    assert recorded["source_url"] == younggwang()["sources"]["npay"]["url"]
+    assert recorded["source_observed_at"] == younggwang()["sources"]["npay"]["observed_at"]
+    assert recorded["observed_at"]
     market["ipos"].append({**deepcopy(market["ipos"][0]), "ipo_id": "duplicate"})
     before = deepcopy(market)
     _, review = discovery._apply_observation(market, younggwang(), source_name="npay")
-    assert review and market == before
+    assert review
+    assert market["ipos"] == before["ipos"]
+    assert {key: value for key, value in market.items() if key != "schedule_reviews"} == {
+        key: value for key, value in before.items() if key != "schedule_reviews"
+    }
+    assert len(market["schedule_reviews"]) == 1
+    recorded = market["schedule_reviews"][0]
+    assert recorded["status"] == "review_required"
+    assert recorded["source"] == "npay"
+    assert recorded["reason"] == 'duplicate_stock_identifier'
+    assert recorded["candidate_ipo_ids"] == ['kept-359410', 'duplicate']
+    assert recorded["company_name"] == younggwang()["company_name"]
+    assert recorded["observed_schedule"] == {
+        "subscription_start": "2026-10-22", "subscription_end": "2026-10-23"
+    }
+    assert recorded["source_url"] == younggwang()["sources"]["npay"]["url"]
+    assert recorded["source_observed_at"] == younggwang()["sources"]["npay"]["observed_at"]
+    assert recorded["observed_at"]
 
 
 def test_failed_collection_preserves_observation_and_never_instantiates_metalogos():
