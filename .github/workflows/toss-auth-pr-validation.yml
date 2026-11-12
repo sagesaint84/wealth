@@ -108,7 +108,7 @@ jobs:
 
       - name: Require ledger safety and user-confirmed manual import regressions
         run: |
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
           python - <<'PY'
           import os
           import shlex
@@ -116,6 +116,9 @@ jobs:
           from playwright.sync_api import sync_playwright
           with sync_playwright() as playwright:
               executable = Path(playwright.chromium.executable_path).resolve(strict=True)
+              browser = playwright.chromium.launch(executable_path=str(executable), headless=True, args=['--no-sandbox'])
+              browser.close()
+              print('CHROMIUM_STARTUP_CHECK=PASS')
           if not executable.is_file() or not os.access(executable, os.X_OK):
               raise SystemExit('Installed CI Chromium executable is unavailable')
           # The existing harness checks chrome first. Only this temporary CI
