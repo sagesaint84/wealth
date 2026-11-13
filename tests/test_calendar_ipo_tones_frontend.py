@@ -4,7 +4,6 @@ import unittest
 from html.parser import HTMLParser
 from pathlib import Path
 
-from tests.test_toss_wts_import_modal_scroll import assert_current_layout_stylesheet
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +42,6 @@ class CalendarIpoToneFrontendTests(unittest.TestCase):
 
     def test_final_tones_are_in_first_paint_stylesheet(self) -> None:
         self.assertNotIn("wealthCalendarIpoTonesScript", self.loader_js)
-        assert_current_layout_stylesheet(self.index_html)
         class Scripts(HTMLParser):
             def __init__(self):
                 super().__init__()

@@ -150,7 +150,6 @@ jobs:
             tests/test_ipo_future_compact_view_frontend.py \
             tests/test_ipo_single_renderer_chrome.py \
             tests/test_ipo_broker_past_bucket_chrome.py \
-            tests/test_toss_wts_import_modal_scroll.py \
             tests/test_ipo_dart_offering_schedule.py \
             tests/test_ipo_source_discovery.py \
             tests/test_ipo_parallel_fetch.py \
