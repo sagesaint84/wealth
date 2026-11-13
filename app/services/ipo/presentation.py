@@ -11,7 +11,13 @@ from typing import Any
 from app.services import portfolio
 from app.services.broker_registry import normalize_broker, get_display_name
 from app.services.pnl_records import read_pnl_records_readonly
-from app.services.ipo.display import display_records, schedule_condition, annotate_visibility
+from app.services.ipo.display import (
+    display_records,
+    npay_schedule_field_confirmed,
+    npay_schedule_field_currently_confirmed,
+    schedule_condition,
+    annotate_visibility,
+)
 
 
 def _unknown_manager_name(value: str) -> str:
@@ -66,6 +72,37 @@ def _date(value: object) -> date | None:
 def derive_market_state(ipo: dict[str, Any], today: date | None = None) -> str:
     today = today or current_market_date()
     condition = schedule_condition(ipo)
+    sources = ipo.get("sources") if isinstance(ipo.get("sources"), dict) else {}
+    npay = sources.get("npay") if isinstance(sources.get("npay"), dict) else {}
+    reconciliation = sources.get("schedule_reconciliation")
+    observed_at = str(npay.get("observed_at") or "")
+    try:
+        observed_day = datetime.fromisoformat(observed_at).astimezone(
+            timezone(timedelta(hours=9))
+        ).date()
+    except ValueError:
+        observed_day = None
+    npay_active_confirmed = (
+        npay.get("subscription_status") == "active"
+        and observed_day == today
+        and npay_schedule_field_currently_confirmed(ipo, "subscription_end")
+        and not (isinstance(reconciliation, dict)
+                 and reconciliation.get("status") in {"partial", "review_required"})
+    )
+    npay_start_confirmed = (
+        npay_schedule_field_currently_confirmed(ipo, "subscription_start")
+        and not (isinstance(reconciliation, dict)
+                 and reconciliation.get("status") in {"partial", "review_required"})
+    )
+    npay_start = _date(ipo.get("subscription_start"))
+    if npay_start_confirmed and npay_start is not None and npay_start > today:
+        return "UPCOMING"
+    if npay_active_confirmed:
+        try:
+            if _date(ipo.get("subscription_end")) >= today:
+                return "SUBSCRIPTION_OPEN"
+        except TypeError:
+            pass
     if not ipo.get("actual_listing_date"):
         if condition == "postponed":
             return "POSTPONED"

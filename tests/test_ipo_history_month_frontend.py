@@ -21,6 +21,7 @@ class MockElement {{
     this.id = id;
     this.className = '';
     this.children = [];
+    this.childNodes = [];
     this.dataset = {{}};
     this.attributes = {{}};
     this.listeners = {{}};
@@ -36,13 +37,13 @@ class MockElement {{
   }}
 
   get textContent() {{
-    if (this.children.length === 0) return this._innerHTML;
-    return this.children.map(c => c.textContent).join('');
+    return this.childNodes.map(node => typeof node === 'string' ? node : node.textContent).join('');
   }}
 
   set innerHTML(html) {{
     this._innerHTML = html;
     this.children = [];
+    this.childNodes = [];
     const root = this;
     const stack = [root];
 
@@ -57,7 +58,8 @@ class MockElement {{
 
       if (text) {{
         const current = stack[stack.length - 1];
-        if (current && current !== root) {{
+        current.childNodes.push(text);
+        if (current !== root) {{
           current._innerHTML = (current._innerHTML || '') + text;
         }}
       }} else if (isClose) {{
@@ -87,6 +89,7 @@ class MockElement {{
 
         const current = stack[stack.length - 1];
         current.children.push(el);
+        current.childNodes.push(el);
 
         if (!isSelfClosing) {{
           stack.push(el);
@@ -104,6 +107,8 @@ class MockElement {{
     const ev = typeof event === 'string' ? {{ type: event }} : event;
     (this.listeners[ev.type] || []).forEach(fn => fn(ev));
   }}
+
+  focus() {{}}
 
   click() {{
     this.dispatchEvent({{ type: 'click' }});
@@ -191,16 +196,16 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
     def test_past_descending_and_upcoming_active_ascending_sort(self):
         script = """
         const testData = [
-          { ipo_id: 'ipo-1', company_name: '과거1', filter_group: 'PAST', presentation_sort_date: '2026-08-10' },
-          { ipo_id: 'ipo-2', company_name: '과거2', filter_group: 'PAST', presentation_sort_date: '2026-08-25' },
-          { ipo_id: 'ipo-3', company_name: '과거3', filter_group: 'PAST', presentation_sort_date: '2026-08-15' },
+          { ipo_id: 'ipo-1', company_name: '과거1', market_state: 'LISTED', actual_listing_date: '2026-08-10', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-10' },
+          { ipo_id: 'ipo-2', company_name: '과거2', market_state: 'LISTED', actual_listing_date: '2026-08-25', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-25' },
+          { ipo_id: 'ipo-3', company_name: '과거3', market_state: 'LISTED', actual_listing_date: '2026-08-15', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-15' },
           { ipo_id: 'up-1', company_name: '예정1', filter_group: 'UPCOMING', presentation_sort_date: '2026-10-20' },
           { ipo_id: 'up-2', company_name: '예정2', filter_group: 'UPCOMING', presentation_sort_date: '2026-10-05' },
         ];
         window.WealthIpoState.setMarketIpos(testData);
 
         // 1. PAST: should sort DESC (2026-08-25 first, then 08-15, then 08-10)
-        window.WealthIpoState.setFilterGroup('PAST');
+        window.WealthIpoState.setFilterGroup('LISTED');
         window.WealthIpoState.setHistoryYear(2026);
         window.WealthIpoState.setHistoryMonth(8);
         window.WealthIpoState.setHistoryInitialized(true);
@@ -210,7 +215,7 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
         const pastOrder = cards.map(c => c.dataset.ipoId);
 
         // 2. UPCOMING: should sort ASC (2026-10-05 first, then 10-20)
-        window.WealthIpoState.setFilterGroup('UPCOMING');
+        window.WealthIpoState.setFilterGroup('ACTIVE');
         window.WealthIpoState.setHistoryMonth(10);
         window.WealthIpoState.renderIpoList();
         const upCards = mockWrapper.querySelectorAll('.ipo-card');
@@ -222,19 +227,19 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
         self.assertEqual(output["pastOrder"], ["ipo-2", "ipo-3", "ipo-1"])
         self.assertEqual(output["upOrder"], ["up-2", "up-1"])
 
-    def test_past_shows_all_months_without_initializing_month_state(self):
+    def test_listed_shows_all_months_before_explicit_selection(self):
         script = """
         const testData = [
-          { ipo_id: 'ipo-july', company_name: '7월종목', filter_group: 'PAST', presentation_sort_date: '2026-07-20' },
-          { ipo_id: 'ipo-aug1', company_name: '8월종목1', filter_group: 'PAST', presentation_sort_date: '2026-08-01' },
-          { ipo_id: 'ipo-aug2', company_name: '8월종목2', filter_group: 'PAST', presentation_sort_date: '2026-08-28' },
+          { ipo_id: 'ipo-july', company_name: '7월종목', market_state: 'LISTED', actual_listing_date: '2026-07-20', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-07-20' },
+          { ipo_id: 'ipo-aug1', company_name: '8월종목1', market_state: 'LISTED', actual_listing_date: '2026-08-01', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-01' },
+          { ipo_id: 'ipo-aug2', company_name: '8월종목2', market_state: 'LISTED', actual_listing_date: '2026-08-28', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-28' },
         ];
         window.WealthIpoState.setHistoryInitialized(false);
         window.WealthIpoState.setHistoryYear(null);
         window.WealthIpoState.setHistoryMonth(null);
         window.WealthIpoState.setMarketIpos(testData);
 
-        window.WealthIpoState.setFilterGroup('PAST');
+        window.WealthIpoState.setFilterGroup('LISTED');
         window.WealthIpoState.renderIpoList();
 
         const year = window.WealthIpoState.getHistoryYear();
@@ -244,22 +249,22 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
         process.stdout.write(JSON.stringify({ year, month, cards }));
         """
         output = json.loads(_run_js_suite(script))
-        self.assertIsNone(output["year"])
-        self.assertIsNone(output["month"])
+        self.assertEqual(output["year"], 2026)
+        self.assertEqual(output["month"], 9)
         self.assertEqual(output["cards"], ["ipo-aug2", "ipo-aug1", "ipo-july"])
 
-    def test_all_uses_current_month_and_includes_every_status_ascending(self):
+    def test_active_shows_unlisted_rows_across_months(self):
         script = """
         const cur = window.WealthIpoDate.currentKstYearMonth();
         const testData = [
-          { ipo_id: 'past-sep', company_name: '과거', filter_group: 'PAST', presentation_sort_date: '2026-09-20' },
+          { ipo_id: 'past-sep', company_name: '과거', market_state: 'LISTED', actual_listing_date: '2026-09-20', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-09-20' },
           { ipo_id: 'active-sep', company_name: '진행', filter_group: 'ACTIVE', presentation_sort_date: '2026-09-10' },
           { ipo_id: 'upcoming-sep', company_name: '예정', filter_group: 'UPCOMING', presentation_sort_date: '2026-09-05' },
-          { ipo_id: 'other-month', company_name: '다른월', filter_group: 'PAST', presentation_sort_date: '2026-08-30' },
+          { ipo_id: 'other-month', company_name: '다른월', market_state: 'LISTED', actual_listing_date: '2026-08-30', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-30' },
           { ipo_id: 'invalid-date', company_name: '일정미정', filter_group: 'ACTIVE', presentation_sort_date: 'not-a-date' },
         ];
         window.WealthIpoState.setMarketIpos(testData);
-        window.WealthIpoState.setFilterGroup('ALL');
+        window.WealthIpoState.setFilterGroup('ACTIVE');
         window.WealthIpoState.renderIpoList();
         process.stdout.write(JSON.stringify({
           cur,
@@ -271,30 +276,30 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
         """
         output = json.loads(_run_js_suite(script))
         self.assertEqual(output["cur"], {"year": 2026, "month": 9, "key": "2026-09"})
-        self.assertEqual((output["year"], output["month"]), (2026, 9))
-        self.assertEqual(output["cards"][:3], ["upcoming-sep", "active-sep", "past-sep"])
+        self.assertEqual((output["year"], output["month"]), (None, None))
+        self.assertEqual(output["cards"][:3], ["upcoming-sep", "active-sep", "invalid-date"])
         self.assertNotIn("other-month", output["cards"])
         self.assertIn("invalid-date", output["cards"])
-        self.assertIn("전체 5", output["html"])
-        self.assertIn("예정 1", output["html"])
-        self.assertIn("진행 2", output["html"])
-        self.assertIn("과거 2", output["html"])
-        self.assertIn("9월 · 3건", output["html"])
+        self.assertIn('data-filter-group="ACTIVE">진행중 <span>3</span>', output["html"])
+        self.assertIn('data-filter-group="LISTED">상장완료 <span>2</span>', output["html"])
+        self.assertEqual(output["html"].count('data-filter-group='), 2)
+        self.assertNotIn('id="ipoMonthPicker"', output["html"])
+        self.assertNotIn("past-sep", output["cards"])
 
-    def test_past_does_not_change_all_month_and_navigation_returns(self):
+    def test_active_preserves_listed_month_and_navigation_returns(self):
         script = """
         const testData = [
-          { ipo_id: 'past-july', company_name: '7월', filter_group: 'PAST', presentation_sort_date: '2026-07-21' },
-          { ipo_id: 'past-aug', company_name: '8월', filter_group: 'PAST', presentation_sort_date: '2026-08-22' },
+          { ipo_id: 'past-july', company_name: '7월', market_state: 'LISTED', actual_listing_date: '2026-07-21', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-07-21' },
+          { ipo_id: 'past-aug', company_name: '8월', market_state: 'LISTED', actual_listing_date: '2026-08-22', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-22' },
           { ipo_id: 'active-sep', company_name: '9월', filter_group: 'ACTIVE', presentation_sort_date: '2026-09-10' },
         ];
         window.WealthIpoState.setMarketIpos(testData);
-        window.WealthIpoState.setFilterGroup('ALL');
+        window.WealthIpoState.setFilterGroup('LISTED');
         window.WealthIpoState.renderIpoList();
         const allFirst = [window.WealthIpoState.getHistoryYear(), window.WealthIpoState.getHistoryMonth()];
-        mockWrapper.querySelector('.ipo-filter[data-filter-group="PAST"]').click();
+        mockWrapper.querySelector('.ipo-filter[data-filter-group="ACTIVE"]').click();
         const pastFirst = [window.WealthIpoState.getHistoryYear(), window.WealthIpoState.getHistoryMonth()];
-        mockWrapper.querySelector('.ipo-filter[data-filter-group="ALL"]').click();
+        mockWrapper.querySelector('.ipo-filter[data-filter-group="LISTED"]').click();
         mockWrapper.querySelector('#ipoPrevMonthBtn').click();
         process.stdout.write(JSON.stringify({
           allFirst, pastFirst,
@@ -311,10 +316,10 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
     def test_empty_month_and_navigation_stepping(self):
         script = """
         const testData = [
-          { ipo_id: 'ipo-aug', company_name: '8월종목', filter_group: 'PAST', presentation_sort_date: '2026-08-15' },
+          { ipo_id: 'ipo-aug', company_name: '8월종목', market_state: 'LISTED', actual_listing_date: '2026-08-15', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-15' },
         ];
         window.WealthIpoState.setMarketIpos(testData);
-        window.WealthIpoState.setFilterGroup('ALL');
+        window.WealthIpoState.setFilterGroup('LISTED');
         window.WealthIpoState.setHistoryYear(2026);
         window.WealthIpoState.setHistoryMonth(7);
         window.WealthIpoState.setMonthExplicitlySelected(true);
@@ -323,7 +328,7 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
 
         const htmlJuly = mockWrapper.innerHTML;
         const cardsJuly = mockWrapper.querySelectorAll('.ipo-card').length;
-        const hasEmptyTextJuly = htmlJuly.includes('선택한 월(2026년 7월)에 해당하는 공모주 일정이 없습니다');
+        const hasEmptyTextJuly = htmlJuly.includes('선택한 월(2026년 7월)에 해당하는 과거 공모주 일정이 없습니다');
         const countBadgeJuly = htmlJuly.includes('7월 · 0건');
 
         const nextBtn = mockWrapper.querySelector('#ipoNextMonthBtn');
@@ -372,9 +377,9 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
     def test_today_button_resets_to_kst_current_month(self):
         script = """
         const curKst = window.WealthIpoDate.currentKstYearMonth();
-        const testData = [{ ipo_id: 'p-item', company_name: '과거아이템', filter_group: 'PAST', presentation_sort_date: '2026-08-10' }];
+        const testData = [{ ipo_id: 'p-item', company_name: '과거아이템', market_state: 'LISTED', actual_listing_date: '2026-08-10', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-10' }];
         window.WealthIpoState.setMarketIpos(testData);
-        window.WealthIpoState.setFilterGroup('ALL');
+        window.WealthIpoState.setFilterGroup('LISTED');
         window.WealthIpoState.setHistoryYear(2025);
         window.WealthIpoState.setHistoryMonth(3);
         window.WealthIpoState.setHistoryInitialized(true);
@@ -395,9 +400,9 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
     def test_tab_switch_preserves_selected_month_and_count_separation(self):
         script = """
         const testData = [
-          { ipo_id: 'p1', company_name: '과거1', filter_group: 'PAST', presentation_sort_date: '2026-08-10' },
-          { ipo_id: 'p2', company_name: '과거2', filter_group: 'PAST', presentation_sort_date: '2026-08-20' },
-          { ipo_id: 'p3', company_name: '과거3', filter_group: 'PAST', presentation_sort_date: '2026-07-05' },
+          { ipo_id: 'p1', company_name: '과거1', market_state: 'LISTED', actual_listing_date: '2026-08-10', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-10' },
+          { ipo_id: 'p2', company_name: '과거2', market_state: 'LISTED', actual_listing_date: '2026-08-20', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-20' },
+          { ipo_id: 'p3', company_name: '과거3', market_state: 'LISTED', actual_listing_date: '2026-07-05', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-07-05' },
           { ipo_id: 'a1', company_name: '진행1', filter_group: 'ACTIVE', presentation_sort_date: '2026-09-15' },
         ];
         window.WealthIpoState.setMarketIpos(testData);
@@ -405,10 +410,10 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
         window.WealthIpoState.setHistoryMonth(7);
         window.WealthIpoState.setHistoryInitialized(true);
 
-        window.WealthIpoState.setFilterGroup('PAST');
+        window.WealthIpoState.setFilterGroup('LISTED');
         window.WealthIpoState.renderIpoList();
 
-        const pastBtnText = mockWrapper.querySelector('.ipo-filter[data-filter-group="PAST"]').innerHTML;
+        const pastBtnText = mockWrapper.querySelector('.ipo-filter[data-filter-group="LISTED"]').textContent;
         const pastTabCards = mockWrapper.querySelectorAll('.ipo-card').map(c => c.dataset.ipoId);
 
         const activeFilterBtn = mockWrapper.querySelector('.ipo-filter[data-filter-group="ACTIVE"]');
@@ -416,7 +421,7 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
         const activeTabCards = mockWrapper.querySelectorAll('.ipo-card').map(c => c.dataset.ipoId);
         const hasMonthControlInActive = Boolean(mockWrapper.querySelector('#ipoPrevMonthBtn'));
 
-        const pastFilterBtn = mockWrapper.querySelector('.ipo-filter[data-filter-group="PAST"]');
+        const pastFilterBtn = mockWrapper.querySelector('.ipo-filter[data-filter-group="LISTED"]');
         pastFilterBtn.click();
 
         const yearAfterReturn = window.WealthIpoState.getHistoryYear();
@@ -434,10 +439,10 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
         }));
         """
         output = json.loads(_run_js_suite(script))
-        self.assertIn("과거 3", output["pastTotalCountInFilterBtn"])
+        self.assertIn("상장완료 3", output["pastTotalCountInFilterBtn"])
         self.assertEqual(output["pastTabCards"], ["p2", "p1", "p3"])
-        self.assertEqual(output["activeTabCards"], [])  # September cannot leak into selected July.
-        self.assertTrue(output["hasMonthControlInActive"])
+        self.assertEqual(output["activeTabCards"], ["a1"])
+        self.assertFalse(output["hasMonthControlInActive"])
         self.assertEqual(output["yearAfterReturn"], 2026)
         self.assertEqual(output["monthAfterReturn"], 7)
         self.assertEqual(output["pastCardsAfterReturn"], ["p2", "p1", "p3"])
@@ -445,12 +450,12 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
     def test_invalid_sort_date_fallback(self):
         script = """
         const testData = [
-          { ipo_id: 'p-valid', company_name: '유효과거', filter_group: 'PAST', presentation_sort_date: '2026-08-10' },
-          { ipo_id: 'p-nodate', company_name: '날짜없음과거', filter_group: 'PAST', presentation_sort_date: '' },
-          { ipo_id: 'p-bad', company_name: '날짜오류과거', filter_group: 'PAST', presentation_sort_date: 'invalid-date' },
+          { ipo_id: 'p-valid', company_name: '유효과거', market_state: 'SUBSCRIPTION_OPEN', presentation_sort_date: '2026-08-10' },
+          { ipo_id: 'p-nodate', company_name: '날짜없음과거', market_state: 'DATE_UNKNOWN', presentation_sort_date: '' },
+          { ipo_id: 'p-bad', company_name: '날짜오류과거', market_state: 'DATE_UNKNOWN', presentation_sort_date: 'invalid-date' },
         ];
         window.WealthIpoState.setMarketIpos(testData);
-        window.WealthIpoState.setFilterGroup('PAST');
+        window.WealthIpoState.setFilterGroup('ACTIVE');
         window.WealthIpoState.setHistoryYear(2026);
         window.WealthIpoState.setHistoryMonth(8);
         window.WealthIpoState.setHistoryInitialized(true);
@@ -458,7 +463,7 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
 
         const html = mockWrapper.innerHTML;
         const allCardIds = mockWrapper.querySelectorAll('.ipo-card').map(c => c.dataset.ipoId);
-        const hasFallbackHeading = html.includes('기타 / 일정 미확인 과거 공모주');
+        const hasFallbackHeading = html.includes('별도 확인 · 연기·철회·일정 또는 상장 상태 미확인');
 
         process.stdout.write(JSON.stringify({ allCardIds, hasFallbackHeading }));
         """
@@ -468,12 +473,12 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
         self.assertIn("p-bad", output["allCardIds"])
         self.assertTrue(output["hasFallbackHeading"])
 
-    def test_past_has_no_month_controls_or_month_empty_message(self):
+    def test_listed_has_month_controls_and_no_empty_message(self):
         script = """
         const curKst = window.WealthIpoDate.currentKstYearMonth();
-        const testData = [{ ipo_id: 'p-item', company_name: '과거아이템', filter_group: 'PAST', presentation_sort_date: '2026-08-10' }];
+        const testData = [{ ipo_id: 'p-item', company_name: '과거아이템', market_state: 'LISTED', actual_listing_date: '2026-08-10', sources: {official_historical_import: {source: 'krx'}}, presentation_sort_date: '2026-08-10' }];
         window.WealthIpoState.setMarketIpos(testData);
-        window.WealthIpoState.setFilterGroup('PAST');
+        window.WealthIpoState.setFilterGroup('LISTED');
         window.WealthIpoState.setHistoryYear(curKst.year);
         window.WealthIpoState.setHistoryMonth(curKst.month);
         window.WealthIpoState.setHistoryInitialized(true);
@@ -487,7 +492,7 @@ class IpoHistoryMonthFrontendTests(unittest.TestCase):
         }));
         """
         output = json.loads(_run_js_suite(script))
-        self.assertEqual(output["controls"], [False] * 5)
+        self.assertEqual(output["controls"], [True] * 5)
         self.assertEqual(output["cards"], ['p-item'])
         self.assertEqual(output["month"], 9)
         self.assertFalse(output["monthEmpty"])

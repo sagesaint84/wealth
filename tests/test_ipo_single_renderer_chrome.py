@@ -51,8 +51,13 @@ def test_initial_and_refresh_never_paint_legacy_cards(chrome_preview, width):
     wait_for(evaluate, "document.readyState==='complete' && !!window.WealthIpoState")
     evaluate('__releaseIpoApplications()')
     wait_for(evaluate, "!!document.querySelector('.ipo-card')")
+    populated_render_seen = False
     for frame in evaluate('__compactFrames'):
+        if not populated_render_seen and not frame['columns'] and not frame['cards']:
+            continue
         assert_compact(frame)
+        populated_render_seen = True
+    assert populated_render_seen, 'initial loading never produced a populated compact frame'
     assert evaluate('__ipoCalls') == [
         {'path':'/api/ipo/applications','method':'GET'},
         {'path':'/api/ipo/market','method':'GET'}]
@@ -111,8 +116,8 @@ def test_initial_and_refresh_never_paint_legacy_cards(chrome_preview, width):
     # Broker filtering, month navigation, and application rerenders retain IDs.
     evaluate("document.getElementById('ipoBrokerFilter').value='eugene';document.getElementById('ipoBrokerFilter').dispatchEvent(new Event('change',{bubbles:true}))")
     assert_compact(evaluate('__sampleCompact()'), expanded=['compact-0'])
-    click(call, evaluate, '#ipoNextMonthBtn')
-    click(call, evaluate, '#ipoPrevMonthBtn')
+    assert evaluate("WealthIpoState.getFilterGroup()") == 'ACTIVE'
+    assert evaluate("['ipoNextMonthBtn','ipoPrevMonthBtn','ipoMonthPicker'].every(id=>!document.getElementById(id))")
     assert_compact(evaluate('__sampleCompact()'), expanded=['compact-0'])
     evaluate(r"""(() => {
       __appWrites=[];

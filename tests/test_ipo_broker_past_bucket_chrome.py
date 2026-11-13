@@ -8,7 +8,7 @@ from tests.test_workflow_ux_chrome import chrome_preview, start, click, no_overf
 def test_normalized_brokers_all_period_past_and_month_restoration(chrome_preview, width):
     call, evaluate = start(chrome_preview, width, 'ipo')
     evaluate(r'''(()=>{
-      const row=(id,managers,date,status='PAST')=>({ipo_id:id,company_name:id,lead_managers:managers,filter_group:status,presentation_sort_date:date,subscription_start:date});
+      const row=(id,managers,date,status='PAST')=>({ipo_id:id,company_name:id,lead_managers:managers,filter_group:status,presentation_sort_date:date,subscription_start:date,...(status==='PAST'&&date?{actual_listing_date:date,sources:{official_historical_import:{source:'krx'}}}:{})});
       __rows=[
         row('samsung-new',['삼성증권'],'2026-09-20'),row('samsung-old',['삼성증권(주)'],'2026-03-12'),
         row('mira-new',['미래에셋증권'],'2026-09-21'),row('mira-old',['미래에셋증권 주식회사'],'2026-04-12'),
@@ -21,8 +21,8 @@ def test_normalized_brokers_all_period_past_and_month_restoration(chrome_preview
         row('nodate',['삼성증권(주)'],'')
       ];
       __raw=JSON.stringify(__rows);
-      WealthIpoState.setMarketIpos(__rows);WealthIpoState.setFilterGroup('ALL');
-      WealthIpoState.setHistoryYear(2026);WealthIpoState.setHistoryMonth(10);WealthIpoState.setMonthExplicitlySelected(true);WealthIpoState.renderIpoList();
+      WealthIpoState.setMarketIpos(__rows);WealthIpoState.setFilterGroup('ACTIVE');
+      WealthIpoState.setHistoryYear(2026);WealthIpoState.setHistoryMonth(10);WealthIpoState.setMonthExplicitlySelected(false);WealthIpoState.renderIpoList();
       __options=()=>[...document.querySelector('#ipoBrokerFilter').options].map(o=>o.textContent);
       __choose=name=>{const s=document.getElementById('ipoBrokerFilter');s.value=[...s.options].find(o=>o.textContent===name).value;s.dispatchEvent(new Event('change',{bubbles:true}))};
       __ids=()=>[...document.querySelectorAll('.ipo-card')].map(c=>c.dataset.ipoId);
@@ -36,12 +36,12 @@ def test_normalized_brokers_all_period_past_and_month_restoration(chrome_preview
     assert all('(주)' not in value and '주식회사' not in value and '서울지점' not in value for value in options)
     evaluate("__choose('삼성증권')")
     assert evaluate("document.getElementById('ipoBrokerFilter').value") == 'samsung'
-    click(call, evaluate, '[data-filter-group="PAST"]')
-    assert evaluate('__ids()') == ['samsung-new', 'multi', 'samsung-old', 'nodate']
-    assert evaluate("document.querySelector('.ipo-month-control')===null")
-    assert evaluate("['ipoPrevMonthBtn','ipoNextMonthBtn','ipoTodayMonthBtn','ipoMonthPicker'].every(id=>!document.getElementById(id))")
+    click(call, evaluate, '[data-filter-group="LISTED"]')
+    assert evaluate('__ids()') == ['samsung-new', 'multi', 'samsung-old']
+    assert evaluate("document.querySelector('.ipo-month-control')!==null")
+    assert evaluate("['ipoPrevMonthBtn','ipoNextMonthBtn','ipoTodayMonthBtn','ipoMonthPicker'].every(id=>document.getElementById(id))")
     assert evaluate("document.getElementById('ipoListWrapper').textContent.includes('선택한 월')") is False
-    assert evaluate("document.querySelector('[data-filter-group=PAST]').textContent") == '과거 4'
+    assert evaluate("document.querySelector('[data-filter-group=LISTED]').textContent") == '상장완료 3'
     assert evaluate('[WealthIpoState.getHistoryYear(),WealthIpoState.getHistoryMonth()]') == [2026, 10]
     evaluate("__choose('미래에셋증권')")
     assert evaluate("document.getElementById('ipoBrokerFilter').value") == 'mirae'
@@ -50,12 +50,12 @@ def test_normalized_brokers_all_period_past_and_month_restoration(chrome_preview
     assert evaluate("document.getElementById('ipoBrokerFilter').value") == 'eugene'
     assert evaluate('__ids()') == ['yu-full', 'yu-short']
     evaluate("__choose('삼성증권')")
-    for group, expected in [('ALL', ['active', 'future', 'nodate']), ('UPCOMING', ['future']), ('ACTIVE', ['active'])]:
-        click(call, evaluate, f'[data-filter-group="{group}"]')
-        assert evaluate("document.getElementById('ipoMonthPicker').value") == '2026-10'
-        assert evaluate('__ids()') == expected
-        assert evaluate("document.getElementById('ipoBrokerFilter').value") == 'samsung'
-        click(call, evaluate, '[data-filter-group="PAST"]')
+    click(call, evaluate, '[data-filter-group="ACTIVE"]')
+    assert evaluate('__ids()') == ['active', 'future', 'nodate']
+    assert evaluate("document.getElementById('ipoBrokerFilter').value") == 'samsung'
+    click(call, evaluate, '[data-filter-group="LISTED"]')
+    assert evaluate("document.getElementById('ipoMonthPicker').value") == '2026-10'
+    assert evaluate('__ids()') == ['samsung-new', 'multi', 'samsung-old']
     assert evaluate('__raw===JSON.stringify(WealthIpoState.getCanonicalMarketIpos())')
     no_overflow(evaluate, width)
     evaluate("__rows=[{...__rows[0],lead_managers:['(주)비엔케이투자증권']}]")

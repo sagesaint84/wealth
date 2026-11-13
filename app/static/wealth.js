@@ -24,27 +24,46 @@ let heatmapPeriod = localStorage.getItem("heatmap_period") || "1D";
 let heatmapTheme = localStorage.getItem("heatmap_theme") || "kr";
 let heatmapMaxCap = localStorage.getItem("heatmap_max_cap") || "auto";
 
-function getKstYearMonth(now = new Date()) {
+function getKstDateParts(now = new Date()) {
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Seoul',
       year: 'numeric',
       month: 'numeric',
+      day: 'numeric',
     }).formatToParts(now).reduce((acc, p) => {
       if (p.type !== 'literal') acc[p.type] = p.value;
       return acc;
     }, {});
     const year = parseInt(parts.year, 10);
     const month = parseInt(parts.month, 10);
-    const key = `${year}-${String(month).padStart(2, '0')}`;
-    return { year, month, key };
+    const day = parseInt(parts.day, 10);
+    return { year, month, day };
   } catch (e) {
     const d = new Date(new Date(now).getTime() + 9 * 60 * 60 * 1000);
-    const year = d.getUTCFullYear();
-    const month = d.getUTCMonth() + 1;
-    const key = `${year}-${String(month).padStart(2, '0')}`;
-    return { year, month, key };
+    return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
   }
+}
+
+function getKstYearMonth(now = new Date()) {
+  const { year, month } = getKstDateParts(now);
+  const key = `${year}-${String(month).padStart(2, '0')}`;
+  return { year, month, key };
+}
+
+function getKstDateRange(dayCount = 30, now = new Date()) {
+  const count = Number(dayCount);
+  if (!Number.isInteger(count) || count < 1) throw new RangeError('dayCount must be a positive integer');
+  const { year, month, day } = getKstDateParts(now);
+  const todayUtc = Date.UTC(year, month - 1, day);
+  const start = new Date(todayUtc - (count - 1) * 24 * 60 * 60 * 1000);
+  const format = date => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+  return { fromDate: format(start), toDate: format(new Date(todayUtc)) };
+}
+
+function applyTossWtsDefaultDateRange(fromInput, toInput, range = getKstDateRange(30)) {
+  if (fromInput && !fromInput.value) fromInput.value = range.fromDate;
+  if (toInput && !toInput.value) toInput.value = range.toDate;
 }
 
 function shiftYearMonth(year, month, delta) {
@@ -86,6 +105,7 @@ function parseYearMonth(str) {
 
 window.WealthDateHelper = {
   getKstYearMonth,
+  getKstDateRange,
   shiftYearMonth,
   parseYearMonth,
 };
@@ -14558,19 +14578,10 @@ async function commitTossWtsIncomeImport() {
   }
 }
 
-function initTossWtsIncomeUI() {
+function initTossWtsIncomeUI(defaultRange = getKstDateRange(30)) {
   const fromInput = document.getElementById('tossWtsIncomeFromDate');
   const toInput = document.getElementById('tossWtsIncomeToDate');
-  if (fromInput && !fromInput.value) {
-    fromInput.value = document.getElementById('tossWtsFromDate')?.value || `${new Date().getFullYear()}-01-01`;
-  }
-  if (toInput && !toInput.value) {
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    toInput.value = document.getElementById('tossWtsToDate')?.value || `${yyyy}-${mm}-${dd}`;
-  }
+  applyTossWtsDefaultDateRange(fromInput, toInput, defaultRange);
   document.getElementById('btnCheckTossWtsIncomeStatus')?.addEventListener('click', checkTossWtsStatus);
   document.getElementById('btnConfirmTossWtsIncomeSession')?.addEventListener('click', confirmTossWtsSession);
   document.getElementById('btnFetchTossWtsIncome')?.addEventListener('click', fetchTossWtsIncomeFeed);
@@ -14601,18 +14612,8 @@ function initTossWtsUI() {
   const fromInput = document.getElementById('tossWtsFromDate');
   const toInput = document.getElementById('tossWtsToDate');
   const basisSelect = document.getElementById('tossWtsBasisSelect');
-
-  if (fromInput && !fromInput.value) {
-    const year = new Date().getFullYear();
-    fromInput.value = `${year}-01-01`;
-  }
-  if (toInput && !toInput.value) {
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    toInput.value = `${yyyy}-${mm}-${dd}`;
-  }
+  const defaultRange = getKstDateRange(30);
+  applyTossWtsDefaultDateRange(fromInput, toInput, defaultRange);
 
   document.getElementById('btnCheckTossWtsStatus')?.addEventListener('click', checkTossWtsStatus);
   document.getElementById('btnConfirmTossWtsSession')?.addEventListener('click', confirmTossWtsSession);
@@ -14650,7 +14651,7 @@ function initTossWtsUI() {
   basisSelect?.addEventListener('change', checkTossWtsFormStale);
   fromInput?.addEventListener('input', checkTossWtsFormStale);
   toInput?.addEventListener('input', checkTossWtsFormStale);
-  initTossWtsIncomeUI();
+  initTossWtsIncomeUI(defaultRange);
 }
 
 // ── Broker Realized Feed Shared Helpers ─────────────────────────────────────
@@ -15328,7 +15329,7 @@ function renderKisFeedTable(rows, market, state) {
     const pnlCur = isUs ? (r.currency || 'USD') : '원';
     const pnlFmt = isUs
       ? `${pnlSign}${pnlVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${pnlCur}`
-      : `${pnlSign}${Math.round(pnlVal).toLocaleString('ko-KR')} 원`;
+      : `${pnlSign}${window.WealthFormat.roundGroupedKoKr(pnlVal)} 원`;
 
     const rateVal = Number(r.profit_rate || 0);
     const rateSign = rateVal > 0 ? '+' : '';
@@ -15336,8 +15337,8 @@ function renderKisFeedTable(rows, market, state) {
 
     const sellRaw = isUs ? (r.foreign_sell_amount ?? r.sell_amount) : r.sell_amount;
     const buyRaw = isUs ? (r.foreign_buy_amount ?? r.buy_amount) : r.buy_amount;
-    const sellFmt = sellRaw == null ? '—' : (isUs ? `$${Number(sellRaw).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${Math.round(Number(sellRaw)).toLocaleString('ko-KR')}원`);
-    const buyFmt = buyRaw == null ? '—' : (isUs ? `$${Number(buyRaw).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${Math.round(Number(buyRaw)).toLocaleString('ko-KR')}원`);
+    const sellFmt = sellRaw == null ? '—' : (isUs ? `$${Number(sellRaw).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${window.WealthFormat.roundGroupedKoKr(Number(sellRaw))}원`);
+    const buyFmt = buyRaw == null ? '—' : (isUs ? `$${Number(buyRaw).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${window.WealthFormat.roundGroupedKoKr(Number(buyRaw))}원`);
 
     let wonCol = '—';
     if (isUs) {
@@ -15357,8 +15358,8 @@ function renderKisFeedTable(rows, market, state) {
       const feeVal = Number(r.fee || 0);
       const taxVal = Number(r.tax || 0);
       const feeParts = [];
-      if (feeVal > 0) feeParts.push(`수수료 ${Math.round(feeVal).toLocaleString('ko-KR')}원`);
-      if (taxVal > 0) feeParts.push(`제세금 ${Math.round(taxVal).toLocaleString('ko-KR')}원`);
+      if (feeVal > 0) feeParts.push(`수수료 ${window.WealthFormat.roundGroupedKoKr(feeVal)}원`);
+      if (taxVal > 0) feeParts.push(`제세금 ${window.WealthFormat.roundGroupedKoKr(taxVal)}원`);
       wonCol = feeParts.length > 0 ? `<small class="muted">${feeParts.join('<br>')}</small>` : '—';
     }
 

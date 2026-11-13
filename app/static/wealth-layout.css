@@ -26,7 +26,7 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-bucket-badge { justify-self: end; font-size: 11px; line-height: 1.5; padding: 2px 6px; border-radius: 5px; color: var(--text); border: 1px solid color-mix(in srgb, var(--bucket-color) 55%, var(--line)); background: color-mix(in srgb, var(--bucket-color) 10%, var(--panel)); }
 .ipo-list-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 8px; min-width: 0; }
 .ipo-broker-filter { color: var(--muted); font-size: 12px; font-weight: 650; }
-#ipoBrokerFilter { flex: 0 1 240px; min-width: 0; max-width: 100%; min-height: 38px; padding: 8px 10px; font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; }
+#ipoBrokerFilter { flex: 0 1 240px; --ui-control-font-size: 13px; }
 .ipo-sort-notice { margin: 0 0 12px; color: var(--muted); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 .toss-wts-controls .toss-wts-account-control { min-width: 0; flex: 1 1 180px; max-width: 260px; }
 .toss-wts-controls .toss-wts-account-control select { width: 100%; min-width: 0; }
@@ -227,7 +227,7 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
   .wealth-layout .user-pill { display: none !important; }
   .wealth-workspace { display: block; }
   .wealth-nav { position: fixed; z-index: 80; top: auto; bottom: 0; left: 0; right: 0; height: auto; display: grid; grid-template-columns: repeat(5,1fr); gap: 0; border-top: 1px solid var(--line); background: var(--panel); padding: 8px 6px calc(8px + env(safe-area-inset-bottom)); }
-  .wealth-nav > a { flex-direction: column; gap: 5px; padding: 8px 0; font-size: 10px; border-radius: 10px; }
+  .wealth-nav a { min-width: 0; white-space: nowrap; flex-direction: column; gap: 5px; padding: 8px 0; font-size: 10px; border-radius: 10px; }
   .wealth-nav-label { display: none; }
   .wealth-nav-bottom { display: contents; }
   .wealth-nav-bottom small { display: none; }
@@ -292,8 +292,69 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 }
 .wealth-layout .button:not(:disabled):active { transform: none; box-shadow: inset 0 2px 4px #0003; }
 .wealth-layout .button:disabled { opacity: .42; cursor: not-allowed; filter: none; transform: none; box-shadow: none; }
-.wealth-layout :is(.button,input,select,textarea):focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 3px; }
+.wealth-layout :is(.button,input:not(.wealth-ui-input[data-ui="input"]),textarea,select:not(.wealth-ui-select[data-ui="select"])):focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 3px; }
 .wealth-layout .button[hidden], .wealth-history-dialog [hidden] { display: none !important; }
+/* Shared native Select/Input frame; features retain values, filtering, and layout. */
+.wealth-layout {
+  --ui-control-height: 38px;
+  --ui-control-padding-block: 8px;
+  --ui-control-padding-inline: 10px;
+  --ui-control-font-size: .875rem;
+  --ui-control-font-weight: 600;
+  --ui-control-line-height: 1.4;
+  --ui-control-disabled-opacity: .42;
+  --ui-focus-width: 2px;
+  --ui-focus-offset: 3px;
+}
+.wealth-layout select.wealth-ui-select[data-ui="select"] {
+  box-sizing: border-box;
+  min-width: 0; max-width: 100%; min-height: var(--ui-control-height);
+  padding: var(--ui-control-padding-block) var(--ui-control-padding-inline);
+  font: inherit; font-size: var(--ui-control-font-size); font-weight: var(--ui-control-font-weight);
+  line-height: var(--ui-control-line-height);
+  color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--border-subtle); border-radius: var(--control-radius);
+  cursor: pointer;
+}
+.wealth-layout input.wealth-ui-input[data-ui="input"] {
+  --ui-control-font-size: 12px;
+  box-sizing: border-box;
+  min-width: 0; max-width: 100%; min-height: var(--ui-control-height);
+  padding: var(--ui-control-padding-block) var(--ui-control-padding-inline);
+  font: inherit; font-size: var(--ui-control-font-size); font-weight: var(--ui-control-font-weight);
+  line-height: var(--ui-control-line-height);
+  color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--border-subtle); border-radius: var(--control-radius);
+}
+.wealth-layout select.wealth-ui-select[data-ui="select"][data-select-variant="compact"] {
+  --ui-control-height: 32px; --ui-control-padding-block: 7px; --ui-control-font-size: 12px;
+}
+.wealth-layout input.wealth-ui-input[data-ui="input"][data-input-variant="compact"] {
+  --ui-control-height: 32px; --ui-control-padding-block: 5px; --ui-control-padding-inline: 9px;
+}
+.wealth-layout input.wealth-ui-input[data-ui="input"]::placeholder { color: var(--muted); opacity: 1; }
+@media (hover: hover) {
+  .wealth-layout select.wealth-ui-select[data-ui="select"]:not(:disabled):hover {
+    border-color: var(--workspace-accent);
+  }
+  .wealth-layout input.wealth-ui-input[data-ui="input"]:not(:disabled):not([readonly]):hover {
+    border-color: var(--workspace-accent);
+  }
+}
+.wealth-layout select.wealth-ui-select[data-ui="select"]:focus-visible {
+  outline: var(--ui-focus-width) solid var(--workspace-accent); outline-offset: var(--ui-focus-offset);
+  border-color: var(--workspace-accent);
+}
+.wealth-layout select.wealth-ui-select[data-ui="select"]:disabled {
+  opacity: var(--ui-control-disabled-opacity); cursor: not-allowed;
+}
+.wealth-layout input.wealth-ui-input[data-ui="input"]:focus-visible {
+  outline: var(--ui-focus-width) solid var(--workspace-accent); outline-offset: var(--ui-focus-offset);
+  border-color: var(--workspace-accent);
+}
+.wealth-layout input.wealth-ui-input[data-ui="input"]:disabled {
+  opacity: var(--ui-control-disabled-opacity); cursor: not-allowed;
+}
 /* M1 Button owner: opt-in only; legacy buttons retain their existing cascade.
    compact is intentionally absent on migrated buttons, so no precedence bridge is needed.
    busy() still owns disabled/text updates; aria-busy is styled if a controller supplies it. */
@@ -1369,13 +1430,13 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 .ipo-card-identity { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .ipo-source-meta {
   display: block; max-width: 100%; margin-top: 4px;
-  color: var(--muted); font-size: 10.5px; font-weight: 400; line-height: 1.45;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .ipo-company-name {
   margin: 0;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 700;
   line-height: 1.4;
   overflow-wrap: anywhere;
   min-width: 0;
@@ -1404,7 +1465,7 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 }
 .ipo-card-actions { display: flex; gap: 6px; align-items: center; grid-column: 3; grid-row: 1; }
 #ipoListWrapper .ipo-card-actions .button {
-  min-height: 32px; min-width: 0; padding: 5px 9px; font-size: 11px; line-height: 1.3;
+  min-height: 32px; min-width: 0; padding: 5px 9px; font-size: .8125rem; line-height: 1.4; white-space: normal; overflow-wrap: anywhere;
 }
 .ipo-schedule-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 6px 0 10px; }
 #ipoListWrapper .ipo-schedule-notice {
@@ -1425,17 +1486,17 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 .ipo-schedule-change-note { grid-column: 1 / -1; color: var(--muted); font-size: 11px; line-height: 1.5; }
 #ipoListWrapper .ipo-month-control { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 5px 8px; min-width: 0; }
 #ipoListWrapper #ipoPrevMonthBtn { grid-column: 1; grid-row: 1; }
-#ipoListWrapper #ipoCurrentMonthText { grid-column: 2; grid-row: 1; min-width: 0; white-space: nowrap; font-size: 13px; }
+#ipoListWrapper #ipoCurrentMonthText { grid-column: 2; grid-row: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; font-size: .875rem; }
 #ipoListWrapper #ipoNextMonthBtn { grid-column: 3; grid-row: 1; }
 #ipoListWrapper #ipoTodayMonthBtn { grid-column: 4; grid-row: 1; }
-#ipoListWrapper .ipo-month-control .button { min-height: 32px; padding: 4px 8px; }
-#ipoListWrapper .ipo-month-count { grid-column: 1 / -1; grid-row: 2; text-align: center; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+#ipoListWrapper .ipo-month-control .button { min-height: 32px; padding: 4px 8px; font-size: .8125rem; }
+#ipoListWrapper .ipo-month-count { grid-column: 1 / -1; grid-row: 2; text-align: center; font-size: .8125rem; color: var(--muted); overflow-wrap: anywhere; }
 .ipo-toolbar {
   margin-left: auto;
   flex-wrap: wrap;
 }
 .ipo-subscription-status, .ipo-market-badge, .ipo-code-badge, .ipo-user-status {
-  font-size: 10.5px; font-weight: 500; line-height: 1.4; padding: 2px 6px;
+  font-size: 11px; font-weight: 600; line-height: 1.4; padding: 2px 6px;
   border: 1px solid transparent; border-radius: 5px; white-space: normal; overflow-wrap: anywhere;
 }
 .ipo-subscription-status { color: var(--muted); background: var(--panel); }
@@ -1469,7 +1530,7 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
   overflow: hidden;
 }
 #ipoListWrapper .ipo-card-detail-toggle {
-  white-space: nowrap;
+  white-space: normal;
   min-width: 0;
 }
 #ipoListWrapper .ipo-card.ipo-card-expanded .ipo-card-detail-toggle {
@@ -1582,7 +1643,7 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 }
 .ipo-info-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 .ipo-info-item {
@@ -1605,6 +1666,25 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 .info-value.highlight-sub {
   color: #38bdf8;
 }
+#ipoListWrapper .ipo-info-item :is(.info-label, .info-value) {
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+#ipoListWrapper .ipo-info-item .info-label { font-size: 11px; }
+#ipoListWrapper .ipo-info-item .info-value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+[data-theme="white"] #ipoListWrapper .ipo-subscription-status {
+  color: var(--text);
+}
+[data-theme="white"] #ipoListWrapper .ipo-subscription-status:is([data-state="UPCOMING"], [data-state="LISTING_UPCOMING"]),
+[data-theme="white"] #ipoListWrapper .info-value.highlight-sub { color: #1e40af; }
+[data-theme="white"] #ipoListWrapper .ipo-subscription-status[data-state="LISTED"] { color: #166534; }
+[data-theme="white"] #ipoListWrapper .ipo-subscription-status:is([data-state="SUBSCRIPTION_OPEN"], [data-state="POSTPONED"], [data-state="WITHDRAWN"], [data-state="DATE_UNKNOWN"]) { color: #78350f; }
+[data-theme="white"] #ipoListWrapper .ipo-user-status { color: var(--text); }
+[data-theme="white"] #ipoListWrapper .ipo-user-status:is([data-state="ALLOCATED_UNSOLD"], [data-state="PARTIALLY_SOLD"]) { color: #5b3c87; }
+[data-theme="white"] #ipoListWrapper .ipo-market-badge.ipo-market-unknown { color: #475569; }
 .ipo-card-footer {
   padding: 12px 16px;
   border-top: 1px solid var(--line, #334155);
@@ -2206,3 +2286,11 @@ body.wealth-layout {
 #savingsSummaryCards .bank-summary-sub { color:var(--muted); font-size:12px; margin-top:6px; }
 @media(max-width:980px) { #accountsPanel #savingsSummaryCards { grid-template-columns:repeat(2,minmax(0,1fr)) !important; } }
 @media(max-width:620px) { #accountsPanel #savingsSummaryCards { grid-template-columns:minmax(0,1fr) !important; } #ipoSharedDetailDialog .ipo-applicant-accounts { grid-template-columns:minmax(0,1fr); } #ipoSharedDetailDialog.dialog { padding:14px !important; } }
+
+/* M7 Badge structure: exact existing values; semantic colors stay feature-owned. */
+:is(.saving-type-badge, .insurance-type-badge, .sector-badge, .ledger-cat-badge) {
+  padding: 2px 7px; border-radius: 4px;
+}
+:is(.saving-type-badge, .insurance-type-badge, .sector-badge) { font-size: 11px; }
+:is(.saving-type-badge, .insurance-type-badge) { font-weight: 700; }
+:is(.sector-badge, .ledger-cat-badge) { display: inline-block; font-weight: 600; }

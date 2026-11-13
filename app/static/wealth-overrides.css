@@ -1112,11 +1112,6 @@
 
 /* 2. 섹터 뱃지 */
 .sector-badge {
-  display: inline-block;
-  padding: 2px 7px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
   background: rgba(142, 112, 250, 0.14);
   color: #c4b5fd;
   border: 1px solid rgba(142, 112, 250, 0.28);
@@ -2346,9 +2341,9 @@ dialog.dialog .dialog-actions {
 /* 버튼, 탭, 입력창 컨트롤 */
 [data-theme="white"] .button.secondary,
 [data-theme="white"] .heatmap-select,
-[data-theme="white"] .toolbar input,
-[data-theme="white"] select,
-[data-theme="white"] input,
+[data-theme="white"] .toolbar input:not(.wealth-ui-input[data-ui="input"]),
+[data-theme="white"] select:not(.wealth-ui-select[data-ui="select"]),
+[data-theme="white"] input:not(.wealth-ui-input[data-ui="input"]),
 [data-theme="white"] textarea {
   background: #f1f5f9 !important;
   border-color: #cbd5e1 !important;
@@ -2773,10 +2768,6 @@ dialog.dialog .dialog-actions {
 }
 
 .saving-type-badge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 4px;
   background: rgba(56, 189, 248, 0.15);
   color: #38bdf8;
   border: 1px solid rgba(56, 189, 248, 0.3);
@@ -3079,12 +3070,6 @@ dialog.dialog .dialog-actions {
 }
 
 /* 보험 배지 스타일 */
-.insurance-type-badge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 4px;
-}
 
 .insurance-type-badge.protection {
   background: rgba(59, 130, 246, 0.15);
@@ -3577,11 +3562,7 @@ dialog.dialog .dialog-actions {
   white-space: nowrap;
 }
 .ledger-cat-badge {
-  display: inline-block;
-  padding: 2px 7px;
-  border-radius: 4px;
   font-size: 11.5px;
-  font-weight: 600;
   background: rgba(148, 163, 184, 0.12);
   color: #cbd5e1;
   border: 1px solid rgba(148, 163, 184, 0.25);
@@ -3625,18 +3606,8 @@ dialog.dialog .dialog-actions {
   background: #1e293b;
   color: #94a3b8;
 }
-.ledger-filter-select,
-.ledger-search-input {
-  font-size: 12px;
-  padding: 5px 9px;
-  background: #090e1c;
-  border: 1px solid #23314f;
-  border-radius: 8px;
-  color: #cbd5e1;
-}
 .ledger-search-input {
   width: 170px;
-  color: #fff;
 }
 
 .ledger-badge {
@@ -4092,13 +4063,6 @@ dialog.dialog .dialog-actions {
   background: #e2e8f0 !important;
   color: #334155 !important;
 }
-[data-theme="white"] .ledger-filter-select,
-[data-theme="white"] .ledger-search-input {
-  background: #f1f5f9 !important;
-  border-color: #cbd5e1 !important;
-  color: #0f172a !important;
-}
-
 /* 6. 다이얼로그 내부 요소 */
 [data-theme="white"] .ledger-dialog-subbox {
   background: #f8fafc !important;
@@ -4361,8 +4325,6 @@ dialog.dialog .dialog-actions {
   color: #cbd5e1 !important;
   border-color: #222233 !important;
 }
-[data-theme="oled"] .ledger-filter-select,
-[data-theme="oled"] .ledger-search-input,
 [data-theme="oled"] .ledger-dialog-textarea,
 [data-theme="oled"] .ledger-dialog-select {
   background: #0d0d12 !important;

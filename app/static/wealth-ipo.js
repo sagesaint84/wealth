@@ -101,6 +101,17 @@
     return '마감';
   };
 
+  const hasConfirmedListing = ipo => {
+    const date = ipo?.actual_listing_date;
+    const sources = ipo?.sources || {};
+    return /^\d{4}-\d{2}-\d{2}$/.test(date || '') &&
+      Number.isFinite(Date.parse(date)) &&
+      date <= new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10) &&
+      Boolean(sources.official_historical_import || sources.official_historical_online ||
+        (sources.krx?.listing_confirmation_source === 'finder_stkisu' &&
+         sources.naver?.actual_listing_date === date));
+  };
+
   const ipoMonthKey = (ipo) => {
     const raw = typeof ipo?.presentation_sort_date === 'string' ? ipo.presentation_sort_date.trim() : '';
     const parts = dateParts(raw);
@@ -133,10 +144,10 @@
   };
 
   const getLatestPastMonth = (ipos) => {
-    const pastIpos = (ipos || []).filter(item => item && item.filter_group === 'PAST');
+    const pastIpos = (ipos || []).filter(item => item && hasConfirmedListing(item));
     const monthKeys = [];
     pastIpos.forEach(item => {
-      const key = ipoMonthKey(item);
+      const key = item.actual_listing_date.slice(0, 7);
       if (key) monthKeys.push(key);
     });
     if (monthKeys.length === 0) return null;
@@ -171,7 +182,7 @@
       window.dispatchEvent(new CustomEvent('wealth:ipo-market-changed'));
     }
   }
-  let ipoFilterGroup = 'ALL';
+  let ipoFilterGroup = 'ACTIVE';
   let ipoBrokerFilter = '';
   let refreshInFlight = false;
   let historicalImportInFlight = false;
@@ -182,7 +193,6 @@
   let ipoMonthExplicitlySelected = false;
   let historicalImportTicket = null;
   let historicalImportCanCommit = false;
-  let historicalImportMode = null;
 
   function formatMoney(num) {
     if (num === null || num === undefined || isNaN(num)) return '—';
@@ -343,22 +353,11 @@
     historicalImportInFlight = busy;
     const openButton = document.getElementById('ipoHistoricalImportBtn');
     const previewButton = document.getElementById('ipoHistoricalPreviewBtn');
-    const onlineButton = document.getElementById('ipoHistoricalOnlinePreviewBtn');
     const commitButton = document.getElementById('ipoHistoricalCommitBtn');
     const fileInput = document.getElementById('ipoHistoricalImportFile');
 
     if (openButton) openButton.disabled = busy || refreshInFlight;
     if (fileInput) fileInput.disabled = busy;
-    if (onlineButton) {
-      onlineButton.disabled = busy;
-      if (busy && phase === 'online-preview') {
-        onlineButton.setAttribute('aria-busy', 'true');
-        onlineButton.textContent = 'KRX 전체 조회 중…';
-      } else {
-        onlineButton.removeAttribute('aria-busy');
-        onlineButton.textContent = '🌐 KRX 전체 과거자료 조회';
-      }
-    }
 
     if (previewButton) {
       previewButton.disabled = busy;
@@ -464,7 +463,6 @@
     const input = document.getElementById('ipoHistoricalImportFile');
     historicalImportTicket = null;
     historicalImportCanCommit = false;
-    historicalImportMode = null;
     if (preview) preview.replaceChildren();
     if (input) input.value = '';
     if (commit) commit.disabled = true;
@@ -500,7 +498,6 @@
       }
 
       historicalImportTicket = payload.preview_ticket || null;
-      historicalImportMode = 'file';
       const s = payload.summary || {};
       historicalImportCanCommit = Boolean(
         historicalImportTicket && ((s.new || 0) + (s.enrichable || 0) > 0)
@@ -515,51 +512,16 @@
     }
   }
 
-  async function previewHistoricalOnline() {
-    if (historicalImportInFlight || refreshInFlight) return;
-    const commit = document.getElementById('ipoHistoricalCommitBtn');
-    historicalImportTicket = null;
-    historicalImportCanCommit = false;
-    historicalImportMode = null;
-    if (commit) commit.disabled = true;
-    setHistoricalImportBusy(true, 'online-preview');
-    try {
-      const response = await fetch('/api/ipo/historical-sync/preview', { method: 'POST' });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload?.detail?.message || 'KRX 전체 과거자료 조회에 실패했습니다.');
-      }
-      historicalImportTicket = payload.preview_ticket || null;
-      historicalImportMode = 'online';
-      const s = payload.summary || {};
-      historicalImportCanCommit = Boolean(
-        historicalImportTicket && ((s.new || 0) + (s.updated || 0) > 0)
-      );
-      renderHistoricalImportPreview(payload);
-    } catch (err) {
-      historicalImportTicket = null;
-      historicalImportCanCommit = false;
-      historicalImportMode = null;
-      setHistoricalPreviewMessage(err?.message || 'KRX 전체 과거자료 조회에 실패했습니다.');
-    } finally {
-      setHistoricalImportBusy(false);
-    }
-  }
-
   async function commitHistoricalImport() {
     if (!historicalImportTicket || !historicalImportCanCommit || historicalImportInFlight || refreshInFlight) return;
-    const online = historicalImportMode === 'online';
     const confirmed = window.confirm(
-      online
-        ? 'KRX 전체 조회 미리보기에 표시된 공식값으로 과거 공모주의 상장시장·실제 상장일·확정 공모가·주관사를 정정/보완합니다. 반영할까요?'
-        : '미리보기에서 확인된 신규 및 안전하게 보완 가능한 과거 공모주만 반영합니다. 기존 값은 덮어쓰지 않습니다. 반영할까요?'
+      '미리보기에서 확인된 신규 및 안전하게 보완 가능한 과거 공모주만 반영합니다. 기존 값은 덮어쓰지 않습니다. 반영할까요?'
     );
     if (!confirmed) return;
 
     setHistoricalImportBusy(true, 'commit');
     try {
-      const endpoint = online ? '/api/ipo/historical-sync/commit' : '/api/ipo/historical-import/commit';
-      const response = await fetch(endpoint, {
+      const response = await fetch('/api/ipo/historical-import/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preview_ticket: historicalImportTicket }),
@@ -572,8 +534,7 @@
       if (Array.isArray(payload.market?.ipos)) setMarketIpos(payload.market.ipos);
       historicalImportTicket = null;
       historicalImportCanCommit = false;
-      historicalImportMode = null;
-      ipoFilterGroup = 'PAST';
+      ipoFilterGroup = 'LISTED';
       ipoMonthExplicitlySelected = false;
       ipoHistoryInitialized = false;
       document.getElementById('ipoHistoricalImportDialog')?.close();
@@ -581,7 +542,6 @@
     } catch (err) {
       historicalImportTicket = null;
       historicalImportCanCommit = false;
-      historicalImportMode = null;
       setHistoricalPreviewMessage(
         `${err?.message || '반영에 실패했습니다.'} 다시 미리보기를 실행해 주세요.`
       );
@@ -612,33 +572,23 @@
     const wrapper = document.getElementById('ipoListWrapper');
     if (!wrapper) return;
 
-    if (marketIpos.length === 0) {
-      wrapper.innerHTML = '<p class="empty-text" style="padding:32px;text-align:center;">등록된 공모주 일정이 없습니다.</p>';
-      return;
-    }
-
     const managers = [...new Map(canonicalMarketIpos.flatMap(brokerFilters)
       .map(item => [item.key, item.display_name])).entries()]
       .sort(([, left], [, right]) => left.localeCompare(right, 'ko'));
     if (ipoBrokerFilter && !managers.some(([key]) => key === ipoBrokerFilter)) ipoBrokerFilter = '';
-    // Month projections may change sort dates; PAST always uses canonical dates.
-    const viewIpos = (showExcludedSchedules || ipoFilterGroup === 'PAST' ? canonicalMarketIpos : marketIpos)
-      .filter(ipo => showExcludedSchedules ? ipo.user_excluded : !ipo.user_excluded);
-    const brokerIpos = viewIpos.filter(ipo => showExcludedSchedules || !ipoBrokerFilter ||
-      brokerFilters(ipo).some(item => item.key === ipoBrokerFilter));
-    const counts = { ALL: brokerIpos.length, UPCOMING: 0, ACTIVE: 0, PAST: 0 };
-    brokerIpos.forEach(ipo => { if (counts[ipo.filter_group] !== undefined) counts[ipo.filter_group] += 1; });
-    const labels = { ALL: '전체', UPCOMING: '예정', ACTIVE: '진행', PAST: '과거' };
+    const brokerIpos = canonicalMarketIpos.filter(ipo =>
+      (showExcludedSchedules ? ipo.user_excluded : !ipo.user_excluded) &&
+      (showExcludedSchedules || !ipoBrokerFilter ||
+        brokerFilters(ipo).some(item => item.key === ipoBrokerFilter)));
+    const listed = brokerIpos.filter(hasConfirmedListing).filter(ipo =>
+      !ipoMonthExplicitlySelected || ipo.actual_listing_date.slice(0, 7) ===
+        `${ipoHistoryYear}-${String(ipoHistoryMonth).padStart(2, '0')}`);
+    const active = brokerIpos.filter(ipo => !hasConfirmedListing(ipo));
+    const counts = { ACTIVE: active.length, LISTED: listed.length };
+    const labels = { ACTIVE: '진행중', LISTED: '상장완료' };
     const controls = Object.entries(labels).map(([group, label]) =>
-      `<button type="button" class="button secondary compact ipo-filter${ipoFilterGroup === group ? ' active' : ''}" data-filter-group="${group}">${label} ${counts[group]}</button>`
+      `<button type="button" class="button secondary compact ipo-filter${ipoFilterGroup === group ? ' active' : ''}" aria-pressed="${ipoFilterGroup === group}" data-filter-group="${group}">${label} <span>${counts[group]}</span></button>`
     ).join('');
-    // PAST does not consume or change the other tabs' selected month.
-    if (ipoFilterGroup === 'ALL' && !ipoMonthExplicitlySelected && !ipoAllMonthInitialized) {
-      const cur = currentKstYearMonth();
-      ipoHistoryYear = cur.year;
-      ipoHistoryMonth = cur.month;
-      ipoAllMonthInitialized = true;
-    }
     const sortDate = ipo => {
       const value = String(ipo.presentation_sort_date || '');
       return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) ? value : '';
@@ -650,39 +600,24 @@
       return direction * (a.localeCompare(b) || String(left.ipo_id || '').localeCompare(String(right.ipo_id || '')));
     };
     const sortAsc = (left, right) => compareSchedule(left, right, 1);
-    const sortDesc = (left, right) => compareSchedule(left, right, -1);
 
     let visibleIpos = [];
     let fallbackIpos = [];
     let monthControlHtml = '';
 
     if (showExcludedSchedules) {
+      // The exclusion view is global: do not constrain recovery to the
+      // currently selected ACTIVE/LISTED tab, month, or broker filter.
       visibleIpos = brokerIpos.slice().sort(sortAsc);
-    } else if (['ALL', 'UPCOMING', 'ACTIVE'].includes(ipoFilterGroup)) {
-      const curKst = currentKstYearMonth();
-      if (ipoHistoryYear === null || ipoHistoryMonth === null) {
-        ipoHistoryYear = curKst.year;
-        ipoHistoryMonth = curKst.month;
-      }
-      const selectedMonthKey = `${ipoHistoryYear}-${String(ipoHistoryMonth).padStart(2, '0')}`;
-      const scopedIpos = brokerIpos.filter(ipo => ipoFilterGroup === 'ALL' || ipo.filter_group === ipoFilterGroup);
-      const datedPast = [];
-      scopedIpos.forEach(ipo => {
-        const key = ipoMonthKey(ipo);
-        if (key) {
-          if (key === selectedMonthKey) {
-            datedPast.push(ipo);
-          }
-        } else {
-          fallbackIpos.push(ipo);
-        }
-      });
-
-      datedPast.sort(sortAsc);
-      fallbackIpos.sort(sortAsc);
-      visibleIpos = datedPast;
-
-      const monthCountText = `${ipoHistoryMonth}월 · ${datedPast.length}건`;
+    } else if (ipoFilterGroup === 'ACTIVE') {
+      visibleIpos = active.filter(ipo => !['POSTPONED', 'WITHDRAWN', 'DATE_UNKNOWN', 'LISTED'].includes(ipo.market_state)).sort(sortAsc);
+      fallbackIpos = active.filter(ipo => !visibleIpos.includes(ipo)).sort(sortAsc);
+    } else {
+      visibleIpos = listed.slice().sort((a, b) => b.actual_listing_date.localeCompare(a.actual_listing_date));
+      const current = currentKstYearMonth();
+      ipoHistoryYear ??= current.year;
+      ipoHistoryMonth ??= current.month;
+      const monthCountText = ipoMonthExplicitlySelected ? `${ipoHistoryMonth}월 · ${listed.length}건` : `전체 · ${listed.length}건`;
       const pickerVal = `${ipoHistoryYear}-${String(ipoHistoryMonth).padStart(2, '0')}`;
       monthControlHtml = `
         <div class="ipo-month-control money-month-nav" role="group" aria-label="공모주 월 선택">
@@ -693,17 +628,9 @@
           <button type="button" class="button secondary compact ipo-month-btn money-month-nav-btn money-month-nav-next" id="ipoNextMonthBtn" title="다음 달" aria-label="다음 달">▶</button>
           <button type="button" class="button secondary compact ipo-month-btn money-month-nav-btn money-month-nav-today" id="ipoTodayMonthBtn" title="이번 달로 이동" aria-label="이번 달로 이동">이번달</button>
         </div>`;
-    } else if (ipoFilterGroup === 'PAST') {
-      brokerIpos.filter(ipo => ipo.filter_group === 'PAST').forEach(ipo => {
-        (ipoMonthKey(ipo) ? visibleIpos : fallbackIpos).push(ipo);
-      });
-      visibleIpos.sort(sortDesc);
-      fallbackIpos.sort(sortDesc);
-    } else {
-      visibleIpos = brokerIpos.slice().sort(sortAsc);
     }
 
-    let html = `<div class="ipo-filter-toolbar" role="group" aria-label="공모주 일정 필터">${controls}</div><div class="ipo-list-tools"><label class="ipo-broker-filter" for="ipoBrokerFilter">주관 증권사</label><select id="ipoBrokerFilter" aria-label="공모주 주관 증권사"><option value="">전체 증권사</option>${managers.map(([key, name]) => `<option value="${escapeHtml(key)}"${key === ipoBrokerFilter ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div><p class="ipo-sort-notice">청약 시작일 기준 · 청약일이 없으면 상장 예정일, 실제 상장일 순 · ${!showExcludedSchedules && ipoFilterGroup === 'PAST' ? '최신순' : '오래된순'} · 날짜 미확인 항목은 마지막에 표시</p>`;
+    let html = `<div class="ipo-filter-toolbar" role="group" aria-label="공모주 일정 필터">${controls}</div><div class="ipo-list-tools"><label class="ipo-broker-filter" for="ipoBrokerFilter">주관 증권사</label><select id="ipoBrokerFilter" class="wealth-ui-select" data-ui="select" data-select-variant="default" aria-label="공모주 주관 증권사"><option value="">전체 증권사</option>${managers.map(([key, name]) => `<option value="${escapeHtml(key)}"${key === ipoBrokerFilter ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}</select></div><p class="ipo-sort-notice">청약 시작일 기준 · 청약일이 없으면 상장 예정일, 실제 상장일 순 · ${!showExcludedSchedules && ipoFilterGroup === 'LISTED' ? '최신순' : '오래된순'} · 날짜 미확인 항목은 마지막에 표시</p>`;
     if (monthControlHtml) {
       html += monthControlHtml;
     }
@@ -732,8 +659,12 @@
       const historicalOfficial = Boolean(
         ipo.sources?.official_historical_import || ipo.sources?.official_historical_online
       );
+      const retainedEnd = ipo.sources?.schedule_reconciliation?.reason === 'end_date_not_confirmed';
+      const startEvidence = ipo.sources?.schedule_fields?.subscription_start;
+      const startSource = startEvidence?.source === 'npay' && startEvidence.value === ipo.subscription_start
+        ? ' (Npay 일정 참고)' : '';
       const subSchedule = (ipo.subscription_start && ipo.subscription_end)
-        ? `${ipo.subscription_start} ~ ${ipo.subscription_end}`
+        ? `${ipo.subscription_start}${startSource} ~ ${ipo.subscription_end}${retainedEnd ? ' (기존 기록 · 종료일 재확인 필요)' : ''}`
         : (historicalOfficial ? '청약일 미수집' : `${ipo.subscription_start || '시작일 미정'} ~ ${ipo.subscription_end || '종료일 미정'}`);
       const forecastSchedule = (ipo.demand_forecast_start && ipo.demand_forecast_end)
         ? `${ipo.demand_forecast_start} ~ ${ipo.demand_forecast_end}`
@@ -744,9 +675,9 @@
       const listingDate = ipo.actual_listing_date || ipo.expected_listing_date || '미정';
       const marketStateLabels = { POSTPONED: '청약 연기 · 새 일정 확인 필요', WITHDRAWN: '공모 철회', UPCOMING: '청약예정', SUBSCRIPTION_OPEN: '청약중', SUBSCRIPTION_CLOSED: '청약마감', LISTING_UPCOMING: '상장예정', LISTED: '상장완료', DATE_UNKNOWN: '일정 확인 필요' };
       const userStateLabels = { NOT_APPLIED: '미신청', APPLIED: '신청완료', ALLOCATED_UNSOLD: '배정 보유', PARTIALLY_SOLD: '일부 매도', FULLY_SOLD: '매도 완료', LINK_DATA_MISSING: '연결 확인 필요' };
-      const reasonLabels = {api_key_missing:'DART 인증 미설정',api_key_invalid:'DART 인증 오류',network_error:'공시 통신 오류',network_disabled:'외부 통신 차단',refresh_failed:'공시 갱신 실패',legacy_not_checked:'이전 저장 일정 · 공식 확인 전',cache_not_current:'최근 공식 확인 필요'};
-      const reason = ipo.sources?.dart_schedule_verification?.reason;
-      const marketStateLabel = (marketStateLabels[ipo.market_state] || '일정 확인 필요')
+      const reasonLabels = {api_key_missing:'DART 인증 미설정',api_key_invalid:'DART 인증 오류',network_error:'공시 통신 오류',network_disabled:'외부 통신 차단',refresh_failed:'공시 갱신 실패',legacy_not_checked:'이전 저장 일정 · 공식 확인 전',cache_not_current:'최근 공식 확인 필요',end_date_not_confirmed:'종료일 확인 필요',schedule_date_conflict:'출처 간 일정 충돌',identity_or_schedule_ambiguous:'기업 동일성 확인 필요',invalid_schedule:'일정 형식 확인 필요',conflicting_official_identifier:'기업 식별자 충돌',duplicate_stock_identifier:'종목 코드 중복 확인 필요',ambiguous_corporate_identifier:'법인 식별자 확인 필요'};
+      const reason = ipo.sources?.schedule_reconciliation?.reason || ipo.sources?.dart_schedule_verification?.reason;
+      const marketStateLabel = (hasConfirmedListing(ipo) ? '상장완료' : ipo.market_state === 'LISTED' ? '상장 상태 미확인' : (marketStateLabels[ipo.market_state] || '일정 확인 필요'))
         + (ipo.market_state === 'DATE_UNKNOWN' && reasonLabels[reason] ? ' · ' + reasonLabels[reason] : '')
         + (ipo.identity_review_required ? ' · 기업 동일성 확인 필요' : '');
       const userStateLabel = userStateLabels[ipo.user_state] || '미신청';
@@ -823,9 +754,30 @@
         .filter(([key, evidence]) => ['subscription_start', 'subscription_end', 'expected_listing_date', 'actual_listing_date'].includes(key)
           && evidence && evidence.value === ipo[key]);
       const sourceLabels = {naver: '네이버 증권', npay: 'Npay', kind: 'KIND', dart: 'DART'};
-      const scheduleSources = [...new Set(scheduleFields.map(([, e]) => sourceLabels[e.source]).filter(Boolean))];
+      const fieldLabels = {subscription_start: '청약 시작일', subscription_end: '청약 종료일',
+        expected_listing_date: '상장 예정일', actual_listing_date: '실제 상장일'};
+      const scheduleSources = scheduleFields.flatMap(([key, evidence]) => {
+        const source = sourceLabels[evidence.source];
+        if (!source) return [];
+        const status = evidence.source === 'kind' || evidence.source === 'dart' ? '공시 확인' : '일정 참고';
+        return [`${fieldLabels[key]} ${status} (${source})`];
+      });
       const observedDates = scheduleFields.map(([, e]) => e.observed_at).filter(Boolean).sort();
-      const scheduleObserved = observedDates.length ? observedDates[0].slice(0, 10) : '미확인';
+      const scheduleObserved = observedDates.length ? observedDates[observedDates.length - 1].slice(0, 10) : '미확인';
+      const refreshAttempts = Object.entries(ipo.sources?.schedule_refresh_attempts || {})
+        .filter(([, attempt]) => attempt && attempt.last_attempt_at)
+        .sort((a, b) => String(a[1].last_attempt_at).localeCompare(String(b[1].last_attempt_at)));
+      const latestRefreshAttempt = refreshAttempts.length ? refreshAttempts[refreshAttempts.length - 1] : null;
+      const refreshOutcomeText = refreshAttempts.map(([source, attempt]) => {
+        const outcome = String(attempt.outcome || '');
+        const label = outcome === 'read_ok' ? '목록 조회 완료'
+          : outcome.includes('api_key_missing') ? '인증 미설정'
+            : outcome.startsWith('source_unavailable') ? '조회 불가' : '조회 실패';
+        return `${sourceLabels[source] || escapeHtml(source)} ${label}`;
+      }).join(' · ');
+      const refreshAttemptText = latestRefreshAttempt
+        ? ` · 마지막 새로고침 시도 ${escapeHtml(latestRefreshAttempt[1].last_attempt_at.slice(0, 10))} · 조회 결과 ${refreshOutcomeText}`
+        : '';
 
       cardHtml += `
         <article class="ipo-card ipo-compact-card${expanded ? ' ipo-card-expanded' : ''}" data-ipo-id="${escapeHtml(ipoId)}" data-application-revision="${currentRevision}">
@@ -836,7 +788,7 @@
               <span class="ipo-market-badge${market ? '' : ' ipo-market-unknown'}" title="${market ? '공식 시장 구분' : 'canonical IPO record에 시장 구분이 없습니다.'}">${escapeHtml(market || '시장 미확인')}</span>
               ${ipo.stock_code ? `<span class="ipo-code-badge">${escapeHtml(ipo.stock_code)}</span>` : ''}
               </div>
-              <small class="ipo-source-meta">일정 출처 · ${escapeHtml(scheduleSources.join(' / ') || '기존 수집자료')} · 마지막 확인 ${escapeHtml(scheduleObserved)}</small>
+              <small class="ipo-source-meta">일정 출처 · ${escapeHtml(scheduleSources.join(' / ') || '확인 필요')} · 마지막 출처 관측 ${escapeHtml(scheduleObserved)}${refreshAttemptText}</small>
             </div>
             <div class="ipo-status-badges">
               <span class="ipo-subscription-status" data-state="${escapeHtml(ipo.market_state || 'DATE_UNKNOWN')}">${escapeHtml(marketStateLabel)}</span>
@@ -898,7 +850,7 @@
 
     if (visibleIpos.length === 0 && fallbackIpos.length === 0) {
       if (monthControlHtml) {
-        const scopeLabel = ipoFilterGroup === 'PAST' ? '과거 공모주 일정' : '공모주 일정';
+        const scopeLabel = ipoFilterGroup === 'LISTED' ? '과거 공모주 일정' : '공모주 일정';
         html += `<p class="empty-text" style="padding:28px;text-align:center;">선택한 월(${ipoHistoryYear}년 ${ipoHistoryMonth}월)에 해당하는 ${scopeLabel}이 없습니다.</p>`;
       } else {
         html += '<p class="empty-text" style="padding:28px;text-align:center;">해당 조건에 맞는 공모주 일정이 없습니다.</p>';
@@ -909,12 +861,12 @@
         visibleIpos.forEach(ipo => { html += renderCard(ipo); });
         html += '</div>';
       } else if (monthControlHtml) {
-        const scopeLabel = ipoFilterGroup === 'PAST' ? '과거 공모주 일정' : '공모주 일정';
+        const scopeLabel = ipoFilterGroup === 'LISTED' ? '과거 공모주 일정' : '공모주 일정';
         html += `<p class="empty-text" style="padding:28px;text-align:center;">선택한 월(${ipoHistoryYear}년 ${ipoHistoryMonth}월)에 해당하는 ${scopeLabel}이 없습니다.</p>`;
       }
 
       if (fallbackIpos.length > 0) {
-        html += '<div class="ipo-fallback-heading">기타 / 일정 미확인 과거 공모주</div>';
+        html += '<div class="ipo-fallback-heading">별도 확인 · 연기·철회·일정 또는 상장 상태 미확인</div>';
         html += '<div class="ipo-cards-container">';
         fallbackIpos.forEach(ipo => { html += renderCard(ipo); });
         html += '</div>';
@@ -953,11 +905,12 @@
     });
 
     wrapper.querySelectorAll('.ipo-filter').forEach(button => button.addEventListener('click', () => {
-      ipoFilterGroup = button.dataset.filterGroup || 'ALL';
+      ipoFilterGroup = button.dataset.filterGroup === 'LISTED' ? 'LISTED' : 'ACTIVE';
       renderIpoList();
+      wrapper.querySelector('.ipo-filter.active')?.focus();
     }));
 
-    if (['ALL', 'UPCOMING', 'ACTIVE'].includes(ipoFilterGroup)) {
+    if (ipoFilterGroup === 'LISTED') {
       const prevBtn = wrapper.querySelector('#ipoPrevMonthBtn');
       const nextBtn = wrapper.querySelector('#ipoNextMonthBtn');
       const todayBtn = wrapper.querySelector('#ipoTodayMonthBtn');
@@ -1435,12 +1388,11 @@
   document.getElementById('ipoRefreshBtn')?.addEventListener('click', refreshIpoSchedule);
   document.getElementById('ipoHistoricalImportBtn')?.addEventListener('click', openHistoricalImportDialog);
   document.getElementById('ipoHistoricalPreviewBtn')?.addEventListener('click', previewHistoricalImport);
-  document.getElementById('ipoHistoricalOnlinePreviewBtn')?.addEventListener('click', previewHistoricalOnline);
   document.getElementById('ipoHistoricalCommitBtn')?.addEventListener('click', commitHistoricalImport);
   window.loadIpoSchedule = loadIpoSchedule;
   window.WealthIpoState = {
     getFilterGroup: () => ipoFilterGroup,
-    setFilterGroup: (g) => { ipoFilterGroup = g; },
+    setFilterGroup: (g) => { ipoFilterGroup = ['LISTED', 'PAST'].includes(g) ? 'LISTED' : 'ACTIVE'; },
     getHistoryYear: () => ipoHistoryYear,
     setHistoryYear: (y) => { ipoHistoryYear = y; },
     getHistoryMonth: () => ipoHistoryMonth,

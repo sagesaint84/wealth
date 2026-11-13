@@ -28,6 +28,7 @@ import threading
 from contextlib import contextmanager
 from typing import Any
 from urllib import parse, request
+from app.services.ipo.display import npay_schedule_field_confirmed, npay_schedule_field_currently_confirmed
 
 logger = logging.getLogger(__name__)
 
@@ -400,6 +401,20 @@ class IpoTelegramNotifier:
             name = ipo.get("company_name", "공모주")
             sub_start = ipo.get("subscription_start")
             sub_end = ipo.get("subscription_end")
+            source_map = ipo.get("sources") if isinstance(ipo.get("sources"), dict) else {}
+            reconciliation = source_map.get("schedule_reconciliation")
+            schedule_needs_review = (
+                isinstance(reconciliation, dict)
+                and reconciliation.get("status") in {"partial", "review_required"}
+            )
+            npay_start_confirmed = (
+                not schedule_needs_review
+                and npay_schedule_field_currently_confirmed(ipo, "subscription_start")
+            )
+            npay_end_confirmed = (
+                not schedule_needs_review
+                and npay_schedule_field_currently_confirmed(ipo, "subscription_end")
+            )
             listing = ipo.get("actual_listing_date") or ipo.get("expected_listing_date")
             score_data = ipo.get("score") or {}
             score = score_data.get("score")
@@ -421,12 +436,12 @@ class IpoTelegramNotifier:
                 return False
 
             # 1. Subscription tomorrow
-            if sub_start == tomorrow_str:
+            if npay_start_confirmed and sub_start == tomorrow_str:
                 key = f"{ipo_id}:sub_tomorrow:{tomorrow_str}"
                 if key not in sent_keys:
                     msg = (
                         f"📅 <b>[공모주 내일 청약 시작] {name}</b>\n"
-                        f"• 청약일: {sub_start} ~ {sub_end}\n"
+                        f"• 청약일: {sub_start or '미확인'} ~ {sub_end or '미확인'}\n"
                         f"• 확정공모가: {price}\n"
                         f"• 주관사: {managers_str}\n"
                     )
@@ -435,12 +450,12 @@ class IpoTelegramNotifier:
                     _dispatch_or_preview(key, msg)
 
             # 2. Subscription today (Start day)
-            if sub_start == target_date_str:
+            if npay_start_confirmed and sub_start == target_date_str:
                 key = f"{ipo_id}:sub_start:{target_date_str}"
                 if key not in sent_keys:
                     msg = (
                         f"🔔 <b>[공모주 오늘 청약 1일차] {name}</b>\n"
-                        f"• 청약일: {sub_start} ~ {sub_end}\n"
+                        f"• 청약일: {sub_start or '미확인'} ~ {sub_end or '미확인'}\n"
                         f"• 확정공모가: {price}\n"
                         f"• 주관사: {managers_str}\n"
                     )
@@ -449,7 +464,7 @@ class IpoTelegramNotifier:
                     _dispatch_or_preview(key, msg)
 
             # 3. Subscription last day
-            if sub_end == target_date_str:
+            if npay_end_confirmed and sub_end == target_date_str:
                 key = f"{ipo_id}:sub_end:{target_date_str}"
                 if key not in sent_keys:
                     msg = (
@@ -539,11 +554,15 @@ class IpoTelegramNotifier:
             # 7. Schedule / price change detection
             snapshots = state.setdefault("snapshots", {})
             curr_snap = {
-                "subscription_start": sub_start,
-                "subscription_end": sub_end,
-                "payment_date": ipo.get("payment_date"),
-                "expected_listing_date": ipo.get("expected_listing_date"),
-                "final_offer_price": ipo.get("final_offer_price"),
+                "subscription_start": sub_start if npay_start_confirmed else None,
+                "subscription_end": sub_end if npay_end_confirmed else None,
+                "payment_date": None,
+                "expected_listing_date": None,
+                "final_offer_price": (
+                    ipo.get("final_offer_price")
+                    if npay_schedule_field_confirmed(ipo, "final_offer_price")
+                    else None
+                ),
             }
             if ipo_id in snapshots:
                 prev_snap = snapshots[ipo_id]
