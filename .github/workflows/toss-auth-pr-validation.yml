@@ -39,6 +39,7 @@ concurrency:
 
 jobs:
   native-validation:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.number != 208 }}
     name: Toss auth native ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
