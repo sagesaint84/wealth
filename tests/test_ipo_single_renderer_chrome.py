@@ -116,8 +116,8 @@ def test_initial_and_refresh_never_paint_legacy_cards(chrome_preview, width):
     # Broker filtering, month navigation, and application rerenders retain IDs.
     evaluate("document.getElementById('ipoBrokerFilter').value='eugene';document.getElementById('ipoBrokerFilter').dispatchEvent(new Event('change',{bubbles:true}))")
     assert_compact(evaluate('__sampleCompact()'), expanded=['compact-0'])
-    click(call, evaluate, '#ipoNextMonthBtn')
-    click(call, evaluate, '#ipoPrevMonthBtn')
+    assert evaluate("WealthIpoState.getFilterGroup()") == 'ACTIVE'
+    assert evaluate("['ipoNextMonthBtn','ipoPrevMonthBtn','ipoMonthPicker'].every(id=>!document.getElementById(id))")
     assert_compact(evaluate('__sampleCompact()'), expanded=['compact-0'])
     evaluate(r"""(() => {
       __appWrites=[];

@@ -378,16 +378,13 @@ def test_accountinfo_36_cards_responsive_visibility_and_selection(chrome_preview
         const b=card.getBoundingClientRect();
         return style.textOverflow!=='ellipsis' && style.whiteSpace!=='nowrap' && [...range.getClientRects()].every(rect=>rect.left>=b.left&&rect.right<=b.right&&rect.bottom<=b.bottom);
       });
-      const editors=[...preview.querySelectorAll('.accountinfo-balance-editor input')];
-      const canvas=document.createElement('canvas'),context=canvas.getContext('2d');
-      const editorValuesFit=editors.every(input=>{const style=getComputedStyle(input);context.font=style.font;return context.measureText(input.value).width<=input.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);});
       const productsFit=cards.every(card=>[...card.querySelectorAll('dd')].every(value=>{const range=document.createRange();range.selectNodeContents(value);const b=card.getBoundingClientRect();return [...range.getClientRects()].every(rect=>rect.left>=b.left&&rect.right<=b.right&&rect.bottom<=b.bottom);}));
       const scrollers=[dialog,...dialog.querySelectorAll('*')].filter(node=>node.scrollHeight>node.clientHeight+1&&['auto','scroll'].includes(getComputedStyle(node).overflowY));
       const controls=[dialog.querySelector('h2'),document.getElementById('accountImportFile'),document.getElementById('accountInfoImportOwner'),...dialog.querySelectorAll('.dialog-actions button')];
       const hit=element=>{const b=element.getBoundingClientRect(),top=document.elementFromPoint(b.left+b.width/2,b.top+b.height/2);return top===element||element.contains(top);};
       return {count:cards.length,page:document.documentElement.scrollWidth,dialog:inViewport(dialog),formFits:form.scrollHeight<=form.clientHeight+1,
         previewScroll:preview.scrollHeight>preview.clientHeight,scrollers:scrollers.map(node=>node.id),layout:[...form.children].map(node=>({tag:node.tagName,id:node.id,height:node.getBoundingClientRect().height,top:node.getBoundingClientRect().top,bottom:node.getBoundingClientRect().bottom})),formSize:[form.clientHeight,form.scrollHeight],
-        cardsFit:cards.every(card=>card.scrollWidth<=card.clientWidth+1),amounts,editorValuesFit,productsFit,
+        cardsFit:cards.every(card=>card.scrollWidth<=card.clientWidth+1),amounts,productsFit,
         maxAmount:cards[6].querySelector('.accountinfo-reference-amount').textContent==='₩9,007,199,254,740,991',
         unknown:cards[0].querySelector('.accountinfo-reference-amount').textContent==='0원(미확인)',
         zero:cards[1].querySelector('.accountinfo-reference-amount').textContent==='₩0',
@@ -402,7 +399,7 @@ def test_accountinfo_36_cards_responsive_visibility_and_selection(chrome_preview
     assert result['count']==36 and result['page']<=width and result['requests']==0,result
     assert result['scrollers']==['accountInfoPdfPreview'],result
     assert result['columns']==(2 if width>=800 else 1),result
-    for key in ('dialog','formFits','previewScroll','cardsFit','amounts','editorValuesFit','productsFit','maxAmount','unknown','zero','selection','labels','controls','rawHidden','noBrokerEditor','referenceOnly'):
+    for key in ('dialog','formFits','previewScroll','cardsFit','amounts','productsFit','maxAmount','unknown','zero','selection','labels','controls','rawHidden','noBrokerEditor','referenceOnly'):
         assert result[key],json.dumps([key,result,width,height,theme,kind],ensure_ascii=False)
     evaluate("document.querySelector('.accountinfo-selection input:not(:disabled)').focus()")
     chrome_preview[0]('Input.dispatchKeyEvent',{'type':'keyDown','key':'Tab','code':'Tab','windowsVirtualKeyCode':9})
