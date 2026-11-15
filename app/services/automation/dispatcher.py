@@ -31,7 +31,7 @@ from app.services.automation.execution_state import (
     record_execution_success,
     sanitize_error_code,
 )
-from app.services.ipo.orchestrator import refresh_ipo_market_enriched
+from app.services.ipo.refresh_adapter import refresh_ipo_market_enriched
 from app.services.ipo.reminders import run_ipo_listing_reminders, run_ipo_subscription_reminders
 from app.services.settings import (
     _TIME,

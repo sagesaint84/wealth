@@ -15,7 +15,9 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
     def test_stock_page_is_named_stock_status_and_toggle_removed(self):
         self.assertIn("invest: ['주식 투자', '주식 현황'", self.html)
         self.assertNotIn('id="allocTabs"', self.html)
-        self.assertIn("const STOCK_PORTFOLIO_MODE = 'sector'", self.js)
+        sector = (Path(__file__).resolve().parents[1] / "app/static/wealth-sector-view.js").read_text(encoding="utf-8")
+        self.assertIn("sector_classifications", sector)
+        self.assertIn("return sectorView.renderClassifications(items)", self.js)
         self.assertNotIn("currentAllocTab", self.js)
 
     def test_home_asset_portfolio_is_page_local_and_rich(self):
@@ -75,9 +77,14 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
         self.assertIn("metric.textContent = returnRate === null ? '—' : pct(returnRate)", self.layout)
 
     def test_home_detail_projection_does_not_change_stock_mode(self):
-        self.assertIn("const STOCK_PORTFOLIO_MODE = 'sector'", self.js)
+        sector = (Path(__file__).resolve().parents[1] / "app/static/wealth-sector-view.js").read_text(encoding="utf-8")
         self.assertNotIn("currentAllocTab", self.js)
-        self.assertIn("if (STOCK_PORTFOLIO_MODE === 'sector')", self.js)
+        self.assertIn("dashboard?.sector_classifications || rawDashboard?.sector_classifications || []", sector)
+        self.assertIn("renderAllocationDonut(sectors,", sector)
+        self.assertNotIn("dashboard?.classifications", sector)
+        self.assertIn("s.classifications || []", self.layout)
+        self.assertIn("'asset_category_colors'", self.layout)
+        self.assertIn("'stock_category_colors'", sector)
 
     def test_stock_navigation_remains_six_tabs(self):
         for label in ("포트폴리오", "히트맵", "주식기록", "전략 버킷", "절세계좌", "보유종목"):

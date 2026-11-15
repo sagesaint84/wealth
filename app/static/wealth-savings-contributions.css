@@ -14,6 +14,8 @@
 .saving-contribution-actions { display:flex; gap:8px; flex-wrap:wrap; grid-column:1/-1; }
 .saving-contribution-source { font-size:12px; border:1px solid #456; border-radius:6px; padding:2px 6px; }
 .saving-contribution-card { display:flex; flex-direction:column; align-items:flex-start; gap:6px; margin-top:12px; overflow-wrap:anywhere; }
+.saving-contribution-card > span { min-width:0; max-width:100%; font-size:12px; line-height:1.5; }
+.saving-contribution-card > span strong { font-size:13px; font-weight:700; }
 @media(max-width:480px) {
   #savingContributionSummary,#savingContributionForm { grid-template-columns:minmax(0,1fr); }
   .saving-contribution-row { grid-template-columns:minmax(0,1fr); }

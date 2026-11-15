@@ -21,7 +21,7 @@
 
   function money(value) {
     const number = Number(value);
-    return Number.isFinite(number) ? `₩${Math.round(number).toLocaleString('ko-KR')}` : '-';
+    return Number.isFinite(number) ? `₩${window.WealthFormat.roundGroupedKoKr(number)}` : '-';
   }
 
   function percent(value) {

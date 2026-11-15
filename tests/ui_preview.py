@@ -15,6 +15,94 @@ ALLOWED = {"wealth-asset-category-state.js", "wealth-color-picker.js", "wealth-c
            "wealth-layout.js", "wealth-layout.css", "wealth-invest-tab-state.js", "wealth-settings-surface.js", "wealth-settings.js", "wealth-automation-status.js", "wealth-planning.js", "wealth-planning-model.js", "icon-192.png", "apple-touch-icon.png"}
 ALLOWED.update({"wealth-national-pension.js", "wealth-national-pension.css", "wealth-pension-import.js"})
 ALLOWED.update({'wealth-ledger-ocr.js', 'wealth-ledger-ocr.css'})
+# Explicit assets used by the current Desktop bundle and its lazy loaders.
+ALLOWED.update({
+    'fonts/pretendard/1.3.9/pretendardvariable.css',
+    'fonts/pretendard/1.3.9/woff2/PretendardVariable.woff2',
+    'fonts/tossface/37720aa5/TossFaceFontMac-09.woff2',
+    'wealth-account-reorder.css',
+    'wealth-account-reorder.js',
+    'wealth-accountinfo-import.js',
+    'wealth-accountinfo-owner-options.js',
+    'wealth-account-section-summary.js',
+    'wealth-calendar.js',
+    'wealth-color-preferences.css',
+    'wealth-color-preferences.js',
+    'wealth-dividend-source.js',
+    'wealth-family-financial-income-allocation.css',
+    'wealth-family-financial-income-allocation.js',
+    'wealth-family-financial-income-risk.css',
+    'wealth-family-financial-income-risk.js',
+    'wealth-family-view.js',
+    'wealth-financial-income-what-if.css',
+    'wealth-financial-income-what-if.js',
+    'wealth-format.js',
+    'wealth-heatmap-view.js',
+    'wealth-income-period-broker-filter.js',
+    'wealth-ipo-event-months.js',
+    'wealth-ipo.js',
+    'wealth-ledger-period-filter.js',
+    'wealth-ledger-timeseries-history.js',
+    'wealth-money-input.js',
+    'wealth-operation-feedback.js',
+    'wealth-real-estate-view.js',
+    'wealth-ledger-transactions-view.js',
+    'wealth-stock-autocomplete.js',
+    'wealth-ipo-schedule-card-view.js',
+    'wealth-dashboard-owner-model.js',
+    'wealth-holding-account-options-view.js',
+    'wealth-holding-dialog-controller.js',
+    'wealth-tax-accounts-view.js',
+    'wealth-securities-accounts-view.js',
+    'wealth-broker-import-preview-model.js',
+    'wealth-broker-import-preview-screen-controller.js',
+    'wealth-ipo-historical-preview-view.js',
+    'wealth-dividend-summary-view.js',
+    'wealth-sector-view.js',
+    'wealth-holdings-row-view.js',
+    'wealth-asset-records-screen-controller.js',
+    'wealth-admin-users-view.js',
+    'wealth-investment-summary-view.js',
+    'wealth-account-yearly-view.js',
+    'wealth-donut-chart.js',
+    'wealth-ledger-screen-controller.js',
+    'wealth-income-month-navigation.js',
+    'wealth-insurance-form-model.js',
+    'wealth-holding-signals.js',
+    'wealth-broker-ui.js',
+    'wealth-market-card-preferences.js',
+    'wealth-market-view.js',
+    'wealth-stock-records-view.js',
+    'wealth-actual-dividend-detail-view.js',
+    'wealth-heatmap-model.js',
+    'wealth-bank-account-options.js',
+    'wealth-savings-form-model.js',
+    'wealth-loan-form-model.js',
+    'wealth-savings-dialog-controller.js',
+    'wealth-stock-chart-view.js',
+    'wealth-ipo-applicant-api.js',
+    'wealth-ipo-applicant-model.js',
+    'wealth-ipo-applicant-view.js',
+    'wealth-income-tabs-controller.js',
+    'wealth-realized-pnl-view.js',
+    'wealth-ledger-cards-view.js',
+    'wealth-ledger-recurring-view.js',
+    'wealth-ledger-data.js',
+    'wealth-ledger-transactions-model.js',
+    'wealth-stock-records-model.js',
+    'wealth-banking-view.js',
+    'wealth-insurance-view.js',
+    'wealth-period-filter-core.js',
+    'wealth-pnl-year-intent.js',
+    'wealth-system-update.css',
+    'wealth-system-update.js',
+    'wealth-timeseries-label-layout.js',
+    'wealth-timeseries-panzoom.js',
+    'wealth-timeseries-period-core.js',
+    'wealth-timeseries-unified.js',
+    'wealth-timeseries-visible-range.js',
+    'wealth-ipo-sale-bridge.js',
+})
 DASHBOARD = {
     "summary": {"total_value_krw": 85000000, "total_stock_value_krw": 80000000,
                 "total_cash_krw": 5000000, "account_count": 2},
@@ -23,8 +111,8 @@ DASHBOARD = {
         {"id":"demo-stock-b", "name":"가상 연금계좌", "broker":"가상증권", "owner":"엄마", "account_type":"pension", "cash_krw":2000000, "cash_usd":0, "market_value_krw":32000000},
     ],
     "holdings": [
-        {"id":"demo-h-a", "account_id":"demo-stock-a", "account_name":"가상 성장계좌", "broker":"가상증권", "name":"가상 인덱스", "code":"DEMO", "owner":"아빠", "currency":"KRW", "quantity":500, "current_price":100000, "avg_price":90000, "market_value_krw":50000000, "cost_value_krw":45000000, "profit_krw":5000000},
-        {"id":"demo-h-b", "account_id":"demo-stock-b", "account_name":"가상 연금계좌", "broker":"가상증권", "name":"가상 인덱스", "code":"DEMO", "owner":"엄마", "currency":"KRW", "quantity":300, "current_price":100000, "avg_price":90000, "market_value_krw":30000000, "cost_value_krw":27000000, "profit_krw":3000000},
+        {"id":"demo-h-a", "account_id":"demo-stock-a", "account_name":"가상 성장계좌", "broker":"가상증권", "name":"가상 아빠 종목", "code":"DEMO-DAD", "owner":"아빠", "currency":"KRW", "quantity":500, "current_price":100000, "avg_price":90000, "market_value_krw":50000000, "cost_value_krw":45000000, "profit_krw":5000000},
+        {"id":"demo-h-b", "account_id":"demo-stock-b", "account_name":"가상 연금계좌", "broker":"가상증권", "name":"가상 엄마 종목", "code":"DEMO-MOM", "owner":"엄마", "currency":"KRW", "quantity":300, "current_price":100000, "avg_price":90000, "market_value_krw":30000000, "cost_value_krw":27000000, "profit_krw":3000000},
     ], "classifications": [], "sector_classifications": [],
     "currency_summary": {}, "fx_rates": {"KRW": 1, "USD": 1350},
     "bank_accounts": [{"id": "demo-bank", "bank_name": "가상은행", "account_name": "생활비",
@@ -76,7 +164,13 @@ class PreviewHandler(BaseHTTPRequestHandler):
         content = (STATIC / name).read_bytes()
         if name == 'index.html':
             content = content.replace(b'<body>', '<body><div style="padding:8px;text-align:center;background:#274c46;color:#fff;font-size:12px">가상 데이터 미리보기 · 실제 계좌와 연결되지 않음 · 저장 불가</div>'.encode())
-        self.send(content, (mimetypes.guess_type(name)[0] or 'application/octet-stream') + '; charset=utf-8')
+        if name.endswith('.woff2'):
+            content_type = 'font/woff2'
+        elif name.endswith('.css'):
+            content_type = 'text/css; charset=utf-8'
+        else:
+            content_type = (mimetypes.guess_type(name)[0] or 'application/octet-stream') + '; charset=utf-8'
+        self.send(content, content_type)
 
     def do_POST(self):
         self.send({'detail': '가상 미리보기에서는 저장하지 않습니다.'}, status=403)

@@ -31,6 +31,47 @@ class IpoPresentationStateTests(unittest.TestCase):
         self.assertEqual(derive_market_state(self.ipo(subscription_end="2026-09-01"), date(2026, 9, 1)), "DATE_UNKNOWN")
         self.assertEqual(derive_market_state(self.ipo(expected_listing_date=None), date(2026, 9, 12)), "SUBSCRIPTION_CLOSED")
 
+    def test_future_start_is_upcoming_and_partial_schedule_is_never_open(self):
+        future = self.ipo(subscription_start="2026-12-01", subscription_end="2026-12-02")
+        self.assertEqual(derive_market_state(future, date(2026, 11, 10)), "UPCOMING")
+        partial = {
+            **future,
+            "sources": {"schedule_reconciliation": {
+                "status": "partial", "reason": "end_date_not_confirmed"}},
+        }
+        self.assertEqual(derive_market_state(partial, date(2026, 11, 10)), "DATE_UNKNOWN")
+
+    def test_current_npay_active_row_is_open_only_on_observation_day(self):
+        active = {
+            "ipo_id": "active", "company_name": "진행기업", "subscription_end": "2026-11-11",
+            "npay_subscription_status": "active",
+            "sources": {
+                "npay": {"subscription_status": "active", "observed_at": "2026-11-10T09:00:00+09:00"},
+                "schedule_fields": {"subscription_end": {
+                    "source": "npay", "value": "2026-11-11", "observed_at": "2026-11-10T09:00:00+09:00",
+                }},
+            },
+        }
+        self.assertEqual(derive_market_state(active, date(2026, 11, 10)), "SUBSCRIPTION_OPEN")
+        self.assertEqual(derive_market_state(active, date(2026, 11, 11)), "DATE_UNKNOWN")
+        active["sources"]["schedule_refresh_attempts"] = {"npay": {
+            "last_attempt_at": "2026-11-10T10:00:00+09:00", "outcome": "source_error (TimeoutError)"}}
+        self.assertEqual(derive_market_state(active, date(2026, 11, 10)), "DATE_UNKNOWN")
+        active["sources"]["schedule_refresh_attempts"]["npay"] = {
+            "last_attempt_at": "2026-11-10T08:00:00+09:00", "outcome": "read_ok"}
+        self.assertEqual(derive_market_state(active, date(2026, 11, 10)), "SUBSCRIPTION_OPEN")
+        active["sources"]["schedule_reconciliation"] = {"status": "review_required"}
+        self.assertEqual(derive_market_state(active, date(2026, 11, 10)), "DATE_UNKNOWN")
+
+    def test_npay_confirmed_future_start_is_upcoming_without_inventing_an_end_date(self):
+        upcoming = {
+            "ipo_id": "upcoming", "company_name": "예정기업", "subscription_start": "2026-12-01",
+            "sources": {"schedule_fields": {"subscription_start": {
+                "source": "npay", "value": "2026-12-01", "observed_at": "2026-11-10T09:00:00+09:00"}}},
+        }
+        self.assertEqual(derive_market_state(upcoming, date(2026, 11, 10)), "UPCOMING")
+        self.assertNotIn("subscription_end", upcoming)
+
     def test_user_position_precedence_and_counts(self):
         pnl = [{"id": "a"}, {"id": "b"}]
         app = {"applied_owners": ["본인", "배우자", "자녀"], "applicants": {
@@ -64,13 +105,16 @@ class IpoPresentationStateTests(unittest.TestCase):
 
     def test_frontend_uses_backend_states_for_filtering(self):
         source = (Path(__file__).resolve().parents[1] / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")
-        self.assertIn("ipo.filter_group", source)
+        self.assertIn("const labels = { ACTIVE: '진행중', LISTED: '상장완료' };", source)
         self.assertIn("ipo.market_state", source)
         self.assertIn("ipo.user_state", source)
         self.assertIn("전체", source)
         self.assertIn("예정", source)
         self.assertIn("진행", source)
-        self.assertIn("과거", source)
+        self.assertIn("상장 상태 미확인", source)
+        self.assertIn("마지막 출처 관측", source)
+        self.assertIn("마지막 새로고침 시도", source)
+        self.assertIn("if (revision !== marketSnapshotRevision) return;", source)
 
     def test_presentation_read_does_not_create_missing_portfolio(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -140,103 +140,63 @@ def test_reference_fallback_reuses_even_empty_discovery_without_network(rows):
     assert 'features' not in market['ipos'][0]
 
 
-def test_refresh_reuses_discovery_and_reports_monotonic_stages_with_max_four_dart():
-    rows = [{'company_name': '엘리스그룹', 'sources': {'metalogos160': {'attractiveness_score': 61}}}]
-    elapsed = iter([0, .01, .03, .04, .05, .06, .08])
-    supplement = {'statuses': {}, 'metalogos_rows': rows, 'timings': {
-        'kind_discovery_ms': 2, 'npay_discovery_ms': 3, 'naver_discovery_ms': 4,
-        'metalogos_discovery_ms': 5}}
-    with patch.object(refresh_adapter, '_BASE_REFRESH_MARKET', return_value={'status': 'ok'}), \
-         patch.object(refresh_adapter._base, '_refresh_file_lock', return_value=nullcontext()), \
-         patch.object(refresh_adapter, 'discover_and_merge_primary_sources', return_value=supplement), \
-         patch.object(refresh_adapter, '_targeted_dart_enrichment', return_value={}) as dart, \
-         patch.object(refresh_adapter, 'perf_counter', side_effect=lambda: next(elapsed)):
-        result = refresh_adapter.refresh_ipo_market(target_date_str='2026-10-06')
-    assert dart.call_args.kwargs['max_candidates'] == 4
-    assert dart.call_args.kwargs['score_recovery_only'] is True
-    assert result['timings']['base_refresh_ms'] == 10
-    assert result['timings']['metalogos_reference_ms'] == 0
-    assert result['timings']['targeted_dart_ms'] == 10
-    assert result['timings']['total_ms'] == 50
-    assert 'metalogos_rows' not in result
+def test_manual_and_scheduled_refresh_share_npay_only_path():
+    supplement = {
+        'status': 'ok',
+        'statuses': {'npay': 'sync_ok (relevant=0, review_required=0, failed=0)'},
+        'timings': {'npay_discovery_ms': 2},
+        'total_ipos': 3,
+        'relevant': 0,
+        'review_required': 0,
+        'failed': 0,
+        'npay_observed_at': '2026-11-10T12:00:00+09:00',
+    }
+    with patch.object(refresh_adapter._base, '_refresh_file_lock', return_value=nullcontext()), \
+         patch.object(refresh_adapter, 'discover_and_merge_primary_sources', return_value=supplement) as discover:
+        manual = refresh_adapter.refresh_ipo_market(username='alice', target_date_str='2026-11-10')
+        scheduled = refresh_adapter.refresh_ipo_market_enriched(username='alice', target_date_str='2026-11-10')
+    assert manual['mode'] == scheduled['mode'] == 'npay_only'
+    assert manual['sources'] == scheduled['sources']
+    assert manual['status'] == scheduled['status'] == 'ok'
+    assert discover.call_count == 2
+    assert all(call.kwargs['target_date_str'] == '2026-11-10' for call in discover.call_args_list)
 
-
-def test_interactive_refresh_has_one_external_discovery_even_when_alice_stays_unmatched():
-    state = {'ipos': [
-        {'company_name': '진코스텍', 'subscription_start': '2026-10-07', 'sources': {}},
-        {'company_name': '엘리스그룹', 'subscription_start': '2026-10-07', 'sources': {},
-         'offer_band_low': 70400, 'offer_band_high': 90500, 'final_offer_price': None},
-    ]}
-    unmatched_before = copy.deepcopy(state['ipos'][1])
-    calls = Counter()
-    shared = 'https://metalogos.ai/160ipo/stock/B202607142'
-    def handler(request):
-        calls[str(request.url)] += 1
-        if request.url.path == '/schedule/external':
-            return httpx.Response(200, json={'data': {'ipoStocks': [{'name': '진코스텍', 'code': 'B202607142'}]}})
-        return httpx.Response(200, text=stock_html('진코스텍'))
-    kind, npay, naver, dart = (Mock() for _ in range(4))
-    kind.fetch_pubofr_schedule_items.return_value = []
+def test_refresh_path_does_not_construct_or_call_non_npay_clients_and_preserves_scores():
+    original = {
+        'ipo_id': 'legacy-ipo', 'company_name': '기존회사',
+        'subscription_start': '2026-11-12', 'subscription_end': '2026-11-13',
+        'score': {'score': 77, 'grade': 'A', 'status': 'OK'},
+        'features': {'pricing_discipline': {'status': 'ok', 'value': 91}},
+        'sources': {'kind': {'legacy': True}},
+    }
+    state = {'schema_version': 1, 'ipos': [copy.deepcopy(original)]}
+    npay = Mock()
     npay.fetch_upcoming_ipos.return_value = []
-    naver.fetch_ipo_discovery_items.return_value = []
-    dart.is_configured.return_value = False
     def write(market):
         state.clear()
         state.update(copy.deepcopy(market))
-    with patch.object(mc, 'require_external_network'), public_client(handler), \
-         patch.object(refresh_adapter, '_BASE_REFRESH_MARKET', return_value={'status': 'ok'}), \
-         patch.object(refresh_adapter._base, '_refresh_file_lock', return_value=nullcontext()), \
-         patch.object(refresh_adapter, '_targeted_dart_enrichment', return_value={}), \
-         patch.object(source_discovery, 'KindClient', return_value=kind), \
-         patch.object(source_discovery, 'NpayIpoClient', return_value=npay), \
-         patch.object(source_discovery, 'NaverIpoDiscoveryClient', return_value=naver), \
-         patch.object(source_discovery, 'DartClient', return_value=dart), \
+    with patch.object(source_discovery, 'NpayIpoClient', return_value=npay), \
+         patch.object(source_discovery, 'KindClient', side_effect=AssertionError('KIND must not be constructed')), \
+         patch.object(source_discovery, 'NaverIpoDiscoveryClient', side_effect=AssertionError('NAVER must not be constructed')), \
+         patch.object(source_discovery, 'DartClient', side_effect=AssertionError('DART must not be constructed')), \
+         patch.object(source_discovery, 'MetalogosIpoClient', side_effect=AssertionError('Metalogos must not be constructed')), \
          patch.object(source_discovery, 'read_market_store', side_effect=lambda: copy.deepcopy(state)), \
          patch.object(source_discovery, 'write_market_store', side_effect=write), \
-         patch('app.services.ipo.metalogos_reference_refresh.read_market_store', side_effect=lambda: copy.deepcopy(state)), \
-         patch('app.services.ipo.metalogos_reference_refresh.write_market_store', side_effect=write):
-        result = refresh_adapter.refresh_ipo_market(target_date_str='2026-10-06')
-    assert sum(calls.values()) == 0
-    assert result['sources']['metalogos160'] == 'not_requested (optional_reference_only)'
-    assert 'metalogos160' not in state['ipos'][0]['sources']
-    assert state['ipos'][1]['final_offer_price'] is None
-    # Missing credentials must remain explicitly unverified, without invented values.
-    assert state['ipos'][1] == {
-        **unmatched_before,
-        'sources': {'dart_schedule_verification': {'status': 'unverified', 'reason': 'api_key_missing'}},
-        'score': {
-            'score': None, 'grade': None, 'coverage': 0.0, 'confidence_level': 'low',
-            'status': 'BETA', 'is_calculating': True,
-            'reason': 'Core features missing: institutional_competition_ratio, lockup_commitment_ratio, tradable_share_ratio, pricing_discipline',
-            'core_missing': ['institutional_competition_ratio', 'lockup_commitment_ratio',
-                             'tradable_share_ratio', 'pricing_discipline'],
-            'component_scores': {},
-            'feature_scores': dict.fromkeys([
-                'lockup_commitment_ratio', 'institutional_competition_ratio', 'high_bid_ratio',
-                'tradable_share_ratio', 'tradable_market_cap_krw', 'secondary_sale_ratio',
-                'unlock_3m_ratio', 'pricing_discipline', 'relative_valuation', 'revenue_cagr',
-                'operating_margin', 'net_debt_to_assets', 'recent_ipo_market_return',
-                'market_20d_return'], 50.0),
-            'score_label': '산정중', 'score_as_of': '2026-10-06T23:59:59+09:00',
-            'score_version': 'v1.0',
-        },
-    }
-    assert all(call[0] == 'is_configured' for call in dart.mock_calls)
-    assert 'features' not in state['ipos'][1]
+         patch.object(refresh_adapter._base, '_refresh_file_lock', return_value=nullcontext()):
+        result = refresh_adapter.refresh_ipo_market_enriched(target_date_str='2026-11-10')
+    npay.fetch_upcoming_ipos.assert_called_once_with(target_date_str='2026-11-10')
+    assert result['status'] == 'ok'
+    assert state['ipos'][0]['score'] == original['score']
+    assert state['ipos'][0]['features'] == original['features']
+    assert state['ipos'][0]['sources']['kind'] == {'legacy': True}
+    assert result['sources']['kind_discovery'] == 'not_requested (npay_only_policy)'
 
-
-def test_independent_provider_reads_overlap_but_merge_and_write_stay_on_calling_thread():
-    barrier = threading.Barrier(3)
+def test_source_discovery_uses_only_npay_and_merges_on_calling_thread():
     calling_thread = threading.get_ident()
-    def read():
-        barrier.wait(timeout=5)
-        return [{'company_name': '엘리스그룹', 'subscription_start': '2026-10-07'}]
     kind, npay, naver, metalogos, dart = (Mock() for _ in range(5))
-    kind.fetch_pubofr_schedule_items.side_effect = lambda **kw: read()
-    npay.fetch_upcoming_ipos.side_effect = lambda **kw: read()
-    naver.fetch_ipo_discovery_items.side_effect = read
-    metalogos.fetch_company_items.return_value = [{'company_name': '다른회사', 'stock_code': '123456'}]
-    dart.is_configured.return_value = False
+    npay.fetch_upcoming_ipos.return_value = [
+        {'company_name': '엘리스그룹', 'subscription_start': '2026-11-12', 'sources': {'npay': {}}}
+    ]
     seen = []
     original = source_discovery._apply_observation
     def merge(*args, **kwargs):
@@ -247,12 +207,17 @@ def test_independent_provider_reads_overlap_but_merge_and_write_stay_on_calling_
          patch.object(source_discovery, 'write_market_store') as write, \
          patch.object(source_discovery, '_apply_observation', side_effect=merge):
         result = source_discovery.discover_and_merge_primary_sources(
-            username=None, target_date_str='2026-10-06', kind_client=kind, npay_client=npay,
+            username=None, target_date_str='2026-11-10', kind_client=kind, npay_client=npay,
             naver_client=naver, metalogos_client=metalogos, dart_client=dart)
-    assert seen == ['kind', 'npay', 'naver']
-    assert result['metalogos_rows'] == []  # wrong issuer rejected at merge boundary too
+    assert seen == ['npay']
+    npay.fetch_upcoming_ipos.assert_called_once_with(target_date_str='2026-11-10')
+    kind.fetch_pubofr_schedule_items.assert_not_called()
+    naver.fetch_ipo_discovery_items.assert_not_called()
+    metalogos.fetch_company_items.assert_not_called()
+    dart.is_configured.assert_not_called()
+    assert result['statuses']['npay'].startswith('sync_ok')
+    assert result['statuses']['dart_schedule'] == 'not_requested (npay_only_policy)'
     write.assert_called_once()
-
 
 def test_reference_stock_code_conflict_cannot_attach_to_another_named_candidate():
     market = {'ipos': [

@@ -53,31 +53,32 @@ def attach_broker_metadata(evaluate, variable):
 def test_ipo_manager_month_status_and_snapshot(chrome_preview,width):
     call,evaluate=start(chrome_preview,width,'ipo')
     evaluate(r'''(()=>{
-      const row=(id,managers,month,status)=>({ipo_id:id,company_name:id,lead_managers:managers,filter_group:status,presentation_sort_date:`2026-${month}-12`,subscription_start:`2026-${month}-12`,score:{score:61.9,coverage:75,core_missing:[]}});
+      const row=(id,managers,month,status)=>({ipo_id:id,company_name:id,lead_managers:managers,filter_group:status,presentation_sort_date:`2026-${month}-12`,subscription_start:`2026-${month}-12`,...(status==='PAST'?{actual_listing_date:`2025-${month}-12`,sources:{official_historical_import:{source:'krx'}}}:{}),score:{score:61.9,coverage:75,core_missing:[]}});
       __ipos=[row('mira',['미래에셋증권'],'10','UPCOMING'),row('multi',['미래에셋증권','삼성증권'],'10','ACTIVE'),row('samsung',['삼성증권'],'10','PAST'),row('next',['미래에셋증권'],'11','UPCOMING'),row('past',['미래에셋증권'],'10','PAST'),row('unknown',[],'10','UPCOMING'),row('near-name',['미래에셋증권우'],'10','UPCOMING')];
-      WealthIpoState.setMarketIpos(__ipos);WealthIpoState.setFilterGroup('ALL');WealthIpoState.setHistoryYear(2026);WealthIpoState.setHistoryMonth(10);WealthIpoState.setMonthExplicitlySelected(true);WealthIpoState.renderIpoList();
+      WealthIpoState.setMarketIpos(__ipos);WealthIpoState.setFilterGroup('ACTIVE');WealthIpoState.setHistoryYear(2025);WealthIpoState.setHistoryMonth(10);WealthIpoState.setMonthExplicitlySelected(false);WealthIpoState.renderIpoList();
       window.__chooseBroker=name=>{const s=document.getElementById('ipoBrokerFilter');s.value=[...s.options].find(o=>o.textContent===name).value;s.dispatchEvent(new Event('change',{bubbles:true}))};
       window.__cards=()=>[...document.querySelectorAll('.ipo-card')].map(c=>c.dataset.ipoId).sort();
     })()''')
     attach_broker_metadata(evaluate, '__ipos')
     evaluate("__chooseBroker('미래에셋증권')")
-    assert evaluate('__cards()') == ['mira','multi','past']
-    assert evaluate("document.querySelector('[data-filter-group=ALL]').textContent") == '전체 4'
-    for status, expected in [('UPCOMING',['mira']),('ACTIVE',['multi']),('PAST',['past']),('ALL',['mira','multi','past'])]:
-        click(call,evaluate,f'[data-filter-group="{status}"]')
-        assert evaluate('__cards()') == expected
+    assert evaluate('__cards()') == ['mira','multi','next']
+    assert evaluate("document.querySelector('[data-filter-group=ACTIVE]').textContent") == '진행중 3'
+    assert evaluate("document.querySelector('[data-filter-group=LISTED]').textContent") == '상장완료 1'
+    click(call,evaluate,'[data-filter-group="LISTED"]')
+    assert evaluate('__cards()') == ['past']
     click(call,evaluate,'#ipoNextMonthBtn')
-    assert evaluate('__cards()') == ['next']
+    assert evaluate('__cards()') == []
     assert evaluate("document.getElementById('ipoBrokerFilter').value") == 'mirae'
+    click(call,evaluate,'[data-filter-group="ACTIVE"]')
+    assert evaluate('__cards()') == ['mira','multi','next']
+    click(call,evaluate,'[data-filter-group="LISTED"]')
+    assert evaluate("document.getElementById('ipoMonthPicker').value") == '2025-11'
     click(call,evaluate,'#ipoPrevMonthBtn')
-    click(call,evaluate,'[data-filter-group="UPCOMING"]')
-    click(call,evaluate,'#ipoNextMonthBtn')
-    assert evaluate('__cards()') == ['next']
-    assert evaluate("document.getElementById('ipoBrokerFilter').value") == 'mirae'
-    click(call,evaluate,'#ipoPrevMonthBtn')
-    click(call,evaluate,'[data-filter-group="ALL"]')
+    assert evaluate('__cards()') == ['past']
     evaluate("__chooseBroker('삼성증권')")
-    assert evaluate('__cards()') == ['multi','samsung']
+    assert evaluate('__cards()') == ['samsung']
+    click(call,evaluate,'[data-filter-group="ACTIVE"]')
+    assert evaluate('__cards()') == ['multi']
     # Accepted canonical replacement updates options and still combines filters.
     evaluate("WealthIpoState.setMarketIpos(__ipos.filter(i=>i.ipo_id==='multi'));WealthIpoState.renderIpoList()")
     assert evaluate('__cards()') == ['multi']

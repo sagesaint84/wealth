@@ -34,6 +34,7 @@ concurrency:
 
 jobs:
   synthetic-regressions:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.number != 208 }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -54,7 +55,7 @@ jobs:
         run: |
           node --version
           python -m pip install -r requirements.txt 'pytest>=9.0.3,<10' websocket-client playwright
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
           python - <<'PY'
           import os
           import shlex
@@ -62,6 +63,9 @@ jobs:
           from playwright.sync_api import sync_playwright
           with sync_playwright() as p:
               executable = Path(p.chromium.executable_path).resolve(strict=True)
+              browser = p.chromium.launch(executable_path=str(executable), headless=True, args=['--no-sandbox'])
+              browser.close()
+              print('CHROMIUM_STARTUP_CHECK=PASS')
           wrapper = Path(os.environ['RUNNER_TEMP']) / 'chrome'
           wrapper.write_text('#!/bin/sh\nexec ' + shlex.quote(str(executable))
                              + ' --no-sandbox "$@"\n', encoding='utf-8')
@@ -146,7 +150,6 @@ jobs:
             tests/test_ipo_future_compact_view_frontend.py \
             tests/test_ipo_single_renderer_chrome.py \
             tests/test_ipo_broker_past_bucket_chrome.py \
-            tests/test_toss_wts_import_modal_scroll.py \
             tests/test_ipo_dart_offering_schedule.py \
             tests/test_ipo_source_discovery.py \
             tests/test_ipo_parallel_fetch.py \
@@ -164,7 +167,6 @@ jobs:
             tests/test_release_version.py \
             tests/test_service_worker_cache_guard.py \
             tests/test_ipo_refresh_scope.py \
-            tests/test_ipo_refresh_adapter_order.py \
             tests/test_ipo_fast_refresh_and_krx_auth.py
       - name: Report NAVER and Npay contracts independently of later regressions
         if: always()

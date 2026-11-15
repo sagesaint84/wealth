@@ -2637,7 +2637,7 @@ async def get_ipo_market(request: Request) -> dict:
 async def refresh_ipo_market(request: Request) -> JSONResponse:
     """Refresh shared market schedules without notification or user application effects."""
     username = get_current_username(request)
-    from app.services.ipo.orchestrator import refresh_ipo_market as sync_ipo_market
+    from app.services.ipo.refresh_adapter import refresh_ipo_market as sync_ipo_market
     from app.services.ipo.store import read_market_store
     try:
         result = await asyncio.to_thread(sync_ipo_market, username=username)
@@ -2673,59 +2673,30 @@ async def refresh_ipo_market(request: Request) -> JSONResponse:
 
 @app.post("/api/ipo/historical-sync/preview")
 async def preview_online_historical_ipo_sync(request: Request) -> JSONResponse:
-    """Explicitly query the supported full KRX IPO history and return a no-write preview."""
-    import asyncio as _asyncio
+    """Legacy non-Npay online history collection is disabled; saved history remains readable."""
     username = get_current_username(request)
-    from app.services.ipo.historical_online_sync import (
-        HistoricalOnlineSyncAlreadyRunning,
-        HistoricalOnlineSyncError,
-        create_online_historical_preview,
+    del username
+    return JSONResponse(
+        {"detail": {
+            "code": "IPO_NPAY_ONLY_HISTORICAL_SYNC_DISABLED",
+            "message": "온라인 과거자료 재수집은 비활성화되었습니다. 저장된 과거자료 조회 또는 공식 파일 가져오기를 이용해 주세요.",
+        }},
+        status_code=410,
+        headers={"Cache-Control": "no-store"},
     )
-    try:
-        result = await _asyncio.to_thread(create_online_historical_preview, username)
-    except HistoricalOnlineSyncAlreadyRunning as exc:
-        return JSONResponse(
-            {"detail": {"code": exc.code, "message": str(exc)}},
-            status_code=409,
-            headers={"Cache-Control": "no-store"},
-        )
-    except HistoricalOnlineSyncError as exc:
-        source_failure = exc.code in {"KRX_HISTORY_FETCH_FAILED", "KRX_HISTORY_EMPTY"}
-        return JSONResponse(
-            {"detail": {"code": exc.code, "message": str(exc)}},
-            status_code=502 if source_failure else 400,
-            headers={"Cache-Control": "no-store"},
-        )
-    return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/ipo/historical-sync/commit")
 async def commit_online_historical_ipo_sync(request: Request) -> JSONResponse:
-    """Apply the exact user-reviewed KRX historical reconciliation preview."""
-    import asyncio as _asyncio
+    """Reject legacy online KRX previews without changing stored market history."""
     username = get_current_username(request)
-    payload = await request.json()
-    ticket = str(payload.get("preview_ticket") or "").strip() if isinstance(payload, dict) else ""
-    if not ticket:
-        return JSONResponse(
-            {"detail": {"code": "PREVIEW_TICKET_REQUIRED", "message": "과거자료 미리보기를 먼저 실행해 주세요."}},
-            status_code=400,
-            headers={"Cache-Control": "no-store"},
-        )
-    from app.services.ipo.historical_online_sync import HistoricalOnlineSyncError, commit_online_historical_preview
-    try:
-        result = await _asyncio.to_thread(commit_online_historical_preview, ticket, username)
-    except HistoricalOnlineSyncError as exc:
-        conflict = exc.code in {"PREVIEW_STALE", "PREVIEW_TICKET_EXPIRED", "PREVIEW_TICKET_IN_USE"}
-        return JSONResponse(
-            {"detail": {"code": exc.code, "message": str(exc)}},
-            status_code=409 if conflict else 400,
-            headers={"Cache-Control": "no-store"},
-        )
-    from app.services.ipo.presentation import present_market_store
-    from app.services.ipo.store import read_market_store
+    del username
     return JSONResponse(
-        {"market": present_market_store(username, read_market_store()), "commit": result},
+        {"detail": {
+            "code": "IPO_NPAY_ONLY_HISTORICAL_SYNC_DISABLED",
+            "message": "온라인 과거자료 재수집은 비활성화되었습니다. 기존 기록은 변경되지 않았습니다.",
+        }},
+        status_code=410,
         headers={"Cache-Control": "no-store"},
     )
 

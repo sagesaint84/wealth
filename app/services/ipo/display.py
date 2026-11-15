@@ -17,15 +17,51 @@ def schedule_field_confirmed(ipo, key):
             and bool(ipo.get(key)) and evidence.get("value") == ipo.get(key))
 
 
+def npay_schedule_field_confirmed(ipo, key):
+    sources = ipo.get("sources")
+    fields = sources.get("schedule_fields") if isinstance(sources, dict) else None
+    evidence = fields.get(key) if isinstance(fields, dict) else None
+    return (isinstance(evidence, dict) and evidence.get("source") == "npay"
+            and bool(ipo.get(key)) and evidence.get("value") == ipo.get(key))
+
+
+def npay_schedule_field_currently_confirmed(ipo, key):
+    """Require field evidence from the latest successful Npay refresh attempt."""
+    if not npay_schedule_field_confirmed(ipo, key):
+        return False
+    sources = ipo.get("sources") if isinstance(ipo.get("sources"), dict) else {}
+    fields = sources.get("schedule_fields") if isinstance(sources.get("schedule_fields"), dict) else {}
+    evidence = fields.get(key) if isinstance(fields.get(key), dict) else {}
+    attempts = sources.get("schedule_refresh_attempts")
+    attempt = attempts.get("npay") if isinstance(attempts, dict) else None
+    if not isinstance(attempt, dict):
+        return True
+    if not str(attempt.get("outcome") or "").startswith(("read_ok", "partial_item_error")):
+        return False
+    try:
+        observed_at = datetime.fromisoformat(str(evidence.get("observed_at") or ""))
+        attempted_at = datetime.fromisoformat(str(attempt.get("last_attempt_at") or ""))
+        kst = timezone(timedelta(hours=9))
+        observed_at = observed_at.astimezone(kst) if observed_at.tzinfo else observed_at.replace(tzinfo=kst)
+        attempted_at = attempted_at.astimezone(kst) if attempted_at.tzinfo else attempted_at.replace(tzinfo=kst)
+    except ValueError:
+        return False
+    return observed_at >= attempted_at
+
+
 def schedule_condition(ipo):
     sources = ipo.get("sources") or {}
     if not isinstance(sources, dict):
         sources = {}
     state = sources.get("dart_schedule_status")
     verification = sources.get("dart_schedule_verification")
+    reconciliation = sources.get("schedule_reconciliation")
     status = state.get("status") if isinstance(state, dict) else None
     if status in {"postponed", "withdrawn"}:
         return status
+    reconciliation_status = reconciliation.get("status") if isinstance(reconciliation, dict) else None
+    if reconciliation_status in {"partial", "review_required"}:
+        return "unverified"
     # DART linkage is disclosure evidence, not a veto on another provider's
     # observed dates. Require field evidence so a provider logo alone cannot
     # turn unrelated retained dates into a confirmed schedule.
@@ -69,7 +105,8 @@ def display_records(records, today=None):
         if not isinstance(row.get("sources"), dict):
             row["sources"] = {}
         sources = row["sources"]
-        for key in ("dart", "dart_schedule", "dart_schedule_status", "dart_schedule_verification", "kind", "schedule_fields"):
+        for key in ("dart", "dart_schedule", "dart_schedule_status", "dart_schedule_verification",
+                    "kind", "schedule_fields", "schedule_reconciliation", "schedule_refresh_attempts"):
             if key in sources and not isinstance(sources[key], dict):
                 sources[key] = {}
         if not row.get("actual_listing_date") and not sources.get("dart_schedule_verification"):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,19 +43,22 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         revision = assets.revisions[0]
         # App release metadata and per-file revisions remain separate.
         self.assertEqual(revision, '2.1.3-p0')
-        layout = '/static/wealth-layout.js?v=2.1.3-home-tabs1'
-        self.assertEqual(assets.scripts.count(layout), 1)
-        core = '/static/wealth.js?v=2.1.9-profit-label1'
-        money = '/static/wealth-money-input.js?v=2.1.9-ui1'
-        self.assertIn(core, html)
-        self.assertIn(money, html)
-        self.assertLess(html.index(core), html.index(money))
-        self.assertEqual(assets.scripts.count(core), 1)
-        self.assertEqual(assets.scripts.count(money), 1)
-        self.assertLess(assets.scripts.index(core), assets.scripts.index(money))
-        self.assertTrue((ROOT / 'app/static/wealth.js').is_file())
-        self.assertTrue(MONEY_JS.is_file())
-        for script in (layout, core, money):
+        loaded = {}
+        for name in ('wealth-layout.js', 'wealth.js', 'wealth-money-input.js'):
+            path = '/static/' + name
+            matches = [src for src in assets.scripts if urlsplit(src).path == path]
+            self.assertEqual(len(matches), 1, name)
+            script = matches[0]
+            revisions = parse_qs(urlsplit(script).query, keep_blank_values=True).get('v', [])
+            self.assertEqual(len(revisions), 1, script)
+            self.assertTrue(revisions[0].strip(), script)
+            self.assertTrue((ROOT / 'app/static' / name).is_file())
+            loaded[name] = script
+        self.assertLess(
+            assets.scripts.index(loaded['wealth.js']),
+            assets.scripts.index(loaded['wealth-money-input.js']),
+        )
+        for script in loaded.values():
             self.assertEqual(sum(src.split('?', 1)[0] == script.split('?', 1)[0] for src in assets.scripts), 1)
             self.assertTrue((ROOT / 'app/static' / script.split('?', 1)[0].rsplit('/', 1)[1]).is_file())
 

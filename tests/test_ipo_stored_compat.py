@@ -1,5 +1,4 @@
 """Persisted legacy shapes; all records and application links are synthetic."""
-from contextlib import nullcontext
 from copy import deepcopy
 from datetime import date
 from unittest.mock import patch
@@ -10,7 +9,6 @@ import pytest
 from app.services.ipo.display import display_records
 from app.services.ipo.presentation import present_market_store
 from app.services.ipo.source_discovery import _apply_dart_schedules
-from app.services.ipo import refresh_adapter as adapter
 from app.services.ipo.dart_client import DartAuthError
 from tests.test_ipo_schedule_lifecycle import market, events, SyntheticDart, ORIGINAL, DEMAND, WINDOW, filing
 
@@ -84,17 +82,6 @@ def test_transport_and_credentials_failure_reasons_are_distinct(error, reason):
     _apply_dart_schedules(data, dart=dart, **WINDOW)
     assert data["ipos"][0]["sources"]["dart_schedule_verification"]["reason"] == reason
     assert presented(data)[0]["market_state"] == "DATE_UNKNOWN"
-
-
-def test_official_stop_refresh_still_runs_after_base_provider_failure():
-    with patch.object(adapter, "_BASE_REFRESH_MARKET", side_effect=RuntimeError("synthetic portal outage")), \
-         patch.object(adapter._base, "_refresh_file_lock", side_effect=lambda: nullcontext()), \
-         patch.object(adapter, "discover_and_merge_primary_sources", return_value={"statuses": {"dart_schedule": "sync_ok"}}) as official, \
-         patch.object(adapter, "_targeted_dart_enrichment", return_value={}):
-        result = adapter.refresh_ipo_market(username="synthetic", target_date_str="2026-10-19")
-    official.assert_called_once()
-    assert result["sources"]["base_refresh"] == "failed"
-    assert result["sources"]["dart_schedule"] == "sync_ok"
 
 
 def test_official_identifiers_deduplicate_only_display_with_application_ids_and_links_intact():

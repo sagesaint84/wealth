@@ -5,12 +5,6 @@ let currentRecordView = window.WealthInvestTabState?.current() === 'tax_accounts
 let currentTaxAccountFilter = 'all'; // 'all' | 'isa' | 'irp' | 'pension_savings' | acc_<id>
 // Stock page is intentionally stock-focused; the former asset/stock UI toggle
 // is no longer user-facing. Asset overview remains on the home page.
-const STOCK_PORTFOLIO_MODE = 'sector';
-let currentStockChartCode = '';
-let currentStockChartName = '';
-let currentStockChartPrice = 0;
-let currentStockChartCurrency = 'KRW';
-let currentStockChartPeriod = '1M'; // '1D' | '1W' | '1M' | '1Y'
 let holdingSortField = 'market_value_krw';
 let holdingSortOrder = 'desc'; // 'asc' | 'desc'
 let taxHoldingSortField = 'market_value_krw';
@@ -24,27 +18,46 @@ let heatmapPeriod = localStorage.getItem("heatmap_period") || "1D";
 let heatmapTheme = localStorage.getItem("heatmap_theme") || "kr";
 let heatmapMaxCap = localStorage.getItem("heatmap_max_cap") || "auto";
 
-function getKstYearMonth(now = new Date()) {
+function getKstDateParts(now = new Date()) {
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Seoul',
       year: 'numeric',
       month: 'numeric',
+      day: 'numeric',
     }).formatToParts(now).reduce((acc, p) => {
       if (p.type !== 'literal') acc[p.type] = p.value;
       return acc;
     }, {});
     const year = parseInt(parts.year, 10);
     const month = parseInt(parts.month, 10);
-    const key = `${year}-${String(month).padStart(2, '0')}`;
-    return { year, month, key };
+    const day = parseInt(parts.day, 10);
+    return { year, month, day };
   } catch (e) {
     const d = new Date(new Date(now).getTime() + 9 * 60 * 60 * 1000);
-    const year = d.getUTCFullYear();
-    const month = d.getUTCMonth() + 1;
-    const key = `${year}-${String(month).padStart(2, '0')}`;
-    return { year, month, key };
+    return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
   }
+}
+
+function getKstYearMonth(now = new Date()) {
+  const { year, month } = getKstDateParts(now);
+  const key = `${year}-${String(month).padStart(2, '0')}`;
+  return { year, month, key };
+}
+
+function getKstDateRange(dayCount = 30, now = new Date()) {
+  const count = Number(dayCount);
+  if (!Number.isInteger(count) || count < 1) throw new RangeError('dayCount must be a positive integer');
+  const { year, month, day } = getKstDateParts(now);
+  const todayUtc = Date.UTC(year, month - 1, day);
+  const start = new Date(todayUtc - (count - 1) * 24 * 60 * 60 * 1000);
+  const format = date => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+  return { fromDate: format(start), toDate: format(new Date(todayUtc)) };
+}
+
+function applyTossWtsDefaultDateRange(fromInput, toInput, range = getKstDateRange(30)) {
+  if (fromInput && !fromInput.value) fromInput.value = range.fromDate;
+  if (toInput && !toInput.value) toInput.value = range.toDate;
 }
 
 function shiftYearMonth(year, month, delta) {
@@ -86,6 +99,7 @@ function parseYearMonth(str) {
 
 window.WealthDateHelper = {
   getKstYearMonth,
+  getKstDateRange,
   shiftYearMonth,
   parseYearMonth,
 };
@@ -509,9 +523,9 @@ function renderWithOwner(data, owner) {
   const filteredData = Object.assign({}, src);
 
   if (effectiveOwner !== '모두') {
-    filteredData.accounts = (src.accounts || []).filter(a => (a.owner || '모두') === effectiveOwner);
-    const ownedIds = new Set(filteredData.accounts.map(a => a.id));
-    filteredData.holdings = (src.holdings || []).filter(h => ownedIds.has(h.account_id) || (h.owner && h.owner === effectiveOwner));
+    const owned = window.WealthDashboardOwnerModel.selectAccountsAndHoldings(src, effectiveOwner);
+    filteredData.accounts = owned.accounts;
+    filteredData.holdings = owned.holdings;
 
     filteredData.summary               = computeFilteredSummary(filteredData.accounts, filteredData.holdings, src.fx_rates);
     filteredData.classifications       = computeFilteredClassifications(filteredData.holdings, filteredData.accounts, src.fx_rates, effectiveOwner, src);
@@ -648,6 +662,7 @@ document.addEventListener('input', (e) => {
 
 const html = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]));
 const escapeHtml = html;
+const brokerUI = window.WealthBrokerUI.create({ document, html });
 window.escapeHtml = html;
 const signClass = (value) => Number(value) < 0 ? "down" : "up";
 
@@ -715,40 +730,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 
-function sparkline(points, change) {
-  if (!points || points.length < 2) {
-    if (points && points.length === 1) points = [points[0], points[0]];
-    else return "<span class=\"spark-empty\">—</span>";
-  }
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const span = max - min || (min * 0.01) || 1;
-  const h = 42;
-  const w = 110;
-  const pad = 4;
-
-  const coords = points.map((point, index) => {
-    const x = (index / (points.length - 1)) * (w - pad * 2) + pad;
-    const y = (h - pad) - ((point - min) / span) * (h - pad * 2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-
-  const polylineStr = coords.join(" ");
-  const lastCoord = coords[coords.length - 1].split(",");
-  const lastX = lastCoord[0];
-  const lastY = lastCoord[1];
-
-  const isUp = Number(change) > 0;
-  const isDown = Number(change) < 0;
-  const color = isUp ? "#ff5c77" : (isDown ? "#4f9dff" : "#98a6c8");
-
-  return `
-    <svg class="sparkline" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
-      <polyline points="${polylineStr}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-      <circle cx="${lastX}" cy="${lastY}" r="3" fill="${color}" />
-    </svg>
-  `;
-}
+function sparkline(points, change) { return marketView.sparkline(points, change); }
 
 // Opt-in synthetic profiling only: bounded memory, fixed labels, no payloads/URLs.
 globalThis.WealthStartup = (() => {
@@ -889,268 +871,38 @@ async function apiRequest(url, options = {}) {
 const fetchJson = api;
 window.fetchJson = api;
 
-let toastTimer;
-function toast(message, isError = false) {
-  const element = $("#toast");
-  if (!element) return;
-  element.textContent = message;
-  element.className = `toast show${isError ? " error" : ""}`;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { element.className = "toast"; }, 3600);
-}
-
-function busy(button, enabled) {
-  if (!button) return;
-  button.dataset.label ??= button.textContent;
-  button.disabled = enabled;
-  button.textContent = enabled ? "처리 중…" : button.dataset.label;
-}
-
+const operationFeedback = window.WealthOperationFeedback.create({ $ });
+function toast(message, isError = false) { return operationFeedback.toast(message, isError); }
+function busy(button, enabled) { return operationFeedback.busy(button, enabled); }
 async function action(button, request, after = loadDashboard) {
-  busy(button, true);
-  try {
-    const result = await request();
-    toast(result.message || "반영했습니다.");
-    if (after) await after();
-  } catch (error) {
-    toast(error.message, true);
-  } finally {
-    busy(button, false);
-  }
+  return operationFeedback.action(button, request, after);
 }
 
 // ── 기간별 자산기록 필터링 ──────────────────────────────────────────────────
-function filterRecordsByPeriod(records, period) {
-  if (!records || !records.length || period === 'ALL') return records || [];
-  const sorted = [...records].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+function filterRecordsByPeriod(records, period) { return window.WealthStockRecordsModel.filterRecordsByPeriod(records, period); }
 
-  if (period === '1D') {
-    // 일간: 전날과 당일 2일만 비교
-    return sorted.slice(-2);
-  }
-  if (period === '1W') {
-    // 주간: 5일간 비교
-    return sorted.slice(-5);
-  }
-  if (period === '1M') {
-    // 월간: 1달간 비교 (최근 30일)
-    const now = new Date();
-    const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const mList = sorted.filter(r => r.date && r.date >= cutoff);
-    return mList.length >= 2 ? mList : sorted.slice(-30);
-  }
-  if (period === '1Y') {
-    // 연간: 1년간 비교 (최근 365일)
-    const now = new Date();
-    const cutoff = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const yList = sorted.filter(r => r.date && r.date >= cutoff);
-    return yList.length >= 2 ? yList : sorted.slice(-365);
-  }
-  return sorted;
-}
-
-function buildPreviousRecordMap(records) {
-  const previousByRecord = new Map();
-  const latestByOwner = new Map();
-  records.forEach(record => {
-    const owner = record.owner || '모두';
-    previousByRecord.set(record, latestByOwner.get(owner) || null);
-    latestByOwner.set(owner, record);
-  });
-  return previousByRecord;
-}
+function buildPreviousRecordMap(records) { return window.WealthStockRecordsModel.buildPreviousRecordMap(records); }
 
 // ── 1. 주요 지수 렌더링 ──────────────────────────────────────────────────────
 // ── 1. 주요 지수 렌더링 ──────────────────────────────────────────────────────
 let currentMarketPeriod = '1D';
 let currentMarketAllSub = '3Y'; // '3Y' | '5Y' | '10Y' | 'MAX'
-let marketOverviewData = null;
-let marketFearGreedExpiryTimer = null;
 
 // Display preferences are local to this browser and authenticated account.
 // Unknown/new cards are visible by default; an empty selection is intentional.
-const marketCardKey = item => String(item.symbol || item.label);
-function marketPreferenceKey() {
-  const id=currentUserProfile?.id || currentUserProfile?.username;
-  return id ? `wealth.market-cards.v1:${encodeURIComponent(String(id))}` : null;
-}
-function hiddenMarketCards() {
-  try {const value=JSON.parse(localStorage.getItem(marketPreferenceKey()) || '[]');
-    return new Set(Array.isArray(value) ? value.filter(v=>typeof v==='string'&&v.length<=100).slice(0,64) : []);
-  } catch (_) {return new Set();}
-}
-function marketCardSettings(items) {
-  let button=document.getElementById('marketCardSettings');
-  if(!button){
-    button=document.createElement('button');button.id='marketCardSettings';button.type='button';button.className='button secondary';button.textContent='표시 설정';button.setAttribute('aria-haspopup','dialog');
-    document.querySelector('#marketPanel .panel-head')?.append(button);
-    const dialog=document.createElement('dialog');dialog.id='marketCardDialog';dialog.className='dialog';dialog.setAttribute('aria-labelledby','marketCardDialogTitle');
-    document.body.append(dialog);
-    button.addEventListener('click',()=>{
-      const hidden=hiddenMarketCards(),identity=marketPreferenceKey();
-      dialog.innerHTML='<form><div class="dialog-head"><h2 id="marketCardDialogTitle">표시할 지수 선택</h2></div><div class="market-card-choices"></div><p role="status"></p><div class="dialog-actions"><button type="button" class="button secondary">취소</button><button type="submit" class="button primary">저장</button></div></form>';
-      for(const item of button.marketItems){
-        const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.value=item.key;check.checked=!hidden.has(item.key);const title=document.createElement('span');title.textContent=item.label;label.append(check,title);dialog.querySelector('.market-card-choices').append(label);
-      }
-      dialog.querySelector('[type=button]').onclick=()=>dialog.close();
-      dialog.querySelector('form').onsubmit=e=>{
-        e.preventDefault();if(!identity||identity!==marketPreferenceKey()){dialog.close();return;}
-        const next=new Set(hiddenMarketCards());
-        dialog.querySelectorAll('input').forEach(n=>n.checked?next.delete(n.value):next.add(n.value));
-        try{localStorage.setItem(identity,JSON.stringify([...next]));dialog.close();renderMarkets();}
-        catch(_){dialog.querySelector('[role=status]').textContent='이 브라우저에 설정을 저장하지 못했습니다.';}
-      };
-      dialog.showModal();
-    });
-    window.addEventListener('wealth:role',()=>{dialog.close();renderMarkets();});
-  }
-  button.marketItems=items;button.disabled=!marketPreferenceKey();
-}
+const marketPreferences = window.WealthMarketCardPreferences.create({ getCurrentUserProfile: () => currentUserProfile, renderMarkets, document, window });
+const marketCardKey = marketPreferences.marketCardKey;
+const marketView = window.WealthMarketView.create({
+  $, html, number, document, getCurrentMarketPeriod: () => currentMarketPeriod,
+  getCurrentMarketAllSub: () => currentMarketAllSub, marketCardKey, hiddenMarketCards, marketCardSettings,
+});
+function marketPreferenceKey() { return marketPreferences.marketPreferenceKey(); }
+function hiddenMarketCards() { return marketPreferences.hiddenMarketCards(); }
+function marketCardSettings(items) { return marketPreferences.marketCardSettings(items); }
 
-function renderMarketFearGreed(item) {
-  clearTimeout(marketFearGreedExpiryTimer);
-  marketFearGreedExpiryTimer = null;
-  if (!item) return '';
-  const labels = {'Extreme Fear':'극도의 공포','Fear':'공포','Neutral':'중립','Greed':'탐욕','Extreme Greed':'극도의 탐욕'};
-  const until = typeof item.valid_until === 'string' ? Date.parse(item.valid_until) : NaN;
-  const updated = typeof item.relay_updated_at === 'string' ? Date.parse(item.relay_updated_at) : NaN;
-  const day = typeof item.observed_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.observed_date) ? item.observed_date : null;
-  const good = item.status === 'ok' && typeof item.score === 'number' && Number.isFinite(item.score)
-    && item.score >= 0 && item.score <= 100 && Object.hasOwn(labels, item.rating)
-    && day && Number.isFinite(updated) && Number.isFinite(until) && until > Date.now();
-  let value = '출처 오류 · 점수 조회 불가';
-  if (good) {
-    value = `<strong class="market-sentiment-score market-price" data-cnn-score>${html(number(item.score, 2))} (${html(labels[item.rating])})</strong>`;
-    marketFearGreedExpiryTimer = setTimeout(() => {
-      marketFearGreedExpiryTimer = null;
-      const node = document.getElementById('marketFearGreed');
-      if (node && marketOverviewData?.fear_greed === item) node.outerHTML = renderMarketFearGreed(item);
-    }, Math.min(2147483647, Math.max(1, until - Date.now() + 1)));
-  } else if (item.status === 'stale' || (item.status === 'ok' && Number.isFinite(until) && until <= Date.now())) {
-    value = '갱신 지연 · 오래된 점수는 표시하지 않습니다';
-  } else if (item.status === 'not_connected') {
-    value = '출처 조회 불가 · 점수 미연동';
-  }
-  const stamp = Number.isFinite(updated)
-    ? new Date(updated).toLocaleString('ko-KR', {timeZone:'Asia/Seoul', hour12:false}) : null;
-  return `<article id="marketFearGreed" class="market-card toss-market-card market-sentiment" aria-label="미국 CNN 공포·탐욕">
-    <strong class="market-title">공포탐욕지수</strong><div role="status">${value}</div><details><summary>출처 및 기준 시각</summary><span class="market-sentiment-time">CNN 지수 · 비공식 데이터 중계</span>
-    ${day ? `<span class="market-sentiment-time">중계 기준일 ${html(day)}</span>` : ''}
-    ${stamp ? `<span class="market-sentiment-time">중계 파일 갱신 ${html(stamp)} KST</span>` : ''}
-    <span>실시간 보장 없음 · <a href="https://www.cnn.com/markets/fear-and-greed" target="_blank" rel="noopener noreferrer">CNN 공식 페이지</a>
-    · <a href="https://github.com/chirag127/fear-greed-index-api" target="_blank" rel="noopener noreferrer">중계 GitHub 프로젝트</a></span></details></article>`;
-}
+function renderMarketFearGreed(item) { return marketView.renderMarketFearGreed(item); }
 
-function renderMarkets(result) {
-  if (result) marketOverviewData = result;
-  if (!marketOverviewData) return;
-
-  const mkts = marketOverviewData.markets || [];
-  const fx = marketOverviewData.exchange_rate || {};
-  let period = currentMarketPeriod || '1D';
-  if (period === 'ALL') {
-    period = currentMarketAllSub || '3Y';
-  }
-
-  const allCards = [
-    ...mkts.map(m => {
-      const pStat = (m.periods && (m.periods[period] || m.periods['ALL'])) || {};
-      const change = pStat.change != null ? pStat.change : (m.change != null ? m.change : m.change_price);
-      const changeRate = pStat.change_rate != null ? pStat.change_rate : m.change_rate;
-      const series = (pStat.series && pStat.series.length) ? pStat.series : (m.series || [m.price || 0]);
-      let lbl = m.label || m.name;
-      if (lbl === "S&P 500") lbl = "S&P";
-      if (lbl === "달러 환율") lbl = "달러";
-      return {
-        symbol: m.symbol,
-        label: lbl,
-        price: m.price != null ? m.price : m.current_price,
-        currency: m.currency || 'KRW',
-        change: change,
-        change_rate: changeRate,
-        series: series,
-      };
-    }),
-    (() => {
-      const fxPStat = (fx.periods && (fx.periods[period] || fx.periods['ALL'])) || {};
-      const fxChange = fxPStat.change != null ? fxPStat.change : (fx.change != null ? fx.change : fx.change_price);
-      const fxChangeRate = fxPStat.change_rate != null ? fxPStat.change_rate : fx.change_rate;
-      const fxSeries = (fxPStat.series && fxPStat.series.length) ? fxPStat.series : (fx.series || [fx.rate || 1385]);
-      return {
-        symbol: "USD/KRW",
-        label: "달러",
-        price: fx.rate,
-        currency: "KRW",
-        change: fxChange,
-        change_rate: fxChangeRate,
-        series: fxSeries,
-      };
-    })(),
-    ...(marketOverviewData.rates || [])
-  ];
-
-  // 순서: 코스피 -> 코스닥 -> 달러 -> S&P -> 나스닥 -> 반도체
-  const ORDER = ["코스피", "코스닥", "달러", "S&P", "나스닥", "반도체"];
-  const rows = ORDER.map(name => allCards.find(c => c.label === name)).filter(Boolean);
-  allCards.forEach(c => {
-    if (!rows.includes(c)) rows.push(c);
-  });
-
-  const grid = $("#marketGrid");
-  if (!grid) return;
-
-  const hidden=hiddenMarketCards();
-  marketCardSettings([...rows.map(item=>({key:marketCardKey(item),label:item.kind==='yield'?'금리':item.label})),{key:'cnn-fng',label:'공포탐욕지수'}]);
-  clearTimeout(marketFearGreedExpiryTimer);marketFearGreedExpiryTimer=null;
-  grid.innerHTML = rows.filter(item=>!hidden.has(marketCardKey(item))).map((item) => {
-    if (item.kind === 'yield') {
-      const change = item.value == null || item.change_bp == null ? '—' : `${item.change_bp > 0 ? '+' : ''}${number(item.change_bp, 1)}bp`;
-      const tone = item.change_bp > 0 ? 'up' : item.change_bp < 0 ? 'down' : '';
-      return `<article class="market-card toss-market-card" data-market-symbol="${html(item.symbol)}">
-        <div class="market-chart-col">${sparkline(item.value == null ? [] : item.series, item.change_bp)}</div>
-        <div class="market-info-col"><strong class="market-title">금리</strong>
-          <strong class="market-price ${tone}">${item.value == null ? '조회 불가' : number(item.value, 3) + '%'}</strong>
-          <span class="market-change-point ${tone}">${change}</span>
-        </div></article>`;
-    }
-    const isFx = item.symbol === "USD/KRW";
-    const priceText = isFx ? `${number(item.price, 1)}원` : number(item.price, 2);
-
-    const isUp = Number(item.change_rate) > 0;
-    const isDown = Number(item.change_rate) < 0;
-    const sign = isUp ? "+" : "";
-    const colorClass = isUp ? "up" : (isDown ? "down" : "");
-
-    let changePointText = "";
-    let changeRateText = "";
-    if (item.change_rate != null) {
-      changePointText = item.change != null ? `${sign}${number(item.change, 2)}` : "—";
-      changeRateText = `${sign}${number(item.change_rate, 2)}%`;
-    } else {
-      changePointText = "—";
-      changeRateText = "—";
-    }
-
-    const chartHtml = sparkline(item.series, item.change_rate);
-
-    return `
-      <article class="market-card toss-market-card">
-        <div class="market-chart-col">
-          ${chartHtml}
-        </div>
-        <div class="market-info-col">
-          <strong class="market-title">${html(item.label)}</strong>
-          <strong class="market-price ${colorClass}">${priceText}</strong>
-          <span class="market-change-point ${colorClass}">${changePointText}</span>
-          <span class="market-change-rate ${colorClass}">${changeRateText}</span>
-        </div>
-      </article>
-    `;
-  }).join("") + (hidden.has('cnn-fng') ? '' : renderMarketFearGreed(marketOverviewData.fear_greed));
-  if(!grid.childElementCount){
-    const empty=document.createElement('p'),button=document.createElement('button');empty.textContent='표시할 지수를 선택하세요';button.type='button';button.className='button secondary';button.textContent='표시 설정';button.onclick=()=>document.getElementById('marketCardSettings').click();empty.append(button);grid.append(empty);
-  }
-}
+function renderMarkets(result) { return marketView.renderMarkets(result); }
 
 // ── 대시보드 전역 기간 탭 연동 (주요지수 ↔ 자산기록 ↔ 자산히트맵) ──────────────
 function setDashboardPeriod(period, subOption = null) {
@@ -1180,22 +932,18 @@ function setDashboardPeriod(period, subOption = null) {
 
   // 1. 주요지수 탭 동기화
   currentMarketPeriod = mktPeriod;
-  document.querySelectorAll("#marketPeriodTabs .heatmap-tab").forEach(t => {
-    t.classList.toggle("active", t.dataset.period === mktPeriod);
-  });
+  window.WealthApplyPeriodButtonSelection(document.querySelectorAll("#marketPeriodTabs .heatmap-tab"), mktPeriod);
   const selectEl = document.getElementById("marketPeriodSelect");
   if (selectEl && selectEl.value !== currentMarketAllSub) {
     selectEl.value = currentMarketAllSub;
   }
-  if (marketOverviewData) {
-    renderMarkets(marketOverviewData);
+  if (marketView.hasData()) {
+    renderMarkets(marketView.getData());
   }
 
   // 2. 자산기록 탭 동기화
   currentRecordPeriod = recPeriod;
-  document.querySelectorAll("#recordPeriodTabs .heatmap-tab").forEach(t => {
-    t.classList.toggle("active", t.dataset.period === recPeriod);
-  });
+  window.WealthApplyPeriodButtonSelection(document.querySelectorAll("#recordPeriodTabs .heatmap-tab"), recPeriod);
   if (window.assetRecords || assetRecords) {
     renderAssetRecords(window.assetRecords || assetRecords);
   }
@@ -1203,9 +951,7 @@ function setDashboardPeriod(period, subOption = null) {
   // 3. 자산히트맵 탭 동기화
   heatmapPeriod = hmPeriod;
   localStorage.setItem("heatmap_period", heatmapPeriod);
-  document.querySelectorAll("#heatmapPeriodTabs .heatmap-tab").forEach(t => {
-    t.classList.toggle("active", t.dataset.period === hmPeriod);
-  });
+  window.WealthApplyPeriodButtonSelection(document.querySelectorAll("#heatmapPeriodTabs .heatmap-tab"), hmPeriod);
   if (dashboard) {
     renderHeatmaps(dashboard);
   }
@@ -1328,6 +1074,8 @@ function buildRealizedPnlDisplaySummary(summary = {}, records = [], preferCanoni
       : (unconvertedRecordCount > 0 ? `미환산 해외 실현손익 ${unconvertedRecordCount}건 포함` : '원화 실현손익 합계 미완성'),
   };
 }
+
+const investmentSummaryView = window.WealthInvestmentSummaryView.create({ $, money, number });
 
 function renderSummary(data) {
   const s = data.summary || {}, currencies = data.currency_summary || {};
@@ -1614,40 +1362,24 @@ function renderSummary(data) {
   // are separate metrics. The latter may contain trades, quantity changes,
   // and FX translation effects.
   const day = data.day_change || {};
-  if ($("#dayProfitVal")) {
-    const dayProfit = day.day_profit_krw;
-    const stockValue = s.total_stock_value_krw;
-    const rate = Number.isFinite(dayProfit) && Number.isFinite(stockValue)
-      && stockValue > 0 && day.price_profit_status === 'complete'
-      ? dayProfit / stockValue * 100 : null;
-    const rateText = Number.isFinite(rate) ? `${rate >= 0 ? '+' : ''}${rate.toFixed(2)}%` : '—';
-    $("#dayProfitVal").title = '당일 가격변동 손익 ÷ 총 주식자산';
-    if (Number.isFinite(dayProfit)) {
-      const sign = day.day_profit_krw >= 0 ? "+" : "";
-      const partial = day.price_profit_status === 'partial' ? ' · 일부 종목 기준 없음' : '';
-      $("#dayProfitVal").textContent = `일 수익 ${sign}${money(day.day_profit_krw)} (${rateText})${partial}`;
-      $("#dayProfitVal").style.color = day.day_profit_krw >= 0 ? "#f43f5e" : "#38bdf8";
-    } else {
-      $("#dayProfitVal").textContent = `일 수익 — (—)`;
-      $("#dayProfitVal").style.color = "#94a3b8";
-    }
-  }
-  if ($("#dayCaption")) {
-    $("#dayCaption").textContent = day.date ? `${day.date} 기록 기준` : '기록 기준 없음';
-    $("#dayCaption").title = '일 수익은 시장 session 가격변동 손익이며 전 기록 대비 평가액 변화와 다릅니다.';
-  }
+  const dayProfit = day.day_profit_krw;
+  const stockValue = s.total_stock_value_krw;
+  const hasDayProfit = Number.isFinite(dayProfit);
+  const rate = hasDayProfit && Number.isFinite(stockValue)
+    && stockValue > 0 && day.price_profit_status === 'complete'
+    ? dayProfit / stockValue * 100 : null;
+  investmentSummaryView.renderDailyPnl({
+    profit: hasDayProfit ? dayProfit : null,
+    rate: Number.isFinite(rate) ? rate : null,
+    partial: day.price_profit_status === 'partial',
+    date: day.date,
+  });
 
   const krwStock = krw.stock_value_krw || (Number(krw.market_value_krw || 0) - Number(krw.cash || 0));
-  $("#krwValue") && ($("#krwValue").textContent = money(krw.market_value_krw || 0));
-  $("#krwCaption") && ($("#krwCaption").textContent = `주식 평가 ${money(krwStock)}`);
-  const krwCashBadgeEl = $("#krwCashBadge");
-  if (krwCashBadgeEl) krwCashBadgeEl.textContent = `(예수금 ${money(krw.cash || 0)})`;
+  investmentSummaryView.renderCurrency({ currency: "KRW", marketValue: krw.market_value_krw || 0, stockValue: krwStock, cash: krw.cash || 0 });
 
   const usdStock = usd.stock_value || (Number(usd.market_value || 0) - Number(usd.cash || 0));
-  $("#usdValue") && ($("#usdValue").textContent = money(usd.market_value || 0, "USD"));
-  $("#usdCaption") && ($("#usdCaption").textContent = `주식 평가 ${money(usdStock, "USD")}`);
-  const usdCashBadgeEl = $("#usdCashBadge");
-  if (usdCashBadgeEl) usdCashBadgeEl.textContent = `(예수금 ${money(usd.cash || 0, "USD")})`;
+  investmentSummaryView.renderCurrency({ currency: "USD", marketValue: usd.market_value || 0, stockValue: usdStock, cash: usd.cash || 0 });
 
   $("#updatedAt") && ($("#updatedAt").textContent = data.updated_at ? `마지막 자산 반영 ${new Date(data.updated_at).toLocaleString("ko-KR")}` : "아직 보유종목이 없습니다.");
   $("#accountCaption") && ($("#accountCaption").textContent = `전체 ${number(s.account_count, 0)}개 계좌`);
@@ -1676,183 +1408,16 @@ function renderSummary(data) {
 }
 
 // ── 3. 투자자산 분류 & 섹터별 도넛 원그래프 ──────────────────────────────────
-const SECTOR_COLORS = [
-  '#8e70fa', '#38bdf8', '#34d399', '#f59e0b', '#ec4899',
-  '#a78bfa', '#06b6d4', '#10b981', '#f97316', '#fb7185',
-  '#6366f1', '#14b8a6', '#84cc16', '#eab308', '#d946ef', '#64748b'
-];
+const sectorView = window.WealthSectorView.create({
+  $, html, money, number, signClass, document, window, renderHoldings,
+  getDashboard: () => dashboard, getRawDashboard: () => rawDashboard,
+});
+function renderClassifications(items) { return sectorView.renderClassifications(items); }
+function filterHoldingsByClassification(name) { return sectorView.filterHoldingsByClassification(name); }
 
 function maskBrokerAccountNo(value) {
   const normalized = String(value || "").replace(/[\s-]+/g, "");
   return normalized ? `계좌 ****${normalized.slice(-4)}` : "";
-}
-
-function bindSectorDonutInteractions(container) {
-  const nodes = [...container.querySelectorAll('[data-donut-key]')];
-  const setActive = (key) => {
-    container.classList.toggle('has-donut-hover', Boolean(key));
-    nodes.forEach(node => node.classList.toggle('is-donut-active', node.dataset.donutKey === key));
-  };
-  nodes.forEach(node => {
-    // Property handlers are replaced on a repeated render rather than accumulated.
-    node.onpointerenter = () => setActive(node.dataset.donutKey);
-    node.onpointerleave = () => setActive(null);
-    node.onfocus = () => setActive(node.dataset.donutKey);
-    node.onblur = () => setActive(null);
-    node.onkeydown = event => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        filterHoldingsByClassification(node.dataset.sectorFilter);
-      }
-    };
-  });
-}
-
-function renderAllocationDonut(items, emptyMsg = "투자자산 데이터가 없습니다.") {
-  const wrap = $("#sectorDonutWrap");
-  if (!wrap) return;
-
-  const validItems = (items || []).filter(s => s.market_value_krw > 0);
-  if (!validItems.length) {
-    wrap.innerHTML = `<div class="empty">${html(emptyMsg)}</div>`;
-    return;
-  }
-
-  const total = validItems.reduce((sum, s) => sum + s.market_value_krw, 0);
-  const size = 140, r = 54, cx = 70, cy = 70, strokeWidth = 24;
-  const circumference = 2 * Math.PI * r;
-
-  let offset = 0;
-  const slices = validItems.map((s, idx) => {
-    const donutKey = `classification:${String(s.name || '')}`;
-    const pct = total > 0 ? (s.market_value_krw / total) : 0;
-    const dash = pct * circumference;
-    const color = window.WealthColorPreferences.register('stock_category_colors',s,SECTOR_COLORS[idx % SECTOR_COLORS.length]);
-    const el = `
-      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="${strokeWidth}"
-        stroke-dasharray="${dash.toFixed(2)} ${(circumference - dash).toFixed(2)}"
-        stroke-dashoffset="${(-offset).toFixed(2)}" stroke-linecap="round"
-        class="clickable-sector-slice" data-sector-filter="${html(s.name)}" data-color-key="${html(window.WealthColorPreferences.keyFor('stock_category_colors',s))}" data-donut-key="${html(donutKey)}" style="cursor:pointer;">
-        <title>${s.name}: ${money(s.market_value_krw)} (${(pct * 100).toFixed(1)}%) - 클릭하여 종목 검색</title>
-      </circle>
-    `;
-    offset += dash;
-    return el;
-  }).join('');
-
-  const legendHtml = validItems.map((s, idx) => {
-    const donutKey = `classification:${String(s.name || '')}`;
-    const color = window.WealthColorPreferences.register('stock_category_colors',s,SECTOR_COLORS[idx % SECTOR_COLORS.length]);
-    return `
-      <div class="sector-legend-item clickable-sector-item" data-sector-filter="${html(s.name)}" data-color-key="${html(window.WealthColorPreferences.keyFor('stock_category_colors',s))}" data-donut-key="${html(donutKey)}" tabindex="0" style="cursor:pointer;" title="${html(s.name)} 관련 종목 검색">
-        <span style="display:flex;align-items:center;gap:6px;">
-          <i class="sector-legend-color" style="background:${color};"></i>
-          <strong>${html(s.name)}</strong>
-        </span>
-        <span class="muted">${number(s.weight, 1)}%</span>
-      </div>
-    `;
-  }).join('');
-
-  wrap.innerHTML = `
-    <div class="sector-donut-container">
-      <div class="sector-donut-svg-wrap">
-        <svg class="sector-donut-svg" viewBox="0 0 ${size} ${size}">
-          ${slices}
-        </svg>
-      </div>
-      <div class="sector-legend-list">
-        ${legendHtml}
-      </div>
-    </div>
-  `;
-  bindSectorDonutInteractions(wrap.querySelector('.sector-donut-container'));
-}
-
-// ── 자산 분류 (섹터/자산군) 클릭 시 보유종목 자동 검색 & 스크롤 연동 ─────────────
-function filterHoldingsByClassification(name) {
-  if (!name) return;
-  const searchInput = $("#searchInput");
-  if (!searchInput) return;
-
-  const currentVal = searchInput.value.trim();
-  // 동일 항목 재클릭 시 검색어 해제(토글)
-  if (currentVal.toLowerCase() === name.toLowerCase()) {
-    searchInput.value = '';
-  } else {
-    searchInput.value = name;
-  }
-
-  if (dashboard) renderHoldings(dashboard);
-
-  const holdingsPanel = document.getElementById('holdingsPanel');
-
-  // 보유종목 섹션으로 부드럽게 스크롤 & 검색창 하이라이트
-  if (holdingsPanel) {
-    holdingsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-  searchInput.focus();
-  searchInput.classList.remove('search-pulse');
-  void searchInput.offsetWidth; // re-flow
-  searchInput.classList.add('search-pulse');
-}
-
-function renderClassifications(items) {
-  const list = $("#classificationList");
-  const donutWrap = $("#sectorDonutWrap");
-  if (!list) return;
-
-  if (donutWrap) donutWrap.style.display = 'block';
-  list.classList.add('sector-mode');
-  list.style.display = 'flex';
-  list.style.flexDirection = 'column';
-
-  if (STOCK_PORTFOLIO_MODE === 'sector') {
-    const sectors = dashboard?.sector_classifications || rawDashboard?.sector_classifications || [];
-    renderAllocationDonut(sectors, '섹터별 투자자산 데이터가 없습니다.');
-    list.innerHTML = sectors.length ? sectors.map((item,index) => `
-      <div class="classification-row clickable-sector-row" data-sector-filter="${html(item.name)}" data-color-key="${html(window.WealthColorPreferences.keyFor('stock_category_colors',item))}" style="cursor:pointer;--classification-color:${window.WealthColorPreferences.register('stock_category_colors',item,SECTOR_COLORS[index % SECTOR_COLORS.length])};" title="🔍 클릭하여 '${html(item.name)}' 보유종목 보기">
-        <div class="classification-title">
-          <strong>${html(item.name)}</strong>
-          <span>${number(item.holding_count, 0)}종목 · ${number(item.weight, 1)}%</span>
-        </div>
-        <div class="classification-value">
-          <span>${money(item.market_value_krw)}</span>
-          <b class="${signClass(item.profit_krw)}">${item.return_rate >= 0 ? "+" : ""}${number(item.return_rate, 2)}%</b>
-        </div>
-        <div class="bar"><i style="width:${Math.min(item.weight, 100)}%"></i></div>
-      </div>
-    `).join("") : '<div class="empty">섹터별 투자자산 데이터가 없습니다.</div>';
-  } else {
-    const classes = dashboard?.classifications || rawDashboard?.classifications || items || [];
-    renderAllocationDonut(classes, '자산군별 투자자산 데이터가 없습니다.');
-    list.innerHTML = classes.length ? classes.map((item,index) => {
-      let subLabel = `${number(item.holding_count, 0)}종목 · 비중 ${number(item.weight, 1)}%`;
-      if (item.name === '부동산') {
-        subLabel = `부동산 평가액 · 비중 ${number(item.weight, 1)}%`;
-      } else if (item.name === '현금·예수금') {
-        subLabel = `은행·예적금 포함 · 비중 ${number(item.weight, 1)}%`;
-      } else if (item.name === '보험') {
-        subLabel = `보험 평가 기준액 · 비중 ${number(item.weight, 1)}%`;
-      }
-
-      const returnRate = window.WealthAssetReturnDisplay?.(item) ?? null;
-
-      return `
-        <div class="classification-row clickable-sector-row" data-sector-filter="${html(item.name)}" data-color-key="${html(window.WealthColorPreferences.keyFor('stock_category_colors',item))}" style="cursor:pointer;--classification-color:${window.WealthColorPreferences.register('stock_category_colors',item,SECTOR_COLORS[index % SECTOR_COLORS.length])};" title="🔍 클릭하여 '${html(item.name)}' 상세 보기">
-          <div class="classification-title">
-            <strong>${html(item.name)}</strong>
-            <span>${subLabel}</span>
-          </div>
-          <div class="classification-value">
-            <span>${money(item.market_value_krw)}</span>
-            ${returnRate !== null ? `<b data-metric="return-rate" title="수익률" class="${signClass(item.profit_krw)}">${returnRate >= 0 ? "+" : ""}${number(returnRate, 2)}%</b>` : '<span data-metric="return-rate" class="muted" title="수익률 미산정" aria-label="수익률 미산정">—</span>'}
-          </div>
-          <div class="bar"><i style="width:${Math.min(item.weight, 100)}%"></i></div>
-        </div>
-      `;
-    }).join("") : '<div class="empty">자산을 불러오면 분류별 수익률을 표시합니다.</div>';
-  }
 }
 
 window.addEventListener('wealth:colors',()=>{if(dashboard || rawDashboard)renderClassifications(dashboard?.classifications || rawDashboard?.classifications || []);});
@@ -1887,10 +1452,16 @@ function isTaxAdvantagedAccount(account) {
 }
 
 // ── 4. 계좌 목록 렌더링 ──────────────────────────────────────────────────────
+const securitiesAccountsView = window.WealthSecuritiesAccountsView.create({
+  html, number, signClass, maskBrokerAccountNo, accountReorder: window.WealthAccountReorder,
+});
 function renderAccounts(items) {
   const container = $("#accountList");
   if (!container) return;
-  if (!items || !items.length) { container.innerHTML = '<div class="empty">동기화된 계좌가 없습니다.</div>'; return; }
+  if (!items || !items.length) {
+    securitiesAccountsView.renderEmpty(container);
+    return;
+  }
   const accountTaxBenefits = calculateOwnerYearPensionTaxBenefits(items);
   const groups = new Map();
   items.forEach((item) => {
@@ -1899,8 +1470,10 @@ function renderAccounts(items) {
     current.items.push(item);
     groups.set(item.broker, current);
   });
-  container.innerHTML = [...groups.values()].map((group) => {
-    const accounts = group.items.map((account) => {
+  const displayGroups = [...groups.values()].map(group => ({
+    broker: group.broker,
+    count: group.count,
+    items: group.items.map(account => {
       const stockVal = Number(account.stock_value_krw || 0);
       const cashKrw = Number(account.cash_krw || 0);
       const cashUsd = Number(account.cash_usd || 0);
@@ -1911,11 +1484,6 @@ function renderAccounts(items) {
       const totalVal = Number(account.market_value_krw !== undefined ? account.market_value_krw : (stockVal + cashTotalKrw));
       const profitVal = Number(account.profit_krw || 0);
 
-      const cashDetailParts = [];
-      if (cashKrw > 0 || cashTotalKrw === 0) cashDetailParts.push(`₩${number(cashKrw, 0)}`);
-      if (cashUsd > 0) cashDetailParts.push(`$${number(cashUsd, 2)}`);
-      const cashFormatted = cashDetailParts.length ? cashDetailParts.join(" / ") : `₩${number(cashTotalKrw, 0)}`;
-
       const accountType = String(account.account_type || "").toLowerCase();
       const accountName = String(account.name || account.account_name || "").toLowerCase();
       const aType = accountType.startsWith("irp") || accountName.includes("irp")
@@ -1925,84 +1493,20 @@ function renderAccounts(items) {
           : (accountType === "isa" || accountName.includes("isa") ? "isa" : "general"));
       const isTaxDeductible = isAccountTaxDeductible(account);
 
-      let typeBadge = "";
-      if (aType === "pension_savings") {
-        if (isTaxDeductible) {
-          typeBadge = `<span class="account-type-tag pension" data-toggle-tax-account-id="${account.id}" title="클릭 시 '비공제'로 즉시 전환" style="font-size:10.5px;padding:2px 6px;border-radius:4px;background:rgba(56,189,248,0.18);color:#38bdf8;border:1px solid rgba(56,189,248,0.4);margin-right:4px;cursor:pointer;">연금(공제O) 🔄</span>`;
-        } else {
-          typeBadge = `<span class="account-type-tag non-deductible" data-toggle-tax-account-id="${account.id}" title="클릭 시 '세액공제 신청'으로 즉시 전환" style="font-size:10.5px;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.18);color:#34d399;border:1px solid rgba(16,185,129,0.4);margin-right:4px;cursor:pointer;">연금(비공제) 🔄</span>`;
-        }
-      } else if (aType === "irp") {
-        if (isTaxDeductible) {
-          typeBadge = `<span class="account-type-tag irp" data-toggle-tax-account-id="${account.id}" title="클릭 시 '비공제'로 즉시 전환" style="font-size:10.5px;padding:2px 6px;border-radius:4px;background:rgba(168,85,247,0.18);color:#c084fc;border:1px solid rgba(168,85,247,0.4);margin-right:4px;cursor:pointer;">IRP(공제O) 🔄</span>`;
-        } else {
-          typeBadge = `<span class="account-type-tag non-deductible" data-toggle-tax-account-id="${account.id}" title="클릭 시 '세액공제 신청'으로 즉시 전환" style="font-size:10.5px;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.18);color:#34d399;border:1px solid rgba(16,185,129,0.4);margin-right:4px;cursor:pointer;">IRP(비공제) 🔄</span>`;
-        }
-      } else if (aType === "isa") {
-        typeBadge = '<span class="account-type-tag isa" style="font-size:10.5px;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.18);color:#34d399;border:1px solid rgba(16,185,129,0.4);margin-right:4px;">ISA</span>';
-      }
-
-      let taxBenefitBox = "";
+      let pension = null;
       if (aType === "pension_savings" || aType === "irp") {
         const dep = Number(account.annual_deposit) || 0;
         const ownerKey = String(account.owner || "모두");
         const currentSaved = accountTaxBenefits.current.byOwner[ownerKey]?.taxSaved || 0;
         const accountKey = String(account.id || '');
         const cumSaved = accountTaxBenefits.cumulative.byAccount[accountKey]?.taxSaved || 0;
-        if (!isTaxDeductible) {
-          taxBenefitBox = `
-            <div style="margin-top:5px;display:inline-flex;align-items:center;gap:6px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.35);border-radius:6px;padding:3px 8px;font-size:11.5px;color:#34d399;font-weight:600;">
-              <span>🌿 비공제 계좌</span>
-              <span style="color:#cbd5e1;font-weight:normal;">(납입 ₩${number(dep, 0)} · 원금 비과세 인출 대상)</span>
-            </div>
-          `;
-        } else {
-          const rate = account.income_level === "high" ? 13.2 : 16.5;
-          const cumText = cumSaved > 0 ? ` · 누적 절세 <strong style="color:#4ade80;font-weight:700;">+₩${number(cumSaved, 0)}</strong>` : '';
-          taxBenefitBox = `
-            <div style="margin-top:5px;display:inline-flex;align-items:center;gap:6px;background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.35);border-radius:6px;padding:3px 8px;font-size:11.5px;color:#38bdf8;font-weight:600;">
-              <span>💎 세액공제 신청</span>
-              <span style="color:#cbd5e1;font-weight:normal;">(납입 ₩${number(dep, 0)} · 소유자 합산 예상 환급 <strong style="color:#4ade80;font-weight:700;">+₩${number(currentSaved, 0)}</strong> / ${rate}%${cumText})</span>
-            </div>
-          `;
-        }
+        const rate = isTaxDeductible ? (account.income_level === "high" ? 13.2 : 16.5) : null;
+        pension = { dep, currentSaved, cumSaved, rate };
       }
-
-      return `<div class="account-row" data-order-id="${html(account.id || '')}" data-order-label="${html(account.name || '계좌')}">
-        <div class="account-row-info">
-          <div class="account-row-title-line" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-            ${typeBadge}
-            <strong class="account-name-text" style="font-size:14px;font-weight:700;">${html(account.name)}</strong>
-            <span class="saving-owner-badge" style="font-size:10.5px;padding:1px 6px;">${html(account.owner || '모두')}</span>
-            ${account.account_no ? `<span style="font-size:10.5px;color:#94a3b8;">${maskBrokerAccountNo(account.account_no)}</span>` : ''}
-          </div>
-          <div class="account-row-sub-line" style="font-size:12px;color:#94a3b8;margin-top:2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <span>주식자산 <strong style="font-weight:600;">₩${number(stockVal, 0)}</strong> (${number(account.holding_count, 0)}종목)</span>
-            <span style="color:#475569;">·</span>
-            <span>예수금 <strong style="color:#38bdf8;font-weight:600;">${cashFormatted}</strong></span>
-          </div>
-          ${taxBenefitBox}
-        </div>
-        <div class="account-row-right">
-          <div class="account-row-values">
-            <div class="account-total-label" style="font-size:10.5px;color:#94a3b8;margin-bottom:1px;font-weight:500;">통장 총 자산</div>
-            <strong class="account-total-val" style="font-size:15px;font-weight:800;letter-spacing:-0.3px;">₩${number(totalVal, 0)}</strong>
-            ${profitVal !== 0 ? `
-              <div class="account-profit-val ${signClass(profitVal)}" style="font-size:11.5px;margin-top:2px;font-weight:700;">
-                ${profitVal > 0 ? '+' : ''}₩${number(profitVal, 0)}
-              </div>
-            ` : ''}
-          </div>
-          <div class="account-row-actions" style="display:flex;align-items:center;gap:5px;">
-            <button class="account-action-button" data-account-edit-id="${account.id}" title="계좌 정보 및 예수금 수정" type="button">✎</button>
-            <button class="mini-delete-button" data-account-del-id="${account.id}" title="계좌 삭제" type="button">🗑️</button>
-          </div>
-        </div>
-      </div>`;
-    }).join("");
-    return `<section class="broker-group" data-order-institution="${html(group.broker || '기타')}"><div class="broker-head"><strong>${html(group.broker)}</strong><span>${number(group.count, 0)}개 계좌</span></div><div class="broker-accounts">${accounts}</div></section>`;
-  }).join("");
-  window.WealthAccountReorder?.rendered('securities');
+      return { account, stockVal, cashKrw, cashUsd, cashTotalKrw, totalVal, profitVal, aType, isTaxDeductible, pension };
+    }),
+  }));
+  securitiesAccountsView.renderAccounts(container, displayGroups);
 }
 
 // ── 4-1. 예·적금, 일반 은행 계좌 및 대출·마이너스통장 ───────────────────────
@@ -2024,6 +1528,8 @@ const REPAYMENT_TYPE_LABELS = {
   principal: "원금균등",
 };
 
+const bankingView = window.WealthBankingView.create({ $, document, html, number, maskBrokerAccountNo, getSavingsContributions: () => window.WealthSavingsContributions });
+
 function renderSavings(savingsList, bankList, loanList, owner = '모두') {
   rawSavingsAccounts = savingsList || [];
   rawBankAccounts = bankList || [];
@@ -2037,15 +1543,9 @@ function renderSavings(savingsList, bankList, loanList, owner = '모두') {
 
 function renderSavingsWithOwner(owner = '모두') {
   const o = owner || currentOwner || '모두';
-  const filteredSavings = o === '모두' 
-    ? rawSavingsAccounts 
-    : rawSavingsAccounts.filter(s => (s.owner || '모두') === o);
-  const filteredBanks = o === '모두' 
-    ? rawBankAccounts 
-    : rawBankAccounts.filter(b => (b.owner || '모두') === o);
-  const filteredLoans = o === '모두' 
-    ? rawLoanAccounts 
-    : rawLoanAccounts.filter(l => (l.owner || '모두') === o);
+  const filteredSavings = window.WealthDashboardOwnerModel.selectOwnedAccounts(rawSavingsAccounts, o);
+  const filteredBanks = window.WealthDashboardOwnerModel.selectOwnedAccounts(rawBankAccounts, o);
+  const filteredLoans = window.WealthDashboardOwnerModel.selectOwnedAccounts(rawLoanAccounts, o);
 
   // 1) 자유통장 잔고 분리
   const positiveBanks = filteredBanks.filter(b => (Number(b.balance) || 0) >= 0);
@@ -2136,156 +1636,28 @@ function renderSavingsWithOwner(owner = '모두') {
   // 1) 예·적금 카드 그리드 렌더링
   const savingsGrid = $("#savingsGrid");
   if (savingsGrid) {
-    if (!filteredSavings.length) {
-      savingsGrid.innerHTML = '<div class="empty" style="grid-column:1/-1;">등록된 예·적금 상품이 없습니다. 상단 [🏦 계좌 추가]에서 예·적금을 선택하세요.</div>';
-    } else {
-      savingsGrid.innerHTML = filteredSavings.map(s => {
-        const isHousing = s.saving_type === 'housing' || !s.end_date;
-        const typeLabel = s.saving_type === 'housing' ? '주택청약' : (s.saving_type === 'deposit' ? '정기예금' : (s.saving_type === 'installment' ? '정기적금' : '자유적금'));
-        const typeClass = s.saving_type === 'housing' ? 'housing' : (s.saving_type || 'deposit');
-        const dDayText = isHousing ? '만기 없음' : (s.d_day != null ? (s.d_day <= 0 ? '만기 달성' : `D-${s.d_day}`) : '자유적립');
-        const dDayClass = isHousing ? 'd-day-badge' : (s.d_day != null && s.d_day <= 0 ? 'd-day-badge done' : 'd-day-badge');
+    const savingsRows = filteredSavings.map(s => {
+      const isHousing = s.saving_type === 'housing' || !s.end_date;
+      const calc = s.calc || {};
+      const withdrawName = s.withdraw_account_id ? (bankMap.get(s.withdraw_account_id) || '연결통장') : '미설정';
+      const depositName = s.deposit_account_id ? (bankMap.get(s.deposit_account_id) || '연결통장') : '미설정';
 
-        const calc = s.calc || {};
-        const taxLabel = s.tax_type === 'preferential' ? '세금우대 (1.4%)' : (s.tax_type === 'tax_free' ? '비과세 (0%)' : '일반과세 (15.4%)');
-
-        const withdrawName = s.withdraw_account_id ? (bankMap.get(s.withdraw_account_id) || '연결통장') : '미설정';
-        const depositName = s.deposit_account_id ? (bankMap.get(s.deposit_account_id) || '연결통장') : '미설정';
-
-        const curVal = Number(s.current_value || s.current_paid_amount || 0);
-        const transferInfo = isHousing
-          ? (s.monthly_amount > 0 ? (s.auto_transfer_day ? `매월 ${s.auto_transfer_day}일 이체 · 월 ₩${number(s.monthly_amount, 0)}` : `월 ₩${number(s.monthly_amount, 0)} 납입`) : '자유 납입')
-          : (s.saving_type === 'deposit' 
-              ? `예치원금: ₩${number(s.target_amount || calc.total_principal || 0, 0)}`
-              : (s.auto_transfer_day ? `매월 ${s.auto_transfer_day}일 이체 · 월 ₩${number(s.monthly_amount || 0, 0)}` : `월 ₩${number(s.monthly_amount || 0, 0)}`));
-
-        return `
-          <div class="saving-card ${isHousing ? 'housing-card' : ''}" data-order-id="${html(s.id || '')}" data-order-institution="${html(s.bank_name || '기타')}" data-order-label="${html(s.product_name || '예·적금')}">
-            <div class="saving-card-header">
-              <div class="saving-card-title-group">
-                <div class="saving-badge-row">
-                  <span class="saving-type-badge ${typeClass}">${typeLabel}</span>
-                  <span class="saving-owner-badge">${html(s.owner || '모두')}</span>
-                  ${dDayText ? `<span class="${dDayClass}">${dDayText}</span>` : ''}
-                </div>
-                <h3 class="saving-product-name">${html(s.product_name)}</h3>
-                <span class="saving-bank-name">${html(s.bank_name)}</span>
-              </div>
-              <div class="account-row-actions saving-card-actions">
-                <button class="account-action-button" data-saving-edit-id="${s.id}" title="수정" type="button">✎</button>
-                <button class="mini-delete-button" data-saving-del-id="${s.id}" title="삭제" type="button">🗑️</button>
-              </div>
-            </div>
-
-            <!-- 진행률 프로그레스 바 -->
-            <div class="saving-progress-wrap">
-              <div class="saving-progress-meta">
-                <span>${isHousing ? `불입 현황 (${s.start_date || '가입일'} ~ 만기 없음${s.elapsed_months ? ` · ${s.elapsed_months}개월 경과` : ''})` : `진행률 (${s.start_date || '가입'} ~ ${s.end_date || '만기'})`}</span>
-                <strong>${isHousing ? '진행중' : `${s.progress_percent || 0}%`}</strong>
-              </div>
-              <div class="saving-progress-track">
-                <div class="saving-progress-bar" style="width: ${isHousing ? 100 : Math.min(100, Math.max(0, s.progress_percent || 0))}%;"></div>
-              </div>
-            </div>
-
-            <!-- 세부 정보 그리드 -->
-            <div class="saving-card-details">
-              <div class="saving-detail-row">
-                <span class="saving-detail-label">약정 금리</span>
-                <span class="saving-detail-val" style="color:#38bdf8;">연 ${s.interest_rate}%</span>
-              </div>
-              <div class="saving-detail-row">
-                <span class="saving-detail-label">계약 기간</span>
-                <span class="saving-detail-val">${isHousing ? '자유 / 무기한' : `${s.duration_months}개월`}</span>
-              </div>
-              <div class="saving-detail-row" style="grid-column:1/-1;">
-                <span class="saving-detail-label">납입 조건</span>
-                <span class="saving-detail-val">${transferInfo}</span>
-              </div>
-              <div class="saving-detail-row">
-                <span class="saving-detail-label">출금 통장</span>
-                <span class="saving-detail-val" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${html(withdrawName)}">${html(withdrawName)}</span>
-              </div>
-              <div class="saving-detail-row">
-                <span class="saving-detail-label">만기 입금</span>
-                <span class="saving-detail-val" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${html(depositName)}">${html(depositName)}</span>
-              </div>
-            </div>
-
-            <!-- 세전·세후 이자 하이라이트 박스 -->
-            <div class="saving-interest-box" style="${isHousing ? 'background:rgba(56,189,248,0.06);border-color:rgba(56,189,248,0.25);' : ''}">
-              <div class="saving-interest-row">
-                <span style="color:#8fa0c5;">${isHousing ? '현재 누적 납입원금' : '총 불입원금'}</span>
-                <span style="color:#e2e8f0;font-weight:600;">₩${number(isHousing ? curVal : (calc.total_principal || 0), 0)}</span>
-              </div>
-              <div class="saving-interest-row">
-                <span style="color:#8fa0c5;">${isHousing ? '연간 예상 이자' : '세전 이자'}</span>
-                <span style="color:#38bdf8;font-weight:600;">+₩${number(calc.pre_tax_interest || 0, 0)}</span>
-              </div>
-              <div class="saving-interest-row">
-                <span style="color:#8fa0c5;">소득세 (${taxLabel})</span>
-                <span style="color:#f43f5e;font-weight:600;">-₩${number(calc.tax_amount || 0, 0)}</span>
-              </div>
-              <div class="saving-interest-row maturity-row">
-                <span>${isHousing ? '현재 평가액 (원금+세후이자)' : '만기 예상 실수령액'}</span>
-                <span style="color:#42d5a3;font-size:14px;">₩${number(isHousing ? (curVal + (calc.after_tax_interest || 0)) : (calc.maturity_total || 0), 0)}</span>
-              </div>
-            </div>
-            ${window.WealthSavingsContributions?.card(s) || ''}
-          </div>
-        `;
-      }).join("");
-    }
+      const curVal = Number(s.current_value || s.current_paid_amount || 0);
+      const progress = isHousing ? 100 : Math.min(100, Math.max(0, s.progress_percent || 0));
+      const maturityValue = isHousing ? (curVal + (calc.after_tax_interest || 0)) : (calc.maturity_total || 0);
+      return { s, withdrawName, depositName, curVal, progress, maturityValue };
+    });
+    bankingView.renderSavings(savingsGrid, savingsRows);
   }
 
   // 2) 자유입출금 통장 목록 테이블 렌더링
   const banksWrap = $("#banksListWrap");
   if (banksWrap) {
-    if (!filteredBanks.length) {
-      banksWrap.innerHTML = '<div class="empty">등록된 자유입출금 통장이 없습니다. 상단 [🏦 계좌 추가]에서 자유입출금 통장을 선택하세요.</div>';
-    } else {
-      banksWrap.innerHTML = `
-        <table class="banks-table">
-          <thead>
-            <tr>
-              <th>은행</th>
-              <th>계좌 이름</th>
-              <th>계좌 번호</th>
-              <th>소유자</th>
-              <th style="text-align:right;">잔고 (KRW)</th>
-              <th>메모</th>
-              <th style="text-align:center;">관리</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${filteredBanks.map(b => {
-              const bal = Number(b.balance || 0);
-              const isMinus = bal < 0;
-              const formattedBal = isMinus ? `-₩${number(Math.abs(bal), 0)}` : `₩${number(bal, 0)}`;
-              const balStyle = isMinus ? 'color:#fb7185;font-weight:700;' : 'color:#38bdf8;font-weight:700;';
-              const minusBadge = isMinus ? '<span class="saving-type-badge loan-minus" style="font-size:10px;padding:2px 6px;margin-left:6px;vertical-align:middle;">🔴 마통</span>' : '';
-
-              return `
-                <tr data-order-id="${html(b.id || '')}" data-order-institution="${html(b.bank_name || '기타')}" data-order-label="${html(b.account_name || '통장')}" style="${isMinus ? 'background:rgba(244,63,94,0.03);' : ''}">
-                  <td><strong>${html(b.bank_name)}</strong></td>
-                  <td>${html(b.account_name)}${minusBadge}</td>
-                  <td style="color:#8fa0c5;font-family:monospace;">${maskBrokerAccountNo(b.account_number) || '-'}</td>
-                  <td><span class="saving-owner-badge">${html(b.owner || '모두')}</span></td>
-                  <td style="text-align:right;${balStyle}">${formattedBal}</td>
-                  <td style="color:#8fa0c5;font-size:11.5px;">${html(b.memo || '')}</td>
-                  <td style="text-align:center;">
-                    <div class="account-row-actions" style="justify-content:center;">
-                      <button class="account-action-button" data-bank-edit-id="${b.id}" title="통장 수정" type="button">✎</button>
-                      <button class="mini-delete-button" data-bank-del-id="${b.id}" title="통장 삭제" type="button">🗑️</button>
-                    </div>
-                  </td>
-                </tr>
-              `;
-            }).join("")}
-          </tbody>
-        </table>
-      `;
-    }
+    const bankRows = filteredBanks.map(b => {
+      const bal = Number(b.balance || 0);
+      return { b, bal, isMinus: bal < 0 };
+    });
+    bankingView.renderBanks(banksWrap, bankRows);
   }
 
   // 3) 대출·마이너스통장 카드 그리드 렌더링
@@ -2330,139 +1702,22 @@ function renderSavingsWithOwner(owner = '모두') {
       });
     });
 
-    if (!allLoanItems.length) {
-      loansGrid.innerHTML = '<div class="empty" style="grid-column:1/-1;">등록된 대출 또는 마이너스통장이 없습니다. 상단 [💳 대출 추가] 버튼을 눌러보세요.</div>';
-    } else {
-      loansGrid.innerHTML = allLoanItems.map(l => {
-        const typeLabel = l.is_from_bank ? "자유연동 마통" : (LOAN_TYPE_LABELS[l.loan_type] || "대출");
-        const repayLabel = REPAYMENT_TYPE_LABELS[l.repayment_type] || "만기일시";
-        const dDayText = l.d_day != null ? (l.d_day <= 0 ? "만기 경과" : `만기 D-${l.d_day}`) : "";
-        const dDayClass = l.d_day != null && l.d_day <= 0 ? "d-day-badge done" : "d-day-badge";
+    const loanRows = allLoanItems.map(l => {
+      const curBal = Number(l.current_balance || 0);
+      const limitAmt = Number(l.limit_amount || 0);
+      const monthlyInt = Number(l.monthly_interest || l.calc?.monthly_interest || 0);
+      const monthlyPay = Number(l.monthly_payment || l.calc?.monthly_payment || monthlyInt);
 
-        const curBal = Number(l.current_balance || 0);
-        const limitAmt = Number(l.limit_amount || 0);
-        const monthlyInt = Number(l.monthly_interest || l.calc?.monthly_interest || 0);
-        const monthlyPay = Number(l.monthly_payment || l.calc?.monthly_payment || monthlyInt);
+      let utilPercent = 0;
+      if (l.loan_type === 'minus' && limitAmt > 0) {
+        utilPercent = Math.min(100, Math.round((curBal / limitAmt) * 100));
+      }
 
-        let utilPercent = 0;
-        if (l.loan_type === 'minus' && limitAmt > 0) {
-          utilPercent = Math.min(100, Math.round((curBal / limitAmt) * 100));
-        }
-
-        const linkedAccountText = l.linked_account_id ? (bankMap.get(l.linked_account_id) || "연결통장") : "미지정";
-        const editAttr = l.is_from_bank ? `data-bank-edit-id="${l.id}"` : `data-loan-edit-id="${l.id}"`;
-        const delAttr = l.is_from_bank ? `data-bank-del-id="${l.id}"` : `data-loan-del-id="${l.id}"`;
-
-        const isUnusedMinus = l.is_from_bank && curBal === 0;
-
-        return `
-          <div class="saving-card loan-card ${isUnusedMinus ? 'unused-minus-card' : ''}" data-order-id="${html(l.id || '')}" data-order-institution="${html(l.bank_name || '기타')}" data-order-label="${html(l.product_name || '대출')}" data-order-derived="${l.is_from_bank ? 'true' : 'false'}">
-            <div class="saving-card-header">
-              <div class="saving-card-title-group">
-                <div class="saving-badge-row">
-                  ${isUnusedMinus ? `
-                    <span class="saving-type-badge loan-credit" style="background:rgba(56,189,248,0.12);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);">🟢 자유연동 마통 (미사용)</span>
-                  ` : `
-                    <span class="saving-type-badge ${l.loan_type === 'minus' ? 'loan-minus' : 'loan-credit'}">${typeLabel}</span>
-                  `}
-                  <span class="saving-owner-badge">${html(l.owner || '모두')}</span>
-                  ${dDayText ? `<span class="${dDayClass}">${dDayText}</span>` : ''}
-                </div>
-                <h3 class="saving-product-name">${html(l.product_name)}</h3>
-                <span class="saving-bank-name">${html(l.bank_name)}</span>
-              </div>
-              <div class="account-row-actions saving-card-actions">
-                <button class="account-action-button" ${editAttr} title="수정" type="button">✎</button>
-                <button class="mini-delete-button" ${delAttr} title="삭제" type="button">🗑️</button>
-              </div>
-            </div>
-
-            ${l.loan_type === 'minus' && limitAmt > 0 ? `
-              <div class="saving-progress-wrap">
-                <div class="saving-progress-meta">
-                  <span>한도 소진율 (한도: ₩${number(limitAmt, 0)})</span>
-                  <strong style="color:${utilPercent >= 80 ? '#fb7185' : '#38bdf8'};">${utilPercent}% ${isUnusedMinus ? '(전액 잔여)' : ''}</strong>
-                </div>
-                <div class="saving-progress-track">
-                  <div class="saving-progress-bar" style="width: ${utilPercent}%; background: ${utilPercent >= 80 ? '#fb7185' : '#38bdf8'};"></div>
-                </div>
-              </div>
-            ` : (l.is_from_bank ? `
-              <div style="font-size:11px;color:#94a3b8;background:rgba(255,255,255,0.03);padding:6px 10px;border-radius:6px;margin:8px 0 4px;display:flex;justify-content:space-between;align-items:center;">
-                <span>마통 한도 미설정</span>
-                <button type="button" ${editAttr} style="background:none;border:none;color:#38bdf8;cursor:pointer;font-size:11px;padding:0;text-decoration:underline;">한도/금리 설정 ✎</button>
-              </div>
-            ` : '')}
-
-            <div class="saving-card-details">
-              <div class="saving-detail-row">
-                <span class="saving-detail-label">약정 금리</span>
-                <span class="saving-detail-val" style="${l.interest_rate > 0 ? (isUnusedMinus ? 'color:#38bdf8;font-weight:700;' : 'color:#fb7185;font-weight:700;') : 'color:#94a3b8;font-size:11px;'}">${l.interest_rate > 0 ? `연 ${l.interest_rate}%` : (l.is_from_bank ? '미설정 (✎ 수정)' : '-')}</span>
-              </div>
-              ${monthlyInt > 0 ? `
-                <div class="saving-detail-row">
-                  <span class="saving-detail-label">월 예상 이자</span>
-                  <span class="saving-detail-val" style="color:#fb7185;font-weight:700;">₩${number(monthlyInt, 0)}</span>
-                </div>
-              ` : (isUnusedMinus ? `
-                <div class="saving-detail-row">
-                  <span class="saving-detail-label">월 예상 이자</span>
-                  <span class="saving-detail-val" style="color:#38bdf8;font-weight:700;">₩0 (미발생)</span>
-                </div>
-              ` : '')}
-              <div class="saving-detail-row">
-                <span class="saving-detail-label">상환 방식</span>
-                <span class="saving-detail-val">${l.is_from_bank ? '자유잔고 차감' : repayLabel}</span>
-              </div>
-              ${!l.is_from_bank && l.linked_account_id ? `
-                <div class="saving-detail-row">
-                  <span class="saving-detail-label">이자 출금 통장</span>
-                  <span class="saving-detail-val" style="font-size:11px;">${html(linkedAccountText)}</span>
-                </div>
-              ` : ''}
-              ${l.maturity_date ? `
-                <div class="saving-detail-row" style="grid-column:1/-1;">
-                  <span class="saving-detail-label">만기일</span>
-                  <span class="saving-detail-val">${html(l.maturity_date)}</span>
-                </div>
-              ` : ''}
-              ${l.memo ? `
-                <div class="saving-detail-row" style="grid-column:1/-1;">
-                  <span class="saving-detail-label">메모</span>
-                  <span class="saving-detail-val" style="color:#94a3b8;font-size:11px;">${html(l.memo)}</span>
-                </div>
-              ` : ''}
-            </div>
-
-            ${isUnusedMinus ? `
-              <div class="saving-interest-box" style="background:rgba(56,189,248,0.06);border-color:rgba(56,189,248,0.25);">
-                <div class="saving-interest-row maturity-row" style="padding-top:0;border-top:none;">
-                  <span style="color:#38bdf8;font-weight:600;">현재 대출 잔액</span>
-                  <span style="color:#38bdf8;font-size:15px;font-weight:700;">₩0 (대출 미사용)</span>
-                </div>
-                <div class="saving-interest-row" style="padding-top:4px;font-size:11px;color:#94a3b8;">
-                  <span>자유통장 잔고 유지중</span>
-                  <span style="color:#38bdf8;font-weight:600;">+₩${number(l.raw_balance || 0, 0)}</span>
-                </div>
-              </div>
-            ` : `
-              <div class="saving-interest-box" style="background:rgba(244,63,94,0.06);border-color:rgba(244,63,94,0.2);">
-                <div class="saving-interest-row maturity-row" style="padding-top:0;border-top:none;">
-                  <span style="color:#fb7185;font-weight:600;">현재 대출 잔액 (부채)</span>
-                  <span style="color:#fb7185;font-size:15px;font-weight:700;">₩${number(curBal, 0)}</span>
-                </div>
-                ${l.repayment_type === 'amortizing' ? `
-                  <div class="saving-interest-row" style="padding-top:4px;font-size:11px;color:#94a3b8;">
-                    <span>월 총 상환액 (원금+이자)</span>
-                    <span>₩${number(monthlyPay, 0)}</span>
-                  </div>
-                ` : ''}
-              </div>
-            `}
-          </div>
-        `;
-      }).join("");
-    }
+      const linkedAccountText = l.linked_account_id ? (bankMap.get(l.linked_account_id) || "연결통장") : "미지정";
+      const isUnusedMinus = l.is_from_bank && curBal === 0;
+      return { l, curBal, limitAmt, monthlyInt, monthlyPay, utilPercent, linkedAccountText, isUnusedMinus };
+    });
+    bankingView.renderLoans(loansGrid, loanRows, LOAN_TYPE_LABELS, REPAYMENT_TYPE_LABELS);
   }
   window.WealthAccountReorder?.rendered('banking');
 }
@@ -2498,10 +1753,7 @@ function calcSavingInterestPreview() {
   const afterTax = preTax - tax;
   const maturity = principal + afterTax;
 
-  if ($("#prevTotalPrincipal")) $("#prevTotalPrincipal").textContent = `₩${number(principal, 0)}`;
-  if ($("#prevPreTaxInterest")) $("#prevPreTaxInterest").textContent = `₩${number(preTax, 0)}`;
-  if ($("#prevTaxAmount")) $("#prevTaxAmount").textContent = `₩${number(tax, 0)}`;
-  if ($("#prevMaturityTotal")) $("#prevMaturityTotal").textContent = `₩${number(maturity, 0)}`;
+  bankingView.renderSavingPreview({ principal, preTax, tax, maturity });
 }
 
 function calcBankMinusPreview() {
@@ -2520,140 +1772,26 @@ function calcBankMinusPreview() {
     const monthlyInt = (debt > 0 && rateInput > 0) ? Math.round(debt * (rateInput / 100) / 12) : 0;
     const utilPercent = (debt > 0 && limitInput > 0) ? Math.min(100, Math.round((debt / limitInput) * 100)) : 0;
 
-    const intEl = $("#bankMinusMonthlyInterest");
-    const utilEl = $("#bankMinusUtilPercent");
-
-    if (intEl) {
-      if (debt > 0) {
-        intEl.textContent = `₩${number(monthlyInt, 0)}`;
-        intEl.style.color = "#fb7185";
-      } else {
-        intEl.textContent = `₩0 (대출 미사용)`;
-        intEl.style.color = "#38bdf8";
-      }
-    }
-
-    if (utilEl) {
-      if (limitInput > 0) {
-        if (debt > 0) {
-          utilEl.textContent = `${utilPercent}% (사용 ₩${number(debt, 0)} / 한도 ₩${number(limitInput, 0)})`;
-          utilEl.style.color = utilPercent >= 80 ? "#fb7185" : "#38bdf8";
-        } else {
-          utilEl.textContent = `0% (한도 ₩${number(limitInput, 0)} 전액 잔여)`;
-          utilEl.style.color = "#38bdf8";
-        }
-      } else {
-        utilEl.textContent = `한도 미설정`;
-        utilEl.style.color = "#94a3b8";
-      }
-    }
+    bankingView.renderBankMinusPreview({ debt, monthlyInt, utilPercent, limitInput });
   } else {
     previewBox.style.display = "none";
   }
 }
 
 function openBankAccountDialog(account = null, fromLoan = false) {
-  const dialog = $("#bankAccountDialog");
-  const form = $("#bankAccountForm");
-  if (!dialog || !form) return;
-  form.reset();
-  form.querySelector("[name='id']").value = account ? account.id : "";
-
-  const typeRow = form.querySelector(".bank-type-select-row");
-  const switcher = form.querySelector(".bank-category-switcher");
-  if (typeRow) typeRow.style.display = account ? "none" : "block";
-  if (switcher) switcher.value = "free";
-
-  const isMinus = account && (Number(account.balance) < 0 || Number(account.limit_amount) > 0 || fromLoan);
-  if ($("#bankAccountDialogTitle")) {
-    if (account) {
-      $("#bankAccountDialogTitle").textContent = isMinus ? "자유연동 마이너스통장 수정" : "자유입출금 통장 수정";
-    } else {
-      $("#bankAccountDialogTitle").textContent = fromLoan ? "마이너스통장 (자유연동) 추가" : "자유입출금 통장 추가";
-    }
-  }
-
-  if (account) {
-    form.querySelector("[name='bank_name']").value = account.bank_name || "";
-    form.querySelector("[name='account_name']").value = account.account_name || "";
-    form.querySelector("[name='account_number']").value = account.account_number || "";
-    form.querySelector("[name='owner']").value = account.owner || "모두";
-    form.querySelector("[name='balance']").value = account.balance ?? 0;
-    form.querySelector("[name='limit_amount']").value = account.limit_amount || "";
-    form.querySelector("[name='interest_rate']").value = account.interest_rate || "";
-    form.querySelector("[name='maturity_date']").value = account.maturity_date || "";
-    form.querySelector("[name='memo']").value = account.memo || "";
-  } else {
-    form.querySelector("[name='owner']").value = currentOwner !== "모두" ? currentOwner : "모두";
-  }
-
-  calcBankMinusPreview();
-  refreshDialogKoreanHints(dialog);
-  dialog.showModal();
+  window.WealthSavingsDialogController.openBank({
+    $, account, fromLoan, currentOwner,
+    isMinusAccount: () => account && (Number(account.balance) < 0 || Number(account.limit_amount) > 0 || fromLoan),
+    calcBankMinusPreview, refreshDialogKoreanHints,
+  });
 }
 
 function openSavingAccountDialog(saving = null) {
-  const dialog = $("#savingAccountDialog");
-  const form = $("#savingAccountForm");
-  if (!dialog || !form) return;
-  form.reset();
-  form.querySelector("[name='id']").value = saving ? saving.id : "";
-
-  const typeRow = form.querySelector(".bank-type-select-row");
-  const switcher = form.querySelector(".bank-category-switcher");
-  if (typeRow) typeRow.style.display = saving ? "none" : "block";
-  if (switcher) switcher.value = "savings";
-
-  if ($("#savingAccountDialogTitle")) {
-    $("#savingAccountDialogTitle").textContent = saving ? "예·적금 상품 수정" : "예·적금 상품 추가";
-  }
-
-  const withdrawSel = $("#savingWithdrawAccountSelect");
-  const depositSel = $("#savingDepositAccountSelect");
-  const bankOptions = '<option value="">-- 은행 계좌 선택 --</option>' + 
-    rawBankAccounts.map(b => `<option value="${b.id}">${b.bank_name} - ${b.account_name} (${b.owner || '모두'})</option>`).join('');
-
-  if (withdrawSel) withdrawSel.innerHTML = bankOptions;
-  if (depositSel) depositSel.innerHTML = bankOptions;
-
-  const isHousing = saving ? (saving.saving_type === 'housing' || !saving.end_date) : false;
-  const noMaturityCheck = $("#savingNoMaturityCheck");
-  if (noMaturityCheck) noMaturityCheck.checked = isHousing;
-
-  if (saving) {
-    form.querySelector("[name='saving_type']").value = saving.saving_type || (isHousing ? "housing" : "deposit");
-    form.querySelector("[name='owner']").value = saving.owner || "모두";
-    form.querySelector("[name='bank_name']").value = saving.bank_name || "";
-    form.querySelector("[name='product_name']").value = saving.product_name || "";
-    form.querySelector("[name='start_date']").value = saving.start_date || "";
-    form.querySelector("[name='end_date']").value = saving.end_date || "";
-    form.querySelector("[name='duration_months']").value = isHousing ? 0 : (saving.duration_months || 12);
-    form.querySelector("[name='interest_rate']").value = saving.interest_rate || "";
-    form.querySelector("[name='monthly_amount']").value = saving.monthly_amount || "";
-    form.querySelector("[name='target_amount']").value = saving.target_amount || "";
-    form.querySelector("[name='current_paid_amount']").value = saving.current_paid_amount || "";
-    form.querySelector("[name='tax_type']").value = saving.tax_type || "normal";
-    form.querySelector("[name='auto_transfer_day']").value = saving.auto_transfer_day || "";
-    if (withdrawSel) withdrawSel.value = saving.withdraw_account_id || "";
-    if (depositSel) depositSel.value = saving.deposit_account_id || "";
-    form.querySelector("[name='memo']").value = saving.memo || "";
-  } else {
-    form.querySelector("[name='owner']").value = currentOwner !== "모두" ? currentOwner : "모두";
-    const todayStr = new Date().toISOString().slice(0, 10);
-    form.querySelector("[name='start_date']").value = todayStr;
-    const nextYear = new Date();
-    nextYear.setFullYear(nextYear.getFullYear() + 1);
-    form.querySelector("[name='end_date']").value = nextYear.toISOString().slice(0, 10);
-  }
-
-  window.WealthSavingsContributions?.protectTotal(saving);
-  $("#savingAutoContributionEnabled").checked = saving?.auto_contribution_enabled === true;
-  $("#savingAutoDebitBalance").checked = typeof saving?.auto_contribution_debit_balance === "boolean"
-    ? saving.auto_contribution_debit_balance : true;
-  updateSavingTypeFields();
-  calcSavingInterestPreview();
-  refreshDialogKoreanHints(dialog);
-  dialog.showModal();
+  window.WealthSavingsDialogController.openSaving({
+    $, saving, currentOwner, rawBankAccounts,
+    isHousingSaving: () => saving ? (saving.saving_type === "housing" || !saving.end_date) : false,
+    updateSavingTypeFields, calcSavingInterestPreview, refreshDialogKoreanHints,
+  });
 }
 
 function updateSavingAutoContributionFields() {
@@ -2681,8 +1819,9 @@ function updateSavingAutoContributionFields() {
   const selected = withdraw.value;
   const banks = rawBankAccounts.filter(b => !active || ((b.currency || "KRW") === "KRW"
     && (owner === "모두" || [owner, "모두"].includes(b.owner || "모두"))));
-  withdraw.innerHTML = '<option value="">-- 은행 계좌 선택 --</option>' + banks.map(b =>
-    `<option value="${escapeHtml(b.id)}">${escapeHtml(b.bank_name)} - ${escapeHtml(b.account_name)} (${escapeHtml(b.owner || '모두')})</option>`).join('');
+  window.WealthBankAccountOptions.render(withdraw, banks, {
+    placeholder: "-- 은행 계좌 선택 --", separator: " - ", emptyMissingId: true,
+  });
   withdraw.value = selected;
 }
 
@@ -2772,18 +1911,7 @@ function calcLoanPreview() {
     monthlyPayment = Math.round(curBal / 12) + monthlyInterest;
   }
 
-  if (document.getElementById('prevLoanBalance')) {
-    document.getElementById('prevLoanBalance').textContent = `₩${number(curBal, 0)}`;
-  }
-  if (document.getElementById('prevLoanRateText')) {
-    document.getElementById('prevLoanRateText').textContent = rate.toFixed(2);
-  }
-  if (document.getElementById('prevLoanInterest')) {
-    document.getElementById('prevLoanInterest').textContent = `₩${number(monthlyInterest, 0)}`;
-  }
-  if (document.getElementById('prevLoanMonthlyPayment')) {
-    document.getElementById('prevLoanMonthlyPayment').textContent = `₩${number(monthlyPayment, 0)}`;
-  }
+  bankingView.renderLoanPreview({ curBal, rate, monthlyInterest, monthlyPayment });
 }
 
 function refreshLoanOverdraftBankOptions(selectedValue = null) {
@@ -2813,56 +1941,17 @@ function refreshLoanOverdraftBankOptions(selectedValue = null) {
     (b.owner || "모두") === owner &&
     !occupiedBankIds.has(b.id)
   );
-  select.innerHTML = '<option value="">-- 자동 상계 사용 안 함 --</option>' +
-    eligibleBanks.map(b => `<option value="${b.id}">${html(b.bank_name)} ${html(b.account_name)} (${html(b.owner || '모두')})</option>`).join('');
+  window.WealthBankAccountOptions.render(select, eligibleBanks, {
+    placeholder: "-- 자동 상계 사용 안 함 --",
+  });
   select.value = eligibleBanks.some(b => b.id === previousValue) ? previousValue : "";
 }
 
 function openLoanAccountDialog(loan = null) {
-  const dialog = $("#loanAccountDialog");
-  const form = $("#loanAccountForm");
-  if (!dialog || !form) return;
-  form.reset();
-  form.querySelector("[name='id']").value = loan ? loan.id : "";
-
-  const typeRow = form.querySelector(".bank-type-select-row");
-  const switcher = form.querySelector(".bank-category-switcher");
-  if (typeRow) typeRow.style.display = loan ? "none" : "block";
-  if (switcher) switcher.value = "loans";
-
-  if ($("#loanAccountDialogTitle")) {
-    $("#loanAccountDialogTitle").textContent = loan ? "대출 · 마이너스통장 수정" : "대출 · 마이너스통장 추가";
-  }
-
-  const select = $("#loanLinkedAccountSelect");
-  if (select) {
-    select.innerHTML = '<option value="">-- 출금 은행 계좌 선택 (선택사항) --</option>' +
-      rawBankAccounts.map(b => `<option value="${b.id}">${html(b.bank_name)} ${html(b.account_name)} (${html(b.owner || '모두')})</option>`).join('');
-  }
-
-  if (loan) {
-    form.querySelector("[name='loan_type']").value = loan.loan_type || "minus";
-    form.querySelector("[name='owner']").value = loan.owner || "모두";
-    form.querySelector("[name='bank_name']").value = loan.bank_name || "";
-    form.querySelector("[name='product_name']").value = loan.product_name || "";
-    form.querySelector("[name='limit_amount']").value = loan.limit_amount || "";
-    form.querySelector("[name='current_balance']").value = loan.current_balance || "";
-    form.querySelector("[name='interest_rate']").value = loan.interest_rate || "";
-    form.querySelector("[name='repayment_type']").value = loan.repayment_type || "bullet";
-    if (select) select.value = loan.linked_account_id || "";
-    refreshLoanOverdraftBankOptions(loan.overdraft_bank_account_id || "");
-    form.querySelector("[name='maturity_date']").value = loan.maturity_date || "";
-    form.querySelector("[name='memo']").value = loan.memo || "";
-  } else {
-    form.querySelector("[name='owner']").value = currentOwner !== "모두" ? currentOwner : "모두";
-    form.querySelector("[name='loan_type']").value = "minus";
-    form.querySelector("[name='repayment_type']").value = "bullet";
-    refreshLoanOverdraftBankOptions("");
-  }
-
-  calcLoanPreview();
-  refreshDialogKoreanHints(dialog);
-  dialog.showModal();
+  window.WealthSavingsDialogController.openLoan({
+    $, loan, currentOwner, rawBankAccounts, refreshLoanOverdraftBankOptions,
+    calcLoanPreview, refreshDialogKoreanHints,
+  });
 }
 
 function openIntegratedBankDialog() {
@@ -2887,16 +1976,8 @@ function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
   setIncomeTab.cancelPending?.();
   setIncomeTab.cancelPending = null;
   const tabs = document.getElementById('incomeTabs');
-  const clearPending = () => {
-    // Restore the original nodes, including their listeners and input state.
-    const controls = document.getElementById('dividendPendingControls');
-    const panel = document.getElementById('dividendPanel');
-    const head = controls?.querySelector('.dividend-head');
-    if (head && panel) panel.prepend(head);
-    controls?.remove();
-    tabs?.removeAttribute?.('aria-busy');
-    document.getElementById('incomeChartStatus')?.remove();
-  };
+  const ui = window.WealthIncomeTabsController;
+  const clearPending = () => ui.clearPending(document, tabs);
   clearPending();
   setIncomeTab.pendingTarget = null;
   // Hash restoration runs before the later currentDividendMode declaration.
@@ -2904,13 +1985,7 @@ function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
     // Route selection is synchronous; only the first chart frame is deferred.
     // layout.navigate() may have run before this function was registered.
     currentIncomeTab = 'dividend';
-    const workspace = document.querySelector('.wealth-workspace');
-    if (workspace) workspace.dataset.incomeTab = 'dividend';
-    document.querySelectorAll('#incomeTabs .income-tab').forEach(button => {
-      const active = button.dataset.income === 'dividend';
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-selected', String(active));
-    });
+    ui.applySelection(document, currentIncomeTab, false);
     if (updateHash) history.replaceState(null, '', '#dividend');
     setIncomeTab.pendingTarget = 'dividend';
     let cancelled = false, releaseWait = null;
@@ -2922,28 +1997,10 @@ function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
       releaseWait = finish;
       window.addEventListener(event, finish, {once:true});
     });
-    tabs?.setAttribute?.('aria-busy', 'true');
-    if (tabs?.insertAdjacentElement) {
-      const status = document.createElement('p');
-      status.id = 'incomeChartStatus'; status.className = 'muted'; status.setAttribute('role','status');
-      status.textContent = '배당 차트를 준비 중입니다…'; tabs.insertAdjacentElement('afterend', status);
-    }
-    // Only the data panel waits for the first unified frame. Keep the existing
-    // controls usable in the same workspace while that panel is being prepared.
+    ui.showPendingStatus(document, tabs);
+    // Keep the existing controls usable while the first chart frame is prepared.
     if (currentIncomeTab !== 'dividend' || !document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell')) {
-      const panel = document.getElementById('dividendPanel');
-      const head = panel?.querySelector('.dividend-head');
-      if (head) {
-        const controls = document.createElement('section');
-        controls.id = 'dividendPendingControls';
-        controls.className = 'panel dividend-panel';
-        controls.setAttribute('aria-label', '배당금 입력 및 조회');
-        panel.before(controls);
-        controls.append(head);
-      }
-      panel?.classList.add('wealth-income-hidden');
-      ['calendarPanel','realizedPnlPanel','ledgerSectionPanel','ipoPanel'].forEach(id =>
-        document.getElementById(id)?.classList.add('wealth-income-hidden'));
+      ui.showPendingControls(document);
     }
     return (async () => {
       try {
@@ -2970,18 +2027,7 @@ function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
   const isKnownTab = ['calendar', 'pnl', 'dividend', 'ledger', 'ipo'].includes(tab);
   const _legacyCheck = ['pnl', 'dividend', 'ledger'].includes(tab);
   currentIncomeTab = isKnownTab ? tab : 'calendar';
-  const workspace = document.querySelector?.('.wealth-workspace');
-  if (workspace) workspace.dataset.incomeTab = currentIncomeTab;
-  document.getElementById('calendarPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'calendar');
-  document.getElementById('realizedPnlPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'pnl');
-  document.getElementById('dividendPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'dividend');
-  document.getElementById('ledgerSectionPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'ledger');
-  document.getElementById('ipoPanel')?.classList.toggle('wealth-income-hidden', currentIncomeTab !== 'ipo');
-  document.querySelectorAll('#incomeTabs .income-tab').forEach(button => {
-    const active = button.dataset.income === currentIncomeTab;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-selected', String(active));
-  });
+  ui.applySelection(document, currentIncomeTab, true);
   if (preparedDividend && !window.WealthUnifiedTimeseries.commitDividend(preparedDividend)) {
     document.getElementById('dividendPanel')?.classList.add('wealth-income-hidden');
     return false;
@@ -3030,10 +2076,7 @@ function switchAccountCategory(category) {
   category = window.WealthAssetCategoryState?.select(category) || category;
   currentAccountCategory = category;
   window.WealthAccountReorder?.setCategory(category);
-  document.querySelectorAll('.account-cat-tab').forEach(tab => {
-    tab.classList.toggle('active', tab.dataset.cat === category);
-    tab.setAttribute('aria-selected', String(tab.dataset.cat === category));
-  });
+  window.WealthIncomeTabsController.applyTabSelection(document.querySelectorAll('.account-cat-tab'), 'cat', category);
 
   const secPanel = document.getElementById('catPanelSecurities');
   const bnkPanel = document.getElementById('catPanelBanking');
@@ -3213,6 +2256,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+const insuranceView = window.WealthInsuranceView.create({ html, number });
+
 function renderInsurance(insuranceList, owner = '모두') {
   rawInsuranceAccounts = insuranceList || [];
   renderInsuranceWithOwner(owner);
@@ -3221,9 +2266,7 @@ function renderInsurance(insuranceList, owner = '모두') {
 function renderInsuranceWithOwner(owner = '모두') {
   if(currentAccountCategory==='tax')renderAssetTaxInformation();
   const o = owner || currentOwner || '모두';
-  const filtered = o === '모두' 
-    ? rawInsuranceAccounts 
-    : rawInsuranceAccounts.filter(ins => (ins.owner || '모두') === o);
+  const filtered = window.WealthDashboardOwnerModel.selectOwnedAccounts(rawInsuranceAccounts, o);
 
   const totalMonthly = filtered.reduce((sum, i) => sum + (Number(i.monthly_premium) || 0), 0);
   const totalPaid = filtered.reduce((sum, i) => sum + (Number(i.total_paid_amount) || 0), 0);
@@ -3236,11 +2279,6 @@ function renderInsuranceWithOwner(owner = '모두') {
 
   const grid = $("#insuranceGrid");
   if (!grid) return;
-
-  if (!filtered.length) {
-    grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">등록된 보험·연금·공제 상품이 없습니다. 상단 [+ 보험/연금 추가] 버튼을 눌러보세요.</div>';
-    return;
-  }
 
   // 상단 절세 요약 배너 업데이트
   let totalCumulativeYuTaxSaved = 0;
@@ -3317,12 +2355,7 @@ function renderInsuranceWithOwner(owner = '모두') {
         const ownerYear = pensionTaxBenefits.cumulative.byOwnerYear[`${ownerKey}\u0000${yYear}`] || { taxSaved: 0 };
         const ySaved = yDeductible ? ownerYear.taxSaved : 0;
 
-        return `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 6px;border-radius:4px;font-size:11.5px;margin-bottom:3px;">
-            <span><strong>${html(yYear)}년:</strong> 입금 ₩${number(yDep, 0)}</span>
-            <span>➔ ${yDeductible ? `<strong style="color:#4ade80;">소유자 합산 절세 ₩${number(ySaved, 0)}</strong>` : '<span style="color:#34d399;font-weight:600;">비공제 (₩0)</span>'}</span>
-          </div>
-        `;
+        return insuranceView.pensionYearRow({ yYear, yDep, yDeductible, ySaved });
       }).join('');
 
       yearlyHistoryHtml = `
@@ -3336,52 +2369,7 @@ function renderInsuranceWithOwner(owner = '모두') {
       `;
     }
 
-    return `
-      <div class="saving-card" style="border:1px solid ${isTaxDeductible ? 'rgba(56,189,248,0.35)' : 'rgba(16,185,129,0.35)'};">
-        <div class="saving-card-header">
-          <div class="saving-card-title-group">
-            <div class="saving-badge-row">
-              <span class="insurance-type-badge ${badgeClass}" style="${isTaxDeductible ? 'background:rgba(56,189,248,0.15);color:#38bdf8;' : 'background:rgba(16,185,129,0.15);color:#34d399;'}">${typeLabel}</span>
-              <span class="payment-status-badge ${badgeClass}" style="${isTaxDeductible ? 'background:rgba(56,189,248,0.15);color:#38bdf8;' : 'background:rgba(16,185,129,0.15);color:#34d399;'}">${statusLabel}</span>
-              <span class="saving-owner-badge">${html(a.owner || '모두')}</span>
-            </div>
-            <h3 class="saving-product-name">${html(a.name)}</h3>
-            <span class="saving-bank-name">${html(a.broker)}</span>
-          </div>
-          <div class="account-row-actions saving-card-actions">
-            <button class="account-action-button" data-account-edit-id="${a.id}" title="계좌 정보 수정" type="button">✎</button>
-          </div>
-        </div>
-
-        <div class="saving-card-details">
-          <div class="saving-detail-row">
-            <span class="saving-detail-label">올해 납입액</span>
-            <span class="saving-detail-val" style="color:#38bdf8;font-weight:700;">₩${number(dep, 0)}</span>
-          </div>
-          <div class="saving-detail-row">
-            <span class="saving-detail-label">연간 납입한도</span>
-            <span class="saving-detail-val">₩18,000,000</span>
-          </div>
-          <div class="saving-detail-row" style="grid-column:1/-1;">
-            <span class="saving-detail-label">세액공제 한도</span>
-            <span class="saving-detail-val">${isTaxDeductible ? `연금저축 600만 · 소유자 합산 900만 (소득구간 ${rate}%)` : '<span style="color:#34d399;">비공제 (원금 비과세 인출 대상)</span>'}</span>
-          </div>
-        </div>
-
-        <div class="saving-interest-box" style="background:${isTaxDeductible ? 'rgba(56,189,248,0.08)' : 'rgba(16,185,129,0.08)'};border-color:${isTaxDeductible ? 'rgba(56,189,248,0.35)' : 'rgba(16,185,129,0.35)'};margin-top:8px;">
-          <div class="saving-interest-row">
-            <span style="color:${isTaxDeductible ? '#38bdf8' : '#34d399'};">소유자 합산 세액공제 대상</span>
-            <span style="color:#e2e8f0;font-weight:600;">₩${number(totalTarget, 0)}${ownerCurrent.isaDeductionTarget > 0 ? ` (ISA 전환 추가 ₩${number(ownerCurrent.isaDeductionTarget, 0)})` : ''}</span>
-          </div>
-          <div class="saving-interest-row maturity-row" style="border-top:1px dashed ${isTaxDeductible ? 'rgba(56,189,248,0.3)' : 'rgba(16,185,129,0.3)'};padding-top:4px;margin-top:4px;">
-            <span style="color:${isTaxDeductible ? '#38bdf8' : '#34d399'};">소유자 합산 예상 세금 절감(환급)액</span>
-            <span style="color:#4ade80;font-size:14px;font-weight:700;">${isTaxDeductible ? `+₩${number(refund, 0)} (${rate}%)` : '₩0 (원금 100% 비과세 인출)'}</span>
-          </div>
-        </div>
-
-        ${yearlyHistoryHtml}
-      </div>
-    `;
+    return insuranceView.pensionCard({ a, isTaxDeductible, badgeClass, typeLabel, statusLabel, dep, rate, totalTarget, ownerCurrent, refund, yearlyHistoryHtml });
   }).join('');
 
   const insuranceCardsHtml = filtered.map(ins => {
@@ -3420,12 +2408,7 @@ function renderInsuranceWithOwner(owner = '모두') {
           const ySaved = yDeductible ? Math.floor(yTarget * (rate / 100)) : 0;
           if (yDeductible) yuCumulativeSaved += ySaved;
 
-          return `
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:3px 6px;border-radius:4px;font-size:11.5px;margin-bottom:3px;">
-            <span><strong>${html(yYear)}년:</strong> 입금 ₩${number(yDep, 0)}</span>
-            <span>➔ ${yDeductible ? `<strong style="color:#4ade80;">소득공제 절세 ₩${number(ySaved, 0)}</strong>` : '<span style="color:#34d399;font-weight:600;">비공제 (₩0)</span>'}</span>
-          </div>
-        `;
+          return insuranceView.umbrellaYearRow({ yYear, yDep, yDeductible, ySaved });
         }).join('');
 
         yuYearlyRowsHtml = `
@@ -3456,69 +2439,7 @@ function renderInsuranceWithOwner(owner = '모두') {
       `;
     }
 
-    return `
-      <div class="saving-card ${isYU ? 'yellow-umbrella-card' : ''}">
-        <div class="saving-card-header">
-          <div class="saving-card-title-group">
-            <div class="saving-badge-row">
-              <span class="insurance-type-badge ${typeKey}">${typeLabel}</span>
-              <span class="payment-status-badge ${statusKey}">${statusLabel}</span>
-              <span class="saving-owner-badge">${html(ins.owner || '모두')}</span>
-            </div>
-            <h3 class="saving-product-name">${html(ins.product_name)}</h3>
-            <span class="saving-bank-name">${html(ins.company_name)}</span>
-          </div>
-          <div class="account-row-actions saving-card-actions">
-            <button class="account-action-button" data-insurance-edit-id="${ins.id}" title="수정" type="button">✎</button>
-            <button class="mini-delete-button" data-insurance-del-id="${ins.id}" title="삭제" type="button">🗑️</button>
-          </div>
-        </div>
-
-        <div class="saving-card-details">
-          <div class="saving-detail-row">
-            <span class="saving-detail-label">월 납입액</span>
-            <span class="saving-detail-val" style="color:#38bdf8;">₩${number(ins.monthly_premium || 0, 0)}</span>
-          </div>
-          <div class="saving-detail-row">
-            <span class="saving-detail-label">누적 납입액</span>
-            <span class="saving-detail-val">₩${number(ins.total_paid_amount || 0, 0)}</span>
-          </div>
-          <div class="saving-detail-row" style="grid-column:1/-1;">
-            <span class="saving-detail-label">계약 기간</span>
-            <span class="saving-detail-val">${html(periodText)}</span>
-          </div>
-          ${ins.memo ? `
-            <div class="saving-detail-row" style="grid-column:1/-1;">
-              <span class="saving-detail-label">메모</span>
-              <span class="saving-detail-val" style="color:#94a3b8;font-size:11px;">${html(ins.memo)}</span>
-            </div>
-          ` : ''}
-        </div>
-
-        ${yuTaxBox}
-        ${typeKey === 'national_pension' ? nationalPensionHistoryMarkup(ins) : ''}
-
-        ${(ins.payout_type === 'monthly_pension' || (Number(ins.monthly_payout) || 0) > 0) ? `
-          <div class="saving-interest-box" style="margin-top:10px;background:rgba(56,189,248,0.06);border-color:rgba(56,189,248,0.35);">
-            <div class="saving-interest-row">
-              <span style="color:#7dd3fc;">💎 월 예상 수령액</span>
-              <span style="color:#38bdf8;font-weight:700;font-size:13.5px;">월 ₩${number(ins.monthly_payout || 0, 0)}</span>
-            </div>
-            <div class="saving-interest-row maturity-row" style="border-top:1px dashed rgba(56,189,248,0.3);padding-top:5px;margin-top:5px;">
-              <span style="color:#e2e8f0;">총자산 환산액 (${ins.payout_duration_years || 20}년)</span>
-              <span style="color:#4ade80;font-size:14.5px;font-weight:800;">₩${number(ins.expected_amount || ins.converted_total_asset || 0, 0)}</span>
-            </div>
-          </div>
-        ` : `
-          <div class="saving-interest-box" style="margin-top:${isYU ? '6px' : '10px'};">
-            <div class="saving-interest-row maturity-row" style="padding-top:0;border-top:none;">
-              <span>예상 수령액 / 해약환급금</span>
-              <span style="color:#42d5a3;font-size:14px;">₩${number(ins.expected_amount || 0, 0)}</span>
-            </div>
-          </div>
-        `}
-      </div>
-    `;
+    return insuranceView.productCard(insuranceView.productStart({ ins, isYU, typeKey, typeLabel, statusKey, statusLabel, periodText, yuTaxBox }), typeKey === 'national_pension' ? nationalPensionHistoryMarkup(ins) : '', insuranceView.productEnd({ ins, isYU }));
   }).join('');
 
   grid.innerHTML = (pensionCardsHtml + insuranceCardsHtml) || '<div class="empty">등록된 보험/연금 상품이 없습니다.</div>';
@@ -3553,6 +2474,8 @@ function updatePensionPayoutFields() {
 
 let yuCurrentYearlyList = [];
 
+const accountYearlyView = window.WealthAccountYearlyView.create({ html, number });
+
 function renderYuYearlyFormRows(form = document.getElementById("insuranceAccountForm")) {
   const container = form?.querySelector("#yuYearlyList");
   if (!container) return;
@@ -3564,38 +2487,16 @@ function renderYuYearlyFormRows(form = document.getElementById("insuranceAccount
 
   let cumulativeSaved = 0;
 
-  if (!yuCurrentYearlyList.length) {
-    container.innerHTML = `<div style="font-size:11px;color:#94a3b8;padding:8px 4px;text-align:center;">등록된 연도별 납입 이력이 없습니다. [+ 연도 추가]를 눌러 과거 연도별 입금액을 기록해보세요.</div>`;
-  } else {
-    container.innerHTML = yuCurrentYearlyList.map((yc, idx) => {
-      const yr = yc.year || (2024 - idx);
-      const dep = Number(yc.deposit || 0);
-      const ded = yc.is_deductible !== false && String(yc.is_deductible) !== "false";
-      const target = ded ? Math.min(dep, maxLimit) : 0;
-      const saved = ded ? Math.floor(target * (rate / 100)) : 0;
-      if (ded) cumulativeSaved += saved;
-
-      return `
-        <div class="yu-yearly-row" data-index="${idx}" style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.25);border:1px solid rgba(234,179,8,0.25);padding:5px 8px;border-radius:6px;">
-          <input type="number" class="yu-yearly-year" value="${yr}" placeholder="연도" style="width:68px;font-size:12px;padding:3px 6px;border-radius:4px;border:1px solid #334155;background:#0f172a;color:#f8fafc;" />
-          <span style="font-size:11px;color:#94a3b8;">년</span>
-          <input type="number" class="yu-yearly-deposit" value="${dep || ''}" placeholder="납입액" style="flex:1;min-width:70px;font-size:12px;padding:3px 6px;border-radius:4px;border:1px solid #334155;background:#0f172a;color:#f8fafc;" min="0" step="any" />
-          <span style="font-size:11px;color:#94a3b8;">원</span>
-          <select class="yu-yearly-deductible" style="width:78px;font-size:11.5px;padding:3px 4px;border-radius:4px;border:1px solid #334155;background:#0f172a;color:${ded ? '#facc15' : '#34d399'};font-weight:600;">
-            <option value="true" ${yc.is_deductible !== false && String(yc.is_deductible) !== "false" ? "selected" : ""}>공제</option>
-            <option value="false" ${yc.is_deductible === false || String(yc.is_deductible) === "false" ? "selected" : ""}>비공제</option>
-          </select>
-          <span class="yu-yearly-saved-badge" style="min-width:85px;text-align:right;font-size:11.5px;font-weight:700;color:${ded ? '#4ade80' : '#34d399'};">
-            ${ded ? `+₩${number(saved, 0)}` : '비공제(₩0)'}
-          </span>
-          <button type="button" class="yu-yearly-del-btn" data-index="${idx}" style="background:transparent;border:none;color:#f87171;cursor:pointer;font-size:14px;padding:0 4px;" title="삭제">✕</button>
-        </div>
-      `;
-    }).join("");
-  }
-
-  const cumEl = form?.querySelector("#yuCumulativeSavedText");
-  if (cumEl) cumEl.textContent = `₩${number(cumulativeSaved, 0)}`;
+  const rows = yuCurrentYearlyList.map((yc, idx) => {
+    const yr = yc.year || (2024 - idx);
+    const dep = Number(yc.deposit || 0);
+    const ded = yc.is_deductible !== false && String(yc.is_deductible) !== "false";
+    const target = ded ? Math.min(dep, maxLimit) : 0;
+    const saved = ded ? Math.floor(target * (rate / 100)) : 0;
+    if (ded) cumulativeSaved += saved;
+    return { idx, yr, dep, ded, saved };
+  });
+  accountYearlyView.renderYellowUmbrella(form, container, rows, cumulativeSaved);
 }
 
 function updateYellowUmbrellaFields() {
@@ -3632,31 +2533,23 @@ function openInsuranceAccountDialog(item = null) {
     $("#insuranceAccountDialogTitle").textContent = item ? "보험 / 연금 / 공제 상품 수정" : "보험 / 연금 / 공제 상품 추가";
   }
   if (item) {
-    form.querySelector("[name='insurance_type']").value = item.insurance_type || "protection";
-    form.querySelector("[name='owner']").value = item.owner || "모두";
-    form.querySelector("[name='company_name']").value = item.company_name || "";
-    form.querySelector("[name='product_name']").value = item.product_name || "";
-    form.querySelector("[name='payment_status']").value = item.payment_status || "paying";
-    form.querySelector("[name='income_bracket']").value = item.income_bracket || "40m_to_100m";
-    if (item.marginal_tax_rate) {
-      form.querySelector("[name='marginal_tax_rate']").value = String(item.marginal_tax_rate);
+    const initial = window.WealthInsuranceFormModel.editValues(item);
+    for (const [name, value] of Object.entries(initial.fields)) {
+      form.querySelector(`[name='${name}']`).value = value;
     }
-    form.querySelector("[name='monthly_premium']").value = item.monthly_premium || "";
-    form.querySelector("[name='total_paid_amount']").value = item.total_paid_amount || "";
-    form.querySelector("[name='expected_amount']").value = item.expected_amount || "";
 
     const isMonthlyPension = item.payout_type === "monthly_pension" || (Number(item.monthly_payout) || 0) > 0 || item.insurance_type === "national_pension";
     if (isMonthlyPension) {
       if ($("#payoutTypeMonthlyPension")) $("#payoutTypeMonthlyPension").checked = true;
-      if ($("#pensionMonthlyPayout")) $("#pensionMonthlyPayout").value = item.monthly_payout || "";
-      if ($("#pensionDurationSelect")) $("#pensionDurationSelect").value = String(item.payout_duration_years || 20);
+      if ($("#pensionMonthlyPayout")) $("#pensionMonthlyPayout").value = initial.monthlyPayout;
+      if ($("#pensionDurationSelect")) $("#pensionDurationSelect").value = initial.payoutDuration;
     } else {
       if ($("#payoutTypeLumpSum")) $("#payoutTypeLumpSum").checked = true;
     }
 
-    form.querySelector("[name='start_date']").value = item.start_date || "";
-    form.querySelector("[name='maturity_date']").value = item.maturity_date || "";
-    form.querySelector("[name='memo']").value = item.memo || "";
+    for (const [name, value] of Object.entries(initial.datesAndMemo)) {
+      form.querySelector(`[name='${name}']`).value = value;
+    }
 
     yuCurrentYearlyList = Array.isArray(item.yearly_contributions)
       ? JSON.parse(JSON.stringify(item.yearly_contributions))
@@ -3696,6 +2589,8 @@ const PROPERTY_TYPE_LABELS = {
   lease: "🔑 임차",
   sold: "🏷️ 매도",
 };
+
+const realEstateView = window.WealthRealEstateView.create({ $, html, number });
 
 function renderRealEstate(reList, owner = '모두', soldList = null) {
   rawRealEstates = reList || [];
@@ -3815,52 +2710,7 @@ function renderRealEstateWithOwner(owner = '모두') {
   const totalSoldSell = filteredSold.reduce((sum, s) => sum + ((Number(s.sell_price) || 0) * (s._shareRatio || 1.0)), 0);
   const soldProfitRate = totalSoldPurch > 0 ? ((totalSoldPnl / totalSoldPurch) * 100).toFixed(1) : "0.0";
 
-  if ($("#totalRealEstateVal")) $("#totalRealEstateVal").textContent = `₩${number(totalREVal, 0)}`;
-  if ($("#totalRealEstateCountSub")) {
-    const isShare = o !== '모두' ? ` (${o} 지분 반영)` : '';
-    $("#totalRealEstateCountSub").textContent = `보유: ${ownList.length + rentalList.length}건 (자가 ${ownList.length} · 임대 ${rentalList.length})${isShare}`;
-  }
-  if ($("#totalPurchaseVal")) $("#totalPurchaseVal").textContent = `₩${number(totalPurchaseVal, 0)}`;
-  if ($("#totalTenantDepositSub")) {
-    $("#totalTenantDepositSub").textContent = `임차 전세보증금: ₩${number(totalTenantDeposit, 0)}`;
-  }
-  if ($("#totalRealEstateProfitVal")) {
-    const pSign = totalProfit >= 0 ? "+" : "";
-    $("#totalRealEstateProfitVal").textContent = `${pSign}₩${number(totalProfit, 0)}`;
-    $("#totalRealEstateProfitVal").style.color = totalProfit >= 0 ? "#42d5a3" : "#f43f5e";
-  }
-  if ($("#totalRealEstateRateSub")) {
-    const rSign = Number(totalProfitRate) >= 0 ? "+" : "";
-    $("#totalRealEstateRateSub").textContent = `수익률: ${rSign}${totalProfitRate}%`;
-  }
-  if ($("#totalRealEstateDebtVal")) $("#totalRealEstateDebtVal").textContent = `₩${number(totalREDebt, 0)}`;
-  if ($("#totalRealEstateDebtSub")) {
-    $("#totalRealEstateDebtSub").textContent = `담보·전세대출: ₩${number(totalLinkedLoanBalance, 0)} · 임대보증금: ₩${number(totalLandlordDeposit, 0)}`;
-  }
-
-  // 🏷️ 상단 5번째 요약 카드: 부동산 실현손익
-  if ($("#totalRealEstateRealizedVal")) {
-    const sSign = totalSoldPnl >= 0 ? "+" : "";
-    $("#totalRealEstateRealizedVal").textContent = `${sSign}₩${number(totalSoldPnl, 0)}`;
-    $("#totalRealEstateRealizedVal").style.color = totalSoldPnl > 0 ? "#42d5a3" : (totalSoldPnl < 0 ? "#f43f5e" : "#f59e0b");
-  }
-  if ($("#totalRealEstateRealizedSub")) {
-    const rateText = totalSoldPurch > 0 ? ` (수익률: ${Number(soldProfitRate) >= 0 ? '+' : ''}${soldProfitRate}%)` : '';
-    $("#totalRealEstateRealizedSub").textContent = `매도: ${filteredSold.length}건${rateText}`;
-  }
-
-  // 5개 서브탭 카운트 업데이트
-  if ($("#reAllCount")) $("#reAllCount").textContent = filtered.length;
-  if ($("#reOwnCount")) $("#reOwnCount").textContent = ownList.length;
-  if ($("#reRentalCount")) $("#reRentalCount").textContent = rentalList.length;
-  if ($("#reLeaseCount")) $("#reLeaseCount").textContent = leaseList.length;
-  if ($("#reSoldCount")) $("#reSoldCount").textContent = filteredSold.length;
-
-  // 매도 탭 활성화 시 [➕ 매도 기록 추가] 버튼 노출
-  const directBtn = $("#btnDirectAddSoldRe");
-  if (directBtn) {
-    directBtn.style.display = currentRealEstateSubtab === 'sold' ? 'inline-flex' : 'none';
-  }
+  realEstateView.updateSummary({ o, totalREVal, ownList, rentalList, totalPurchaseVal, totalTenantDeposit, totalProfit, totalProfitRate, totalREDebt, totalLinkedLoanBalance, totalLandlordDeposit, totalSoldPnl, totalSoldPurch, soldProfitRate, filteredSold, filtered, leaseList, currentRealEstateSubtab });
 
   let displayList = filtered;
   if (currentRealEstateSubtab === 'own') {
@@ -3878,13 +2728,7 @@ function renderRealEstateWithOwner(owner = '모두') {
 
   if (currentRealEstateSubtab === 'sold') {
     if (!filteredSold.length) {
-      grid.innerHTML = `
-        <div class="empty" style="grid-column:1/-1;padding:32px 16px;text-align:center;">
-          <p style="font-size:15px;color:#f8fafc;font-weight:700;margin-bottom:6px;">🏷️ 기록된 부동산 매도 내역이 없습니다.</p>
-          <p style="font-size:12px;color:#94a3b8;margin-bottom:14px;">보유 부동산 카드의 [🏢] 버튼을 누르거나, 우측 상단의 [➕ 매도 기록 추가] 버튼으로 등록할 수 있습니다.</p>
-          <button type="button" class="button secondary compact" onclick="openDirectAddSoldReDialog()" style="font-size:12px;color:#f59e0b;border-color:rgba(245,158,11,0.4);">➕ 매도 기록 직접 추가</button>
-        </div>
-      `;
+      grid.innerHTML = realEstateView.emptySold();
       return;
     }
 
@@ -3910,60 +2754,13 @@ function renderRealEstateWithOwner(owner = '모두') {
         ? (isPartial ? `🤝 ${o} ${(shareRatio * 100).toFixed(0)}% (공동명의)` : `🤝 ${sold.owner}`)
         : (sold.owner || '모두');
 
-      return `
-        <div class="saving-card real-estate-card badge-sold">
-          <div class="saving-card-header">
-            <div class="saving-card-title-group">
-              <div class="saving-badge-row">
-                <span class="saving-type-badge badge-sold" style="background:rgba(245,158,11,0.18);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);font-weight:700;">🏷️ 매도 완료</span>
-                <span class="saving-owner-badge" title="${html(sold.owner || '')}">${html(ownerBadgeText)}</span>
-                <span class="d-day-badge">📅 매도일: ${html(sold.date || '-')}</span>
-              </div>
-              <h3 class="saving-product-name" style="font-size:15px;margin-top:2px;">${html(titleName)}</h3>
-              <span class="saving-bank-name">${html(sold.address || sold.memo || '-')}</span>
-            </div>
-            <div class="account-row-actions saving-card-actions">
-              <button class="account-action-button" data-sold-re-edit="${sold.id}" title="매도 기록 수정" type="button" style="color:#38bdf8;font-size:13px;">✎</button>
-              <button class="mini-delete-button" data-sold-re-del="${sold.id}" title="매도 기록 삭제" type="button" style="color:#f43f5e;font-size:13px;">🗑️</button>
-            </div>
-          </div>
-
-          <div class="saving-card-details">
-            <div class="saving-detail-row">
-              <span class="saving-detail-label">취득가 (매수가)</span>
-              <span class="saving-detail-val">${purch > 0 ? `₩${number(purch, 0)} ${isPartial ? `<small style="font-size:10px;color:#94a3b8;">(전체 ₩${number(rawPurch, 0)})</small>` : ''}` : '-'}</span>
-            </div>
-            <div class="saving-detail-row">
-              <span class="saving-detail-label">양도가 (매도가)</span>
-              <span class="saving-detail-val" style="color:#38bdf8;font-size:13px;font-weight:700;">${sell > 0 ? `₩${number(sell, 0)} ${isPartial ? `<small style="font-size:10px;color:#94a3b8;">(전체 ₩${number(rawSell, 0)})</small>` : ''}` : '-'}</span>
-            </div>
-            ${exp > 0 ? `
-              <div class="saving-detail-row">
-                <span class="saving-detail-label">필요경비 (공제)</span>
-                <span class="saving-detail-val" style="color:#fb7185;">-₩${number(exp, 0)} ${isPartial ? `<small style="font-size:10px;color:#94a3b8;">(전체 ₩${number(rawExp, 0)})</small>` : ''}</span>
-              </div>
-            ` : ''}
-            <div class="saving-detail-row sold-profit-row" style="grid-column:1/-1;padding:8px 10px;border-radius:8px;margin-top:2px;">
-              <span class="saving-detail-label" style="font-weight:700;">실현손익 (양도차익)</span>
-              <span class="saving-detail-val" style="color:${profitColor};font-size:14px;font-weight:800;">
-                ${profitSign}₩${number(pnl, 0)} ${profitRate != null ? `(${profitSign}${profitRate}%)` : ''}
-              </span>
-            </div>
-            ${sold.memo ? `
-              <div class="saving-detail-row" style="grid-column:1/-1;">
-                <span class="saving-detail-label">비고 / 메모</span>
-                <span class="saving-detail-val" style="color:#94a3b8;font-size:11.5px;white-space:normal;word-break:break-word;">${html(sold.memo)}</span>
-              </div>
-            ` : ''}
-          </div>
-        </div>
-      `;
+      return realEstateView.soldCard({ sold, ownerBadgeText, titleName, purch, isPartial, rawPurch, sell, rawSell, exp, rawExp, profitColor, profitSign, pnl, profitRate });
     }).join("");
     return;
   }
 
   if (!displayList.length) {
-    grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">등록된 부동산 자산이 없습니다. 상단 [🏠 부동산 추가] 버튼을 눌러보세요.</div>';
+    grid.innerHTML = realEstateView.emptyProperties();
     return;
   }
 
@@ -4021,128 +2818,14 @@ function renderRealEstateWithOwner(owner = '모두') {
     const naverLandUrl = `https://m.land.naver.com/search/result/${encodeURIComponent(cleanSearchKeyword)}`;
 
     // 카드 타이틀에 동·호수 결합 표시
-    const titleHtml = re.dong_ho 
-      ? `${html(re.name)} <span style="font-size:12.5px;font-weight:normal;opacity:0.85;">(${html(re.dong_ho)})</span>`
-      : html(re.name);
+    const titleHtml = realEstateView.title({ re });
 
     // 소유자 배지 라벨
-    const ownerBadgeText = re.is_joint_ownership 
+    const ownerBadgeText = re.is_joint_ownership
       ? (isPartial ? `🤝 ${o} ${(shareRatio * 100).toFixed(0)}% (공동명의)` : `🤝 ${re.owner}`)
       : (re.owner || '모두');
 
-    return `
-      <div class="saving-card real-estate-card ${typeBadgeClass}">
-        <div class="saving-card-header">
-          <div class="saving-card-title-group">
-            <div class="saving-badge-row">
-              <span class="saving-type-badge ${typeBadgeClass}">${typeLabel}</span>
-              <span class="saving-owner-badge" title="${html(re.owner || '')}">${html(ownerBadgeText)}</span>
-              ${dDayText ? `<span class="d-day-badge">${dDayText}</span>` : ''}
-            </div>
-            <h3 class="saving-product-name">${titleHtml}</h3>
-            <span class="saving-bank-name">${html(re.address || '-')}</span>
-          </div>
-          <div class="account-row-actions saving-card-actions">
-            ${pType !== 'lease' ? `<button class="account-action-button" data-re-refresh-kb-id="${re.id}" title="KB부동산 공식 시세로 즉시 갱신" type="button" style="color:#facc15;font-size:12px;">🔄</button>` : ''}
-            <a href="${naverLandUrl}" target="_blank" rel="noopener" class="account-action-button" title="네이버 부동산 '${cleanSearchKeyword}' 시세 확인" style="text-decoration:none;display:inline-flex;align-items:center;font-size:12px;">🔍</a>
-            ${pType !== 'lease' ? `<button class="account-action-button" data-re-sell-id="${re.id}" title="부동산 매각 및 실현손익 기록" type="button" style="color:#f59e0b;font-size:12px;">🏢</button>` : ''}
-            <button class="account-action-button" data-re-edit-id="${re.id}" title="수정" type="button">✎</button>
-            <button class="mini-delete-button" data-re-del-id="${re.id}" title="삭제" type="button">🗑️</button>
-          </div>
-        </div>
-
-        <div class="saving-card-details">
-          ${pType !== 'lease' ? `
-            <div class="saving-detail-row">
-              <span class="saving-detail-label">${isPartial ? `${o} 매수가` : '매수가 (취득가)'}</span>
-              <span class="saving-detail-val">₩${number(purch, 0)} ${isPartial ? `<small style="font-size:10px;color:#94a3b8;">(전체 ₩${number(rawPurch, 0)})</small>` : ''}</span>
-            </div>
-            <div class="saving-detail-row">
-              <span class="saving-detail-label">${isPartial ? `${o} 현재 시세` : '현재 시세'}</span>
-              <span class="saving-detail-val" style="color:#38bdf8;font-size:13px;">₩${number(curr, 0)} ${isPartial ? `<small style="font-size:10px;color:#94a3b8;">(전체 ₩${number(rawCurr, 0)})</small>` : ''}</span>
-            </div>
-            <div class="saving-detail-row" style="grid-column:1/-1;">
-              <span class="saving-detail-label">시세 차익 (수익률)</span>
-              <span class="saving-detail-val" style="color:${profitColor};font-weight:700;">${profitSign}₩${number(profit, 0)} (${profitSign}${profitRate}%)</span>
-            </div>
-          ` : `
-            <div class="saving-detail-row">
-              <span class="saving-detail-label">${isPartial ? `${o} 임차 보증금` : '임차 전세보증금'}</span>
-              <span class="saving-detail-val" style="color:#38bdf8;font-size:13px;">₩${number(dep, 0)} ${isPartial ? `<small style="font-size:10px;color:#94a3b8;">(전체 ₩${number(rawDep, 0)})</small>` : ''}</span>
-            </div>
-            ${rent > 0 ? `
-              <div class="saving-detail-row">
-                <span class="saving-detail-label">월세 지출</span>
-                <span class="saving-detail-val" style="color:#fb7185;">-₩${number(rent, 0)}</span>
-              </div>
-            ` : '<div class="saving-detail-row"><span class="saving-detail-label">계약 형태</span><span class="saving-detail-val">올전세</span></div>'}
-          `}
-
-          ${pType === 'rental' ? `
-            <div class="saving-detail-row">
-              <span class="saving-detail-label">${isPartial ? `${o} 임대 전세금` : '임대 전세금 (부채)'}</span>
-              <span class="saving-detail-val" style="color:#fb7185;font-weight:700;">-₩${number(dep, 0)} ${isPartial ? `<small style="font-size:10px;color:#94a3b8;">(전체 ₩${number(rawDep, 0)})</small>` : ''}</span>
-            </div>
-            ${rent > 0 ? `
-              <div class="saving-detail-row">
-                <span class="saving-detail-label">월세 수입</span>
-                <span class="saving-detail-val" style="color:#42d5a3;font-weight:700;">+₩${number(rent, 0)}</span>
-              </div>
-            ` : '<div class="saving-detail-row"><span class="saving-detail-label">임대 형태</span><span class="saving-detail-val">전세 임대</span></div>'}
-          ` : ''}
-
-          ${re.exclusive_area > 0 ? `
-            <div class="saving-detail-row">
-              <span class="saving-detail-label">전용면적</span>
-              <span class="saving-detail-val">${re.exclusive_area}㎡${pyungText}</span>
-            </div>
-          ` : ''}
-
-          ${re.contract_date ? `
-            <div class="saving-detail-row">
-              <span class="saving-detail-label">취득/계약일</span>
-              <span class="saving-detail-val">${html(re.contract_date)}</span>
-            </div>
-          ` : ''}
-
-          ${re.expiry_date ? `
-            <div class="saving-detail-row">
-              <span class="saving-detail-label">만기일</span>
-              <span class="saving-detail-val">${html(re.expiry_date)}</span>
-            </div>
-          ` : ''}
-
-          ${connectedLoanItems.length > 0 ? `
-            <div class="saving-detail-row" style="grid-column:1/-1;background:rgba(244,63,94,0.06);padding:6px 8px;border-radius:6px;margin-top:2px;">
-              <span class="saving-detail-label" style="color:#fb7185;">연결 대출 (${connectedLoanItems.length}건)</span>
-              <span class="saving-detail-val" style="color:#fb7185;font-size:12px;">잔액: -₩${number(linkedLoanTotalBal, 0)} (월이자: ₩${number(linkedLoanTotalInterest, 0)})</span>
-            </div>
-          ` : ''}
-
-          ${re.memo ? `
-            <div class="saving-detail-row" style="grid-column:1/-1;">
-              <span class="saving-detail-label">메모</span>
-              <span class="saving-detail-val" style="color:#94a3b8;font-size:11px;">${html(re.memo)}</span>
-            </div>
-          ` : ''}
-
-          ${pType !== 'lease' ? `
-            <div style="grid-column:1/-1;margin-top:8px;padding-top:8px;border-top:1px dashed rgba(255,255,255,0.08);display:flex;justify-content:flex-end;">
-              <button class="button secondary compact" data-re-sell-id="${re.id}" type="button" style="font-size:11px;padding:4px 10px;color:#f59e0b;border-color:rgba(245,158,11,0.4);background:rgba(245,158,11,0.08);font-weight:600;">
-                🏢 매각/실현손익 기록
-              </button>
-            </div>
-          ` : ''}
-        </div>
-
-        <div class="saving-interest-box" style="background:rgba(59,130,246,0.08);border-color:rgba(59,130,246,0.25);">
-          <div class="saving-interest-row maturity-row" style="padding-top:0;border-top:none;">
-            <span style="color:#93c5fd;font-weight:600;">${isPartial ? `${o} 순에퀴티(순자산)` : '부동산 순에퀴티(순자산)'}</span>
-            <span style="color:#60a5fa;font-size:15px;font-weight:700;">₩${number(netEquity, 0)}</span>
-          </div>
-        </div>
-      </div>
-    `;
+    return realEstateView.propertyCard({ re, typeBadgeClass, typeLabel, ownerBadgeText, dDayText, titleHtml, pType, naverLandUrl, cleanSearchKeyword, isPartial, o, purch, rawPurch, curr, rawCurr, profitColor, profitSign, profit, profitRate, dep, rawDep, rent, pyungText, connectedLoanItems, linkedLoanTotalBal, linkedLoanTotalInterest, netEquity });
   }).join("");
 }
 
@@ -4193,24 +2876,7 @@ function calcRealEstatePreview() {
 }
 
 function updateRealEstateTypeFields() {
-  const pType = $("#reTypeSelect")?.value || "own";
-  const isLease = pType === "lease";
-  const isRental = pType === "rental";
-
-  const purchLabel = $("#rePurchasePriceLabel");
-  const currLabel = $("#reCurrentPriceLabel");
-  const depLabel = $("#reDepositLabel");
-  const rentLabel = $("#reMonthlyRentLabel");
-  const depHint = $("#reDepositHint");
-
-  if (purchLabel) purchLabel.style.display = isLease ? "none" : "";
-  if (currLabel) currLabel.style.display = isLease ? "none" : "";
-  if (depLabel) depLabel.style.display = (isRental || isLease) ? "" : "none";
-  if (rentLabel) rentLabel.style.display = (isRental || isLease) ? "" : "none";
-
-  if (depHint) {
-    depHint.textContent = isRental ? "세입자에게 받은 전세보증금 (추후 상환할 부채)" : "집주인에게 맡긴 전세보증금 (만기 시 돌려받을 내 자산)";
-  }
+  realEstateView.updateFormTypeFields();
 
   calcRealEstatePreview();
 }
@@ -4279,10 +2945,7 @@ function openRealEstateDialog(reItem = null) {
   const jointCheck = $("#reIsJointCheck");
   if (jointCheck) jointCheck.checked = isJoint;
 
-  const singleWrap = $("#reSingleOwnerWrap");
-  const jointWrap = $("#reJointOwnershipWrap");
-  if (singleWrap) singleWrap.style.display = isJoint ? "none" : "block";
-  if (jointWrap) jointWrap.style.display = isJoint ? "block" : "none";
+  realEstateView.showJointOwnershipFields(isJoint);
 
   renderJointOwnershipRows(reItem?.ownerships || []);
 
@@ -4621,209 +3284,28 @@ const PERIOD_LABELS = {
   "TOTAL": "진입 (매입단가 대비)",
 };
 
-const PERIOD_CAPS = {
-  "1D": 10,
-  "1W": 15,
-  "1M": 20,
-  "YTD": 50,
-  "1Y": 50,
-  "TOTAL": 30,
-};
+const PERIOD_CAPS = window.WealthHeatmapModel.PERIOD_CAPS;
 
-function getEffectiveCap(period, capSetting, items = []) {
-  if (capSetting && capSetting !== "auto" && !isNaN(Number(capSetting)) && Number(capSetting) > 0) {
-    return Number(capSetting);
-  }
+function getEffectiveCap(period, capSetting, items = []) { return window.WealthHeatmapModel.getEffectiveCap(period, capSetting, items); }
 
-  if (items && items.length > 0) {
-    let maxAbs = 0;
-    items.forEach((it) => {
-      let r = 0;
-      const periodRates = it.period_changes || {};
-      if (period === "TOTAL") {
-        r = Math.abs(Number(it.rate != null ? it.rate : (it.return_rate || 0)));
-      } else if (periodRates[period] != null) {
-        r = Math.abs(Number(periodRates[period]));
-      } else if (period === "1D") {
-        r = Math.abs(Number(it.day_change_rate || 0));
-      } else {
-        r = Math.abs(Number(it.rate || it.day_change_rate || 0));
-      }
-      if (!isNaN(r) && r > maxAbs) maxAbs = r;
-    });
-
-    if (maxAbs > 0) {
-      let cap = Math.ceil(maxAbs);
-      if (cap < 3) cap = 3;
-      else if (cap <= 25) cap = Math.ceil(maxAbs);
-      else if (cap <= 60) cap = Math.ceil(cap / 5) * 5;
-      else cap = Math.ceil(cap / 10) * 10;
-      return Math.min(200, cap);
-    }
-  }
-
-  return PERIOD_CAPS[period] || 15;
-}
-
-function getHeatmapColor(rate, maxRate = 15, theme = "kr") {
-  const clamped = Math.max(-maxRate, Math.min(maxRate, rate));
-  const t = Math.pow(Math.abs(clamped) / maxRate, 0.72);
-
-  if (theme === "us") {
-    if (clamped >= 0) {
-      const r = Math.round(25 + (16 - 25) * t);
-      const g = Math.round(45 + (190 - 45) * t);
-      const b = Math.round(38 + (120 - 38) * t);
-      return `rgb(${r}, ${g}, ${b})`;
-    } else {
-      const r = Math.round(48 + (235 - 48) * t);
-      const g = Math.round(30 + (55 - 30) * t);
-      const b = Math.round(38 + (55 - 38) * t);
-      return `rgb(${r}, ${g}, ${b})`;
-    }
-  } else if (theme === "neon") {
-    if (clamped >= 0) {
-      const r = Math.round(40 + (170 - 40) * t);
-      const g = Math.round(28 + (80 - 28) * t);
-      const b = Math.round(62 + (250 - 62) * t);
-      return `rgb(${r}, ${g}, ${b})`;
-    } else {
-      const r = Math.round(20 + (8 - 20) * t);
-      const g = Math.round(42 + (190 - 42) * t);
-      const b = Math.round(60 + (220 - 60) * t);
-      return `rgb(${r}, ${g}, ${b})`;
-    }
-  } else {
-    if (clamped >= 0) {
-      const r = Math.round(48 + (238 - 48) * t);
-      const g = Math.round(40 + (42 - 40) * t);
-      const b = Math.round(52 + (68 - 52) * t);
-      return `rgb(${r}, ${g}, ${b})`;
-    } else {
-      const r = Math.round(35 + (35 - 35) * t);
-      const g = Math.round(45 + (95 - 45) * t);
-      const b = Math.round(58 + (238 - 58) * t);
-      return `rgb(${r}, ${g}, ${b})`;
-    }
-  }
-}
+function getHeatmapColor(rate, maxRate = 15, theme = "kr") { return window.WealthHeatmapModel.getHeatmapColor(rate, maxRate, theme); }
 
 function updateHeatmapLegendUI(period, theme, maxCap, items = []) {
-  const cap = getEffectiveCap(period, maxCap, items);
-  const legLeft = $("#legendCapLeft");
-  const legRight = $("#legendCapRight");
-  const legBar = $("#legendBar");
-  const legText = $("#legendText");
-  const tipNote = $("#heatmapTipNote");
-  const capSel = document.getElementById("heatmapCapSelect");
-
-  if (capSel) {
-    const autoOpt = capSel.querySelector("option[value='auto']");
-    if (autoOpt) autoOpt.textContent = `범위: 자동 (±${cap}%)`;
-    if (maxCap && capSel.value !== maxCap) capSel.value = maxCap;
-  }
-
-  if (legLeft) legLeft.textContent = `-${cap}%`;
-  if (legRight) legRight.textContent = `+${cap}%`;
-  if (legBar) legBar.className = `legend-bar theme-${theme}`;
-  if (legText) {
-    if (theme === "us") legText.textContent = "하락(Red) ← 0 → 상승(Green)";
-    else if (theme === "neon") legText.textContent = "하락(Cyan) ← 0 → 상승(Violet)";
-    else legText.textContent = "하락(Blue) ← 0 → 상승(Red)";
-  }
-  if (tipNote) tipNote.textContent = `면적 = 포지션 규모 · 색 = ${PERIOD_LABELS[period] || period} 손익률 (범위 ±${cap}%) · 클릭하면 종목 검색`;
+  heatmapView.renderLegend({
+    cap: getEffectiveCap(period, maxCap, items), theme, maxCap,
+    periodLabel: PERIOD_LABELS[period] || period,
+  });
 }
 
 // ── 정통 Squarify 트리맵 알고리즘 ──
-function squarify(items, x, y, width, height) {
-  if (!items.length) return [];
-  const totalVal = items.reduce((s, it) => s + it.value, 0);
-  if (totalVal <= 0) return [];
-  const rects = [];
-  const sorted = [...items].sort((a, b) => b.value - a.value);
-
-  function layout(children, rect) {
-    if (!children.length) return;
-    if (children.length === 1) {
-      rects.push({ ...children[0], x: rect.x, y: rect.y, w: rect.w, h: rect.h });
-      return;
-    }
-    const isHoriz = rect.w < rect.h;
-    const side = isHoriz ? rect.w : rect.h;
-    let row = [];
-    let rowSum = 0;
-    let bestWorst = Infinity;
-
-    for (let i = 0; i < children.length; i++) {
-      const nextRow = [...row, children[i]];
-      const nextSum = rowSum + children[i].value;
-      const curWorst = worst(nextRow, nextSum, side, rect.total, rect.w * rect.h);
-      if (row.length === 0 || curWorst <= bestWorst) {
-        row = nextRow;
-        rowSum = nextSum;
-        bestWorst = curWorst;
-      } else {
-        const remaining = children.slice(i);
-        const frac = rowSum / rect.total;
-        if (isHoriz) {
-          const rowH = rect.h * frac;
-          layoutRow(row, { x: rect.x, y: rect.y, w: rect.w, h: rowH }, isHoriz);
-          layout(remaining, { x: rect.x, y: rect.y + rowH, w: rect.w, h: rect.h - rowH, total: rect.total - rowSum });
-        } else {
-          const rowW = rect.w * frac;
-          layoutRow(row, { x: rect.x, y: rect.y, w: rowW, h: rect.h }, isHoriz);
-          layout(remaining, { x: rect.x + rowW, y: rect.y, w: rect.w - rowW, h: rect.h, total: rect.total - rowSum });
-        }
-        return;
-      }
-    }
-    layoutRow(row, rect, isHoriz);
-  }
-
-  function worst(row, s, side, total, totalArea) {
-    if (!row.length || s === 0 || side === 0) return Infinity;
-    const rowArea = (s / total) * totalArea;
-    const otherSide = rowArea / side;
-    if (otherSide === 0) return Infinity;
-    let maxRatio = 0;
-    for (const item of row) {
-      const itemArea = (item.value / total) * totalArea;
-      const itemLen = itemArea / otherSide;
-      if (itemLen === 0) return Infinity;
-      const ratio = Math.max(itemLen / otherSide, otherSide / itemLen);
-      if (ratio > maxRatio) maxRatio = ratio;
-    }
-    return maxRatio;
-  }
-
-  function layoutRow(row, rect, isHoriz) {
-    if (!row.length) return;
-    let offset = isHoriz ? rect.x : rect.y;
-    const totalRowVal = row.reduce((s, it) => s + it.value, 0);
-    for (const item of row) {
-      const frac = totalRowVal > 0 ? item.value / totalRowVal : 1 / row.length;
-      if (isHoriz) {
-        const w = rect.w * frac;
-        rects.push({ ...item, x: offset, y: rect.y, w, h: rect.h });
-        offset += w;
-      } else {
-        const h = rect.h * frac;
-        rects.push({ ...item, x: rect.x, y: offset, w: rect.w, h });
-        offset += h;
-      }
-    }
-  }
-
-  layout(sorted, { x, y, w: width, h: height, total: totalVal });
-  return rects;
-}
+function squarify(items, x, y, width, height) { return window.WealthHeatmapModel.squarify(items, x, y, width, height); }
 
 let lastValidHeatmapWidth = 0;
 
 function renderTreemapContainer(container, items, period = "1D", theme = "kr", capSetting = "auto") {
   if (!container) return;
   if (!items.length) {
-    container.innerHTML = '<div class="empty">평가금액이 있는 보유종목이 없습니다.</div>';
+    heatmapView.renderTreemap(container, []);
     return;
   }
 
@@ -4849,12 +3331,11 @@ function renderTreemapContainer(container, items, period = "1D", theme = "kr", c
   }
 
   const height = Math.max(380, Math.min(540, Math.round(width * 0.46)));
-  container.style.position = "relative";
-  container.style.height = `${height}px`;
+
 
   const tiles = squarify(items, 0, 0, width, height);
 
-  container.innerHTML = tiles.map((tile) => {
+  const displayTiles = tiles.map((tile) => {
     const periodRates = tile.period_changes || {};
     let rateVal = 0;
     if (period === "TOTAL") {
@@ -4875,17 +3356,6 @@ function renderTreemapContainer(container, items, period = "1D", theme = "kr", c
     const isSmall = !isTiny && (tile.w < 62 || tile.h < 42);
     const isMed = !isTiny && !isSmall && (tile.w < 98 || tile.h < 64);
 
-    let inner = "";
-    if (isTiny) {
-      inner = `<span class="tile-tiny-dot"></span>`;
-    } else if (isSmall) {
-      inner = `<span class="tile-name small">${html(tile.name)}</span><span class="tile-rate small">${rateText}</span>`;
-    } else if (isMed) {
-      inner = `<strong class="tile-name med">${html(tile.name)}</strong><span class="tile-rate med">${rateText}</span>`;
-    } else {
-      inner = `<strong class="tile-name">${html(tile.name)}</strong><span class="tile-rate">${rateText}</span>`;
-    }
-
     const infoStr = encodeURIComponent(JSON.stringify({
       period,
       name: tile.name,
@@ -4901,12 +3371,20 @@ function renderTreemapContainer(container, items, period = "1D", theme = "kr", c
       weight: tile.weight,
     }));
 
-    return `<div class="heatmap-tile" data-symbol="${html(tile.name)}" data-info="${infoStr}" style="left:${tile.x.toFixed(1)}px;top:${tile.y.toFixed(1)}px;width:${tile.w.toFixed(1)}px;height:${tile.h.toFixed(1)}px;background-color:${color};"><div class="heatmap-tile-inner">${inner}</div></div>`;
-  }).join("");
+    return {
+      name: tile.name, rateText, isTiny, isSmall, isMed, infoStr, color,
+      left: tile.x.toFixed(1), top: tile.y.toFixed(1),
+      width: tile.w.toFixed(1), height: tile.h.toFixed(1),
+    };
+  });
+  heatmapView.renderTreemap(container, displayTiles, height);
+
 
   updateHeatmapLegendUI(period, theme, capSetting, items);
   bindHeatmapInteractions(container);
 }
+
+const heatmapView = window.WealthHeatmapView.create({ document, $, html });
 
 function renderHeatmaps(data) {
   const holdings = data?.holdings || [];
@@ -4969,43 +3447,40 @@ function renderHeatmaps(data) {
     .sort((a, b) => b.value - a.value);
 
   if (heatmapViewMode === 'cards') {
-    container.style.height = "auto";
-    container.style.position = "static";
     const maxCap = getEffectiveCap(heatmapPeriod, heatmapMaxCap, items);
     updateHeatmapLegendUI(heatmapPeriod, heatmapTheme, heatmapMaxCap, items);
 
-    container.innerHTML = `
-      <div class="heatmap-cards-grid">
-        ${items.map(it => {
-          const periodRates = it.period_changes || {};
-          let selRate = 0;
-          if (heatmapPeriod === 'TOTAL') selRate = it.rate;
-          else if (periodRates[heatmapPeriod] != null) selRate = Number(periodRates[heatmapPeriod]);
-          else selRate = Number(it.day_change_rate || 0);
+    const cards = items.map((it) => {
+      const periodRates = it.period_changes || {};
+      let selectedRate = 0;
+      if (heatmapPeriod === 'TOTAL') selectedRate = it.rate;
+      else if (periodRates[heatmapPeriod] != null) selectedRate = Number(periodRates[heatmapPeriod]);
+      else selectedRate = Number(it.day_change_rate || 0);
 
-          const bgColor = getHeatmapColor(selRate, maxCap, heatmapTheme);
-          const isUp = selRate >= 0;
-          const sign = isUp ? '+' : '';
-
-          return `
-            <div class="heatmap-card-item" style="background-color:${bgColor};border:1px solid rgba(255,255,255,0.16);cursor:pointer;padding:12px 14px;border-radius:10px;transition:all 0.16s ease;box-shadow:0 2px 6px rgba(0,0,0,0.25);"
-              onclick="$('#searchInput').value='${it.name}';renderHoldings(dashboard);">
-              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
-                <strong style="font-size:13.5px;font-weight:700;color:#ffffff;text-shadow:0 1px 3px rgba(0,0,0,0.55);">${html(it.name)}</strong>
-                <span style="font-size:11.5px;color:rgba(255,255,255,0.8);font-weight:600;">${number(it.weight, 1)}%</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;">
-                <small style="font-size:11.5px;color:rgba(255,255,255,0.85);">${money(it.value)}</small>
-                <b style="font-size:14px;font-weight:800;color:#ffffff;text-shadow:0 1px 4px rgba(0,0,0,0.7);">${sign}${number(selRate, 2)}%</b>
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `;
+      return {
+        name: it.name,
+        weightText: `${number(it.weight, 1)}%`,
+        valueText: money(it.value),
+        rateText: `${selectedRate >= 0 ? '+' : ''}${number(selectedRate, 2)}%`,
+        backgroundColor: getHeatmapColor(selectedRate, maxCap, heatmapTheme),
+      };
+    });
+    heatmapView.renderCardMode(container, cards, openHeatmapHolding);
   } else {
     renderTreemapContainer(container, items, heatmapPeriod, heatmapTheme, heatmapMaxCap);
   }
+}
+
+function openHeatmapHolding(symbol) {
+  const query = String(symbol || '').trim();
+  const tab = document.querySelector('.wealth-invest-tabs button[data-invest="holdings"]');
+  const search = $("#searchInput");
+  if (!query || !tab || !search) return;
+  tab.click(); // Reuse the existing tab handler, state, aria and visibility updates.
+  search.value = query;
+  if (dashboard) renderHoldings(dashboard);
+  heatmapView.renderTooltip(document.getElementById("heatmapTooltip"), null);
+  search.focus();
 }
 
 // ── 히트맵 툴팁 바인딩 ──
@@ -5020,7 +3495,7 @@ function bindHeatmapInteractions(container) {
   container.addEventListener("mousemove", (e) => {
     const tile = e.target.closest(".heatmap-tile");
     if (!tile || !tile.dataset.info) {
-      tooltipEl.style.display = "none";
+      heatmapView.renderTooltip(tooltipEl, null);
       return;
     }
     try {
@@ -5033,51 +3508,43 @@ function bindHeatmapInteractions(container) {
       const totalRateColor = (info.rate || 0) >= 0 ? "#f43f5e" : "#38bdf8";
       const periodLabel = PERIOD_LABELS[period] || period;
 
-      tooltipEl.innerHTML = `
-        <div class="heatmap-tooltip-title">
-          <strong>${html(info.name)}</strong>
-          <span>${html(info.code)} · ${html(info.market || 'KRX')}</span>
-        </div>
-        <div class="heatmap-tooltip-row">
-          <span class="label">포지션 규모:</span>
-          <span class="val">${money(info.value)} (${number(info.weight, 1)}%)</span>
-        </div>
-        <div class="heatmap-tooltip-row">
-          <span class="label">${periodLabel}:</span>
-          <span class="val" style="color:${rateColor};font-weight:700;">${sign}${number(selRate, 2)}%</span>
-        </div>
-        <div class="heatmap-tooltip-row">
-          <span class="label">누적 수익률:</span>
-          <span class="val" style="color:${totalRateColor};font-weight:700;">${(info.rate || 0) >= 0 ? "+" : ""}${number(info.rate, 2)}% (${(info.profit || 0) >= 0 ? "+" : ""}${money(info.profit)})</span>
-        </div>
-      `;
-      tooltipEl.style.display = "block";
       const x = Math.min(Math.max(140, e.clientX), window.innerWidth - 140);
       const y = Math.max(70, e.clientY);
-      tooltipEl.style.left = `${x}px`;
-      tooltipEl.style.top = `${y}px`;
+      heatmapView.renderTooltip(tooltipEl, {
+        name: info.name, code: info.code, market: info.market || 'KRX',
+        valueText: money(info.value), weightText: number(info.weight, 1),
+        periodLabel, rateColor, sign, selectedRateText: number(selRate, 2),
+        totalRateColor, totalSign: (info.rate || 0) >= 0 ? "+" : "",
+        totalRateText: number(info.rate, 2),
+        profitSign: (info.profit || 0) >= 0 ? "+" : "", profitText: money(info.profit),
+      }, { left: x + "px", top: y + "px" });
     } catch (err) {
       console.warn("Tooltip info parse error:", err);
-      tooltipEl.style.display = "none";
+      heatmapView.renderTooltip(tooltipEl, null);
     }
   });
 
   container.addEventListener("mouseleave", () => {
-    if (tooltipEl) tooltipEl.style.display = "none";
+    if (tooltipEl) heatmapView.renderTooltip(tooltipEl, null);
   });
 
   container.addEventListener("click", (e) => {
     const tile = e.target.closest(".heatmap-tile");
     if (!tile || !tile.dataset.symbol) return;
-    const search = $("#searchInput");
-    if (search) {
-      search.value = tile.dataset.symbol;
-      if (dashboard) renderHoldings(dashboard);
-    }
+    openHeatmapHolding(tile.dataset.symbol);
+  });
+  container.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const tile = e.target.closest(".heatmap-tile");
+    if (!tile || !tile.dataset.symbol) return;
+    e.preventDefault();
+    openHeatmapHolding(tile.dataset.symbol);
   });
 }
 
 // ── 6. 보유종목 테이블 (정렬 + 섹터 뱃지 + 인터랙티브 차트 모달) ─────────────
+const holdingRows = window.WealthHoldingsRowView.create({ html, number, money, signClass });
+
 function renderHoldings(data) {
   data = data || dashboard || rawDashboard || {};
   syncHoldingSignalsContext();
@@ -5138,500 +3605,51 @@ function renderHoldings(data) {
   if (!tbody) return;
 
   tbody.innerHTML = sorted.map((item) => {
-    const dayRate = Number(item.day_change_rate || 0);
-    const accounts = item.items.map((detail) => `
-      <span class="holding-account-detail">
-        ${html(detail.broker)} ${html(detail.account_name)} ${number(detail.quantity, 4)}주
-        <button class="mini-edit-button edit-button" data-id="${detail.id}" title="수정" type="button">✎</button>
-        <button class="mini-edit-button delete-button" data-id="${detail.id}" title="삭제" type="button">×</button>
-      </span>
-    `).join("");
-
-    return `
-      <tr data-code="${html(item.code)}">
-        <td class="holding-name-cell">
-          <strong class="holding-name-link" data-code="${html(item.code)}" data-name="${html(item.name)}" data-price="${item.current_price}" data-currency="${item.currency}">
-            ${html(item.name)}
-          </strong>
-          <small>${html(item.code)} · ${html(item.market || item.currency)}</small>
-        </td>
-        <td>
-          <span class="sector-badge">${html(item.sector || '기타')}</span>
-        </td>
-        <td class="holding-accounts">${accounts}</td>
-        <td>${number(item.quantity, 4)}</td>
-        <td><strong>${money(item.market_value_krw)}</strong></td>
-        <td class="${signClass(item.profit_krw)}">${item.profit_krw >= 0 ? "+" : ""}${money(item.profit_krw)}</td>
-        <td class="${signClass(item.return_rate)}">${item.return_rate >= 0 ? "+" : ""}${number(item.return_rate, 2)}%</td>
-        <td class="${signClass(dayRate)}">${dayRate >= 0 ? "+" : ""}${number(dayRate, 2)}%</td>
-        <td style="text-align:center;">
-          <button class="stock-chart-btn" data-code="${html(item.code)}" data-name="${html(item.name)}" data-price="${item.current_price}" data-currency="${item.currency}" title="인터랙티브 차트" type="button">
-            📊
-          </button>
-        </td>
-      </tr>
-    `;
+    const accounts = item.items.map(detail => holdingRows.renderAccountDetail({
+      broker: detail.broker, accountName: detail.account_name, quantity: detail.quantity, id: detail.id,
+    })).join("");
+    return holdingRows.renderRow(item, { accounts });
   }).join("");
 
   $("#emptyHoldings") && ($("#emptyHoldings").hidden = sorted.length > 0);
   $(".table-wrap") && ($(".table-wrap").hidden = sorted.length === 0);
 }
 
-const holdingSignalState = {context: '', rows: [], generation: 0, pending: false, active: false, phase: 'idle', checkedAt: 0, cache: new Map(), requests: new Map()};
-const holdingSignalLabels = {SMA20_BREAKDOWN:'20일선 이탈',SMA50_BREAKDOWN:'50일선 이탈',GOLDEN_CROSS:'골든크로스',DEAD_CROSS:'데드크로스'};
-function holdingSignalsContext() {
-  const source = rawDashboard || dashboard;
-  return JSON.stringify([currentUserProfile?.username, currentOwner, (source?.accounts || []).map(a => [a.id,a.owner,a.broker,a.name,a.account_type]),
-    (source?.holdings || []).map(h => [h.id,h.account_id,h.owner,h.code,h.name,h.currency,h.market,h.quantity])]);
-}
-function holdingSignalsActive() {
-  return globalThis.WealthStartup?.canRead() && window.WealthWorkspaceRoute?.resolve().key === 'home' && window.WealthWorkspaceRoute.resolve().homeTab === 'markets'
-    && currentWealthView() === 'home' && document.getElementById('homeTab-markets')?.getAttribute('aria-selected') === 'true';
-}
-function syncHoldingSignalsContext() {
-  const context = holdingSignalsContext(), active = holdingSignalsActive();
-  if (context !== holdingSignalState.context || active !== holdingSignalState.active) {
-    holdingSignalState.generation++;
-    Object.assign(holdingSignalState, {context, active, rows: [], pending: false, phase: 'idle'});
-    renderHoldingSignals();
-  }
-  if (active) void loadHoldingSignals();
-}
-function renderHoldingSignals() {
-  const host = $('#holdingSignalsRows'), status = $('#holdingSignalsStatus');
-  if (!host) return;
-  const {rows, phase} = holdingSignalState;
-  const value = n => n == null ? '미정' : number(n, 4);
-  const reliable = row => ['ok','insufficient_data'].includes(row.status);
-  if (status) status.textContent = phase === 'loading' ? '신호 조회 중…' : phase === 'error' ? '자료 조회 불가' : '';
-  host.innerHTML = Object.entries(holdingSignalLabels).map(([signal, label]) => {
-    const matches = rows.filter(row => reliable(row) && (row.events || []).includes(signal));
-    const unavailable = rows.filter(row => !reliable(row) ||
-      (row.status === 'insufficient_data' && !row.available?.[signal] && !(row.events || []).includes(signal))).length;
-    const empty = phase === 'loading' ? '조회 중…' : phase === 'ready' ? '해당 종목 없음' : '자료 미확인';
-    return `<section class="holding-signal-section" data-signal="${signal}" aria-labelledby="signalTitle${signal}">
-      <h4 id="signalTitle${signal}">${html(label)}</h4>
-      ${matches.map(row => `<article class="holding-signal-row"><strong>${html(row.name)} · ${html(row.code)}</strong>
-        <span>${html(row.as_of || '기준일 미확인')} · 종가 ${value(row.close)}</span>
-        <small>SMA20 ${value(row.sma20)} · SMA50 ${value(row.sma50)}</small>
-        <small>${html(row.source || '자료 미확인')} · ${html((row.accounts || []).map(a => [a.owner,a.broker,a.account_name].filter(Boolean).join(' · ')).filter((a,i,all) => all.indexOf(a) === i).join(' / '))}</small>
-      </article>`).join('') || `<p class="holding-signal-empty">${empty}</p>`}
-      ${unavailable ? `<p class="holding-signal-empty">자료 미확인 ${unavailable}종목</p>` : ''}
-    </section>`;
-  }).join('');
-}
-async function loadHoldingSignals() {
-  if (!holdingSignalsActive() || holdingSignalState.pending || !(rawDashboard || dashboard)) return;
-  const owner = currentOwner, context = holdingSignalState.context;
-  const cached = holdingSignalState.cache.get(context);
-  if (holdingSignalState.phase === 'ready' && cached && Date.now() - cached.at < 900000) return;
-  if (holdingSignalState.phase === 'error' && Date.now() - holdingSignalState.checkedAt < 30000) return;
-  const generation = ++holdingSignalState.generation;
-  Object.assign(holdingSignalState, {rows: [], pending: true, phase: 'loading'});
-  renderHoldingSignals();
-  try {
-    let response;
-    if (cached && Date.now() - cached.at < 900000) {
-      response = cached.value;
-    } else {
-      let pending = holdingSignalState.requests.get(context);
-      if (!pending) {
-        pending = api(`/api/holdings/signals?owner=${encodeURIComponent(owner)}`).then(value => {
-          holdingSignalState.cache.set(context, {value, at: Date.now()});
-          while (holdingSignalState.cache.size > 8) holdingSignalState.cache.delete(holdingSignalState.cache.keys().next().value);
-          return value;
-        }).finally(() => {
-          if (holdingSignalState.requests.get(context) === pending) holdingSignalState.requests.delete(context);
-        });
-        holdingSignalState.requests.set(context, pending);
-      }
-      response = await pending;
-    }
-    if (generation !== holdingSignalState.generation || context !== holdingSignalsContext() || !holdingSignalsActive()) return;
-    Object.assign(holdingSignalState, {rows: response.items || [], phase: 'ready'});
-  } catch (_) {
-    if (generation === holdingSignalState.generation && context === holdingSignalsContext() && holdingSignalsActive()) {
-      holdingSignalState.phase = 'error';
-      holdingSignalState.checkedAt = Date.now();
-    }
-  } finally {
-    if (generation === holdingSignalState.generation) {
-      holdingSignalState.pending = false;
-      renderHoldingSignals();
-    }
-  }
-}
+const holdingSignals = window.WealthHoldingSignals.create({
+  $, api, html, number, document, window, globalThis, currentWealthView,
+  getDashboard: () => dashboard, getRawDashboard: () => rawDashboard,
+  getCurrentOwner: () => currentOwner, getCurrentUserProfile: () => currentUserProfile,
+});
+function syncHoldingSignalsContext() { return holdingSignals.syncHoldingSignalsContext(); }
+async function loadHoldingSignals() { return holdingSignals.loadHoldingSignals(); }
+
+
+
+
+
+
 window.addEventListener('wealth:view', syncHoldingSignalsContext);
 window.addEventListener('wealth:assets-ready', syncHoldingSignalsContext);
 
 // ── 7. 종목 가격 & 거래량 인터랙티브 차트 모달 ──────────────────────────────
+const stockChartView = window.WealthStockChartView.create({ $, api, money, number, signClass, html, document });
 async function openStockChart(code, name, price, currency = 'KRW') {
-  currentStockChartCode = code;
-  currentStockChartName = name || code;
-  currentStockChartPrice = Number(price || 0);
-  currentStockChartCurrency = currency || 'KRW';
-
-  const dlg = $("#stockChartDialog");
-  if (!dlg) return;
-
-  $("#stockChartTitle").textContent = currentStockChartName;
-  $("#stockChartCode").textContent = `${currentStockChartCode} · ${currentStockChartCurrency}`;
-  $("#stockChartPrice").textContent = money(currentStockChartPrice, currentStockChartCurrency);
-  $("#stockChartChange").textContent = "데이터 조회 중…";
-  if (!['1D', '1W', '1M', '1Y'].includes(currentStockChartPeriod)) {
-    currentStockChartPeriod = '1M';
-  }
-
-  document.querySelectorAll('#stockChartPeriodTabs .heatmap-tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.period === currentStockChartPeriod);
-  });
-
-  dlg.showModal();
-  await loadStockChartData();
+  return stockChartView.openStockChart(code, name, price, currency);
 }
 
-async function loadStockChartData() {
-  const container = $("#stockChartContainer");
-  if (!container) return;
-  container.innerHTML = '<div class="empty">차트 데이터를 불러오는 중입니다…</div>';
 
-  try {
-    const res = await api(`/api/stock-chart/${encodeURIComponent(currentStockChartCode)}?period=${currentStockChartPeriod}`);
-    const candles = res?.candles || [];
-    if (!candles.length) {
-      container.innerHTML = '<div class="empty">조회 가능한 캔들 차트 데이터가 없습니다.</div>';
-      return;
-    }
-
-    const prices = candles.map(c => c.close);
-    const volumes = candles.map(c => c.volume || 0);
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-    const maxVol = Math.max(...volumes, 1);
-    const spanPrice = maxPrice - minPrice || (minPrice * 0.02) || 1;
-
-    const w = 680, h = 260, pad = 20;
-    const hPriceArea = 170;
-    const hVolTop = hPriceArea + 20;
-    const hVolArea = h - hVolTop - 15;
-
-    const pricePoints = candles.map((c, idx) => {
-      const x = pad + ((w - pad * 2) * idx) / Math.max(candles.length - 1, 1);
-      const y = pad + (hPriceArea - pad) * (1 - (c.close - minPrice) / spanPrice);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    });
-    const pricePath = pricePoints.join(" ");
-    const priceAreaPath = `${pricePath} ${(w - pad)},${hPriceArea} ${pad},${hPriceArea}`;
-
-    const barWidth = Math.max(1.5, Math.min(14, (w - pad * 2) / candles.length - 1.5));
-    const volBars = candles.map((c, idx) => {
-      const x = pad + ((w - pad * 2) * idx) / Math.max(candles.length - 1, 1) - barWidth / 2;
-      const volH = Math.max(2, (c.volume / maxVol) * hVolArea);
-      const y = h - 15 - volH;
-      const isUp = idx === 0 ? true : (c.close >= candles[idx - 1].close);
-      const color = isUp ? '#ff5c77' : '#4f9dff';
-      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${volH.toFixed(1)}" fill="${color}" opacity="0.75" rx="1" />`;
-    }).join('');
-
-    const first = candles[0];
-    const last = candles[candles.length - 1];
-    const diff = last.close - first.close;
-    const diffRate = first.close > 0 ? (diff / first.close) * 100 : 0;
-    const isGain = diff >= 0;
-
-    $("#stockChartPrice").textContent = money(last.close, currentStockChartCurrency);
-    $("#stockChartChange").textContent = `${isGain ? "+" : ""}${money(diff, currentStockChartCurrency)} (${isGain ? "+" : ""}${number(diffRate, 2)}%)`;
-    $("#stockChartChange").className = `sub-rate ${signClass(diff)}`;
-
-    let countLabel = `${candles.length}개 거래일`;
-    if (currentStockChartPeriod === "1D") countLabel = `${candles.length}개 5분봉 (장중)`;
-    else if (currentStockChartPeriod === "1W") countLabel = `${candles.length}개 60분봉 (1주)`;
-
-    container.innerHTML = `
-      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:260px;overflow:visible;">
-        <defs>
-          <linearGradient id="stockPriceGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#8e70fa" stop-opacity="0.32" />
-            <stop offset="100%" stop-color="#8e70fa" stop-opacity="0.0" />
-          </linearGradient>
-        </defs>
-        <polygon points="${priceAreaPath}" fill="url(#stockPriceGrad)" />
-        <polyline points="${pricePath}" fill="none" stroke="#8e70fa" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
-        <text x="${pad}" y="${pad + 4}" fill="#7182a6" font-size="10">최고 ${money(maxPrice, currentStockChartCurrency)}</text>
-        <text x="${pad}" y="${hPriceArea - 4}" fill="#7182a6" font-size="10">최저 ${money(minPrice, currentStockChartCurrency)}</text>
-        
-        <line x1="${pad}" y1="${hVolTop - 5}" x2="${w - pad}" y2="${hVolTop - 5}" stroke="#1f2c4d" stroke-dasharray="2,2" />
-        <text x="${pad}" y="${hVolTop + 8}" fill="#7182a6" font-size="9" font-weight="700">거래량 (VOLUME)</text>
-        ${volBars}
-      </svg>
-      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:#7182a6;">
-        <span>${first.date}</span>
-        <span>${countLabel}</span>
-        <span>${last.date}</span>
-      </div>
-    `;
-  } catch (err) {
-    container.innerHTML = `<div class="empty">차트 로드 실패: ${html(err.message)}</div>`;
-  }
-}
 
 // ── 8. 주식기록 렌더링 (전체주식 콤보 차트 vs 절세계좌 뷰) ───────────────────────────
+const stockRecordsView = window.WealthStockRecordsView.create({ $, window, money, number, signClass, html });
+
+const assetRecordsScreenController = window.WealthAssetRecordsScreenController.create({ document, $, stockRecordsView, renderTaxAccountHoldings });
+
 function renderAssetRecords(records) {
   globalThis.WealthStartup?.count('render');
   assetRecords = records || [];
   window.assetRecords = records || [];
 
-  const recordsEyebrow = document.getElementById('recordsEyebrow');
-  const recordsHeading = document.getElementById('recordsHeadingText');
-  const taxView = currentRecordView === 'tax_accounts';
-  if (recordsEyebrow) recordsEyebrow.textContent = taxView ? 'TAX-ADVANTAGED ACCOUNTS' : 'STOCK RECORDS';
-  if (recordsHeading) recordsHeading.textContent = taxView ? '절세계좌' : '주식기록';
-
-  if (taxView) {
-    $("#recordsPanel")?.classList.add("is-tax-view");
-    const sideSummaryEl = document.querySelector(".record-side-summary");
-    if (sideSummaryEl) sideSummaryEl.style.display = "none";
-    if ($("#recordPeriodTabs")) $("#recordPeriodTabs").style.display = "none";
-    if ($("#snapshotButton")) $("#snapshotButton").style.display = "none";
-    if ($("#addRecordButton")) $("#addRecordButton").style.display = "none";
-    if ($("#recordCount")) $("#recordCount").style.display = "none";
-    renderTaxAccountHoldings(currentOwner);
-    return;
-  }
-
-  // 전체주식 콤보 차트 뷰 툴바 및 레이아웃 복원
-  $("#recordsPanel")?.classList.remove("is-tax-view");
-  const sideSummaryEl = document.querySelector(".record-side-summary");
-  if (sideSummaryEl) sideSummaryEl.style.display = "";
-  if ($("#snapshotButton")) $("#snapshotButton").style.display = "";
-  if ($("#addRecordButton")) $("#addRecordButton").style.display = "";
-  if ($("#recordPeriodTabs")) $("#recordPeriodTabs").style.display = "";
-  if ($("#recordPeriodTabs")) $("#recordPeriodTabs").style.opacity = "1";
-  if ($("#recordCount")) $("#recordCount").style.display = "";
-  const sideSummarySmall = document.querySelector(".record-side-summary small");
-  if (sideSummarySmall) sideSummarySmall.textContent = "저장된 날짜별 자산 추이";
-
-  const rawList = [...records].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
-  const previousByRecord = buildPreviousRecordMap(rawList);
-  const filtered = filterRecordsByPeriod(rawList, currentRecordPeriod);
-  const unifiedStock = window.WealthUnifiedTimeseries?.renderStock;
-  const useUnifiedStock = typeof unifiedStock === 'function' && $("#assetChart") && $("#recordPeriodTabs");
-  const wrap = useUnifiedStock ? null : $("#assetChart");
-
-  if (!filtered.length) {
-    if (wrap) wrap.innerHTML = '<div class="empty">선택한 기간의 주식기록이 없습니다.</div>';
-    $("#assetRecordList") && ($("#assetRecordList").innerHTML = "");
-    $("#recordCount") && ($("#recordCount").textContent = "0개 기록");
-    if (useUnifiedStock) unifiedStock();
-    return;
-  }
-
-  if (currentRecordView === 'bar' || currentRecordView === 'monthly') {
-    const values = filtered.map(item => Number(item.total_value_krw || 0));
-    const minVal = Math.min(...values);
-    const maxVal = Math.max(...values);
-    const spanVal = maxVal - (minVal * 0.8) || 1;
-
-    const w = 900, h = 260, pad = 30;
-    const hBarArea = 180;
-    const barWidth = Math.max(12, Math.min(48, (w - pad * 2) / filtered.length - 8));
-
-    let prevVal = 0;
-    const bars = filtered.map((item, idx) => {
-      const val = Number(item.total_value_krw || 0);
-      const delta = prevVal ? val - prevVal : Number(item.day_profit_krw || 0);
-      const deltaRate = prevVal ? (delta / prevVal) * 100 : 0;
-      prevVal = val;
-      const isGain = delta >= 0;
-
-      const x = pad + ((w - pad * 2) * (idx + 0.5)) / Math.max(filtered.length, 1) - barWidth / 2;
-      const barH = Math.max(10, ((val - minVal * 0.8) / spanVal) * (hBarArea - 25));
-      const y = hBarArea - barH;
-
-      const sign = delta >= 0 ? "+" : "";
-      const deltaText = delta !== 0 ? `${sign}${number(deltaRate, 1)}%` : "-";
-      const deltaColor = delta !== 0 ? (isGain ? "#ff5c77" : "#4f9dff") : "#8e9bb5";
-      const shortDate = item.date ? item.date.slice(5) : ""; // MM-DD
-
-      return `
-        <g class="monthly-bar-group">
-          <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barH.toFixed(1)}" fill="url(#assetBarGrad)" rx="3.5" opacity="0.9">
-            <title>${item.date}: ${money(val)} (변동 ${sign}${money(delta)} / ${deltaRate.toFixed(2)}%)</title>
-          </rect>
-          <text x="${(x + barWidth / 2).toFixed(1)}" y="${(y - 6).toFixed(1)}" fill="#f3f5ff" font-size="10" font-weight="700" text-anchor="middle">
-            ${money(val)}
-          </text>
-          <text x="${(x + barWidth / 2).toFixed(1)}" y="${(hBarArea + 16).toFixed(1)}" fill="#c4d1eb" font-size="10.5" font-weight="700" text-anchor="middle">
-            ${shortDate}
-          </text>
-          <text x="${(x + barWidth / 2).toFixed(1)}" y="${(hBarArea + 28).toFixed(1)}" fill="${deltaColor}" font-size="9" font-weight="700" text-anchor="middle">
-            ${deltaText}
-          </text>
-        </g>
-      `;
-    }).join('');
-
-    const first = filtered[0];
-    const last = filtered.at(-1);
-    const totalDelta = Number(last.total_value_krw || 0) - Number(first.total_value_krw || 0);
-    const totalDeltaRate = Number(first.total_value_krw || 0) ? (totalDelta / Number(first.total_value_krw || 0)) * 100 : 0;
-
-    if (wrap) {
-      wrap.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 4px 8px;font-size:12px;font-weight:700;">
-          <span style="color:#c4b5fd;">📊 총 투자자산 일자별 막대그래프 (${filtered.length}개 기록)</span>
-          <span class="${signClass(totalDelta)}" style="font-size:12px;">기간 변동: ${totalDelta >= 0 ? '+' : ''}${money(totalDelta)} (${totalDelta >= 0 ? '+' : ''}${number(totalDeltaRate, 2)}%)</span>
-        </div>
-        <svg class="record-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:260px;overflow:visible;">
-          <defs>
-            <linearGradient id="assetBarGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#a78bfa" />
-              <stop offset="100%" stop-color="#6366f1" />
-            </linearGradient>
-          </defs>
-          <line x1="${pad}" y1="${hBarArea}" x2="${w - pad}" y2="${hBarArea}" stroke="#283758" stroke-width="1.2" />
-          ${bars}
-        </svg>
-        <div class="record-chart-meta">
-          <div><span>기간 시작</span><strong>${html(first.date)}</strong><small>${money(first.total_value_krw)}</small></div>
-          <div><span>최근 기록</span><strong>${html(last.date)}</strong><small>${money(last.total_value_krw)}</small></div>
-          <div><span>최저 / 최고 자산</span><strong>${money(minVal)} / ${money(maxVal)}</strong><small>해당 기간 ${number(filtered.length, 0)}개 기록</small></div>
-        </div>
-      `;
-    }
-  } else {
-    const values = filtered.map(item => Number(item.total_value_krw || 0));
-    const profits = filtered.map(item => Number(item.day_profit_krw || 0));
-
-    const minVal = Math.min(...values);
-    const maxVal = Math.max(...values);
-    const spanVal = maxVal - minVal || (minVal * 0.05) || 1;
-    const maxAbsProfit = Math.max(...profits.map(Math.abs), 100000);
-
-    const w = 900, h = 280, pad = 24;
-    const hLineArea = 160;
-
-    // 막대 차트와 동일하게 그리드 컬럼 중앙에 데이터 포인트와 막대 배치
-    const getX = (i) => pad + ((w - pad * 2) * (i + 0.5)) / Math.max(filtered.length, 1);
-
-    const linePoints = filtered.map((pt, i) => {
-      const x = getX(i);
-      const y = pad + (hLineArea - pad) * (1 - (Number(pt.total_value_krw || 0) - minVal) / spanVal);
-      return { x, y, pt };
-    });
-    const linePath = linePoints.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-
-    const firstX = linePoints[0].x;
-    const lastX = linePoints[linePoints.length - 1].x;
-    const lineAreaPath = `${linePath} ${lastX.toFixed(1)},${hLineArea} ${firstX.toFixed(1)},${hLineArea}`;
-
-    const hBarAreaTop = hLineArea + 25;
-    const hBarAreaHeight = h - hBarAreaTop - pad;
-    const zeroY = hBarAreaTop + (hBarAreaHeight / 2);
-
-    const barWidth = Math.max(3, Math.min(32, (w - pad * 2) / filtered.length - 6));
-    const bars = filtered.map((pt, i) => {
-      const x = getX(i) - barWidth / 2;
-      const p = Number(pt.day_profit_krw || 0);
-      const isGain = p >= 0;
-      const barH = Math.max(2, (Math.abs(p) / maxAbsProfit) * (hBarAreaHeight / 2 - 4));
-      const y = isGain ? (zeroY - barH) : zeroY;
-      const color = isGain ? '#ff5c77' : '#4f9dff';
-      return `
-        <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color}" opacity="0.85" rx="1.5">
-          <title>${pt.date}: ${isGain ? '+' : ''}${money(p)}</title>
-        </rect>
-      `;
-    }).join('');
-
-    // 데이터가 10개 이하일 때 (일간 2개, 주간 5개 등) 각 지점에 원형 포인트와 수치 라벨 표시
-    const pointCircles = filtered.length <= 10 ? linePoints.map(p => {
-      const shortDate = p.pt.date ? p.pt.date.slice(5) : '';
-      return `
-        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="#8e70fa" stroke="#0e162b" stroke-width="2">
-          <title>${p.pt.date}: ${money(p.pt.total_value_krw)}</title>
-        </circle>
-        <text x="${p.x.toFixed(1)}" y="${(p.y - 7).toFixed(1)}" fill="#f3f5ff" font-size="10" font-weight="700" text-anchor="middle">
-          ${money(p.pt.total_value_krw)}
-        </text>
-        <text x="${p.x.toFixed(1)}" y="${(hLineArea - 5).toFixed(1)}" fill="#8e9bb5" font-size="9" font-weight="600" text-anchor="middle">
-          ${shortDate}
-        </text>
-      `;
-    }).join('') : '';
-
-    const first = filtered[0];
-    const last = filtered.at(-1);
-
-    if (wrap) {
-      wrap.innerHTML = `
-        <div style="display:flex;justify-content:flex-end;gap:14px;margin-bottom:8px;font-size:11px;">
-          <span style="display:flex;align-items:center;gap:4px;"><i style="display:inline-block;width:12px;height:3px;background:#8e70fa;border-radius:2px;"></i> 총 자산 (선)</span>
-          <span style="display:flex;align-items:center;gap:4px;"><i style="display:inline-block;width:8px;height:8px;background:#ff5c77;border-radius:2px;"></i> 가격변동 손익 (+)</span>
-          <span style="display:flex;align-items:center;gap:4px;"><i style="display:inline-block;width:8px;height:8px;background:#4f9dff;border-radius:2px;"></i> 가격변동 손실 (-)</span>
-        </div>
-        <svg class="record-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="자산 기록 콤보 차트">
-          <defs>
-            <linearGradient id="recordComboGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#8e70fa" stop-opacity="0.28" />
-              <stop offset="100%" stop-color="#8e70fa" stop-opacity="0.0" />
-            </linearGradient>
-          </defs>
-          <line x1="${pad}" y1="${hLineArea}" x2="${w - pad}" y2="${hLineArea}" stroke="#1f2c4d" stroke-dasharray="3,3" />
-          <polygon points="${lineAreaPath}" fill="url(#recordComboGrad)" />
-          <polyline points="${linePath}" fill="none" stroke="#8e70fa" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" />
-          ${pointCircles}
-          <line x1="${pad}" y1="${zeroY}" x2="${w - pad}" y2="${zeroY}" stroke="#334673" stroke-width="1.2" />
-          <text x="${pad}" y="${hLineArea + 18}" fill="#7182a6" font-size="10" font-weight="700">가격변동 손익 (PROFIT / LOSS)</text>
-          <text x="${w - pad}" y="${zeroY - 4}" fill="#7182a6" font-size="9" text-anchor="end">0원</text>
-          ${bars}
-        </svg>
-        <div class="record-chart-meta">
-          <div><span>기간 시작</span><strong>${html(first.date)}</strong><small>${money(first.total_value_krw)}</small></div>
-          <div><span>최근 기록</span><strong>${html(last.date)}</strong><small>${money(last.total_value_krw)}</small></div>
-          <div><span>최저 / 최고 자산</span><strong>${money(minVal)} / ${money(maxVal)}</strong><small>해당 기간 ${number(filtered.length, 0)}개 기록</small></div>
-        </div>
-      `;
-    }
-  }
-
-  const first = filtered[0];
-  const last = filtered.at(-1);
-  const delta = Number(last.total_value_krw || 0) - Number(first.total_value_krw || 0);
-  const deltaRate = Number(first.total_value_krw || 0) ? delta / Number(first.total_value_krw || 0) * 100 : 0;
-  $("#recordSummary") && ($("#recordSummary").textContent = `${money(delta)} (${deltaRate >= 0 ? "+" : ""}${number(deltaRate, 2)}%)`);
-  $("#recordSummary") && ($("#recordSummary").className = signClass(delta));
-  $("#recordCount") && ($("#recordCount").textContent = `${number(filtered.length, 0)}개 기록`);
-
-  const descRecords = [...filtered].reverse();
-  const listEl = $("#assetRecordList");
-  if (listEl) {
-    listEl.innerHTML = descRecords.map((item) => {
-      const previous = previousByRecord.get(item);
-      const recordChange = previous ? Number(item.total_value_krw || 0) - Number(previous.total_value_krw || 0) : null;
-      const recordChangeClass = recordChange == null || recordChange === 0 ? 'record-change-neutral' : signClass(recordChange);
-      const recordChangeText = recordChange == null ? '이전 기록 없음' : `${recordChange > 0 ? '+' : ''}${money(recordChange)}`;
-      const dayProfit = Number(item.day_profit_krw || 0);
-      return `
-      <div class="record-row">
-        <div class="record-row-head">
-          <time datetime="${html(item.date)}">${html(item.date)}</time>
-          <strong>${money(item.total_value_krw)}</strong>
-        </div>
-        <div class="record-row-metrics">
-          <p class="record-row-change"><span>전 기록 대비</span><b class="${recordChangeClass}">${recordChangeText}</b></p>
-          <p class="record-row-day-profit"><span>가격변동 손익</span><b class="${dayProfit === 0 ? 'record-change-neutral' : signClass(dayProfit)}">${dayProfit > 0 ? '+' : ''}${money(dayProfit)}</b></p>
-        </div>
-        <div class="record-row-meta">${number(item.holding_count, 0)}종목${item.memo || item.source ? ` · ${html(item.memo || item.source)}` : ''}</div>
-        <div class="record-row-actions">
-          <button class="button secondary tiny" data-record-edit="${item.id}" type="button">수정</button>
-          <button class="button text danger tiny" data-record-delete="${item.id}" type="button">삭제</button>
-        </div>
-      </div>
-    `;
-    }).join("");
-  }
-  if (useUnifiedStock) unifiedStock();
+  assetRecordsScreenController.render(records, currentRecordPeriod, currentRecordView, currentOwner);
 }
 
 // ── 8-1. 절세계좌 보유종목 및 계좌별 자산 렌더링 ──────────────────────────────
@@ -5844,6 +3862,8 @@ function calcAccountCumulativeTaxSaved(account, accounts) {
   const benefits = calculateOwnerYearPensionTaxBenefits(accounts);
   return benefits.cumulative.byOwner[owner]?.taxSaved || 0;
 }
+
+const taxAccountsView = window.WealthTaxAccountsView.create({ html, number, signClass, holdingRows });
 
 function renderTaxAccountHoldings(owner = currentOwner) {
   $("#recordsPanel")?.classList.add("is-tax-view");
@@ -6058,13 +4078,7 @@ function renderTaxAccountHoldings(owner = currentOwner) {
   if (!chartWrap) return;
 
   if (!taxHoldings.length && allCash === 0) {
-    chartWrap.innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;color:#94a3b8;text-align:center;">
-        <span style="font-size:32px;margin-bottom:8px;">🌿</span>
-        <strong style="font-size:15px;color:#cbd5e1;margin-bottom:4px;">${o === '모두' ? '절세계좌(IRP·연금저축·ISA)' : `[${o}] 절세계좌`}에 보유종목이 없습니다.</strong>
-        <p style="font-size:12px;margin:0;">계좌 관리에서 IRP, 연금저축, 중개형 ISA 계좌를 등록하고 종목을 추가해보세요.</p>
-      </div>
-    `;
+    chartWrap.innerHTML = taxAccountsView.emptyAccounts({ o });
     if ($("#assetRecordList")) $("#assetRecordList").innerHTML = "";
     return;
   }
@@ -6072,14 +4086,7 @@ function renderTaxAccountHoldings(owner = currentOwner) {
   // 우측 종목 리스트 렌더링 (기존보유종목과 동일한 테이블 구조 및 보유계좌 나열)
   let holdingsHtml = '';
   if (!sortedGroups.length && currentFilterCash <= 0) {
-    holdingsHtml = `
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:260px;color:#94a3b8;text-align:center;">
-        <span style="font-size:32px;margin-bottom:8px;">🔍</span>
-        <strong style="font-size:15px;color:#cbd5e1;margin-bottom:6px;">${filterTitle}에 등록된 보유종목이 없습니다.</strong>
-        <p style="font-size:12px;margin:10px 0 12px;color:#64748b;">좌측 카드에서 다른 절세계좌를 선택하시거나 전체보기를 눌러주세요.</p>
-        <button type="button" class="button secondary compact" style="cursor:pointer;" onclick="currentTaxAccountFilter='all';renderTaxAccountHoldings(currentOwner);">🌿 절세계좌 전체 보기</button>
-      </div>
-    `;
+    holdingsHtml = taxAccountsView.emptyFilter({ filterTitle });
   } else {
     let cashRowHtml = '';
     if (currentFilterCash > 0) {
@@ -6093,46 +4100,15 @@ function renderTaxAccountHoldings(owner = currentOwner) {
         if (targetAcc) cashAccountLabel = `${targetAcc.broker || ''} ${targetAcc.name}`;
       }
 
-      cashRowHtml = `
-        <tr class="tax-cash-table-row" style="background:rgba(56,189,248,0.06);border-bottom:1px solid rgba(56,189,248,0.25);">
-          <td class="holding-name-cell" style="text-align:left;">
-            <strong style="color:#38bdf8;font-size:13px;display:flex;align-items:center;gap:6px;">
-              💵 예수금 (현금 잔고)
-            </strong>
-            <small style="color:#7dd3fc;">미투자 현금 잔액</small>
-          </td>
-          <td style="text-align:left;">
-            <span class="sector-badge" style="background:rgba(56,189,248,0.18);color:#38bdf8;border:1px solid rgba(56,189,248,0.35);">현금·예수금</span>
-          </td>
-          <td class="holding-accounts" style="text-align:left;">
-            <span class="holding-account-detail" style="background:rgba(56,189,248,0.12);border-color:rgba(56,189,248,0.3);color:#7dd3fc;font-weight:600;">
-              ${html(cashAccountLabel)} ₩${number(currentFilterCash, 0)}
-            </span>
-          </td>
-          <td style="color:#64748b;text-align:right;">-</td>
-          <td style="text-align:right;"><strong style="color:#38bdf8;font-size:13.5px;font-weight:700;">₩${number(currentFilterCash, 0)}</strong></td>
-          <td style="color:#64748b;text-align:right;">-</td>
-          <td style="color:#64748b;text-align:right;">-</td>
-          <td style="color:#64748b;text-align:right;">-</td>
-          <td style="text-align:center;color:#64748b;">-</td>
-        </tr>
-      `;
+      cashRowHtml = taxAccountsView.cashRow({ cashAccountLabel, currentFilterCash });
     }
 
     let emptyStockNotice = '';
     if (!sortedGroups.length && currentFilterCash > 0) {
-      emptyStockNotice = `
-        <tr style="text-align:center;color:#94a3b8;">
-          <td colspan="9" style="padding:28px 14px;text-align:center;color:#94a3b8;">
-            <div style="font-size:13px;color:#cbd5e1;font-weight:600;margin-bottom:4px;">보유 중인 주식 종목이 없습니다.</div>
-            <div style="font-size:11.5px;color:#64748b;">예수금 ₩${number(currentFilterCash, 0)}이 안전하게 보관되어 있습니다.</div>
-          </td>
-        </tr>
-      `;
+      emptyStockNotice = taxAccountsView.emptyStocksWithCash({ currentFilterCash });
     }
 
-    const trsHtml = sortedGroups.map((item) => {
-      const dayRate = Number(item.day_change_rate || 0);
+    const holdingRowsData = sortedGroups.map((item) => {
       const accounts = item.items.map((detail) => {
         const acct = detail._matchedAccount || taxAccountMap.get(detail.account_id) || {};
         const acctName = acct.name || detail.account_name || '절세계좌';
@@ -6140,89 +4116,28 @@ function renderTaxAccountHoldings(owner = currentOwner) {
         const acctOwner = detail.owner || acct.owner || '';
         const ownerLabel = (o === '모두' && acctOwner) ? ` [${acctOwner}]` : '';
 
-        return `
-          <span class="holding-account-detail">
-            ${html(acctBroker)} ${html(acctName)}${html(ownerLabel)} ${number(detail.quantity, 0)}주
-            <button class="mini-edit-button edit-button" data-id="${detail.id}" title="수정" type="button">✎</button>
-            <button class="mini-edit-button delete-button" data-id="${detail.id}" title="삭제" type="button">×</button>
-          </span>
-        `;
-      }).join("");
+        return {
+          broker: acctBroker, accountName: acctName, ownerLabel,
+          quantity: detail.quantity, id: detail.id,
+        };
+      });
 
-      return `
-        <tr data-code="${html(item.code)}">
-          <td class="holding-name-cell" style="text-align:left;">
-            <strong class="holding-name-link" data-code="${html(item.code)}" data-name="${html(item.name)}" data-price="${item.current_price}" data-currency="${item.currency}">
-              ${html(item.name)}
-            </strong>
-            <small>${html(item.code)} · ${html(item.market || item.currency || 'KRW')}</small>
-          </td>
-          <td style="text-align:left;">
-            <span class="sector-badge">${html(item.sector || '기타')}</span>
-          </td>
-          <td class="holding-accounts" style="text-align:left;">${accounts}</td>
-          <td>${number(item.quantity, 0)}</td>
-          <td><strong>₩${number(item.market_value_krw, 0)}</strong></td>
-          <td class="${signClass(item.profit_krw)}">${item.profit_krw >= 0 ? "+" : ""}₩${number(item.profit_krw, 0)}</td>
-          <td class="${signClass(item.return_rate)}">${item.return_rate >= 0 ? "+" : ""}${number(item.return_rate, 2)}%</td>
-          <td class="${signClass(dayRate)}">${dayRate >= 0 ? "+" : ""}${number(dayRate, 2)}%</td>
-          <td style="text-align:center;">
-            <button class="stock-chart-btn" data-code="${html(item.code)}" data-name="${html(item.name)}" data-price="${item.current_price}" data-currency="${item.currency}" title="인터랙티브 차트" type="button">
-              📊
-            </button>
-          </td>
-        </tr>
-      `;
-    }).join("");
+      return { item, accounts };
+    });
 
-    holdingsHtml = `
-      <div class="table-wrap tax-table-wrap">
-        <table class="tax-holdings-table">
-          <thead>
-            <tr>
-              <th data-tax-sort="name" class="sortable-th ${taxHoldingSortField === 'name' ? (taxHoldingSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" style="text-align:left;">종목 <span class="sort-icon"></span></th>
-              <th data-tax-sort="sector" class="sortable-th ${taxHoldingSortField === 'sector' ? (taxHoldingSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" style="text-align:left;">섹터 <span class="sort-icon"></span></th>
-              <th style="text-align:left;">보유계좌</th>
-              <th data-tax-sort="quantity" class="sortable-th ${taxHoldingSortField === 'quantity' ? (taxHoldingSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}">수량 <span class="sort-icon"></span></th>
-              <th data-tax-sort="market_value_krw" class="sortable-th ${taxHoldingSortField === 'market_value_krw' ? (taxHoldingSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}">평가금액 <span class="sort-icon"></span></th>
-              <th data-tax-sort="profit_krw" class="sortable-th ${taxHoldingSortField === 'profit_krw' ? (taxHoldingSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}">평가손익 <span class="sort-icon"></span></th>
-              <th data-tax-sort="return_rate" class="sortable-th ${taxHoldingSortField === 'return_rate' ? (taxHoldingSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}">수익률 <span class="sort-icon"></span></th>
-              <th data-tax-sort="day_change_rate" class="sortable-th ${taxHoldingSortField === 'day_change_rate' ? (taxHoldingSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}">등락률 <span class="sort-icon"></span></th>
-              <th style="text-align:center;">차트</th>
-            </tr>
-          </thead>
-          <tbody id="taxHoldingsBody">${cashRowHtml}${emptyStockNotice}${trsHtml}</tbody>
-        </table>
-      </div>
-    `;
+    holdingsHtml = taxAccountsView.holdingsTable({ taxHoldingSortField, taxHoldingSortOrder, cashRowHtml, emptyStockNotice, holdingRowsData });
   }
 
   // 현재 필터(전체 / 카테고리 / 개별 계좌)의 누적 절세액 산출
-  let filterTaxSavedHtml = '';
+  let taxBenefit = null;
   if (currentTaxAccountFilter === 'all') {
-    filterTaxSavedHtml = `
-      <span style="color:#c4b5fd;background:rgba(167,139,250,0.14);border:1px solid rgba(167,139,250,0.3);padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700;">
-        💎 누적 절세액: <strong style="color:#ddd6fe;font-size:12.5px;">₩${number(allCumulativeTaxSaved, 0)}</strong>
-      </span>
-    `;
+    taxBenefit = { kind: 'all', amount: allCumulativeTaxSaved };
   } else if (currentTaxAccountFilter === 'irp') {
-    filterTaxSavedHtml = `
-      <span style="color:#c4b5fd;background:rgba(167,139,250,0.14);border:1px solid rgba(167,139,250,0.3);padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700;">
-        🛡️ 누적 절세액: <strong style="color:#ddd6fe;font-size:12.5px;">₩${number(irpCumulativeTaxSaved, 0)}</strong>
-      </span>
-    `;
+    taxBenefit = { kind: 'irp', amount: irpCumulativeTaxSaved };
   } else if (currentTaxAccountFilter === 'pension_savings') {
-    filterTaxSavedHtml = `
-      <span style="color:#34d399;background:rgba(52,211,153,0.14);border:1px solid rgba(52,211,153,0.3);padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700;">
-        💎 누적 절세액: <strong style="color:#a7f3d0;font-size:12.5px;">₩${number(pensionCumulativeTaxSaved, 0)}</strong>
-      </span>
-    `;
+    taxBenefit = { kind: 'pension', amount: pensionCumulativeTaxSaved };
   } else if (currentTaxAccountFilter === 'isa') {
-    filterTaxSavedHtml = `
-      <span style="color:#38bdf8;background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.25);padding:2px 8px;border-radius:6px;font-size:11.5px;font-weight:700;">
-        🔄 ISA 혜택: 비과세 200~400만 + 9.9% 분리과세
-      </span>
-    `;
+    taxBenefit = { kind: 'isa' };
   } else if (currentTaxAccountFilter.startsWith('acc_')) {
     const accId = currentTaxAccountFilter.replace('acc_', '');
     const targetAcc = taxAccountMap.get(accId);
@@ -6232,212 +4147,24 @@ function renderTaxAccountHoldings(owner = currentOwner) {
       const targetTaxSaved = calcAccountCumulativeTaxSaved(targetAcc, taxAccounts);
 
       if (cat === 'isa') {
-        filterTaxSavedHtml = `
-          <span style="color:#38bdf8;background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.25);padding:2px 8px;border-radius:6px;font-size:11.5px;font-weight:700;">
-            🔄 ISA 비과세 200~400만 + 9.9% 분리과세
-          </span>
-        `;
+        taxBenefit = { kind: 'accountIsa' };
       } else if (isDed && targetTaxSaved > 0) {
-        filterTaxSavedHtml = `
-          <span style="color:#c4b5fd;background:rgba(167,139,250,0.16);border:1px solid rgba(167,139,250,0.35);padding:2px 8px;border-radius:6px;font-size:12px;font-weight:700;">
-            💎 소유자 합산 누적 절세액: <strong style="color:#ddd6fe;font-size:12.5px;">₩${number(targetTaxSaved, 0)}</strong>
-          </span>
-        `;
+        taxBenefit = { kind: 'account', amount: targetTaxSaved };
       } else if (!isDed) {
-        filterTaxSavedHtml = `
-          <span style="color:#34d399;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);padding:2px 8px;border-radius:6px;font-size:11.5px;font-weight:700;">
-            🌱 비공제 계좌: 원금 인출 시 비과세
-          </span>
-        `;
+        taxBenefit = { kind: 'nonDeductible' };
       } else {
-        filterTaxSavedHtml = `
-          <span style="color:#94a3b8;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);padding:2px 8px;border-radius:6px;font-size:11.5px;font-weight:700;">
-            누적 절세액: ₩0
-          </span>
-        `;
+        taxBenefit = { kind: 'zero' };
       }
     }
   }
 
-  chartWrap.innerHTML = `
-    <div class="tax-table-header" style="display:flex;justify-content:space-between;align-items:center;padding:2px 4px 10px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:8px;flex-wrap:wrap;gap:8px;">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span class="tax-filter-title" style="font-size:13.5px;font-weight:700;">${filterTitle} (${sortedGroups.length}개 종목)</span>
-        <span style="font-size:11px;color:#94a3b8;">${filterSubtitle}</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;font-size:12px;flex-wrap:wrap;">
-        <span style="color:#94a3b8;">총 자산: <strong style="font-size:14px;font-weight:800;">₩${number(filteredTotalMarket, 0)}</strong></span>
-        <span style="color:#94a3b8;">(주식 <strong style="font-weight:600;">₩${number(filteredStats.market, 0)}</strong> · <strong style="color:#38bdf8;font-weight:700;">💵 예수금 ₩${number(currentFilterCash, 0)}</strong>)</span>
-        <span class="${signClass(filteredStats.profit)}" style="font-weight:700;">
-          ${filteredStats.profit >= 0 ? '+' : ''}₩${number(filteredStats.profit, 0)} (${filteredStats.profit >= 0 ? '+' : ''}${number(filteredStats.profitRate, 2)}%)
-        </span>
-        ${filterTaxSavedHtml}
-      </div>
-    </div>
-    ${holdingsHtml}
-  `;
+  taxAccountsView.chartContent(chartWrap, { filterTitle, sortedGroups, filterSubtitle, filteredTotalMarket, filteredStats, currentFilterCash, taxBenefit, holdingsHtml });
 
   // 3. 좌측 사이드 패널: 절세계좌 카드 목록 렌더링
   const recordListEl = $("#assetRecordList");
   if (!recordListEl) return;
 
-  if (!taxAccounts.length) {
-    recordListEl.innerHTML = '<div style="color:#94a3b8;font-size:12px;padding:8px;">등록된 절세계좌가 없습니다.</div>';
-    return;
-  }
-
-  // 3-1. 상단 [전체] 카드 (절세계좌 총액, 수익금액/수익률, 누적 절세액)
-  const isAllActive = currentTaxAccountFilter === 'all';
-  const allCardHtml = `
-    <div class="tax-card record-row ${isAllActive ? 'active-tax-card' : ''}" data-tax-filter="all">
-      <div class="tax-card-head" style="margin-bottom:6px;">
-        <div class="tax-card-heading">
-          <span style="font-size:16px;">🌿</span>
-          <strong class="tax-card-title" style="font-size:13.5px;font-weight:700;">절세계좌 전체</strong>
-          ${isAllActive ? '<span class="tax-card-selected" style="font-size:10px;padding:2px 6px;border-radius:4px;background:#8b5cf6;color:#fff;font-weight:800;">선택</span>' : ''}
-        </div>
-        <span class="tax-card-count" style="font-size:11px;color:#94a3b8;background:rgba(255,255,255,0.06);padding:2px 7px;border-radius:4px;">
-          ${taxHoldings.length}종목 · ${taxAccounts.length}계좌
-        </span>
-      </div>
-
-      <!-- 절세계좌 총액 -->
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;">
-        <span style="font-size:11.5px;color:#94a3b8;">절세계좌 총 자산</span>
-        <strong class="tax-card-val" style="font-size:16px;font-weight:800;letter-spacing:-0.3px;">
-          ₩${number(allTotalMarket, 0)}
-        </strong>
-      </div>
-
-      <!-- 자산 구성: 주식 + 예수금 -->
-      <div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;background:rgba(255,255,255,0.03);padding:3px 7px;border-radius:4px;margin-bottom:5px;">
-        <span style="color:#cbd5e1;">주식 ₩${number(allStats.market, 0)}</span>
-        <span style="color:#38bdf8;font-weight:700;">💵 예수금 ₩${number(allCash, 0)}</span>
-      </div>
-
-      <!-- 수익금액 및 수익률 -->
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <span style="font-size:11.5px;color:#94a3b8;">수익금액 / 수익률</span>
-        <strong class="${signClass(allStats.profit)}" style="font-size:12.5px;font-weight:700;">
-          ${allStats.profit >= 0 ? '+' : ''}₩${number(allStats.profit, 0)} (${allStats.profit >= 0 ? '+' : ''}${number(allStats.profitRate, 2)}%)
-        </strong>
-      </div>
-
-      <!-- 절세금액 누적 -->
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 9px;background:rgba(167,139,250,0.12);border:1px solid rgba(167,139,250,0.25);border-radius:6px;font-size:11.5px;">
-        <span style="color:#c4b5fd;font-weight:600;">💎 절세금액 누적</span>
-        <strong style="color:#a78bfa;font-weight:800;font-size:13px;">
-          ₩${number(allCumulativeTaxSaved, 0)}
-        </strong>
-      </div>
-    </div>
-  `;
-
-  // 3-2. 카테고리 카드: ISA, IRP, 연금저축
-  const isIsaActive = currentTaxAccountFilter === 'isa';
-  const isaCardHtml = `
-    <div class="tax-card record-row ${isIsaActive ? 'active-tax-card' : ''}" data-tax-filter="isa">
-      <div class="tax-card-head" style="margin-bottom:5px;">
-        <div class="tax-card-heading">
-          <span style="font-size:15px;">🔄</span>
-          <strong class="tax-card-title" style="font-size:13px;font-weight:700;">중개형 ISA</strong>
-          ${isIsaActive ? '<span class="tax-card-selected" style="font-size:10px;padding:2px 6px;border-radius:4px;background:#38bdf8;color:#0f172a;font-weight:800;">선택</span>' : ''}
-        </div>
-        <span class="tax-card-count" style="font-size:11px;color:#38bdf8;background:rgba(56,189,248,0.12);padding:2px 6px;border-radius:4px;font-weight:600;">
-          ${isaHoldings.length}종목 · ${isaAccounts.length}계좌
-        </span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
-        <span style="font-size:11.5px;color:#94a3b8;">총 자산</span>
-        <strong class="tax-card-val" style="font-size:14.5px;font-weight:800;">₩${number(isaTotalMarket, 0)}</strong>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;background:rgba(255,255,255,0.03);padding:3px 6px;border-radius:4px;margin-bottom:5px;">
-        <span style="color:#cbd5e1;">주식 ₩${number(isaStats.market, 0)}</span>
-        <span style="color:#38bdf8;font-weight:700;">💵 예수금 ₩${number(isaCash, 0)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-        <span style="font-size:11.5px;color:#94a3b8;">수익 / 수익률</span>
-        <span class="${signClass(isaStats.profit)}" style="font-size:12px;font-weight:700;">
-          ${isaStats.profit >= 0 ? '+' : ''}₩${number(isaStats.profit, 0)} (${isaStats.profit >= 0 ? '+' : ''}${number(isaStats.profitRate, 2)}%)
-        </span>
-      </div>
-      <div style="font-size:11px;color:#7dd3fc;background:rgba(56,189,248,0.08);padding:4px 8px;border-radius:5px;display:flex;justify-content:space-between;">
-        <span>절세 혜택</span>
-        <span>비과세 200~400만 + 9.9% 분리과세</span>
-      </div>
-    </div>
-  `;
-
-  const isIrpActive = currentTaxAccountFilter === 'irp';
-  const irpCardHtml = `
-    <div class="tax-card record-row ${isIrpActive ? 'active-tax-card' : ''}" data-tax-filter="irp">
-      <div class="tax-card-head" style="margin-bottom:5px;">
-        <div class="tax-card-heading">
-          <span style="font-size:15px;">🛡️</span>
-          <strong class="tax-card-title" style="font-size:13px;font-weight:700;">개인형 IRP</strong>
-          ${isIrpActive ? '<span class="tax-card-selected" style="font-size:10px;padding:2px 6px;border-radius:4px;background:#a78bfa;color:#0f172a;font-weight:800;">선택</span>' : ''}
-        </div>
-        <span class="tax-card-count" style="font-size:11px;color:#c4b5fd;background:rgba(167,139,250,0.15);padding:2px 6px;border-radius:4px;font-weight:600;">
-          ${irpHoldings.length}종목 · ${irpAccounts.length}계좌
-        </span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
-        <span style="font-size:11.5px;color:#94a3b8;">총 자산</span>
-        <strong class="tax-card-val" style="font-size:14.5px;font-weight:800;">₩${number(irpTotalMarket, 0)}</strong>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;background:rgba(255,255,255,0.03);padding:3px 6px;border-radius:4px;margin-bottom:5px;">
-        <span style="color:#cbd5e1;">주식 ₩${number(irpStats.market, 0)}</span>
-        <span style="color:#38bdf8;font-weight:700;">💵 예수금 ₩${number(irpCash, 0)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-        <span style="font-size:11.5px;color:#94a3b8;">수익 / 수익률</span>
-        <span class="${signClass(irpStats.profit)}" style="font-size:12px;font-weight:700;">
-          ${irpStats.profit >= 0 ? '+' : ''}₩${number(irpStats.profit, 0)} (${irpStats.profit >= 0 ? '+' : ''}${number(irpStats.profitRate, 2)}%)
-        </span>
-      </div>
-      <div style="font-size:11px;color:#ddd6fe;background:rgba(167,139,250,0.08);padding:4px 8px;border-radius:5px;display:flex;justify-content:space-between;">
-        <span>누적 절세액</span>
-        <strong style="color:#c4b5fd;">₩${number(irpCumulativeTaxSaved, 0)}</strong>
-      </div>
-    </div>
-  `;
-
-  const isPensionActive = currentTaxAccountFilter === 'pension_savings';
-  const pensionCardHtml = `
-    <div class="tax-card record-row ${isPensionActive ? 'active-tax-card' : ''}" data-tax-filter="pension_savings">
-      <div class="tax-card-head" style="margin-bottom:5px;">
-        <div class="tax-card-heading">
-          <span style="font-size:15px;">💎</span>
-          <strong class="tax-card-title" style="font-size:13px;font-weight:700;">연금저축</strong>
-          ${isPensionActive ? '<span class="tax-card-selected" style="font-size:10px;padding:2px 6px;border-radius:4px;background:#34d399;color:#0f172a;font-weight:800;">선택</span>' : ''}
-        </div>
-        <span class="tax-card-count" style="font-size:11px;color:#34d399;background:rgba(52,211,153,0.15);padding:2px 6px;border-radius:4px;font-weight:600;">
-          ${pensionHoldings.length}종목 · ${pensionAccounts.length}계좌
-        </span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;">
-        <span style="font-size:11.5px;color:#94a3b8;">총 자산</span>
-        <strong class="tax-card-val" style="font-size:14.5px;font-weight:800;">₩${number(pensionTotalMarket, 0)}</strong>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;background:rgba(255,255,255,0.03);padding:3px 6px;border-radius:4px;margin-bottom:5px;">
-        <span style="color:#cbd5e1;">주식 ₩${number(pensionStats.market, 0)}</span>
-        <span style="color:#38bdf8;font-weight:700;">💵 예수금 ₩${number(pensionCash, 0)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-        <span style="font-size:11.5px;color:#94a3b8;">수익 / 수익률</span>
-        <span class="${signClass(pensionStats.profit)}" style="font-size:12px;font-weight:700;">
-          ${pensionStats.profit >= 0 ? '+' : ''}₩${number(pensionStats.profit, 0)} (${pensionStats.profit >= 0 ? '+' : ''}${number(pensionStats.profitRate, 2)}%)
-        </span>
-      </div>
-      <div style="font-size:11px;color:#a7f3d0;background:rgba(16,185,129,0.08);padding:4px 8px;border-radius:5px;display:flex;justify-content:space-between;">
-        <span>누적 절세액</span>
-        <strong style="color:#34d399;">₩${number(pensionCumulativeTaxSaved, 0)}</strong>
-      </div>
-    </div>
-  `;
-
-  // 3-3. 개별 계좌 상세 카드 목록
-  const accountCardsHtml = taxAccounts.map(acct => {
+  const accountCards = taxAccounts.map(acct => {
     const acctHoldings = taxHoldings.filter(h => h._matchedAccountId === acct.id);
     const acctStats = calcHoldingStats(acctHoldings);
     const acctCash = getAccountCash(acct);
@@ -6447,90 +4174,19 @@ function renderTaxAccountHoldings(owner = currentOwner) {
     const isAcctActive = currentTaxAccountFilter === `acc_${acct.id}`;
     const acctSavedTax = calcAccountCumulativeTaxSaved(acct, taxAccounts);
 
-    let typeBadge = '';
-    if (cat === 'isa') {
-      typeBadge = '<span style="color:#38bdf8;background:rgba(56,189,248,0.12);padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700;">ISA 비과세</span>';
-    } else if (cat === 'irp') {
-      typeBadge = `<span style="color:${isDed ? '#c4b5fd' : '#34d399'};background:${isDed ? 'rgba(167,139,250,0.15)' : 'rgba(16,185,129,0.15)'};padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700;">IRP ${isDed ? '공제' : '비공제'}</span>`;
-    } else {
-      typeBadge = `<span style="color:${isDed ? '#38bdf8' : '#34d399'};background:${isDed ? 'rgba(56,189,248,0.12)' : 'rgba(16,185,129,0.12)'};padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700;">연금저축 ${isDed ? '공제' : '비공제'}</span>`;
-    }
+    const taxRow = cat === 'isa' ? 'isa'
+      : !isDed ? 'nonDeductible' : acctSavedTax > 0 ? 'deductible' : 'zero';
 
-    let taxSavedRowHtml = '';
-    if (cat === 'isa') {
-      taxSavedRowHtml = `
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:#7dd3fc;background:rgba(56,189,248,0.08);padding:3px 7px;border-radius:4px;margin-top:4px;">
-          <span>절세 혜택</span>
-          <span style="color:#38bdf8;font-weight:600;">비과세 200~400만</span>
-        </div>
-      `;
-    } else if (isDed && acctSavedTax > 0) {
-      taxSavedRowHtml = `
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#ddd6fe;background:rgba(167,139,250,0.09);border:1px solid rgba(167,139,250,0.22);padding:3px 7px;border-radius:4px;margin-top:4px;">
-          <span style="color:#c4b5fd;font-weight:600;">💎 소유자 합산 누적 절세액</span>
-          <strong style="color:#ddd6fe;font-size:12px;font-weight:800;">₩${number(acctSavedTax, 0)}</strong>
-        </div>
-      `;
-    } else if (!isDed) {
-      taxSavedRowHtml = `
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:#a7f3d0;background:rgba(16,185,129,0.07);padding:3px 7px;border-radius:4px;margin-top:4px;">
-          <span>절세 분류</span>
-          <span style="color:#34d399;">비공제 (원금인출 비과세)</span>
-        </div>
-      `;
-    } else {
-      taxSavedRowHtml = `
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:#94a3b8;background:rgba(255,255,255,0.04);padding:3px 7px;border-radius:4px;margin-top:4px;">
-          <span>소유자 합산 누적 절세액</span>
-          <span style="color:#cbd5e1;">₩0</span>
-        </div>
-      `;
-    }
+    return { isAcctActive, acct, cat, isDed, acctTotalMarket, acctStats, acctHoldings, acctCash, acctSavedTax, taxRow };
+  });
 
-    return `
-      <div class="tax-card record-row ${isAcctActive ? 'active-tax-card' : ''}" data-tax-filter="acc_${acct.id}" style="padding:9px 12px !important;margin-bottom:6px;">
-        <div class="tax-card-head">
-          <div class="tax-card-heading">
-            <strong class="tax-card-title" title="${html(acct.name)}" style="font-size:12.5px;">${html(acct.name)}</strong>
-            ${isAcctActive ? '<span class="tax-card-selected" style="font-size:9.5px;padding:1px 5px;border-radius:3px;background:#a78bfa;color:#0f172a;font-weight:800;">선택</span>' : ''}
-          </div>
-          <div class="tax-card-actions">
-            ${typeBadge}
-            <button class="account-action-button" data-account-edit-id="${acct.id}" title="계좌 정보 및 예수금 수정" type="button" style="padding:1px 5px;font-size:11px;line-height:1;border-radius:4px;cursor:pointer;">✎</button>
-          </div>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11.5px;color:#94a3b8;margin-top:3px;">
-          <span>${html(acct.broker)} [${html(acct.owner || '모두')}]</span>
-          <strong class="tax-card-val" style="font-size:13.5px;font-weight:800;">₩${number(acctTotalMarket, 0)}</strong>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;background:rgba(255,255,255,0.03);padding:3px 6px;border-radius:4px;margin-top:4px;">
-          <span style="color:#cbd5e1;">주식 ₩${number(acctStats.market, 0)} (${acctHoldings.length}종목)</span>
-          <span style="color:#38bdf8;font-weight:700;">💵 예수금 ₩${number(acctCash, 0)}</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:#94a3b8;margin-top:4px;padding-top:2px;">
-          <span>평가손익</span>
-          <span class="${signClass(acctStats.profit)}" style="font-weight:700;">${acctStats.profit >= 0 ? '+' : ''}₩${number(acctStats.profit, 0)} (${acctStats.profit >= 0 ? '+' : ''}${number(acctStats.profitRate, 2)}%)</span>
-        </div>
-        ${taxSavedRowHtml}
-      </div>
-    `;
-  }).join('');
-
-  recordListEl.innerHTML = `
-    ${allCardHtml}
-    <div style="display:flex;flex-direction:column;gap:8px;">
-      ${isaCardHtml}
-      ${irpCardHtml}
-      ${pensionCardHtml}
-    </div>
-    <div style="font-size:11px;color:#94a3b8;font-weight:700;margin:12px 0 6px 2px;letter-spacing:0.3px;display:flex;justify-content:space-between;align-items:center;">
-      <span>계좌별 상세 (${taxAccounts.length}개)</span>
-      <span style="font-size:10px;color:#64748b;">클릭하여 단일 계좌 조회</span>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:4px;">
-      ${accountCardsHtml}
-    </div>
-  `;
+  taxAccountsView.cardList(recordListEl, {
+    all: { isAllActive: currentTaxAccountFilter === 'all', taxHoldings, taxAccounts, allTotalMarket, allStats, allCash, allCumulativeTaxSaved },
+    isa: { isIsaActive: currentTaxAccountFilter === 'isa', isaHoldings, isaAccounts, isaTotalMarket, isaStats, isaCash },
+    irp: { isIrpActive: currentTaxAccountFilter === 'irp', irpHoldings, irpAccounts, irpTotalMarket, irpStats, irpCash, irpCumulativeTaxSaved },
+    pension: { isPensionActive: currentTaxAccountFilter === 'pension_savings', pensionHoldings, pensionAccounts, pensionTotalMarket, pensionStats, pensionCash, pensionCumulativeTaxSaved },
+    accountCards,
+  });
 }
 
 // Shared totals/raw asset state remain eager; only stock-page DOM work is lazy.
@@ -6609,74 +4265,33 @@ function holdingEligibleAccounts(owner = currentOwner) {
 }
 function fillHoldingAccountOptions(owner, selectedId = '') {
   const accounts = holdingEligibleAccounts(owner);
-  const types = {general:'일반',isa:'ISA',pension_savings:'연금저축',pension:'연금저축',irp:'IRP'};
-  const select = $('#holdingAccountSelect');
-  if (select) {
-    select.innerHTML = '<option value="">직접 입력 또는 등록 계좌 선택</option>' +
-      accounts.map(a => `<option value="${html(a.id)}" data-broker="${html(a.broker)}" data-name="${html(a.name)}" data-owner="${html(a.owner || '모두')}">${html(a.owner || '모두')} · ${html(a.broker)} · ${html(a.name)} · ${html(types[a.account_type || 'general'])}</option>`).join('');
-    select.setCustomValidity('');
-    if (selectedId && !accounts.some(a => a.id === selectedId)) {
-      // Never turn a missing edit link into an implicit new manual account.
-      const option = new Option('기존 연결 계좌 확인 필요', selectedId);
-      select.add(option);
-      select.setCustomValidity('기존 연결 계좌를 확인한 뒤 등록 계좌를 선택하세요.');
-    }
-    select.value = selectedId;
-  }
-  const names = $('#holdingAccountDatalist');
-  if (names) names.innerHTML = [...new Set(accounts.map(a => a.name).filter(Boolean))].map(name => `<option value="${html(name)}"></option>`).join('');
+  const validationMessage = selectedId && !accounts.some(account => account.id === selectedId)
+    ? '기존 연결 계좌를 확인한 뒤 등록 계좌를 선택하세요.'
+    : '';
+  window.WealthHoldingAccountOptionsView.render({ $, html, accounts, selectedId, validationMessage });
   return accounts;
 }
-function openHoldingDialog(record = null) {
-  const form = $('#holdingForm');
-  if (!form) return;
-  form.reset();
-  form.dataset.recordId = record ? String(record.id) : '';
-  $('#holdingDialogTitle') && ($('#holdingDialogTitle').textContent = record ? '보유종목 수정' : '보유종목 직접 추가');
+function resolveHoldingDialogAccountSelection(record) {
   const allAccounts = holdingEligibleAccounts('모두');
   const linked = allAccounts.find(a => a.id === record?.account_id);
   const owner = record ? (linked?.owner || record.owner || '모두') : currentOwner;
   const legacy = record && !record.account_id ? allAccounts.filter(a =>
     a.broker === record.broker && a.name === record.account_name && (a.owner || '모두') === owner) : [];
   const selectedId = record?.account_id || (legacy.length === 1 ? legacy[0].id : '');
-  fillHoldingAccountOptions(owner, selectedId);
-  populateStockDatalists();
-  attachStockAutoFill('holdingForm');
-  form.broker.value = linked?.broker || record?.broker || '기타 증권사';
-  form.account_name.value = linked?.name || record?.account_name || '내 주식 계좌';
-  form.code.value = record?.code || '';
-  form.name.value = record?.name || '';
-  form.quantity.value = record?.quantity ?? '';
-  form.avg_price.value = record?.avg_price ?? '';
-  form.current_price.value = record?.current_price ?? '';
-  form.currency.value = record?.currency || 'KRW';
-  form.market.value = record?.market || '';
-  if (form.sector) form.sector.value = record?.sector || '';
-  if (form.owner) form.owner.value = owner;
-  $('#holdingDialog')?.showModal();
+  return { linked, owner, selectedId };
+}
+function openHoldingDialog(record = null) {
+  window.WealthHoldingDialogController.open({
+    $, record, resolveAccountSelection: resolveHoldingDialogAccountSelection,
+    fillHoldingAccountOptions, populateStockDatalists, attachStockAutoFill,
+  });
 }
 
 function openAssetRecordDialog(record = null) {
-  const form = $("#assetRecordForm");
-  if (!form) return;
-  form.reset();
-  form.dataset.recordId = record?.id || "";
-  $("#assetRecordDialogTitle") && ($("#assetRecordDialogTitle").textContent = record ? "주식기록 수정" : "주식기록 추가");
-  form.date.value = record?.date || new Date().toISOString().slice(0, 10);
-  form.total_value_krw.value = record?.total_value_krw ?? record?.total_assets_krw ?? "";
-  if (form.total_assets_krw) form.total_assets_krw.value = record?.total_assets_krw ?? record?.total_value_krw ?? "";
-  if (form.total_debt_krw) form.total_debt_krw.value = record?.total_debt_krw ?? "";
-  if (form.net_worth_krw) form.net_worth_krw.value = record?.net_worth_krw ?? ((Number(record?.total_assets_krw ?? record?.total_value_krw) || 0) - (Number(record?.total_debt_krw) || 0));
-  form.total_cost_krw.value = record?.total_cost_krw ?? "";
-  form.profit_krw.value = record?.profit_krw ?? "";
-  form.return_rate.value = record?.return_rate ?? "";
-  form.day_profit_krw.value = record?.day_profit_krw ?? "";
-  form.krw_value_krw.value = record?.krw_value_krw ?? "";
-  form.usd_value_krw.value = record?.usd_value_krw ?? "";
-  form.holding_count.value = record?.holding_count ?? "";
-  form.memo.value = record?.memo ?? "";
-  if (form.owner) form.owner.value = record?.owner || currentOwner || "모두";
-  $("#assetRecordDialog")?.showModal();
+  assetRecordsScreenController.openRecordDialog(record, {
+    getNetWorth: () => record?.net_worth_krw ?? ((Number(record?.total_assets_krw ?? record?.total_value_krw) || 0) - (Number(record?.total_debt_krw) || 0)),
+    getOwner: () => record?.owner || currentOwner || "모두",
+  });
 }
 
 function openAccountCashDialog(account) {
@@ -6703,18 +4318,12 @@ function renderAccountYearlyFormRows(form = document.getElementById("accountEdit
   let cumulativeSaved = 0;
   let cumulativeDeposit = 0;
 
-  if (!accountCurrentYearlyList || !accountCurrentYearlyList.length) {
-    container.innerHTML = `
-      <div style="font-size:11.5px;color:#94a3b8;padding:12px 8px;text-align:center;background:rgba(0,0,0,0.2);border-radius:6px;">
-        등록된 연도별 납입 이력이 없습니다.<br>
-        상단에서 <strong>연도와 납입금액</strong>을 입력 후 <strong>[➕ 연도 추가 / 반영]</strong>을 눌러주세요.
-      </div>
-    `;
-  } else {
+  let rows = [];
+  if (accountCurrentYearlyList?.length) {
     // Sort descending by year
     accountCurrentYearlyList.sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
 
-    container.innerHTML = accountCurrentYearlyList.map((yc, idx) => {
+    rows = accountCurrentYearlyList.map((yc, idx) => {
       const yr = String(yc.year || "").trim();
       const dep = Number(yc.deposit || 0);
       const isDed = yc.is_deductible !== false && String(yc.is_deductible) !== "false";
@@ -6726,32 +4335,11 @@ function renderAccountYearlyFormRows(form = document.getElementById("accountEdit
       cumulativeDeposit += dep;
       if (isDed) cumulativeSaved += saved;
 
-      return `
-        <div class="account-yearly-card" data-index="${idx}" data-year="${yr}" style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:6px;gap:8px;">
-          <div style="display:flex;align-items:center;gap:8px;flex:1;flex-wrap:wrap;">
-            <span style="font-weight:700;font-size:13px;color:#38bdf8;min-width:55px;">${yr}년</span>
-            <span class="account-yearly-dep" style="font-size:12.5px;font-weight:600;min-width:90px;">₩${number(dep, 0)}</span>
-            <span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${isDed ? 'rgba(56,189,248,0.15)' : 'rgba(52,211,153,0.15)'};color:${isDed ? '#38bdf8' : '#34d399'};font-weight:600;">
-              ${isDed ? `🎯 공제 (${rate}%)` : '🌿 비공제'}
-            </span>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span style="font-size:12px;font-weight:700;color:${isDed ? '#4ade80' : '#94a3b8'};min-width:80px;text-align:right;">
-              ${isDed ? `+₩${number(saved, 0)}` : '절세제외(₩0)'}
-            </span>
-            <button type="button" class="account-yearly-edit-btn" data-index="${idx}" style="border-radius:4px;padding:2px 7px;font-size:11px;cursor:pointer;" title="상단 입력창으로 불러와 수정">수정</button>
-            <button type="button" class="account-yearly-del-btn" data-index="${idx}" style="border-radius:4px;padding:2px 7px;font-size:11px;cursor:pointer;" title="삭제">✕</button>
-          </div>
-        </div>
-      `;
-    }).join("");
+      return { idx, yr, dep, isDed, rate, saved };
+    });
   }
 
-  const cumSavedEl = form?.querySelector("#accountCumulativeSavedText");
-  if (cumSavedEl) cumSavedEl.textContent = `₩${number(cumulativeSaved, 0)}`;
-
-  const cumDepEl = form?.querySelector("#accountCumulativeDepositText");
-  if (cumDepEl) cumDepEl.textContent = `₩${number(cumulativeDeposit, 0)}`;
+  accountYearlyView.render(form, container, rows, { cumulativeSaved, cumulativeDeposit });
 }
 
 function updateAccountTaxBenefitFields(form) {
@@ -6983,22 +4571,8 @@ function openAccountEditDialog(account) {
 }
 
 // ── 14. 가족 구성원 관리 함수들 ──────────────────────────────────────────────
-function renderFamilyMemberList(members) {
-  const list = document.getElementById('familyMemberList');
-  if (!list) return;
-  if (!members.length) {
-    list.innerHTML = '<p style="color:var(--muted);font-size:13px;">구성원이 없습니다.</p>';
-    return;
-  }
-  list.innerHTML = members.map(m => `
-    <div class="family-member-row" style="display:flex;align-items:center;gap:8px;">
-      <input class="family-member-name-input" type="text" value="${m}" data-original="${m}"
-        style="flex:1;font-size:13px;" maxlength="20" />
-      <button class="button secondary compact family-rename-btn" data-name="${m}" type="button">수정</button>
-      <button class="button text danger compact family-delete-btn" data-name="${m}" type="button">삭제</button>
-    </div>
-  `).join('');
-}
+const familyView = window.WealthFamilyView.create({ document });
+function renderFamilyMemberList(members) { familyView.renderFamilyMemberList(members); }
 
 async function openFamilyManager() {
   const dlg = document.getElementById('familyManagerDialog');
@@ -7021,38 +4595,8 @@ async function loadFamilyMembers() {
   } catch (e) {}
 }
 
-function updateOwnerSelectOptions(members) {
-  const opts = ['<option value="모두">모두</option>'].concat(members.map(m => `<option value="${m}">${m}</option>`)).join('');
-  document.querySelectorAll('select[name="owner"]').forEach(sel => {
-    const prev = sel.value;
-    sel.innerHTML = opts;
-    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
-  });
-}
-
-const FAMILY_TAB_CONTAINER_IDS = [
-  'topbarFamilyTabs',
-  'recordsFamilyTabs',
-  'heatmapFamilyTabs',
-  'dividendFamilyTabs',
-  'pnlFamilyTabs',
-  'holdingsFamilyTabs',
-  'familyTabs',
-  'ledgerFamilyTabs',
-];
-
-function renderFamilyTabs(members) {
-  const allBtn = '<button type="button" class="family-tab' + (currentOwner === '모두' ? ' active' : '') + '" data-owner="모두">모두</button>';
-  const memberBtns = members.map(m =>
-    '<button type="button" class="family-tab' + (currentOwner === m ? ' active' : '') + '" data-owner="' + m + '">' + m + '</button>'
-  ).join('');
-  const inner = allBtn + memberBtns;
-
-  FAMILY_TAB_CONTAINER_IDS.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.innerHTML = inner;
-  });
-}
+function updateOwnerSelectOptions(members) { familyView.updateOwnerSelectOptions(members); }
+function renderFamilyTabs(members) { familyView.renderFamilyTabs(members, currentOwner); }
 
 // ── 전역 클릭 이벤트 위임 ───────────────────────────────────────────────────
 document.addEventListener('click', async (e) => {
@@ -7527,10 +5071,7 @@ document.addEventListener('click', async (e) => {
   // 종목 차트 모달 기간 탭 클릭
   const chartTab = e.target.closest('#stockChartPeriodTabs .heatmap-tab');
   if (chartTab) {
-    document.querySelectorAll('#stockChartPeriodTabs .heatmap-tab').forEach(t => t.classList.remove('active'));
-    chartTab.classList.add('active');
-    currentStockChartPeriod = chartTab.dataset.period || '1M';
-    await loadStockChartData();
+    await stockChartView.setPeriod(chartTab);
     return;
   }
 
@@ -8521,447 +6062,13 @@ $("#accountAddForm")?.addEventListener("keydown", (e) => {
 });
 
 // ── 종목 사전 및 양방향 자동완성 (종목코드 ↔ 종목명) ─────────────────────────
-const POPULAR_STOCKS = [
-  // 이자 / 현금성 배당 전용 항목 (종목코드 선택 가능)
-  { code: "INTEREST_KRW", name: "원화이자", currency: "KRW" },
-  { code: "INTEREST_USD", name: "달러이자", currency: "USD" },
-  { code: "INTEREST_RP", name: "RP이자", currency: "KRW" },
-  { code: "INTEREST_CASH", name: "예탁금이자", currency: "KRW" },
+const stockAutocomplete = window.WealthStockAutocomplete.create({
+  api, html, document, getDashboard: () => dashboard,
+  getActualDividendData: () => actualDividendData, getPnlData: () => pnlData,
+});
+function populateStockDatalists() { return stockAutocomplete.populateStockDatalists(); }
+function attachStockAutoFill(formId, updateFieldsFn) { return stockAutocomplete.attachStockAutoFill(formId, updateFieldsFn); }
 
-  { code: "005930", name: "삼성전자", currency: "KRW" },
-  { code: "005935", name: "삼성전자우", currency: "KRW" },
-  { code: "000660", name: "SK하이닉스", currency: "KRW" },
-  { code: "373220", name: "LG에너지솔루션", currency: "KRW" },
-  { code: "207940", name: "삼성바이오로직스", currency: "KRW" },
-  { code: "005380", name: "현대차", currency: "KRW" },
-  { code: "000270", name: "기아", currency: "KRW" },
-  { code: "068270", name: "셀트리온", currency: "KRW" },
-  { code: "035420", name: "NAVER", currency: "KRW" },
-  { code: "035720", name: "카카오", currency: "KRW" },
-  { code: "005490", name: "POSCO홀딩스", currency: "KRW" },
-  { code: "105560", name: "KB금융", currency: "KRW" },
-  { code: "055550", name: "신한지주", currency: "KRW" },
-  { code: "086790", name: "하나금융지주", currency: "KRW" },
-  { code: "316140", name: "우리금융지주", currency: "KRW" },
-  { code: "069500", name: "KODEX 200", currency: "KRW" },
-  { code: "360750", name: "TIGER 미국S&P500", currency: "KRW" },
-  { code: "133690", name: "TIGER 미국나스닥100", currency: "KRW" },
-  { code: "379800", name: "KODEX 미국S&P500TR", currency: "KRW" },
-  { code: "379810", name: "KODEX 미국나스닥100TR", currency: "KRW" },
-  { code: "360200", name: "ACE 미국S&P500", currency: "KRW" },
-  { code: "449450", name: "PLUS 고배당주", currency: "KRW" },
-  { code: "AAPL", name: "애플 (Apple)", currency: "USD" },
-  { code: "MSFT", name: "마이크로소프트 (Microsoft)", currency: "USD" },
-  { code: "NVDA", name: "엔비디아 (NVIDIA)", currency: "USD" },
-  { code: "GOOGL", name: "알파벳 A (Google)", currency: "USD" },
-  { code: "AMZN", name: "아마존 (Amazon)", currency: "USD" },
-  { code: "META", name: "메타 (Meta)", currency: "USD" },
-  { code: "TSLA", name: "테슬라 (Tesla)", currency: "USD" },
-  { code: "QQQ", name: "인베스코 QQQ (Invesco QQQ)", currency: "USD" },
-  { code: "QQQM", name: "인베스코 나스닥100 (QQQM)", currency: "USD" },
-  { code: "SPY", name: "SPDR S&P 500 (SPY)", currency: "USD" },
-  { code: "IVV", name: "iShares Core S&P 500", currency: "USD" },
-  { code: "VOO", name: "Vanguard S&P 500", currency: "USD" },
-  { code: "SPYG", name: "SPDR Portfolio S&P 500 Growth", currency: "USD" },
-  { code: "SCHD", name: "Schwab US Dividend Equity", currency: "USD" },
-  { code: "TLT", name: "iShares 20+ Year Treasury Bond", currency: "USD" },
-  { code: "TQQQ", name: "ProShares UltraPro QQQ", currency: "USD" },
-  { code: "QLD", name: "ProShares Ultra QQQ", currency: "USD" },
-];
-
-const POPULAR_IPO_STOCKS = [
-  { code: "394420", name: "리센스메디컬", currency: "KRW" },
-  { code: "493280", name: "아이엠바이오로직스", currency: "KRW" },
-  { code: "408470", name: "한패스", currency: "KRW" },
-  { code: "462870", name: "시프트업", currency: "KRW" },
-  { code: "475560", name: "더본코리아", currency: "KRW" },
-  { code: "278470", name: "에이피알", currency: "KRW" },
-  { code: "443060", name: "HD현대마린솔루션", currency: "KRW" },
-  { code: "454910", name: "두산로보틱스", currency: "KRW" },
-  { code: "450080", name: "에코프로머티", currency: "KRW" },
-  { code: "440110", name: "파두", currency: "KRW" },
-];
-const RECENT_SEARCHED_STOCKS = new Map();
-
-function getAllKnownStockList() {
-  const map = new Map();
-  POPULAR_STOCKS.forEach(s => map.set(s.code.toUpperCase(), { ...s }));
-  POPULAR_IPO_STOCKS.forEach(s => map.set(s.code.toUpperCase(), { ...s }));
-  RECENT_SEARCHED_STOCKS.forEach((s, code) => {
-    if (!map.has(code.toUpperCase())) map.set(code.toUpperCase(), { ...s });
-  });
-  (dashboard?.holdings || []).forEach(h => {
-    if (h.code) {
-      map.set(h.code.toUpperCase(), {
-        code: h.code.toUpperCase(),
-        name: h.name || h.code,
-        currency: h.currency || (h.code.length === 6 && /^\d+$/.test(h.code) ? "KRW" : "USD"),
-      });
-    }
-  });
-  (actualDividendData?.records || []).forEach(r => {
-    if (r.code) {
-      map.set(r.code.toUpperCase(), {
-        code: r.code.toUpperCase(),
-        name: r.name || r.code,
-        currency: r.currency || "KRW",
-      });
-    }
-  });
-  (pnlData?.records || []).forEach(r => {
-    if (r.code) {
-      map.set(r.code.toUpperCase(), {
-        code: r.code.toUpperCase(),
-        name: r.name || r.code,
-        currency: r.currency || "KRW",
-      });
-    }
-  });
-  return [...map.values()];
-}
-
-function populateStockDatalists() {
-  const list = getAllKnownStockList();
-  const codeListEl = document.getElementById("holdingCodeList");
-  const nameListEl = document.getElementById("holdingNameList");
-
-  if (codeListEl) {
-    codeListEl.innerHTML = list.map(s => `<option value="${s.code}">${s.name} (${s.currency})</option>`).join("");
-  }
-  if (nameListEl) {
-    nameListEl.innerHTML = list.map(s => `<option value="${s.name}">${s.code} · ${s.currency}</option>`).join("");
-  }
-}
-
-function attachStockAutoFill(formId, updateFieldsFn) {
-  const form = document.getElementById(formId);
-  if (!form) return;
-  const codeInput = form.querySelector("[name='code']");
-  const nameInput = form.querySelector("[name='name']");
-  const currSelect = form.querySelector("[name='currency']");
-
-  form._stockUpdateFieldsFn = updateFieldsFn;
-
-  // 종목 자동완성 추천 드롭다운 컨테이너 생성/확보
-  if (nameInput) {
-    if (!nameInput.parentElement.style.position) {
-      nameInput.parentElement.style.position = "relative";
-    }
-    let dropdownEl = nameInput.parentElement.querySelector(".stock-suggestions-dropdown");
-    if (!dropdownEl) {
-      dropdownEl = document.createElement("div");
-      dropdownEl.className = "stock-suggestions-dropdown";
-      dropdownEl.style.display = "none";
-      nameInput.parentElement.appendChild(dropdownEl);
-    }
-  }
-
-  function highlightAutofill(inputEl) {
-    if (!inputEl) return;
-    inputEl.classList.remove("input-autofill-flash");
-    void inputEl.offsetWidth; // reflow 강제
-    inputEl.classList.add("input-autofill-flash");
-    setTimeout(() => {
-      inputEl.classList.remove("input-autofill-flash");
-    }, 1300);
-  }
-
-  function onCodeChanged() {
-    const raw = (codeInput?.value || "").trim().toUpperCase();
-    if (!raw) return;
-
-    // 이자 코드 즉시 매칭
-    const INTEREST_CODES = {
-      "INTEREST_KRW": { name: "원화이자", currency: "KRW" },
-      "INTEREST_USD": { name: "달러이자", currency: "USD" },
-      "INTEREST_RP": { name: "RP이자", currency: "KRW" },
-      "INTEREST_CASH": { name: "예탁금이자", currency: "KRW" },
-    };
-    if (INTEREST_CODES[raw]) {
-      const match = INTEREST_CODES[raw];
-      if (nameInput && (!nameInput.value || nameInput.value.includes("이자"))) nameInput.value = match.name;
-      if (currSelect) currSelect.value = match.currency;
-      if (typeof form._stockUpdateFieldsFn === 'function') form._stockUpdateFieldsFn();
-      return;
-    }
-
-    const all = getAllKnownStockList();
-    const found = all.find(s => s.code.toUpperCase() === raw || s.code.toUpperCase().replace(/\s+/g, '') === raw.replace(/\s+/g, ''));
-    if (found) {
-      if (nameInput) {
-        nameInput.value = found.name;
-        highlightAutofill(nameInput);
-      }
-      if (currSelect && found.currency) currSelect.value = found.currency;
-      if (typeof form._stockUpdateFieldsFn === 'function') form._stockUpdateFieldsFn();
-    } else if (raw.length >= 2) {
-      // 온라인 검색으로 코드 -> 종목명 탐색
-      api(`/api/stock-search?q=${encodeURIComponent(raw)}`).then(res => {
-        if (res && res.found && res.name) {
-          if (nameInput) {
-            nameInput.value = res.name;
-            highlightAutofill(nameInput);
-          }
-          if (currSelect && res.currency) currSelect.value = res.currency;
-          RECENT_SEARCHED_STOCKS.set(raw, { code: res.code || raw, name: res.name, currency: res.currency || 'KRW' });
-          populateStockDatalists();
-          if (typeof form._stockUpdateFieldsFn === 'function') form._stockUpdateFieldsFn();
-        }
-      }).catch(() => {});
-    }
-  }
-
-  let searchTimer = null;
-  let activeIndex = -1;
-  let currentSuggestions = [];
-
-  function getDropdown() {
-    return nameInput?.parentElement?.querySelector(".stock-suggestions-dropdown");
-  }
-
-  function hideSuggestions() {
-    const dropdown = getDropdown();
-    if (dropdown) {
-      dropdown.style.display = "none";
-      dropdown.innerHTML = "";
-    }
-    currentSuggestions = [];
-    activeIndex = -1;
-  }
-
-  function renderSuggestions(list, isIpo) {
-    const dropdown = getDropdown();
-    if (!dropdown) return;
-    currentSuggestions = list || [];
-    activeIndex = -1;
-    if (!currentSuggestions.length) {
-      dropdown.style.display = "none";
-      dropdown.innerHTML = "";
-      return;
-    }
-
-    dropdown.innerHTML = `
-      <div class="stock-suggestions-header">
-        <span>${isIpo ? '📦 공모주 종목 검색 결과' : '🔍 종목 검색 결과'} (${currentSuggestions.length})</span>
-        <span class="stock-suggestions-hint">선택 시 종목코드/통화 자동 완성</span>
-      </div>
-      <div class="stock-suggestions-list">
-        ${currentSuggestions.map((s, idx) => `
-          <div class="stock-suggestion-item" data-index="${idx}">
-            <div class="stock-suggestion-left">
-              <span class="stock-suggestion-icon">${isIpo ? '📦' : '📈'}</span>
-              <strong class="stock-suggestion-name">${html(s.name)}</strong>
-            </div>
-            <div class="stock-suggestion-right">
-              <span class="stock-suggestion-code">${html(s.code)}</span>
-              <span class="stock-suggestion-curr">${html(s.currency || 'KRW')}</span>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `;
-    dropdown.style.display = "block";
-
-    dropdown.querySelectorAll(".stock-suggestion-item").forEach(itemEl => {
-      itemEl.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        const idx = Number(itemEl.dataset.index);
-        selectSuggestion(currentSuggestions[idx]);
-      });
-      itemEl.addEventListener("mouseenter", () => {
-        activeIndex = Number(itemEl.dataset.index);
-        updateHighlight();
-      });
-    });
-  }
-
-  function updateHighlight() {
-    const dropdown = getDropdown();
-    if (!dropdown) return;
-    const items = dropdown.querySelectorAll(".stock-suggestion-item");
-    items.forEach((it, idx) => {
-      if (idx === activeIndex) {
-        it.classList.add("selected");
-        it.scrollIntoView({ block: "nearest" });
-      } else {
-        it.classList.remove("selected");
-      }
-    });
-  }
-
-  function selectSuggestion(item) {
-    if (!item) return;
-    if (nameInput) nameInput.value = item.name;
-    if (codeInput) {
-      codeInput.value = item.code;
-      highlightAutofill(codeInput);
-    }
-    if (currSelect && item.currency) {
-      currSelect.value = item.currency;
-    }
-    hideSuggestions();
-
-    RECENT_SEARCHED_STOCKS.set(item.code.toUpperCase(), { ...item });
-    populateStockDatalists();
-
-    if (typeof form._stockUpdateFieldsFn === 'function') form._stockUpdateFieldsFn();
-  }
-
-  function onNameChanged(e) {
-    const raw = (nameInput?.value || "").trim();
-    if (!raw) {
-      hideSuggestions();
-      return;
-    }
-
-    const cleanRaw = raw.toLowerCase().replace(/\s+/g, '');
-    const isIpo = (form.querySelector("[name='asset_type']")?.value === "ipo") || (form.querySelector("[name='is_ipo']")?.value === "true");
-
-    // [중요] 이자 관련 키워드 우선 매칭 (화이자 주식 오매칭 완벽 방어)
-    const INTEREST_KEYWORDS = {
-      "원화이자": { code: "INTEREST_KRW", name: "원화이자", currency: "KRW" },
-      "원화예탁금이용료": { code: "INTEREST_KRW", name: "원화이자", currency: "KRW" },
-      "달러이자": { code: "INTEREST_USD", name: "달러이자", currency: "USD" },
-      "외화이자": { code: "INTEREST_USD", name: "달러이자", currency: "USD" },
-      "usd이자": { code: "INTEREST_USD", name: "달러이자", currency: "USD" },
-      "rp이자": { code: "INTEREST_RP", name: "RP이자", currency: "KRW" },
-      "예탁금이자": { code: "INTEREST_CASH", name: "예탁금이자", currency: "KRW" },
-      "예탁금이용료": { code: "INTEREST_CASH", name: "예탁금이자", currency: "KRW" },
-      "이자": { code: "INTEREST_KRW", name: "원화이자", currency: "KRW" },
-    };
-
-    if (INTEREST_KEYWORDS[cleanRaw]) {
-      const match = INTEREST_KEYWORDS[cleanRaw];
-      if (codeInput) codeInput.value = match.code;
-      if (currSelect) currSelect.value = match.currency;
-      hideSuggestions();
-      if (typeof form._stockUpdateFieldsFn === 'function') form._stockUpdateFieldsFn();
-      return;
-    }
-
-    // 1. 로컬 저장된 목록에서 즉각 검색
-    const all = getAllKnownStockList();
-    const localMatches = all.filter(s => {
-      const cleanStockName = s.name.toLowerCase().replace(/\s+/g, '');
-      const cleanCode = s.code.toLowerCase().replace(/\s+/g, '');
-      if (cleanStockName === '화이자' || cleanStockName.startsWith('화이자(')) {
-        if (cleanRaw.includes('이자') && cleanRaw !== '화이자') return false;
-      }
-      return cleanStockName.includes(cleanRaw) || cleanCode.includes(cleanRaw);
-    }).slice(0, 6);
-
-    let exactMatch = all.find(s => {
-      const cleanStockName = s.name.toLowerCase().replace(/\s+/g, '');
-      if (cleanStockName === '화이자' || cleanStockName.startsWith('화이자(')) {
-        if (cleanRaw.includes('이자') && cleanRaw !== '화이자') return false;
-      }
-      return cleanStockName === cleanRaw || s.name === raw;
-    });
-
-    if (exactMatch) {
-      if (codeInput) {
-        codeInput.value = exactMatch.code;
-        highlightAutofill(codeInput);
-      }
-      if (currSelect && exactMatch.currency) currSelect.value = exactMatch.currency;
-      if (typeof form._stockUpdateFieldsFn === 'function') form._stockUpdateFieldsFn();
-    }
-
-    if (localMatches.length > 0 && nameInput === document.activeElement) {
-      renderSuggestions(localMatches, isIpo);
-    }
-
-    // 2. 온라인 백엔드 검색 디바운스 (180ms) - 리센스메디컬 등 미색인 공모주 즉각 반영
-    clearTimeout(searchTimer);
-    const delay = (e && (e.type === 'change' || e.type === 'blur')) ? 0 : 180;
-    searchTimer = setTimeout(async () => {
-      try {
-        const res = await api(`/api/stock-search?q=${encodeURIComponent(raw)}`);
-        if (!res) return;
-
-        const candidates = [];
-        const seenCodes = new Set();
-
-        if (res.suggestions && res.suggestions.length > 0) {
-          res.suggestions.forEach(s => {
-            if (!seenCodes.has(s.code.toUpperCase())) {
-              seenCodes.add(s.code.toUpperCase());
-              candidates.push(s);
-            }
-          });
-        }
-        localMatches.forEach(s => {
-          if (!seenCodes.has(s.code.toUpperCase())) {
-            seenCodes.add(s.code.toUpperCase());
-            candidates.push(s);
-          }
-        });
-
-        if (nameInput === document.activeElement && candidates.length > 0) {
-          renderSuggestions(candidates.slice(0, 8), isIpo);
-        }
-
-        // 검색 성공 시 코드 입력칸 업데이트 (기존 코드와 무관하게 종목명에 맞추어 갱신)
-        if (res.found && res.code) {
-          if (codeInput) {
-            codeInput.value = res.code;
-            highlightAutofill(codeInput);
-          }
-          if (currSelect && res.currency) {
-            currSelect.value = res.currency;
-          }
-          RECENT_SEARCHED_STOCKS.set(res.code.toUpperCase(), {
-            code: res.code,
-            name: res.name || raw,
-            currency: res.currency || 'KRW',
-          });
-          populateStockDatalists();
-          if (typeof form._stockUpdateFieldsFn === 'function') form._stockUpdateFieldsFn();
-        }
-      } catch (err) {}
-    }, delay);
-  }
-
-  function onNameKeydown(e) {
-    const dropdown = getDropdown();
-    if (!dropdown || dropdown.style.display !== "block" || !currentSuggestions.length) return;
-
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      activeIndex = (activeIndex + 1) % currentSuggestions.length;
-      updateHighlight();
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      activeIndex = (activeIndex - 1 + currentSuggestions.length) % currentSuggestions.length;
-      updateHighlight();
-    } else if (e.key === "Enter" || e.key === "Tab") {
-      if (activeIndex >= 0 && activeIndex < currentSuggestions.length) {
-        e.preventDefault();
-        selectSuggestion(currentSuggestions[activeIndex]);
-      } else if (currentSuggestions.length === 1 && e.key === "Enter") {
-        e.preventDefault();
-        selectSuggestion(currentSuggestions[0]);
-      }
-    } else if (e.key === "Escape") {
-      hideSuggestions();
-    }
-  }
-
-  if (!codeInput._boundAuto) {
-    codeInput._boundAuto = true;
-    codeInput.addEventListener("input", onCodeChanged);
-    codeInput.addEventListener("change", onCodeChanged);
-  }
-  if (!nameInput._boundAuto) {
-    nameInput._boundAuto = true;
-    nameInput.addEventListener("input", onNameChanged);
-    nameInput.addEventListener("change", onNameChanged);
-    nameInput.addEventListener("keydown", onNameKeydown);
-    nameInput.addEventListener("blur", () => {
-      setTimeout(hideSuggestions, 250);
-    });
-  }
-}
 
 // ── 분할 날짜 입력 컴포넌트 자동 포커스 이동 및 동기화 (연도 4자리 -> 월 -> 일) ──
 function setupAutoAdvancingDateInput(wrapSelector) {
@@ -9690,11 +6797,13 @@ function renderDividends(data) {
   syncDividendMonthNavUI();
   const fxUsd = (dashboard?.fx_rates?.USD) || 1385.0;
 
-  $("#divCardLabel1") && ($("#divCardLabel1").textContent = "연간 예상 배당금");
-  $("#divCardLabel2") && ($("#divCardLabel2").textContent = "포트폴리오 배당수익률");
-  $("#divCardLabel3") && ($("#divCardLabel3").textContent = "월평균 예상 배당금");
-  $("#divCardLabel4") && ($("#divCardLabel4").textContent = "배당 지급 종목 수");
-  $("#dividendChartTitle") && ($("#dividendChartTitle").textContent = "📊 1월 ~ 12월 월별 예상 배당금 추이");
+  window.WealthDividendSummaryView.renderTexts({
+    divCardLabel1: "연간 예상 배당금",
+    divCardLabel2: "포트폴리오 배당수익률",
+    divCardLabel3: "월평균 예상 배당금",
+    divCardLabel4: "배당 지급 종목 수",
+    dividendChartTitle: "📊 1월 ~ 12월 월별 예상 배당금 추이",
+  });
 
   // 1. 상단 4대 요약 카드
   const schedule = normalizeMonthlyDividendSchedule(data.monthly_schedule);
@@ -9727,7 +6836,7 @@ function renderDividends(data) {
   const hBarArea = 170;
   const barWidth = 44;
 
-  const bars = schedule.map((item, idx) => {
+  const chartBars = schedule.map((item, idx) => {
     const m = item.month;
     const val = Number(item.total_krw || 0);
     const x = pad + ((w - pad * 2) * (idx + 0.5)) / 12 - barWidth / 2;
@@ -9736,46 +6845,16 @@ function renderDividends(data) {
     const isSelected = selectedDividendMonth === m;
 
     const itemCount = (item.items || []).length;
-    const topText = val > 0 ? money(val) : "-";
-    const barFill = isSelected ? "url(#divBarGradActive)" : (val > 0 ? "url(#divBarGrad)" : "#1c263d");
+    return {
+      m, idx, val, x, y, barH, isSelected, itemCount,
+      labelX: x + barWidth / 2, valueLabelY: y - 6,
+    };
+  });
 
-    return `
-      <g class="dividend-bar-group" data-month="${m}" data-bucket-index="${idx}" tabindex="0" role="img" aria-label="${m}월 예상 배당금 ${html(money(val))}">
-        <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barH.toFixed(1)}" fill="${barFill}" rx="4" opacity="0.95">
-          <title>${m}월 예상 배당금: ${money(val)} (${itemCount}개 종목)</title>
-        </rect>
-        <text x="${(x + barWidth / 2).toFixed(1)}" y="${(y - 6).toFixed(1)}" fill="${val > 0 ? '#f3f5ff' : '#64748b'}" font-size="9.5" font-weight="700" text-anchor="middle">
-          ${topText}
-        </text>
-        <text x="${(x + barWidth / 2).toFixed(1)}" y="${(hBarArea + 16).toFixed(1)}" fill="${isSelected ? '#c4b5fd' : '#94a3b8'}" font-size="11" font-weight="${isSelected ? '700' : '600'}" text-anchor="middle">
-          ${m}월
-        </text>
-        <text x="${(x + barWidth / 2).toFixed(1)}" y="${(hBarArea + 28).toFixed(1)}" fill="${itemCount > 0 ? '#8e70fa' : '#475569'}" font-size="9" font-weight="600" text-anchor="middle">
-          ${itemCount > 0 ? itemCount + '종목' : '-'}
-        </text>
-      </g>
-    `;
-  }).join('');
-
-  const chartWrap = $("#dividendBarChartWrap");
-  if (chartWrap) {
-    chartWrap.innerHTML = `
-      <svg class="record-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:240px;overflow:visible;">
-        <defs>
-          <linearGradient id="divBarGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#a78bfa" />
-            <stop offset="100%" stop-color="#6366f1" />
-          </linearGradient>
-          <linearGradient id="divBarGradActive" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#38bdf8" />
-            <stop offset="100%" stop-color="#818cf8" />
-          </linearGradient>
-        </defs>
-        <line x1="${pad}" y1="${hBarArea}" x2="${w - pad}" y2="${hBarArea}" stroke="#283758" stroke-width="1.2" />
-        ${bars}
-      </svg>
-    `;
-  }
+  window.WealthDividendSummaryView.renderEstimatedChart({
+    $, html, money, chartBars, w, h, pad, hBarArea, barWidth,
+    axisEndX: w - pad, monthLabelY: hBarArea + 16, countLabelY: hBarArea + 28,
+  });
 
   attachEstimatedDividendTooltip(data);
 
@@ -9819,43 +6898,7 @@ function renderMonthlyDividendDetail(month = null) {
     }));
   }
 
-  if (!items.length) {
-    const emptyMsg = month ? `${month}월에 지급 예정인 배당금 내역이 없습니다.` : `배당(분배금)을 지급하는 보유 종목이 없습니다. (무배당/성장형 종목)`;
-    container.innerHTML = `
-      <div class="div-detail-header">${title}</div>
-      <div class="empty" style="padding:16px;">${emptyMsg}</div>
-    `;
-    return;
-  }
-
-  const cardsHtml = items.map(item => {
-    const isUsd = item.currency === 'USD';
-    const origText = isUsd ? `$${number(item.payout_orig, 2)}` : money(item.payout_krw);
-    const cycleText = item.months ? (item.months.length === 12 ? '월배당' : (item.months.length === 4 ? '분기배당' : `${item.months.join(', ')}월`)) : '';
-
-    return `
-      <div class="div-item-card">
-        <div class="div-item-info">
-          <strong>${html(item.name)}</strong>
-          <span>${html(item.code)} · ${number(item.quantity, 2)}주 ${cycleText ? '· ' + cycleText : ''}</span>
-        </div>
-        <div class="div-item-val">
-          <strong>${money(item.payout_krw)}</strong>
-          <small>${isUsd ? origText + ' · ' : ''}수익률 ${number(item.div_yield, 2)}%</small>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  container.innerHTML = `
-    <div class="div-detail-header">
-      ${title}
-      ${month ? '<button type="button" class="button text compact" id="clearDivMonthBtn" style="font-size:11px;margin-left:auto;">✕ 전체 보기</button>' : ''}
-    </div>
-    <div class="div-detail-grid">
-      ${cardsHtml}
-    </div>
-  `;
+  window.WealthActualDividendDetailView.renderEstimated({ container, title, items, month, html, money, number });
 }
 
 function renderActualDividends(data) {
@@ -9889,13 +6932,7 @@ function renderActualDividends(data) {
     divPayingCount: `${new Set(filteredRecords.map(r => r.code || r.name).filter(Boolean)).size}종목`,
     divTotalHoldings: `총 ${filteredRecords.length}건 입금`,
   };
-  Object.entries(texts).forEach(([id, text]) => { const node = document.getElementById(id); if (node) node.textContent = text; });
-  $('#dividendChartTitle') && ($('#dividendChartTitle').textContent = `📊 ${periodLabel} 실제 배당금 입금 추이`);
-
-  const chartWrap = $("#dividendBarChartWrap");
-  if (chartWrap && !window.WealthUnifiedTimeseries?.renderDividend) {
-    chartWrap.textContent = '배당 차트를 불러오는 중…';
-  }
+  window.WealthDividendSummaryView.renderActual({ $, texts, periodLabel });
 
   renderActualDividendDetail(selectedDividendMonth, window.WealthUnifiedTimeseries?.getDetail('dividend') || null);
 }
@@ -9943,19 +6980,6 @@ function renderActualDividendDetail(month = null, bucketDetail = null) {
     : month ? `${selectedDividendYear && selectedDividendYear !== 'all' ? `${selectedDividendYear}년 ` : ''}${month}월` : '전체';
   title = `📅 ${period} 실제 배당·이자 내역 (배당 ${dividendCount}건 · 이자 ${interestCount}건 · 합계 ${money(sumKrw)})`;
 
-  if (!items.length) {
-    container.innerHTML = `
-      <div class="div-detail-header">
-        ${title}
-        ${month ? `<button type="button" class="button text compact" id="clearDivMonthBtn" style="font-size:11px;margin-left:auto;">✕ ${bucketDetail ? '선택 해제' : '전체 보기'}</button>` : ''}
-      </div>
-      <div class="empty" style="padding:16px;">
-        등록된 실제 배당금 내역이 없습니다. 상단의 <strong>[➕ 배당 추가]</strong> 또는 <strong>[📂 가져오기]</strong> 버튼으로 입금 내역을 기록해보세요.
-      </div>
-    `;
-    return;
-  }
-
   // 배당금 내역 컬럼 정렬 (보유종목과 동일 UX)
   items.sort((a, b) => {
     let valA, valB;
@@ -9983,60 +7007,10 @@ function renderActualDividendDetail(month = null, bucketDetail = null) {
     return 0;
   });
 
-  const rowsHtml = items.map(item => {
-    const isUsd = item.currency === 'USD';
-    const origAmt = isUsd ? `$${number(item.amount, 2)}` : money(item.amount_krw);
-    const fxInfo = isUsd ? `<br><small class="td-fx-info">환율 ${number(item.fx_rate, 1)}원</small>` : '';
-
-    return `
-      <tr>
-        <td class="center td-date">${html(item.date)}</td>
-        <td class="center"><span class="td-owner-badge">${html(item.owner || '모두')}</span></td>
-        <td class="td-stock-col">
-          <strong class="td-stock-name">${html(item.name || item.code)}</strong>
-          <div class="td-stock-code">${html(item.code || '')}</div>
-        </td>
-        <td class="center"><span class="td-owner-badge">${item.income_kind === 'interest' ? '이자' : html(item.tax_estimate?.tax_type_label || '일반 배당')}</span></td>
-        <td class="center"><span class="td-currency">${html(item.currency || 'KRW')}</span></td>
-        <td class="num td-orig-amt">${origAmt}${fxInfo}</td>
-        <td class="num td-krw-amt pnl-gain-val" style="font-size:13.5px;font-weight:700;">${money(item.amount_krw)}</td>
-        <td class="td-memo">${html(item.memo || '-')}${item.source === 'ledger_interest' ? `<br><span class="td-owner-badge">가계부 연동</span><br>${html(item.account_name || '')}` : ''}</td>
-        <td class="center" style="white-space:nowrap;">
-          ${item.source === 'ledger_interest' ? '<span title="원본 가계부 거래에서 수정하거나 삭제해 주세요">가계부에서 수정</span>' : item.income_kind === 'interest' ? '<span title="이자 내역은 읽기 전용입니다">읽기 전용</span>' : `<div class="account-row-actions" style="justify-content:center;">
-            <button class="account-action-button edit-actual-div-btn" data-id="${item.id}" title="배당 수정" type="button">✎</button>
-            <button class="account-action-button mini-delete-button delete-actual-div-btn" data-id="${item.id}" title="배당 삭제" type="button">🗑️</button>
-          </div>`}
-        </td>
-      </tr>
-    `;
-  }).join('');
-
-  container.innerHTML = `
-    <div class="div-detail-header">
-      ${title}
-      ${month ? `<button type="button" class="button text compact" id="clearDivMonthBtn" style="font-size:11px;margin-left:auto;">✕ ${bucketDetail ? '선택 해제' : '전체 보기'}</button>` : ''}
-    </div>
-    <div class="detail-table-wrap">
-      <table class="detail-table">
-        <thead>
-          <tr>
-            <th class="center sortable-th ${currentDivSortField === 'date' ? (currentDivSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-div-sort="date" style="width:95px;">입금일 <span class="sort-icon"></span></th>
-            <th class="center sortable-th ${currentDivSortField === 'owner' ? (currentDivSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-div-sort="owner" style="width:75px;">소유자 <span class="sort-icon"></span></th>
-            <th class="sortable-th ${currentDivSortField === 'name' ? (currentDivSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-div-sort="name">종목명 (코드) <span class="sort-icon"></span></th>
-            <th class="center" style="width:55px;">유형</th>
-            <th class="center" style="width:60px;">통화</th>
-            <th class="sortable-th ${currentDivSortField === 'amount' ? (currentDivSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-div-sort="amount" style="text-align:right;width:115px;">입금액 <span class="sort-icon"></span></th>
-            <th class="sortable-th ${currentDivSortField === 'amount_krw' ? (currentDivSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-div-sort="amount_krw" style="text-align:right;width:125px;">원화 환산금액 <span class="sort-icon"></span></th>
-            <th>메모 / 계좌</th>
-            <th class="center" style="width:65px;">관리</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowsHtml}
-        </tbody>
-      </table>
-    </div>
-  `;
+  window.WealthActualDividendDetailView.render({
+    container, title, items, month, hasBucketDetail: Boolean(bucketDetail),
+    currentDivSortField, currentDivSortOrder, html, money, number,
+  });
 }
 
 async function fetchHistoricalFxRate(dateStr) {
@@ -10330,24 +7304,7 @@ function renderRealizedPnl(data) {
   const recordCount = filteredRecords.length;
 
   // 1. 4대 요약 카드
-  const totalEl = $("#pnlTotal");
-  if (totalEl) {
-    totalEl.textContent = `${totalPnl > 0 ? '+' : ''}${money(totalPnl)}`;
-    totalEl.className = `div-card-val ${totalPnl > 0 ? 'gain' : (totalPnl < 0 ? 'loss' : '')}`;
-  }
-  $("#pnlTotalCount") && ($("#pnlTotalCount").textContent = `총 ${recordCount}건 매도${pnlView.completenessNote ? ` · ${pnlView.completenessNote}` : ''}`);
-
-  $("#pnlTotalWin") && ($("#pnlTotalWin").textContent = `+${money(totalWin)}`);
-  $("#pnlWinCount") && ($("#pnlWinCount").textContent = `${winCount}건 실현`);
-
-  $("#pnlTotalLoss") && ($("#pnlTotalLoss").textContent = `${money(totalLoss)}`);
-  $("#pnlLossCount") && ($("#pnlLossCount").textContent = `${lossCount}건 실현`);
-
-  const winRateEl = $("#pnlWinRate");
-  if (winRateEl) {
-    winRateEl.textContent = `${number(winRate, 1)}%`;
-    winRateEl.className = `div-card-val ${winRate >= 50 ? 'gain' : ''}`;
-  }
+  window.WealthRealizedPnlView.renderSummary({ $, money, number, totalPnl, recordCount, completenessNote: pnlView.completenessNote, totalWin, winCount, totalLoss, lossCount, winRate });
 
   // 2. 양방향 막대그래프 (SVG Bar Chart)
   const w = 900, h = 240, pad = 30;
@@ -10462,32 +7419,7 @@ function renderRealizedPnl(data) {
 
   const chartWrap = $("#pnlBarChartWrap");
   if (chartWrap && !window.WealthUnifiedTimeseries?.renderPnl) {
-    chartWrap.innerHTML = `
-      <svg class="record-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:240px;overflow:visible;">
-        <defs>
-          <linearGradient id="pnlGainBarGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#fb7185" />
-            <stop offset="100%" stop-color="#e11d48" />
-          </linearGradient>
-          <linearGradient id="pnlGainBarGradActive" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#f43f5e" />
-            <stop offset="100%" stop-color="#fda4af" />
-          </linearGradient>
-          <linearGradient id="pnlLossBarGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#0284c7" />
-            <stop offset="100%" stop-color="#0369a1" />
-          </linearGradient>
-          <linearGradient id="pnlLossBarGradActive" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#38bdf8" />
-            <stop offset="100%" stop-color="#7dd3fc" />
-          </linearGradient>
-        </defs>
-        <!-- 0원 기준 중심선 -->
-        <line x1="${pad}" y1="${zeroY}" x2="${w - pad}" y2="${zeroY}" stroke="#334155" stroke-dasharray="3 3" stroke-width="1.2" />
-        <line x1="${pad}" y1="200" x2="${w - pad}" y2="200" stroke="#1e293b" stroke-width="1" />
-        ${bars}
-      </svg>
-    `;
+    window.WealthRealizedPnlView.renderLegacyChart(chartWrap, { w, h, pad, zeroY, bars });
   }
 
   renderPnlMonthlyDetail(selectedPnlMonth, window.WealthUnifiedTimeseries?.getDetail('pnl') || null);
@@ -10543,18 +7475,7 @@ function renderPnlMonthlyDetail(month = null, bucketDetail = null) {
     title = `📅 전체 매도 실현손익 내역 (${items.length}건 · 총합 ${itemSummary.totalPnlKrw > 0 ? '+' : ''}${money(itemSummary.totalPnlKrw)}${itemSummary.completenessNote ? ` · ${itemSummary.completenessNote}` : ''})`;
   }
 
-  if (!items.length) {
-    container.innerHTML = `
-      <div class="div-detail-header">
-        ${title}
-        ${month ? `<button type="button" class="button text compact" id="clearPnlMonthBtn" style="font-size:11px;margin-left:auto;">✕ ${bucketDetail ? '선택 해제' : '전체 보기'}</button>` : ''}
-      </div>
-      <div class="empty" style="padding:16px;">
-        등록된 매도 실현손익 내역이 없습니다. 상단의 <strong>[➕ 손익 추가]</strong> 또는 <strong>[📂 가져오기]</strong> 버튼으로 매도 기록을 등록해보세요.
-      </div>
-    `;
-    return;
-  }
+
 
   // 매도 실현손익 내역 컬럼 정렬 (보유종목과 동일 UX)
   items.sort((a, b) => {
@@ -10591,80 +7512,11 @@ function renderPnlMonthlyDetail(month = null, bucketDetail = null) {
     return 0;
   });
 
-  const rowsHtml = items.map(item => {
-    const isUsd = item.currency === 'USD';
-    const pnlVal = finiteRealizedPnlNumber(item.pnl_krw);
-    const nativePnlVal = finiteRealizedPnlNumber(item.pnl);
-    const signValue = pnlVal === null ? nativePnlVal : pnlVal;
-    const krwPnlDisplay = formatOptionalRealizedPnlValue(item.pnl_krw, value => `${value > 0 ? '+' : ''}${money(value)}`);
-    const colorClass = signValue > 0 ? 'pnl-gain-val' : (signValue < 0 ? 'pnl-loss-val' : 'pnl-zero-val');
-    const origText = isUsd ? `${Number(item.pnl) > 0 ? '+' : ''}$${number(item.pnl, 2)}` : '';
-    const fxPnlVal = finiteRealizedPnlNumber(item.fx_pnl_krw);
-    const wtsFxPnlUnavailable = item.source === 'toss_wts' && item.fx_pnl_krw == null;
-    const wtsFxPnlZero = item.source === 'toss_wts' && item.fx_pnl_krw === 0;
-    const fxPnlDisplay = formatOptionalTossWtsFxDisplay(item, item.fx_pnl_krw, value => `${Number(value) > 0 ? '+' : ''}${money(value)}`);
-    const fxPnlInfo = (isUsd && (wtsFxPnlUnavailable || wtsFxPnlZero || (fxPnlVal !== null && fxPnlVal !== 0))) ? `<br><small style="color:#c4b5fd;">환차손익 ${fxPnlDisplay}</small>` : '';
-    const fxRateDisplay = formatOptionalRealizedPnlValue(item.fx_rate, value => `${number(value, 1)}원`);
-    const fxInfo = isUsd ? `<br><small style="color:#8da0c7;">환율 ${fxRateDisplay}</small>${fxPnlInfo}` : '';
-
-    let typeBadge = '<span class="td-normal-badge">일반거래</span>';
-    if (item.asset_type === 'real_estate' || item.code === 'REAL_ESTATE') {
-      typeBadge = '<span class="saving-type-badge badge-sold" style="background:rgba(245,158,11,0.18);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);font-size:11px;padding:2px 6px;border-radius:4px;font-weight:700;">🏷️ 부동산</span>';
-    } else if (item.is_ipo) {
-      typeBadge = '<span class="td-ipo-badge">📦 공모주</span>';
-    }
-
-    return `
-      <tr>
-        <td class="center td-date">${html(item.date)}</td>
-        <td class="center"><span class="td-owner-badge">${html(item.owner || '모두')}</span></td>
-        <td class="td-stock-col">
-          <strong class="td-stock-name">${html(item.name || item.code)}</strong>
-          <div class="td-stock-code">${html(item.code || '')}</div>
-        </td>
-        <td class="center">
-          ${typeBadge}
-        </td>
-        <td class="center"><span class="td-currency">${html(item.currency || 'KRW')}</span></td>
-        <td class="num td-orig-amt">${isUsd ? origText : krwPnlDisplay}${fxInfo}</td>
-        <td class="num ${colorClass}" style="font-size:13.5px;font-weight:700;">${krwPnlDisplay}</td>
-        <td class="td-memo">${html(item.memo || '-')}</td>
-        <td class="center" style="white-space:nowrap;">
-          <div class="account-row-actions" style="justify-content:center;">
-            <button class="account-action-button edit-pnl-btn" data-id="${item.id}" title="손익 수정" type="button">✎</button>
-            <button class="account-action-button mini-delete-button delete-pnl-btn" data-id="${item.id}" title="손익 삭제" type="button">🗑️</button>
-          </div>
-        </td>
-      </tr>
-    `;
-  }).join('');
-
-  container.innerHTML = `
-    <div class="div-detail-header">
-      ${title}
-      ${month ? `<button type="button" class="button text compact" id="clearPnlMonthBtn" style="font-size:11px;margin-left:auto;">✕ ${bucketDetail ? '선택 해제' : '전체 보기'}</button>` : ''}
-    </div>
-    <div class="detail-table-wrap">
-      <table class="detail-table">
-        <thead>
-          <tr>
-            <th class="center sortable-th ${currentPnlSortField === 'date' ? (currentPnlSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-pnl-sort="date" style="width:95px;">매도일 <span class="sort-icon"></span></th>
-            <th class="center sortable-th ${currentPnlSortField === 'owner' ? (currentPnlSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-pnl-sort="owner" style="width:75px;">소유자 <span class="sort-icon"></span></th>
-            <th class="sortable-th ${currentPnlSortField === 'name' ? (currentPnlSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-pnl-sort="name">종목명 (코드) <span class="sort-icon"></span></th>
-            <th class="center sortable-th ${currentPnlSortField === 'is_ipo' ? (currentPnlSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-pnl-sort="is_ipo" style="width:85px;">유형 <span class="sort-icon"></span></th>
-            <th class="center" style="width:60px;">통화</th>
-            <th class="sortable-th ${currentPnlSortField === 'pnl' ? (currentPnlSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-pnl-sort="pnl" style="text-align:right;width:115px;">실현손익 <span class="sort-icon"></span></th>
-            <th class="sortable-th ${currentPnlSortField === 'pnl_krw' ? (currentPnlSortOrder === 'asc' ? 'sort-asc' : 'sort-desc') : ''}" data-pnl-sort="pnl_krw" style="text-align:right;width:125px;">원화 환산손익 <span class="sort-icon"></span></th>
-            <th>메모 / 계좌</th>
-            <th class="center" style="width:65px;">관리</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowsHtml}
-        </tbody>
-      </table>
-    </div>
-  `;
+  window.WealthRealizedPnlView.renderMonthlyDetail({
+    container, title, items, month, hasBucketDetail: Boolean(bucketDetail),
+    currentPnlSortField, currentPnlSortOrder, html, money, number,
+    finiteRealizedPnlNumber, formatOptionalRealizedPnlValue, formatOptionalTossWtsFxDisplay,
+  });
 }
 
 function calcPnlReProfit() {
@@ -11328,85 +8180,35 @@ async function openAdminUsersModal() {
 }
 window.openAdminUsersModal = openAdminUsersModal;
 
+const adminUsersView = window.WealthAdminUsersView.create({ document, html });
 async function refreshAdminUserList() {
-  const tbodyMain = document.getElementById('adminMainUserListTbody');
-  const tbodyDialog = document.getElementById('adminUserListTbody');
-
-  const loadingHtml = '<tr><td colspan="6" class="admin-empty-cell">불러오는 중...</td></tr>';
-  if (tbodyMain) tbodyMain.innerHTML = loadingHtml;
-  if (tbodyDialog) tbodyDialog.innerHTML = loadingHtml;
-
+  const tables = adminUsersView.getTables();
+  adminUsersView.renderStatus(tables, '불러오는 중...');
   try {
     const res = await api('/api/admin/users');
     const users = res.users || [];
     console.log('[ADMIN] 사용자 목록 수신:', users);
+    const total = users.length;
+    const pending = users.filter(u => u.must_change_password).length;
+    adminUsersView.renderCounts({ total, pending, active: total - pending });
 
-    // 통계 카드 업데이트
-    const statTotal = document.getElementById('adminStatTotalUsers');
-    const statActive = document.getElementById('adminStatActiveUsers');
-    const statPending = document.getElementById('adminStatPendingUsers');
-
-    const totalCount = users.length;
-    const pendingCount = users.filter(u => u.must_change_password).length;
-    const activeCount = totalCount - pendingCount;
-
-    if (statTotal) statTotal.textContent = `${totalCount}명`;
-    if (statActive) statActive.textContent = `${activeCount}명`;
-    if (statPending) statPending.textContent = `${pendingCount}명`;
-
-    if (!users.length) {
-      const emptyHtml = '<tr><td colspan="6" class="admin-empty-cell">등록된 사용자가 없습니다.</td></tr>';
-      if (tbodyMain) tbodyMain.innerHTML = emptyHtml;
-      if (tbodyDialog) tbodyDialog.innerHTML = emptyHtml;
-      return;
-    }
-
-    const rowsHtml = users.map(u => {
-      const isSelf = currentUserProfile && currentUserProfile.username === u.username;
-      const isAdminRoot = (u.username === 'admin');
-      const statusBadge = u.must_change_password 
-        ? '<span class="admin-status-badge pending">⚠️ 비번 변경 필요</span>'
-        : '<span class="admin-status-badge active">정상 활성</span>';
-
-      const createdAtStr = u.created_at ? u.created_at.substring(0, 10) : '-';
-
-      return `
-        <tr class="admin-row">
-          <td class="admin-cell-user">
-            👤 ${escapeHtml(u.username)}
-            ${isSelf ? '<span class="admin-self-badge">(나)</span>' : ''}
-          </td>
-          <td class="admin-cell-role">
-            <span class="admin-role-badge ${u.role === 'admin' ? 'admin' : 'user'}">
-              ${escapeHtml(u.role)}
-            </span>
-          </td>
-          <td class="admin-cell-status">${statusBadge}</td>
-          <td class="admin-cell-update">
-            ${isAdminRoot ? '관리자 기본 권한' : !u.id ? '식별자 확인 필요' : `<label><input type="checkbox" data-update-user="${escapeHtml(u.id)}" data-update-name="${escapeHtml(u.username)}" data-update-stored="${u.permissions?.system_update === true}" aria-label="${escapeHtml(u.username)} 시스템 업데이트 권한" ${u.permissions?.system_update === true ? 'checked' : ''} ${(u.must_change_password || u.active === false) && u.permissions?.system_update !== true ? 'disabled' : ''}> 업데이트·이미지 정리</label>`}
-          </td>
-          <td class="admin-cell-date">${createdAtStr}</td>
-          <td class="admin-cell-actions">
-            <div style="display:inline-flex;gap:8px;">
-              <button type="button" class="button secondary compact admin-btn-reset" onclick="handleAdminResetUserPw('${escapeHtml(u.username)}')" title="초기 4자리 비밀번호로 재설정">
-                🔑 비번 초기화(4자리)
-              </button>
-              ${isAdminRoot ? '' : `<button type="button" class="button secondary compact admin-btn-delete" onclick="handleAdminDeleteUser('${escapeHtml(u.username)}')" title="계정 및 데이터 삭제">
-                🗑️ 삭제
-              </button>`}
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
-
-    if (tbodyMain) tbodyMain.innerHTML = rowsHtml;
-    if (tbodyDialog) tbodyDialog.innerHTML = rowsHtml;
+    adminUsersView.renderUsers(tables, users.map(u => {
+      const isAdminRoot = u.username === 'admin';
+      const stored = u.permissions?.system_update === true;
+      return {
+        id: u.id, username: u.username, role: u.role,
+        roleClass: u.role === 'admin' ? 'admin' : 'user',
+        isSelf: currentUserProfile && currentUserProfile.username === u.username,
+        pending: u.must_change_password,
+        createdAt: u.created_at ? u.created_at.substring(0, 10) : '-',
+        notice: isAdminRoot ? '관리자 기본 권한' : !u.id ? '식별자 확인 필요' : null,
+        stored, disabled: (u.must_change_password || u.active === false) && !stored,
+        canDelete: !isAdminRoot,
+      };
+    }));
   } catch (err) {
     console.error('[ADMIN] 사용자 목록 로드 실패:', err);
-    const errHtml = `<tr><td colspan="6" class="admin-empty-cell" style="color:#ff718c;">목록 로드 실패: ${escapeHtml(err.message || String(err))}</td></tr>`;
-    if (tbodyMain) tbodyMain.innerHTML = errHtml;
-    if (tbodyDialog) tbodyDialog.innerHTML = errHtml;
+    adminUsersView.renderStatus(tables, `목록 로드 실패: ${err.message || String(err)}`, true);
   }
 }
 
@@ -11768,24 +8570,7 @@ function initSavingsListeners() {
 
   const insForm = $("#insuranceAccountForm");
   if (insForm) {
-    const handleInsuranceFormChange = () => {
-      updateYellowUmbrellaFields();
-      updatePensionPayoutFields();
-    };
-    insForm.addEventListener("input", handleInsuranceFormChange);
-    insForm.addEventListener("change", handleInsuranceFormChange);
-
-    $("#insuranceTypeSelect")?.addEventListener("change", (e) => {
-      if (e.target.value === "national_pension") {
-        const pRadio = $("#payoutTypeMonthlyPension");
-        if (pRadio) pRadio.checked = true;
-        const compInput = insForm.querySelector("[name='company_name']");
-        if (compInput && !compInput.value.trim()) compInput.value = "국민연금공단";
-        const prodInput = insForm.querySelector("[name='product_name']");
-        if (prodInput && !prodInput.value.trim()) prodInput.value = "국민연금 (노령연금)";
-        updatePensionPayoutFields();
-      }
-    });
+    insuranceView.bindFormInputs({ $, insForm, updateYellowUmbrellaFields, updatePensionPayoutFields });
 
     insForm.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -12096,11 +8881,7 @@ function initSavingsListeners() {
       }
     });
 
-    $("#reTypeSelect")?.addEventListener("change", updateRealEstateTypeFields);
-    ["rePurchasePrice", "reCurrentPrice", "reDepositAmount", "reLinkedLoansSelect"].forEach(id => {
-      document.getElementById(id)?.addEventListener("input", calcRealEstatePreview);
-      document.getElementById(id)?.addEventListener("change", calcRealEstatePreview);
-    });
+    realEstateView.bindFormInputs({ updateRealEstateTypeFields, calcRealEstatePreview });
 
     // KB시세 조회 버튼 리스너
     document.getElementById("reFetchKbBtn")?.addEventListener("click", fetchKbMarketPrice);
@@ -12258,7 +9039,7 @@ async function loadLedger() {
   ledgerPendingRead = entry;
   entry.promise = (async () => {
     try {
-      const res = await api(`/api/ledger?year=${year}&month=${month}&owner=${encodeURIComponent(owner)}`);
+      const res = await globalThis.WealthLedgerData.loadMonth(api, year, month, owner);
       if (entry.sequence !== ledgerReadSequence || owner !== currentOwner ||
           year !== currentLedgerYear || month !== currentLedgerMonth ||
           username !== (currentUserProfile?.username || '') ||
@@ -12274,62 +9055,18 @@ async function loadLedger() {
   return entry.promise;
 }
 
+const ledgerScreenController = window.WealthLedgerScreenController.create({ document, $, html, number, renderLedgerChart, renderLedgerTransactions });
+
 function renderLedger(data) {
   globalThis.WealthStartup?.count('render');
   if (!data) return;
   rawLedgerData = data;
 
-  // 1. 헤더 월 텍스트 & 소유자 뱃지 & 월 피커 동기화
-  const monthText = document.getElementById("ledgerCurrentMonthText");
-  if (monthText) monthText.textContent = `${data.year}년 ${data.month}월`;
-  const monthPicker = document.getElementById("ledgerMonthPicker");
-  if (monthPicker) monthPicker.value = `${data.year}-${String(data.month).padStart(2, '0')}`;
-  const ownerPill = document.getElementById("ledgerOwnerPill");
-  if (ownerPill) ownerPill.textContent = `소유자: ${data.owner || "모두"}`;
-
-  // 2. 요약 카드 4종
-  if ($("#ledgerTotalIncomeVal")) $("#ledgerTotalIncomeVal").textContent = `₩${number(data.total_income, 0)}`;
-  if ($("#ledgerTotalExpenseVal")) $("#ledgerTotalExpenseVal").textContent = `₩${number(data.total_expense, 0)}`;
-  if ($("#ledgerNetSavingsVal")) {
-    const sVal = data.net_savings;
-    const prefix = sVal > 0 ? "+" : "";
-    $("#ledgerNetSavingsVal").textContent = `${prefix}₩${number(sVal, 0)}`;
-    $("#ledgerNetSavingsVal").style.color = sVal >= 0 ? "#38bdf8" : "#f43f5e";
-  }
-  if ($("#ledgerSavingsRateVal")) $("#ledgerSavingsRateVal").textContent = `저축률 ${data.savings_rate}%`;
-  if ($("#ledgerRecurringTotalVal")) $("#ledgerRecurringTotalVal").textContent = `₩${number(data.recurring_expense_total, 0)}`;
-
-  // 3. 카테고리 지출 분석 렌더링
-  renderLedgerCategories(data.category_expenses || []);
-
-  // 4. One chart owner; wait for the loader before choosing failure fallback.
-  void renderLedgerChart();
-
-  // 5. 상세 거래 내역 타임라인 렌더링
-  renderLedgerTransactions(data.transactions || []);
+  ledgerScreenController.render(data);
 }
 
 function renderLedgerCategories(cats) {
-  const container = document.getElementById("ledgerCategoryContainer");
-  if (!container) return;
-  if (!cats || cats.length === 0) {
-    container.innerHTML = `<div class="empty" style="padding:30px 0;"><p style="margin:0;font-size:12.5px;">이번 달 지출 내역이 없습니다.</p></div>`;
-    return;
-  }
-
-  container.innerHTML = cats.map(c => {
-    return `
-      <div class="ledger-cat-row">
-        <div class="ledger-cat-head">
-          <span class="ledger-cat-name">${html(c.category)}</span>
-          <span class="ledger-cat-amt">₩${number(c.amount, 0)} <small class="ledger-cat-pct">(${c.percent}%)</small></span>
-        </div>
-        <div class="ledger-cat-bar-track">
-          <div class="ledger-cat-bar-fill" style="width:${Math.min(100, Math.max(2, c.percent))}%;"></div>
-        </div>
-      </div>
-    `;
-  }).join("");
+  ledgerScreenController.renderLedgerCategories(cats);
 }
 
 function renderLedgerTrendFallback(trend) {
@@ -12368,86 +9105,18 @@ function renderLedgerTrendFallback(trend) {
   `;
 }
 
+const ledgerTransactionsView = window.WealthLedgerTransactionsView.create({ document, html, number });
 function renderLedgerTransactions(txs) {
-  const container = document.getElementById("ledgerTxListContainer");
-  const countBadge = document.getElementById("ledgerTxCountBadge");
-  if (!container) return;
-
-  if (countBadge) countBadge.textContent = `${txs.length}건`;
-
-  if (!txs || txs.length === 0) {
-    container.innerHTML = `<div class="empty" style="padding:40px 0;"><p style="margin:0;font-size:13px;color:#94a3b8;">등록된 거래 내역이 없습니다. [➕ 내역 추가]를 눌러 첫 거래를 추가해 보세요!</p></div>`;
-    return;
-  }
-
-  const rowsHtml = txs.map(t => {
-    const isIncome = t.type === "income";
-    const isTransfer = t.type === "transfer";
-    const typeLabel = isIncome ? "수입" : (isTransfer ? "이체" : "지출");
-    const badgeClass = isIncome ? "income" : (isTransfer ? "transfer" : "expense");
-    const amtColor = isIncome ? "#4ade80" : (isTransfer ? "#38bdf8" : "#f43f5e");
-    const amtSign = isIncome ? "+" : (isTransfer ? "⇄ " : "-");
-
-    return `
-      <tr class="ledger-tx-row">
-        <td class="ledger-tx-cell-date">${html(t.date)}</td>
-        <td class="ledger-tx-cell-type"><span class="ledger-badge ${badgeClass}">${typeLabel}</span></td>
-        <td class="ledger-tx-cell-cat"><span class="ledger-cat-badge">${html(t.category)}</span></td>
-        <td class="ledger-tx-cell-merchant">
-          <strong>${html(t.merchant || t.description || '-')}</strong>
-          ${t.memo ? `<small class="ledger-tx-memo">${html(t.memo)}</small>` : ''}
-        </td>
-        <td class="ledger-tx-cell-owner"><span class="saving-owner-badge">${html(t.owner || '모두')}</span></td>
-        <td class="ledger-tx-cell-pay">
-          <span>${html(t.pay_method || '-')}</span>
-          ${t.is_card_payment && !t.is_settled ? `<span class="ledger-status-pill unsettled">미결제</span>` : ''}
-          ${t.is_card_payment && t.is_settled ? `<span class="ledger-status-pill settled">정산완료</span>` : ''}
-        </td>
-        <td class="ledger-tx-cell-amt" style="color:${amtColor};">
-          ${amtSign}₩${number(t.amount, 0)}
-        </td>
-        <td style="text-align:right;white-space:nowrap;">
-          <button class="account-action-button" onclick="openLedgerTxModal('${t.id}')" title="수정" type="button">✎</button>
-          <button class="account-action-button mini-delete-button" onclick="deleteLedgerTransaction('${t.id}')" title="삭제" type="button">🗑️</button>
-        </td>
-      </tr>
-    `;
-  }).join("");
-
-  container.innerHTML = `
-    <table class="ledger-tx-table">
-      <thead>
-        <tr>
-          <th>일자</th>
-          <th>구분</th>
-          <th>카테고리</th>
-          <th>내용 / 가맹점</th>
-          <th>소유자</th>
-          <th>결제수단</th>
-          <th style="text-align:right;">금액</th>
-          <th style="text-align:right;">관리</th>
-        </tr>
-      </thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
-  `;
+  return ledgerTransactionsView.renderLedgerTransactions(txs);
 }
 
 function filterLedgerList() {
   if (!rawLedgerData || !rawLedgerData.transactions) return;
   const typeFilter = document.getElementById("ledgerFilterType")?.value || "all";
-  const searchQ = (document.getElementById("ledgerSearchInput")?.value || "").toLowerCase().trim();
-
-  const filtered = rawLedgerData.transactions.filter(t => {
-    if (typeFilter !== "all" && t.type !== typeFilter) return false;
-    if (searchQ) {
-      const matchMerchant = (t.merchant || "").toLowerCase().includes(searchQ);
-      const matchMemo = (t.memo || "").toLowerCase().includes(searchQ);
-      const matchCat = (t.category || "").toLowerCase().includes(searchQ);
-      if (!matchMerchant && !matchMemo && !matchCat) return false;
-    }
-    return true;
-  });
+  const searchText = document.getElementById("ledgerSearchInput")?.value || "";
+  const filtered = window.WealthLedgerTransactionsModel.filterTransactions(
+    rawLedgerData.transactions, typeFilter, searchText,
+  );
 
   renderLedgerTransactions(filtered);
 }
@@ -12894,7 +9563,7 @@ async function refreshLedgerCardsList() {
 
   try {
     const owner = currentOwner || "모두";
-    const cards = await api(`/api/ledger/cards?owner=${encodeURIComponent(owner)}`);
+    const cards = await globalThis.WealthLedgerData.loadCards(api, owner);
     if (rawLedgerData) rawLedgerData.cards = cards;
     renderLedgerCardsList(cards || []);
   } catch (err) {
@@ -12902,53 +9571,8 @@ async function refreshLedgerCardsList() {
   }
 }
 
-function renderLedgerCardsList(cards) {
-  const listContainer = document.getElementById("ledgerCardsList");
-  if (!listContainer) return;
-
-  if (!cards || cards.length === 0) {
-    listContainer.innerHTML = `<div class="empty" style="grid-column:1/-1;padding:24px 0;"><p style="margin:0;font-size:12.5px;color:#94a3b8;">등록된 신용카드가 없습니다. 아래 폼에서 카드를 추가해 보세요!</p></div>`;
-    return;
-  }
-
-  listContainer.innerHTML = cards.map(c => {
-    const unpaid = Number(c.unpaid_amount || 0);
-    const count = Number(c.unpaid_count || 0);
-    const hasUnpaid = unpaid > 0;
-
-    return `
-      <div class="ledger-credit-card-item">
-        <div>
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-            <div>
-              <span class="ledger-card-company-tag">${html(c.card_company)}</span>
-              <span class="ledger-card-owner-tag">(${html(c.owner || '모두')})</span>
-            </div>
-            <div style="display:flex;gap:4px;">
-              <button class="account-action-button" onclick="editLedgerCard('${c.id}')" title="카드 정보 수정" type="button">✎</button>
-              <button class="account-action-button mini-delete-button" onclick="deleteLedgerCard('${c.id}')" title="카드 삭제" type="button">🗑</button>
-            </div>
-          </div>
-          <h4 class="ledger-card-name">${html(c.card_name)}</h4>
-          <p class="ledger-card-meta">
-            📅 매월 <strong class="ledger-card-day">${c.payment_day}일</strong> 결제 · 결제계좌: <strong class="ledger-card-acct">${html(c.linked_account_name || '미지정')}</strong>
-          </p>
-          ${c.memo ? `<p class="ledger-card-memo">${html(c.memo)}</p>` : ''}
-        </div>
-
-        <div class="ledger-card-foot">
-          <div>
-            <span class="ledger-card-unpaid-label">청구 예정액</span>
-            <div class="ledger-card-unpaid-val" style="color:${hasUnpaid ? '#f43f5e' : 'inherit'};">₩${number(unpaid, 0)} <span class="ledger-card-unpaid-count">(${count}건)</span></div>
-          </div>
-          <button class="button compact ${hasUnpaid ? 'primary' : 'secondary'}" type="button" onclick="openLedgerCardPayModal('${c.id}')" ${!hasUnpaid ? 'disabled style="opacity:0.5;"' : ''}>
-            💳 결제/정산
-          </button>
-        </div>
-      </div>
-    `;
-  }).join("");
-}
+const ledgerCardsView = window.WealthLedgerCardsView.create({ document, html, number });
+function renderLedgerCardsList(cards) { return ledgerCardsView.renderLedgerCardsList(cards); }
 
 function resetLedgerCardForm() {
   const form = document.getElementById("ledgerCardForm");
@@ -13172,6 +9796,8 @@ function populateRecurringAccounts() {
   sel.innerHTML = htmlOpts;
 }
 
+const ledgerRecurringView = window.WealthLedgerRecurringView.create({ html, number });
+
 function openLedgerRecurringModal() {
   const dialog = document.getElementById("ledgerRecurringDialog");
   const listContainer = document.getElementById("ledgerRecurringList");
@@ -13184,55 +9810,14 @@ function openLedgerRecurringModal() {
   const now = new Date();
   const curPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  if (recs.length === 0) {
-    listContainer.innerHTML = `<div class="empty" style="padding:15px 0;"><p style="margin:0;font-size:12px;color:#94a3b8;">등록된 정기 고정지출이 없습니다.</p></div>`;
-  } else {
-    listContainer.innerHTML = recs.map(r => {
-      const isDeductedThisMonth = (r.last_deducted_date || "").startsWith(curPrefix);
-      let statusBadge = "";
-      if (r.auto_deduct && r.linked_account_id) {
-        if (isDeductedThisMonth) {
-          statusBadge = `<span style="color:#4ade80;font-size:11px;font-weight:600;">✅ 당월 자동출금 완료 (${r.last_deducted_date})</span>`;
-        } else {
-          statusBadge = `<span style="color:#facc15;font-size:11px;font-weight:600;">⏳ 매월 ${r.day_of_month}일 자동출금 대기</span>`;
-        }
-      } else {
-        statusBadge = `<span style="color:#94a3b8;font-size:11px;">수동 납부</span>`;
-      }
-
-      const acctBadge = r.linked_account_name ? `
-        <span style="display:inline-block;font-size:10px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);padding:1px 6px;border-radius:4px;margin-left:4px;">
-          🏦 ${html(r.linked_account_name)}
-        </span>
-      ` : "";
-
-      return `
-        <div class="ledger-recurring-item">
-          <div>
-            <div class="ledger-recurring-title">
-              <span>${html(r.name)}</span>
-              <span class="saving-owner-badge" style="font-size:10px;padding:1px 5px;">${html(r.owner || '모두')}</span>
-              ${acctBadge}
-            </div>
-            <div class="ledger-recurring-meta">
-              <span>매월 ${r.day_of_month}일</span>
-              <span>·</span>
-              <span>${html(r.category)}</span>
-              <span>·</span>
-              <span>${html(r.pay_method)}</span>
-              <span>·</span>
-              ${statusBadge}
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <strong class="ledger-recurring-amt">₩${number(r.amount, 0)}</strong>
-            <button class="account-action-button" onclick="editRecurringItem('${r.id}')" title="수정" type="button" style="padding:3px 7px;font-size:12px;">✎</button>
-            <button class="account-action-button mini-delete-button" onclick="deleteRecurringItem('${r.id}')" title="삭제" type="button" style="padding:3px 7px;font-size:12px;">🗑️</button>
-          </div>
-        </div>
-      `;
-    }).join("");
-  }
+  const items = recs.map(r => {
+    const isDeductedThisMonth = (r.last_deducted_date || "").startsWith(curPrefix);
+    const status = r.auto_deduct && r.linked_account_id
+      ? (isDeductedThisMonth ? "deducted" : "pending")
+      : "manual";
+    return { r, status };
+  });
+  ledgerRecurringView.renderList(listContainer, items);
 
   dialog.showModal();
 }
@@ -13592,16 +10177,7 @@ function initLedgerListeners() {
     }, { passive: false });
 
     monthText.addEventListener("click", () => {
-      try {
-        if (typeof monthPicker.showPicker === "function") {
-          monthPicker.showPicker();
-        } else {
-          monthPicker.focus();
-          monthPicker.click();
-        }
-      } catch (err) {
-        monthPicker.click();
-      }
+      window.WealthIncomeMonthNavigation.openPicker(monthPicker);
     });
   }
 }
@@ -13625,13 +10201,7 @@ const tossWtsState = {
   fetchedAt: null,        // response.fetched_at
 };
 
-function showTossWtsMessage(msg, type = 'info') {
-  const el = document.getElementById('tossWtsMessage');
-  if (!el) return;
-  el.className = `toss-wts-message ${type}`;
-  el.textContent = msg;
-  el.style.display = 'block';
-}
+function showTossWtsMessage(msg, type = 'info') { return brokerUI.showBrokerMessage('tossWtsMessage', msg, type); }
 
 function hideTossWtsMessage() {
   const el = document.getElementById('tossWtsMessage');
@@ -13643,7 +10213,7 @@ function hideTossWtsMessage() {
 function clearTossWtsFetchLoadingRow(message = '조회에 실패했습니다. 조건을 확인한 뒤 다시 시도하세요.') {
   const tbody = document.getElementById('tossWtsTableBody');
   if (!tbody || !tbody.querySelector('.toss-wts-loading')) return;
-  tbody.innerHTML = `<tr><td colspan="10" class="toss-wts-empty">${html(message)}</td></tr>`;
+  tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, message);
 }
 
 function updateTossWtsStatusUI(text, stateClass) {
@@ -13830,7 +10400,7 @@ async function fetchTossWtsRealizedFeed() {
   setTossWtsLoading(true);
   const tbody = document.getElementById('tossWtsTableBody');
   if (tbody && (!tossWtsState.rows || tossWtsState.rows.length === 0)) {
-    tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-loading">⏳ 토스 WTS 실현손익을 조회하는 중입니다...</td></tr>';
+    tbody.innerHTML = brokerUI.brokerTableLoadingRow(10, '토스 WTS 실현손익을 조회하는 중입니다...');
   }
   showTossWtsMessage('토스 WTS 실현손익을 조회하는 중입니다...', 'info');
 
@@ -14151,12 +10721,12 @@ function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
   if (!tbody) return;
 
   if (status === 'error') {
-    tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-empty">조회에 실패했습니다.</td></tr>';
+    tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, '조회에 실패했습니다.');
     return;
   }
 
   if (!rows || rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-empty">선택한 기간에 조회된 실현손익 내역이 없습니다.</td></tr>';
+    tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, '선택한 기간에 조회된 실현손익 내역이 없습니다.');
     return;
   }
 
@@ -14239,13 +10809,7 @@ const tossWtsIncomeState = {
   fetchedToDate: null,
 };
 
-function showTossWtsIncomeMessage(message, type = 'info') {
-  const el = document.getElementById('tossWtsIncomeMessage');
-  if (!el) return;
-  el.className = `toss-wts-message ${type}`;
-  el.textContent = message;
-  el.style.display = 'block';
-}
+function showTossWtsIncomeMessage(message, type = 'info') { return brokerUI.showBrokerMessage('tossWtsIncomeMessage', message, type); }
 
 function setTossWtsIncomeLoading(loading) {
   tossWtsIncomeState.loading = loading;
@@ -14321,7 +10885,7 @@ function renderTossWtsIncomeTable() {
   if (!tbody) return;
   const rows = tossWtsIncomeState.rows || [];
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-empty">선택한 기간에 가져올 배당·이자 내역이 없습니다.</td></tr>';
+    tbody.innerHTML = brokerUI.brokerTableEmptyRow(8, '선택한 기간에 가져올 배당·이자 내역이 없습니다.');
     return;
   }
   tbody.innerHTML = rows.map((row, index) => {
@@ -14392,7 +10956,7 @@ async function fetchTossWtsIncomeFeed() {
   }
   setTossWtsIncomeLoading(true);
   const tbody = document.getElementById('tossWtsIncomeTableBody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-loading">⏳ 배당·이자 거래원장을 조회하는 중입니다...</td></tr>';
+  if (tbody) tbody.innerHTML = brokerUI.brokerTableLoadingRow(8, '배당·이자 거래원장을 조회하는 중입니다...');
   showTossWtsIncomeMessage('토스 WTS 배당·이자를 조회하는 중입니다...', 'info');
   try {
     const response = await fetch('/api/toss-wts/income-feed/fetch', {
@@ -14410,7 +10974,7 @@ async function fetchTossWtsIncomeFeed() {
       } else {
         showTossWtsIncomeMessage(`배당·이자 조회에 실패했습니다. (${code})`, 'error');
       }
-      if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-empty">조회에 실패했습니다.</td></tr>';
+      if (tbody) tbody.innerHTML = brokerUI.brokerTableEmptyRow(8, '조회에 실패했습니다.');
       return;
     }
     const pairs = (payload.rows || []).map((row, index) => ({ row, token: (payload.selection_tokens || [])[index] || '' }));
@@ -14433,7 +10997,7 @@ async function fetchTossWtsIncomeFeed() {
       showTossWtsIncomeMessage('선택한 기간에 가져올 배당·이자 내역이 없습니다.', 'info');
     }
   } catch (error) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="toss-wts-empty">조회 중 네트워크 오류가 발생했습니다.</td></tr>';
+    if (tbody) tbody.innerHTML = brokerUI.brokerTableEmptyRow(8, '조회 중 네트워크 오류가 발생했습니다.');
     showTossWtsIncomeMessage('배당·이자 조회 중 네트워크 오류가 발생했습니다.', 'error');
   } finally {
     setTossWtsIncomeLoading(false);
@@ -14558,19 +11122,10 @@ async function commitTossWtsIncomeImport() {
   }
 }
 
-function initTossWtsIncomeUI() {
+function initTossWtsIncomeUI(defaultRange = getKstDateRange(30)) {
   const fromInput = document.getElementById('tossWtsIncomeFromDate');
   const toInput = document.getElementById('tossWtsIncomeToDate');
-  if (fromInput && !fromInput.value) {
-    fromInput.value = document.getElementById('tossWtsFromDate')?.value || `${new Date().getFullYear()}-01-01`;
-  }
-  if (toInput && !toInput.value) {
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    toInput.value = document.getElementById('tossWtsToDate')?.value || `${yyyy}-${mm}-${dd}`;
-  }
+  applyTossWtsDefaultDateRange(fromInput, toInput, defaultRange);
   document.getElementById('btnCheckTossWtsIncomeStatus')?.addEventListener('click', checkTossWtsStatus);
   document.getElementById('btnConfirmTossWtsIncomeSession')?.addEventListener('click', confirmTossWtsSession);
   document.getElementById('btnFetchTossWtsIncome')?.addEventListener('click', fetchTossWtsIncomeFeed);
@@ -14601,18 +11156,8 @@ function initTossWtsUI() {
   const fromInput = document.getElementById('tossWtsFromDate');
   const toInput = document.getElementById('tossWtsToDate');
   const basisSelect = document.getElementById('tossWtsBasisSelect');
-
-  if (fromInput && !fromInput.value) {
-    const year = new Date().getFullYear();
-    fromInput.value = `${year}-01-01`;
-  }
-  if (toInput && !toInput.value) {
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    toInput.value = `${yyyy}-${mm}-${dd}`;
-  }
+  const defaultRange = getKstDateRange(30);
+  applyTossWtsDefaultDateRange(fromInput, toInput, defaultRange);
 
   document.getElementById('btnCheckTossWtsStatus')?.addEventListener('click', checkTossWtsStatus);
   document.getElementById('btnConfirmTossWtsSession')?.addEventListener('click', confirmTossWtsSession);
@@ -14650,7 +11195,7 @@ function initTossWtsUI() {
   basisSelect?.addEventListener('change', checkTossWtsFormStale);
   fromInput?.addEventListener('input', checkTossWtsFormStale);
   toInput?.addEventListener('input', checkTossWtsFormStale);
-  initTossWtsIncomeUI();
+  initTossWtsIncomeUI(defaultRange);
 }
 
 // ── Broker Realized Feed Shared Helpers ─────────────────────────────────────
@@ -14937,74 +11482,17 @@ function renderBrokerImportPreviewDetails(data, overlayId) {
   const state = ctx?.state;
   const selectedIndices = state ? Array.from(state.selectedIndices || []).sort((a, b) => a - b) : [];
 
-  const activeEl = document.activeElement;
-  const activeFeedIndex = activeEl?.dataset?.feedIndex;
-  const activeIsFee = activeEl?.classList?.contains('modal-broker-ipo-fee');
-  const cursorStart = activeEl?.selectionStart;
-  const cursorEnd = activeEl?.selectionEnd;
-
-  const items = (data.items || []).filter(item => item.wealth_import);
-  if (!items.length) {
-    details.innerHTML = '';
-    return;
-  }
-
-  details.innerHTML = items.map(item => {
-    const choice = item.wealth_import;
-    const feedIndex = selectedIndices[item.index] !== undefined ? selectedIndices[item.index] : item.index;
-    const preference = state ? brokerImportPreference(state, feedIndex) : choice;
-    const currentStockType = preference.stock_type || choice.stock_type || 'general';
-    const isIpo = currentStockType === 'ipo';
-    const currentFee = (preference.ipo_subscription_fee_krw !== undefined && preference.ipo_subscription_fee_krw !== null && preference.ipo_subscription_fee_krw !== '')
-      ? preference.ipo_subscription_fee_krw
-      : (choice.ipo_subscription_fee_krw ?? 2000);
-    const candidate = item.candidate || {};
-    const itemName = candidate.name || candidate.prdt_name || candidate.code || `선택 항목 ${item.index + 1}`;
-    const itemNameSizeClass = brokerImportNameSizeClass(itemName);
-    const itemDate = candidate.date || '';
-    const providerPnl = brokerImportPnlPresentation(candidate, choice.provider_realized_pnl ?? candidate.pnl ?? 0);
-    const finalPnl = brokerImportPnlPresentation(candidate, choice.final_wealth_pnl ?? choice.provider_realized_pnl ?? candidate.pnl ?? 0);
-
-    return `<div class="broker-import-modal-row" data-feed-index="${feedIndex}" data-item-index="${item.index}" style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:8px;">` +
-      `<div class="broker-import-item-header">` +
-        `<div class="broker-import-item-title">` +
-          `<strong class="broker-import-item-name ${itemNameSizeClass}">${html(itemName)}</strong>` +
-          `${itemDate ? `<span class="muted" style="font-size:12px;margin-left:6px;">(${html(itemDate)})</span>` : ''}` +
-        `</div>` +
-        `<div class="broker-import-item-controls">` +
-          `<label style="font-size:12px;">유형: ` +
-            `<select class="modal-broker-stock-type toss-wts-select" data-feed-index="${feedIndex}" data-item-index="${item.index}" style="padding:2px 6px;font-size:12px;">` +
-              `<option value="general" ${isIpo ? '' : 'selected'}>일반주식</option>` +
-              `<option value="ipo" ${isIpo ? 'selected' : ''}>공모주</option>` +
-            `</select>` +
-          `</label>` +
-          `<label class="modal-broker-fee-wrap" data-item-index="${item.index}" style="font-size:12px;${isIpo ? 'display:inline-flex;align-items:center;gap:4px;' : 'display:none;'}">공모청약비: ` +
-            `<input class="modal-broker-ipo-fee toss-wts-input" data-feed-index="${feedIndex}" data-item-index="${item.index}" type="number" min="0" step="1" value="${html(String(currentFee))}" style="width:75px;padding:2px 6px;font-size:12px;" required> 원` +
-          `</label>` +
-        `</div>` +
-      `</div>` +
-      `<div class="modal-broker-effect" style="margin-top:6px;font-size:12px;color:var(--text-muted);">` +
-        (isIpo ? (
-          `유형: <strong>공모주</strong> · 공모청약비 ${html(Number(choice.ipo_subscription_fee_krw ?? currentFee ?? 0).toLocaleString('ko-KR'))}원 · ` +
-          `제공사 손익 <strong class="broker-import-pnl ${providerPnl.toneClass}">${html(providerPnl.text)}</strong> · 최종 Wealth 손익 <strong class="broker-import-pnl ${finalPnl.toneClass}">${html(finalPnl.text)}</strong>` +
-          `${choice.memo ? `<br><span class="muted">메모: ${html(choice.memo)}</span>` : ''}`
-        ) : (
-          `유형: <strong>일반주식</strong> · 최종 Wealth 손익 <strong class="broker-import-pnl ${finalPnl.toneClass}">${html(finalPnl.text)}</strong>` +
-          `${choice.memo ? `<br><span class="muted">메모: ${html(choice.memo)}</span>` : ''}`
-        )) +
-      `</div>` +
-    `</div>`;
-  }).join('');
-
-  if (activeFeedIndex != null && activeIsFee) {
-    const newEl = details.querySelector(`.modal-broker-ipo-fee[data-feed-index="${activeFeedIndex}"]`);
-    if (newEl) {
-      newEl.focus();
-      if (cursorStart != null && cursorEnd != null) {
-        try { newEl.setSelectionRange(cursorStart, cursorEnd); } catch (_) {}
-      }
-    }
-  }
+  const hasRows = window.WealthBrokerImportPreviewScreenController.renderRows({
+    document, details, data, brokerImportPreviewRow: brokerUI.brokerImportPreviewRow,
+    formatters: { brokerImportNameSizeClass, brokerImportPnlPresentation },
+    resolveRow(item) {
+      const choice = item.wealth_import;
+      const feedIndex = selectedIndices[item.index] !== undefined ? selectedIndices[item.index] : item.index;
+      const preference = state ? brokerImportPreference(state, feedIndex) : choice;
+      return { feedIndex, preference };
+    },
+  });
+  if (!hasRows) return;
 
   details.querySelectorAll('.modal-broker-stock-type').forEach(select => {
     select.addEventListener('change', async (event) => {
@@ -15101,13 +11589,7 @@ const kisRealizedState = {
 };
 window.kisRealizedState = kisRealizedState;
 
-function showKisMessage(msg, type = 'info') {
-  const el = document.getElementById('kisMessage');
-  if (!el) return;
-  el.className = `toss-wts-message ${type}`;
-  el.textContent = msg;
-  el.style.display = 'block';
-}
+function showKisMessage(msg, type = 'info') { return brokerUI.showBrokerMessage('kisMessage', msg, type); }
 
 function hideKisMessage() {
   const el = document.getElementById('kisMessage');
@@ -15304,7 +11786,7 @@ function renderKisFeedTable(rows, market, state) {
 
   if (!rows || rows.length === 0) {
     const emptyMsg = state === 'empty' ? '조회된 실현손익 내역이 없습니다.' : '조회 버튼을 눌러 한국투자증권 실현손익을 조회하세요.';
-    tbody.innerHTML = `<tr><td colspan="10" class="toss-wts-empty">${html(emptyMsg)}</td></tr>`;
+    tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, emptyMsg);
     return;
   }
 
@@ -15328,7 +11810,7 @@ function renderKisFeedTable(rows, market, state) {
     const pnlCur = isUs ? (r.currency || 'USD') : '원';
     const pnlFmt = isUs
       ? `${pnlSign}${pnlVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${pnlCur}`
-      : `${pnlSign}${Math.round(pnlVal).toLocaleString('ko-KR')} 원`;
+      : `${pnlSign}${window.WealthFormat.roundGroupedKoKr(pnlVal)} 원`;
 
     const rateVal = Number(r.profit_rate || 0);
     const rateSign = rateVal > 0 ? '+' : '';
@@ -15336,8 +11818,8 @@ function renderKisFeedTable(rows, market, state) {
 
     const sellRaw = isUs ? (r.foreign_sell_amount ?? r.sell_amount) : r.sell_amount;
     const buyRaw = isUs ? (r.foreign_buy_amount ?? r.buy_amount) : r.buy_amount;
-    const sellFmt = sellRaw == null ? '—' : (isUs ? `$${Number(sellRaw).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${Math.round(Number(sellRaw)).toLocaleString('ko-KR')}원`);
-    const buyFmt = buyRaw == null ? '—' : (isUs ? `$${Number(buyRaw).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${Math.round(Number(buyRaw)).toLocaleString('ko-KR')}원`);
+    const sellFmt = sellRaw == null ? '—' : (isUs ? `$${Number(sellRaw).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${window.WealthFormat.roundGroupedKoKr(Number(sellRaw))}원`);
+    const buyFmt = buyRaw == null ? '—' : (isUs ? `$${Number(buyRaw).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${window.WealthFormat.roundGroupedKoKr(Number(buyRaw))}원`);
 
     let wonCol = '—';
     if (isUs) {
@@ -15357,8 +11839,8 @@ function renderKisFeedTable(rows, market, state) {
       const feeVal = Number(r.fee || 0);
       const taxVal = Number(r.tax || 0);
       const feeParts = [];
-      if (feeVal > 0) feeParts.push(`수수료 ${Math.round(feeVal).toLocaleString('ko-KR')}원`);
-      if (taxVal > 0) feeParts.push(`제세금 ${Math.round(taxVal).toLocaleString('ko-KR')}원`);
+      if (feeVal > 0) feeParts.push(`수수료 ${window.WealthFormat.roundGroupedKoKr(feeVal)}원`);
+      if (taxVal > 0) feeParts.push(`제세금 ${window.WealthFormat.roundGroupedKoKr(taxVal)}원`);
       wonCol = feeParts.length > 0 ? `<small class="muted">${feeParts.join('<br>')}</small>` : '—';
     }
 
@@ -15686,13 +12168,7 @@ const nhRealizedState = {
 };
 window.nhRealizedState = nhRealizedState;
 
-function showNhMessage(message, type = 'info') {
-  const el = document.getElementById('nhMessage');
-  if (!el) return;
-  el.className = `toss-wts-message ${type}`;
-  el.textContent = message;
-  el.style.display = 'block';
-}
+function showNhMessage(message, type = 'info') { return brokerUI.showBrokerMessage('nhMessage', message, type); }
 function hideNhMessage() { const el = document.getElementById('nhMessage'); if (el) { el.style.display = 'none'; el.textContent = ''; } }
 function setNhLoading(loading) {
   nhRealizedState.loading = loading;
@@ -15769,7 +12245,7 @@ function nhNumber(value, digits = 0) { if (value === null || value === undefined
 function renderNhFeedTable() {
   const tbody = document.getElementById('nhTableBody'); const selectAll = document.getElementById('nhSelectAll'); if (!tbody) return;
   if (selectAll) selectAll.checked = false;
-  if (!nhRealizedState.rows.length) { tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-empty">조회 버튼을 눌러 NH 실현손익을 조회하세요.</td></tr>'; return; }
+  if (!nhRealizedState.rows.length) { tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, '조회 버튼을 눌러 NH 실현손익을 조회하세요.'); return; }
   const overseas = nhRealizedState.market === 'us'; const extra = document.getElementById('nhExpenseColumn'); if (extra) extra.textContent = overseas ? '해외 제비용 합계' : '수수료 / 제세금';
   tbody.innerHTML = nhRealizedState.rows.map((row, index) => {
     const imported = nhRealizedState.importedIndices.has(index); const selected = nhRealizedState.selectedIndices.has(index); const pnl = Number(row.pnl); const pnlClass = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
@@ -15844,13 +12320,7 @@ const kiwoomRealizedState = {
 };
 window.kiwoomRealizedState = kiwoomRealizedState;
 
-function showKiwoomMessage(message, type = 'info') {
-  const el = document.getElementById('kiwoomMessage');
-  if (!el) return;
-  el.className = `toss-wts-message ${type}`;
-  el.textContent = message;
-  el.style.display = 'block';
-}
+function showKiwoomMessage(message, type = 'info') { return brokerUI.showBrokerMessage('kiwoomMessage', message, type); }
 function hideKiwoomMessage() { const el = document.getElementById('kiwoomMessage'); if (el) { el.style.display = 'none'; el.textContent = ''; } }
 function setKiwoomLoading(loading) {
   kiwoomRealizedState.loading = loading;
@@ -15974,7 +12444,7 @@ function renderKiwoomFeedTable() {
   if (!tbody) return;
   if (selectAll) selectAll.checked = false;
   if (!kiwoomRealizedState.rows.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-empty">조회 버튼을 눌러 키움 실현손익을 조회하세요.</td></tr>';
+    tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, '조회 버튼을 눌러 키움 실현손익을 조회하세요.');
     return;
   }
   const overseas = kiwoomRealizedState.market === 'us';
@@ -16183,13 +12653,7 @@ const kbRealizedState = {
 };
 window.kbRealizedState = kbRealizedState;
 
-function showKbMessage(message, type = 'info') {
-  const el = document.getElementById('kbMessage');
-  if (!el) return;
-  el.className = `toss-wts-message ${type}`;
-  el.textContent = message;
-  el.style.display = 'block';
-}
+function showKbMessage(message, type = 'info') { return brokerUI.showBrokerMessage('kbMessage', message, type); }
 function hideKbMessage() { const el = document.getElementById('kbMessage'); if (el) { el.style.display = 'none'; el.textContent = ''; } }
 function setKbLoading(loading) {
   kbRealizedState.loading = loading;
@@ -16316,7 +12780,7 @@ function renderKbFeedTable() {
   if (!tbody) return;
   if (selectAll) selectAll.checked = false;
   if (!kbRealizedState.rows.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="toss-wts-empty">조회 버튼을 눌러 KB 실현손익을 조회하세요.</td></tr>';
+    tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, '조회 버튼을 눌러 KB 실현손익을 조회하세요.');
     return;
   }
   const extra = document.getElementById('kbExpenseColumn');
@@ -16642,103 +13106,26 @@ function initAppVersion() {
 
 
 function initPnlMonthNavListeners() {
-  const prevBtn = document.getElementById("pnlPrevMonthBtn");
-  const nextBtn = document.getElementById("pnlNextMonthBtn");
-  const todayBtn = document.getElementById("pnlTodayMonthBtn");
-  const monthText = document.getElementById("pnlCurrentMonthText");
-  const monthPicker = document.getElementById("pnlMonthPicker");
-
-  if (prevBtn) {
-    prevBtn.addEventListener("click", async () => {
-      window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
-      const curYear = (selectedPnlYear === 'all' || !selectedPnlYear) ? getKstYearMonth().year : selectedPnlYear;
-      const curMonth = selectedPnlMonth || getKstYearMonth().month;
-      const shifted = shiftYearMonth(curYear, curMonth, -1);
-      const yearChanged = String(shifted.year) !== String(selectedPnlYear);
-      selectedPnlYear = String(shifted.year);
-      selectedPnlMonth = shifted.month;
+  window.WealthIncomeMonthNavigation.bind({
+    prefix: 'pnl', getKstYearMonth, shiftYearMonth, parseYearMonth,
+    getYear: () => selectedPnlYear,
+    getMonth: () => selectedPnlMonth,
+    beforeSelect: () => window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false}),
+    onMonthSelected: async (year, month) => {
+      const yearChanged = String(year) !== String(selectedPnlYear);
+      selectedPnlYear = String(year);
+      selectedPnlMonth = month;
       syncPnlMonthNavUI();
       if (yearChanged || !pnlData) {
         await loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
       } else {
         renderRealizedPnl(pnlData);
       }
-    });
-  }
-
-  if (nextBtn) {
-    nextBtn.addEventListener("click", async () => {
-      window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
-      const curYear = (selectedPnlYear === 'all' || !selectedPnlYear) ? getKstYearMonth().year : selectedPnlYear;
-      const curMonth = selectedPnlMonth || getKstYearMonth().month;
-      const shifted = shiftYearMonth(curYear, curMonth, 1);
-      const yearChanged = String(shifted.year) !== String(selectedPnlYear);
-      selectedPnlYear = String(shifted.year);
-      selectedPnlMonth = shifted.month;
-      syncPnlMonthNavUI();
-      if (yearChanged || !pnlData) {
-        await loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
-      } else {
-        renderRealizedPnl(pnlData);
-      }
-    });
-  }
-
-  if (todayBtn) {
-    todayBtn.addEventListener("click", async () => {
-      window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
-      const cur = getKstYearMonth();
-      const yearChanged = String(cur.year) !== String(selectedPnlYear);
-      selectedPnlYear = String(cur.year);
-      selectedPnlMonth = cur.month;
-      syncPnlMonthNavUI();
-      if (yearChanged || !pnlData) {
-        await loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
-      } else {
-        renderRealizedPnl(pnlData);
-      }
-    });
-  }
-
-  if (monthText && monthPicker) {
-    monthText.addEventListener("click", () => {
-      try {
-        if (typeof monthPicker.showPicker === "function") {
-          monthPicker.showPicker();
-        } else {
-          monthPicker.focus();
-          monthPicker.click();
-        }
-      } catch (err) {
-        monthPicker.click();
-      }
-    });
-
-    monthPicker.addEventListener("change", async (e) => {
-      const parsed = parseYearMonth(e.target.value);
-      if (parsed) {
-        window.WealthUnifiedTimeseries?.clearDetail('pnl', {render:false});
-        const yearChanged = String(parsed.year) !== String(selectedPnlYear);
-        selectedPnlYear = String(parsed.year);
-        selectedPnlMonth = parsed.month;
-        syncPnlMonthNavUI();
-        if (yearChanged || !pnlData) {
-          await loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);
-        } else {
-          renderRealizedPnl(pnlData);
-        }
-      }
-    });
-  }
+    },
+  });
 }
 
 function initDividendMonthNavListeners() {
-  const prevBtn = document.getElementById("dividendPrevMonthBtn");
-  const nextBtn = document.getElementById("dividendNextMonthBtn");
-  const todayBtn = document.getElementById("dividendTodayMonthBtn");
-  const monthText = document.getElementById("dividendCurrentMonthText");
-  const monthPicker = document.getElementById("dividendMonthPicker");
-
   const onMonthSelected = async (year, month) => {
     window.WealthUnifiedTimeseries?.clearDetail('dividend', {render:false});
     const yearChanged = String(year) !== String(selectedDividendYear);
@@ -16756,52 +13143,12 @@ function initDividendMonthNavListeners() {
     }
   };
 
-  if (prevBtn) {
-    prevBtn.addEventListener("click", async () => {
-      const curYear = (selectedDividendYear === 'all' || !selectedDividendYear) ? getKstYearMonth().year : selectedDividendYear;
-      const curMonth = selectedDividendMonth || getKstYearMonth().month;
-      const shifted = shiftYearMonth(curYear, curMonth, -1);
-      await onMonthSelected(shifted.year, shifted.month);
-    });
-  }
-
-  if (nextBtn) {
-    nextBtn.addEventListener("click", async () => {
-      const curYear = (selectedDividendYear === 'all' || !selectedDividendYear) ? getKstYearMonth().year : selectedDividendYear;
-      const curMonth = selectedDividendMonth || getKstYearMonth().month;
-      const shifted = shiftYearMonth(curYear, curMonth, 1);
-      await onMonthSelected(shifted.year, shifted.month);
-    });
-  }
-
-  if (todayBtn) {
-    todayBtn.addEventListener("click", async () => {
-      const cur = getKstYearMonth();
-      await onMonthSelected(cur.year, cur.month);
-    });
-  }
-
-  if (monthText && monthPicker) {
-    monthText.addEventListener("click", () => {
-      try {
-        if (typeof monthPicker.showPicker === "function") {
-          monthPicker.showPicker();
-        } else {
-          monthPicker.focus();
-          monthPicker.click();
-        }
-      } catch (err) {
-        monthPicker.click();
-      }
-    });
-
-    monthPicker.addEventListener("change", async (e) => {
-      const parsed = parseYearMonth(e.target.value);
-      if (parsed) {
-        await onMonthSelected(parsed.year, parsed.month);
-      }
-    });
-  }
+  window.WealthIncomeMonthNavigation.bind({
+    prefix: 'dividend', getKstYearMonth, shiftYearMonth, parseYearMonth,
+    getYear: () => selectedDividendYear,
+    getMonth: () => selectedDividendMonth,
+    onMonthSelected,
+  });
 }
 
 async function bootstrap() {

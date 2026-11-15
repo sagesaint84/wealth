@@ -9,6 +9,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 from app.services.ipo.applications import get_user_applications
+from app.services.ipo.display import npay_schedule_field_currently_confirmed
 from app.services.ipo.notifier import IpoTelegramNotifier, KST, notification_state_lock
 from app.services.ipo.store import read_market_store_read_only
 
@@ -57,15 +58,28 @@ def _run_reminders_locked(
     sent_keys = state.setdefault("sent_keys", {})
     sent = 0; eligible = 0; complete = 0
     for ipo in store.get("ipos", []):
+        sources = ipo.get("sources") if isinstance(ipo.get("sources"), dict) else {}
+        reconciliation = sources.get("schedule_reconciliation")
+        if (isinstance(reconciliation, dict)
+                and reconciliation.get("status") in {"partial", "review_required"}):
+            continue
         try:
-            start = datetime.strptime(str(ipo.get("subscription_start") or "")[:10], "%Y-%m-%d").date()
-            end = datetime.strptime(str(ipo.get("subscription_end") or "")[:10], "%Y-%m-%d").date()
+            start_value = str(ipo.get("subscription_start") or "")[:10]
+            end_value = str(ipo.get("subscription_end") or "")[:10]
+            start = datetime.strptime(start_value, "%Y-%m-%d").date() if start_value else None
+            end = datetime.strptime(end_value, "%Y-%m-%d").date() if end_value else None
         except ValueError:
             continue
-        if end < start:
+        if start is None and end is None:
             continue
-        is_first_day = current == start
-        is_last_day = current == end
+        if start is not None and end is not None and end < start:
+            continue
+        is_first_day = start is not None and current == start
+        is_last_day = end is not None and current == end
+        if is_first_day and not npay_schedule_field_currently_confirmed(ipo, "subscription_start"):
+            is_first_day = False
+        if is_last_day and not npay_schedule_field_currently_confirmed(ipo, "subscription_end"):
+            is_last_day = False
         if not (is_first_day or is_last_day):
             continue
         if is_first_day and is_last_day:
@@ -92,7 +106,7 @@ def _run_reminders_locked(
         message = (
             f"📌 <b>공모주 {phase_label} — {reminder_slot[:2]}:{reminder_slot[2:]}</b>\n"
             f"{ipo.get('company_name') or '공모주'}\n"
-            f"• 청약: {start.isoformat()} ~ {end.isoformat()}\n"
+            f"• 청약: {start.isoformat() if start else '미확인'} ~ {end.isoformat() if end else '미확인'}\n"
             f"• 주관사: {managers}\n"
             f"⚠️ <b>아직 신청하지 않음:</b> {', '.join(missing)}\n"
         )

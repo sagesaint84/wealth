@@ -5,10 +5,10 @@ import pytest
 from tests.test_account_reorder_runtime import chrome_preview, wait_for, ReorderPreview
 
 BOOT = r"""
-window.__uiErrors=[];window.addEventListener('error',e=>__uiErrors.push(e.message));
-window.addEventListener('unhandledrejection',e=>__uiErrors.push(String(e.reason)));
+window.__uiErrors=[];window.__uiUnhandled=[];window.addEventListener('error',e=>__uiErrors.push(e.message));
+window.addEventListener('unhandledrejection',e=>{__uiUnhandled.push(String(e.reason));__uiErrors.push(String(e.reason));});
 const naturalError=console.error;console.error=function(...args){__uiErrors.push(args.map(String).join(' '));return naturalError.apply(this,args);};
-window.__uiExcluded=new Set(['excluded']);window.__uiWrites=[];
+window.__uiExcluded=new Set(['excluded']);window.__uiWrites=[];window.__uiApiRequests=[];
 const family=['아빠','엄마','자녀'];
 const make=(id,name,state,user)=>({ipo_id:id,company_name:name,market:'KOSDAQ',stock_code:'123456',
  subscription_start:'2026-10-19',subscription_end:'2026-10-20',expected_listing_date:'2026-10-29',
@@ -17,14 +17,16 @@ const make=(id,name,state,user)=>({ipo_id:id,company_name:name,market:'KOSDAQ',s
  updated_at:'2026-10-19T12:00:00+09:00',sources:{metalogos160:{},dart_schedule:{},kind:{},npay:{},naver:{}}});
 window.__uiRows=[make('long','가상기업 아주 긴 기업명 및 출처 문자열 레이아웃 검증','SUBSCRIPTION_OPEN','APPLIED'),
  make('listing','가상 상장예정 기업','LISTING_UPCOMING','ALLOCATED_UNSOLD'),
- make('listed','가상 상장완료 기업','LISTED','PARTIALLY_SOLD'),
+ {...make('listed','가상 상장완료 기업','LISTED','PARTIALLY_SOLD'),actual_listing_date:'2026-09-30',sources:{official_historical_import:{source:'krx'}}},
  make('unknown','가상 일정 확인 기업','DATE_UNKNOWN','NOT_APPLIED'),
  make('excluded','가상 제외 후 일정 변경 기업','UPCOMING','NOT_APPLIED')];
 window.__uiApps=Object.fromEntries(__uiRows.map(r=>[r.ipo_id,{target_owners:family,applied_owners:['아빠'],state:'some',all_applied:false}]));
 const natural=window.fetch;
 window.fetch=function(url,options={}){
  const path=new URL(String(url),location.href).pathname;
- const reply=value=>Promise.resolve(new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}}));
+ const request={method:String(options.method||'GET').toUpperCase(),path,mocked:true,status:null};
+ __uiApiRequests.push(request);
+ const reply=value=>Promise.resolve(new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}})).then(response=>{request.status=response.status;return response;});
  if(path==='/api/ipo/market')return reply({ipos:__uiRows.map(r=>({...r,user_excluded:__uiExcluded.has(r.ipo_id),excluded_schedule_changed:r.ipo_id==='excluded'}))});
  if(path==='/api/ipo/applications')return reply({revision:__uiWrites.length,applications:__uiApps,family_members:family});
  if(path.startsWith('/api/ipo/visibility/') && options.method==='PUT'){
@@ -42,9 +44,24 @@ window.fetch=function(url,options={}){
    events.push({id:'event'+i,date:i===2?'2026-10-20':'2026-10-19',type,title:'가상 '+type,owner:'아빠',amount_krw:amount,meta:{}});
   return reply({events:events.filter(e=>!__uiExcluded.has(e.meta.ipo_id))});
  }
- return natural.call(this,url,options);
+ request.mocked=false;
+ return natural.call(this,url,options).then(response=>{request.status=response.status;return response;});
 };
 """
+
+
+def ipo_ui_diagnostic(evaluate):
+    snapshot = json.loads(evaluate("""JSON.stringify({
+      cards:[...document.querySelectorAll('#ipoListWrapper .ipo-card')].map(card=>card.dataset.ipoId),
+      tabs:[...document.querySelectorAll('#ipoListWrapper .ipo-filter')].map(button=>({
+        label:button.childNodes[0]?.textContent?.trim(),count:button.querySelector('span')?.textContent?.trim(),
+        selected:button.getAttribute('aria-pressed'),active:button.classList.contains('active')})),
+      separateCheckIds:[...document.querySelectorAll('#ipoListWrapper .ipo-fallback-heading + .ipo-cards-container .ipo-card')].map(card=>card.dataset.ipoId),
+      api:window.__uiApiRequests,filterGroup:window.WealthIpoState?.getFilterGroup?.(),
+      errors:window.__uiErrors,unhandled:window.__uiUnhandled
+    })"""))
+    snapshot['browserErrors'] = getattr(evaluate, 'load_errors', [])
+    return json.dumps(snapshot, ensure_ascii=False)
 
 
 def open_list(call, evaluate, port, width):
@@ -52,8 +69,21 @@ def open_list(call, evaluate, port, width):
     call('Page.addScriptToEvaluateOnNewDocument', {'source':BOOT})
     call('Page.navigate', {'url':f'http://127.0.0.1:{port}/#ipo'})
     wait_for(evaluate,"!!window.WealthIpoState && !!window.WealthCalendar && typeof window.loadIpoSchedule==='function'")
-    evaluate("(async()=>{await loadIpoSchedule();WealthIpoState.setFilterGroup('ALL');WealthIpoState.setHistoryYear(2026);WealthIpoState.setHistoryMonth(10);WealthIpoState.setMonthExplicitlySelected(true);WealthIpoState.renderIpoList();return true;})()")
-    wait_for(evaluate,"document.querySelectorAll('#ipoListWrapper .ipo-card').length===4")
+    evaluate("(async()=>{await loadIpoSchedule();WealthIpoState.setFilterGroup('ACTIVE');WealthIpoState.setHistoryYear(2026);WealthIpoState.setHistoryMonth(10);WealthIpoState.setMonthExplicitlySelected(true);WealthIpoState.renderIpoList();return true;})()")
+    try:
+        wait_for(evaluate,"document.querySelectorAll('#ipoListWrapper .ipo-filter').length===2 && __uiApiRequests.some(r=>r.path==='/api/ipo/market'&&r.status===200)")
+    except pytest.fail.Exception as error:
+        pytest.fail(f'{error}; IPO render diagnostic={ipo_ui_diagnostic(evaluate)}')
+    actual_ids = evaluate("[...document.querySelectorAll('#ipoListWrapper .ipo-card')].map(card=>card.dataset.ipoId)")
+    # ACTIVE has two ordinary cards (listing, long) and DATE_UNKNOWN in the
+    # explicitly labeled fallback area. The officially evidenced listing
+    # (listed) belongs to LISTED and is outside selected October; excluded is
+    # hidden by the initial visibility filter.
+    expected_ids = ['listing', 'long', 'unknown']
+    assert actual_ids == expected_ids, (
+        f'ACTIVE should render confirmed active cards and the separately marked unknown schedule; '
+        f'expected IDs={expected_ids}; {ipo_ui_diagnostic(evaluate)}'
+    )
 
 
 
@@ -114,7 +144,7 @@ def test_ipo_calendar_dark_ui_and_actions(ui_chrome_preview, width, tmp_path):
     assert evaluate("parseFloat(getComputedStyle(document.querySelector('.ipo-source-meta')).fontSize)<=11.5"), width
     assert evaluate("[...document.querySelectorAll('.ipo-card-actions .button')].every(b=>{const s=getComputedStyle(b);return parseFloat(s.fontSize)<=12&&b.offsetHeight>=30&&b.offsetHeight<=36})"), width
     assert evaluate("[...document.querySelectorAll('.ipo-card')].every(c=>{const a=c.querySelector('.ipo-card-actions').getBoundingClientRect(),t=c.querySelector('.ipo-card-title-group').getBoundingClientRect();return a.left>=t.right-1||a.top>=t.bottom-1})"), width
-    assert evaluate("[...document.querySelectorAll('.ipo-source-meta')].every(n=>n.clientWidth>0&&getComputedStyle(n).textOverflow==='ellipsis')"), width
+    assert evaluate("[...document.querySelectorAll('.ipo-source-meta')].every(n=>n.clientWidth>0&&getComputedStyle(n).overflowWrap==='anywhere')"), width
     screenshot(call,tmp_path/'list.png')
     evaluate("document.querySelector('[data-ipo-id=long] .ipo-card-detail-toggle').click();true")
     assert evaluate("document.querySelector('[data-ipo-id=long] .ipo-card-body').getClientRects().length>0 && document.querySelector('[data-ipo-id=long] .ipo-member-chk').getClientRects().length>0")

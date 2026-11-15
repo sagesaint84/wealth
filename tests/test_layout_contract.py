@@ -93,20 +93,33 @@ class LayoutContractTests(unittest.TestCase):
 
     def test_home_asset_donut_has_keyed_hover_contract(self):
         source = (STATIC / 'wealth-layout.js').read_text(encoding='utf-8')
+        shared = (STATIC / 'wealth-donut-chart.js').read_text(encoding='utf-8')
         self.assertIn('key:`asset-${index}`', source)
         self.assertIn('row.dataset.donutKey=item.key', source)
-        self.assertIn('window.WealthDonutHitTest = donutKeyAtPointer', source)
-        self.assertIn('row.onpointerenter=()=>activate(row.dataset.donutKey)', source)
-        self.assertIn('row.onfocus=()=>activate(row.dataset.donutKey)', source)
-        self.assertIn('donut.onpointerleave=()=>activate(null)', source)
+        self.assertIn('window.WealthDonutChart.bind(donut, segments, { legend: donutLegend })', source)
+        self.assertIn('row.onpointerenter = row.onfocus = () => activate(row.dataset.donutKey)', shared)
+        self.assertIn('row.onpointerleave = row.onblur = () => activate(null)', shared)
+        self.assertIn('donut.onpointermove = event => activate(keyAt(event))', shared)
+        self.assertIn('donut.onpointerleave = () => activate(null)', shared)
+        self.assertIn('conicGradient(items, { activeKey: key', shared)
+        scripts = Elements((STATIC / 'index.html').read_text(encoding='utf-8')).scripts
+        self.assertEqual(scripts.count('/static/wealth-donut-chart.js'), 1)
+        self.assertLess(scripts.index('/static/wealth-donut-chart.js'), scripts.index('/static/wealth-layout.js'))
 
     def test_stock_sector_donut_preserves_filter_and_keyed_interaction(self):
-        source = (STATIC / 'wealth.js').read_text(encoding='utf-8')
+        source = (STATIC / 'wealth-sector-view.js').read_text(encoding='utf-8')
+        shared = (STATIC / 'wealth-donut-chart.js').read_text(encoding='utf-8')
         self.assertIn('const donutKey = `classification:${String(s.name || \'\')}`', source)
         self.assertIn('data-sector-filter="${html(s.name)}" data-color-key="${html(window.WealthColorPreferences.keyFor(\'stock_category_colors\',s))}" data-donut-key="${html(donutKey)}"', source)
-        self.assertIn("bindSectorDonutInteractions(wrap.querySelector('.sector-donut-container'))", source)
-        self.assertIn("filterHoldingsByClassification(node.dataset.sectorFilter)", source)
-        self.assertIn("event.key === 'Enter' || event.key === ' '", source)
+        self.assertIn("window.WealthDonutChart.bind(wrap.querySelector('.wealth-asset-donut'), segments", source)
+        self.assertIn('onSelect: item => filterHoldingsByClassification(item.name)', source)
+        self.assertIn('root.classList.toggle(\'has-donut-hover\', Boolean(key))', shared)
+        self.assertIn("row.dataset.donutKey === key", shared)
+        self.assertIn("event.key === 'Enter' || event.key === ' '", shared)
+        self.assertIn('event.preventDefault(); select(row.dataset.donutKey)', shared)
+        scripts = Elements((STATIC / 'index.html').read_text(encoding='utf-8')).scripts
+        self.assertLess(scripts.index('/static/wealth-donut-chart.js'), scripts.index('/static/wealth-sector-view.js'))
+        self.assertLess(scripts.index('/static/wealth-sector-view.js'), scripts.index('/static/wealth.js'))
 
     def test_strategy_and_history_interaction_contracts_are_scoped(self):
         source = (STATIC / 'wealth-planning.js').read_text(encoding='utf-8')
