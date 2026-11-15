@@ -1,3 +1,28 @@
+/* Copyright (c) 2022, 2023 Viva Republica, Reserved Font Name Tossface.
+   Official unmodified font: toss/tossface commit 37720aa5cf2ec9a853a9787f29e39002c58cc2e7.
+   License: fonts/tossface/37720aa5/LICENSE. Only the first mapped glyph is requested. */
+@font-face {
+  font-family: "Wealth Tossface";
+  src: url("./fonts/tossface/37720aa5/TossFaceFontMac-09.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+  unicode-range: U+1F4C5;
+}
+/* Semantic Icon API: consumers provide the name, never a copied emoji. */
+.wealth-layout {
+  --icon-size: 1em; --icon-gap: .3em;
+}
+.wealth-layout .wealth-ui-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; width: var(--icon-size); height: var(--icon-size);
+  font-family: "Wealth Tossface", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  font-size: var(--icon-size); font-weight: 400; font-style: normal; line-height: 1;
+  vertical-align: -.125em; margin-inline-end: var(--icon-gap);
+  color: inherit; pointer-events: none;
+}
+.wealth-layout .wealth-ui-icon:last-child { margin-inline-end: 0; }
+.wealth-layout .wealth-ui-icon[data-icon="calendar"]::before { content: "\01F4C5"; }
+/* Disabled presentation inherits the owning control; do not dim the icon twice. */
+
 /* Workspace shell. Financial panels and theme contracts remain unchanged. */
 .wealth-history { margin: 20px 0; }
 .wealth-refresh-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; flex-shrink: 0; }

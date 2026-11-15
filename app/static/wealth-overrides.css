@@ -1160,17 +1160,6 @@
   border: 1px solid #1a2542;
   border-radius: 10px;
 }
-.sector-donut-svg-wrap {
-  width: 130px;
-  height: 130px;
-  flex-shrink: 0;
-  position: relative;
-}
-.sector-donut-svg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
-}
 .sector-legend-list {
   display: flex;
   flex-direction: column;
@@ -1238,19 +1227,8 @@
   background: rgba(142, 112, 250, 0.14) !important;
   border-radius: 4px;
 }
-.clickable-sector-slice {
-  cursor: pointer;
-  transition: opacity 0.15s ease, stroke-width 0.15s ease;
-}
-.clickable-sector-slice:hover {
-  stroke-width: 28px !important;
-  filter: brightness(1.2);
-}
-.sector-donut-container.has-donut-hover .clickable-sector-slice { opacity:.35; }
 .sector-donut-container.has-donut-hover .sector-legend-item { opacity:.45; }
-.sector-donut-container.has-donut-hover .clickable-sector-slice.is-donut-active { opacity:1; stroke-width:28px; filter:brightness(1.2) drop-shadow(0 0 3px currentColor); }
 .sector-donut-container.has-donut-hover .sector-legend-item.is-donut-active { opacity:1; background:color-mix(in srgb,var(--workspace-accent,#8e70fa) 14%,var(--surface-2,#090e1d)); border-color:color-mix(in srgb,var(--workspace-accent,#8e70fa) 60%,transparent); box-shadow:0 0 0 1px color-mix(in srgb,var(--workspace-accent,#8e70fa) 16%,transparent); }
-@media (prefers-reduced-motion: reduce) { .clickable-sector-slice, .sector-legend-item.clickable-sector-item { transition:none; } }
 
 /* 검색창 하이라이트 펄스 애니메이션 */
 @keyframes searchInputPulse {

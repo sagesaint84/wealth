@@ -4,64 +4,11 @@
 
   // Expansion is presentation state, independent of the canonical snapshot.
   const expandedIpoIds = new Set();
-  const SCORE_CORE_LABELS = {
-    institutional_competition_ratio: '기관경쟁률',
-    lockup_commitment_ratio: '의무보유확약률',
-    tradable_share_ratio: '유통가능주식비율',
-    pricing_discipline: '공모가 결정정보',
-  };
-  function scoreDiagnosticText(score) {
-    if (!score || typeof score !== 'object') return '점수 데이터가 아직 생성되지 않았습니다.';
-    if (score.status === 'NOT_APPLICABLE') return '';
-    if (typeof score.score === 'number' && Number.isFinite(score.score)) return '';
-    const isCalculating = score.is_calculating === true || score.score === null || score.score === undefined;
-    if (!isCalculating) return '';
 
-    const parts = [];
-    const coverage = Number(score.coverage);
-    if (Number.isFinite(coverage)) parts.push(`데이터 ${coverage}%`);
-    const missing = Array.isArray(score.core_missing) ? score.core_missing : [];
-    if (missing.length > 0) {
-      const labels = missing.map(key => SCORE_CORE_LABELS[key] || String(key));
-      parts.push(`부족: ${labels.join(', ')}`);
-    } else if (Number.isFinite(coverage) && coverage < 75) {
-      parts.push('정식 점수 기준 75% 미만');
-    }
-    return parts.join(' · ') || '점수 입력 데이터를 확인 중입니다.';
-  }
+  function scoreDiagnosticText(score) { return window.WealthIpoScheduleCardView.scoreDiagnosticText(score); }
 
-  function trustedMetalogosUrl(value) {
-    const raw = String(value || '').trim();
-    if (!raw) return '';
-    try {
-      const url = new URL(raw);
-      const host = url.hostname.toLowerCase();
-      if (url.protocol !== 'https:') return '';
-      if (host !== 'metalogos.ai' && host !== 'www.metalogos.ai') return '';
-      if (!url.pathname.startsWith('/160ipo/stock/')) return '';
-      return url.href;
-    } catch (_err) {
-      return '';
-    }
-  }
 
-  function compactReferenceNumber(value) {
-    const number = Number(value);
-    if (!Number.isFinite(number)) return '';
-    return Number.isInteger(number) ? number.toLocaleString('ko-KR') : String(number);
-  }
-
-  function renderMetalogosReference(ipo) {
-    const reference = ipo?.sources?.metalogos160;
-    if (!reference || typeof reference !== 'object') return '';
-    const sourceUrl = trustedMetalogosUrl(reference.url);
-    const value = compactReferenceNumber(reference.attractiveness_score);
-    const metric = value ? `매력지수 ${value}` : '';
-    if (!sourceUrl && !metric) return '';
-    const link = sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">160 원문</a>` : '';
-    return `<span class="ipo-metalogos-reference" title="Metalogos 160 공개자료의 참고값입니다. Wealth IPO Score 산정에는 사용하지 않습니다.">${link}${escapeHtml(`${link && metric ? ' · ' : ''}${metric}`)}</span>`;
-  }
-
+  function renderMetalogosReference(ipo) { return window.WealthIpoScheduleCardView.renderMetalogosReference(ipo, escapeHtml); }
   // Presentation metadata owns identity; raw lead_managers remain display data.
   const brokerFilters = ipo => Array.isArray(ipo?.lead_manager_filters)
     ? ipo.lead_manager_filters.filter(item => item && typeof item.key === 'string' && item.key &&
@@ -209,146 +156,9 @@
       .replace(/'/g, '&#39;');
   }
 
-  function historicalIssueLabel(reason) {
-    const labels = {
-      COMPANY_NAME_MISSING: '회사명 누락',
-      STOCK_CODE_INVALID: '종목코드 오류',
-      ACTUAL_LISTING_DATE_INVALID: '상장일 형식 오류',
-      ACTUAL_LISTING_DATE_IN_FUTURE: '미래 실제 상장일',
-      FINAL_OFFER_PRICE_INVALID: '확정 공모가 오류',
-      NOT_NEW_LISTING: '신규상장이 아닌 행',
-      DUPLICATE_STOCK_CODE: '기존 데이터 종목코드 중복',
-      DUPLICATE_COMPANY_NAME_CONFLICT: '파일 내 회사명 충돌',
-      DUPLICATE_LISTING_DATE_CONFLICT: '파일 내 상장일 충돌',
-      DUPLICATE_OFFER_PRICE_CONFLICT: '파일 내 공모가 충돌',
-      DUPLICATE_LISTING_TRACK_CONFLICT: '파일 내 상장유형 충돌',
-      DUPLICATE_MARKET_CONFLICT: '파일 내 시장구분 충돌',
-      DUPLICATE_OFFERING_AMOUNT_CONFLICT: '파일 내 공모금액 충돌',
-      DUPLICATE_OFFER_SHARES_CONFLICT: '파일 내 공모주식수 충돌',
-      COMPANY_NAME_CONFLICT: '기존 회사명과 충돌',
-      ACTUAL_LISTING_DATE_CONFLICT: '기존 상장일과 충돌',
-      FINAL_OFFER_PRICE_CONFLICT: '기존 공모가와 충돌',
-    };
-    return labels[reason] || reason || '검토 필요';
-  }
 
-  function setHistoricalPreviewMessage(message) {
-    const preview = document.getElementById('ipoHistoricalImportPreview');
-    if (!preview) return;
-    preview.replaceChildren();
-    const paragraph = document.createElement('p');
-    paragraph.textContent = String(message || '');
-    preview.appendChild(paragraph);
-  }
-
-  function renderHistoricalImportPreview(payload) {
-    const preview = document.getElementById('ipoHistoricalImportPreview');
-    if (!preview) return;
-    preview.replaceChildren();
-
-    if (payload?.source === 'KRX_HISTORICAL_ONLINE') {
-      const s = payload?.summary || {};
-      const summary = document.createElement('p');
-      summary.className = 'ipo-historical-preview-summary';
-      summary.textContent =
-        `KRX 온라인 ${payload?.from_year || ''}~${payload?.to_year || ''} · 조회 ${s.fetched || 0}` +
-        ` / 신규 ${s.new || 0} / 정정 ${s.updated || 0} / 동일 ${s.unchanged || 0}` +
-        ` / 검토 필요 ${s.review_required || 0} / 무효 ${s.invalid || 0}`;
-      preview.appendChild(summary);
-
-      const changes = Array.isArray(payload?.changes) ? payload.changes : [];
-      if (changes.length > 0) {
-        const title = document.createElement('strong');
-        title.textContent = '반영 예정 변경';
-        preview.appendChild(title);
-        const fieldLabels = {
-          market: '상장시장', actual_listing_date: '실제 상장일',
-          final_offer_price: '확정 공모가', lead_managers: '주관사', listing_track: '상장유형'
-        };
-        const valueText = (value) => Array.isArray(value) ? value.join(', ') : (value ?? '—');
-        const list = document.createElement('ul');
-        list.className = 'ipo-historical-preview-issues';
-        changes.forEach((item) => {
-          const row = document.createElement('li');
-          const identity = [item?.company_name, item?.stock_code].filter(Boolean).join(' · ');
-          if (item?.classification === 'NEW') {
-            row.textContent = `${identity} · 신규 과거 공모주 추가`;
-          } else {
-            const diffs = (item?.changes || []).map(change =>
-              `${fieldLabels[change.field] || change.field}: ${valueText(change.before)} → ${valueText(change.after)}`
-            );
-            row.textContent = `${identity} · ${diffs.join(' / ')}`;
-          }
-          list.appendChild(row);
-        });
-        preview.appendChild(list);
-      }
-      if (payload?.changes_truncated) {
-        const more = document.createElement('p');
-        more.className = 'muted';
-        more.textContent = `외 ${payload.changes_truncated}건의 반영 예정 항목이 있습니다.`;
-        preview.appendChild(more);
-      }
-      const issues = Array.isArray(payload?.issues) ? payload.issues : [];
-      if (issues.length > 0) {
-        const issueTitle = document.createElement('strong');
-        issueTitle.textContent = '자동 반영하지 않는 검토 항목';
-        preview.appendChild(issueTitle);
-        const issueList = document.createElement('ul');
-        issueList.className = 'ipo-historical-preview-issues';
-        issues.forEach((issue) => {
-          const row = document.createElement('li');
-          const identity = [issue?.company_name, issue?.stock_code].filter(Boolean).join(' · ');
-          row.textContent = `${identity ? `${identity} · ` : ''}${historicalIssueLabel(issue?.reason)}`;
-          issueList.appendChild(row);
-        });
-        preview.appendChild(issueList);
-      }
-      return;
-    }
-
-    const s = payload?.summary || {};
-    const sourceLabel = payload?.source === 'KRX_NEW_LISTINGS_EXPORT'
-      ? 'KRX 신규상장종목 현황'
-      : 'KIND 신규상장기업현황';
-
-    const summary = document.createElement('p');
-    summary.className = 'ipo-historical-preview-summary';
-    summary.textContent =
-      `${sourceLabel} · 전체 ${s.total_rows || 0}행 / 정상 ${s.valid_rows || 0}` +
-      ` / 신규 ${s.new || 0} / 기존 존재 ${s.already_present || 0}` +
-      ` / 보완 가능 ${s.enrichable || 0} / 검토 필요 ${s.review_required || 0}` +
-      ` / 충돌 ${s.conflict || 0} / 무효 ${s.invalid || 0}` +
-      `${s.duplicate_rows ? ` / 중복 제거 ${s.duplicate_rows}` : ''}`;
-    preview.appendChild(summary);
-
-    const issues = Array.isArray(payload?.issues) ? payload.issues : [];
-    if (issues.length > 0) {
-      const title = document.createElement('strong');
-      title.textContent = '검토 항목';
-      preview.appendChild(title);
-
-      const list = document.createElement('ul');
-      list.className = 'ipo-historical-preview-issues';
-      issues.forEach((issue) => {
-        const row = document.createElement('li');
-        const identity = [issue?.company_name, issue?.stock_code].filter(Boolean).join(' · ');
-        row.textContent =
-          `${issue?.row_number ? `${issue.row_number}행 · ` : ''}` +
-          `${identity ? `${identity} · ` : ''}${historicalIssueLabel(issue?.reason)}`;
-        list.appendChild(row);
-      });
-      preview.appendChild(list);
-
-      if (payload?.issues_truncated) {
-        const more = document.createElement('p');
-        more.className = 'muted';
-        more.textContent = `외 ${payload.issues_truncated}건의 검토 항목이 있습니다.`;
-        preview.appendChild(more);
-      }
-    }
-  }
-
+  function setHistoricalPreviewMessage(message) { return window.WealthIpoHistoricalPreviewView.renderMessage(message); }
+  function renderHistoricalImportPreview(payload) { return window.WealthIpoHistoricalPreviewView.render(payload); }
   function setHistoricalImportBusy(busy, phase = '') {
     historicalImportInFlight = busy;
     const openButton = document.getElementById('ipoHistoricalImportBtn');
@@ -1096,14 +906,7 @@
   }
   window.WealthIpoDetail={open:openIpoDetail};
 
-  const resolutionMessage = (status) => ({
-    MAPPED: '연결된 계좌',
-    AUTO_SELECTED: '등록 계좌 자동선택',
-    AMBIGUOUS_ACCOUNT: '계좌를 선택하세요',
-    NO_ACCOUNT_CANDIDATE: '등록된 같은 증권사 계좌가 없습니다',
-    BROKER_UNKNOWN: '증권사를 확인할 수 없습니다',
-    MAPPING_CONFLICT: '기존 계좌 연결을 변경할 수 없습니다',
-  }[status] || '계좌를 선택하세요');
+
 
   async function hydrateApplicantAccountControls() {
     const wrapper = document.getElementById('ipoListWrapper');
@@ -1134,12 +937,8 @@
     const saleLinks = control.querySelector('.ipo-sale-links');
     let currentMapping = userApplications[ipoId]?.applicants?.[owner] || null;
     try {
-      const brokersResponse = await fetch(`/api/ipo/applications/${encodeURIComponent(ipoId)}/broker-options`);
-      if (!brokersResponse.ok) throw new Error('broker options unavailable');
-      const brokers = (await brokersResponse.json()).brokers || [];
-      brokerSelect.innerHTML = brokers.length
-        ? brokers.map(item => `<option value="${escapeHtml(item.broker_id)}">${escapeHtml(item.display_name)}</option>`).join('')
-        : '<option value="">증권사 정보 없음</option>';
+      const brokers = await window.WealthIpoApplicantApi.loadBrokers(ipoId);
+      window.WealthIpoApplicantView.renderOptions(brokerSelect, brokers.map(item => ({ id: item.broker_id, label: item.display_name })), brokers.length ? '' : '증권사 정보 없음', escapeHtml);
       brokerSelect.disabled = brokers.length === 0;
       if (currentMapping && brokers.some(item => item.broker_id === currentMapping.broker_id)) {
         brokerSelect.value = currentMapping.broker_id;
@@ -1152,20 +951,15 @@
         accountSelect.disabled = true;
         saveButton.disabled = true;
         const remap = Boolean(currentMapping && currentMapping.broker_id !== broker);
-        const candidateResponse = await fetch(`/api/ipo/applications/${encodeURIComponent(ipoId)}/account-candidates?owner=${encodeURIComponent(owner)}&broker=${encodeURIComponent(broker)}${remap ? '&remap=true' : ''}`);
-        if (!candidateResponse.ok) throw new Error('account candidates unavailable');
-        const result = await candidateResponse.json();
+        const result = await window.WealthIpoApplicantApi.loadAccountCandidates(ipoId, owner, broker, remap);
         if(!sameIdentity()||!control.isConnected||generation!==candidateGeneration||broker!==brokerSelect.value)return;
-        accountSelect.innerHTML = '<option value="">계좌를 선택하세요</option>' + (result.candidates || []).map(item => {
-          const label = [item.account_name, item.owner, item.account_type].filter(Boolean).join(' · ') || '등록 계좌';
-          return `<option value="${escapeHtml(item.account_id)}">${escapeHtml(label)}</option>`;
-        }).join('');
+        window.WealthIpoApplicantView.renderOptions(accountSelect, window.WealthIpoApplicantModel.accountOptions(result.candidates), '계좌를 선택하세요', escapeHtml);
         const preferredId = currentMapping?.broker_id === result.broker_id ? currentMapping.account_id : result.auto_selected_account_id;
         if (preferredId) accountSelect.value = preferredId;
         accountSelect.disabled = (result.candidates || []).length === 0 || result.resolution_status === 'MAPPING_CONFLICT';
         saveButton.disabled = !accountSelect.value || result.resolution_status === 'MAPPING_CONFLICT';
         saveButton.textContent = currentMapping ? '계좌 변경' : '계좌 연결';
-        status.textContent = resolutionMessage(result.resolution_status);
+        window.WealthIpoApplicantView.renderAccountStatus(status, result.resolution_status);
       };
       brokerSelect.addEventListener('change', () => reloadCandidates().catch(() => { status.textContent = '계좌 후보를 불러오지 못했습니다'; }));
       accountSelect.addEventListener('change', () => { saveButton.disabled = !accountSelect.value; });
@@ -1201,23 +995,15 @@
       }));
       const loadAllocation = async () => {
         if (!currentMapping) return;
-        const response = await fetch(`/api/ipo/applications/${encodeURIComponent(ipoId)}/applicants/${encodeURIComponent(owner)}/allocation`);
-        if (!response.ok) return;
-        const result = await response.json();
+        const result = await window.WealthIpoApplicantApi.loadAllocation(ipoId, owner);
+        if (!result) return;
         const allocation = result.allocation;
         allocationInput.disabled = false;
         allocationSave.disabled = false;
         if (allocation) {
           allocationInput.value = allocation.quantity;
-          allocationSummary.textContent = result.has_dangling_links
-            ? `매도 ${allocation.sold_quantity}주 · 잔여 ${allocation.remaining_quantity}주 · 연결된 실현손익 기록을 찾을 수 없음`
-            : `매도 ${allocation.sold_quantity}주 · 잔여 ${allocation.remaining_quantity}주 · 실현손익 ${Number(allocation.realized_pnl_krw || 0).toLocaleString('ko-KR')}원`;
-          saleLinks.innerHTML = (result.links || []).map(link => {
-            const label = link.missing_pnl_record
-              ? `${escapeHtml(link.matched_quantity)}주 · 연결된 실현손익 기록을 찾을 수 없음`
-              : `${escapeHtml(link.date || '')} · ${escapeHtml(link.matched_quantity)}주 연결됨`;
-            return `<div class="ipo-sale-link-row"><span>${label}</span>${link.missing_pnl_record?'':`<button type="button" class="button secondary compact ipo-pnl-detail" data-pnl-record-id="${escapeHtml(link.pnl_record_id)}">기록 상세</button>`}<button type="button" class="button secondary compact ipo-sale-unlink" data-pnl-record-id="${escapeHtml(link.pnl_record_id)}">연결 해제</button></div>`;
-          }).join('');
+          window.WealthIpoApplicantView.renderAllocationSummary(allocationSummary, window.WealthIpoApplicantModel.allocationSummary(allocation, result.has_dangling_links));
+          window.WealthIpoApplicantView.renderSaleLinks(saleLinks, window.WealthIpoApplicantModel.saleLinks(result.links), escapeHtml);
           saleLinks.querySelectorAll('.ipo-pnl-detail').forEach(button=>button.addEventListener('click',async()=>{
             const identity=currentUserProfile?.id||currentUserProfile?.username;
             button.disabled=true;
@@ -1241,8 +1027,7 @@
             } catch (err) { allocationSummary.textContent = '매도 연결 해제에 실패했습니다'; }
           })));
         } else allocationSummary.textContent = '공모가 기준 배정수량을 입력하세요';
-        const salesResponse = await fetch(`/api/ipo/applications/${encodeURIComponent(ipoId)}/applicants/${encodeURIComponent(owner)}/allocation/sale-candidates`);
-        const sales = salesResponse.ok ? (await salesResponse.json()).candidates || [] : [];
+        const sales = await window.WealthIpoApplicantApi.loadSaleCandidates(ipoId, owner);
         saleSelect.innerHTML = '<option value="">매도 후보 선택</option>' + sales.map(item => `<option value="${escapeHtml(item.pnl_record_id)}" data-available="${escapeHtml(item.available_quantity)}">${escapeHtml(item.date)} · ${escapeHtml(item.available_quantity)}주</option>`).join('');
         saleSelect.disabled = !allocation || sales.length === 0;
         saleQuantity.disabled = saleSelect.disabled;

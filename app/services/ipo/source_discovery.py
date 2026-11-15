@@ -22,17 +22,227 @@ from app.services.network_policy import ExternalNetworkDisabled
 KST = timezone(timedelta(hours=9))
 
 
+def _shift_month(first: date, months: int) -> date:
+    serial = first.year * 12 + (first.month - 1) + months
+    return date(serial // 12, serial % 12 + 1, 1)
+
+
 def _month_window(target_date_str: str) -> tuple[date, date]:
     target = datetime.strptime(target_date_str, "%Y-%m-%d").date()
     current = target.replace(day=1)
 
-    def shift(first: date, months: int) -> date:
-        serial = first.year * 12 + (first.month - 1) + months
-        return date(serial // 12, serial % 12 + 1, 1)
-
-    start = shift(current, -1)
-    after = shift(current, 2)
+    start = _shift_month(current, -1)
+    after = _shift_month(current, 2)
     return start, after - timedelta(days=1)
+
+
+def plan_npay_historical_storage(observations: list[dict[str, Any]], market: dict[str, Any],
+                                *, target_date_str: str) -> dict[str, Any]:
+    """Pure offering-level plan; validate merges on copies, never write market/users."""
+    from app.services.ipo.identity import find_matching_ipo, generate_ipo_id
+    target = date.fromisoformat(target_date_str)
+    existing = market.get("ipos", [])
+    fields = ("subscription_start", "subscription_end", "expected_listing_date",
+              "actual_listing_date", "final_offer_price", "lead_managers")
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for raw in observations:
+        item = copy.deepcopy(raw)
+        code = str(item.get("stock_code") or "").strip()
+        if not code:
+            raise ValueError("Historical observation requires a stock code")
+        groups.setdefault(code, []).append(item)
+    plan = []
+    for code, rows in groups.items():
+        reasons = []
+        names = {normalize_company_name(str(row.get("company_name") or "")) for row in rows}
+        if len(names) != 1 or not all(names):
+            reasons.append("observed_name_conflict")
+        item = {"stock_code": code, "company_name": rows[0].get("company_name", "")}
+        evidence = {}
+        for field in fields:
+            observed = [row for row in rows if row.get(field) not in (None, "", [])]
+            if not observed:
+                continue
+            if any(row[field] != observed[0][field] for row in observed):
+                reasons.append(f"observed_field_conflict:{field}")
+                continue
+            value = copy.deepcopy(observed[0][field])
+            source = observed[0].get("sources", {}).get("npay", {})
+            if field.endswith("date") or field.startswith("subscription_"):
+                try:
+                    if date.fromisoformat(value).isoformat() != value:
+                        raise ValueError("Noncanonical date")
+                except (ValueError, TypeError):
+                    reasons.append(f"invalid_date:{field}")
+                    continue
+            if field == "actual_listing_date" and not all(
+                    row.get("sources", {}).get("npay", {}).get("schedule_source") == "npay_stock_completed_ipo"
+                    and row.get("sources", {}).get("npay", {}).get("ipo_status") == "상장"
+                    and date.fromisoformat(row[field]) <= target for row in observed):
+                reasons.append("actual_listing_completion_evidence_missing")
+                continue
+            if not source.get("url") or not source.get("observed_at"):
+                reasons.append(f"field_provenance_missing:{field}")
+            item[field] = value
+            evidence[field] = {"source": "npay", "value": value,
+                               "url": source.get("url"), "observed_at": source.get("observed_at"),
+                               "raw_field": source.get("field_paths", {}).get(field)}
+        if item.get("subscription_start") and item.get("subscription_end") and item["subscription_start"] > item["subscription_end"]:
+            reasons.append("invalid_subscription_period")
+        if (item.get("actual_listing_date") and item.get("expected_listing_date")
+                and item["actual_listing_date"] != item["expected_listing_date"]):
+            reasons.append("expected_actual_listing_conflict")
+        coded = [row for row in existing if str(row.get("stock_code") or "").strip() == code]
+        named = _exact_name_candidates(item, existing)
+        aliases = [row for row in existing if is_spac_ipo(item) and is_spac_ipo(row)
+                   and spac_name_key(row) == spac_name_key(item)]
+        match = coded[0] if len(coded) == 1 else None
+        basis = "stock_code" if match else None
+        if len(coded) > 1:
+            reasons.append("duplicate_saved_stock_code")
+        if match is None and not coded and len(named) == 1:
+            candidate = named[0]
+            if (not candidate.get("stock_code") and all(item.get(field) and item[field] == candidate.get(field)
+                    for field in ("subscription_start", "subscription_end"))):
+                match, basis = candidate, "exact_name_and_complete_subscription_period"
+        if match:
+            if normalize_company_name(match.get("company_name", "")) not in names:
+                reasons.append("saved_name_conflict")
+            if not match.get("ipo_id") or sum(row.get("ipo_id") == match.get("ipo_id") for row in existing) != 1:
+                reasons.append("saved_ipo_id_conflict")
+            for field in fields:
+                if item.get(field) not in (None, "", []) and match.get(field) not in (None, "", [], item[field]):
+                    reasons.append(f"saved_field_conflict:{field}")
+            if (item.get("actual_listing_date") and not item.get("subscription_start")
+                    and item["actual_listing_date"] not in (match.get("expected_listing_date"), match.get("actual_listing_date"))):
+                reasons.append("listing_offering_link_unproven")
+        elif named or aliases:
+            reasons.append("name_or_spac_alias_requires_review")
+        else:
+            if not item.get("subscription_start") or not item.get("subscription_end"):
+                reasons.append("new_offering_period_missing")
+            matched, review = find_matching_ipo(item, existing)
+            if matched or review:
+                reasons.append("existing_merge_identity_requires_review")
+        patch = {field: copy.deepcopy(item[field]) for field in fields
+                 if item.get(field) not in (None, "", []) and (match is None or match.get(field) in (None, "", []))}
+        if match and not match.get("stock_code"):
+            patch["stock_code"] = code
+        proposed_id = match.get("ipo_id") if match else generate_ipo_id(
+            company_name=item["company_name"], stock_code=code, subscription_start=item.get("subscription_start"))
+        if match is None and any(row.get("ipo_id") == proposed_id for row in existing):
+            reasons.append("generated_ipo_id_collision")
+        decision = "review_required" if reasons else ("no_change" if match and not patch else
+                                                      "supplement" if match else "new_candidate")
+        payload = None
+        if decision in {"supplement", "new_candidate"}:
+            # Reuse the existing merger on a private copy, retaining the selected ID.
+            scratch = copy.deepcopy(market)
+            payload = {"stock_code": code, "company_name": match["company_name"] if match else item["company_name"], **patch}
+            if match is None:
+                payload["listing_track"] = "spac" if is_spac_ipo(item) else "general"
+            sources = copy.deepcopy(match.get("sources", {})) if match else {}
+            sources.setdefault("schedule_fields", {}).update({key: evidence[key] for key in patch if key in evidence})
+            sources["npay_historical_observations"] = [copy.deepcopy(row.get("sources", {}).get("npay", {})) for row in rows]
+            latest = max(sources["npay_historical_observations"], key=lambda row: str(row.get("observed_at") or ""))
+            sources["npay"] = {**latest, "schedule_source": "npay_historical_aggregate"}
+            payload["sources"] = sources
+            # Supply the full proven period for identity resolution, including
+            # already-saved values; the resolver must not need an identity bypass.
+            identity_input = copy.deepcopy(payload)
+            for field in ("subscription_start", "subscription_end"):
+                if item.get(field):
+                    identity_input[field] = item[field]
+            merged, review = _apply_observation(scratch, identity_input, source_name="npay")
+            if review or merged.get("ipo_id") != proposed_id or any(merged.get(key) != value for key, value in patch.items()):
+                reasons.append("existing_merge_result_mismatch")
+                decision = "review_required"
+            allowed = set(patch) | {"sources", "updated_at"}
+            if (match and any(merged.get(key) != value for key, value in match.items() if key not in allowed)):
+                reasons.append("retained_record_would_change")
+                decision = "review_required"
+            if len(scratch.get("ipos", [])) != len(existing) + (0 if match else 1):
+                reasons.append("unexpected_record_count_change")
+                decision = "review_required"
+            for original in existing:
+                if match and original is match:
+                    continue
+                if original not in scratch.get("ipos", []):
+                    reasons.append("unrelated_market_record_would_change")
+                    decision = "review_required"
+        plan.append({"stock_code": code, "company_name": item["company_name"], "observation_count": len(rows),
+                     "ipo_id": match.get("ipo_id") if match else None, "proposed_ipo_id": proposed_id,
+                     "identity_basis": basis, "decision": decision, "reasons": sorted(set(reasons)),
+                     "patch": patch if decision in {"supplement", "new_candidate"} else {},
+                     "merge_input": identity_input if decision in {"supplement", "new_candidate"} else None,
+                     "field_evidence": evidence, "observations": rows})
+    for entry in plan:
+        if entry["ipo_id"] and sum(row["ipo_id"] == entry["ipo_id"] for row in plan) > 1:
+            entry.update(decision="review_required", patch={}, merge_input=None)
+            entry["reasons"].append("multiple_codes_target_same_ipo_id")
+    counts = {key: sum(row["decision"] == key for row in plan)
+              for key in ("new_candidate", "supplement", "no_change", "review_required")}
+    return {"plan": plan, "summary": counts,
+            "expected_market_record_changes": counts["new_candidate"] + counts["supplement"],
+            "storage_write": False}
+
+
+def preview_npay_historical_schedules(*, target_date_str: str | None = None,
+                                     npay_client: NpayIpoClient | None = None,
+                                     prior_preview: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Explicit read-only plan; deliberately not part of automatic refresh."""
+    from calendar import monthrange
+    from app.services.ipo.store import read_market_store_read_only
+    target = date.fromisoformat(target_date_str) if target_date_str else datetime.now(KST).date()
+    first_month = _shift_month(target.replace(day=1), -3)
+    start = first_month.replace(day=min(target.day, monthrange(first_month.year, first_month.month)[1]))
+    npay = npay_client or NpayIpoClient()
+    market = read_market_store_read_only()
+    if prior_preview is not None:
+        if prior_preview.get("to") != target.isoformat() or prior_preview.get("from") != start.isoformat():
+            raise ValueError("Prior preview period must match the requested period")
+        observations = prior_preview.get("observations")
+        if observations is None:
+            # Accept the original observation-level preview without refetching.
+            observations = [row["observation"] for row in prior_preview.get("plan", [])]
+        if not isinstance(observations, list) or not observations:
+            raise ValueError("Prior preview must include full observations, not aggregate counts")
+        result = plan_npay_historical_storage(observations, market, target_date_str=target.isoformat())
+        return {"from": start.isoformat(), "to": target.isoformat(),
+                "month_statuses": copy.deepcopy(prior_preview.get("month_statuses", {})),
+                "observations": copy.deepcopy(observations), **result}
+    statuses, observations, seen = {}, [], set()
+    month = first_month
+    while month <= target:
+        last = month.replace(day=monthrange(month.year, month.month)[1])
+        key = month.strftime("%Y-%m")
+        try:
+            rows = npay.fetch_calendar_month(start_date=month.isoformat(), end_date=last.isoformat())
+        except Exception as exc:
+            statuses[key] = f"source_error ({type(exc).__name__})"
+            month = _shift_month(month, 1)
+            continue
+        statuses[key] = "read_ok"
+        for item in rows:
+            if not any(_date_in_window(item.get(field), start, target) for field in
+                       ("subscription_start", "subscription_end", "expected_listing_date")):
+                continue
+            signature = (item.get("stock_code"), item.get("subscription_start"),
+                         item.get("subscription_end"), item.get("expected_listing_date"))
+            if signature not in seen:
+                seen.add(signature)
+                observations.append(item)
+        month = _shift_month(month, 1)
+    try:
+        completed = npay.fetch_completed_ipos(target_date_str=target.isoformat())
+    except Exception as exc:
+        statuses["npay_stock_completed"] = f"source_error ({type(exc).__name__})"
+    else:
+        statuses["npay_stock_completed"] = "read_ok"
+        observations.extend(item for item in completed if _date_in_window(item.get("actual_listing_date"), start, target))
+    result = plan_npay_historical_storage(observations, market, target_date_str=target.isoformat())
+    return {"from": start.isoformat(), "to": target.isoformat(), "month_statuses": statuses,
+            "observations": copy.deepcopy(observations), **result}
 
 
 def _date_in_window(value: object, start: date, end: date) -> bool:
@@ -570,6 +780,15 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
         )
 
     def field_evidence(key):
+        # A history plan groups several observed surfaces. Preserve each field's
+        # validated original provenance rather than assigning the last row's URL.
+        supplied = item.get("sources", {}).get("schedule_fields", {}).get(key)
+        if (source_name == "npay" and source_meta.get("schedule_source") == "npay_historical_aggregate"
+                and isinstance(supplied, dict) and supplied.get("source") == "npay"
+                and supplied.get("value") == item[key] and supplied.get("observed_at")
+                and supplied.get("url") in {"https://stock.naver.com/market/stock/kr/ipo",
+                                            "https://ustock.naver.com/service/ipo?schedule=toBeIPOList"}):
+            return copy.deepcopy(supplied)
         seen_at = observation_time(source_meta.get("observed_at") or observed_at)
         return {"source": source_name, "value": copy.deepcopy(item[key]),
                 "observed_at": seen_at.isoformat() if seen_at else observed_at,
@@ -1020,6 +1239,7 @@ def discover_and_merge_primary_sources(
         if not isinstance(raw_items, list):
             raise TypeError("Npay IPO response must be a list")
     except Exception as exc:
+        statuses.update(getattr(npay, "source_statuses", {}))
         status = ("source_unavailable (external_network_disabled)"
                   if isinstance(exc, ExternalNetworkDisabled)
                   else f"source_error ({type(exc).__name__})")
@@ -1035,6 +1255,7 @@ def discover_and_merge_primary_sources(
             "review_required": 0, "failed": 1,
         }
 
+    statuses.update(getattr(npay, "source_statuses", {}))
     observed_at = datetime.now(KST).isoformat()
     relevant_items = [
         copy.deepcopy(item) for item in raw_items
@@ -1044,7 +1265,8 @@ def discover_and_merge_primary_sources(
         )
     ]
     reviews = 0
-    failed = 0
+    # A successful page must not hide failure of the other Npay page.
+    failed = len(getattr(npay, "source_errors", {}))
     for item in relevant_items:
         source_meta = item.setdefault("sources", {}).setdefault("npay", {})
         source_meta.setdefault("schedule_source", "npay_unlisted_public_ipo")

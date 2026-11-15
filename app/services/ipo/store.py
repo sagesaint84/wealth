@@ -6,7 +6,7 @@ from typing import Any
 
 from app.services.ipo.identity import find_matching_ipo, generate_ipo_id
 from app.services.ipo.models import IpoRecord
-from app.services.ipo.display import display_records, annotate_visibility, schedule_condition, schedule_field_confirmed
+from app.services.ipo.display import display_records, annotate_visibility, schedule_condition, schedule_field_confirmed, npay_schedule_field_confirmed
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 DATA_DIR = ROOT_DIR / "data" / "ipo"
@@ -306,10 +306,18 @@ def get_ipo_calendar_events(
         sub_end = str(ipo.get("subscription_end") or "")[:10]
         try:
             start_day = datetime.strptime(sub_start, "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            start_day = None
+        try:
             end_day = datetime.strptime(sub_end, "%Y-%m-%d").date()
         except (TypeError, ValueError):
-            start_day = end_day = None
-        if start_day is not None and end_day is not None and start_day <= end_day:
+            end_day = None
+        boundary_days = []
+        if (start_day is not None and not sub_end
+                and npay_schedule_field_confirmed(ipo, "subscription_start")):
+            # Project the observed start only; never manufacture an end date.
+            boundary_days = [(start_day, "first", "청약 시작일 · 종료일 확인 필요")]
+        elif start_day is not None and end_day is not None and start_day <= end_day:
             if start_day == end_day:
                 boundary_days = [(start_day, "single", "청약일")]
             else:
@@ -317,24 +325,24 @@ def get_ipo_calendar_events(
                     (start_day, "first", "청약 첫째날"),
                     (end_day, "last", "청약 마지막날"),
                 ]
-            for event_day, phase, label in boundary_days:
-                date_str = event_day.isoformat()
-                if not (from_date <= date_str <= to_date):
-                    continue
-                event_meta = dict(meta_base)
-                event_meta["subscription_phase"] = phase
-                events.append({
-                    "id": f"ipo_subscription:{ipo_id}:{date_str}",
-                    "date": date_str,
-                    "type": "ipo_subscription",
-                    "subtype": "공모주",
-                    "owner": "모두",
-                    "title": (f"🎯 {company} 청약 일정 확인 필요 (기존 예정일)"
-                              if schedule_unknown else f"🎯 {company} {label}"),
-                    "amount_krw": None,
-                    "source_id": ipo_id,
-                    "meta": event_meta,
-                })
+        for event_day, phase, label in boundary_days:
+            date_str = event_day.isoformat()
+            if not (from_date <= date_str <= to_date):
+                continue
+            event_meta = dict(meta_base)
+            event_meta["subscription_phase"] = phase
+            events.append({
+                "id": f"ipo_subscription:{ipo_id}:{date_str}",
+                "date": date_str,
+                "type": "ipo_subscription",
+                "subtype": "공모주",
+                "owner": "모두",
+                "title": (f"🎯 {company} 청약 일정 확인 필요 (기존 예정일)"
+                          if schedule_unknown else f"🎯 {company} {label}"),
+                "amount_krw": None,
+                "source_id": ipo_id,
+                "meta": event_meta,
+            })
 
         # 2. Listing event (Actual listing date takes precedence over expected listing date)
         actual_listing = ipo.get("actual_listing_date")

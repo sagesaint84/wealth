@@ -42,8 +42,8 @@ def parse_naver_ipo_discovery_json(raw_json_str: str | dict[str, Any]) -> list[d
 
     The existing expected-listing parser intentionally filters blank dates. This
     discovery parser has a different contract: a valid IPO code/company remains
-    useful when joined to Npay/KIND/DART, while only a valid calendar value may
-    populate ``expected_listing_date``.
+    useful to the shared Npay merge path. Only observed, valid dates and
+    explicit prices/managers are projected; listing dates remain expected.
     """
     try:
         data = json.loads(raw_json_str) if isinstance(raw_json_str, str) else raw_json_str
@@ -56,7 +56,7 @@ def parse_naver_ipo_discovery_json(raw_json_str: str | dict[str, Any]) -> list[d
     if not containers:
         raise NaverIpoClientError("NAVER IPO progress response missing list containers")
 
-    by_code: dict[str, dict[str, Any]] = {}
+    by_code: dict[tuple[str, str | None, str | None, str | None], dict[str, Any]] = {}
     for key, rows in containers:
         if not isinstance(rows, list):
             raise NaverIpoClientError(f"{key} must be a list")
@@ -71,8 +71,11 @@ def parse_naver_ipo_discovery_json(raw_json_str: str | dict[str, Any]) -> list[d
             if not company_name:
                 continue
             gsr_class = str(raw.get("gsrClass") or "").strip()
+            # A security identifier alone must not collapse distinct offerings.
+            identity = (stock_code, _valid_date(raw.get("poStartDate")),
+                        _valid_date(raw.get("poEndDate")), _valid_date(raw.get("lcalDate")))
             current = by_code.setdefault(
-                stock_code,
+                identity,
                 {
                     "stock_code": stock_code,
                     "raw_ipo_code": raw.get("ipoCode"),
@@ -92,9 +95,31 @@ def parse_naver_ipo_discovery_json(raw_json_str: str | dict[str, Any]) -> list[d
             if gsr_class:
                 current["gsr_class"] = gsr_class
                 current["listing_track"] = _listing_track(company_name, gsr_class)
-            listing_date = _valid_date(raw.get("lcalDate"))
-            if listing_date:
-                current["expected_listing_date"] = listing_date
+            field_paths = {}
+            for raw_key, field in (
+                ("poStartDate", "subscription_start"), ("poEndDate", "subscription_end"),
+                ("lcalDate", "expected_listing_date"),
+            ):
+                value = _valid_date(raw.get(raw_key))
+                if value:
+                    current[field] = value
+                    field_paths[field] = raw_key
+            # listingList contains future subscription-complete IPOs too.
+            # Keep lcalDate as expected; actual-listing evidence is not inferred.
+            price = str(raw.get("fixPubPrice") or "").replace(",", "").strip()
+            if re.fullmatch(r"[0-9]+", price) and int(price) > 0:
+                current["final_offer_price"] = int(price)
+                field_paths["final_offer_price"] = "fixPubPrice"
+            managers = [name.strip() for name in str(raw.get("orgNm") or "").split(",") if name.strip()]
+            if managers:
+                current["lead_managers"] = managers
+                field_paths["lead_managers"] = "orgNm"
+            current["sources"] = {"npay": {
+                "url": "https://stock.naver.com/market/stock/kr/ipo",
+                "response_url": f"{NAVER_STOCK_BASE_URL}{NAVER_IPO_PROGRESS_PATH}",
+                "schedule_source": "npay_stock_public_ipo",
+                "container": key, "field_paths": field_paths,
+            }}
     return list(by_code.values())
 
 
