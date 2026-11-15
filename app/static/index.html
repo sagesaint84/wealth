@@ -840,7 +840,7 @@
             <div class="toss-wts-header">
               <div class="toss-wts-title-group">
                 <h3 class="toss-wts-title">토스 WTS 실현손익</h3>
-                <span class="toss-wts-badge">읽기 전용</span>
+                <span class="toss-wts-badge">WTS · 읽기 전용</span>
               </div>
               <div class="toss-wts-status-group">
                 <span id="tossWtsStatusText" class="toss-wts-status-text">상태 미확인</span>
@@ -852,7 +852,7 @@
             <!-- 경고 배너 -->
             <div class="toss-wts-banner" role="note" aria-label="WTS 읽기 전용 주의사항">
               <span class="toss-wts-banner-icon">⚠️</span>
-              <span class="toss-wts-banner-text">토스 WTS 조회 자료 · 읽기 전용 · 계좌 범위 미확인 · Wealth 자산 및 실현손익 합계에 반영되지 않습니다.</span>
+              <span id="tossWtsBannerText" class="toss-wts-banner-text">토스 WTS 조회 자료 · 읽기 전용 · 계좌 범위 미확인 · Wealth 자산 및 실현손익 합계에 반영되지 않습니다.</span>
             </div>
 
             <!-- 조회 컨트롤 바 -->
@@ -987,18 +987,18 @@
             <div class="toss-wts-header">
               <div class="toss-wts-title-group">
                 <h3 class="toss-wts-title">한국투자증권 실현손익</h3>
-                <span class="toss-wts-badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3);">OpenAPI 검증됨</span>
+                <span class="toss-wts-badge">OpenAPI · 읽기 전용</span>
               </div>
               <div class="toss-wts-status-group">
-                <span id="kisStatusText" class="toss-wts-status-text">상태 확인 중...</span>
+                <span id="kisStatusText" class="toss-wts-status-text">상태 미확인</span>
                 <button type="button" id="btnCheckKisStatus" class="button secondary compact toss-wts-btn">상태 확인</button>
               </div>
             </div>
 
             <!-- 안내 배너 -->
-            <div class="toss-wts-banner" style="background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.35); color: #93c5fd;" role="note" aria-label="한투 OpenAPI 안내">
+            <div class="toss-wts-banner" role="note" aria-label="한투 OpenAPI 안내">
               <span class="toss-wts-banner-icon">ℹ️</span>
-              <span id="kisBannerText" class="toss-wts-banner-text">한국투자증권 공식 OpenAPI 조회 자료 · 읽기 전용 · 계좌 범위 검증됨 · 선택한 항목만 안전하게 Wealth 계좌로 가져올 수 있습니다.</span>
+              <span id="kisBannerText" class="toss-wts-banner-text">한국투자증권 공식 OpenAPI 조회 자료 · 읽기 전용 · 계좌 범위 미확인 · 선택한 항목만 안전하게 Wealth 계좌로 가져올 수 있습니다.</span>
             </div>
 
             <!-- 조회 컨트롤 바 -->
@@ -1140,14 +1140,14 @@
             <div class="toss-wts-header">
               <div class="toss-wts-title-group">
                 <h3 class="toss-wts-title">NH투자증권 실현손익</h3>
-                <span class="toss-wts-badge" style="background: rgba(34, 197, 94, .15); color: #86efac; border-color: rgba(34, 197, 94, .3);">OpenAPI · 읽기 전용 조회</span>
+                <span class="toss-wts-badge">OpenAPI · 읽기 전용</span>
               </div>
               <div class="toss-wts-status-group">
                 <span id="nhStatusText" class="toss-wts-status-text">상태 미확인</span>
                 <button type="button" id="btnCheckNhStatus" class="button secondary compact toss-wts-btn">상태 확인</button>
               </div>
             </div>
-            <div class="toss-wts-banner" style="background: rgba(34, 197, 94, .10); border-color: rgba(34, 197, 94, .3); color: #bbf7d0;" role="note">
+            <div class="toss-wts-banner" role="note">
               <span class="toss-wts-banner-icon">ℹ️</span>
               <span id="nhBannerText" class="toss-wts-banner-text">NH투자증권 공식 OpenAPI 조회 자료입니다. 조회 및 가져오기는 각각 사용자가 명시적으로 실행합니다.</span>
             </div>
@@ -1180,14 +1180,14 @@
             <div class="toss-wts-header">
               <div class="toss-wts-title-group">
                 <h3 class="toss-wts-title">키움증권 실현손익</h3>
-                <span class="toss-wts-badge" style="background: rgba(234, 88, 12, .15); color: #fdba74; border-color: rgba(234, 88, 12, .3);">OpenAPI · 읽기 전용 조회</span>
+                <span class="toss-wts-badge">OpenAPI · 읽기 전용</span>
               </div>
               <div class="toss-wts-status-group">
                 <span id="kiwoomStatusText" class="toss-wts-status-text">상태 미확인</span>
                 <button type="button" id="btnCheckKiwoomStatus" class="button secondary compact toss-wts-btn">상태 확인</button>
               </div>
             </div>
-            <div class="toss-wts-banner" style="background: rgba(234, 88, 12, .10); border-color: rgba(234, 88, 12, .3); color: #fed7aa;" role="note">
+            <div class="toss-wts-banner" role="note">
               <span class="toss-wts-banner-icon">ℹ️</span>
               <span id="kiwoomBannerText" class="toss-wts-banner-text">키움증권 공식 OpenAPI 조회 자료입니다. 조회 및 가져오기는 각각 사용자가 명시적으로 실행합니다.</span>
             </div>
@@ -1220,14 +1220,14 @@
             <div class="toss-wts-header">
               <div class="toss-wts-title-group">
                 <h3 class="toss-wts-title">KB증권 실현손익</h3>
-                <span class="toss-wts-badge" style="background: rgba(234, 179, 8, .15); color: #fde047; border-color: rgba(234, 179, 8, .3);">OpenAPI · 읽기 전용 조회</span>
+                <span class="toss-wts-badge">OpenAPI · 읽기 전용</span>
               </div>
               <div class="toss-wts-status-group">
                 <span id="kbStatusText" class="toss-wts-status-text">상태 미확인</span>
                 <button type="button" id="btnCheckKbStatus" class="button secondary compact toss-wts-btn">상태 확인</button>
               </div>
             </div>
-            <div class="toss-wts-banner" style="background: rgba(234, 179, 8, .10); border-color: rgba(234, 179, 8, .3); color: #fef08a;" role="note">
+            <div class="toss-wts-banner" role="note">
               <span class="toss-wts-banner-icon">ℹ️</span>
               <span id="kbBannerText" class="toss-wts-banner-text">KB증권 공식 OpenAPI 조회 자료입니다. 국내주식 실현손익만 지원되며, 조회 및 가져오기는 각각 사용자가 명시적으로 실행합니다.</span>
             </div>
@@ -3505,9 +3505,10 @@
     <script src="/static/wealth-stock-records-view.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-market-card-preferences.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-market-view.js?v=2.1.9-full-integration1"></script>
+    <script src="/static/wealth-broker-realized-feed-controller.js?v=2.1.9-broker-feed-controller10"></script>
     <script src="/static/wealth-broker-import-preview-model.js?v=2.1.9-final-integration1"></script>
-    <script src="/static/wealth-broker-import-preview-screen-controller.js?v=2.1.9-final-integration1"></script>
-    <script src="/static/wealth-broker-ui.js?v=2.1.9-final-integration1"></script>
+    <script src="/static/wealth-broker-import-preview-screen-controller.js?v=2.1.9-broker-preview-controller9"></script>
+    <script src="/static/wealth-broker-ui.js?v=2.1.9-broker-notice13"></script>
     <script src="/static/wealth-holding-signals.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-income-month-navigation.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-ledger-screen-controller.js?v=2.1.9-full-integration1"></script>
@@ -3537,7 +3538,7 @@
     <script src="/static/wealth-family-view.js?v=2.1.9-module-integration1"></script>
     <script src="/static/wealth-heatmap-model.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-heatmap-view.js?v=2.1.9-m100-view3"></script>
-    <script src="/static/wealth.js?v=2.1.9-sector-owner-fix1"></script>
+    <script src="/static/wealth.js?v=2.1.9-broker-notice13"></script>
     <script src="/static/wealth-ledger-ocr.js?v=2.0.2-review2"></script>
     <script src="/static/wealth-national-pension.js?v=2.0.2"></script>
     <script src="/static/wealth-pension-import.js?v=2.0.2"></script>
