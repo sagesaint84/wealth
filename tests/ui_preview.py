@@ -287,6 +287,14 @@ class BrokerPreviewHandler(PreviewHandler):
                 row_market = 'toss' if broker == 'toss-wts' and kind == 'realized' else market
                 rows = [broker_demo_row(i, day, 'us' if kind == 'income' and i % 2 else row_market, kind)
                         for i in range(4)]
+                if broker == 'kis':
+                    # Fetch rows use profit_loss; preview candidates below use pnl.
+                    for row in rows:
+                        row['profit_loss'] = row.pop('pnl')
+                        if market == 'us':
+                            row['foreign_profit_loss'] = row['profit_loss']
+                            row['foreign_buy_amount'] = row['buy_amount']
+                            row['foreign_sell_amount'] = row['sell_amount']
                 return self.send({'rows': rows, 'selection_tokens': [
                     f'SYNTHETIC-{broker}-{kind}-{i}' for i in range(4)],
                     'requested': {k: payload[k] for k in ('from_date', 'to_date', 'profit_rate_basis') if k in payload},

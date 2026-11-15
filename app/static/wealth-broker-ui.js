@@ -2,6 +2,52 @@
   "use strict";
 
   function create({ document, html }) {
+    function mountImportControls(screen) {
+      const card = document.getElementById(screen.cardId);
+      const controls = card?.querySelector('.toss-wts-controls');
+      const bar = document.getElementById(screen.importBarId);
+      const destination = document.getElementById(screen.destinationId);
+      if (!controls || !bar || !destination) return;
+      // Move existing nodes: attached listeners, values and IDs survive.
+      if (!controls.contains(destination)) {
+        const wrap = destination.closest('.toss-wts-dest-wrap');
+        if (wrap) {
+          wrap.className = 'toss-wts-control-item toss-wts-account-control';
+          controls.appendChild(wrap);
+        }
+      }
+      if (!controls.contains(bar)) {
+        const button = document.getElementById(screen.importButtonId);
+        const badge = document.getElementById(screen.selectedCountId);
+        if (button && badge) {
+          bar.replaceChildren(button, badge);
+          bar.className = 'toss-wts-control-action toss-wts-import-actions';
+          badge.setAttribute('aria-live', 'polite');
+          bar.style.display = 'flex';
+          controls.appendChild(bar);
+        }
+      }
+    }
+
+    function renderFeedImportOptions(body, { resolvePreference, isImported, rowName, onStockType, onFeeInput }) {
+      body.querySelectorAll('.wts-import-type-cell').forEach(cell => {
+        const index = Number(cell.dataset.index);
+        const pref = resolvePreference(index);
+        const disabled = isImported(index) ? ' disabled' : '';
+        const name = rowName(index);
+        cell.innerHTML = `<select class="broker-stock-type-select toss-wts-select" data-index="${index}" aria-label="${html(name)} 유형"${disabled}>` +
+          `<option value="general"${pref.stock_type === 'ipo' ? '' : ' selected'}>일반주식</option>` +
+          `<option value="ipo"${pref.stock_type === 'ipo' ? ' selected' : ''}>공모주</option></select>` +
+          `<label class="broker-ipo-fee-wrap"${pref.stock_type === 'ipo' ? '' : ' hidden'}>공모청약비 ` +
+          `<input class="broker-ipo-fee-input toss-wts-input" type="number" min="0" step="1" data-index="${index}" aria-label="${html(name)} 공모청약비" value="${html(String(pref.ipo_subscription_fee_krw ?? 2000))}"${disabled}>원</label>`;
+        cell.querySelector('select').addEventListener('change', event => {
+          onStockType(index, event.target.value);
+          cell.querySelector('label').hidden = event.target.value !== 'ipo';
+        });
+        cell.querySelector('input').addEventListener('input', event => onFeeInput(index, event.target.value));
+      });
+    }
+
     const brokerScreens = new Map();
     const semanticLabels = { unchecked: '상태 미확인', checking: '확인 중', ready: '조회 가능',
       action_required: '추가 확인 필요', error: '상태 확인 실패' };
@@ -51,7 +97,7 @@
           html(display.context), html(display.type), html(display.quantity), html(display.buy), html(display.sell),
           html(display.pnl), html(display.rate), html(display.expenses)];
         return `<tr class="${selected ? 'selected' : ''} ${imported ? 'imported-row' : ''}">` + cells.map((cell, column) => {
-          const typeCell = toss && column === 4;
+          const typeCell = column === 4;
           const className = typeCell ? 'wts-import-type-cell' : (column >= 5 ? 'num' : '');
           return `<td class="${className}${column === 8 ? ' ' + display.tone : ''}"${typeCell ? ` data-index="${index}"` : ''}>${cell}</td>`;
         }).join('') + '</tr>';
@@ -78,6 +124,7 @@
       });
       screens.forEach(screen => {
         brokerScreens.set(screen.key, screen);
+        mountImportControls(screen);
         const card = document.getElementById(screen.cardId);
         const badge = card?.querySelector('.toss-wts-badge');
         if (badge) badge.textContent = `${screen.connection} · 읽기 전용`;
@@ -230,7 +277,7 @@
       `</div>`;
     }
 
-    return Object.freeze({ renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, renderSelectionState, setButtonDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
+    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, renderSelectionState, setButtonDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
   }
   window.WealthBrokerUI = Object.freeze({ create });
 })();

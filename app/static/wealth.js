@@ -10497,7 +10497,7 @@ function updateWtsSelectionUI() {
     selectAll.checked = importableCount > 0 && count === importableCount;
     selectAll.disabled = importableCount === 0;
   }
-  renderBrokerImportOptions(tossWtsState, 'wtsImportOptions', 'toss');
+  syncBrokerRowImportOptions(tossWtsState);
 }
 
 function populateWtsAccounts() {
@@ -10727,7 +10727,7 @@ function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
     adapt: row => brokerRealizedDisplayRow(row, { market: '', currency: basis, toss: true, formatNumber: number }),
     toss: true,
   });
-  if (rows?.length && status !== 'error') syncWtsRowImportOptions();
+  if (rows?.length && status !== 'error') syncBrokerRowImportOptions(tossWtsState);
   brokerUI.bindFeedSelection(tbody, '.wts-row-cb', (e) => {
       const index = parseInt(e.target.dataset.index, 10);
       if (e.target.checked) {
@@ -11221,92 +11221,22 @@ function brokerImportSelectedItem(state, index) {
   };
 }
 
-function syncWtsRowImportOptions() {
-  document.querySelectorAll('#tossWtsTableBody .wts-import-type-cell').forEach(cell => {
-    const index = Number(cell.dataset.index);
-    const pref = brokerImportPreference(tossWtsState, index);
-    const disabled = tossWtsState.importedIndices.has(index) ? ' disabled' : '';
-    const name = tossWtsState.rows[index]?.name || '종목';
-    cell.innerHTML = `<select class="broker-stock-type-select toss-wts-select" data-index="${index}" aria-label="${html(name)} 유형"${disabled}>
-      <option value="general"${pref.stock_type === 'ipo' ? '' : ' selected'}>일반주식</option>
-      <option value="ipo"${pref.stock_type === 'ipo' ? ' selected' : ''}>공모주</option></select>
-      <label class="broker-ipo-fee-wrap"${pref.stock_type === 'ipo' ? '' : ' hidden'}>공모청약비
-      <input class="broker-ipo-fee-input toss-wts-input" type="number" min="0" step="1" data-index="${index}" aria-label="${html(name)} 공모청약비" value="${html(String(pref.ipo_subscription_fee_krw ?? 2000))}"${disabled}>원</label>`;
-    cell.querySelector('select').addEventListener('change', event => {
-      pref.stock_type = event.target.value;
-      tossWtsState.previewTicket = null;
-      cell.querySelector('label').hidden = pref.stock_type !== 'ipo';
-    });
-    cell.querySelector('input').addEventListener('input', event => {
-      pref.ipo_subscription_fee_krw = event.target.value === '' ? '' : parseInt(event.target.value, 10);
-      tossWtsState.previewTicket = null;
-    });
-  });
-}
-
-function renderBrokerImportOptions(state, containerId, brokerKey) {
-  if (brokerKey === 'toss') {
-    syncWtsRowImportOptions();
-    return;
-  }
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  const selectedIndices = Array.from(state.selectedIndices || []).sort((a, b) => a - b);
-  if (!selectedIndices.length) {
-    container.innerHTML = '';
-    container.style.display = 'none';
-    return;
-  }
-  container.style.display = 'block';
-  container.innerHTML = `
-    <div style="margin-top:10px;padding:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;">
-      <div style="font-weight:600;margin-bottom:8px;font-size:13px;">선택 항목 가져오기 옵션 (종목별)</div>
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        ${selectedIndices.map(idx => {
-          const row = state.rows[idx] || {};
-          const name = row.name || row.prdt_name || row.code || `항목 #${idx + 1}`;
-          const date = row.date || row.trad_dt || '';
-          const pref = brokerImportPreference(state, idx);
-          const isIpo = pref.stock_type === 'ipo';
-          const fee = pref.ipo_subscription_fee_krw ?? 2000;
-          return `
-            <div style="display:flex;align-items:center;gap:12px;font-size:12px;padding:4px 0;border-bottom:1px dashed var(--border);">
-              <span style="min-width:140px;font-weight:500;">${html(name)} <span class="muted">(${html(date)})</span></span>
-              <label style="display:inline-flex;align-items:center;gap:4px;">
-                유형:
-                <select class="broker-stock-type-select toss-wts-select" data-index="${idx}" style="padding:2px 6px;font-size:12px;">
-                  <option value="general" ${isIpo ? '' : 'selected'}>일반주식</option>
-                  <option value="ipo" ${isIpo ? 'selected' : ''}>공모주</option>
-                </select>
-              </label>
-              <label class="broker-ipo-fee-wrap" data-index="${idx}" style="display:${isIpo ? 'inline-flex' : 'none'};align-items:center;gap:4px;">
-                공모청약비:
-                <input type="number" min="0" step="1" class="broker-ipo-fee-input toss-wts-input" data-index="${idx}" value="${html(String(fee))}" style="width:80px;padding:2px 6px;font-size:12px;"> 원
-              </label>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    </div>
-  `;
-
-  container.querySelectorAll('.broker-stock-type-select').forEach(sel => {
-    sel.addEventListener('change', (e) => {
-      const idx = parseInt(e.target.dataset.index, 10);
-      const pref = brokerImportPreference(state, idx);
-      pref.stock_type = e.target.value;
+function syncBrokerRowImportOptions(state) {
+  const screen = realizedBrokerScreens.find(screen => screen.state === state);
+  const body = screen && document.getElementById(screen.cardId)?.querySelector('.toss-wts-table tbody');
+  if (!body) return;
+  brokerUI.renderFeedImportOptions(body, {
+    resolvePreference: index => brokerImportPreference(state, index),
+    isImported: index => state.importedIndices.has(index),
+    rowName: index => state.rows[index]?.name || '종목',
+    onStockType(index, value) {
+      brokerImportPreference(state, index).stock_type = value;
       state.previewTicket = null;
-      renderBrokerImportOptions(state, containerId, brokerKey);
-    });
-  });
-
-  container.querySelectorAll('.broker-ipo-fee-input').forEach(inp => {
-    inp.addEventListener('input', (e) => {
-      const idx = parseInt(e.target.dataset.index, 10);
-      const pref = brokerImportPreference(state, idx);
-      pref.ipo_subscription_fee_krw = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+    },
+    onFeeInput(index, value) {
+      brokerImportPreference(state, index).ipo_subscription_fee_krw = value === '' ? '' : parseInt(value, 10);
       state.previewTicket = null;
-    });
+    },
   });
 }
 
@@ -11315,7 +11245,6 @@ function getBrokerContextByOverlayId(overlayId) {
     return {
       brokerKey: 'toss',
       state: tossWtsState,
-      optionsContainerId: 'wtsImportOptions',
       refreshPreview: openWtsImportPreview,
       commitButtonId: 'btnWtsConfirmCommit',
     };
@@ -11324,7 +11253,6 @@ function getBrokerContextByOverlayId(overlayId) {
     return {
       brokerKey: 'kis',
       state: kisRealizedState,
-      optionsContainerId: 'kisImportOptions',
       refreshPreview: openKisImportPreview,
       commitButtonId: 'btnKisConfirmCommit',
     };
@@ -11333,7 +11261,6 @@ function getBrokerContextByOverlayId(overlayId) {
     return {
       brokerKey: 'nh',
       state: nhRealizedState,
-      optionsContainerId: 'nhImportOptions',
       refreshPreview: openNhImportPreview,
       commitButtonId: 'btnNhConfirmCommit',
     };
@@ -11342,7 +11269,6 @@ function getBrokerContextByOverlayId(overlayId) {
     return {
       brokerKey: 'kiwoom',
       state: kiwoomRealizedState,
-      optionsContainerId: 'kiwoomImportOptions',
       refreshPreview: openKiwoomImportPreview,
       commitButtonId: 'btnKiwoomConfirmCommit',
     };
@@ -11351,7 +11277,6 @@ function getBrokerContextByOverlayId(overlayId) {
     return {
       brokerKey: 'kb',
       state: kbRealizedState,
-      optionsContainerId: 'kbImportOptions',
       refreshPreview: openKbImportPreview,
       commitButtonId: 'btnKbConfirmCommit',
     };
@@ -11439,8 +11364,8 @@ function renderBrokerImportPreviewDetails(data, overlayId) {
               tossWtsState.previewTicket = null;
               if (currentPreviewData) currentPreviewData.preview_ticket = null;
             }
-            if (ctx?.optionsContainerId) {
-              renderBrokerImportOptions(state, ctx.optionsContainerId, ctx.brokerKey);
+            if (ctx) {
+              syncBrokerRowImportOptions(state);
             }
           }
           setModalRecalculating(overlayId, true);
@@ -11458,8 +11383,8 @@ function renderBrokerImportPreviewDetails(data, overlayId) {
               tossWtsState.previewTicket = null;
               if (currentPreviewData) currentPreviewData.preview_ticket = null;
             }
-            if (ctx?.optionsContainerId) {
-              renderBrokerImportOptions(state, ctx.optionsContainerId, ctx.brokerKey);
+            if (ctx) {
+              syncBrokerRowImportOptions(state);
             }
           }
           setModalRecalculating(overlayId, true);
@@ -11695,6 +11620,7 @@ function renderKisFeedTable(rows, market, state) {
     adapt: row => brokerRealizedDisplayRow(row, { market, currency: market === 'us' ? 'USD' : 'KRW', kis: true, formatNumber: number }),
     toss: false,
   });
+  syncBrokerRowImportOptions(kisRealizedState);
   brokerUI.bindFeedSelection(tbody, '.kis-row-check', (e) => {
       const idx = parseInt(e.target.getAttribute('data-index'), 10);
       if (e.target.checked) {
@@ -11715,14 +11641,13 @@ function updateKisSelectionUI() {
   const count = kisRealizedState.selectedIndices.size;
   const hasAccount = !!accountSelect?.value;
   brokerUI.renderSelectionState({ badgeId: 'kisSelectedCountBadge', count,
-    buttonId: 'btnKisImportSelected', disabled: count === 0 || !hasAccount,
-    barId: 'kisImportBar', barDisplay: kisRealizedState.rows && kisRealizedState.rows.length > 0 ? 'flex' : 'none' });
+    buttonId: 'btnKisImportSelected', disabled: count === 0 || !hasAccount });
 
   if (selectAll && kisRealizedState.rows) {
     const unimportedCount = kisRealizedState.rows.filter((_, idx) => !kisRealizedState.importedIndices.has(idx)).length;
     selectAll.checked = unimportedCount > 0 && count === unimportedCount;
   }
-  renderBrokerImportOptions(kisRealizedState, 'kisImportOptions', 'kis');
+  syncBrokerRowImportOptions(kisRealizedState);
 }
 
 function realizedBrokerId(value) {
@@ -12065,6 +11990,7 @@ function renderNhFeedTable() {
     adapt: row => brokerRealizedDisplayRow(row, { market: nhRealizedState.market, currency: nhRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: nhNumber }),
     toss: false,
   });
+  syncBrokerRowImportOptions(nhRealizedState);
   brokerUI.bindFeedSelection(tbody, '.nh-row-check', event => { const index = Number(event.target.dataset.index); event.target.checked ? nhRealizedState.selectedIndices.add(index) : nhRealizedState.selectedIndices.delete(index); updateNhSelectionUI(); });
 }
 function updateNhSelectionUI() {
@@ -12072,9 +11998,8 @@ function updateNhSelectionUI() {
   const count = nhRealizedState.selectedIndices.size;
   brokerUI.renderSelectionState({ badgeId: 'nhSelectedCountBadge', count,
     buttonId: 'btnNhImportSelected',
-    disabled: count === 0 || !document.getElementById('nhDestinationAccount')?.value || nhRealizedState.loading || nhRealizedState.importing,
-    barId: 'nhImportBar', barDisplay: nhRealizedState.rows.length ? 'flex' : 'none' });
-  renderBrokerImportOptions(nhRealizedState, 'nhImportOptions', 'nh');
+    disabled: count === 0 || !document.getElementById('nhDestinationAccount')?.value || nhRealizedState.loading || nhRealizedState.importing });
+  syncBrokerRowImportOptions(nhRealizedState);
 }
 async function openNhImportPreview() {
   const accountId = document.getElementById('nhDestinationAccount')?.value; const selectedItems = nhSelectedItems();
@@ -12262,6 +12187,7 @@ function renderKiwoomFeedTable() {
     adapt: row => brokerRealizedDisplayRow(row, { market: kiwoomRealizedState.market, currency: kiwoomRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: kiwoomNumber }),
     toss: false,
   });
+  syncBrokerRowImportOptions(kiwoomRealizedState);
   brokerUI.bindFeedSelection(tbody, '.kiwoom-row-check', event => {
     const index = Number(event.target.dataset.index);
     event.target.checked ? kiwoomRealizedState.selectedIndices.add(index) : kiwoomRealizedState.selectedIndices.delete(index);
@@ -12273,9 +12199,8 @@ function updateKiwoomSelectionUI() {
   const count = kiwoomRealizedState.selectedIndices.size;
   brokerUI.renderSelectionState({ badgeId: 'kiwoomSelectedCountBadge', count,
     buttonId: 'btnKiwoomImportSelected',
-    disabled: count === 0 || !document.getElementById('kiwoomDestinationAccount')?.value || kiwoomRealizedState.loading || kiwoomRealizedState.importing,
-    barId: 'kiwoomImportBar', barDisplay: kiwoomRealizedState.rows.length ? 'flex' : 'none' });
-  renderBrokerImportOptions(kiwoomRealizedState, 'kiwoomImportOptions', 'kiwoom');
+    disabled: count === 0 || !document.getElementById('kiwoomDestinationAccount')?.value || kiwoomRealizedState.loading || kiwoomRealizedState.importing });
+  syncBrokerRowImportOptions(kiwoomRealizedState);
 }
 async function openKiwoomImportPreview() {
   const accountId = document.getElementById('kiwoomDestinationAccount')?.value;
@@ -12545,6 +12470,7 @@ function renderKbFeedTable() {
     adapt: row => brokerRealizedDisplayRow(row, { market: kbRealizedState.market, currency: kbRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: kbNumber }),
     toss: false,
   });
+  syncBrokerRowImportOptions(kbRealizedState);
   brokerUI.bindFeedSelection(tbody, '.kb-row-check', event => {
     const index = Number(event.target.dataset.index);
     event.target.checked ? kbRealizedState.selectedIndices.add(index) : kbRealizedState.selectedIndices.delete(index);
@@ -12556,9 +12482,8 @@ function updateKbSelectionUI() {
   const count = kbRealizedState.selectedIndices.size;
   brokerUI.renderSelectionState({ badgeId: 'kbSelectedCountBadge', count,
     buttonId: 'btnKbImportSelected',
-    disabled: count === 0 || !document.getElementById('kbDestinationAccount')?.value || kbRealizedState.loading || kbRealizedState.importing,
-    barId: 'kbImportBar', barDisplay: kbRealizedState.rows.length ? 'flex' : 'none' });
-  renderBrokerImportOptions(kbRealizedState, 'kbImportOptions', 'kb');
+    disabled: count === 0 || !document.getElementById('kbDestinationAccount')?.value || kbRealizedState.loading || kbRealizedState.importing });
+  syncBrokerRowImportOptions(kbRealizedState);
 }
 async function openKbImportPreview() {
   const accountId = document.getElementById('kbDestinationAccount')?.value;
@@ -12818,22 +12743,27 @@ function initDividendMonthNavListeners() {
 
 const realizedBrokerScreens = [
   { key: 'toss',
+    state: tossWtsState, importBarId: 'tossWtsImportBar', destinationId: 'wtsDestinationAccount', importButtonId: 'btnWtsImportSelected', selectedCountId: 'wtsSelectedCountBadge',
     name: '토스증권', connection: 'WTS', markets: '국내·해외', notice: 'WTS 런타임·세션 및 계좌 범위를 확인하세요. 조회 자료는 가져오기 전 Wealth 자산·실현손익 합계에 반영되지 않습니다.',
     statusIds: ['tossWtsStatusText', 'tossWtsIncomeStatusText'], bannerId: 'tossWtsBannerText', tabId: 'btnTabBrokerToss', cardId: 'tossWtsCard', fromId: 'tossWtsFromDate', toId: 'tossWtsToDate',
     checkId: 'btnCheckTossWtsStatus', onCheck: checkTossWtsStatus, fetchId: 'btnFetchTossWtsFeed', onFetch: fetchTossWtsRealizedFeed },
   { key: 'kis',
+    state: kisRealizedState, importBarId: 'kisImportBar', destinationId: 'kisDestinationAccount', importButtonId: 'btnKisImportSelected', selectedCountId: 'kisSelectedCountBadge',
     name: '한국투자증권', connection: 'OpenAPI', markets: '국내·해외', notice: 'API 키와 원본 계좌 설정을 확인하세요. 계좌 범위는 상태 확인 응답을 확인해야 합니다.',
     statusIds: ['kisStatusText'], bannerId: 'kisBannerText', tabId: 'btnTabBrokerKis', cardId: 'kisRealizedCard', fromId: 'kisFromDate', toId: 'kisToDate',
     checkId: 'btnCheckKisStatus', onCheck: checkKisStatus, fetchId: 'btnFetchKisFeed', onFetch: fetchKisRealizedFeed },
   { key: 'nh',
+    state: nhRealizedState, importBarId: 'nhImportBar', destinationId: 'nhDestinationAccount', importButtonId: 'btnNhImportSelected', selectedCountId: 'nhSelectedCountBadge',
     name: 'NH투자증권', connection: 'OpenAPI', markets: '국내·해외', notice: '마스킹된 원본 계좌를 선택한 뒤 조회하세요.',
     statusIds: ['nhStatusText'], bannerId: 'nhBannerText', tabId: 'btnTabBrokerNh', cardId: 'nhRealizedCard', fromId: 'nhFromDate', toId: 'nhToDate',
     checkId: 'btnCheckNhStatus', onCheck: checkNhStatus, fetchId: 'btnFetchNhFeed', onFetch: fetchNhRealizedFeed },
   { key: 'kiwoom',
+    state: kiwoomRealizedState, importBarId: 'kiwoomImportBar', destinationId: 'kiwoomDestinationAccount', importButtonId: 'btnKiwoomImportSelected', selectedCountId: 'kiwoomSelectedCountBadge',
     name: '키움증권', connection: 'OpenAPI', markets: '국내·해외', notice: '마스킹된 원본 계좌를 선택한 뒤 조회하세요.',
     statusIds: ['kiwoomStatusText'], bannerId: 'kiwoomBannerText', tabId: 'btnTabBrokerKiwoom', cardId: 'kiwoomRealizedCard', fromId: 'kiwoomFromDate', toId: 'kiwoomToDate',
     checkId: 'btnCheckKiwoomStatus', onCheck: checkKiwoomStatus, fetchId: 'btnFetchKiwoomFeed', onFetch: fetchKiwoomRealizedFeed },
   { key: 'kb',
+    state: kbRealizedState, importBarId: 'kbImportBar', destinationId: 'kbDestinationAccount', importButtonId: 'btnKbImportSelected', selectedCountId: 'kbSelectedCountBadge',
     name: 'KB증권', connection: 'OpenAPI', markets: '국내', notice: '국내주식 실현손익만 지원합니다. 마스킹된 원본 계좌를 선택하세요.',
     statusIds: ['kbStatusText'], bannerId: 'kbBannerText', tabId: 'btnTabBrokerKb', cardId: 'kbRealizedCard', fromId: 'kbFromDate', toId: 'kbToDate',
     checkId: 'btnCheckKbStatus', onCheck: checkKbStatus, fetchId: 'btnFetchKbFeed', onFetch: fetchKbRealizedFeed },
