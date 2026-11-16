@@ -6,51 +6,35 @@ on:
     paths:
       - 'app/main.py'
       - 'app/static_transport.py'
-      - 'app/static/**'
+      - 'app/static/sw.js'
       - 'app/services/cnn_fear_greed.py'
       - 'app/services/web_finance.py'
       - 'app/services/market_indicators.py'
-      - 'tests/test_static_transport*.py'
-      - 'tests/test_home_initial_html_chrome.py'
-      - 'tests/test_home_three_tabs_chrome.py'
-      - 'tests/test_cnn_fear_greed*.py'
-      - 'tests/test_v218*.py'
-      - 'tests/test_v219*.py'
-      - 'tests/test_market_daily_indicators.py'
-      - 'tests/test_section_expanded_chrome.py'
-      - 'tests/test_national_pension_import.py'
+      - 'app/services/national_pension*.py'
+      - 'app/services/portfolio.py'
+      - 'app/services/dividend*.py'
+      - 'app/services/financial_income*.py'
       - 'tests/test_dividend_official_source_static.py'
       - 'tests/test_financial_income_what_if_static.py'
       - 'tests/test_money_input_ux.py'
-      - 'tests/test_ledger_single_renderer_chrome.py'
-      - 'tests/test_dashboard_rendered_opt_in.py'
-      - 'tests/test_view_initial_work_chrome.py'
-      - 'tests/test_owner_filter_loads.py'
-      - 'tests/test_market_signals_holdings_chrome.py'
-      - 'tests/test_account_section_summary_10_6b_frontend.py'
-      - 'tests/test_accountinfo_owner_options_frontend.py'
-      - 'tests/test_initial_asset_load.py'
-      - 'tests/test_income_bucket_drilldown.py'
-      - 'app/services/ipo/**'
-      - 'app/static/wealth-calendar.js'
-      - 'app/static/wealth-layout.css'
-      - 'app/static/wealth-ipo.js'
-      - 'app/static/index.html'
-      - 'app/static/sw.js'
-      - 'tests/test_ipo*.py'
-      - 'tests/test_moneylog_calendar*.py'
-      - 'tests/test_calendar_ipo_tones_frontend.py'
+      - 'tests/test_static_transport*.py'
       - 'tests/test_release_version.py'
       - 'tests/test_service_worker_cache_guard.py'
+      - 'tests/test_cnn_fear_greed.py'
+      - 'tests/test_market_daily_indicators.py'
+      - 'tests/test_national_pension_import.py'
+      - 'tests/test_owner_filter_loads.py'
+      - 'tests/test_initial_asset_load.py'
       - 'tests/chrome_harness.py'
-      - 'tests/ui_preview.py'
-      - 'tests/test_account_reorder_runtime.py'
-      - 'tests/test_dividend_income_route_chrome.py'
-      - 'tests/test_realized_pnl_viewport.py'
-      - 'tests/__init__.py'
       - 'tests/conftest.py'
       - 'requirements.txt'
       - '.github/workflows/static-transport-pr-validation.yml'
+  workflow_dispatch:
+    inputs:
+      ui_regressions:
+        description: 'Run the preserved broad UI regression suite on demand'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -65,6 +49,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
+      RUN_UI_REGRESSIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.ui_regressions }}
       WEALTH_ENV: test
       WEALTH_DISABLE_ENV_FILE: '1'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -108,6 +93,78 @@ jobs:
           # Checkout contains code only; refuse any repository data or env input.
           test ! -e data
           test ! -e .env
+          # Keep broad UI regressions available without running them for unrelated PRs.
+          if [ "$RUN_UI_REGRESSIONS" = "true" ]; then
+            selected_tests=(
+              tests/test_static_transport.py
+              tests/test_static_transport_chrome.py
+              tests/test_home_initial_html_chrome.py
+              tests/test_home_three_tabs_chrome.py
+              tests/test_cnn_fear_greed.py
+              tests/test_cnn_fear_greed_chrome.py
+              tests/test_v218_ui_chrome.py
+              tests/test_v219_ui_chrome.py
+              tests/test_v218_bucket_chrome.py
+              tests/test_v218_ipo_detail_chrome.py
+              tests/test_market_daily_indicators.py
+              tests/test_section_expanded_chrome.py
+              tests/test_national_pension_import.py
+              tests/test_dividend_official_source_static.py
+              tests/test_financial_income_what_if_static.py
+              tests/test_money_input_ux.py
+              tests/test_dashboard_rendered_opt_in.py
+              tests/test_view_initial_work_chrome.py
+              tests/test_owner_filter_loads.py
+              tests/test_market_signals_holdings_chrome.py
+              tests/test_account_section_summary_10_6b_frontend.py
+              tests/test_accountinfo_owner_options_frontend.py
+              tests/test_initial_asset_load.py
+              tests/test_income_bucket_drilldown.py
+              tests/test_ipo_broker_presentation.py
+              tests/test_ipo_interactive_discovery.py
+              tests/test_ipo_schedule_lifecycle.py
+              tests/test_ipo_schedule_lifecycle_chrome.py
+              tests/test_ipo_stored_compat.py
+              tests/test_ipo_stored_compat_chrome.py
+              tests/test_ipo_calendar_ui_chrome.py
+              tests/test_ipo_future_compact_view_frontend.py
+              tests/test_ipo_single_renderer_chrome.py
+              tests/test_ipo_broker_past_bucket_chrome.py
+              tests/test_ipo_dart_offering_schedule.py
+              tests/test_ipo_source_discovery.py
+              tests/test_ipo_parallel_fetch.py
+              tests/test_ipo_dart_client.py
+              tests/test_ipo_subscription_boundaries_and_fast_refresh.py
+              tests/test_ipo_identity.py
+              tests/test_ipo_store.py
+              tests/test_ipo_presentation.py
+              tests/test_ipo_presentation_states.py
+              tests/test_ipo_account_resolution.py
+              tests/test_ipo_applications.py
+              tests/test_moneylog_calendar.py
+              tests/test_moneylog_calendar_frontend.py
+              tests/test_calendar_ipo_tones_frontend.py
+              tests/test_release_version.py
+              tests/test_service_worker_cache_guard.py
+              tests/test_ipo_refresh_scope.py
+              tests/test_ipo_fast_refresh_and_krx_auth.py
+            )
+          else
+            selected_tests=(
+              tests/test_dividend_official_source_static.py
+              tests/test_financial_income_what_if_static.py
+              tests/test_money_input_ux.py
+              tests/test_static_transport.py
+              tests/test_static_transport_chrome.py
+              tests/test_release_version.py
+              tests/test_service_worker_cache_guard.py
+              tests/test_cnn_fear_greed.py
+              tests/test_market_daily_indicators.py
+              tests/test_national_pension_import.py
+              tests/test_owner_filter_loads.py
+              tests/test_initial_asset_load.py
+            )
+          fi
           # Separate network namespace: Python AND Chromium can reach the
           # synthetic loopback server, but cannot reach financial/external APIs.
           sudo env "PATH=$PATH" "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}" \
@@ -117,58 +174,7 @@ jobs:
             unshare --net bash -c 'ip link set lo up && exec "$@"' -- \
             "$(command -v python)" -B -m pytest -q -p no:cacheprovider --maxfail=1 \
             --basetemp="$TMPDIR/pytest" --junitxml="$RUNNER_TEMP/ipo-synthetic-results.xml" \
-            tests/test_static_transport.py \
-            tests/test_static_transport_chrome.py \
-            tests/test_home_initial_html_chrome.py \
-            tests/test_home_three_tabs_chrome.py \
-            tests/test_cnn_fear_greed.py \
-            tests/test_cnn_fear_greed_chrome.py \
-            tests/test_v218_ui_chrome.py \
-            tests/test_v219_ui_chrome.py \
-            tests/test_v218_bucket_chrome.py \
-            tests/test_v218_ipo_detail_chrome.py \
-            tests/test_market_daily_indicators.py \
-            tests/test_section_expanded_chrome.py \
-            tests/test_national_pension_import.py \
-            tests/test_dividend_official_source_static.py \
-            tests/test_financial_income_what_if_static.py \
-            tests/test_money_input_ux.py \
-            tests/test_dashboard_rendered_opt_in.py \
-            tests/test_view_initial_work_chrome.py \
-            tests/test_owner_filter_loads.py \
-            tests/test_market_signals_holdings_chrome.py \
-            tests/test_account_section_summary_10_6b_frontend.py \
-            tests/test_accountinfo_owner_options_frontend.py \
-            tests/test_initial_asset_load.py \
-            tests/test_income_bucket_drilldown.py \
-            tests/test_ipo_broker_presentation.py \
-            tests/test_ipo_interactive_discovery.py \
-            tests/test_ipo_schedule_lifecycle.py \
-            tests/test_ipo_schedule_lifecycle_chrome.py \
-            tests/test_ipo_stored_compat.py \
-            tests/test_ipo_stored_compat_chrome.py \
-            tests/test_ipo_calendar_ui_chrome.py \
-            tests/test_ipo_future_compact_view_frontend.py \
-            tests/test_ipo_single_renderer_chrome.py \
-            tests/test_ipo_broker_past_bucket_chrome.py \
-            tests/test_ipo_dart_offering_schedule.py \
-            tests/test_ipo_source_discovery.py \
-            tests/test_ipo_parallel_fetch.py \
-            tests/test_ipo_dart_client.py \
-            tests/test_ipo_subscription_boundaries_and_fast_refresh.py \
-            tests/test_ipo_identity.py \
-            tests/test_ipo_store.py \
-            tests/test_ipo_presentation.py \
-            tests/test_ipo_presentation_states.py \
-            tests/test_ipo_account_resolution.py \
-            tests/test_ipo_applications.py \
-            tests/test_moneylog_calendar.py \
-            tests/test_moneylog_calendar_frontend.py \
-            tests/test_calendar_ipo_tones_frontend.py \
-            tests/test_release_version.py \
-            tests/test_service_worker_cache_guard.py \
-            tests/test_ipo_refresh_scope.py \
-            tests/test_ipo_fast_refresh_and_krx_auth.py
+            "${selected_tests[@]}"
       - name: Require actual Chromium execution without skipped regressions
         run: |
           python - <<'PY'
@@ -179,6 +185,11 @@ jobs:
           cases = list(ET.parse(report).iter('testcase'))
           assert cases and not any(c.find('skipped') is not None for c in cases)
           assert not any(c.find(tag) is not None for c in cases for tag in ('failure', 'error'))
+          # Automatic runs still require real transport Chromium execution.
+          if os.environ.get('RUN_UI_REGRESSIONS') != 'true':
+              transport = [c for c in cases if c.get('name', '').startswith('test_static_compression_transfer_and_startup[')]
+              assert len(transport) == 2 and not any(list(c) for c in transport)
+              raise SystemExit(0)
           expected_ui_counts = {
               'test_cnn_fear_greed_chrome': 15,
               'test_v218_ui_chrome': 27,

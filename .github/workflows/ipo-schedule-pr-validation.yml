@@ -4,11 +4,12 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'app/main.py'
       - 'app/services/ipo/**'
+      - 'app/static/wealth-ipo-*.js'
       - 'app/static/wealth-calendar.js'
       - 'app/static/wealth-layout.css'
       - 'app/static/wealth-ipo.js'
-      - 'app/static/index.html'
       - 'app/static/sw.js'
       - 'tests/test_ipo*.py'
       - 'tests/test_moneylog_calendar*.py'
@@ -16,10 +17,6 @@ on:
       - 'tests/test_release_version.py'
       - 'tests/test_service_worker_cache_guard.py'
       - 'tests/chrome_harness.py'
-      - 'tests/ui_preview.py'
-      - 'tests/test_account_reorder_runtime.py'
-      - 'tests/test_dividend_income_route_chrome.py'
-      - 'tests/test_realized_pnl_viewport.py'
       - 'tests/__init__.py'
       - 'tests/conftest.py'
       - 'requirements.txt'
@@ -141,6 +138,7 @@ jobs:
             tests/test_ipo_naver_primary.py \
             tests/test_ipo_naver_primary_chrome.py \
             tests/test_ipo_npay_client.py \
+            tests/test_ipo_broker_presentation.py \
             tests/test_ipo_interactive_discovery.py \
             tests/test_ipo_schedule_lifecycle.py \
             tests/test_ipo_schedule_lifecycle_chrome.py \
