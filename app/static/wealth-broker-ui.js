@@ -7,24 +7,40 @@
       const controls = card?.querySelector('.toss-wts-controls');
       const bar = document.getElementById(screen.importBarId);
       const destination = document.getElementById(screen.destinationId);
-      if (!controls || !bar || !destination) return;
-      // Move existing nodes: attached listeners, values and IDs survive.
-      if (!controls.contains(destination)) {
-        const wrap = destination.closest('.toss-wts-dest-wrap');
-        if (wrap) {
-          wrap.className = 'toss-wts-control-item toss-wts-account-control';
-          controls.appendChild(wrap);
-        }
-      }
-      if (!controls.contains(bar)) {
-        const button = document.getElementById(screen.importButtonId);
-        const badge = document.getElementById(screen.selectedCountId);
-        if (button && badge) {
-          bar.replaceChildren(button, badge);
-          bar.className = 'toss-wts-control-action toss-wts-import-actions';
-          badge.setAttribute('aria-live', 'polite');
-          bar.style.display = 'flex';
-          controls.appendChild(bar);
+      const fetchButton = document.getElementById(screen.fetchId);
+      const importButton = document.getElementById(screen.importButtonId);
+      const badge = document.getElementById(screen.selectedCountId);
+      if (!controls || !bar || !destination || !fetchButton || !importButton || !badge) return;
+      const active = document.activeElement;
+      const cursorStart = active?.selectionStart;
+      const cursorEnd = active?.selectionEnd;
+      const destinationWrap = destination.closest('.toss-wts-account-control, .toss-wts-dest-wrap');
+      const fromWrap = document.getElementById(screen.fromId)?.closest('.toss-wts-control-item');
+      const toWrap = document.getElementById(screen.toId)?.closest('.toss-wts-control-item');
+      if (!destinationWrap || !fromWrap || !toWrap) return;
+      const previousFetchWrap = fetchButton.parentElement;
+      const oldActionWrappers = Array.from(bar.querySelectorAll('.toss-wts-import-bar-left, .toss-wts-import-bar-right'));
+      destinationWrap.className = 'toss-wts-control-item toss-wts-account-control';
+      // Reparent existing controls; values, IDs, disabled state and listeners survive.
+      bar.append(fetchButton, importButton, badge);
+      bar.className = 'toss-wts-control-action toss-wts-import-actions';
+      bar.style.display = 'flex';
+      badge.setAttribute('aria-live', 'polite');
+      const removeIfEmpty = element => {
+        if (element && element !== bar && element.children.length === 0 && !element.textContent.trim()) element.remove();
+      };
+      // The destination may still be inside an old action wrapper.
+      controls.appendChild(destinationWrap);
+      oldActionWrappers.forEach(removeIfEmpty);
+      if (previousFetchWrap?.classList.contains('toss-wts-control-action')) removeIfEmpty(previousFetchWrap);
+      const items = Array.from(controls.children).filter(element => element.classList.contains('toss-wts-control-item'));
+      const sourceItems = items.filter(element => element.querySelector('select[id$="SourceAccount"]'));
+      const conditions = items.filter(element => !sourceItems.includes(element) && element !== fromWrap && element !== toWrap && element !== destinationWrap);
+      controls.append(...sourceItems, ...conditions, fromWrap, toWrap, destinationWrap, bar);
+      if (active && controls.contains(active) && document.activeElement !== active) {
+        active.focus({ preventScroll: true });
+        if (cursorStart != null && cursorEnd != null) {
+          try { active.setSelectionRange(cursorStart, cursorEnd); } catch (_) {}
         }
       }
     }
