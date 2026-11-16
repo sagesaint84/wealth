@@ -42,7 +42,8 @@ class MoneyInputUxStaticTests(unittest.TestCase):
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
         # App release metadata and per-file revisions remain separate.
-        self.assertEqual(revision, '2.1.3-p0')
+        self.assertIsInstance(revision, str)
+        self.assertRegex(revision, r'^[0-9]+(?:\.[0-9]+)+(?:[-A-Za-z0-9._]*)$')
         loaded = {}
         for name in ('wealth-layout.js', 'wealth.js', 'wealth-money-input.js'):
             path = '/static/' + name

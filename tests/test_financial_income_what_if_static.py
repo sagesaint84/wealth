@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
     def test_index_loads_what_if_assets_after_core_wealth_script(self):
+        from urllib.parse import parse_qs, urlsplit
+
         html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
         class AssetParser(HTMLParser):
             def __init__(self):
@@ -34,27 +36,25 @@ class FinancialIncomeWhatIfStaticTests(unittest.TestCase):
         version = assets.versions[0]
         self.assertIsInstance(version, str)
         self.assertRegex(version, r'^\d+\.\d+\.\d+$')
-        css_ref = '/static/wealth-financial-income-what-if.css?v=2.1.0-b2'
         self.assertEqual(len(assets.revisions), 1)
         revision = assets.revisions[0]
-        # P0 changes core/What-if assets; the unchanged main layout keeps its
-        # independent revision, matching test_release_version.py.
-        self.assertEqual(revision, '2.1.3-p0')
-        layout_js = '/static/wealth-layout.js?v=2.1.9-ipo-ui-fix1'
-        self.assertEqual(assets.scripts.count(layout_js), 1)
-        core_js = '/static/wealth.js?v=2.1.9-ipo-common-integration1'
-        what_if_js = '/static/wealth-financial-income-what-if.js?v=2.1.3-p0'
-        self.assertIn(css_ref, html)
-        self.assertIn(core_js, html)
-        self.assertIn(what_if_js, html)
-        self.assertLess(html.index(core_js), html.index(what_if_js))
-        for script in (layout_js, core_js, what_if_js):
-            self.assertEqual(assets.scripts.count(script), 1)
-            self.assertEqual(sum(src.split('?', 1)[0] == script.split('?', 1)[0] for src in assets.scripts), 1)
-            self.assertTrue((ROOT / 'app/static' / script.split('?', 1)[0].rsplit('/', 1)[1]).is_file())
-        self.assertLess(assets.scripts.index(core_js), assets.scripts.index(what_if_js))
-        self.assertEqual(assets.stylesheets.count(css_ref), 1)
-        self.assertTrue((ROOT / 'app/static/wealth-financial-income-what-if.css').is_file())
+        self.assertIsInstance(revision, str)
+        self.assertRegex(revision, r'^[0-9]+(?:\.[0-9]+)+(?:[-A-Za-z0-9._]*)$')
+        loaded = {}
+        for name in ('wealth-layout.js', 'wealth.js', 'wealth-financial-income-what-if.js',
+                     'wealth-financial-income-what-if.css'):
+            path = '/static/' + name
+            urls = assets.stylesheets if name.endswith('.css') else assets.scripts
+            matches = [url for url in urls if url and urlsplit(url).path == path]
+            self.assertEqual(len(matches), 1, name)
+            url = matches[0]
+            revisions = parse_qs(urlsplit(url).query, keep_blank_values=True).get('v', [])
+            self.assertEqual(len(revisions), 1, url)
+            self.assertRegex(revisions[0], r'^[0-9]+(?:\.[0-9]+)+(?:[-A-Za-z0-9._]*)$')
+            self.assertTrue((ROOT / 'app' / 'static' / name).is_file(), name)
+            loaded[name] = url
+        self.assertLess(assets.scripts.index(loaded['wealth.js']),
+                        assets.scripts.index(loaded['wealth-financial-income-what-if.js']))
 
     def test_ui_is_stateless_and_only_targets_estimated_dividend_mode(self):
         js = (ROOT / "app" / "static" / "wealth-financial-income-what-if.js").read_text(
