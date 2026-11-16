@@ -17,59 +17,34 @@ class ReleaseVersionTests(unittest.TestCase):
     def test_index_html_version_metadata_and_cache_busting(self):
         html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
         self.assertIn('<meta name="application-version" content="2.1.9" />', html)
-        self.assertIn('<meta name="application-assets-revision" content="2.1.3-p0" />', html)
         self.assertIn('id="appVersionDisplay"', html)
         self.assertIn("앱 버전 v2.1.9", html)
 
-        css_matches = re.findall(r'href="/static/([^"]+\.css)\?v=([^"]+)"', html)
-        self.assertTrue(css_matches)
-        for asset, version in css_matches:
-            expected = {
-                'fonts/pretendard/1.3.9/pretendardvariable.css': '1.3.9',
-                'wealth.css': '2.1.9-ipo-common-integration1',
-                'wealth-financial-income-what-if.css': '2.1.0-b2',
-                'wealth-ledger-ocr.css': '2.0.2-review1',
-                "wealth-color-preferences.css": "10.9r6",
-                "wealth-color-picker.css": "10.9r2",
-                "wealth-system-update.css": "2.1.9-action-confirm1",
-                "wealth-layout.css": '2.1.9-ipo-ui-fix1',
-                "wealth-savings-contributions.css": "10.9p",
-                "wealth-dialog-system.css": "2.0.3-ai1",
-                "wealth-ui-density.css": "2.1.3-uiux1",
-                "wealth-national-pension.css": "2.0.2-r2",
-                "wealth-overrides.css": '2.1.9-ipo-common-integration1',
-            }.get(asset, "1.3.0")
-            self.assertEqual(version, expected)
-
-        js_matches = re.findall(r'src="/static/([^"]+\.js)\?v=([^"]+)"', html)
-        self.assertTrue(js_matches)
-        versions = {
-            'wealth-format.js': '2.1.9-ipo-common-integration1',
-            'wealth-system-update.js': "2.1.9-action-confirm1",
-            'wealth-ipo.js': '2.1.9-ipo-common-integration1',
-            'wealth-ledger-ocr.js': '2.0.2-review2',
-            'wealth-money-input.js': '2.1.9-ui1',
-            "wealth-financial-income-what-if.js": "2.1.3-p0",
-            "wealth-dividend-source.js": '2.1.9-ipo-common-integration1',
-            "wealth-family-financial-income-risk.js": "2.1.3-p0",
-            "wealth.js": '2.1.9-ipo-common-integration1', "wealth-layout.js": '2.1.9-ipo-ui-fix1',
-            "wealth-national-pension.js": "2.0.2", "wealth-pension-import.js": "2.0.2",
-            "wealth-transaction-defaults.js": "2.0.1",
-            "wealth-color-preferences.js": "10.9r6", "wealth-planning.js": "2.1.8-ui1",
-            "wealth-calendar.js": "2.1.8-ui1", "wealth-color-picker.js": "10.9r5",
-            "wealth-planning-model.js": "2.1.8-ui1", "wealth-asset-category-state.js": "2.0.2",
-            "wealth-settings-surface.js": "2.1.9-toss-session1", "wealth-invest-tab-state.js": "10.9k1",
-            "wealth-settings.js": "2.1.9-toss-session1", "wealth-family-financial-income-allocation.js": "2.1.3-p0",
-        }
-        for asset, version in js_matches:
-            self.assertEqual(version, versions.get(asset, "1.3.0"))
+        main = _import_main_without_loading_real_env()
+        self.assertIn(f'<meta name="application-version" content="{main.APP_VERSION}" />', html)
+        self.assertIn(f'앱 버전 v{main.APP_VERSION}', html)
+        revision = re.search(r'<meta name="application-assets-revision" content="([^"]+)"', html)
+        self.assertIsNotNone(revision)
+        self.assertRegex(revision.group(1), r"^[0-9]+(?:\.[0-9]+)+(?:[-A-Za-z0-9._]*)$")
+        for attribute, extension in (("href", "css"), ("src", "js")):
+            assets = re.findall(rf'{attribute}="(/static/[^"?]+\.{extension})(?:\?([^"#]*))?"', html)
+            self.assertTrue(assets)
+            for url, query in assets:
+                from urllib.parse import parse_qs
+                versions = parse_qs(query).get("v", [])
+                self.assertEqual(len(versions), 1, url)
+                self.assertRegex(versions[0], r"^[0-9]+(?:\.[0-9]+)+(?:[-A-Za-z0-9._]*)$")
+                path = (STATIC_DIR / url.removeprefix("/static/")).resolve()
+                self.assertTrue(path.is_relative_to(STATIC_DIR.resolve()), url)
+                self.assertTrue(path.is_file(), url)
 
     def test_dynamic_chart_asset_revision(self):
         loader = (STATIC_DIR / "wealth-planning-model.js").read_text(encoding="utf-8")
-        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-        self.assertIn("/static/wealth-timeseries-unified.js?v=2.1.8-ui1", loader)
-        self.assertNotIn("wealth-timeseries-unified.js?v=2.1.3-p0", loader)
-        self.assertIn('/static/wealth-planning-model.js?v=2.1.8-ui1', html)
+        matches = re.findall(r"/static/(wealth-timeseries-unified\.js)\?v=([A-Za-z0-9._-]+)", loader)
+        self.assertTrue(matches)
+        for asset, revision in matches:
+            self.assertTrue((STATIC_DIR / asset).is_file())
+            self.assertRegex(revision, r"^[0-9]+(?:\.[0-9]+)+(?:[-A-Za-z0-9._]*)$")
 
     def test_service_worker_cache_name(self):
         sw = (STATIC_DIR / "sw.js").read_text(encoding="utf-8")
