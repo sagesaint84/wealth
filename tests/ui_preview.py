@@ -4,7 +4,10 @@ Run: .venv/Scripts/python tests/ui_preview.py
 Only explicitly allowed static assets are served; mutations and external connections
 are blocked. This is a preview harness, not a production server.
 """
+import argparse
 import json
+from copy import deepcopy
+from datetime import date
 import mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -70,6 +73,7 @@ ALLOWED.update({
     'wealth-insurance-form-model.js',
     'wealth-holding-signals.js',
     'wealth-broker-ui.js',
+    'wealth-broker-realized-feed-controller.js',
     'wealth-market-card-preferences.js',
     'wealth-market-view.js',
     'wealth-stock-records-view.js',
@@ -181,6 +185,180 @@ class PreviewHandler(BaseHTTPRequestHandler):
         pass
 
 
+# Opt-in, in-memory broker screens. No app imports, storage or network clients.
+BROKER_NAMES = {
+    'toss-wts': '토스증권', 'kis': '한국투자증권', 'nh': 'NH투자증권',
+    'kiwoom': '키움증권', 'kb': 'KB증권',
+}
+BROKER_STATUS_PATHS = {
+    '/api/toss-wts/status': 'toss-wts', '/api/kis/status': 'kis',
+    '/api/nh/status': 'nh', '/api/kiwoom/status': 'kiwoom', '/api/kb/status': 'kb',
+}
+# Exact read/preview-only allowlist. Runtime confirmation and /import stay denied.
+BROKER_POST_PATHS = {
+    '/api/toss-wts/realized-feed/fetch': ('toss-wts', 'realized', 'fetch'),
+    '/api/toss-wts/realized-feed/import-preview': ('toss-wts', 'realized', 'preview'),
+    '/api/kis/realized-feed/fetch': ('kis', 'realized', 'fetch'),
+    '/api/kis/realized-feed/import-preview': ('kis', 'realized', 'preview'),
+    '/api/nh/realized-feed/fetch': ('nh', 'realized', 'fetch'),
+    '/api/nh/realized-feed/import-preview': ('nh', 'realized', 'preview'),
+    '/api/kiwoom/realized-feed/fetch': ('kiwoom', 'realized', 'fetch'),
+    '/api/kiwoom/realized-feed/import-preview': ('kiwoom', 'realized', 'preview'),
+    '/api/kb/realized-feed/fetch': ('kb', 'realized', 'fetch'),
+    '/api/kb/realized-feed/import-preview': ('kb', 'realized', 'preview'),
+    '/api/toss-wts/income-feed/fetch': ('toss-wts', 'income', 'fetch'),
+    '/api/toss-wts/income-feed/import-preview': ('toss-wts', 'income', 'preview'),
+}
+SYNTHETIC_STATUSES = ('NEW', 'ALREADY_IMPORTED', 'POSSIBLE_DUPLICATE', 'INVALID')
+
+
+def broker_demo_account(broker):
+    return {'id': 'SYNTHETIC-' + broker, 'broker': BROKER_NAMES[broker],
+            'name': '가상 전용 계좌 SYNTHETIC-00000000',
+            'account_name': '가상 전용 계좌 SYNTHETIC-00000000',
+            'owner': '아빠', 'account_type': 'general', 'cash_krw': 0,
+            'market_value_krw': 0}
+
+
+def broker_demo_row(index, day, market, kind):
+    overseas = market == 'us'
+    currency = 'USD' if overseas else 'KRW'
+    row = {'date': day, 'datetime': day + 'T12:00:00+09:00',
+           'name': '가상 거래 ' + SYNTHETIC_STATUSES[index],
+           'code': 'DEMO-' + str(index), 'symbol': 'DEMO-' + str(index),
+           'canonical_hash': 'SYNTHETIC-HASH-' + str(index),
+           'market': market.upper(), 'market_type': market.upper(),
+           'country': 'US' if overseas else 'KR', 'currency': currency,
+           'quantity': 3, 'buy_amount': 100.25 if overseas else 100000,
+           'sell_amount': 125.75 if overseas else 125000,
+           'pnl': 25.5 if overseas else 25000, 'profit_rate': 25.0,
+           'fee': 0, 'tax': 0, 'expenses_total': 0, 'exchange_rate': 1350,
+           'display_name': '가상 배당·이자 ' + str(index), 'display_code': 'DEMO-' + str(index),
+           'income_type': 'dividend' if index % 2 == 0 else 'account_interest',
+           'gross_amount': 30.5 if overseas else 30000, 'tax_amount': 0,
+           'net_amount': 30.5 if overseas else 30000}
+    if kind == 'realized' and market == 'toss':
+        row.update(market_type='KR', currency='KRW',
+                   buy_amount={'krw': 100000, 'usd': 100.25},
+                   sell_amount={'krw': 125000, 'usd': 125.75},
+                   profit_loss={'krw': 25000, 'usd': 25.5})
+    return row
+
+
+class BrokerPreviewHandler(PreviewHandler):
+    def do_GET(self):
+        path = urlsplit(self.path).path
+        if path == '/api/dashboard':
+            dashboard = deepcopy(DASHBOARD)
+            dashboard['accounts'] = [broker_demo_account(b) for b in BROKER_NAMES]
+            dashboard['holdings'] = []
+            return self.send(dashboard)
+        broker = BROKER_STATUS_PATHS.get(path)
+        if broker:
+            account = broker_demo_account(broker)
+            source = {'source_account_key': 'SYNTHETIC-SOURCE-' + broker,
+                      'source_account_label': '가상 원본 SYNTHETIC-****0000',
+                      'auto_selected_account_id': account['id'],
+                      'candidate_account_ids': [account['id']]}
+            return self.send({'configured': True, 'has_account': True, 'adapter_ready': True,
+                              'masked_account': 'SYNTHETIC-****0000', 'accounts': [source],
+                              'candidate_account_ids': [account['id']], **source})
+        super().do_GET()
+
+    def do_POST(self):
+        route = BROKER_POST_PATHS.get(urlsplit(self.path).path)
+        if route is None:
+            return super().do_POST()
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if not 0 < length <= 65536:
+                raise ValueError('Invalid request size')
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError('Expected JSON object')
+            broker, kind, operation = route
+            market = payload.get('market', 'kr')
+            if market not in ('kr', 'us') or (broker == 'kb' and market != 'kr'):
+                raise ValueError('Unsupported synthetic market')
+            account = broker_demo_account(broker)
+            if operation == 'fetch':
+                day = date.fromisoformat(payload['to_date']).isoformat()
+                date.fromisoformat(payload['from_date'])
+                row_market = 'toss' if broker == 'toss-wts' and kind == 'realized' else market
+                rows = [broker_demo_row(i, day, 'us' if kind == 'income' and i % 2 else row_market, kind)
+                        for i in range(4)]
+                if broker == 'kis':
+                    # Fetch rows use profit_loss; preview candidates below use pnl.
+                    for row in rows:
+                        row['profit_loss'] = row.pop('pnl')
+                        if market == 'us':
+                            row['foreign_profit_loss'] = row['profit_loss']
+                            row['foreign_buy_amount'] = row['buy_amount']
+                            row['foreign_sell_amount'] = row['sell_amount']
+                return self.send({'rows': rows, 'selection_tokens': [
+                    f'SYNTHETIC-{broker}-{kind}-{i}' for i in range(4)],
+                    'requested': {k: payload[k] for k in ('from_date', 'to_date', 'profit_rate_basis') if k in payload},
+                    'market': market, 'state': 'ok', 'fetched_at': day + 'T12:00:00+09:00'})
+            if payload.get('account_id') != account['id']:
+                raise ValueError('Choose the synthetic destination account')
+            selected = payload.get('selected_items')
+            if not isinstance(selected, list) or not 1 <= len(selected) <= 4:
+                raise ValueError('Select one to four synthetic rows')
+            items, seen = [], set()
+            counts = {'new': 0, 'already_imported': 0, 'possible_duplicate': 0, 'invalid': 0}
+            for index, selection in enumerate(selected):
+                if not isinstance(selection, dict):
+                    raise ValueError('Expected synthetic selection')
+                token = selection['selection_token']
+                matches = [i for i in range(4) if token == f'SYNTHETIC-{broker}-{kind}-{i}']
+                if len(matches) != 1 or token in seen:
+                    raise ValueError('Synthetic selection tokens only')
+                seen.add(token)
+                fixture_index = matches[0]
+                day = date.fromisoformat(selection['row']['date']).isoformat()
+                preview_market = market
+                if broker == 'toss-wts' and (payload.get('profit_rate_basis') == 'USD' or (kind == 'income' and fixture_index % 2)):
+                    preview_market = 'us'
+                row = broker_demo_row(fixture_index, day, preview_market, kind)
+                status = SYNTHETIC_STATUSES[fixture_index]
+                counts[status.lower()] += 1
+                item = {'index': index, 'status': status, 'candidate': row,
+                        'message': '가상 분류 결과 · 저장 불가'}
+                if kind == 'realized':
+                    choice = selection.get('wealth_import') or {}
+                    if not isinstance(choice, dict):
+                        raise ValueError('Expected synthetic display options')
+                    fee = choice.get('ipo_subscription_fee_krw', 0)
+                    if isinstance(fee, bool) or not isinstance(fee, (int, float)) or not 0 <= fee <= 1000000:
+                        raise ValueError('Invalid synthetic fee')
+                    item['wealth_import'] = {
+                        'stock_type': 'ipo' if choice.get('stock_type') == 'ipo' else 'general',
+                        'ipo_subscription_fee_krw': fee,
+                        'provider_realized_pnl': row['pnl'], 'final_wealth_pnl': row['pnl'],
+                        'memo': '가상 표시 확인용 · 금융 계산 검증 아님'}
+                items.append(item)
+            self.send({'items': items, 'counts': counts, 'destination_account': account,
+                       'preview_ticket': f'SYNTHETIC-NOT-COMMITTABLE-{broker}-{kind}'})
+        except (ValueError, KeyError, TypeError, IndexError):
+            self.send({'detail': {'message': 'Invalid synthetic preview request'}}, status=400)
+
+    # Never inherit a future write exception through a POST alias.
+    do_PUT = PreviewHandler.do_POST
+    do_DELETE = PreviewHandler.do_POST
+    do_PATCH = PreviewHandler.do_POST
+
+
 if __name__ == '__main__':
-    print('Synthetic read-only preview: http://127.0.0.1:8765', flush=True)
-    ThreadingHTTPServer(('127.0.0.1', 8765), PreviewHandler).serve_forever()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--broker-synthetic', action='store_true', help='Enable invented broker read/preview responses only')
+    parser.add_argument('--port', type=int, default=8765)
+    args = parser.parse_args()
+    if not 1024 <= args.port <= 65535 or args.port == 4829:
+        parser.error('Use an unprivileged preview port other than the Desktop port 4829')
+    handler = BrokerPreviewHandler if args.broker_synthetic else PreviewHandler
+    with ThreadingHTTPServer(('127.0.0.1', args.port), handler) as server:
+        print(f'Synthetic read-only preview: http://127.0.0.1:{args.port} (broker={args.broker_synthetic})', flush=True)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print('Preview stopped; no data saved.', flush=True)

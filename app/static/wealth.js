@@ -55,11 +55,6 @@ function getKstDateRange(dayCount = 30, now = new Date()) {
   return { fromDate: format(start), toDate: format(new Date(todayUtc)) };
 }
 
-function applyTossWtsDefaultDateRange(fromInput, toInput, range = getKstDateRange(30)) {
-  if (fromInput && !fromInput.value) fromInput.value = range.fromDate;
-  if (toInput && !toInput.value) toInput.value = range.toDate;
-}
-
 function shiftYearMonth(year, month, delta) {
   let y = Number(year);
   let m = Number(month) + Number(delta);
@@ -10203,40 +10198,24 @@ const tossWtsState = {
 
 function showTossWtsMessage(msg, type = 'info') { return brokerUI.showBrokerMessage('tossWtsMessage', msg, type); }
 
-function hideTossWtsMessage() {
-  const el = document.getElementById('tossWtsMessage');
-  if (!el) return;
-  el.style.display = 'none';
-  el.textContent = '';
-}
+function hideTossWtsMessage() { brokerUI.hideBrokerMessage('tossWtsMessage'); }
 
 function clearTossWtsFetchLoadingRow(message = '조회에 실패했습니다. 조건을 확인한 뒤 다시 시도하세요.') {
   const tbody = document.getElementById('tossWtsTableBody');
   if (!tbody || !tbody.querySelector('.toss-wts-loading')) return;
-  tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, message);
+  brokerUI.renderRealizedTable({ body: tbody, rows: [], emptyMessage: message });
 }
 
 function updateTossWtsStatusUI(text, stateClass) {
-  ['tossWtsStatusText', 'tossWtsIncomeStatusText'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.className = `toss-wts-status-text ${stateClass || ''}`.trim();
-    el.textContent = text;
-  });
+  const semantic = stateClass === 'confirmed' ? 'ready' : stateClass === 'ready' || stateClass === 'action_required' ? 'action_required' : 'error';
+  brokerUI.renderBrokerState('toss', semantic, text);
 }
 
 function setTossWtsLoading(isLoading) {
   tossWtsState.loading = isLoading;
-  const checkBtn = document.getElementById('btnCheckTossWtsStatus');
-  const confirmBtn = document.getElementById('btnConfirmTossWtsSession');
-  const incomeCheckBtn = document.getElementById('btnCheckTossWtsIncomeStatus');
-  const incomeConfirmBtn = document.getElementById('btnConfirmTossWtsIncomeSession');
-  const fetchBtn = document.getElementById('btnFetchTossWtsFeed');
-  if (checkBtn) checkBtn.disabled = isLoading;
-  if (confirmBtn) confirmBtn.disabled = isLoading;
-  if (incomeCheckBtn) incomeCheckBtn.disabled = isLoading;
-  if (incomeConfirmBtn) incomeConfirmBtn.disabled = isLoading;
-  if (fetchBtn) fetchBtn.disabled = isLoading;
+  ['btnCheckTossWtsStatus', 'btnConfirmTossWtsSession',
+   'btnCheckTossWtsIncomeStatus', 'btnConfirmTossWtsIncomeSession', 'btnFetchTossWtsFeed']
+    .forEach(id => brokerUI.setButtonDisabled(id, isLoading));
 }
 
 function checkTossWtsFormStale() {
@@ -10303,6 +10282,7 @@ function updateTossWtsMetaUI() {
 async function checkTossWtsStatus() {
   if (tossWtsState.loading) return;
   setTossWtsLoading(true);
+  brokerUI.renderBrokerState('toss', 'checking', '상태 확인 중');
   try {
     const res = await fetch('/api/toss-wts/status');
     if (res.status === 403) {
@@ -10326,7 +10306,7 @@ async function checkTossWtsStatus() {
         SESSION_MISSING: '세션 확인 필요',
       };
       const desc = errMap[data.error_code] || '연결 상태 확인 불가';
-      updateTossWtsStatusUI(desc, 'error');
+      updateTossWtsStatusUI(desc, 'action_required');
       showTossWtsMessage(`토스 WTS 상태: ${desc}`, 'error');
     }
   } catch (err) {
@@ -10340,6 +10320,7 @@ async function checkTossWtsStatus() {
 async function confirmTossWtsSession() {
   if (tossWtsState.loading) return;
   setTossWtsLoading(true);
+  brokerUI.renderBrokerState('toss', 'checking', '상태 확인 중');
   try {
     const res = await fetch('/api/toss-wts/feed/confirm', { method: 'POST' });
     if (res.status === 403) {
@@ -10356,7 +10337,7 @@ async function confirmTossWtsSession() {
     }
     if (!res.ok) {
       tossWtsState.confirmed = false;
-      updateTossWtsStatusUI('런타임 확인 필요', 'error');
+      updateTossWtsStatusUI('런타임 확인 필요', 'action_required');
       showTossWtsMessage('WTS 런타임 확인에 실패했습니다.', 'error');
       return;
     }
@@ -10367,7 +10348,7 @@ async function confirmTossWtsSession() {
       showTossWtsMessage('WTS 로컬 런타임이 확인되었습니다. 실현손익 및 배당·이자 조회가 가능합니다.', 'success');
     } else {
       tossWtsState.confirmed = false;
-      updateTossWtsStatusUI('런타임 확인 필요', 'error');
+      updateTossWtsStatusUI('런타임 확인 필요', 'action_required');
       showTossWtsMessage('WTS 런타임 확인에 실패했습니다.', 'error');
     }
   } catch (err) {
@@ -10400,7 +10381,7 @@ async function fetchTossWtsRealizedFeed() {
   setTossWtsLoading(true);
   const tbody = document.getElementById('tossWtsTableBody');
   if (tbody && (!tossWtsState.rows || tossWtsState.rows.length === 0)) {
-    tbody.innerHTML = brokerUI.brokerTableLoadingRow(10, '토스 WTS 실현손익을 조회하는 중입니다...');
+    brokerUI.renderRealizedTable({ body: tbody, rows: [], status: 'loading' });
   }
   showTossWtsMessage('토스 WTS 실현손익을 조회하는 중입니다...', 'info');
 
@@ -10506,21 +10487,17 @@ async function fetchTossWtsRealizedFeed() {
 }
 
 function updateWtsSelectionUI() {
-  const countBadge = document.getElementById('wtsSelectedCountBadge');
-  const importBtn = document.getElementById('btnWtsImportSelected');
   const destSelect = document.getElementById('wtsDestinationAccount');
   const count = tossWtsState.selectedIndices ? tossWtsState.selectedIndices.size : 0;
-  if (countBadge) countBadge.textContent = `선택 ${count}건`;
-  if (importBtn) {
-    importBtn.disabled = count === 0 || !destSelect?.value;
-  }
+  brokerUI.renderSelectionState({ badgeId: 'wtsSelectedCountBadge', count,
+    buttonId: 'btnWtsImportSelected', disabled: count === 0 || !destSelect?.value });
   const selectAll = document.getElementById('wtsSelectAll');
   if (selectAll && tossWtsState.rows) {
     const importableCount = tossWtsState.rows.filter((_, idx) => !tossWtsState.importedIndices.has(idx)).length;
     selectAll.checked = importableCount > 0 && count === importableCount;
     selectAll.disabled = importableCount === 0;
   }
-  renderBrokerImportOptions(tossWtsState, 'wtsImportOptions', 'toss');
+  syncBrokerRowImportOptions(tossWtsState);
 }
 
 function populateWtsAccounts() {
@@ -10611,27 +10588,20 @@ function renderWtsImportModal(data) {
   const destAcc = data.destination_account || {};
   const destText = `${destAcc.broker || ''} - ${maskAccountDisplayLabel(destAcc.account_name || '')} (${destAcc.owner || '모두'})`;
 
-  const destEl = document.getElementById('wtsModalDestAccountName');
-  if (destEl) destEl.textContent = destText;
-  const countNewEl = document.getElementById('wtsCountNew');
-  if (countNewEl) countNewEl.textContent = `${counts.new}건`;
-  const countAlreadyEl = document.getElementById('wtsCountAlready');
-  if (countAlreadyEl) countAlreadyEl.textContent = `${counts.already_imported}건`;
-  const countDupEl = document.getElementById('wtsCountDup');
-  if (countDupEl) countDupEl.textContent = `${counts.possible_duplicate}건`;
-  const countInvalidEl = document.getElementById('wtsCountInvalid');
-  if (countInvalidEl) countInvalidEl.textContent = `${counts.invalid}건`;
-
-  const dupWrap = document.getElementById('wtsDupOverrideWrap');
-  const dupCheckbox = document.getElementById('wtsIncludePossibleDuplicates');
-  if (dupWrap && dupCheckbox) {
-    dupCheckbox.checked = false;
-    dupWrap.style.display = counts.possible_duplicate > 0 ? 'block' : 'none';
-  }
-
+  brokerUI.renderPreviewSummary({
+    counts, countIds: {
+    new: 'wtsCountNew', already_imported: 'wtsCountAlready',
+    possible_duplicate: 'wtsCountDup', invalid: 'wtsCountInvalid',
+  },
+    formatCount: value => `${value}건`,
+    destinationId: 'wtsModalDestAccountName', destination: { text: destText },
+    accountFirst: true,
+    duplicate: { wrapId: 'wtsDupOverrideWrap', checkboxId: 'wtsIncludePossibleDuplicates',
+      visible: counts.possible_duplicate > 0, presence: 'both', resetFirst: true },
+  });
   updateWtsCommitButton();
   renderBrokerImportPreviewDetails(data, 'wtsImportModalOverlay');
-  overlay.style.display = 'flex';
+  brokerUI.setModalVisible('wtsImportModalOverlay', true);
 }
 
 function updateWtsCommitButton() {
@@ -10653,8 +10623,7 @@ function updateWtsCommitButton() {
 }
 
 function closeWtsImportModal() {
-  const overlay = document.getElementById('wtsImportModalOverlay');
-  if (overlay) overlay.style.display = 'none';
+  brokerUI.setModalVisible('wtsImportModalOverlay', false);
   currentPreviewData = null;
   tossWtsState.previewTicket = null;
 }
@@ -10716,74 +10685,50 @@ async function commitWtsImport() {
   }
 }
 
+// Display-only adapters: never mutate rows or calculate financial results.
+function brokerRealizedDisplayRow(row, { market, currency, formatNumber, toss = false, kis = false }) {
+  const present = value => value !== null && value !== undefined && value !== '';
+  const amount = value => present(value) ? (toss ? (currency === 'USD' ? number(value, 2) : money(value)) : kis
+    ? (market === 'us' ? Number(value).toLocaleString('en-US', { minimumFractionDigits: 2 }) : window.WealthFormat.roundGroupedKoKr(value))
+    : formatNumber(value, currency === 'USD' ? 2 : 0)) : '';
+  const rawAmount = field => toss ? row[field]?.[currency === 'USD' ? 'usd' : 'krw']
+    : (kis && market === 'us' ? (row['foreign_' + field] ?? row[field]) : row[field]);
+  const pnl = toss ? row.profit_loss?.[currency === 'USD' ? 'usd' : 'krw'] : kis ? row.profit_loss : row.pnl;
+  const actualCurrency = toss ? currency : (row.currency || currency);
+  const fees = [];
+  if (present(row.fee)) fees.push('수수료 ' + amount(row.fee));
+  if (present(row.tax)) fees.push('제세금 ' + amount(row.tax));
+  if (market === 'us' && present(row.expenses_total)) fees.push('해외 제비용 합계 ' + amount(row.expenses_total));
+  if (kis && market === 'us') {
+    if (present(row.profit_loss_krw)) fees.push('원화손익 ' + window.WealthFormat.roundGroupedKoKr(row.profit_loss_krw) + '원');
+    if (present(row.fx_rate)) fees.push('환율 @' + Number(row.fx_rate).toFixed(1));
+  }
+  const marketValue = toss ? row.market_type : market;
+  return {
+    date: row.date || '', name: row.name || '', code: row.code || row.symbol || row.product_code || '',
+    context: [marketValue, actualCurrency].filter(Boolean).join(' / '),
+    type: row.trade_type || row.transaction_type || '',
+    quantity: present(row.quantity) ? (kis ? Number(row.quantity).toLocaleString() : formatNumber(row.quantity, toss && !Number.isInteger(Number(row.quantity)) ? 2 : 0)) : '',
+    buy: amount(rawAmount('buy_amount')), sell: amount(rawAmount('sell_amount')),
+    pnl: present(pnl) ? (Number(pnl) > 0 ? '+' : '') + (kis && market === 'us'
+      ? Number(pnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : amount(pnl)) : '',
+    tone: present(pnl) ? (Number(pnl) > 0 ? 'pos' : Number(pnl) < 0 ? 'neg' : '') : '',
+    rate: present(row.profit_rate) ? (Number(row.profit_rate) > 0 ? '+' : '') + Number(row.profit_rate).toFixed(2) + '%' : '',
+    expenses: fees.join(' · '),
+  };
+}
+
 function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
   const tbody = document.getElementById('tossWtsTableBody');
   if (!tbody) return;
-
-  if (status === 'error') {
-    tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, '조회에 실패했습니다.');
-    return;
-  }
-
-  if (!rows || rows.length === 0) {
-    tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, '선택한 기간에 조회된 실현손익 내역이 없습니다.');
-    return;
-  }
-
-
-  const isUsd = basis === 'USD';
-  const htmlRows = rows.map((r, idx) => {
-    const isImported = tossWtsState.importedIndices.has(idx);
-    const isSelected = tossWtsState.selectedIndices.has(idx);
-
-    const checkCell = isImported
-      ? '<span class="toss-wts-badge-imported">추가됨</span>'
-      : `<input type="checkbox" class="wts-row-cb" data-index="${idx}" ${isSelected ? 'checked' : ''}>`;
-
-    const pnl = isUsd ? Number(r.profit_loss?.usd ?? 0) : Number(r.profit_loss?.krw ?? 0);
-    const pnlColor = pnl > 0 ? 'gain' : (pnl < 0 ? 'loss' : '');
-    const pnlSign = pnl > 0 ? '+' : '';
-    const pnlFormatted = isUsd ? `${pnlSign}$${number(pnl, 2)}` : `${pnlSign}${money(pnl)}`;
-
-    const buyAmt = isUsd ? `$${number(r.buy_amount?.usd ?? 0, 2)}` : `${money(r.buy_amount?.krw ?? 0)}`;
-    const sellAmt = isUsd ? `$${number(r.sell_amount?.usd ?? 0, 2)}` : `${money(r.sell_amount?.krw ?? 0)}`;
-
-    const rate = r.profit_rate != null ? Number(r.profit_rate) : null;
-    const rateSign = rate > 0 ? '+' : '';
-    const rateColor = rate > 0 ? 'gain' : (rate < 0 ? 'loss' : '');
-    const rateFormatted = rate != null ? `${rateSign}${rate.toFixed(2)}%` : '-';
-
-    const market = String(r.market_type || '').toUpperCase();
-    let marketBadge = `<span class="toss-wts-market-badge">${html(market || '-')}</span>`;
-    if (market === 'KR' || market === 'DOMESTIC') {
-      marketBadge = '<span class="toss-wts-market-badge kr">국내</span>';
-    } else if (market === 'US' || market === 'OVERSEAS') {
-      marketBadge = '<span class="toss-wts-market-badge us">해외</span>';
-    }
-
-    const qty = Number(r.quantity ?? 0);
-    const qtyFormatted = number(qty, Number.isInteger(qty) ? 0 : 2);
-
-    return `<tr>
-      <td class="center">${checkCell}</td>
-      <td class="center">${html(r.date || '')}</td>
-      <td class="center">${marketBadge}</td>
-      <td class="wts-import-type-cell" data-index="${idx}"></td>
-      <td><strong>${html(r.name || '')}</strong> <small class="muted">(${html(r.symbol || r.product_code || '')})</small></td>
-      <td class="right">${qtyFormatted}</td>
-      <td class="right">${buyAmt}</td>
-      <td class="right">${sellAmt}</td>
-      <td class="right ${pnlColor}" style="font-weight:700;">${pnlFormatted}</td>
-      <td class="right ${rateColor}" style="font-weight:700;">${rateFormatted}</td>
-    </tr>`;
-  }).join('');
-
-  tbody.innerHTML = htmlRows;
-  syncWtsRowImportOptions();
-
-  // Attach event listeners to row checkboxes
-  tbody.querySelectorAll('.wts-row-cb').forEach(cb => {
-    cb.addEventListener('change', (e) => {
+  brokerUI.renderRealizedTable({
+    body: tbody, rows: rows || [], status: status, emptyMessage: '선택한 기간에 조회된 실현손익 내역이 없습니다.',
+    selection: tossWtsState, checkboxClass: 'wts-row-cb',
+    adapt: row => brokerRealizedDisplayRow(row, { market: '', currency: basis, toss: true, formatNumber: number }),
+    toss: true,
+  });
+  if (rows?.length && status !== 'error') syncBrokerRowImportOptions(tossWtsState);
+  brokerUI.bindFeedSelection(tbody, '.wts-row-cb', (e) => {
       const index = parseInt(e.target.dataset.index, 10);
       if (e.target.checked) {
         tossWtsState.selectedIndices.add(index);
@@ -10791,7 +10736,6 @@ function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
         tossWtsState.selectedIndices.delete(index);
       }
       updateWtsSelectionUI();
-    });
   });
 }
 
@@ -10813,10 +10757,8 @@ function showTossWtsIncomeMessage(message, type = 'info') { return brokerUI.show
 
 function setTossWtsIncomeLoading(loading) {
   tossWtsIncomeState.loading = loading;
-  const fetchBtn = document.getElementById('btnFetchTossWtsIncome');
-  const importBtn = document.getElementById('btnWtsIncomeImportSelected');
-  if (fetchBtn) fetchBtn.disabled = loading;
-  if (importBtn && loading) importBtn.disabled = true;
+  brokerUI.setButtonDisabled('btnFetchTossWtsIncome', loading);
+  if (loading) brokerUI.setButtonDisabled('btnWtsIncomeImportSelected', true);
   if (!loading) updateTossWtsIncomeSelectionUI();
 }
 
@@ -10925,11 +10867,10 @@ function renderTossWtsIncomeTable() {
 
 function updateTossWtsIncomeSelectionUI() {
   const count = tossWtsIncomeState.selectedIndices.size;
-  const badge = document.getElementById('wtsIncomeSelectedCountBadge');
-  const button = document.getElementById('btnWtsIncomeImportSelected');
   const account = document.getElementById('wtsIncomeDestinationAccount');
-  if (badge) badge.textContent = `선택 ${count}건`;
-  if (button) button.disabled = tossWtsIncomeState.loading || tossWtsIncomeState.importing || count === 0 || !account?.value;
+  brokerUI.renderSelectionState({ badgeId: 'wtsIncomeSelectedCountBadge', count,
+    buttonId: 'btnWtsIncomeImportSelected',
+    disabled: tossWtsIncomeState.loading || tossWtsIncomeState.importing || count === 0 || !account?.value });
   const selectAll = document.getElementById('wtsIncomeSelectAll');
   if (selectAll) {
     const available = tossWtsIncomeState.rows.filter((_, index) => !tossWtsIncomeState.importedIndices.has(index)).length;
@@ -11009,18 +10950,21 @@ function renderTossWtsIncomePreviewModal(data) {
   if (!overlay) return;
   const counts = data.counts || {};
   const destination = data.destination_account || {};
-  const destEl = document.getElementById('wtsIncomeModalDestAccount');
-  if (destEl) destEl.textContent = `${destination.broker || '토스증권'} - ${maskAccountDisplayLabel(destination.account_name || '')} (${destination.owner || '모두'})`;
-  document.getElementById('wtsIncomeCountNew').textContent = `${Number(counts.new || 0)}건`;
-  document.getElementById('wtsIncomeCountAlready').textContent = `${Number(counts.already_imported || 0)}건`;
-  document.getElementById('wtsIncomeCountDup').textContent = `${Number(counts.possible_duplicate || 0)}건`;
-  document.getElementById('wtsIncomeCountInvalid').textContent = `${Number(counts.invalid || 0)}건`;
-  const dupWrap = document.getElementById('wtsIncomeDupOverrideWrap');
-  const dupCheckbox = document.getElementById('wtsIncomeIncludePossibleDuplicates');
-  if (dupCheckbox) dupCheckbox.checked = false;
-  if (dupWrap) dupWrap.style.display = Number(counts.possible_duplicate || 0) > 0 ? 'block' : 'none';
+  brokerUI.renderPreviewSummary({
+    counts, countIds: {
+    new: 'wtsIncomeCountNew', already_imported: 'wtsIncomeCountAlready',
+    possible_duplicate: 'wtsIncomeCountDup', invalid: 'wtsIncomeCountInvalid',
+  },
+    formatCount: value => `${Number(value || 0)}건`,
+    destinationId: 'wtsIncomeModalDestAccount', destination: {
+    text: `${destination.broker || '토스증권'} - ${maskAccountDisplayLabel(destination.account_name || '')} (${destination.owner || '모두'})`,
+  },
+    accountFirst: true,
+    duplicate: { wrapId: 'wtsIncomeDupOverrideWrap', checkboxId: 'wtsIncomeIncludePossibleDuplicates',
+      visible: Number(counts.possible_duplicate || 0) > 0, presence: 'independent', resetFirst: true },
+  });
   updateTossWtsIncomeCommitButton();
-  overlay.style.display = 'flex';
+  brokerUI.setModalVisible('wtsIncomeImportModalOverlay', true);
 }
 
 async function openTossWtsIncomeImportPreview() {
@@ -11071,8 +11015,7 @@ function updateTossWtsIncomeCommitButton() {
 }
 
 function closeTossWtsIncomeImportModal() {
-  const overlay = document.getElementById('wtsIncomeImportModalOverlay');
-  if (overlay) overlay.style.display = 'none';
+  brokerUI.setModalVisible('wtsIncomeImportModalOverlay', false);
   tossWtsIncomeState.previewTicket = null;
   tossWtsIncomeState.previewData = null;
 }
@@ -11122,10 +11065,7 @@ async function commitTossWtsIncomeImport() {
   }
 }
 
-function initTossWtsIncomeUI(defaultRange = getKstDateRange(30)) {
-  const fromInput = document.getElementById('tossWtsIncomeFromDate');
-  const toInput = document.getElementById('tossWtsIncomeToDate');
-  applyTossWtsDefaultDateRange(fromInput, toInput, defaultRange);
+function initTossWtsIncomeUI() {
   document.getElementById('btnCheckTossWtsIncomeStatus')?.addEventListener('click', checkTossWtsStatus);
   document.getElementById('btnConfirmTossWtsIncomeSession')?.addEventListener('click', confirmTossWtsSession);
   document.getElementById('btnFetchTossWtsIncome')?.addEventListener('click', fetchTossWtsIncomeFeed);
@@ -11156,12 +11096,8 @@ function initTossWtsUI() {
   const fromInput = document.getElementById('tossWtsFromDate');
   const toInput = document.getElementById('tossWtsToDate');
   const basisSelect = document.getElementById('tossWtsBasisSelect');
-  const defaultRange = getKstDateRange(30);
-  applyTossWtsDefaultDateRange(fromInput, toInput, defaultRange);
 
-  document.getElementById('btnCheckTossWtsStatus')?.addEventListener('click', checkTossWtsStatus);
   document.getElementById('btnConfirmTossWtsSession')?.addEventListener('click', confirmTossWtsSession);
-  document.getElementById('btnFetchTossWtsFeed')?.addEventListener('click', fetchTossWtsRealizedFeed);
 
   // Import bar listeners
   document.getElementById('wtsSelectAll')?.addEventListener('change', (e) => {
@@ -11195,7 +11131,7 @@ function initTossWtsUI() {
   basisSelect?.addEventListener('change', checkTossWtsFormStale);
   fromInput?.addEventListener('input', checkTossWtsFormStale);
   toInput?.addEventListener('input', checkTossWtsFormStale);
-  initTossWtsIncomeUI(defaultRange);
+  initTossWtsIncomeUI();
 }
 
 // ── Broker Realized Feed Shared Helpers ─────────────────────────────────────
@@ -11241,6 +11177,10 @@ function sortBrokerRealizedFeedRows(rows, tokens) {
 
 // Wealth-side
 
+const brokerRealizedFeedController = window.WealthBrokerRealizedFeedController.create({
+  sortRows: sortBrokerRealizedFeedRows,
+});
+
 function brokerPreviewStatusLabel(status) {
   const labels = {
     NEW: '신규 등록 가능',
@@ -11281,92 +11221,22 @@ function brokerImportSelectedItem(state, index) {
   };
 }
 
-function syncWtsRowImportOptions() {
-  document.querySelectorAll('#tossWtsTableBody .wts-import-type-cell').forEach(cell => {
-    const index = Number(cell.dataset.index);
-    const pref = brokerImportPreference(tossWtsState, index);
-    const disabled = tossWtsState.importedIndices.has(index) ? ' disabled' : '';
-    const name = tossWtsState.rows[index]?.name || '종목';
-    cell.innerHTML = `<select class="broker-stock-type-select toss-wts-select" data-index="${index}" aria-label="${html(name)} 유형"${disabled}>
-      <option value="general"${pref.stock_type === 'ipo' ? '' : ' selected'}>일반주식</option>
-      <option value="ipo"${pref.stock_type === 'ipo' ? ' selected' : ''}>공모주</option></select>
-      <label class="broker-ipo-fee-wrap"${pref.stock_type === 'ipo' ? '' : ' hidden'}>공모청약비
-      <input class="broker-ipo-fee-input toss-wts-input" type="number" min="0" step="1" data-index="${index}" aria-label="${html(name)} 공모청약비" value="${html(String(pref.ipo_subscription_fee_krw ?? 2000))}"${disabled}>원</label>`;
-    cell.querySelector('select').addEventListener('change', event => {
-      pref.stock_type = event.target.value;
-      tossWtsState.previewTicket = null;
-      cell.querySelector('label').hidden = pref.stock_type !== 'ipo';
-    });
-    cell.querySelector('input').addEventListener('input', event => {
-      pref.ipo_subscription_fee_krw = event.target.value === '' ? '' : parseInt(event.target.value, 10);
-      tossWtsState.previewTicket = null;
-    });
-  });
-}
-
-function renderBrokerImportOptions(state, containerId, brokerKey) {
-  if (brokerKey === 'toss') {
-    syncWtsRowImportOptions();
-    return;
-  }
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  const selectedIndices = Array.from(state.selectedIndices || []).sort((a, b) => a - b);
-  if (!selectedIndices.length) {
-    container.innerHTML = '';
-    container.style.display = 'none';
-    return;
-  }
-  container.style.display = 'block';
-  container.innerHTML = `
-    <div style="margin-top:10px;padding:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;">
-      <div style="font-weight:600;margin-bottom:8px;font-size:13px;">선택 항목 가져오기 옵션 (종목별)</div>
-      <div style="display:flex;flex-direction:column;gap:8px;">
-        ${selectedIndices.map(idx => {
-          const row = state.rows[idx] || {};
-          const name = row.name || row.prdt_name || row.code || `항목 #${idx + 1}`;
-          const date = row.date || row.trad_dt || '';
-          const pref = brokerImportPreference(state, idx);
-          const isIpo = pref.stock_type === 'ipo';
-          const fee = pref.ipo_subscription_fee_krw ?? 2000;
-          return `
-            <div style="display:flex;align-items:center;gap:12px;font-size:12px;padding:4px 0;border-bottom:1px dashed var(--border);">
-              <span style="min-width:140px;font-weight:500;">${html(name)} <span class="muted">(${html(date)})</span></span>
-              <label style="display:inline-flex;align-items:center;gap:4px;">
-                유형:
-                <select class="broker-stock-type-select toss-wts-select" data-index="${idx}" style="padding:2px 6px;font-size:12px;">
-                  <option value="general" ${isIpo ? '' : 'selected'}>일반주식</option>
-                  <option value="ipo" ${isIpo ? 'selected' : ''}>공모주</option>
-                </select>
-              </label>
-              <label class="broker-ipo-fee-wrap" data-index="${idx}" style="display:${isIpo ? 'inline-flex' : 'none'};align-items:center;gap:4px;">
-                공모청약비:
-                <input type="number" min="0" step="1" class="broker-ipo-fee-input toss-wts-input" data-index="${idx}" value="${html(String(fee))}" style="width:80px;padding:2px 6px;font-size:12px;"> 원
-              </label>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    </div>
-  `;
-
-  container.querySelectorAll('.broker-stock-type-select').forEach(sel => {
-    sel.addEventListener('change', (e) => {
-      const idx = parseInt(e.target.dataset.index, 10);
-      const pref = brokerImportPreference(state, idx);
-      pref.stock_type = e.target.value;
+function syncBrokerRowImportOptions(state) {
+  const screen = realizedBrokerScreens.find(screen => screen.state === state);
+  const body = screen && document.getElementById(screen.cardId)?.querySelector('.toss-wts-table tbody');
+  if (!body) return;
+  brokerUI.renderFeedImportOptions(body, {
+    resolvePreference: index => brokerImportPreference(state, index),
+    isImported: index => state.importedIndices.has(index),
+    rowName: index => state.rows[index]?.name || '종목',
+    onStockType(index, value) {
+      brokerImportPreference(state, index).stock_type = value;
       state.previewTicket = null;
-      renderBrokerImportOptions(state, containerId, brokerKey);
-    });
-  });
-
-  container.querySelectorAll('.broker-ipo-fee-input').forEach(inp => {
-    inp.addEventListener('input', (e) => {
-      const idx = parseInt(e.target.dataset.index, 10);
-      const pref = brokerImportPreference(state, idx);
-      pref.ipo_subscription_fee_krw = e.target.value === '' ? '' : parseInt(e.target.value, 10);
+    },
+    onFeeInput(index, value) {
+      brokerImportPreference(state, index).ipo_subscription_fee_krw = value === '' ? '' : parseInt(value, 10);
       state.previewTicket = null;
-    });
+    },
   });
 }
 
@@ -11375,7 +11245,6 @@ function getBrokerContextByOverlayId(overlayId) {
     return {
       brokerKey: 'toss',
       state: tossWtsState,
-      optionsContainerId: 'wtsImportOptions',
       refreshPreview: openWtsImportPreview,
       commitButtonId: 'btnWtsConfirmCommit',
     };
@@ -11384,7 +11253,6 @@ function getBrokerContextByOverlayId(overlayId) {
     return {
       brokerKey: 'kis',
       state: kisRealizedState,
-      optionsContainerId: 'kisImportOptions',
       refreshPreview: openKisImportPreview,
       commitButtonId: 'btnKisConfirmCommit',
     };
@@ -11393,7 +11261,6 @@ function getBrokerContextByOverlayId(overlayId) {
     return {
       brokerKey: 'nh',
       state: nhRealizedState,
-      optionsContainerId: 'nhImportOptions',
       refreshPreview: openNhImportPreview,
       commitButtonId: 'btnNhConfirmCommit',
     };
@@ -11402,7 +11269,6 @@ function getBrokerContextByOverlayId(overlayId) {
     return {
       brokerKey: 'kiwoom',
       state: kiwoomRealizedState,
-      optionsContainerId: 'kiwoomImportOptions',
       refreshPreview: openKiwoomImportPreview,
       commitButtonId: 'btnKiwoomConfirmCommit',
     };
@@ -11411,7 +11277,6 @@ function getBrokerContextByOverlayId(overlayId) {
     return {
       brokerKey: 'kb',
       state: kbRealizedState,
-      optionsContainerId: 'kbImportOptions',
       refreshPreview: openKbImportPreview,
       commitButtonId: 'btnKbConfirmCommit',
     };
@@ -11468,87 +11333,74 @@ function brokerImportNameSizeClass(name) {
 }
 
 function renderBrokerImportPreviewDetails(data, overlayId) {
-  const overlay = document.getElementById(overlayId);
-  const modalBody = overlay?.querySelector('.toss-wts-modal-body');
-  if (!modalBody) return;
-  let details = modalBody.querySelector('.broker-import-preview-details');
-  if (!details) {
-    details = document.createElement('div');
-    details.className = 'broker-import-preview-details';
-    modalBody.appendChild(details);
-  }
-
-  const ctx = getBrokerContextByOverlayId(overlayId);
-  const state = ctx?.state;
-  const selectedIndices = state ? Array.from(state.selectedIndices || []).sort((a, b) => a - b) : [];
-
-  const hasRows = window.WealthBrokerImportPreviewScreenController.renderRows({
-    document, details, data, brokerImportPreviewRow: brokerUI.brokerImportPreviewRow,
-    formatters: { brokerImportNameSizeClass, brokerImportPnlPresentation },
-    resolveRow(item) {
-      const choice = item.wealth_import;
-      const feedIndex = selectedIndices[item.index] !== undefined ? selectedIndices[item.index] : item.index;
-      const preference = state ? brokerImportPreference(state, feedIndex) : choice;
-      return { feedIndex, preference };
-    },
-  });
-  if (!hasRows) return;
-
-  details.querySelectorAll('.modal-broker-stock-type').forEach(select => {
-    select.addEventListener('change', async (event) => {
-      const fIdx = Number(event.target.dataset.feedIndex);
-      const val = event.target.value;
-      if (state) {
-        const pref = brokerImportPreference(state, fIdx);
-        pref.stock_type = val === 'ipo' ? 'ipo' : 'general';
-        if (pref.stock_type === 'ipo') {
-          if (pref.ipo_subscription_fee_krw === '' || pref.ipo_subscription_fee_krw == null || Number(pref.ipo_subscription_fee_krw) === 0) {
-            pref.ipo_subscription_fee_krw = 2000;
+  window.WealthBrokerImportPreviewScreenController.renderDetails({
+    document, overlayId,
+    prepare() {
+      const ctx = getBrokerContextByOverlayId(overlayId);
+      const state = ctx?.state;
+      const selectedIndices = state ? Array.from(state.selectedIndices || []).sort((a, b) => a - b) : [];
+      return {
+        data, brokerImportPreviewRow: brokerUI.brokerImportPreviewRow,
+        formatters: { brokerImportNameSizeClass, brokerImportPnlPresentation },
+        resolveRow(item) {
+          const choice = item.wealth_import;
+          const feedIndex = selectedIndices[item.index] !== undefined ? selectedIndices[item.index] : item.index;
+          const preference = state ? brokerImportPreference(state, feedIndex) : choice;
+          return { feedIndex, preference };
+        },
+        async onStockTypeChange(event) {
+          const fIdx = Number(event.target.dataset.feedIndex);
+          const val = event.target.value;
+          if (state) {
+            const pref = brokerImportPreference(state, fIdx);
+            pref.stock_type = val === 'ipo' ? 'ipo' : 'general';
+            if (pref.stock_type === 'ipo') {
+              if (pref.ipo_subscription_fee_krw === '' || pref.ipo_subscription_fee_krw == null || Number(pref.ipo_subscription_fee_krw) === 0) {
+                pref.ipo_subscription_fee_krw = 2000;
+              }
+            }
+            state.previewTicket = null;
+            if (ctx?.brokerKey === 'toss') {
+              tossWtsState.previewTicket = null;
+              if (currentPreviewData) currentPreviewData.preview_ticket = null;
+            }
+            if (ctx) {
+              syncBrokerRowImportOptions(state);
+            }
           }
-        }
-        state.previewTicket = null;
-        if (ctx?.brokerKey === 'toss') {
-          tossWtsState.previewTicket = null;
-          if (currentPreviewData) currentPreviewData.preview_ticket = null;
-        }
-        if (ctx?.optionsContainerId) {
-          renderBrokerImportOptions(state, ctx.optionsContainerId, ctx.brokerKey);
-        }
-      }
-      setModalRecalculating(overlayId, true);
-      if (ctx?.refreshPreview) {
-        await ctx.refreshPreview();
-      }
-    });
-  });
-
-  details.querySelectorAll('.modal-broker-ipo-fee').forEach(input => {
-    input.addEventListener('input', (event) => {
-      const fIdx = Number(event.target.dataset.feedIndex);
-      if (state) {
-        const pref = brokerImportPreference(state, fIdx);
-        pref.ipo_subscription_fee_krw = event.target.value;
-        state.previewTicket = null;
-        if (ctx?.brokerKey === 'toss') {
-          tossWtsState.previewTicket = null;
-          if (currentPreviewData) currentPreviewData.preview_ticket = null;
-        }
-        if (ctx?.optionsContainerId) {
-          renderBrokerImportOptions(state, ctx.optionsContainerId, ctx.brokerKey);
-        }
-      }
-      setModalRecalculating(overlayId, true);
-      scheduleBrokerPreviewRefresh(overlayId);
-    });
-    input.addEventListener('change', async () => {
-      if (brokerPreviewRefreshTimer) {
-        clearTimeout(brokerPreviewRefreshTimer);
-        brokerPreviewRefreshTimer = null;
-      }
-      if (ctx?.refreshPreview) {
-        await ctx.refreshPreview();
-      }
-    });
+          setModalRecalculating(overlayId, true);
+          if (ctx?.refreshPreview) {
+            await ctx.refreshPreview();
+          }
+        },
+        onFeeInput(event) {
+          const fIdx = Number(event.target.dataset.feedIndex);
+          if (state) {
+            const pref = brokerImportPreference(state, fIdx);
+            pref.ipo_subscription_fee_krw = event.target.value;
+            state.previewTicket = null;
+            if (ctx?.brokerKey === 'toss') {
+              tossWtsState.previewTicket = null;
+              if (currentPreviewData) currentPreviewData.preview_ticket = null;
+            }
+            if (ctx) {
+              syncBrokerRowImportOptions(state);
+            }
+          }
+          setModalRecalculating(overlayId, true);
+          scheduleBrokerPreviewRefresh(overlayId);
+        },
+        async onFeeChange() {
+          if (brokerPreviewRefreshTimer) {
+            clearTimeout(brokerPreviewRefreshTimer);
+            brokerPreviewRefreshTimer = null;
+          }
+          if (ctx?.refreshPreview) {
+            await ctx.refreshPreview();
+          }
+        },
+      };
+    },
   });
 }
 
@@ -11591,26 +11443,15 @@ window.kisRealizedState = kisRealizedState;
 
 function showKisMessage(msg, type = 'info') { return brokerUI.showBrokerMessage('kisMessage', msg, type); }
 
-function hideKisMessage() {
-  const el = document.getElementById('kisMessage');
-  if (!el) return;
-  el.style.display = 'none';
-  el.textContent = '';
-}
+function hideKisMessage() { brokerUI.hideBrokerMessage('kisMessage'); }
 
 function updateKisStatusUI(text, stateClass) {
-  const el = document.getElementById('kisStatusText');
-  if (!el) return;
-  el.className = `toss-wts-status-text ${stateClass || ''}`.trim();
-  el.textContent = text;
+  brokerUI.renderBrokerState('kis', stateClass, text);
 }
 
 function setKisLoading(isLoading) {
   kisRealizedState.loading = isLoading;
-  const checkBtn = document.getElementById('btnCheckKisStatus');
-  const fetchBtn = document.getElementById('btnFetchKisFeed');
-  if (checkBtn) checkBtn.disabled = isLoading;
-  if (fetchBtn) fetchBtn.disabled = isLoading;
+  ['btnCheckKisStatus', 'btnFetchKisFeed'].forEach(id => brokerUI.setButtonDisabled(id, isLoading));
 }
 
 function checkKisFormStale() {
@@ -11672,6 +11513,7 @@ function updateKisMetaUI() {
 async function checkKisStatus() {
   if (kisRealizedState.loading) return;
   setKisLoading(true);
+  brokerUI.renderBrokerState('kis', 'checking', '상태 확인 중');
   try {
     const res = await fetch('/api/kis/status');
     if (!res.ok) {
@@ -11688,19 +11530,15 @@ async function checkKisStatus() {
     kisRealizedState.sourceAccountLabel = data.source_account_label || data.masked_account || '';
     kisRealizedState.mappedDestAccountId = data.auto_selected_account_id || data.mapped_destination_account_id || '';
 
-    const bannerEl = document.getElementById('kisBannerText');
     if (!data.configured) {
-      updateKisStatusUI('미설정 (API 키 필요)', 'error');
+      updateKisStatusUI('미설정 (API 키 필요)', 'action_required');
       showKisMessage('상단 [OpenAPI] 버튼에서 한국투자증권 AppKey와 AppSecret을 등록하세요.', 'warning');
-      if (bannerEl) bannerEl.textContent = '한국투자증권 OpenAPI 키 설정이 필요합니다. 상단 OpenAPI 메뉴에서 키를 등록해 주세요.';
     } else if (!data.has_account) {
-      updateKisStatusUI('계좌 미등록', 'error');
+      updateKisStatusUI('계좌 미등록', 'action_required');
       showKisMessage('상단 [OpenAPI] 버튼에서 한국투자증권 계좌번호를 등록하세요.', 'warning');
-      if (bannerEl) bannerEl.textContent = '한국투자증권 계좌번호 설정이 필요합니다. 상단 OpenAPI 메뉴에서 등록해 주세요.';
     } else {
-      updateKisStatusUI(`계좌: ${data.masked_account || '확인됨'}`, 'ready');
+      updateKisStatusUI(`계좌: ${maskAccountDisplayLabel(data.masked_account || '확인됨')}`, 'ready');
       hideKisMessage();
-      if (bannerEl) bannerEl.textContent = `한국투자증권 공식 OpenAPI 조회 자료 · 읽기 전용 · 계좌 범위(${data.masked_account}) 검증됨 · 선택한 항목만 안전하게 Wealth 계좌로 가져올 수 있습니다.`;
     }
   } catch (err) {
     updateKisStatusUI('연결 오류', 'error');
@@ -11749,13 +11587,7 @@ async function fetchKisRealizedFeed() {
     }
 
     const data = await res.json();
-    const sortedFeed = sortBrokerRealizedFeedRows(data.rows || [], data.selection_tokens || []);
-    kisRealizedState.rows = sortedFeed.rows;
-    kisRealizedState.selectionTokens = sortedFeed.selectionTokens;
-    kisRealizedState.selectedIndices.clear();
-    kisRealizedState.importedIndices.clear();
-    kisRealizedState.importPreferences.clear();
-    kisRealizedState.previewTicket = null;
+    brokerRealizedFeedController.applySuccessfulFeed(kisRealizedState, data.rows || [], data.selection_tokens || []);
     kisRealizedState.currentPreviewClassification = null;
     kisRealizedState.lastRequested = data.requested;
     kisRealizedState.fetchedMarket = data.market || market;
@@ -11779,91 +11611,17 @@ async function fetchKisRealizedFeed() {
 
 function renderKisFeedTable(rows, market, state) {
   const tbody = document.getElementById('kisTableBody');
-  const selectAll = document.getElementById('kisSelectAll');
   if (!tbody) return;
-
+  const selectAll = document.getElementById('kisSelectAll');
   if (selectAll) selectAll.checked = false;
-
-  if (!rows || rows.length === 0) {
-    const emptyMsg = state === 'empty' ? '조회된 실현손익 내역이 없습니다.' : '조회 버튼을 눌러 한국투자증권 실현손익을 조회하세요.';
-    tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, emptyMsg);
-    return;
-  }
-
-  const isUs = market === 'us';
-  const thExtra = document.getElementById('kisColFxOrExpense');
-  if (thExtra) {
-    thExtra.textContent = isUs ? '환율 / 원화손익' : '수수료 / 제세금';
-  }
-
-  const trs = rows.map((r, idx) => {
-    const isImported = kisRealizedState.importedIndices.has(idx);
-    const isSelected = kisRealizedState.selectedIndices.has(idx);
-
-    const checkHtml = isImported
-      ? `<span class="toss-wts-imported-badge" title="이미 가져온 항목">완료</span>`
-      : `<input type="checkbox" class="kis-row-check" data-index="${idx}" ${isSelected ? 'checked' : ''}>`;
-
-    const pnlVal = Number(r.profit_loss || 0);
-    const pnlCls = pnlVal > 0 ? 'pos' : (pnlVal < 0 ? 'neg' : '');
-    const pnlSign = pnlVal > 0 ? '+' : '';
-    const pnlCur = isUs ? (r.currency || 'USD') : '원';
-    const pnlFmt = isUs
-      ? `${pnlSign}${pnlVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${pnlCur}`
-      : `${pnlSign}${window.WealthFormat.roundGroupedKoKr(pnlVal)} 원`;
-
-    const rateVal = Number(r.profit_rate || 0);
-    const rateSign = rateVal > 0 ? '+' : '';
-    const rateFmt = `${rateSign}${rateVal.toFixed(2)}%`;
-
-    const sellRaw = isUs ? (r.foreign_sell_amount ?? r.sell_amount) : r.sell_amount;
-    const buyRaw = isUs ? (r.foreign_buy_amount ?? r.buy_amount) : r.buy_amount;
-    const sellFmt = sellRaw == null ? '—' : (isUs ? `$${Number(sellRaw).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${window.WealthFormat.roundGroupedKoKr(Number(sellRaw))}원`);
-    const buyFmt = buyRaw == null ? '—' : (isUs ? `$${Number(buyRaw).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : `${window.WealthFormat.roundGroupedKoKr(Number(buyRaw))}원`);
-
-    let wonCol = '—';
-    if (isUs) {
-      const fxRate = r.fx_rate ? Number(r.fx_rate).toFixed(1) : null;
-      const wonPnl = (r.profit_loss_krw !== null && r.profit_loss_krw !== undefined) ? Math.round(Number(r.profit_loss_krw)) : null;
-      if (wonPnl !== null && !isNaN(wonPnl)) {
-        const wonCls = wonPnl > 0 ? 'pos' : (wonPnl < 0 ? 'neg' : '');
-        const wonSign = wonPnl > 0 ? '+' : '';
-        const fxLabel = fxRate ? `<br><small class="muted">@${fxRate}</small>` : '';
-        wonCol = `<span class="${wonCls}">${wonSign}${wonPnl.toLocaleString('ko-KR')}원</span>${fxLabel}`;
-      } else if (fxRate) {
-        wonCol = `—<br><small class="muted">@${fxRate}</small>`;
-      } else {
-        wonCol = '—';
-      }
-    } else {
-      const feeVal = Number(r.fee || 0);
-      const taxVal = Number(r.tax || 0);
-      const feeParts = [];
-      if (feeVal > 0) feeParts.push(`수수료 ${window.WealthFormat.roundGroupedKoKr(feeVal)}원`);
-      if (taxVal > 0) feeParts.push(`제세금 ${window.WealthFormat.roundGroupedKoKr(taxVal)}원`);
-      wonCol = feeParts.length > 0 ? `<small class="muted">${feeParts.join('<br>')}</small>` : '—';
-    }
-
-    return `
-      <tr class="${isSelected ? 'selected' : ''} ${isImported ? 'imported-row' : ''}">
-        <td class="toss-wts-td-check">${checkHtml}</td>
-        <td>${html(r.date || '')}</td>
-        <td><strong>${html(r.name || '')}</strong> <small class="muted">(${html(r.code || '')})</small></td>
-        <td><span class="badge ${isUs ? 'badge-us' : 'badge-kr'}">${isUs ? '해외 (USD)' : '국내 (KRW)'}</span></td>
-        <td class="num">${Number(r.quantity || 0).toLocaleString()}</td>
-        <td class="num">${sellFmt}</td>
-        <td class="num">${buyFmt}</td>
-        <td class="num ${pnlCls}"><strong>${pnlFmt}</strong></td>
-        <td class="num ${pnlCls}">${rateFmt}</td>
-        <td class="num">${wonCol}</td>
-      </tr>
-    `;
+  brokerUI.renderRealizedTable({
+    body: tbody, rows: rows || [], status: 'ok', emptyMessage: '조회된 실현손익 내역이 없습니다.',
+    selection: kisRealizedState, checkboxClass: 'kis-row-check',
+    adapt: row => brokerRealizedDisplayRow(row, { market, currency: market === 'us' ? 'USD' : 'KRW', kis: true, formatNumber: number }),
+    toss: false,
   });
-
-  tbody.innerHTML = trs.join('');
-
-  tbody.querySelectorAll('.kis-row-check').forEach(cb => {
-    cb.addEventListener('change', (e) => {
+  syncBrokerRowImportOptions(kisRealizedState);
+  brokerUI.bindFeedSelection(tbody, '.kis-row-check', (e) => {
       const idx = parseInt(e.target.getAttribute('data-index'), 10);
       if (e.target.checked) {
         kisRealizedState.selectedIndices.add(idx);
@@ -11871,36 +11629,25 @@ function renderKisFeedTable(rows, market, state) {
         kisRealizedState.selectedIndices.delete(idx);
       }
       updateKisSelectionUI();
-    });
   });
 }
 
 function updateKisSelectionUI() {
-  const badge = document.getElementById('kisSelectedCountBadge');
-  const bar = document.getElementById('kisImportBar');
-  const importBtn = document.getElementById('btnKisImportSelected');
   const selectAll = document.getElementById('kisSelectAll');
   const accountSelect = document.getElementById('kisDestinationAccount');
 
   populateKisDestinationAccounts();
 
   const count = kisRealizedState.selectedIndices.size;
-  if (badge) badge.textContent = `선택 ${count}건`;
-
-  if (kisRealizedState.rows && kisRealizedState.rows.length > 0) {
-    if (bar) bar.style.display = 'flex';
-  } else {
-    if (bar) bar.style.display = 'none';
-  }
-
   const hasAccount = !!accountSelect?.value;
-  if (importBtn) importBtn.disabled = count === 0 || !hasAccount;
+  brokerUI.renderSelectionState({ badgeId: 'kisSelectedCountBadge', count,
+    buttonId: 'btnKisImportSelected', disabled: count === 0 || !hasAccount });
 
   if (selectAll && kisRealizedState.rows) {
     const unimportedCount = kisRealizedState.rows.filter((_, idx) => !kisRealizedState.importedIndices.has(idx)).length;
     selectAll.checked = unimportedCount > 0 && count === unimportedCount;
   }
-  renderBrokerImportOptions(kisRealizedState, 'kisImportOptions', 'kis');
+  syncBrokerRowImportOptions(kisRealizedState);
 }
 
 function realizedBrokerId(value) {
@@ -12024,23 +11771,18 @@ function renderKisPreviewModal(data) {
   const counts = data.counts || { new: 0, already_imported: 0, possible_duplicate: 0, invalid: 0 };
   const dest = data.destination_account || {};
 
-  document.getElementById('kisModalCountNew').textContent = String(counts.new || 0);
-  document.getElementById('kisModalCountAlready').textContent = String(counts.already_imported || 0);
-  document.getElementById('kisModalCountDup').textContent = String(counts.possible_duplicate || 0);
-  document.getElementById('kisModalCountInvalid').textContent = String(counts.invalid || 0);
-
-  const destEl = document.getElementById('kisModalDestAccountDisplay');
-  if (destEl) {
-    destEl.innerHTML = `귀속 계좌: <strong>[${html(dest.broker || '한국투자증권')}] ${html(maskAccountDisplayLabel(dest.account_name || '-'))}</strong> (${html(dest.owner || '모두')})`;
-  }
-
-  const dupWrap = document.getElementById('kisDupOverrideWrap');
-  if (dupWrap) {
-    dupWrap.style.display = counts.possible_duplicate > 0 ? 'block' : 'none';
-    const dupCheck = document.getElementById('kisIncludePossibleDuplicates');
-    if (dupCheck) dupCheck.checked = false;
-  }
-
+  brokerUI.renderPreviewSummary({
+    counts, countIds: {
+    new: 'kisModalCountNew', already_imported: 'kisModalCountAlready',
+    possible_duplicate: 'kisModalCountDup', invalid: 'kisModalCountInvalid',
+  },
+    destinationId: 'kisModalDestAccountDisplay', destination: {
+    accountText: `[${dest.broker || '한국투자증권'}] ${maskAccountDisplayLabel(dest.account_name || '-')}`,
+    ownerText: dest.owner || '모두',
+  },
+    duplicate: { wrapId: 'kisDupOverrideWrap', checkboxId: 'kisIncludePossibleDuplicates',
+      visible: counts.possible_duplicate > 0, presence: 'wrap' },
+  });
   const itemsBody = document.getElementById('kisModalItemsBody');
   if (itemsBody) {
     const rowsHtml = (data.items || []).map(it => {
@@ -12068,7 +11810,7 @@ function renderKisPreviewModal(data) {
 
   updateKisCommitButton();
   renderBrokerImportPreviewDetails(data, 'kisImportModalOverlay');
-  overlay.style.display = 'flex';
+  brokerUI.setModalVisible('kisImportModalOverlay', true);
 }
 
 function updateKisCommitButton() {
@@ -12088,8 +11830,7 @@ function updateKisCommitButton() {
 }
 
 function closeKisImportModal() {
-  const overlay = document.getElementById('kisImportModalOverlay');
-  if (overlay) overlay.style.display = 'none';
+  brokerUI.setModalVisible('kisImportModalOverlay', false);
   kisRealizedState.currentPreviewClassification = null;
   kisRealizedState.previewTicket = null;
 }
@@ -12169,10 +11910,12 @@ const nhRealizedState = {
 window.nhRealizedState = nhRealizedState;
 
 function showNhMessage(message, type = 'info') { return brokerUI.showBrokerMessage('nhMessage', message, type); }
-function hideNhMessage() { const el = document.getElementById('nhMessage'); if (el) { el.style.display = 'none'; el.textContent = ''; } }
+function hideNhMessage() { brokerUI.hideBrokerMessage('nhMessage'); }
 function setNhLoading(loading) {
   nhRealizedState.loading = loading;
-  ['btnCheckNhStatus', 'btnFetchNhFeed'].forEach(id => { const el = document.getElementById(id); if (el) el.disabled = loading || (id === 'btnFetchNhFeed' && !nhRealizedState.sourceAccountKey); });
+  ['btnCheckNhStatus', 'btnFetchNhFeed'].forEach(id => {
+    brokerUI.setButtonDisabled(id, loading || (id === 'btnFetchNhFeed' && !nhRealizedState.sourceAccountKey));
+  });
 }
 function nhSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
 function nhSelectedItems() {
@@ -12195,16 +11938,16 @@ function populateNhSourceAccounts() {
 async function checkNhStatus() {
   if (nhRealizedState.loading) return;
   setNhLoading(true); hideNhMessage();
+  brokerUI.renderBrokerState('nh', 'checking', '상태 확인 중');
   try {
     const res = await fetch('/api/nh/status'); const data = await res.json().catch(() => ({}));
     if (!res.ok) throw data;
     nhRealizedState.status = data; nhRealizedState.accounts = Array.isArray(data.accounts) ? data.accounts : [];
     populateNhSourceAccounts();
-    const status = document.getElementById('nhStatusText'); const banner = document.getElementById('nhBannerText');
-    if (!data.configured) { if (status) status.textContent = '미설정 (API 키 필요)'; showNhMessage('NH투자증권 OpenAPI 설정이 필요합니다.', 'warning'); }
-    else if (!nhRealizedState.accounts.length) { if (status) status.textContent = '계좌 미등록'; showNhMessage('조회 가능한 NH 계좌가 없습니다.', 'warning'); }
-    else { if (status) status.textContent = '계좌 선택 가능'; if (banner) banner.textContent = '마스킹된 원본 계좌를 선택한 뒤 조회하세요. 조회 결과는 읽기 전용입니다.'; }
-  } catch (error) { showNhMessage(nhSafeError(error, 'NH 연동 상태 확인에 실패했습니다.'), 'error'); }
+    if (!data.configured) { brokerUI.renderBrokerState('nh', 'action_required', '미설정 (API 키 필요)'); showNhMessage('NH투자증권 OpenAPI 설정이 필요합니다.', 'warning'); }
+    else if (!nhRealizedState.accounts.length) { brokerUI.renderBrokerState('nh', 'action_required', '계좌 미등록'); showNhMessage('조회 가능한 NH 계좌가 없습니다.', 'warning'); }
+    else { brokerUI.renderBrokerState('nh', nhRealizedState.sourceAccountKey ? 'ready' : 'action_required', '계좌 선택 가능');  }
+  } catch (error) { brokerUI.renderBrokerState('nh', 'error', '상태 확인 실패'); showNhMessage(nhSafeError(error, 'NH 연동 상태 확인에 실패했습니다.'), 'error'); }
   finally { setNhLoading(false); updateNhSelectionUI(); }
 }
 function populateNhDestinationAccounts() {
@@ -12227,13 +11970,7 @@ async function fetchNhRealizedFeed() {
   try {
     const res = await fetch('/api/nh/realized-feed/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ market, from_date: fromDate, to_date: toDate, source_account_key: nhRealizedState.sourceAccountKey }) });
     const data = await res.json().catch(() => ({})); if (!res.ok) throw data;
-    const sortedFeed = sortBrokerRealizedFeedRows(data.rows || [], data.selection_tokens || []);
-    nhRealizedState.rows = sortedFeed.rows;
-    nhRealizedState.selectionTokens = sortedFeed.selectionTokens;
-    nhRealizedState.selectedIndices.clear();
-    nhRealizedState.importedIndices.clear();
-    nhRealizedState.importPreferences.clear();
-    nhRealizedState.previewTicket = null;
+    brokerRealizedFeedController.applySuccessfulFeed(nhRealizedState, data.rows || [], data.selection_tokens || []);
     nhRealizedState.preview = null;
     nhRealizedState.market = data.market || market;
     const meta = document.getElementById('nhMeta'); if (meta) { meta.textContent = `조회 시장: ${nhRealizedState.market === 'us' ? '해외주식' : '국내주식'} · ${nhRealizedState.rows.length}건`; meta.style.display = 'flex'; }
@@ -12243,23 +11980,26 @@ async function fetchNhRealizedFeed() {
 }
 function nhNumber(value, digits = 0) { if (value === null || value === undefined || value === '') return '—'; const number = Number(value); return Number.isFinite(number) ? number.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—'; }
 function renderNhFeedTable() {
-  const tbody = document.getElementById('nhTableBody'); const selectAll = document.getElementById('nhSelectAll'); if (!tbody) return;
+  const tbody = document.getElementById('nhTableBody');
+  if (!tbody) return;
+  const selectAll = document.getElementById('nhSelectAll');
   if (selectAll) selectAll.checked = false;
-  if (!nhRealizedState.rows.length) { tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, '조회 버튼을 눌러 NH 실현손익을 조회하세요.'); return; }
-  const overseas = nhRealizedState.market === 'us'; const extra = document.getElementById('nhExpenseColumn'); if (extra) extra.textContent = overseas ? '해외 제비용 합계' : '수수료 / 제세금';
-  tbody.innerHTML = nhRealizedState.rows.map((row, index) => {
-    const imported = nhRealizedState.importedIndices.has(index); const selected = nhRealizedState.selectedIndices.has(index); const pnl = Number(row.pnl); const pnlClass = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
-    const check = imported ? '<span class="toss-wts-imported-badge">완료</span>' : `<input type="checkbox" class="nh-row-check" data-index="${index}" ${selected ? 'checked' : ''}>`;
-    const context = overseas ? `${html(row.country || '—')} / ${html(row.currency || '—')}` : '국내 / KRW';
-    const expense = overseas ? (row.expenses_total == null ? '—' : nhNumber(row.expenses_total, 2)) : `${row.fee == null ? '—' : `수수료 ${nhNumber(row.fee)}`} ${row.tax == null ? '' : `제세금 ${nhNumber(row.tax)}`}`;
-    return `<tr class="${selected ? 'selected' : ''} ${imported ? 'imported-row' : ''}"><td>${check}</td><td>${html(row.date || '')}</td><td><strong>${html(row.name || '')}</strong><br><code>${html(row.code || '')}</code></td><td>${context}</td><td class="num">${nhNumber(row.quantity)}</td><td class="num">${nhNumber(row.buy_amount, overseas ? 2 : 0)}</td><td class="num">${nhNumber(row.sell_amount, overseas ? 2 : 0)}</td><td class="num ${pnlClass}"><strong>${nhNumber(row.pnl, overseas ? 2 : 0)}</strong></td><td class="num">${row.profit_rate == null ? '—' : `${nhNumber(row.profit_rate, 2)}%`}</td><td class="num"><small class="muted">${expense}</small></td></tr>`;
-  }).join('');
-  tbody.querySelectorAll('.nh-row-check').forEach(check => check.addEventListener('change', event => { const index = Number(event.target.dataset.index); event.target.checked ? nhRealizedState.selectedIndices.add(index) : nhRealizedState.selectedIndices.delete(index); updateNhSelectionUI(); }));
+  brokerUI.renderRealizedTable({
+    body: tbody, rows: nhRealizedState.rows || [], status: 'ok', emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
+    selection: nhRealizedState, checkboxClass: 'nh-row-check',
+    adapt: row => brokerRealizedDisplayRow(row, { market: nhRealizedState.market, currency: nhRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: nhNumber }),
+    toss: false,
+  });
+  syncBrokerRowImportOptions(nhRealizedState);
+  brokerUI.bindFeedSelection(tbody, '.nh-row-check', event => { const index = Number(event.target.dataset.index); event.target.checked ? nhRealizedState.selectedIndices.add(index) : nhRealizedState.selectedIndices.delete(index); updateNhSelectionUI(); });
 }
 function updateNhSelectionUI() {
-  populateNhDestinationAccounts(); const count = nhRealizedState.selectedIndices.size; const badge = document.getElementById('nhSelectedCountBadge'); const bar = document.getElementById('nhImportBar'); const button = document.getElementById('btnNhImportSelected');
-  if (badge) badge.textContent = `선택 ${count}건`; if (bar) bar.style.display = nhRealizedState.rows.length ? 'flex' : 'none'; if (button) button.disabled = count === 0 || !document.getElementById('nhDestinationAccount')?.value || nhRealizedState.loading || nhRealizedState.importing;
-  renderBrokerImportOptions(nhRealizedState, 'nhImportOptions', 'nh');
+  populateNhDestinationAccounts();
+  const count = nhRealizedState.selectedIndices.size;
+  brokerUI.renderSelectionState({ badgeId: 'nhSelectedCountBadge', count,
+    buttonId: 'btnNhImportSelected',
+    disabled: count === 0 || !document.getElementById('nhDestinationAccount')?.value || nhRealizedState.loading || nhRealizedState.importing });
+  syncBrokerRowImportOptions(nhRealizedState);
 }
 async function openNhImportPreview() {
   const accountId = document.getElementById('nhDestinationAccount')?.value; const selectedItems = nhSelectedItems();
@@ -12294,16 +12034,21 @@ async function openNhImportPreview() {
   }
 }
 function renderNhPreviewModal(data) {
-  const counts = data.counts || {}; ['New','Already','Dup','Invalid'].forEach(name => { const key = { New: 'new', Already: 'already_imported', Dup: 'possible_duplicate', Invalid: 'invalid' }[name]; const el = document.getElementById(`nhModalCount${name}`); if (el) el.textContent = String(counts[key] || 0); });
-  const dest = data.destination_account || {}; const display = document.getElementById('nhModalDestAccountDisplay'); if (display) display.innerHTML = `귀속 계좌: <strong>[${html(dest.broker || 'Wealth')}] ${html(maskAccountDisplayLabel(dest.account_name || '-'))}</strong> (${html(dest.owner || '모두')})`;
-  const dup = document.getElementById('nhDupOverrideWrap'); if (dup) dup.style.display = counts.possible_duplicate ? 'block' : 'none'; const check = document.getElementById('nhIncludePossibleDuplicates'); if (check) check.checked = false;
-  const body = document.getElementById('nhModalItemsBody'); if (body) body.innerHTML = (data.items || []).map(item => { const candidate = item.candidate || {}; return `<tr><td><span class="badge">${html(brokerPreviewStatusLabel(item.status))}</span></td><td>${html(candidate.date || '-')}</td><td>${html(candidate.name || '-')}</td><td class="num">${nhNumber(candidate.quantity)}</td><td class="num">${nhNumber(candidate.pnl, 2)} ${html(candidate.currency || '')}</td></tr>`; }).join('');
-  updateNhCommitButton();
-  renderBrokerImportPreviewDetails(data, 'nhImportModalOverlay');
-  document.getElementById('nhImportModalOverlay').style.display = 'flex';
+  const counts = data.counts || {};
+  const dest = data.destination_account || {};
+  window.WealthBrokerImportPreviewScreenController.renderPreviewModal({
+    document, brokerUI, data, prefix: 'nh', counts,
+    destination: {
+      accountText: `[${dest.broker || 'Wealth'}] ${maskAccountDisplayLabel(dest.account_name || '-')}`,
+      ownerText: dest.owner || '모두',
+    },
+    html, statusLabel: brokerPreviewStatusLabel, formatNumber: nhNumber,
+    pnlDigits: 2, defaultCurrency: '',
+    updateCommitButton: updateNhCommitButton, renderDetails: renderBrokerImportPreviewDetails,
+  });
 }
 function updateNhCommitButton() { const button = document.getElementById('btnNhConfirmCommit'); const counts = nhRealizedState.preview?.counts || {}; const include = !!document.getElementById('nhIncludePossibleDuplicates')?.checked; const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0); if (button) { button.textContent = `${eligible}건 가져오기 완료`; button.disabled = eligible === 0 || !nhRealizedState.previewTicket || nhRealizedState.importing; } }
-function closeNhImportModal() { const overlay = document.getElementById('nhImportModalOverlay'); if (overlay) overlay.style.display = 'none'; nhRealizedState.preview = null; nhRealizedState.previewTicket = null; }
+function closeNhImportModal() { brokerUI.setModalVisible('nhImportModalOverlay', false); nhRealizedState.preview = null; nhRealizedState.previewTicket = null; }
 async function commitNhImport() {
   if (nhRealizedState.importing || !nhRealizedState.previewTicket) return; nhRealizedState.importing = true; updateNhCommitButton();
   const accountId = nhRealizedState.preview?.destination_account?.id || document.getElementById('nhDestinationAccount')?.value;
@@ -12321,12 +12066,11 @@ const kiwoomRealizedState = {
 window.kiwoomRealizedState = kiwoomRealizedState;
 
 function showKiwoomMessage(message, type = 'info') { return brokerUI.showBrokerMessage('kiwoomMessage', message, type); }
-function hideKiwoomMessage() { const el = document.getElementById('kiwoomMessage'); if (el) { el.style.display = 'none'; el.textContent = ''; } }
+function hideKiwoomMessage() { brokerUI.hideBrokerMessage('kiwoomMessage'); }
 function setKiwoomLoading(loading) {
   kiwoomRealizedState.loading = loading;
   ['btnCheckKiwoomStatus', 'btnFetchKiwoomFeed'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = loading || (id === 'btnFetchKiwoomFeed' && !kiwoomRealizedState.sourceAccountKey);
+    brokerUI.setButtonDisabled(id, loading || (id === 'btnFetchKiwoomFeed' && !kiwoomRealizedState.sourceAccountKey));
   });
 }
 function kiwoomSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
@@ -12355,23 +12099,23 @@ function populateKiwoomSourceAccounts() {
 async function checkKiwoomStatus() {
   if (kiwoomRealizedState.loading) return;
   setKiwoomLoading(true); hideKiwoomMessage();
+  brokerUI.renderBrokerState('kiwoom', 'checking', '상태 확인 중');
   try {
     const res = await fetch('/api/kiwoom/status'); const data = await res.json().catch(() => ({}));
     if (!res.ok) throw data;
     kiwoomRealizedState.status = data; kiwoomRealizedState.accounts = Array.isArray(data.accounts) ? data.accounts : [];
     populateKiwoomSourceAccounts();
-    const status = document.getElementById('kiwoomStatusText'); const banner = document.getElementById('kiwoomBannerText');
     if (!data.configured) {
-      if (status) status.textContent = '미설정 (API 키 필요)';
+      brokerUI.renderBrokerState('kiwoom', 'action_required', '미설정 (API 키 필요)');
       showKiwoomMessage('키움증권 OpenAPI 설정이 필요합니다.', 'warning');
     } else if (!kiwoomRealizedState.accounts.length) {
-      if (status) status.textContent = '계좌 미등록';
+      brokerUI.renderBrokerState('kiwoom', 'action_required', '계좌 미등록');
       showKiwoomMessage('조회 가능한 키움 계좌가 없습니다.', 'warning');
     } else {
-      if (status) status.textContent = '계좌 선택 가능';
-      if (banner) banner.textContent = '마스킹된 원본 계좌를 선택한 뒤 조회하세요. 조회 결과는 읽기 전용입니다.';
+      brokerUI.renderBrokerState('kiwoom', kiwoomRealizedState.sourceAccountKey ? 'ready' : 'action_required', '계좌 선택 가능');
+
     }
-  } catch (error) {
+  } catch (error) { brokerUI.renderBrokerState('kiwoom', 'error', '상태 확인 실패');
     showKiwoomMessage(kiwoomSafeError(error, '키움 연동 상태 확인에 실패했습니다.'), 'error');
   } finally {
     setKiwoomLoading(false);
@@ -12409,13 +12153,7 @@ async function fetchKiwoomRealizedFeed() {
       body: JSON.stringify({ market, from_date: fromDate, to_date: toDate, source_account_key: kiwoomRealizedState.sourceAccountKey })
     });
     const data = await res.json().catch(() => ({})); if (!res.ok) throw data;
-    const sortedFeed = sortBrokerRealizedFeedRows(data.rows || [], data.selection_tokens || []);
-    kiwoomRealizedState.rows = sortedFeed.rows;
-    kiwoomRealizedState.selectionTokens = sortedFeed.selectionTokens;
-    kiwoomRealizedState.selectedIndices.clear();
-    kiwoomRealizedState.importedIndices.clear();
-    kiwoomRealizedState.importPreferences.clear();
-    kiwoomRealizedState.previewTicket = null;
+    brokerRealizedFeedController.applySuccessfulFeed(kiwoomRealizedState, data.rows || [], data.selection_tokens || []);
     kiwoomRealizedState.preview = null;
     kiwoomRealizedState.market = data.market || market;
     const meta = document.getElementById('kiwoomMeta');
@@ -12440,55 +12178,29 @@ function kiwoomNumber(value, digits = 0) {
 }
 function renderKiwoomFeedTable() {
   const tbody = document.getElementById('kiwoomTableBody');
-  const selectAll = document.getElementById('kiwoomSelectAll');
   if (!tbody) return;
+  const selectAll = document.getElementById('kiwoomSelectAll');
   if (selectAll) selectAll.checked = false;
-  if (!kiwoomRealizedState.rows.length) {
-    tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, '조회 버튼을 눌러 키움 실현손익을 조회하세요.');
-    return;
-  }
-  const overseas = kiwoomRealizedState.market === 'us';
-  const extra = document.getElementById('kiwoomExpenseColumn');
-  if (extra) extra.textContent = overseas ? '해외 제비용 합계' : '수수료 / 제세금';
-  tbody.innerHTML = kiwoomRealizedState.rows.map((row, index) => {
-    const imported = kiwoomRealizedState.importedIndices.has(index);
-    const selected = kiwoomRealizedState.selectedIndices.has(index);
-    const pnl = Number(row.pnl);
-    const pnlClass = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
-    const check = imported ? '<span class="toss-wts-imported-badge">완료</span>' : `<input type="checkbox" class="kiwoom-row-check" data-index="${index}" ${selected ? 'checked' : ''}>`;
-    const context = overseas ? `${html(row.country || '미국')} / ${html(row.currency || 'USD')}` : '국내 / KRW';
-    const expense = overseas
-      ? (row.expenses_total == null ? '—' : kiwoomNumber(row.expenses_total, 2))
-      : `${row.fee == null ? '—' : `수수료 ${kiwoomNumber(row.fee)}`} ${row.tax == null ? '' : `제세금 ${kiwoomNumber(row.tax)}`}`;
-    return `<tr class="${selected ? 'selected' : ''} ${imported ? 'imported-row' : ''}">` +
-      `<td>${check}</td>` +
-      `<td>${html(row.date || '')}</td>` +
-      `<td><strong>${html(row.name || '')}</strong><br><code>${html(row.code || '')}</code></td>` +
-      `<td>${context}</td>` +
-      `<td class="num">${kiwoomNumber(row.quantity)}</td>` +
-      `<td class="num">${kiwoomNumber(row.buy_amount, overseas ? 2 : 0)}</td>` +
-      `<td class="num">${kiwoomNumber(row.sell_amount, overseas ? 2 : 0)}</td>` +
-      `<td class="num ${pnlClass}"><strong>${kiwoomNumber(row.pnl, overseas ? 2 : 0)}</strong></td>` +
-      `<td class="num">${row.profit_rate == null ? '—' : `${kiwoomNumber(row.profit_rate, 2)}%`}</td>` +
-      `<td class="num"><small class="muted">${expense}</small></td>` +
-    `</tr>`;
-  }).join('');
-  tbody.querySelectorAll('.kiwoom-row-check').forEach(check => check.addEventListener('change', event => {
+  brokerUI.renderRealizedTable({
+    body: tbody, rows: kiwoomRealizedState.rows || [], status: 'ok', emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
+    selection: kiwoomRealizedState, checkboxClass: 'kiwoom-row-check',
+    adapt: row => brokerRealizedDisplayRow(row, { market: kiwoomRealizedState.market, currency: kiwoomRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: kiwoomNumber }),
+    toss: false,
+  });
+  syncBrokerRowImportOptions(kiwoomRealizedState);
+  brokerUI.bindFeedSelection(tbody, '.kiwoom-row-check', event => {
     const index = Number(event.target.dataset.index);
     event.target.checked ? kiwoomRealizedState.selectedIndices.add(index) : kiwoomRealizedState.selectedIndices.delete(index);
     updateKiwoomSelectionUI();
-  }));
+  });
 }
 function updateKiwoomSelectionUI() {
   populateKiwoomDestinationAccounts();
   const count = kiwoomRealizedState.selectedIndices.size;
-  const badge = document.getElementById('kiwoomSelectedCountBadge');
-  const bar = document.getElementById('kiwoomImportBar');
-  const button = document.getElementById('btnKiwoomImportSelected');
-  if (badge) badge.textContent = `선택 ${count}건`;
-  if (bar) bar.style.display = kiwoomRealizedState.rows.length ? 'flex' : 'none';
-  if (button) button.disabled = count === 0 || !document.getElementById('kiwoomDestinationAccount')?.value || kiwoomRealizedState.loading || kiwoomRealizedState.importing;
-  renderBrokerImportOptions(kiwoomRealizedState, 'kiwoomImportOptions', 'kiwoom');
+  brokerUI.renderSelectionState({ badgeId: 'kiwoomSelectedCountBadge', count,
+    buttonId: 'btnKiwoomImportSelected',
+    disabled: count === 0 || !document.getElementById('kiwoomDestinationAccount')?.value || kiwoomRealizedState.loading || kiwoomRealizedState.importing });
+  syncBrokerRowImportOptions(kiwoomRealizedState);
 }
 async function openKiwoomImportPreview() {
   const accountId = document.getElementById('kiwoomDestinationAccount')?.value;
@@ -12527,28 +12239,17 @@ async function openKiwoomImportPreview() {
 }
 function renderKiwoomPreviewModal(data) {
   const counts = data.counts || {};
-  ['New', 'Already', 'Dup', 'Invalid'].forEach(name => {
-    const key = { New: 'new', Already: 'already_imported', Dup: 'possible_duplicate', Invalid: 'invalid' }[name];
-    const el = document.getElementById(`kiwoomModalCount${name}`);
-    if (el) el.textContent = String(counts[key] || 0);
-  });
   const dest = data.destination_account || {};
-  const display = document.getElementById('kiwoomModalDestAccountDisplay');
-  if (display) display.innerHTML = `귀속 계좌: <strong>[${html(dest.broker || 'Wealth')}] ${html(maskAccountDisplayLabel(dest.account_name || '-'))}</strong> (${html(dest.owner || '모두')})`;
-  const dup = document.getElementById('kiwoomDupOverrideWrap');
-  if (dup) dup.style.display = counts.possible_duplicate ? 'block' : 'none';
-  const check = document.getElementById('kiwoomIncludePossibleDuplicates');
-  if (check) check.checked = false;
-  const body = document.getElementById('kiwoomModalItemsBody');
-  if (body) {
-    body.innerHTML = (data.items || []).map(item => {
-      const candidate = item.candidate || {};
-      return `<tr><td><span class="badge">${html(brokerPreviewStatusLabel(item.status))}</span></td><td>${html(candidate.date || '-')}</td><td>${html(candidate.name || '-')}</td><td class="num">${kiwoomNumber(candidate.quantity)}</td><td class="num">${kiwoomNumber(candidate.pnl, 2)} ${html(candidate.currency || '')}</td></tr>`;
-    }).join('');
-  }
-  updateKiwoomCommitButton();
-  renderBrokerImportPreviewDetails(data, 'kiwoomImportModalOverlay');
-  document.getElementById('kiwoomImportModalOverlay').style.display = 'flex';
+  window.WealthBrokerImportPreviewScreenController.renderPreviewModal({
+    document, brokerUI, data, prefix: 'kiwoom', counts,
+    destination: {
+      accountText: `[${dest.broker || 'Wealth'}] ${maskAccountDisplayLabel(dest.account_name || '-')}`,
+      ownerText: dest.owner || '모두',
+    },
+    html, statusLabel: brokerPreviewStatusLabel, formatNumber: kiwoomNumber,
+    pnlDigits: 2, defaultCurrency: '',
+    updateCommitButton: updateKiwoomCommitButton, renderDetails: renderBrokerImportPreviewDetails,
+  });
 }
 function updateKiwoomCommitButton() {
   const button = document.getElementById('btnKiwoomConfirmCommit');
@@ -12561,8 +12262,7 @@ function updateKiwoomCommitButton() {
   }
 }
 function closeKiwoomImportModal() {
-  const overlay = document.getElementById('kiwoomImportModalOverlay');
-  if (overlay) overlay.style.display = 'none';
+  brokerUI.setModalVisible('kiwoomImportModalOverlay', false);
   kiwoomRealizedState.preview = null;
   kiwoomRealizedState.previewTicket = null;
 }
@@ -12611,14 +12311,6 @@ async function commitKiwoomImport() {
   }
 }
 function initKiwoomRealizedUI() {
-  const kiwoomFrom = document.getElementById('kiwoomFromDate');
-  const kiwoomTo = document.getElementById('kiwoomToDate');
-  const currentYear = new Date().getFullYear();
-  if (kiwoomFrom && !kiwoomFrom.value) kiwoomFrom.value = `${currentYear}-01-01`;
-  if (kiwoomTo && !kiwoomTo.value) kiwoomTo.value = new Date().toISOString().slice(0, 10);
-  document.getElementById('btnTabBrokerKiwoom')?.addEventListener('click', () => switchRealizedBroker('kiwoom'));
-  document.getElementById('btnCheckKiwoomStatus')?.addEventListener('click', checkKiwoomStatus);
-  document.getElementById('btnFetchKiwoomFeed')?.addEventListener('click', fetchKiwoomRealizedFeed);
   document.getElementById('kiwoomSourceAccount')?.addEventListener('change', event => {
     kiwoomRealizedState.sourceAccountKey = event.target.value;
     const sourceAccount = kiwoomRealizedState.accounts.find(a => a.source_account_key === event.target.value);
@@ -12654,12 +12346,11 @@ const kbRealizedState = {
 window.kbRealizedState = kbRealizedState;
 
 function showKbMessage(message, type = 'info') { return brokerUI.showBrokerMessage('kbMessage', message, type); }
-function hideKbMessage() { const el = document.getElementById('kbMessage'); if (el) { el.style.display = 'none'; el.textContent = ''; } }
+function hideKbMessage() { brokerUI.hideBrokerMessage('kbMessage'); }
 function setKbLoading(loading) {
   kbRealizedState.loading = loading;
   ['btnCheckKbStatus', 'btnFetchKbFeed'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = loading || (id === 'btnFetchKbFeed' && !kbRealizedState.sourceAccountKey);
+    brokerUI.setButtonDisabled(id, loading || (id === 'btnFetchKbFeed' && !kbRealizedState.sourceAccountKey));
   });
 }
 function kbSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
@@ -12688,23 +12379,23 @@ function populateKbSourceAccounts() {
 async function checkKbStatus() {
   if (kbRealizedState.loading) return;
   setKbLoading(true); hideKbMessage();
+  brokerUI.renderBrokerState('kb', 'checking', '상태 확인 중');
   try {
     const res = await fetch('/api/kb/status'); const data = await res.json().catch(() => ({}));
     if (!res.ok) throw data;
     kbRealizedState.status = data; kbRealizedState.accounts = Array.isArray(data.accounts) ? data.accounts : [];
     populateKbSourceAccounts();
-    const status = document.getElementById('kbStatusText'); const banner = document.getElementById('kbBannerText');
     if (!data.configured) {
-      if (status) status.textContent = '미설정 (API 키 필요)';
+      brokerUI.renderBrokerState('kb', 'action_required', '미설정 (API 키 필요)');
       showKbMessage('KB증권 OpenAPI 설정이 필요합니다.', 'warning');
     } else if (!kbRealizedState.accounts.length) {
-      if (status) status.textContent = '계좌 미등록';
+      brokerUI.renderBrokerState('kb', 'action_required', '계좌 미등록');
       showKbMessage('조회 가능한 KB 계좌가 없습니다.', 'warning');
     } else {
-      if (status) status.textContent = '계좌 선택 가능';
-      if (banner) banner.textContent = '마스킹된 원본 계좌를 선택한 뒤 조회하세요. 국내주식 실현손익만 지원되며 결과는 읽기 전용입니다.';
+      brokerUI.renderBrokerState('kb', kbRealizedState.sourceAccountKey ? 'ready' : 'action_required', '계좌 선택 가능');
+
     }
-  } catch (error) {
+  } catch (error) { brokerUI.renderBrokerState('kb', 'error', '상태 확인 실패');
     showKbMessage(kbSafeError(error, 'KB 연동 상태 확인에 실패했습니다.'), 'error');
   } finally {
     setKbLoading(false);
@@ -12745,13 +12436,7 @@ async function fetchKbRealizedFeed() {
       body: JSON.stringify({ market: 'kr', from_date: fromDate, to_date: toDate, source_account_key: kbRealizedState.sourceAccountKey })
     });
     const data = await res.json().catch(() => ({})); if (!res.ok) throw data;
-    const sortedFeed = sortBrokerRealizedFeedRows(data.rows || [], data.selection_tokens || []);
-    kbRealizedState.rows = sortedFeed.rows;
-    kbRealizedState.selectionTokens = sortedFeed.selectionTokens;
-    kbRealizedState.selectedIndices.clear();
-    kbRealizedState.importedIndices.clear();
-    kbRealizedState.importPreferences.clear();
-    kbRealizedState.previewTicket = null;
+    brokerRealizedFeedController.applySuccessfulFeed(kbRealizedState, data.rows || [], data.selection_tokens || []);
     kbRealizedState.preview = null;
     kbRealizedState.market = 'kr';
     const meta = document.getElementById('kbMeta');
@@ -12776,52 +12461,29 @@ function kbNumber(value, digits = 0) {
 }
 function renderKbFeedTable() {
   const tbody = document.getElementById('kbTableBody');
-  const selectAll = document.getElementById('kbSelectAll');
   if (!tbody) return;
+  const selectAll = document.getElementById('kbSelectAll');
   if (selectAll) selectAll.checked = false;
-  if (!kbRealizedState.rows.length) {
-    tbody.innerHTML = brokerUI.brokerTableEmptyRow(10, '조회 버튼을 눌러 KB 실현손익을 조회하세요.');
-    return;
-  }
-  const extra = document.getElementById('kbExpenseColumn');
-  if (extra) extra.textContent = '수수료 / 제세금';
-  tbody.innerHTML = kbRealizedState.rows.map((row, index) => {
-    const imported = kbRealizedState.importedIndices.has(index);
-    const selected = kbRealizedState.selectedIndices.has(index);
-    const pnl = Number(row.pnl);
-    const pnlClass = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
-    const check = imported ? '<span class="toss-wts-imported-badge">완료</span>' : `<input type="checkbox" class="kb-row-check" data-index="${index}" ${selected ? 'checked' : ''}>`;
-    const context = '국내 / KRW';
-    const expense = `${row.fee == null ? '—' : `수수료 ${kbNumber(row.fee)}`} ${row.tax == null ? '' : `제세금 ${kbNumber(row.tax)}`}`;
-    return `<tr class="${selected ? 'selected' : ''} ${imported ? 'imported-row' : ''}">` +
-      `<td>${check}</td>` +
-      `<td>${html(row.date || '')}</td>` +
-      `<td><strong>${html(row.name || '')}</strong><br><code>${html(row.code || '')}</code></td>` +
-      `<td>${context}</td>` +
-      `<td class="num">${kbNumber(row.quantity)}</td>` +
-      `<td class="num">${kbNumber(row.buy_amount, 0)}</td>` +
-      `<td class="num">${kbNumber(row.sell_amount, 0)}</td>` +
-      `<td class="num ${pnlClass}"><strong>${kbNumber(row.pnl, 0)}</strong></td>` +
-      `<td class="num">${row.profit_rate == null ? '—' : `${kbNumber(row.profit_rate, 2)}%`}</td>` +
-      `<td class="num"><small class="muted">${expense}</small></td>` +
-    `</tr>`;
-  }).join('');
-  tbody.querySelectorAll('.kb-row-check').forEach(check => check.addEventListener('change', event => {
+  brokerUI.renderRealizedTable({
+    body: tbody, rows: kbRealizedState.rows || [], status: 'ok', emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
+    selection: kbRealizedState, checkboxClass: 'kb-row-check',
+    adapt: row => brokerRealizedDisplayRow(row, { market: kbRealizedState.market, currency: kbRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: kbNumber }),
+    toss: false,
+  });
+  syncBrokerRowImportOptions(kbRealizedState);
+  brokerUI.bindFeedSelection(tbody, '.kb-row-check', event => {
     const index = Number(event.target.dataset.index);
     event.target.checked ? kbRealizedState.selectedIndices.add(index) : kbRealizedState.selectedIndices.delete(index);
     updateKbSelectionUI();
-  }));
+  });
 }
 function updateKbSelectionUI() {
   populateKbDestinationAccounts();
   const count = kbRealizedState.selectedIndices.size;
-  const badge = document.getElementById('kbSelectedCountBadge');
-  const bar = document.getElementById('kbImportBar');
-  const button = document.getElementById('btnKbImportSelected');
-  if (badge) badge.textContent = `선택 ${count}건`;
-  if (bar) bar.style.display = kbRealizedState.rows.length ? 'flex' : 'none';
-  if (button) button.disabled = count === 0 || !document.getElementById('kbDestinationAccount')?.value || kbRealizedState.loading || kbRealizedState.importing;
-  renderBrokerImportOptions(kbRealizedState, 'kbImportOptions', 'kb');
+  brokerUI.renderSelectionState({ badgeId: 'kbSelectedCountBadge', count,
+    buttonId: 'btnKbImportSelected',
+    disabled: count === 0 || !document.getElementById('kbDestinationAccount')?.value || kbRealizedState.loading || kbRealizedState.importing });
+  syncBrokerRowImportOptions(kbRealizedState);
 }
 async function openKbImportPreview() {
   const accountId = document.getElementById('kbDestinationAccount')?.value;
@@ -12860,28 +12522,17 @@ async function openKbImportPreview() {
 }
 function renderKbPreviewModal(data) {
   const counts = data.counts || {};
-  ['New', 'Already', 'Dup', 'Invalid'].forEach(name => {
-    const key = { New: 'new', Already: 'already_imported', Dup: 'possible_duplicate', Invalid: 'invalid' }[name];
-    const el = document.getElementById(`kbModalCount${name}`);
-    if (el) el.textContent = String(counts[key] || 0);
-  });
   const dest = data.destination_account || {};
-  const display = document.getElementById('kbModalDestAccountDisplay');
-  if (display) display.innerHTML = `귀속 계좌: <strong>[${html(dest.broker || 'Wealth')}] ${html(maskAccountDisplayLabel(dest.account_name || '-'))}</strong> (${html(dest.owner || '모두')})`;
-  const dup = document.getElementById('kbDupOverrideWrap');
-  if (dup) dup.style.display = counts.possible_duplicate ? 'block' : 'none';
-  const check = document.getElementById('kbIncludePossibleDuplicates');
-  if (check) check.checked = false;
-  const body = document.getElementById('kbModalItemsBody');
-  if (body) {
-    body.innerHTML = (data.items || []).map(item => {
-      const candidate = item.candidate || {};
-      return `<tr><td><span class="badge">${html(brokerPreviewStatusLabel(item.status))}</span></td><td>${html(candidate.date || '-')}</td><td>${html(candidate.name || '-')}</td><td class="num">${kbNumber(candidate.quantity)}</td><td class="num">${kbNumber(candidate.pnl, 0)} ${html(candidate.currency || 'KRW')}</td></tr>`;
-    }).join('');
-  }
-  updateKbCommitButton();
-  renderBrokerImportPreviewDetails(data, 'kbImportModalOverlay');
-  document.getElementById('kbImportModalOverlay').style.display = 'flex';
+  window.WealthBrokerImportPreviewScreenController.renderPreviewModal({
+    document, brokerUI, data, prefix: 'kb', counts,
+    destination: {
+      accountText: `[${dest.broker || 'Wealth'}] ${maskAccountDisplayLabel(dest.account_name || '-')}`,
+      ownerText: dest.owner || '모두',
+    },
+    html, statusLabel: brokerPreviewStatusLabel, formatNumber: kbNumber,
+    pnlDigits: 0, defaultCurrency: 'KRW',
+    updateCommitButton: updateKbCommitButton, renderDetails: renderBrokerImportPreviewDetails,
+  });
 }
 function updateKbCommitButton() {
   const button = document.getElementById('btnKbConfirmCommit');
@@ -12894,8 +12545,7 @@ function updateKbCommitButton() {
   }
 }
 function closeKbImportModal() {
-  const overlay = document.getElementById('kbImportModalOverlay');
-  if (overlay) overlay.style.display = 'none';
+  brokerUI.setModalVisible('kbImportModalOverlay', false);
   kbRealizedState.preview = null;
   kbRealizedState.previewTicket = null;
 }
@@ -12944,14 +12594,6 @@ async function commitKbImport() {
   }
 }
 function initKbRealizedUI() {
-  const kbFrom = document.getElementById('kbFromDate');
-  const kbTo = document.getElementById('kbToDate');
-  const currentYear = new Date().getFullYear();
-  if (kbFrom && !kbFrom.value) kbFrom.value = `${currentYear}-01-01`;
-  if (kbTo && !kbTo.value) kbTo.value = new Date().toISOString().slice(0, 10);
-  document.getElementById('btnTabBrokerKb')?.addEventListener('click', () => switchRealizedBroker('kb'));
-  document.getElementById('btnCheckKbStatus')?.addEventListener('click', checkKbStatus);
-  document.getElementById('btnFetchKbFeed')?.addEventListener('click', fetchKbRealizedFeed);
   document.getElementById('kbSourceAccount')?.addEventListener('change', event => {
     kbRealizedState.sourceAccountKey = event.target.value;
     const sourceAccount = kbRealizedState.accounts.find(a => a.source_account_key === event.target.value);
@@ -12985,36 +12627,7 @@ function initKbRealizedUI() {
 }
 
 function switchRealizedBroker(broker) {
-  const tossCard = document.getElementById('tossWtsCard');
-  const kisCard = document.getElementById('kisRealizedCard');
-  const nhCard = document.getElementById('nhRealizedCard');
-  const kiwoomCard = document.getElementById('kiwoomRealizedCard');
-  const kbCard = document.getElementById('kbRealizedCard');
-  const btnToss = document.getElementById('btnTabBrokerToss');
-  const btnKis = document.getElementById('btnTabBrokerKis');
-  const btnNh = document.getElementById('btnTabBrokerNh');
-  const btnKiwoom = document.getElementById('btnTabBrokerKiwoom');
-  const btnKb = document.getElementById('btnTabBrokerKb');
-
-  [btnToss, btnKis, btnNh, btnKiwoom, btnKb].forEach(btn => btn?.classList.remove('active'));
-  [tossCard, kisCard, nhCard, kiwoomCard, kbCard].forEach(card => { if (card) card.style.display = 'none'; });
-
-  if (broker === 'kis') {
-    if (kisCard) kisCard.style.display = 'block';
-    btnKis?.classList.add('active');
-  } else if (broker === 'nh') {
-    if (nhCard) nhCard.style.display = 'block';
-    btnNh?.classList.add('active');
-  } else if (broker === 'kiwoom') {
-    if (kiwoomCard) kiwoomCard.style.display = 'block';
-    btnKiwoom?.classList.add('active');
-  } else if (broker === 'kb') {
-    if (kbCard) kbCard.style.display = 'block';
-    btnKb?.classList.add('active');
-  } else {
-    if (tossCard) tossCard.style.display = 'block';
-    btnToss?.classList.add('active');
-  }
+  brokerUI.showBrokerScreen(realizedBrokerScreens, broker);
 }
 
 function initKisRealizedUI() {
@@ -13022,24 +12635,8 @@ function initKisRealizedUI() {
   const toInput = document.getElementById('kisToDate');
   const marketSelect = document.getElementById('kisMarketSelect');
 
-  if (fromInput && !fromInput.value) {
-    const year = new Date().getFullYear();
-    fromInput.value = `${year}-01-01`;
-  }
-  if (toInput && !toInput.value) {
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    toInput.value = `${yyyy}-${mm}-${dd}`;
-  }
 
-  document.getElementById('btnTabBrokerToss')?.addEventListener('click', () => switchRealizedBroker('toss'));
-  document.getElementById('btnTabBrokerKis')?.addEventListener('click', () => switchRealizedBroker('kis'));
-  document.getElementById('btnTabBrokerNh')?.addEventListener('click', () => switchRealizedBroker('nh'));
 
-  document.getElementById('btnCheckKisStatus')?.addEventListener('click', checkKisStatus);
-  document.getElementById('btnFetchKisFeed')?.addEventListener('click', fetchKisRealizedFeed);
 
   document.getElementById('kisSelectAll')?.addEventListener('change', (e) => {
     const checked = e.target.checked;
@@ -13078,13 +12675,6 @@ function initKisRealizedUI() {
   fromInput?.addEventListener('input', checkKisFormStale);
   toInput?.addEventListener('input', checkKisFormStale);
 
-  const nhFrom = document.getElementById('nhFromDate');
-  const nhTo = document.getElementById('nhToDate');
-  const currentYear = new Date().getFullYear();
-  if (nhFrom && !nhFrom.value) nhFrom.value = `${currentYear}-01-01`;
-  if (nhTo && !nhTo.value) nhTo.value = new Date().toISOString().slice(0, 10);
-  document.getElementById('btnCheckNhStatus')?.addEventListener('click', checkNhStatus);
-  document.getElementById('btnFetchNhFeed')?.addEventListener('click', fetchNhRealizedFeed);
   document.getElementById('nhSourceAccount')?.addEventListener('change', event => { const sourceAccount = nhRealizedState.accounts.find(a => a.source_account_key === event.target.value); nhRealizedState.sourceAccountKey = event.target.value; nhRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || ''; updateNhSelectionUI(); setNhLoading(false); });
   document.getElementById('nhDestinationAccount')?.addEventListener('change', updateNhSelectionUI);
   document.getElementById('nhSelectAll')?.addEventListener('change', event => { nhRealizedState.rows.forEach((_, index) => { if (!nhRealizedState.importedIndices.has(index)) event.target.checked ? nhRealizedState.selectedIndices.add(index) : nhRealizedState.selectedIndices.delete(index); }); renderNhFeedTable(); updateNhSelectionUI(); });
@@ -13151,7 +12741,38 @@ function initDividendMonthNavListeners() {
   });
 }
 
+const realizedBrokerScreens = [
+  { key: 'toss',
+    state: tossWtsState, importBarId: 'tossWtsImportBar', destinationId: 'wtsDestinationAccount', importButtonId: 'btnWtsImportSelected', selectedCountId: 'wtsSelectedCountBadge',
+    name: '토스증권', connection: 'WTS', markets: '국내·해외', notice: 'WTS 런타임·세션 및 계좌 범위를 확인하세요. 조회 자료는 가져오기 전 Wealth 자산·실현손익 합계에 반영되지 않습니다.',
+    statusIds: ['tossWtsStatusText', 'tossWtsIncomeStatusText'], bannerId: 'tossWtsBannerText', tabId: 'btnTabBrokerToss', cardId: 'tossWtsCard', fromId: 'tossWtsFromDate', toId: 'tossWtsToDate',
+    checkId: 'btnCheckTossWtsStatus', onCheck: checkTossWtsStatus, fetchId: 'btnFetchTossWtsFeed', onFetch: fetchTossWtsRealizedFeed },
+  { key: 'kis',
+    state: kisRealizedState, importBarId: 'kisImportBar', destinationId: 'kisDestinationAccount', importButtonId: 'btnKisImportSelected', selectedCountId: 'kisSelectedCountBadge',
+    name: '한국투자증권', connection: 'OpenAPI', markets: '국내·해외', notice: 'API 키와 원본 계좌 설정을 확인하세요. 계좌 범위는 상태 확인 응답을 확인해야 합니다.',
+    statusIds: ['kisStatusText'], bannerId: 'kisBannerText', tabId: 'btnTabBrokerKis', cardId: 'kisRealizedCard', fromId: 'kisFromDate', toId: 'kisToDate',
+    checkId: 'btnCheckKisStatus', onCheck: checkKisStatus, fetchId: 'btnFetchKisFeed', onFetch: fetchKisRealizedFeed },
+  { key: 'nh',
+    state: nhRealizedState, importBarId: 'nhImportBar', destinationId: 'nhDestinationAccount', importButtonId: 'btnNhImportSelected', selectedCountId: 'nhSelectedCountBadge',
+    name: 'NH투자증권', connection: 'OpenAPI', markets: '국내·해외', notice: '마스킹된 원본 계좌를 선택한 뒤 조회하세요.',
+    statusIds: ['nhStatusText'], bannerId: 'nhBannerText', tabId: 'btnTabBrokerNh', cardId: 'nhRealizedCard', fromId: 'nhFromDate', toId: 'nhToDate',
+    checkId: 'btnCheckNhStatus', onCheck: checkNhStatus, fetchId: 'btnFetchNhFeed', onFetch: fetchNhRealizedFeed },
+  { key: 'kiwoom',
+    state: kiwoomRealizedState, importBarId: 'kiwoomImportBar', destinationId: 'kiwoomDestinationAccount', importButtonId: 'btnKiwoomImportSelected', selectedCountId: 'kiwoomSelectedCountBadge',
+    name: '키움증권', connection: 'OpenAPI', markets: '국내·해외', notice: '마스킹된 원본 계좌를 선택한 뒤 조회하세요.',
+    statusIds: ['kiwoomStatusText'], bannerId: 'kiwoomBannerText', tabId: 'btnTabBrokerKiwoom', cardId: 'kiwoomRealizedCard', fromId: 'kiwoomFromDate', toId: 'kiwoomToDate',
+    checkId: 'btnCheckKiwoomStatus', onCheck: checkKiwoomStatus, fetchId: 'btnFetchKiwoomFeed', onFetch: fetchKiwoomRealizedFeed },
+  { key: 'kb',
+    state: kbRealizedState, importBarId: 'kbImportBar', destinationId: 'kbDestinationAccount', importButtonId: 'btnKbImportSelected', selectedCountId: 'kbSelectedCountBadge',
+    name: 'KB증권', connection: 'OpenAPI', markets: '국내', notice: '국내주식 실현손익만 지원합니다. 마스킹된 원본 계좌를 선택하세요.',
+    statusIds: ['kbStatusText'], bannerId: 'kbBannerText', tabId: 'btnTabBrokerKb', cardId: 'kbRealizedCard', fromId: 'kbFromDate', toId: 'kbToDate',
+    checkId: 'btnCheckKbStatus', onCheck: checkKbStatus, fetchId: 'btnFetchKbFeed', onFetch: fetchKbRealizedFeed },
+];
+
 async function bootstrap() {
+  brokerUI.initializeBrokerScreens(realizedBrokerScreens, switchRealizedBroker, [
+    { fromId: 'tossWtsIncomeFromDate', toId: 'tossWtsIncomeToDate' },
+  ]);
   initAppTheme();
   initAppVersion();
   initSavingsListeners();
