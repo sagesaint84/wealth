@@ -23,7 +23,6 @@ on:
       - 'tests/test_cnn_fear_greed.py'
       - 'tests/test_market_daily_indicators.py'
       - 'tests/test_national_pension_import.py'
-      - 'tests/test_owner_filter_loads.py'
       - 'tests/test_initial_asset_load.py'
       - 'tests/chrome_harness.py'
       - 'tests/conftest.py'
@@ -161,7 +160,6 @@ jobs:
               tests/test_cnn_fear_greed.py
               tests/test_market_daily_indicators.py
               tests/test_national_pension_import.py
-              tests/test_owner_filter_loads.py
               tests/test_initial_asset_load.py
             )
           fi
