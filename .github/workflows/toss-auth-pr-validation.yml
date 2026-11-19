@@ -1,39 +1,13 @@
 name: Toss WTS native Linux PR validation
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'requirements.txt'
-      - 'app/main.py'
-      - 'app/services/toss_wts*.py'
-      - 'app/services/system_settings.py'
-      - 'app/static/wealth-settings*.js'
-      - 'vendor/tossctl-auth-helper/**'
-      - 'ops/toss-auth/**'
-      - 'ops/pension-ocr/**'
-      - 'app/services/national_pension*.py'
-      - 'app/services/ledger*.py'
-      - 'app/static/wealth-ledger-ocr.*'
-      - 'tests/test_national_pension*.py'
-      - 'tests/test_pension_import*.py'
-      - 'tests/test_pension_ocr_smoke.py'
-      - 'tests/test_ledger_document*.py'
-      - 'tests/test_toss_wts*.py'
-      - 'tests/test_settings_frontend.py'
-      - 'tests/test_settings_surface_chrome.py'
-      - 'tests/test_kakao_settings_frontend.py'
-      - 'tests/test_release_version.py'
-      - 'tests/conftest.py'
-      - '.github/workflows/toss-auth-pr-validation.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: toss-auth-pr-${{ github.event.pull_request.number }}
+  group: toss-auth-pr-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:

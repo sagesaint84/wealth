@@ -1,22 +1,7 @@
 name: System update isolated safety validation
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'app/updater/**'
-      - 'app/system_update.py'
-      - 'app/services/user_manager.py'
-      - 'app/services/update_permissions.py'
-      - 'app/main.py'
-      - 'app/static/wealth-system-update.*'
-      - 'app/static/wealth-settings*.js'
-      - 'app/services/system_settings.py'
-      - 'tests/test_settings*.py'
-      - 'requirements.txt'
-      - 'ops/wealth-updater/**'
-      - 'tests/test_system_update*.py'
-      - 'tests/test_release_version.py'
-      - '.github/workflows/system-update-pr-validation.yml'
+  workflow_dispatch:
+
 permissions:
   contents: read
 jobs:

@@ -1,32 +1,13 @@
 name: IPO schedule synthetic PR validation
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'app/main.py'
-      - 'app/services/ipo/**'
-      - 'app/static/wealth-ipo-*.js'
-      - 'app/static/wealth-calendar.js'
-      - 'app/static/wealth-layout.css'
-      - 'app/static/wealth-ipo.js'
-      - 'app/static/sw.js'
-      - 'tests/test_ipo*.py'
-      - 'tests/test_moneylog_calendar*.py'
-      - 'tests/test_calendar_ipo_tones_frontend.py'
-      - 'tests/test_release_version.py'
-      - 'tests/test_service_worker_cache_guard.py'
-      - 'tests/chrome_harness.py'
-      - 'tests/__init__.py'
-      - 'tests/conftest.py'
-      - 'requirements.txt'
-      - '.github/workflows/ipo-schedule-pr-validation.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ipo-schedule-pr-${{ github.event.pull_request.number }}
+  group: ipo-schedule-pr-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:

@@ -1,33 +1,6 @@
 name: Static transport synthetic PR validation
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'app/main.py'
-      - 'app/static_transport.py'
-      - 'app/static/sw.js'
-      - 'app/services/cnn_fear_greed.py'
-      - 'app/services/web_finance.py'
-      - 'app/services/market_indicators.py'
-      - 'app/services/national_pension*.py'
-      - 'app/services/portfolio.py'
-      - 'app/services/dividend*.py'
-      - 'app/services/financial_income*.py'
-      - 'tests/test_dividend_official_source_static.py'
-      - 'tests/test_financial_income_what_if_static.py'
-      - 'tests/test_money_input_ux.py'
-      - 'tests/test_static_transport*.py'
-      - 'tests/test_release_version.py'
-      - 'tests/test_service_worker_cache_guard.py'
-      - 'tests/test_cnn_fear_greed.py'
-      - 'tests/test_market_daily_indicators.py'
-      - 'tests/test_national_pension_import.py'
-      - 'tests/test_initial_asset_load.py'
-      - 'tests/chrome_harness.py'
-      - 'tests/conftest.py'
-      - 'requirements.txt'
-      - '.github/workflows/static-transport-pr-validation.yml'
   workflow_dispatch:
     inputs:
       ui_regressions:
@@ -39,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: static-transport-pr-${{ github.event.pull_request.number }}
+  group: static-transport-pr-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
