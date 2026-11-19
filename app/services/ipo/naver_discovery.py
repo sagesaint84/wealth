@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.services.ipo.identity import normalize_company_name
 from app.services.network_policy import require_external_network
 from app.services.ipo.naver_client import (
     NAVER_IPO_PROGRESS_PATH,
@@ -56,7 +57,7 @@ def parse_naver_ipo_discovery_json(raw_json_str: str | dict[str, Any]) -> list[d
     if not containers:
         raise NaverIpoClientError("NAVER IPO progress response missing list containers")
 
-    by_code: dict[tuple[str, str | None, str | None, str | None], dict[str, Any]] = {}
+    observations: list[dict[str, Any]] = []
     for key, rows in containers:
         if not isinstance(rows, list):
             raise NaverIpoClientError(f"{key} must be a list")
@@ -71,19 +72,13 @@ def parse_naver_ipo_discovery_json(raw_json_str: str | dict[str, Any]) -> list[d
             if not company_name:
                 continue
             gsr_class = str(raw.get("gsrClass") or "").strip()
-            # A security identifier alone must not collapse distinct offerings.
-            identity = (stock_code, _valid_date(raw.get("poStartDate")),
-                        _valid_date(raw.get("poEndDate")), _valid_date(raw.get("lcalDate")))
-            current = by_code.setdefault(
-                identity,
-                {
-                    "stock_code": stock_code,
-                    "raw_ipo_code": raw.get("ipoCode"),
-                    "company_name": company_name,
-                    "listing_track": _listing_track(company_name, gsr_class),
-                    "progress_container": key,
-                },
-            )
+            current = {
+                "stock_code": stock_code,
+                "raw_ipo_code": raw.get("ipoCode"),
+                "company_name": company_name,
+                "listing_track": _listing_track(company_name, gsr_class),
+                "progress_container": key,
+            }
             current["company_name"] = company_name
             current["progress_container"] = key
             market = str(raw.get("marketType") or "").strip().upper()
@@ -120,7 +115,67 @@ def parse_naver_ipo_discovery_json(raw_json_str: str | dict[str, Any]) -> list[d
                 "schedule_source": "npay_stock_public_ipo",
                 "container": key, "field_paths": field_paths,
             }}
-    return list(by_code.values())
+            observations.append(current)
+    return _merge_discovery_offerings(observations)
+
+
+def _merge_discovery_offerings(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    dates = ("subscription_start", "subscription_end", "expected_listing_date")
+
+    def identity(row: dict[str, Any]) -> tuple[str, str]:
+        name = row["company_name"]
+        return row["stock_code"], normalize_company_name(name) or name
+
+    def compatible(left: dict[str, Any], right: dict[str, Any]) -> bool:
+        return identity(left) == identity(right) and all(
+            not left.get(field) or not right.get(field) or left[field] == right[field]
+            for field in dates
+        )
+
+    def merge(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        # Fixed precedence makes both values and metadata independent of input order.
+        rows = sorted(rows, key=lambda row: (
+            row["progress_container"] == "listingList", row["progress_container"],
+            json.dumps(row, ensure_ascii=False, sort_keys=True),
+        ))
+        result: dict[str, Any] = {}
+        paths: dict[str, str] = {}
+        field_containers: dict[str, str] = {}
+        for row in rows:
+            result.update(row)
+            row_paths = row["sources"]["npay"]["field_paths"]
+            paths.update(row_paths)
+            field_containers.update({field: row["progress_container"] for field in row_paths})
+        result["sources"] = {"npay": {
+            **result["sources"]["npay"], "field_paths": paths,
+            "field_containers": field_containers,
+            "containers": sorted({row["progress_container"] for row in rows}),
+        }}
+        return result
+
+    pending = set(range(len(observations)))
+    result = []
+    while pending:
+        component = {min(pending)}
+        frontier = set(component)
+        while frontier:
+            neighbours = {index for index in pending - component
+                          if any(compatible(observations[index], observations[other]) for other in frontier)}
+            component.update(neighbours)
+            frontier = neighbours
+        pending.difference_update(component)
+        rows = [observations[index] for index in sorted(component)]
+        if all(compatible(left, right) for left in rows for right in rows):
+            result.append(merge(rows))
+        else:
+            # Missing dates must not bridge two conflicting offerings. Only exact
+            # identities can be collapsed in an ambiguous component.
+            exact: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+            for row in rows:
+                key = (*identity(row), *(row.get(field) for field in dates))
+                exact.setdefault(key, []).append(row)
+            result.extend(merge(group) for group in exact.values())
+    return sorted(result, key=lambda row: json.dumps(row, ensure_ascii=False, sort_keys=True))
 
 
 class NaverIpoDiscoveryClient:

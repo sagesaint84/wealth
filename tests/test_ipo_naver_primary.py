@@ -153,6 +153,7 @@ def test_failed_collection_preserves_observation_and_never_instantiates_metalogo
     market = observed_market()
     before = deepcopy(market)
     kind, naver, npay, dart = (Mock() for _ in range(4))
+    npay.source_statuses = {}
     for read in (kind.fetch_pubofr_schedule_items, naver.fetch_ipo_discovery_items, npay.fetch_upcoming_ipos):
         read.side_effect = RuntimeError("synthetic outage")
     dart.is_configured.return_value = False
