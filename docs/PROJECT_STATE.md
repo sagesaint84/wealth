@@ -1488,3 +1488,18 @@ docker compose \
 ### 현재 통합 경계
 
 현재 후보는 M4와 위 표시 공통화·발견된 선택 표시 수정까지다. 금융 계산식·서버 API·DB·인증·권한·실제 저장 경로는 수정하지 않았다. Commit·Push·PR·Merge·배포는 미실행이며 사용자 체크리스트는 모두 PENDING으로 유지한다. 나머지 전체 프로그램 모듈화는 완료로 표시하지 않는다. IPO의 독립 월 이동·상장 확정 날짜 및 차트 과거 구간의 fallback은 후속 비교 대상으로 남기며 이번 묶음에 금융·날짜 정책 변경을 섞지 않는다.
+
+### 자율 연속 후보 — 표시 재사용 (기준 main 2f6168a)
+
+작업 브랜치 codex/shared-ui-continuation에서만 누적한다. 기존 후보와 사용자 데이터는 읽기 전용으로 보호한다.
+
+- 배당 KRW 표시: WealthFormat.createCurrencyFormatter(currency, fallback)를 실제·예상 상세 Controller가 각각 렌더링당 한 번 준비해 기존 DetailView에 전달한다. 기존 Number(value || 0), Intl 통화 옵션, fallback과 USD 표시를 유지하며 행 데이터는 캐시하지 않는다.
+- Native dialog: Frontend 후보 7개에 동일하게 존재하는 dialog-shell.js 하나를 wealth-dialog-shell.js로 재사용했다. IPO 상세와 시장 표시 설정의 생성·조회·한 번의 close 연결만 공통 소유자에 두고, 요청 세대·권한·저장·포커스 복귀 정책은 Controller에 유지한다.
+- HTML 이스케이프: WealthFormat.escapeHtml이 기존 다섯 문자(&, <, >, 큰따옴표, 작은따옴표) 치환을 소유한다. wealth.js와 planning은 nullish 계약을, IPO와 캘린더는 기존 falsy 조기 반환을 유지한다. 공개 html/escapeHtml 별칭과 기존 escaping 범위는 그대로다. 공통화 후 새 미리보기 서버에서 IPO·캘린더의 기본 렌더링을 확인했다. 악성 입력을 포함한 별도 Chrome 검사는 미실행이다.
+- KST 폼 기본값: 순자산 과거 기록과 예적금 납입의 기존 KST 오늘 계산을 WealthDateHelper.getKstIsoDate()에 위임한다. 폼 초기화 시점, 기존 기록 날짜 우선, 잔액 계산과 저장 API는 바꾸지 않는다.
+- 미리보기: 기존 tests/ui_preview.py에는 신규 공통 소스 하나만 명시적으로 허용한다. 합성 응답·쓰기 차단은 변경하지 않는다. Chrome에서 시장 dialog 열기·취소·포커스 복귀·단일 노드, 과거 기록 날짜와 max 2026-11-21, 실제·예상 배당 빈 상태 ₩0를 확인했다. 날짜는 고정값이 아니다. 대량 배당 행·formatter 생성 횟수·IPO 상세 모달·납입 폼·전체 테마/기기 조합은 미검증이다.
+- test-dividend-readiness: 현재 main의 초기 로딩·late filter 대기와 지연 응답·직접 재진입 검사보다 약한 이전 대기식, 임시 진단 출력, 오래된 자산 revision 변경은 가져오지 않는다. 신규 테스트·fixture는 추가하지 않았다.
+- Frontend 중복: dialog shell은 7개 후보의 파일 해시가 동일하다. 기존 Format/Date/InvestmentSummary/IPO Applicant 및 ScheduleCard View와 중복되는 formatter·날짜·reference·계좌 옵션 출력 소유자를 추가하지 않는다. 별도 테마 토큰·폰트 트리, request-scope·계좌 연결·배정·매도 상태 전환, stock-profit-label-tone의 별도 의미 색상 변경은 이번 후보에서 제외하고 보존한다.
+- 정리 순서: 이 후보의 검토·통합 확인 → 배당 formatter 후보의 검증 파일 보존 여부 결정 → test-dividend-readiness의 불필요한 이전 검사/진단 정리 승인 → Frontend 7개 고유 상태·디자인 변경 판정 후 지정 worktree만 정리. 현재는 어떤 원본 worktree·브랜치·파일도 삭제하지 않는다.
+
+위의 최종 사용자 검토 체크리스트 21개는 그대로 PENDING이다. 이 기록은 새 체크리스트가 아니며 금융 계산·API·DB·인증·권한·저장 또는 실제 사용자 UI의 PASS를 뜻하지 않는다. Commit·Push·PR·Merge·배포는 미실행이다.

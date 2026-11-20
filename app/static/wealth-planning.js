@@ -4,7 +4,7 @@
   const home = document.querySelector('[data-wealth-page="home"]');
   const invest = document.querySelector('[data-wealth-page="invest"]');
   if (!home || !invest) return;
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const esc = window.WealthFormat.escapeHtml;
   const won = value => `${Math.round(value).toLocaleString('ko-KR')}원`;
   const BUCKET_PRESETS = [
     ['코어','장기 핵심 자산'], ['성장','성장 중심 자산'], ['배당','배당과 현금흐름 자산'],
@@ -54,14 +54,14 @@
   const editForm=document.getElementById('wealthHistoryEditForm');
   const editStatus=document.getElementById('wealthHistoryEditStatus');
   const formStatus=document.getElementById('wealthHistoryFormStatus');
-  const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+
   function openHistory(record=null) {
     if(!state || !summary || historyBusy)return;
     editingRecord=record?{...record,revision:state.revision}:{adding:true,source:'manual',owner:summary.owner,revision:state.revision};
     editForm.reset();
     document.getElementById('wealthHistoryDialogTitle').textContent=record?'기록 수정':'기록 추가';
     document.getElementById('wealthHistoryScope').textContent=editingRecord.owner+' · 총자산과 총부채를 입력하면 순자산이 자동 계산됩니다. 실제 계좌 잔고는 바뀌지 않습니다.';
-    editForm.elements.date.max=today();editForm.elements.date.value=record?.date || today();
+    editForm.elements.date.max=window.WealthDateHelper.getKstIsoDate();editForm.elements.date.value=record?.date || window.WealthDateHelper.getKstIsoDate();
     editForm.elements.assets.value=record?.assets ?? '';
     editForm.elements.debt.value=record?.debt ?? '';
     editForm.elements.net_worth.value=(record?.assets != null && record?.debt != null) ? Number(record.assets)-Number(record.debt) : '';

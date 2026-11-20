@@ -137,12 +137,7 @@
 
   function escapeHtml(str) {
     if (!str) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+    return window.WealthFormat.escapeHtml(str);
   }
 
 
@@ -847,15 +842,10 @@
   let ipoDetailDialog=null,detailEpoch=0,detailTrigger=null;
   function ensureIpoDetailDialog(){
     if(ipoDetailDialog)return;
-    ipoDetailDialog=document.getElementById('ipoSharedDetailDialog');
-    if(!ipoDetailDialog){
-      ipoDetailDialog=document.createElement('dialog');
-      ipoDetailDialog.id='ipoSharedDetailDialog';
-      ipoDetailDialog.className='dialog';
-      ipoDetailDialog.setAttribute('aria-labelledby','ipoSharedDetailTitle');
-      document.body.append(ipoDetailDialog);
-    }
-    ipoDetailDialog.addEventListener('close',()=>{detailEpoch++;detailTrigger?.focus();});
+    ipoDetailDialog=window.WealthDialogShell.ensure({
+      id:'ipoSharedDetailDialog', labelledBy:'ipoSharedDetailTitle',
+      onClose:()=>{detailEpoch++;detailTrigger?.focus();},
+    });
   }
   window.addEventListener('wealth:role',()=>{detailEpoch++;ipoDetailDialog?.close();});
   async function openIpoDetail(id,trigger=null){

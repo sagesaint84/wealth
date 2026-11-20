@@ -24,7 +24,7 @@
     form().reset();
     editingId = '';
     requestId = crypto.randomUUID();
-    input('date').value = new Intl.DateTimeFormat('sv-SE', {timeZone:'Asia/Seoul'}).format(new Date());
+    input('date').value = window.WealthDateHelper.getKstIsoDate();
     input('withdraw_account_id').innerHTML = '<option value="">선택 안 함</option>' + banks.filter(compatible).map(b => `<option value="${html(b.id)}">${html(b.bank_name || '')} · ${html(b.account_name || '은행계좌')}</option>`).join('');
     document.getElementById('savingContributionSave').textContent = '납입 기록 저장';
     document.getElementById('savingContributionCancelEdit').hidden = true;
