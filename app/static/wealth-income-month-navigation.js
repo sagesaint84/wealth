@@ -16,7 +16,7 @@
 
   function bind({
     prefix, getKstYearMonth, shiftYearMonth, parseYearMonth,
-    getYear, getMonth, beforeSelect, onMonthSelected,
+    getYear, getMonth, beforeSelect, onMonthSelected, wheel = false,
   }) {
     const prevBtn = document.getElementById(prefix + 'PrevMonthBtn');
     const nextBtn = document.getElementById(prefix + 'NextMonthBtn');
@@ -42,6 +42,14 @@
 
     if (monthText && monthPicker) {
       monthText.addEventListener('click', () => openPicker(monthPicker));
+
+      if (wheel) {
+        monthText.setAttribute('title', '클릭하여 월 선택 또는 마우스 휠로 월 이동');
+        monthText.addEventListener('wheel', (event) => {
+          event.preventDefault();
+          if (event.deltaY !== 0) shift(event.deltaY < 0 ? 1 : -1);
+        }, { passive: false });
+      }
 
       monthPicker.addEventListener('change', async (e) => {
         const parsed = parseYearMonth(e.target.value);

@@ -2,17 +2,7 @@
 (() => {
   'use strict';
 
-  const getKstToday = () => {
-    const value = window.WealthIpoDate?.todayKst?.();
-    if (value) return value;
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
-    }).formatToParts(new Date()).reduce((result, part) => {
-      if (part.type !== 'literal') result[part.type] = part.value;
-      return result;
-    }, {});
-    return `${parts.year}-${parts.month}-${parts.day}`;
-  };
+  const getKstToday = window.WealthDateHelper.getKstIsoDate;
   const initialKst = getKstToday().split('-').map(Number);
   let currentYear = initialKst[0];
   let currentMonth = initialKst[1]; // 1-12
@@ -62,10 +52,7 @@
       && !calendarPanel.classList.contains('wealth-income-hidden');
   }
 
-  function formatMoney(num) {
-    if (num === null || num === undefined || isNaN(num)) return '—';
-    return Math.round(num).toLocaleString('ko-KR');
-  }
+  const formatMoney = window.WealthFormat.formatMoney;
 
   async function fetchApplications() {
     try {

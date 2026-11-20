@@ -87,6 +87,16 @@
 
     const realizedColumns = ['선택', '거래일자', '종목명(코드)', '시장/통화', '거래/가져오기 유형', '매도수량', '매수금액', '매도금액', '실현손익', '수익률', '수수료/제세금'];
 
+    // Reflect rendered row controls only; selection data remains in Controllers.
+    function syncFeedSelection(body) {
+      const all = body.closest('table')?.querySelector('thead input[type="checkbox"]');
+      if (!all) return;
+      const inputs = Array.from(body.querySelectorAll('input[type="checkbox"][data-index]'));
+      const checked = inputs.filter(input => input.checked).length;
+      all.checked = inputs.length > 0 && checked === inputs.length;
+      all.indeterminate = checked > 0 && checked < inputs.length;
+    }
+
     function renderRealizedTable({ body, rows, status, emptyMessage, selection, checkboxClass, adapt, toss }) {
       const table = body.closest('table');
       const head = table?.querySelector('thead');
@@ -101,6 +111,7 @@
       if (status === 'error' || status === 'loading' || !rows.length) {
         body.innerHTML = status === 'loading' ? brokerTableLoadingRow(11, '조회 중입니다...')
           : brokerTableEmptyRow(11, status === 'error' ? '조회에 실패했습니다.' : emptyMessage);
+        syncFeedSelection(body);
         return;
       }
       body.innerHTML = rows.map((row, index) => {
@@ -118,6 +129,7 @@
           return `<td class="${className}${column === 8 ? ' ' + display.tone : ''}"${typeCell ? ` data-index="${index}"` : ''}>${cell}</td>`;
         }).join('') + '</tr>';
       }).join('');
+      syncFeedSelection(body);
     }
 
     function feedSelectionCell({ index, selected, imported, checkboxClass, badgeClass,
@@ -130,7 +142,10 @@
     }
 
     function bindFeedSelection(body, selector, onChange) {
-      body.querySelectorAll(selector).forEach(input => input.addEventListener('change', onChange));
+      body.querySelectorAll(selector).forEach(input => input.addEventListener('change', event => {
+        onChange(event);
+        syncFeedSelection(body);
+      }));
     }
 
     function initializeBrokerScreens(screens, onSwitch, extraDateFields = []) {

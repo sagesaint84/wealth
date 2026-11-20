@@ -18,87 +18,6 @@ let heatmapPeriod = localStorage.getItem("heatmap_period") || "1D";
 let heatmapTheme = localStorage.getItem("heatmap_theme") || "kr";
 let heatmapMaxCap = localStorage.getItem("heatmap_max_cap") || "auto";
 
-function getKstDateParts(now = new Date()) {
-  try {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Seoul',
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-    }).formatToParts(now).reduce((acc, p) => {
-      if (p.type !== 'literal') acc[p.type] = p.value;
-      return acc;
-    }, {});
-    const year = parseInt(parts.year, 10);
-    const month = parseInt(parts.month, 10);
-    const day = parseInt(parts.day, 10);
-    return { year, month, day };
-  } catch (e) {
-    const d = new Date(new Date(now).getTime() + 9 * 60 * 60 * 1000);
-    return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
-  }
-}
-
-function getKstYearMonth(now = new Date()) {
-  const { year, month } = getKstDateParts(now);
-  const key = `${year}-${String(month).padStart(2, '0')}`;
-  return { year, month, key };
-}
-
-function getKstDateRange(dayCount = 30, now = new Date()) {
-  const count = Number(dayCount);
-  if (!Number.isInteger(count) || count < 1) throw new RangeError('dayCount must be a positive integer');
-  const { year, month, day } = getKstDateParts(now);
-  const todayUtc = Date.UTC(year, month - 1, day);
-  const start = new Date(todayUtc - (count - 1) * 24 * 60 * 60 * 1000);
-  const format = date => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
-  return { fromDate: format(start), toDate: format(new Date(todayUtc)) };
-}
-
-function shiftYearMonth(year, month, delta) {
-  let y = Number(year);
-  let m = Number(month) + Number(delta);
-  while (m < 1) {
-    m += 12;
-    y -= 1;
-  }
-  while (m > 12) {
-    m -= 12;
-    y += 1;
-  }
-  const key = `${y}-${String(m).padStart(2, '0')}`;
-  return { year: y, month: m, key };
-}
-
-function parseYearMonth(str) {
-  if (typeof str !== 'string') return null;
-  const trimmed = str.trim();
-  const m1 = trimmed.match(/^(\d{4})-(\d{1,2})$/);
-  if (m1) {
-    const y = parseInt(m1[1], 10);
-    const m = parseInt(m1[2], 10);
-    if (m >= 1 && m <= 12) {
-      return { year: y, month: m, key: `${y}-${String(m).padStart(2, '0')}` };
-    }
-  }
-  const m2 = trimmed.match(/^(\d{4})년\s*(\d{1,2})월$/);
-  if (m2) {
-    const y = parseInt(m2[1], 10);
-    const m = parseInt(m2[2], 10);
-    if (m >= 1 && m <= 12) {
-      return { year: y, month: m, key: `${y}-${String(m).padStart(2, '0')}` };
-    }
-  }
-  return null;
-}
-
-window.WealthDateHelper = {
-  getKstYearMonth,
-  getKstDateRange,
-  shiftYearMonth,
-  parseYearMonth,
-};
-
 // Dates are current before any API request; initial HTML contains neutral labels.
 function initializeSummaryPeriodLabels() {
   const {year, month} = getKstYearMonth();
@@ -10115,66 +10034,22 @@ async function processLedgerTextImport() {
 window.processLedgerTextImport = processLedgerTextImport;
 window.processLedgerImport = processLedgerTextImport;
 
+// Every month navigation action exits annual mode before issuing the read.
+function navigateLedgerMonth(year, month) {
+  window.WealthLedgerPeriodFilter?.setAnnualView(false);
+  currentLedgerYear = year;
+  currentLedgerMonth = month;
+  return window.loadLedger();
+}
+
 function initLedgerListeners() {
-  document.getElementById("ledgerPrevMonthBtn")?.addEventListener("click", () => {
-    const shifted = shiftYearMonth(currentLedgerYear, currentLedgerMonth, -1);
-    currentLedgerYear = shifted.year;
-    currentLedgerMonth = shifted.month;
-    loadLedger();
+  window.WealthIncomeMonthNavigation.bind({
+    prefix: 'ledger', getKstYearMonth, shiftYearMonth, parseYearMonth,
+    getYear: () => currentLedgerYear,
+    getMonth: () => currentLedgerMonth,
+    onMonthSelected: navigateLedgerMonth,
+    wheel: true,
   });
-  document.getElementById("ledgerNextMonthBtn")?.addEventListener("click", () => {
-    const shifted = shiftYearMonth(currentLedgerYear, currentLedgerMonth, 1);
-    currentLedgerYear = shifted.year;
-    currentLedgerMonth = shifted.month;
-    loadLedger();
-  });
-  document.getElementById("ledgerTodayMonthBtn")?.addEventListener("click", () => {
-    const cur = getKstYearMonth();
-    currentLedgerYear = cur.year;
-    currentLedgerMonth = cur.month;
-    loadLedger();
-  });
-
-  // 📅 년/월 직접 선택 (HTML5 month picker)
-  const monthPicker = document.getElementById("ledgerMonthPicker");
-  if (monthPicker) {
-    monthPicker.addEventListener("change", (e) => {
-      if (e.target.value) {
-        const parts = e.target.value.split("-");
-        if (parts.length === 2) {
-          currentLedgerYear = parseInt(parts[0], 10);
-          currentLedgerMonth = parseInt(parts[1], 10);
-          loadLedger();
-        }
-      }
-    });
-  }
-  const monthText = document.getElementById("ledgerCurrentMonthText");
-  if (monthText && monthPicker) {
-    monthText.setAttribute("title", "클릭하여 월 선택 또는 마우스 휠로 월 이동");
-    monthText.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      if (e.deltaY < 0) {
-        currentLedgerMonth++;
-        if (currentLedgerMonth > 12) {
-          currentLedgerMonth = 1;
-          currentLedgerYear++;
-        }
-        loadLedger();
-      } else if (e.deltaY > 0) {
-        currentLedgerMonth--;
-        if (currentLedgerMonth < 1) {
-          currentLedgerMonth = 12;
-          currentLedgerYear--;
-        }
-        loadLedger();
-      }
-    }, { passive: false });
-
-    monthText.addEventListener("click", () => {
-      window.WealthIncomeMonthNavigation.openPicker(monthPicker);
-    });
-  }
 }
 
 // ── 토스 WTS 실현손익 피드 (선택 가져오기 UX) ──────────────────────────────────
@@ -11978,12 +11853,10 @@ async function fetchNhRealizedFeed() {
   } catch (error) { showNhMessage(nhSafeError(error, 'NH 실현손익 조회에 실패했습니다.'), 'error'); renderNhFeedTable(); }
   finally { setNhLoading(false); }
 }
-function nhNumber(value, digits = 0) { if (value === null || value === undefined || value === '') return '—'; const number = Number(value); return Number.isFinite(number) ? number.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—'; }
+function nhNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoKr(value, digits); }
 function renderNhFeedTable() {
   const tbody = document.getElementById('nhTableBody');
   if (!tbody) return;
-  const selectAll = document.getElementById('nhSelectAll');
-  if (selectAll) selectAll.checked = false;
   brokerUI.renderRealizedTable({
     body: tbody, rows: nhRealizedState.rows || [], status: 'ok', emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
     selection: nhRealizedState, checkboxClass: 'nh-row-check',
@@ -12171,16 +12044,10 @@ async function fetchKiwoomRealizedFeed() {
     setKiwoomLoading(false);
   }
 }
-function kiwoomNumber(value, digits = 0) {
-  if (value === null || value === undefined || value === '') return '—';
-  const number = Number(value);
-  return Number.isFinite(number) ? number.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—';
-}
+function kiwoomNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoKr(value, digits); }
 function renderKiwoomFeedTable() {
   const tbody = document.getElementById('kiwoomTableBody');
   if (!tbody) return;
-  const selectAll = document.getElementById('kiwoomSelectAll');
-  if (selectAll) selectAll.checked = false;
   brokerUI.renderRealizedTable({
     body: tbody, rows: kiwoomRealizedState.rows || [], status: 'ok', emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
     selection: kiwoomRealizedState, checkboxClass: 'kiwoom-row-check',
@@ -12454,16 +12321,10 @@ async function fetchKbRealizedFeed() {
     setKbLoading(false);
   }
 }
-function kbNumber(value, digits = 0) {
-  if (value === null || value === undefined || value === '') return '—';
-  const number = Number(value);
-  return Number.isFinite(number) ? number.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—';
-}
+function kbNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoKr(value, digits); }
 function renderKbFeedTable() {
   const tbody = document.getElementById('kbTableBody');
   if (!tbody) return;
-  const selectAll = document.getElementById('kbSelectAll');
-  if (selectAll) selectAll.checked = false;
   brokerUI.renderRealizedTable({
     body: tbody, rows: kbRealizedState.rows || [], status: 'ok', emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
     selection: kbRealizedState, checkboxClass: 'kb-row-check',

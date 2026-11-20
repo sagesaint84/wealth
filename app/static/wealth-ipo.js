@@ -26,15 +26,7 @@
     return { year, month, day, value };
   };
 
-  const todayKst = (now = new Date()) => {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit'
-    }).formatToParts(now).reduce((result, part) => {
-      if (part.type !== 'literal') result[part.type] = part.value;
-      return result;
-    }, {});
-    return `${parts.year}-${parts.month}-${parts.day}`;
-  };
+  const todayKst = (now = new Date()) => window.WealthDateHelper.getKstIsoDate(now);
 
   const subscriptionStatus = (ipo, today = todayKst()) => {
     if (['POSTPONED','WITHDRAWN','DATE_UNKNOWN'].includes(ipo?.market_state)
@@ -141,10 +133,7 @@
   let historicalImportTicket = null;
   let historicalImportCanCommit = false;
 
-  function formatMoney(num) {
-    if (num === null || num === undefined || isNaN(num)) return '—';
-    return Math.round(num).toLocaleString('ko-KR');
-  }
+  const formatMoney = window.WealthFormat.formatMoney;
 
   function escapeHtml(str) {
     if (!str) return '';
