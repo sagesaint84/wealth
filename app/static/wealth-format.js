@@ -17,5 +17,26 @@
     return Number.isFinite(number) ? number.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—';
   }
 
-  window.WealthFormat = Object.freeze({ formatMoney, roundGroupedKoKr, fixedNumberKoKr });
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[character]));
+  }
+
+  // Reuse Intl for one display pass; callers retain their existing fallback.
+  function createCurrencyFormatter(currency, fallback) {
+    let formatter;
+    try {
+      formatter = new Intl.NumberFormat('ko-KR', {
+        style: 'currency', currency, maximumFractionDigits: currency === 'KRW' ? 0 : 2,
+      });
+    } catch { /* Preserve the caller's legacy fallback. */ }
+    return value => {
+      if (!formatter) return fallback(value);
+      try { return formatter.format(Number(value || 0)); }
+      catch { return fallback(value); }
+    };
+  }
+
+  window.WealthFormat = Object.freeze({ formatMoney, roundGroupedKoKr, fixedNumberKoKr, createCurrencyFormatter, escapeHtml });
 })();

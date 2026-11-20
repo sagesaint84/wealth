@@ -574,7 +574,7 @@ document.addEventListener('input', (e) => {
   }
 });
 
-const html = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]));
+const html = window.WealthFormat.escapeHtml;
 const escapeHtml = html;
 const brokerUI = window.WealthBrokerUI.create({ document, html });
 window.escapeHtml = html;
@@ -6789,6 +6789,7 @@ window.addEventListener('wealth:unified-ready', () => attachEstimatedDividendToo
 function renderMonthlyDividendDetail(month = null) {
   const container = $("#dividendMonthlyDetail");
   if (!container || !dividendData) return;
+  const detailMoney = window.WealthFormat.createCurrencyFormatter('KRW', money);
 
   const schedule = normalizeMonthlyDividendSchedule(dividendData.monthly_schedule);
   let title = "전체 배당 지급 종목 (연간 기준)";
@@ -6796,10 +6797,10 @@ function renderMonthlyDividendDetail(month = null) {
 
   if (month && month >= 1 && month <= 12) {
     const monthData = schedule.find(s => s.month === month);
-    title = `📅 ${month}월 예상 배당 지급 종목 (${(monthData?.items || []).length}개 종목 · 합계 ${money(monthData?.total_krw || 0)})`;
+    title = `📅 ${month}월 예상 배당 지급 종목 (${(monthData?.items || []).length}개 종목 · 합계 ${detailMoney(monthData?.total_krw || 0)})`;
     items = monthData?.items || [];
   } else {
-    title = `📅 전체 배당 지급 종목 (${(dividendData.holding_dividends || []).filter(h => h.annual_payout_krw > 0).length}개 종목 · 연간 합계 ${money(dividendData.total_annual_dividend_krw || 0)})`;
+    title = `📅 전체 배당 지급 종목 (${(dividendData.holding_dividends || []).filter(h => h.annual_payout_krw > 0).length}개 종목 · 연간 합계 ${detailMoney(dividendData.total_annual_dividend_krw || 0)})`;
     items = (dividendData.holding_dividends || []).filter(h => h.annual_payout_krw > 0).map(h => ({
       code: h.code,
       name: h.name,
@@ -6812,7 +6813,7 @@ function renderMonthlyDividendDetail(month = null) {
     }));
   }
 
-  window.WealthActualDividendDetailView.renderEstimated({ container, title, items, month, html, money, number });
+  window.WealthActualDividendDetailView.renderEstimated({ container, title, items, month, html, money: detailMoney, number });
 }
 
 function renderActualDividends(data) {
@@ -6855,6 +6856,7 @@ function renderActualDividendDetail(month = null, bucketDetail = null) {
   if (bucketDetail) month = bucketDetail.key;
   const container = $("#dividendMonthlyDetail");
   if (!container || (!actualDividendData && !bucketDetail)) return;
+  const detailMoney = window.WealthFormat.createCurrencyFormatter('KRW', money);
 
   const records = bucketDetail?.items || [
     ...(actualDividendData?.records || []).map(record => ({...record, income_kind: 'dividend'})),
@@ -6880,11 +6882,11 @@ function renderActualDividendDetail(month = null, bucketDetail = null) {
     });
     const sumKrw = items.reduce((acc, cur) => acc + Number(cur.amount_krw || 0), 0);
     const yrPrefix = (selectedDividendYear && selectedDividendYear !== 'all') ? `${selectedDividendYear}년 ` : '';
-    title = `📅 ${yrPrefix}${month}월 실제 배당금 입금 내역 (${items.length}건 · 합계 <span style="color:#f43f5e;">${money(sumKrw)}</span>)`;
+    title = `📅 ${yrPrefix}${month}월 실제 배당금 입금 내역 (${items.length}건 · 합계 <span style="color:#f43f5e;">${detailMoney(sumKrw)}</span>)`;
   } else {
     items = [...records];
     const sumKrw = items.reduce((acc, cur) => acc + Number(cur.amount_krw || 0), 0);
-    title = `📅 전체 실제 배당금 입금 내역 (${items.length}건 · 합계 <span style="color:#f43f5e;">${money(sumKrw)}</span>)`;
+    title = `📅 전체 실제 배당금 입금 내역 (${items.length}건 · 합계 <span style="color:#f43f5e;">${detailMoney(sumKrw)}</span>)`;
   }
 
   const dividendCount = items.filter(item => item.income_kind !== 'interest').length;
@@ -6892,7 +6894,7 @@ function renderActualDividendDetail(month = null, bucketDetail = null) {
   const sumKrw = items.reduce((sum, item) => sum + Number(item.amount_krw || 0), 0);
   const period = bucketDetail?.key ? window.WealthUnifiedTimeseries.bucketHeading(bucketDetail.key, bucketDetail.mode)
     : month ? `${selectedDividendYear && selectedDividendYear !== 'all' ? `${selectedDividendYear}년 ` : ''}${month}월` : '전체';
-  title = `📅 ${period} 실제 배당·이자 내역 (배당 ${dividendCount}건 · 이자 ${interestCount}건 · 합계 ${money(sumKrw)})`;
+  title = `📅 ${period} 실제 배당·이자 내역 (배당 ${dividendCount}건 · 이자 ${interestCount}건 · 합계 ${detailMoney(sumKrw)})`;
 
   // 배당금 내역 컬럼 정렬 (보유종목과 동일 UX)
   items.sort((a, b) => {
@@ -6923,7 +6925,7 @@ function renderActualDividendDetail(month = null, bucketDetail = null) {
 
   window.WealthActualDividendDetailView.render({
     container, title, items, month, hasBucketDetail: Boolean(bucketDetail),
-    currentDivSortField, currentDivSortOrder, html, money, number,
+    currentDivSortField, currentDivSortOrder, html, money: detailMoney, number,
   });
 }
 

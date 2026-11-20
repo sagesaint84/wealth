@@ -19,8 +19,7 @@ function marketCardSettings(items) {
   if(!button){
     button=document.createElement('button');button.id='marketCardSettings';button.type='button';button.className='button secondary';button.textContent='표시 설정';button.setAttribute('aria-haspopup','dialog');
     document.querySelector('#marketPanel .panel-head')?.append(button);
-    const dialog=document.createElement('dialog');dialog.id='marketCardDialog';dialog.className='dialog';dialog.setAttribute('aria-labelledby','marketCardDialogTitle');
-    document.body.append(dialog);
+    const dialog=window.WealthDialogShell.ensure({id:'marketCardDialog',labelledBy:'marketCardDialogTitle'});
     button.addEventListener('click',()=>{
       const hidden=hiddenMarketCards(),identity=marketPreferenceKey();
       dialog.innerHTML='<form><div class="dialog-head"><h2 id="marketCardDialogTitle">표시할 지수 선택</h2></div><div class="market-card-choices"></div><p role="status"></p><div class="dialog-actions"><button type="button" class="button secondary">취소</button><button type="submit" class="button primary">저장</button></div></form>';
