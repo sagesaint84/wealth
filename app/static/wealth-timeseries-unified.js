@@ -1353,11 +1353,18 @@
   }
 
   function installObserver() {
-    const observer = new MutationObserver(() => {
-      if (!document.getElementById('recordsPanel')?.classList.contains('is-tax-view') && hostNeedsUnified('assetChart')) queue('stock');
-      if (!netWorthCapturePending && hostNeedsUnified('wealthHistoryPlot')) queue('networth');
-      if (hostNeedsUnified('pnlBarChartWrap')) queue('pnl');
-      if (dividendMode() === 'actual' && hostNeedsUnified('dividendBarChartWrap')) queue('dividend');
+    const observer = new MutationObserver(mutations => {
+      // Detail tables and unrelated panels do not invalidate chart ownership.
+      // Avoid queue()'s geometry read unless this chart's DOM actually changed.
+      const changed = id => {
+        const host = document.getElementById(id);
+        return host && mutations.some(mutation => host.contains(mutation.target)
+          || Array.from(mutation.addedNodes).some(node => node.nodeType === 1 && node.contains(host)));
+      };
+      if (changed('assetChart') && !document.getElementById('recordsPanel')?.classList.contains('is-tax-view') && hostNeedsUnified('assetChart')) queue('stock');
+      if (changed('wealthHistoryPlot') && !netWorthCapturePending && hostNeedsUnified('wealthHistoryPlot')) queue('networth');
+      if (changed('pnlBarChartWrap') && hostNeedsUnified('pnlBarChartWrap')) queue('pnl');
+      if (changed('dividendBarChartWrap') && dividendMode() === 'actual' && hostNeedsUnified('dividendBarChartWrap')) queue('dividend');
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
