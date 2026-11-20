@@ -9151,31 +9151,11 @@ function onLedgerTxTypeChanged() {
   const form = document.getElementById("ledgerTxForm");
   if (!form) return;
   const typeVal = form.querySelector("[name='type']")?.value || "expense";
-  const payMethodTypeLabel = document.getElementById("ledgerTxPayMethodTypeLabel");
-  const cardBox = document.getElementById("ledgerTxCardSelectBox");
-  const accBox = document.getElementById("ledgerTxAccountSelectBox");
-  const accLabel = document.getElementById("ledgerTxAccountSelectLabel");
-  const nextBalLabel = document.getElementById("ledgerNextBalanceLabel");
 
   updateLedgerCategoryOptions();
+  ledgerScreenController.applyTransactionType(typeVal);
 
-  if (typeVal === "income") {
-    // 💰 수입: 결제수단/카드 숨김, 입금 계좌 표시
-    if (payMethodTypeLabel) payMethodTypeLabel.style.display = "none";
-    if (cardBox) cardBox.style.display = "none";
-    if (accBox) accBox.style.display = "block";
-    if (accLabel) accLabel.textContent = "🏦 입금 연동 계좌 선택 (선택 시 잔액 즉시 증가)";
-    if (nextBalLabel) nextBalLabel.textContent = "적용 후 예상 잔액 (+입금):";
-  } else if (typeVal === "transfer") {
-    // 🔄 이체: 결제수단/카드 숨김, 출금 계좌 표시
-    if (payMethodTypeLabel) payMethodTypeLabel.style.display = "none";
-    if (cardBox) cardBox.style.display = "none";
-    if (accBox) accBox.style.display = "block";
-    if (accLabel) accLabel.textContent = "🏦 출금 연동 계좌 선택 (선택 시 잔액 즉시 차감)";
-    if (nextBalLabel) nextBalLabel.textContent = "적용 후 예상 잔액 (-출금):";
-  } else {
-    // 💳 지출: 결제 방식(신용카드 vs 계좌) 노출
-    if (payMethodTypeLabel) payMethodTypeLabel.style.display = "block";
+  if (typeVal !== "income" && typeVal !== "transfer") {
     onLedgerPayMethodTypeChanged();
     return;
   }
@@ -9187,24 +9167,12 @@ function onLedgerPayMethodTypeChanged() {
   const form = document.getElementById("ledgerTxForm");
   if (!form) return;
   const payMethodType = form.querySelector("[name='pay_method_type']")?.value || "credit_card";
-  const cardBox = document.getElementById("ledgerTxCardSelectBox");
-  const accBox = document.getElementById("ledgerTxAccountSelectBox");
-  const accLabel = document.getElementById("ledgerTxAccountSelectLabel");
-  const nextBalLabel = document.getElementById("ledgerNextBalanceLabel");
-  const previewBox = document.getElementById("ledgerBalancePreviewBox");
-
   const owner = form.querySelector("[name='owner']")?.value || currentOwner || "모두";
 
+  ledgerScreenController.applyPaymentMethod(payMethodType);
   if (payMethodType === "credit_card") {
-    if (cardBox) cardBox.style.display = "block";
-    if (accBox) accBox.style.display = "none";
-    if (previewBox) previewBox.style.display = "none";
     populateLedgerCardOptions(form.querySelector("[name='card_id']")?.value, owner);
   } else {
-    if (cardBox) cardBox.style.display = "none";
-    if (accBox) accBox.style.display = "block";
-    if (accLabel) accLabel.textContent = "🏦 출금 연동 계좌 선택 (선택 시 잔액 즉시 차감)";
-    if (nextBalLabel) nextBalLabel.textContent = "적용 후 예상 잔액 (-출금):";
     updateLedgerBalancePreview();
   }
 }
@@ -9489,37 +9457,14 @@ const ledgerCardsView = window.WealthLedgerCardsView.create({ document, html, nu
 function renderLedgerCardsList(cards) { return ledgerCardsView.renderLedgerCardsList(cards); }
 
 function resetLedgerCardForm() {
-  const form = document.getElementById("ledgerCardForm");
-  const title = document.getElementById("ledgerCardFormTitle");
-  const cancelBtn = document.getElementById("ledgerCardFormCancelBtn");
-  if (!form) return;
-  form.reset();
-  delete form.dataset.cardId;
-  if (title) title.textContent = "➕ 신규 카드 등록";
-  if (cancelBtn) cancelBtn.style.display = "none";
+  ledgerScreenController.resetCardForm();
 }
 window.resetLedgerCardForm = resetLedgerCardForm;
 
 function editLedgerCard(cardId) {
-  const form = document.getElementById("ledgerCardForm");
-  const title = document.getElementById("ledgerCardFormTitle");
-  const cancelBtn = document.getElementById("ledgerCardFormCancelBtn");
-  if (!form || !cardId) return;
-
-  const cards = rawLedgerData?.cards || [];
-  const card = cards.find(c => c.id === cardId);
-  if (!card) return;
-
-  form.dataset.cardId = card.id;
-  form.querySelector("[name='card_company']").value = card.card_company || "현대카드";
-  form.querySelector("[name='card_name']").value = card.card_name || "";
-  form.querySelector("[name='owner']").value = card.owner || "모두";
-  form.querySelector("[name='payment_day']").value = card.payment_day || "14";
-  form.querySelector("[name='linked_account_id']").value = card.linked_account_id || "";
-  form.querySelector("[name='memo']").value = card.memo || "";
-
-  if (title) title.textContent = "✎ 카드 정보 수정";
-  if (cancelBtn) cancelBtn.style.display = "inline-block";
+  if (!cardId) return;
+  const card = (rawLedgerData?.cards || []).find(c => c.id === cardId);
+  ledgerScreenController.editCardForm(card);
 }
 window.editLedgerCard = editLedgerCard;
 

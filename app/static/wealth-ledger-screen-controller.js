@@ -56,7 +56,87 @@
       }).join("");
     }
 
-    return Object.freeze({ render, renderLedgerCategories });
+    function cardFormControls() {
+      return {
+        form: document.getElementById("ledgerCardForm"),
+        title: document.getElementById("ledgerCardFormTitle"),
+        cancelButton: document.getElementById("ledgerCardFormCancelBtn"),
+      };
+    }
+
+    function showCardFormMode({ title, cancelButton }, editing) {
+      if (title) title.textContent = editing ? "✎ 카드 정보 수정" : "➕ 신규 카드 등록";
+      if (cancelButton) cancelButton.style.display = editing ? "inline-block" : "none";
+    }
+
+    function resetCardForm() {
+      const controls = cardFormControls();
+      const { form } = controls;
+      if (!form) return;
+      form.reset();
+      delete form.dataset.cardId;
+      showCardFormMode(controls, false);
+    }
+
+    function editCardForm(card) {
+      const controls = cardFormControls();
+      const { form } = controls;
+      if (!form || !card) return;
+
+      form.dataset.cardId = card.id;
+      form.querySelector("[name='card_company']").value = card.card_company || "현대카드";
+      form.querySelector("[name='card_name']").value = card.card_name || "";
+      form.querySelector("[name='owner']").value = card.owner || "모두";
+      form.querySelector("[name='payment_day']").value = card.payment_day || "14";
+      form.querySelector("[name='linked_account_id']").value = card.linked_account_id || "";
+      form.querySelector("[name='memo']").value = card.memo || "";
+      showCardFormMode(controls, true);
+    }
+
+    function showTransactionAccount(cardBox, accBox, accLabel, nextBalLabel, income) {
+      if (cardBox) cardBox.style.display = "none";
+      if (accBox) accBox.style.display = "block";
+      if (accLabel) accLabel.textContent = income
+        ? "🏦 입금 연동 계좌 선택 (선택 시 잔액 즉시 증가)"
+        : "🏦 출금 연동 계좌 선택 (선택 시 잔액 즉시 차감)";
+      if (nextBalLabel) nextBalLabel.textContent = income
+        ? "적용 후 예상 잔액 (+입금):"
+        : "적용 후 예상 잔액 (-출금):";
+    }
+
+    function applyTransactionType(type) {
+      const payMethodTypeLabel = document.getElementById("ledgerTxPayMethodTypeLabel");
+      if (payMethodTypeLabel) payMethodTypeLabel.style.display = type === "income" || type === "transfer" ? "none" : "block";
+      if (type === "income" || type === "transfer") {
+        showTransactionAccount(
+          document.getElementById("ledgerTxCardSelectBox"),
+          document.getElementById("ledgerTxAccountSelectBox"),
+          document.getElementById("ledgerTxAccountSelectLabel"),
+          document.getElementById("ledgerNextBalanceLabel"),
+          type === "income",
+        );
+      }
+    }
+
+    function applyPaymentMethod(paymentMethod) {
+      const cardBox = document.getElementById("ledgerTxCardSelectBox");
+      const accBox = document.getElementById("ledgerTxAccountSelectBox");
+      if (paymentMethod === "credit_card") {
+        if (cardBox) cardBox.style.display = "block";
+        if (accBox) accBox.style.display = "none";
+        const previewBox = document.getElementById("ledgerBalancePreviewBox");
+        if (previewBox) previewBox.style.display = "none";
+      } else {
+        showTransactionAccount(
+          cardBox, accBox,
+          document.getElementById("ledgerTxAccountSelectLabel"),
+          document.getElementById("ledgerNextBalanceLabel"),
+          false,
+        );
+      }
+    }
+
+    return Object.freeze({ render, renderLedgerCategories, resetCardForm, editCardForm, applyTransactionType, applyPaymentMethod });
   }
   window.WealthLedgerScreenController = Object.freeze({ create });
 })();
