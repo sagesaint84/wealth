@@ -41,7 +41,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
         script = f"""
         const fs = require('fs');
         const vm = require('vm');
-        const code = fs.readFileSync('{WEALTH_JS.as_posix()}', 'utf8');
+        const code = fs.readFileSync('{(ROOT / 'app/static/wealth-date-helper.js').as_posix()}', 'utf8');
         const sandbox = {{
           window: {{}},
           document: {{ querySelector: () => null, querySelectorAll: () => [] }},
@@ -50,10 +50,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
           Date: Date
         }};
         vm.createContext(sandbox);
-        // Execute up to window.WealthDateHelper
-        const idx = code.indexOf('window.WealthDateHelper =');
-        const endIdx = code.indexOf(';', idx) + 1;
-        vm.runInContext(code.slice(0, endIdx), sandbox);
+        vm.runInContext(code, sandbox);
 
         const helper = sandbox.window.WealthDateHelper;
         const out = {{

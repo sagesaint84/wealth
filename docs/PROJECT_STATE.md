@@ -1421,3 +1421,70 @@ docker compose \
 - 중요한 설계 결정 변경
 
 업데이트 시 실제 secret, 계좌번호, 토큰, 사용자 개인 금융정보는 절대 기록하지 않는다.
+
+
+## 최종 사용자 검토 대기 체크리스트
+
+2026-11-20 KST — `codex/shared-date-owner`, 기준 HEAD `c9fb16f8447d0006ba19fd4ae2e58822bd02f0da`의 미커밋 개발 후보. 사용자 최종 일괄 검토를 기다린다. 합성 Chrome PASS는 사용자 승인이나 실제 금융 저장 PASS가 아니다. 사용자 확인 없이 체크를 완료하지 않는다.
+
+### M4 — 날짜·월 탐색
+
+공통 소유자: `app/static/wealth-date-helper.js`, `app/static/wealth-income-month-navigation.js`. 호출·로드: `app/static/wealth.js`, `app/static/index.html`. 검증 연결: `tests/test_money_log_month_navigation_frontend.py`, `tests/ui_preview.py`.
+
+정적 검증: 변경 JS 문법·Python AST·공백 검사 PASS. 합성 Chrome: 기존 412/750/1280px 증거 재사용. 증거: `C:/Users/USER/.codex/visualizations/wealth-m4/ledger-412.jpg`, `ledger-750.jpg`, `ledger-1280.jpg`.
+
+| 사용자 상태 | 실제 화면·수행 조작 및 정상 결과 | Codex 합성 Chrome 결과 | 실제 금융 환경에서만 확인할 위험 |
+|---|---|---|---|
+| [ ] PENDING | 가계부: 이전 달 → 정확히 1개월 이전 | PASS | 실제 조회 내역 일치 |
+| [ ] PENDING | 가계부: 다음 달 → 정확히 1개월 이후 | PASS | 실제 조회 내역 일치 |
+| [ ] PENDING | 가계부: 이번 달 → 현재 KST 연월 | PASS | 실제 실행 시점 KST 기준 |
+| [ ] PENDING | 가계부: 12월에서 다음 달 → 다음 해 1월 | PASS | 연도별 실제 기록 조회 |
+| [ ] PENDING | 가계부: 1월에서 이전 달 → 전년도 12월 | PASS | 연도별 실제 기록 조회 |
+| [ ] PENDING | 가계부: 연월 직접 선택 → 선택 연월 표시 | PASS | 실제 조회 내역 일치 |
+| [ ] PENDING | 가계부: 연간 보기 후 월 이동 → 월간 보기 | PASS | 연간·월간 실제 집계 일치 |
+| [ ] PENDING | 가계부: 실제 조회 내역과 선택 연월 대조 → 일치 | 합성 요청·응답·표시 연월 PASS; 실제 기록 미검증 | 실제 계좌·가족 범위 및 기록 |
+| [ ] PENDING | 실현손익: 월 이동·직접 선택 → 해당 연월 표시 | 이전·다음 PASS; 직접 선택 미검증 | 실제 거래 기간·필터 |
+| [ ] PENDING | 배당·이자: 월 이동·직접 선택 → 해당 연월 표시 | 이전·다음 PASS; 직접 선택 미검증 | 실제 입금 기간·필터 |
+| [ ] PENDING | 증권사 여섯 가져오기 화면: 첫 진입 → KST 오늘 포함 30일 | PASS; 검증 당시 2026-10-22~11-20, 날짜 고정 아님 | 실제 조회 API의 반환 기간 |
+| [ ] PENDING | 여섯 화면: 시작일·종료일 변경 후 재진입 → 입력 유지 | 시작일 변경·재진입 PASS; 종료일 변경 미검증 | 실제 상태 확인·조회 이후 보존 |
+| [ ] PENDING | 가져오기: 과거 기간 직접 선택 → 입력 가능 | 과거 시작일 입력 PASS | 증권사별 실제 과거 자료 지원 범위 |
+| [ ] PENDING | 실제 금융 자료 조회 → 요청 기간과 표시 기록 일치 | 미검증 | 실제 API·계좌·금융 기록 필요 |
+| [ ] PENDING | Purple/White/OLED 전환 → 날짜·텍스트 표시 이상 없음 | 현재 테마 확인; 세 테마 전체 미검증 | 실제 설정과 표시 조합 |
+| [ ] PENDING | Fold7 접힘·펼침 → 금액·버튼·날짜 입력 잘림 없음 | 412/750px 합성 표시 PASS; 실제 기기 미검증 | 실제 기기·키보드·글꼴 |
+
+위 항목의 정적 결과·관련 파일·증거는 이 M4 절의 공통 기록을 적용한다. 실제 사용자 검토는 전부 PENDING이다.
+
+
+### 후속 — 공통 금액 표시 1차
+
+공통 소유자: 기존 `app/static/wealth-format.js`의 `formatMoney`. `app/static/wealth-calendar.js`, `app/static/wealth-ipo.js`의 동일한 로컬 계산 본문을 제거하고 공통 함수 참조로 전환. `app/static/index.html`의 관련 자산 revision만 갱신. `tests/ui_preview.py`의 기존 broker-synthetic 모드에서만 명백한 가상 IPO 및 캘린더 GET 자료를 제공하며 일반 모드·POST 쓰기 차단은 유지한다.
+
+- [ ] PENDING — 통합 캘린더: 금액이 있는 날짜를 열어 수익·손실·실제 0·미제공을 대조한다. 정상 결과: 기존 반올림·구분자·부호·빈 표시 유지. 정적 검사 PASS. 합성 Chrome PASS: `+12,346`, `-2,346`, `+0`, 미제공 빈 표시 확인. 실제 금융 환경 위험: 실자료의 통화·금액 의미 및 누락값은 실제 기록으로 별도 대조. 관련 파일은 위 공통 소유자·캘린더·미리보기이며 브라우저 기록을 재사용한다.
+- [ ] PENDING — 공모주: 카드 상세를 펼쳐 공모가를 확인한다. 정상 결과: 기존 12,346원 반올림 표시와 실제 0·미제공의 기존 미정 표시 유지. 정적 검사 PASS, 합성 Chrome PASS. 증거: `C:/Users/USER/.codex/visualizations/wealth-m4/shared-money-ipo.jpg`. 실제 금융 환경 위험: 실제 공모가 원본의 정확성·저장은 이번 표시 검증 범위가 아니다. 관련 파일은 위 공통 소유자·IPO·미리보기.
+
+### 후속 — 증권사 고정 정밀도 표시
+
+공통 소유자: 기존 `app/static/wealth-format.js`의 `fixedNumberKoKr`. `app/static/wealth.js`의 NH·키움·KB 숫자 함수는 공개 진입점과 기존 콜백을 유지하며 공통 소유자에 위임한다. 빈값·비유한 수는 `—`, 실제 0과 증권사별 digits는 기존대로 유지한다. `app/static/index.html`의 관련 revision만 갱신한다.
+
+- [ ] PENDING — NH·키움·KB: 지원하는 시장에서 가상/실제 조회 결과와 미리보기의 수량·손익·통화를 대조한다. 정상 결과: NH·키움 기존 정밀도, KB 손익 0자리·KRW 유지. 정적·합성 Chrome 검증 상태는 아래 최종 검증 기록으로 관리한다. 실제 금융 환경 위험: 실제 원본 거래·수수료·환율·선택 토큰·가져오기 저장은 이번 표시 검증으로 승인되지 않는다. 관련 파일: `wealth-format.js`, `wealth.js`, `index.html`; 요청·계산·승인·저장 코드는 이전 그대로 보존한다.
+
+
+#### 후속 검증 확정 — 2026-11-20 KST
+
+증권사 고정 정밀도 표시: JS 문법·공백 검사 PASS. 기존 격리 Chrome에서 NH·키움 해외 조회 표와 미리보기 `25.50 USD`, KB 국내 조회 표와 미리보기 `25,000 KRW`를 확인했다. 조회 원본과 선택 토큰은 그대로 사용했고 최종 승인·저장은 실행하지 않았다. 증거: `C:/Users/USER/.codex/visualizations/wealth-m4/shared-number-preview.jpg`. 실제 사용자 검토는 위 PENDING을 유지한다.
+
+### 후속 — 공통 거래 표 선택 상태 표시 결함 수정
+
+기존 NH·키움·KB 렌더러가 전체 선택 직후 헤더 체크를 무조건 false로 덮어쓰는 제품 결함을 합성 Chrome에서 발견했다. 기준 코드에도 같은 초기화가 있으며 숫자 포맷 이관에서 새로 만든 결함이 아니다. `app/static/wealth-broker-ui.js`가 이미 출력된 행 체크박스만 읽어 헤더의 전체/부분 선택 표시를 동기화한다. `app/static/wealth.js`의 세 무조건 해제 구문을 제거했다. Controller의 selectedIndices·토큰·가져오기 조건·이벤트 순서는 유지하고 공통 UI가 금융 상태를 변경하지 않는다.
+
+- [ ] PENDING — 다섯 증권사 조회 표: 전체 선택 → 모든 선택 가능한 행과 헤더 체크 일치, 개별 해제 → 헤더 부분 선택, 전체 해제 → 선택 0건. 정적 검사 PASS. 합성 Chrome: 다섯 화면의 전체 선택 PASS, NH·Toss의 개별 해제 반영 PASS; 실제 이미 가져온 자료·모든 조합은 미검증. 관련 파일: `wealth-broker-ui.js`, `wealth.js`, `index.html`. 실제 금융 환경 위험: 기존 가져오기 자료의 편집 제한·선택 및 미리보기 대상 일치 여부는 실자료로 최종 확인해야 하며 실제 저장은 이번에 실행하지 않았다.
+
+### 후속 — 캘린더·IPO KST 오늘 문자열 단일 소유자
+
+`app/static/wealth-date-helper.js`의 `getKstIsoDate()`가 기존 KST 날짜 구성요소를 재사용한다. `app/static/wealth-calendar.js`의 독립 Intl fallback을 제거하고 이 함수를 직접 사용한다. `app/static/wealth-ipo.js`의 공개 `WealthIpoDate.todayKst(now)`는 같은 소유자에 위임한다. `app/static/index.html`에서 변경 자산 revision과 기존 로드 순서를 유지한다. 다른 날짜 검증·상장 확정 판단은 변경하지 않았다.
+
+- [ ] PENDING — 통합 캘린더와 공모주 상장완료 월 탐색: 초기 표시 연월·오늘 강조·오늘 복귀가 KST 현재 날짜와 일치해야 한다. 정적 검사 PASS. 합성 Chrome PASS: 캘린더 오늘 강조 및 복귀 `2026-11-20`, IPO 상장완료 월 선택 `2026-11` 확인. 관련 파일: 위 날짜 공통 소유자·캘린더·IPO·index. 실제 금융 환경 위험: 자정 경계·사용자 시간대·실제 상장 상태와의 조합은 미검증이다.
+
+### 현재 통합 경계
+
+현재 후보는 M4와 위 표시 공통화·발견된 선택 표시 수정까지다. 금융 계산식·서버 API·DB·인증·권한·실제 저장 경로는 수정하지 않았다. Commit·Push·PR·Merge·배포는 미실행이며 사용자 체크리스트는 모두 PENDING으로 유지한다. 나머지 전체 프로그램 모듈화는 완료로 표시하지 않는다. IPO의 독립 월 이동·상장 확정 날짜 및 차트 과거 구간의 fallback은 후속 비교 대상으로 남기며 이번 묶음에 금융·날짜 정책 변경을 섞지 않는다.

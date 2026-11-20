@@ -11,5 +11,11 @@
     return roundGroupedKoKr(num);
   }
 
-  window.WealthFormat = Object.freeze({ formatMoney, roundGroupedKoKr });
+  function fixedNumberKoKr(value, digits = 0) {
+    if (value === null || value === undefined || value === '') return '—';
+    const number = Number(value);
+    return Number.isFinite(number) ? number.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—';
+  }
+
+  window.WealthFormat = Object.freeze({ formatMoney, roundGroupedKoKr, fixedNumberKoKr });
 })();

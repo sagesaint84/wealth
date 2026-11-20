@@ -11,7 +11,7 @@ from datetime import date
 import mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 STATIC = Path(__file__).resolve().parents[1] / "app" / "static"
 ALLOWED = {"wealth-asset-category-state.js", "wealth-color-picker.js", "wealth-color-picker.css", "index.html", "wealth.js", "wealth-dialog-system.css", "wealth-ui-density.css", "wealth-transaction-defaults.js", "wealth-savings-contributions.js", "wealth-savings-contributions.css", "wealth.css", "wealth-overrides.css",
@@ -73,6 +73,7 @@ ALLOWED.update({
     'wealth-insurance-form-model.js',
     'wealth-holding-signals.js',
     'wealth-broker-ui.js',
+    'wealth-date-helper.js',
     'wealth-broker-realized-feed-controller.js',
     'wealth-market-card-preferences.js',
     'wealth-market-view.js',
@@ -159,7 +160,21 @@ class PreviewHandler(BaseHTTPRequestHandler):
                 '/api/actual-dividends': {'records': [], 'monthly': [], 'available_years': []},
                 '/api/realized-pnl': {'records': [], 'monthly': [], 'available_years': []},
             }
-            self.send(responses.get(path, {}))
+            response = responses.get(path, {})
+            if path == '/api/ledger':
+                query = parse_qs(urlsplit(self.path).query)
+                try:
+                    year = int(query.get('year', [response['year']])[0])
+                    month = int(query.get('month', [response['month']])[0])
+                    if not 1 <= year <= 9999 or not 1 <= month <= 12:
+                        raise ValueError('Invalid preview period')
+                except (ValueError, TypeError):
+                    self.send({'detail': 'Invalid preview period'}, status=400)
+                    return
+                response = {**response, 'year': year, 'month': month,
+                            'owner': query.get('owner', [response['owner']])[0]}
+                print(f'LEDGER_PREVIEW request={year:04d}-{month:02d} response={response["year"]:04d}-{response["month"]:02d}', flush=True)
+            self.send(response)
             return
         name = 'index.html' if path == '/' else path.removeprefix('/static/')
         if name not in ALLOWED:
@@ -253,6 +268,32 @@ class BrokerPreviewHandler(PreviewHandler):
             dashboard['accounts'] = [broker_demo_account(b) for b in BROKER_NAMES]
             dashboard['holdings'] = []
             return self.send(dashboard)
+        # Invented read-only rows for shared calendar/IPO display validation.
+        if path == '/api/ipo/applications':
+            return self.send({'revision': 0, 'applications': {},
+                              'family_members': ['아빠', '엄마', '자녀']})
+        if path == '/api/ipo/market':
+            month = date.today().isoformat()[:7]
+            return self.send({'ipos': [
+                {'ipo_id': 'SYNTHETIC-IPO-' + str(index),
+                 'company_name': '가상 공모 표시 ' + label, 'stock_code': 'DEMO-' + str(index),
+                 'market_state': 'SUBSCRIPTION', 'subscription_start': month + '-27',
+                 'subscription_end': month + '-28', 'final_offer_price': price,
+                 'offering_amount': 1234567.6, 'lead_managers': [], 'sources': {}}
+                for index, (label, price) in enumerate([
+                    ('반올림', 12345.6), ('실제 영', 0), ('미제공', None)])]})
+        if path == '/api/moneylog/calendar':
+            query = parse_qs(urlsplit(self.path).query)
+            try:
+                month = date.fromisoformat(query.get('from', [''])[0]).isoformat()[:7]
+            except ValueError:
+                return self.send({'detail': 'Invalid synthetic calendar period'}, status=400)
+            return self.send({'events': [
+                {'id': 'SYNTHETIC-CALENDAR-' + str(index), 'date': month + '-15',
+                 'type': 'realized_pnl', 'title': '가상 금액 ' + label,
+                 'owner': query.get('owner', ['모두'])[0], 'amount_krw': amount, 'meta': {}}
+                for index, (label, amount) in enumerate([
+                    ('수익', 12345.6), ('손실', -2345.6), ('실제 영', 0), ('미제공', None)])]})
         broker = BROKER_STATUS_PATHS.get(path)
         if broker:
             account = broker_demo_account(broker)
