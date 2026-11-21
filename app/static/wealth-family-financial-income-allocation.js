@@ -6,12 +6,7 @@
   const money = value => value === null || value === undefined
     ? '확인 불가'
     : `₩${Math.round(Number(value)).toLocaleString('ko-KR')}`;
-  const escapeHtml = value => String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+  const escapeHtml = window.WealthFormat.escapeHtml;
   const taxWorkspaceActive = () => {
     if (globalThis.WealthStartup?.visible('accountsPanel') === false) return false;
     if (window.WealthTaxWorkspace?.isActive) return window.WealthTaxWorkspace.isActive();

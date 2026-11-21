@@ -7,14 +7,7 @@
   let workspaceWasActive = false;
   let relayoutQueued = false;
 
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
-  }
+  const escapeHtml = window.WealthFormat.escapeHtml;
 
   function money(value) {
     if (value === null || value === undefined || !Number.isFinite(Number(value))) {
