@@ -1513,3 +1513,11 @@ PR #217 병합 후 승인된 shared-ui-continuation 원격·로컬 브랜치 및
 - 변경 JS 문법과 git diff --check PASS. 기존 격리 Chrome에서 IPO 카드 확장과 미선택 가족 9개·미신청 계좌 행 0개, 주식 화면의 ₩80,000,000/₩0, 순자산 기록의 397,000,000원/+15,000,000원/-3,000,000원을 확인했다. 실자료·선택 변경·계좌 연결·배정·매도·저장은 미실행이며 상세 모달·alias 신청 자료·통화별 경계값과 전체 테마/기기 조합은 PENDING이다. 새 테스트·fixture·실행기는 만들지 않았다.
 
 최종 사용자 체크리스트 21개는 모두 기존 PENDING을 유지한다. 새 후보의 Commit·Push·PR·Merge·main 갱신·후속 삭제·Oracle 배포는 실행하지 않는다. 남은 상태 모듈 이관은 API/revision/권한 계약과의 동등성 검토 후 별도 책임으로 다룬다.
+### 후속 자율 후보 — Planning native dialog 생성 소유자 (기준 main 47f4112)
+
+PR #218 병합 및 예상 SHA를 확인하고 승인된 ipo-applicant-display-owner 원격·로컬 브랜치와 CLEAN 작업용 worktree만 정리했다. 원격에는 main만 남았고 기존 21개 worktree는 보존했다. 새 후보는 codex/planning-dialog-owner 한 곳에서 분리한다.
+
+- WealthDialogShell.create가 연결 전 native dialog 생성·기본 class·선택 id·aria-labelledby만 소유한다. 기존 ensure와 Planning의 과거 기록·목표 비중 폼이 재사용한다. ensure의 단일 노드·close 연결 계약은 유지한다.
+- Planning의 두 innerHTML, append 시점, 입력·금융 계산·API·저장·cancel/close·포커스 복귀는 그대로다. index의 관련 JS 두 revision만 갱신했고 로드 순서와 APP_VERSION 2.1.9는 유지한다.
+- JS 두 파일 문법과 git diff --check PASS. 격리 합성 Chrome에서 과거 기록 열기·KST 날짜·취소·추가 버튼 포커스 복귀, 기존 시장 설정 열기·취소·설정 버튼 포커스 복귀·단일 노드를 확인했다. 목표 비중 dialog의 id/class/aria와 단일 노드는 확인했으나 합성 bucket 자료가 없어 실제 열기·취소는 PENDING이다.
+- 기존 사용자 체크리스트 21개는 모두 PENDING이다. 위 폼의 실자료 수정·저장·권한 및 목표 비중 조작은 사용자 확인 전 PASS가 아니다. 실제 저장과 새 후보의 Commit·Push·PR·Merge·main 갱신·추가 삭제·Oracle 배포는 수행하지 않는다.

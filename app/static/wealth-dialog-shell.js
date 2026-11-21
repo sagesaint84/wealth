@@ -1,13 +1,17 @@
 /* One native dialog per id; consumers own content, pending reads and actions. */
 (() => {
   'use strict';
-  window.WealthDialogShell = Object.freeze({ensure({id, labelledBy, onClose}) {
+  function create({id, className = 'dialog', labelledBy} = {}) {
+    const dialog = document.createElement('dialog');
+    if (id !== undefined) dialog.id = id;
+    dialog.className = className;
+    if (labelledBy) dialog.setAttribute('aria-labelledby', labelledBy);
+    return dialog;
+  }
+  window.WealthDialogShell = Object.freeze({create, ensure({id, labelledBy, onClose}) {
     let dialog = document.getElementById(id);
     if (!dialog) {
-      dialog = document.createElement('dialog');
-      dialog.id = id;
-      dialog.className = 'dialog';
-      if (labelledBy) dialog.setAttribute('aria-labelledby', labelledBy);
+      dialog = create({id, labelledBy});
       document.body.append(dialog);
     }
     if (!dialog.dataset.wealthShell) {
