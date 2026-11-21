@@ -45,9 +45,7 @@
   historyManager.innerHTML='<p id="wealthHistoryEditStatus" class="wealth-help" role="status"></p>';
   historyManager.hidden = true;
   historyPanel.querySelector('.wealth-periods').after(historyManager);
-  const historyDialog=document.createElement('dialog');
-  historyDialog.className='dialog wealth-history-dialog';
-  historyDialog.setAttribute('aria-labelledby','wealthHistoryDialogTitle');
+  const historyDialog=window.WealthDialogShell.create({className:'dialog wealth-history-dialog',labelledBy:'wealthHistoryDialogTitle'});
   historyDialog.innerHTML='<form id="wealthHistoryEditForm"><div class="dialog-head"><h2 id="wealthHistoryDialogTitle">과거 기록 추가</h2><button type="button" class="close" id="wealthCloseHistory" aria-label="기록 입력 닫기">×</button></div><p class="dialog-description" id="wealthHistoryScope"></p><div class="form-grid"><label>날짜<input name="date" type="date" required></label><label>총자산 (원)<input name="assets" type="number" min="0" step="0.01" required></label><label>총부채 (원)<input name="debt" type="number" min="0" step="0.01" required></label><label>순자산 (원)<input name="net_worth" type="number" step="0.01" readonly aria-readonly="true"></label><label class="wealth-history-memo">메모 (선택)<textarea name="memo" maxlength="1000" rows="3"></textarea></label></div><p id="wealthHistoryFormStatus" class="wealth-help" role="status"></p><button type="button" class="button secondary" id="wealthOpenExistingHistory" hidden>기존 기록 수정</button><div class="dialog-actions"><button type="button" id="wealthCancelHistory" class="button secondary">취소</button><button type="submit" class="button primary">저장</button></div></form>';
   document.body.append(historyDialog);
   let editingRecord=null, historyBusy=false;
@@ -298,8 +296,7 @@
     });
     return segments.length ? `conic-gradient(${segments.join(',')})` : 'var(--surface-2)';
   }
-  const targetDialog=document.createElement('dialog');targetDialog.className='dialog';targetDialog.id='wealthBucketTargetDialog';
-  targetDialog.setAttribute('aria-labelledby','wealthBucketTargetTitle');
+  const targetDialog=window.WealthDialogShell.create({id:'wealthBucketTargetDialog',labelledBy:'wealthBucketTargetTitle'});
   targetDialog.innerHTML='<form><h3 id="wealthBucketTargetTitle">목표 비중 편집</h3><p id="wealthBucketTargetCurrent"></p><label>목표 %<input name="weight" type="number" min="0" max="100" step="0.1" required></label><p role="status"></p><div class="dialog-actions"><button type="button" class="button secondary">취소</button><button type="submit" class="button primary">저장</button></div></form>';
   document.body.append(targetDialog);let targetDraft=null,targetSaving=false;
   targetDialog.querySelector('[type=button]').onclick=()=>targetDialog.close();
