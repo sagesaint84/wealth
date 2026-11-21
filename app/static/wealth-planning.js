@@ -5,7 +5,7 @@
   const invest = document.querySelector('[data-wealth-page="invest"]');
   if (!home || !invest) return;
   const esc = window.WealthFormat.escapeHtml;
-  const won = value => `${Math.round(value).toLocaleString('ko-KR')}원`;
+  const won = value => `${window.WealthFormat.roundGroupedKoKr(value)}원`;
   const BUCKET_PRESETS = [
     ['코어','장기 핵심 자산'], ['성장','성장 중심 자산'], ['배당','배당과 현금흐름 자산'],
     ['섹터','산업군 중심 자산'], ['테마','테마 중심 자산'], ['전술','전술적 운용 자산'],

@@ -471,10 +471,8 @@ document.addEventListener("click", (event) => {
 });
 
 const number = (value, digits = 2) => Number(value || 0).toLocaleString("ko-KR", { maximumFractionDigits: digits });
-const money = (value, currency = "KRW") => {
-  try { return new Intl.NumberFormat("ko-KR", { style: "currency", currency, maximumFractionDigits: currency === "KRW" ? 0 : 2 }).format(Number(value || 0)); }
-  catch { return number(value); }
-};
+const money = (value, currency = "KRW") =>
+  window.WealthFormat.createCurrencyFormatter(currency, number)(value);
 
 function formatKoreanMoneyFriendly(val) {
   if (val === null || val === undefined || val === '') return '';

@@ -1503,3 +1503,13 @@ docker compose \
 - 정리 순서: 이 후보의 검토·통합 확인 → 배당 formatter 후보의 검증 파일 보존 여부 결정 → test-dividend-readiness의 불필요한 이전 검사/진단 정리 승인 → Frontend 7개 고유 상태·디자인 변경 판정 후 지정 worktree만 정리. 현재는 어떤 원본 worktree·브랜치·파일도 삭제하지 않는다.
 
 위의 최종 사용자 검토 체크리스트 21개는 그대로 PENDING이다. 이 기록은 새 체크리스트가 아니며 금융 계산·API·DB·인증·권한·저장 또는 실제 사용자 UI의 PASS를 뜻하지 않는다. Commit·Push·PR·Merge·배포는 미실행이다.
+### 후속 자율 후보 — IPO 신청자 표시 소유자 (기준 main 17a8c65)
+
+PR #217 병합 후 승인된 shared-ui-continuation 원격·로컬 브랜치 및 작업용 worktree만 정리했다. 기존 21개 worktree와 M2 merge는 보존한다. 다음 구현은 codex/ipo-applicant-display-owner의 독립 환경 한 곳에서 누적한다.
+
+- WealthIpoApplicantView.renderMembers/renderApplicants가 가족 체크박스·계좌/배정/매도 입력의 기존 HTML 출력만 소유한다. 목록의 현재 공모·이전 신청 기록·상세 모달은 기존 renderApplicationControls 진입점으로 같은 View를 호출한다. 적용 가족·allChecked/someChecked·소유자 목록 결정, 비동기 세대, revision, 인증·권한, 모든 조회·변경 요청은 Controller에 유지한다.
+- 기존 두 HTML template literal은 바이트 동일 비교 PASS다. 기존 disabled·aria·input min/step·data-*·이스케이프를 유지한다. Controller의 표시 구간 외 코드 불변과 View 로드 순서를 정적으로 확인했다.
+- 기존 money(value, currency) 공개 함수는 WealthFormat.createCurrencyFormatter(currency, number)를 호출해 통화 옵션과 fallback의 중복 소유권을 제거한다. 이 경로는 기존처럼 호출마다 formatter를 생성하며 성능 개선을 주장하지 않는다. Planning의 won은 기존 Math.round와 같은 WealthFormat.roundGroupedKoKr에 위임하며 원 접미사·반올림·금융 계산을 바꾸지 않는다.
+- 변경 JS 문법과 git diff --check PASS. 기존 격리 Chrome에서 IPO 카드 확장과 미선택 가족 9개·미신청 계좌 행 0개, 주식 화면의 ₩80,000,000/₩0, 순자산 기록의 397,000,000원/+15,000,000원/-3,000,000원을 확인했다. 실자료·선택 변경·계좌 연결·배정·매도·저장은 미실행이며 상세 모달·alias 신청 자료·통화별 경계값과 전체 테마/기기 조합은 PENDING이다. 새 테스트·fixture·실행기는 만들지 않았다.
+
+최종 사용자 체크리스트 21개는 모두 기존 PENDING을 유지한다. 새 후보의 Commit·Push·PR·Merge·main 갱신·후속 삭제·Oracle 배포는 실행하지 않는다. 남은 상태 모듈 이관은 API/revision/권한 계약과의 동등성 검토 후 별도 책임으로 다룬다.
