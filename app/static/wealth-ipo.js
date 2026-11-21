@@ -797,46 +797,14 @@
       const allChecked = targetList.length > 0 && targetList.every(m => appliedSet.has(m));
       const someChecked = !allChecked && targetList.some(m => appliedSet.has(m));
 
-      // Family member checkboxes
-      let memberCheckboxesHtml = '';
-      targetList.forEach(member => {
-        const checked = appliedSet.has(member) ? 'checked' : '';
-        memberCheckboxesHtml += `
-          <label class="ipo-member-checkbox-label">
-            <input type="checkbox" class="ipo-member-chk" data-ipo="${escapeHtml(ipoId)}" data-member="${escapeHtml(member)}" ${checked} />
-            <span>${escapeHtml(member)}</span>
-          </label>`;
-      });
-
-      // Account authorization is deliberately populated from backend responses.
-      // This UI never normalizes broker aliases or filters portfolio accounts.
-      let applicantAccountsHtml = '';
-      targetList.filter(member => appliedSet.has(member)).forEach(member => {
-        applicantAccountsHtml += `
-          <div class="ipo-applicant-account" data-ipo="${escapeHtml(ipoId)}" data-owner="${escapeHtml(member)}">
-            <span class="ipo-applicant-account-title">${escapeHtml(member)} 청약 계좌</span>
-            <select class="ipo-applicant-broker" aria-label="${escapeHtml(member)} 증권사" disabled>
-              <option>증권사 불러오는 중…</option>
-            </select>
-            <select class="ipo-applicant-account-select" aria-label="${escapeHtml(member)} Wealth 계좌" disabled>
-              <option>계좌를 선택하세요</option>
-            </select>
-            <button type="button" class="button secondary compact ipo-applicant-account-save" disabled>계좌 연결</button>
-            <span class="ipo-applicant-account-status" aria-live="polite"></span>
-            <div class="ipo-allocation-control">
-              <label>배정수량 <input class="ipo-allocation-quantity" type="number" min="0" step="1" disabled /></label>
-              <button type="button" class="button secondary compact ipo-allocation-save" disabled>배정 저장</button>
-              <span class="ipo-allocation-summary" aria-live="polite"></span>
-              <select class="ipo-sale-candidate" aria-label="매도 실현손익 후보" disabled><option value="">매도 후보 없음</option></select>
-              <input class="ipo-sale-match-quantity" type="number" min="1" step="1" aria-label="연결 매도 수량" disabled />
-              <button type="button" class="button secondary compact ipo-sale-link-save" disabled>매도 연결</button>
-              <div class="ipo-sale-links" aria-live="polite"></div>
-            </div>
-          </div>`;
-      });
-
-        return {allChecked,someChecked,memberCheckboxesHtml,applicantAccountsHtml};
-      };
+      const memberCheckboxesHtml = window.WealthIpoApplicantView.renderMembers(
+        ipoId, targetList.map(member => ({ member, checked: appliedSet.has(member) })), escapeHtml,
+      );
+      const applicantAccountsHtml = window.WealthIpoApplicantView.renderApplicants(
+        ipoId, targetList.filter(member => appliedSet.has(member)), escapeHtml,
+      );
+      return {allChecked,someChecked,memberCheckboxesHtml,applicantAccountsHtml};
+    };
 
   // Both entry points share the original application/account/allocation controls.
   let ipoDetailDialog=null,detailEpoch=0,detailTrigger=null;
