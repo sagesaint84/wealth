@@ -1521,3 +1521,13 @@ PR #218 병합 및 예상 SHA를 확인하고 승인된 ipo-applicant-display-ow
 - Planning의 두 innerHTML, append 시점, 입력·금융 계산·API·저장·cancel/close·포커스 복귀는 그대로다. index의 관련 JS 두 revision만 갱신했고 로드 순서와 APP_VERSION 2.1.9는 유지한다.
 - JS 두 파일 문법과 git diff --check PASS. 격리 합성 Chrome에서 과거 기록 열기·KST 날짜·취소·추가 버튼 포커스 복귀, 기존 시장 설정 열기·취소·설정 버튼 포커스 복귀·단일 노드를 확인했다. 목표 비중 dialog의 id/class/aria와 단일 노드는 확인했으나 합성 bucket 자료가 없어 실제 열기·취소는 PENDING이다.
 - 기존 사용자 체크리스트 21개는 모두 PENDING이다. 위 폼의 실자료 수정·저장·권한 및 목표 비중 조작은 사용자 확인 전 PASS가 아니다. 실제 저장과 새 후보의 Commit·Push·PR·Merge·main 갱신·추가 삭제·Oracle 배포는 수행하지 않는다.
+
+
+### 후속 자율 후보 — 가족 금융소득 HTML 출력 소유자 (기준 main b3815a0)
+
+PR #219 병합 및 작업 커밋 포함을 확인하고 승인된 planning-dialog-owner 원격·로컬 브랜치와 CLEAN 작업용 worktree만 정리했다. 기존 21개 worktree는 보존했다. 이 후보는 codex/family-income-display-owner 독립 환경 한 곳에서 관리한다.
+
+- WealthFormat.escapeHtml을 가족 금융소득 위험 화면과 가족 금융소득 분산 시뮬레이션이 직접 재사용한다. 가족명·상태 문구·안내·오류·option 표시의 기존 로컬 이름은 함수 참조로 유지하고 독립 치환 구현 두 개를 제거했다.
+- 기존 String(value ?? '')와 &, <, >, 큰따옴표, 작은따옴표의 치환 결과(&#39; 포함)는 동일하다. 기존 순차 치환의 & 처리가 먼저였으므로 새로 생성한 entity가 재치환되지 않는 계약도 같다. 배당 출처와 What-if는 기존 &#039; 또는 String(value) 차이를 보존하기 위해 이번 대상에서 제외했다.
+- 두 JS 문법·git diff --check PASS. 공통 Format이 두 화면보다 먼저 정확히 한 번 로드되는 것을 확인했다. 두 기존 렌더러의 치환 구간 외 코드, API·금융 계산·권한·저장·사용자 범위·금액 포맷은 유지한다. index의 두 JS revision만 갱신했으며 APP_VERSION 2.1.9는 유지한다.
+- 이 후보의 브라우저·실제 가족 자료 및 특수문자 출력 검증은 미실행/PENDING이다. 사용자 최종 체크리스트 21개는 그대로 PENDING이다. 새 검사·fixture·서버·백업은 만들지 않았고 이 후보의 Commit·Push·PR·Merge·추가 삭제·Oracle 배포는 실행하지 않는다.
