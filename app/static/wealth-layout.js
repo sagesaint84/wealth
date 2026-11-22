@@ -217,7 +217,7 @@
     document.getElementById('wealthPageTitle').focus();
   });
   navigate();
-  const won = value => `${Math.round(value).toLocaleString('ko-KR')}원`;
+  const won = value => `${window.WealthFormat.roundGroupedKoKr(value)}원`;
   const signedWon = value => `${Number(value) >= 0 ? '+' : ''}${won(Number(value) || 0)}`;
   const pct = value => `${Number(value) >= 0 ? '+' : ''}${Number(value || 0).toFixed(2)}%`;
   const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
