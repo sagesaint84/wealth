@@ -11720,7 +11720,7 @@ async function fetchNhRealizedFeed() {
     brokerRealizedFeedController.applySuccessfulFeed(nhRealizedState, data.rows || [], data.selection_tokens || []);
     nhRealizedState.preview = null;
     nhRealizedState.market = data.market || market;
-    const meta = document.getElementById('nhMeta'); if (meta) { meta.textContent = `조회 시장: ${nhRealizedState.market === 'us' ? '해외주식' : '국내주식'} · ${nhRealizedState.rows.length}건`; meta.style.display = 'flex'; }
+    brokerUI.renderBrokerFetchMetadata('nhMeta', nhRealizedState.market, nhRealizedState.rows.length);
     renderNhFeedTable(); updateNhSelectionUI(); if (!nhRealizedState.rows.length) showNhMessage('해당 기간의 실현손익 내역이 없습니다.', 'info');
   } catch (error) { showNhMessage(nhSafeError(error, 'NH 실현손익 조회에 실패했습니다.'), 'error'); renderNhFeedTable(); }
   finally { setNhLoading(false); }
@@ -11784,16 +11784,18 @@ function renderNhPreviewModal(data) {
   const dest = data.destination_account || {};
   window.WealthBrokerImportPreviewScreenController.renderPreviewModal({
     document, brokerUI, data, prefix: 'nh', counts,
-    destination: {
-      accountText: `[${dest.broker || 'Wealth'}] ${maskAccountDisplayLabel(dest.account_name || '-')}`,
-      ownerText: dest.owner || '모두',
-    },
+    destination: brokerUI.brokerPreviewDestinationText(dest, maskAccountDisplayLabel),
     html, statusLabel: brokerPreviewStatusLabel, formatNumber: nhNumber,
     pnlDigits: 2, defaultCurrency: '',
     updateCommitButton: updateNhCommitButton, renderDetails: renderBrokerImportPreviewDetails,
   });
 }
-function updateNhCommitButton() { const button = document.getElementById('btnNhConfirmCommit'); const counts = nhRealizedState.preview?.counts || {}; const include = !!document.getElementById('nhIncludePossibleDuplicates')?.checked; const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0); if (button) { button.textContent = `${eligible}건 가져오기 완료`; brokerUI.setButtonDisabled('btnNhConfirmCommit', eligible === 0 || !nhRealizedState.previewTicket || nhRealizedState.importing); } }
+function updateNhCommitButton() {
+  const counts = nhRealizedState.preview?.counts || {};
+  const include = !!document.getElementById('nhIncludePossibleDuplicates')?.checked;
+  const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0);
+  brokerUI.renderBrokerImportCommitButton('btnNhConfirmCommit', eligible, nhRealizedState.previewTicket, nhRealizedState.importing);
+}
 function closeNhImportModal() { brokerUI.setModalVisible('nhImportModalOverlay', false); nhRealizedState.preview = null; nhRealizedState.previewTicket = null; }
 async function commitNhImport() {
   if (nhRealizedState.importing || !nhRealizedState.previewTicket) return; nhRealizedState.importing = true; updateNhCommitButton();
@@ -11878,11 +11880,7 @@ async function fetchKiwoomRealizedFeed() {
     brokerRealizedFeedController.applySuccessfulFeed(kiwoomRealizedState, data.rows || [], data.selection_tokens || []);
     kiwoomRealizedState.preview = null;
     kiwoomRealizedState.market = data.market || market;
-    const meta = document.getElementById('kiwoomMeta');
-    if (meta) {
-      meta.textContent = `조회 시장: ${kiwoomRealizedState.market === 'us' ? '해외주식' : '국내주식'} · ${kiwoomRealizedState.rows.length}건`;
-      meta.style.display = 'flex';
-    }
+    brokerUI.renderBrokerFetchMetadata('kiwoomMeta', kiwoomRealizedState.market, kiwoomRealizedState.rows.length);
     renderKiwoomFeedTable();
     updateKiwoomSelectionUI();
     if (!kiwoomRealizedState.rows.length) showKiwoomMessage('해당 기간의 실현손익 내역이 없습니다.', 'info');
@@ -11955,24 +11953,17 @@ function renderKiwoomPreviewModal(data) {
   const dest = data.destination_account || {};
   window.WealthBrokerImportPreviewScreenController.renderPreviewModal({
     document, brokerUI, data, prefix: 'kiwoom', counts,
-    destination: {
-      accountText: `[${dest.broker || 'Wealth'}] ${maskAccountDisplayLabel(dest.account_name || '-')}`,
-      ownerText: dest.owner || '모두',
-    },
+    destination: brokerUI.brokerPreviewDestinationText(dest, maskAccountDisplayLabel),
     html, statusLabel: brokerPreviewStatusLabel, formatNumber: kiwoomNumber,
     pnlDigits: 2, defaultCurrency: '',
     updateCommitButton: updateKiwoomCommitButton, renderDetails: renderBrokerImportPreviewDetails,
   });
 }
 function updateKiwoomCommitButton() {
-  const button = document.getElementById('btnKiwoomConfirmCommit');
   const counts = kiwoomRealizedState.preview?.counts || {};
   const include = !!document.getElementById('kiwoomIncludePossibleDuplicates')?.checked;
   const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0);
-  if (button) {
-    button.textContent = `${eligible}건 가져오기 완료`;
-    brokerUI.setButtonDisabled('btnKiwoomConfirmCommit', eligible === 0 || !kiwoomRealizedState.previewTicket || kiwoomRealizedState.importing);
-  }
+  brokerUI.renderBrokerImportCommitButton('btnKiwoomConfirmCommit', eligible, kiwoomRealizedState.previewTicket, kiwoomRealizedState.importing);
 }
 function closeKiwoomImportModal() {
   brokerUI.setModalVisible('kiwoomImportModalOverlay', false);
@@ -12128,11 +12119,7 @@ async function fetchKbRealizedFeed() {
     brokerRealizedFeedController.applySuccessfulFeed(kbRealizedState, data.rows || [], data.selection_tokens || []);
     kbRealizedState.preview = null;
     kbRealizedState.market = 'kr';
-    const meta = document.getElementById('kbMeta');
-    if (meta) {
-      meta.textContent = `조회 시장: 국내주식 · ${kbRealizedState.rows.length}건`;
-      meta.style.display = 'flex';
-    }
+    brokerUI.renderBrokerFetchMetadata('kbMeta', 'kr', kbRealizedState.rows.length);
     renderKbFeedTable();
     updateKbSelectionUI();
     if (!kbRealizedState.rows.length) showKbMessage('해당 기간의 실현손익 내역이 없습니다.', 'info');
@@ -12205,24 +12192,17 @@ function renderKbPreviewModal(data) {
   const dest = data.destination_account || {};
   window.WealthBrokerImportPreviewScreenController.renderPreviewModal({
     document, brokerUI, data, prefix: 'kb', counts,
-    destination: {
-      accountText: `[${dest.broker || 'Wealth'}] ${maskAccountDisplayLabel(dest.account_name || '-')}`,
-      ownerText: dest.owner || '모두',
-    },
+    destination: brokerUI.brokerPreviewDestinationText(dest, maskAccountDisplayLabel),
     html, statusLabel: brokerPreviewStatusLabel, formatNumber: kbNumber,
     pnlDigits: 0, defaultCurrency: 'KRW',
     updateCommitButton: updateKbCommitButton, renderDetails: renderBrokerImportPreviewDetails,
   });
 }
 function updateKbCommitButton() {
-  const button = document.getElementById('btnKbConfirmCommit');
   const counts = kbRealizedState.preview?.counts || {};
   const include = !!document.getElementById('kbIncludePossibleDuplicates')?.checked;
   const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0);
-  if (button) {
-    button.textContent = `${eligible}건 가져오기 완료`;
-    brokerUI.setButtonDisabled('btnKbConfirmCommit', eligible === 0 || !kbRealizedState.previewTicket || kbRealizedState.importing);
-  }
+  brokerUI.renderBrokerImportCommitButton('btnKbConfirmCommit', eligible, kbRealizedState.previewTicket, kbRealizedState.importing);
 }
 function closeKbImportModal() {
   brokerUI.setModalVisible('kbImportModalOverlay', false);

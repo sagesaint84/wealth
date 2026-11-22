@@ -192,6 +192,13 @@
       document.getElementById(active.tabId)?.classList.add('active');
     }
 
+    function renderBrokerFetchMetadata(metaId, market, rowCount) {
+      const meta = document.getElementById(metaId);
+      if (!meta) return;
+      meta.textContent = `조회 시장: ${market === 'us' ? '해외주식' : '국내주식'} · ${rowCount}건`;
+      meta.style.display = 'flex';
+    }
+
     function renderFeedMetadata(element, markup) {
       if (markup === null) {
         element.style.display = 'none';
@@ -225,6 +232,13 @@
       if (!element) return;
       element.style.display = 'none';
       element.textContent = '';
+    }
+
+    function brokerPreviewDestinationText(destination, maskAccountDisplayLabel) {
+      return {
+        accountText: `[${destination.broker || 'Wealth'}] ${maskAccountDisplayLabel(destination.account_name || '-')}`,
+        ownerText: destination.owner || '모두',
+      };
     }
 
     function renderDestinationAccount(id, { text, accountText, ownerText }) {
@@ -264,6 +278,13 @@
     function setModalVisible(overlayId, visible) {
       const overlay = document.getElementById(overlayId);
       if (overlay) overlay.style.display = visible ? 'flex' : 'none';
+    }
+
+    function renderBrokerImportCommitButton(buttonId, eligible, previewTicket, importing) {
+      const button = document.getElementById(buttonId);
+      if (!button) return;
+      button.textContent = `${eligible}건 가져오기 완료`;
+      setButtonDisabled(buttonId, eligible === 0 || !previewTicket || importing);
     }
 
     function setButtonDisabled(id, disabled) {
@@ -409,7 +430,7 @@
       `</div>`;
     }
 
-    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, bindBrokerImportRowSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, appendSelectOption, populateBrokerSourceAccountSelect, populateBrokerDestinationAccountSelect, renderSelectAllState, renderSelectionState, renderBrokerImportSelectionState, setButtonDisabled, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, brokerErrorText, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
+    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, bindBrokerImportRowSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderBrokerFetchMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, brokerPreviewDestinationText, renderPreviewCounts, setModalVisible, appendSelectOption, populateBrokerSourceAccountSelect, populateBrokerDestinationAccountSelect, renderSelectAllState, renderSelectionState, renderBrokerImportSelectionState, setButtonDisabled, renderBrokerImportCommitButton, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, brokerErrorText, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
   }
   window.WealthBrokerUI = Object.freeze({ create });
 })();
