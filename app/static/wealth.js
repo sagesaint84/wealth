@@ -11676,9 +11676,7 @@ function showNhMessage(message, type = 'info') { return brokerUI.showBrokerMessa
 function hideNhMessage() { brokerUI.hideBrokerMessage('nhMessage'); }
 function setNhLoading(loading) {
   nhRealizedState.loading = loading;
-  ['btnCheckNhStatus', 'btnFetchNhFeed'].forEach(id => {
-    brokerUI.setButtonDisabled(id, loading || (id === 'btnFetchNhFeed' && !nhRealizedState.sourceAccountKey));
-  });
+  brokerUI.setAccountFeedButtonsDisabled('btnCheckNhStatus', 'btnFetchNhFeed', loading, nhRealizedState.sourceAccountKey);
 }
 function nhSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
 function nhSelectedItems() {
@@ -11830,9 +11828,7 @@ function showKiwoomMessage(message, type = 'info') { return brokerUI.showBrokerM
 function hideKiwoomMessage() { brokerUI.hideBrokerMessage('kiwoomMessage'); }
 function setKiwoomLoading(loading) {
   kiwoomRealizedState.loading = loading;
-  ['btnCheckKiwoomStatus', 'btnFetchKiwoomFeed'].forEach(id => {
-    brokerUI.setButtonDisabled(id, loading || (id === 'btnFetchKiwoomFeed' && !kiwoomRealizedState.sourceAccountKey));
-  });
+  brokerUI.setAccountFeedButtonsDisabled('btnCheckKiwoomStatus', 'btnFetchKiwoomFeed', loading, kiwoomRealizedState.sourceAccountKey);
 }
 function kiwoomSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
 function kiwoomSelectedItems() {
@@ -12098,9 +12094,7 @@ function showKbMessage(message, type = 'info') { return brokerUI.showBrokerMessa
 function hideKbMessage() { brokerUI.hideBrokerMessage('kbMessage'); }
 function setKbLoading(loading) {
   kbRealizedState.loading = loading;
-  ['btnCheckKbStatus', 'btnFetchKbFeed'].forEach(id => {
-    brokerUI.setButtonDisabled(id, loading || (id === 'btnFetchKbFeed' && !kbRealizedState.sourceAccountKey));
-  });
+  brokerUI.setAccountFeedButtonsDisabled('btnCheckKbStatus', 'btnFetchKbFeed', loading, kbRealizedState.sourceAccountKey);
 }
 function kbSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
 function kbSelectedItems() {
