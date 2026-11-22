@@ -11709,13 +11709,9 @@ async function checkNhStatus() {
 function populateNhDestinationAccounts() {
   const select = document.getElementById('nhDestinationAccount'); if (!select) return;
   const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
-  const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
   const source = nhRealizedState.accounts.find(a => a.source_account_key === nhRealizedState.sourceAccountKey);
-  realizedDestinationAccounts(accounts, 'nh', source?.candidate_account_ids).forEach(acc => { brokerUI.appendSelectOption(select, String(acc.id || ''), `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`); });
-  setRealizedDestinationEmptyMessage(select);
-  const preferred = nhRealizedState.mappedDestAccountId;
-  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
-  else if (preferred && Array.from(select.options).some(o => o.value === String(preferred))) select.value = String(preferred);
+  const allowedAccounts = realizedDestinationAccounts(accounts, 'nh', source?.candidate_account_ids);
+  brokerUI.populateBrokerDestinationAccountSelect(select, allowedAccounts, nhRealizedState.mappedDestAccountId, maskAccountDisplayLabel);
 }
 async function fetchNhRealizedFeed() {
   if (nhRealizedState.loading) return;
@@ -11867,15 +11863,9 @@ async function checkKiwoomStatus() {
 function populateKiwoomDestinationAccounts() {
   const select = document.getElementById('kiwoomDestinationAccount'); if (!select) return;
   const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
-  const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
   const source = kiwoomRealizedState.accounts.find(a => a.source_account_key === kiwoomRealizedState.sourceAccountKey);
-  realizedDestinationAccounts(accounts, 'kiwoom', source?.candidate_account_ids).forEach(acc => {
-    brokerUI.appendSelectOption(select, String(acc.id || ''), `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`);
-  });
-  setRealizedDestinationEmptyMessage(select);
-  const preferred = kiwoomRealizedState.mappedDestAccountId;
-  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
-  else if (preferred && Array.from(select.options).some(o => o.value === String(preferred))) select.value = String(preferred);
+  const allowedAccounts = realizedDestinationAccounts(accounts, 'kiwoom', source?.candidate_account_ids);
+  brokerUI.populateBrokerDestinationAccountSelect(select, allowedAccounts, kiwoomRealizedState.mappedDestAccountId, maskAccountDisplayLabel);
 }
 async function fetchKiwoomRealizedFeed() {
   if (kiwoomRealizedState.loading) return;
@@ -12126,15 +12116,9 @@ async function checkKbStatus() {
 function populateKbDestinationAccounts() {
   const select = document.getElementById('kbDestinationAccount'); if (!select) return;
   const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
-  const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
   const source = kbRealizedState.accounts.find(a => a.source_account_key === kbRealizedState.sourceAccountKey);
-  realizedDestinationAccounts(accounts, 'kb', source?.candidate_account_ids).forEach(acc => {
-    brokerUI.appendSelectOption(select, String(acc.id || ''), `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`);
-  });
-  setRealizedDestinationEmptyMessage(select);
-  const preferred = kbRealizedState.mappedDestAccountId;
-  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
-  else if (preferred && Array.from(select.options).some(o => o.value === String(preferred))) select.value = String(preferred);
+  const allowedAccounts = realizedDestinationAccounts(accounts, 'kb', source?.candidate_account_ids);
+  brokerUI.populateBrokerDestinationAccountSelect(select, allowedAccounts, kbRealizedState.mappedDestAccountId, maskAccountDisplayLabel);
 }
 async function fetchKbRealizedFeed() {
   if (kbRealizedState.loading) return;
