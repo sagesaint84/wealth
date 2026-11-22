@@ -11687,13 +11687,8 @@ function nhSelectedItems() {
 }
 function populateNhSourceAccounts() {
   const select = document.getElementById('nhSourceAccount'); if (!select) return;
-  const current = select.value; select.innerHTML = '<option value="">원본 계좌 선택...</option>';
-  nhRealizedState.accounts.forEach(account => { brokerUI.appendSelectOption(select, account.source_account_key, account.source_account_label || '마스킹된 NH 계좌'); });
-  select.disabled = nhRealizedState.accounts.length === 0;
-  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
-  else if (nhRealizedState.accounts.length === 1) select.value = nhRealizedState.accounts[0].source_account_key;
-  nhRealizedState.sourceAccountKey = select.value;
-  const sourceAccount = nhRealizedState.accounts.find(a => a.source_account_key === select.value);
+  nhRealizedState.sourceAccountKey = brokerUI.populateBrokerSourceAccountSelect(select, nhRealizedState.accounts, '마스킹된 NH 계좌');
+  const sourceAccount = nhRealizedState.accounts.find(a => a.source_account_key === nhRealizedState.sourceAccountKey);
   nhRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
 }
 async function checkNhStatus() {
@@ -11839,15 +11834,8 @@ function kiwoomSelectedItems() {
 }
 function populateKiwoomSourceAccounts() {
   const select = document.getElementById('kiwoomSourceAccount'); if (!select) return;
-  const current = select.value; select.innerHTML = '<option value="">원본 계좌 선택...</option>';
-  kiwoomRealizedState.accounts.forEach(account => {
-    brokerUI.appendSelectOption(select, account.source_account_key, account.source_account_label || '마스킹된 키움 계좌');
-  });
-  select.disabled = kiwoomRealizedState.accounts.length === 0;
-  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
-  else if (kiwoomRealizedState.accounts.length === 1) select.value = kiwoomRealizedState.accounts[0].source_account_key;
-  kiwoomRealizedState.sourceAccountKey = select.value;
-  const sourceAccount = kiwoomRealizedState.accounts.find(a => a.source_account_key === select.value);
+  kiwoomRealizedState.sourceAccountKey = brokerUI.populateBrokerSourceAccountSelect(select, kiwoomRealizedState.accounts, '마스킹된 키움 계좌');
+  const sourceAccount = kiwoomRealizedState.accounts.find(a => a.source_account_key === kiwoomRealizedState.sourceAccountKey);
   kiwoomRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
 }
 async function checkKiwoomStatus() {
@@ -12105,15 +12093,8 @@ function kbSelectedItems() {
 }
 function populateKbSourceAccounts() {
   const select = document.getElementById('kbSourceAccount'); if (!select) return;
-  const current = select.value; select.innerHTML = '<option value="">원본 계좌 선택...</option>';
-  kbRealizedState.accounts.forEach(account => {
-    brokerUI.appendSelectOption(select, account.source_account_key, account.source_account_label || '마스킹된 KB 계좌');
-  });
-  select.disabled = kbRealizedState.accounts.length === 0;
-  if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
-  else if (kbRealizedState.accounts.length === 1) select.value = kbRealizedState.accounts[0].source_account_key;
-  kbRealizedState.sourceAccountKey = select.value;
-  const sourceAccount = kbRealizedState.accounts.find(a => a.source_account_key === select.value);
+  kbRealizedState.sourceAccountKey = brokerUI.populateBrokerSourceAccountSelect(select, kbRealizedState.accounts, '마스킹된 KB 계좌');
+  const sourceAccount = kbRealizedState.accounts.find(a => a.source_account_key === kbRealizedState.sourceAccountKey);
   kbRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
 }
 async function checkKbStatus() {
