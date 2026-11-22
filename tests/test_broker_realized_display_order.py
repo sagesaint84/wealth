@@ -20,13 +20,10 @@ class BrokerRealizedDisplayOrderTests(unittest.TestCase):
         if not shutil.which("node"):
             self.skipTest("node runtime is not available")
         script = r'''
-const fs = require("fs");
-const source = fs.readFileSync("app/static/wealth.js", "utf8");
-const match = source.match(/function brokerRealizedDateKey\(value\) \{[\s\S]*?\r?\n\/\/ Wealth-side/);
-if (!match) process.exit(2);
-eval(match[0].replace(/\r?\n\r?\n\/\/ Wealth-side$/, ""));
+global.window = {};
+require("./app/static/wealth-broker-realized-feed-controller.js");
 const input = JSON.parse(process.argv[1]);
-process.stdout.write(JSON.stringify(sortBrokerRealizedFeedRows(input.rows, input.tokens)));
+process.stdout.write(JSON.stringify(window.WealthBrokerRealizedFeedController.sortRows(input.rows, input.tokens)));
 '''
         completed = subprocess.run(
             ["node", "-e", script, json.dumps({"rows": rows, "tokens": tokens})],
