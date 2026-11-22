@@ -25,7 +25,7 @@
   }
 
   function moneyKrw(value) {
-    return `₩${Math.round(number(value)).toLocaleString('ko-KR')}`;
+    return `₩${window.WealthFormat.roundGroupedKoKr(number(value))}`;
   }
 
   function moneyUsd(value) {
