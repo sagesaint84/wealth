@@ -180,6 +180,16 @@
       document.getElementById(active.tabId)?.classList.add('active');
     }
 
+    function renderFeedMetadata(element, markup) {
+      if (markup === null) {
+        element.style.display = 'none';
+        element.innerHTML = '';
+        return;
+      }
+      element.innerHTML = markup;
+      element.style.display = 'flex';
+    }
+
     function renderStatus(id, text, stateClass) {
       const element = document.getElementById(id);
       if (!element) return;
@@ -322,7 +332,7 @@
       `</div>`;
     }
 
-    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, appendSelectOption, renderSelectAllState, renderSelectionState, setButtonDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
+    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, appendSelectOption, renderSelectAllState, renderSelectionState, setButtonDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
   }
   window.WealthBrokerUI = Object.freeze({ create });
 })();
