@@ -148,6 +148,21 @@
       }));
     }
 
+    function renderBrokerImportFeedTable({ body, state, checkboxClass, adapt, emptyMessage, syncRowOptions, onUpdate }) {
+      renderRealizedTable({
+        body,
+        rows: state.rows || [],
+        status: 'ok',
+        emptyMessage,
+        selection: state,
+        checkboxClass,
+        adapt,
+        toss: false,
+      });
+      syncRowOptions(state);
+      bindBrokerImportRowSelection(body, `.${checkboxClass}`, state, onUpdate);
+    }
+
     function bindBrokerImportRowSelection(body, selector, state, onUpdate) {
       bindFeedSelection(body, selector, event => {
         const index = Number(event.target.dataset.index);
@@ -430,7 +445,7 @@
       `</div>`;
     }
 
-    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, bindBrokerImportRowSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderBrokerFetchMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, brokerPreviewDestinationText, renderPreviewCounts, setModalVisible, appendSelectOption, populateBrokerSourceAccountSelect, populateBrokerDestinationAccountSelect, renderSelectAllState, renderSelectionState, renderBrokerImportSelectionState, setButtonDisabled, renderBrokerImportCommitButton, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, brokerErrorText, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
+    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, bindBrokerImportRowSelection, renderBrokerImportFeedTable, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderBrokerFetchMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, brokerPreviewDestinationText, renderPreviewCounts, setModalVisible, appendSelectOption, populateBrokerSourceAccountSelect, populateBrokerDestinationAccountSelect, renderSelectAllState, renderSelectionState, renderBrokerImportSelectionState, setButtonDisabled, renderBrokerImportCommitButton, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, brokerErrorText, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
   }
   window.WealthBrokerUI = Object.freeze({ create });
 })();

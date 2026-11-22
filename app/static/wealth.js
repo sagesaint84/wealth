@@ -11729,14 +11729,13 @@ function nhNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoK
 function renderNhFeedTable() {
   const tbody = document.getElementById('nhTableBody');
   if (!tbody) return;
-  brokerUI.renderRealizedTable({
-    body: tbody, rows: nhRealizedState.rows || [], status: 'ok', emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
-    selection: nhRealizedState, checkboxClass: 'nh-row-check',
+  brokerUI.renderBrokerImportFeedTable({
+    body: tbody, state: nhRealizedState, checkboxClass: 'nh-row-check',
+    emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
     adapt: row => brokerRealizedDisplayRow(row, { market: nhRealizedState.market, currency: nhRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: nhNumber }),
-    toss: false,
+    syncRowOptions: syncBrokerRowImportOptions,
+    onUpdate: updateNhSelectionUI,
   });
-  syncBrokerRowImportOptions(nhRealizedState);
-  brokerUI.bindBrokerImportRowSelection(tbody, '.nh-row-check', nhRealizedState, updateNhSelectionUI);
 }
 function updateNhSelectionUI() {
   populateNhDestinationAccounts();
@@ -11796,7 +11795,10 @@ function updateNhCommitButton() {
   const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0);
   brokerUI.renderBrokerImportCommitButton('btnNhConfirmCommit', eligible, nhRealizedState.previewTicket, nhRealizedState.importing);
 }
-function closeNhImportModal() { brokerUI.setModalVisible('nhImportModalOverlay', false); nhRealizedState.preview = null; nhRealizedState.previewTicket = null; }
+function closeNhImportModal() {
+  brokerUI.setModalVisible('nhImportModalOverlay', false);
+  brokerRealizedFeedController.clearImportPreview(nhRealizedState);
+}
 async function commitNhImport() {
   if (nhRealizedState.importing || !nhRealizedState.previewTicket) return; nhRealizedState.importing = true; updateNhCommitButton();
   const accountId = nhRealizedState.preview?.destination_account?.id || document.getElementById('nhDestinationAccount')?.value;
@@ -11895,14 +11897,13 @@ function kiwoomNumber(value, digits = 0) { return window.WealthFormat.fixedNumbe
 function renderKiwoomFeedTable() {
   const tbody = document.getElementById('kiwoomTableBody');
   if (!tbody) return;
-  brokerUI.renderRealizedTable({
-    body: tbody, rows: kiwoomRealizedState.rows || [], status: 'ok', emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
-    selection: kiwoomRealizedState, checkboxClass: 'kiwoom-row-check',
+  brokerUI.renderBrokerImportFeedTable({
+    body: tbody, state: kiwoomRealizedState, checkboxClass: 'kiwoom-row-check',
+    emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
     adapt: row => brokerRealizedDisplayRow(row, { market: kiwoomRealizedState.market, currency: kiwoomRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: kiwoomNumber }),
-    toss: false,
+    syncRowOptions: syncBrokerRowImportOptions,
+    onUpdate: updateKiwoomSelectionUI,
   });
-  syncBrokerRowImportOptions(kiwoomRealizedState);
-  brokerUI.bindBrokerImportRowSelection(tbody, '.kiwoom-row-check', kiwoomRealizedState, updateKiwoomSelectionUI);
 }
 function updateKiwoomSelectionUI() {
   populateKiwoomDestinationAccounts();
@@ -11967,8 +11968,7 @@ function updateKiwoomCommitButton() {
 }
 function closeKiwoomImportModal() {
   brokerUI.setModalVisible('kiwoomImportModalOverlay', false);
-  kiwoomRealizedState.preview = null;
-  kiwoomRealizedState.previewTicket = null;
+  brokerRealizedFeedController.clearImportPreview(kiwoomRealizedState);
 }
 async function commitKiwoomImport() {
   if (kiwoomRealizedState.importing || !kiwoomRealizedState.previewTicket) return;
@@ -12134,14 +12134,13 @@ function kbNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoK
 function renderKbFeedTable() {
   const tbody = document.getElementById('kbTableBody');
   if (!tbody) return;
-  brokerUI.renderRealizedTable({
-    body: tbody, rows: kbRealizedState.rows || [], status: 'ok', emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
-    selection: kbRealizedState, checkboxClass: 'kb-row-check',
+  brokerUI.renderBrokerImportFeedTable({
+    body: tbody, state: kbRealizedState, checkboxClass: 'kb-row-check',
+    emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
     adapt: row => brokerRealizedDisplayRow(row, { market: kbRealizedState.market, currency: kbRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: kbNumber }),
-    toss: false,
+    syncRowOptions: syncBrokerRowImportOptions,
+    onUpdate: updateKbSelectionUI,
   });
-  syncBrokerRowImportOptions(kbRealizedState);
-  brokerUI.bindBrokerImportRowSelection(tbody, '.kb-row-check', kbRealizedState, updateKbSelectionUI);
 }
 function updateKbSelectionUI() {
   populateKbDestinationAccounts();
@@ -12206,8 +12205,7 @@ function updateKbCommitButton() {
 }
 function closeKbImportModal() {
   brokerUI.setModalVisible('kbImportModalOverlay', false);
-  kbRealizedState.preview = null;
-  kbRealizedState.previewTicket = null;
+  brokerRealizedFeedController.clearImportPreview(kbRealizedState);
 }
 async function commitKbImport() {
   if (kbRealizedState.importing || !kbRealizedState.previewTicket) return;
