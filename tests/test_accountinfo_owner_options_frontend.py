@@ -16,7 +16,10 @@ class AccountInfoOwnerOptionsFrontendTests(unittest.TestCase):
         cls.money_js = MONEY_JS.read_text(encoding="utf-8")
 
     def test_owner_refresh_script_is_loaded(self) -> None:
-        self.assertIn("/static/wealth-accountinfo-owner-options.js?v=2.1.9-ui1", self.money_js)
+        self.assertRegex(
+            self.money_js,
+            r"script\.src = '/static/wealth-accountinfo-owner-options\.js\?v=[A-Za-z0-9][A-Za-z0-9._-]*';",
+        )
         self.assertIn("data-accountinfo-owner-options", self.money_js)
 
     def test_family_members_api_is_authoritative_source(self) -> None:

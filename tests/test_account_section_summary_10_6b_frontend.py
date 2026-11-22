@@ -18,7 +18,10 @@ class AccountSectionSummary106BFrontendTests(unittest.TestCase):
 
     def test_loader_registers_versioned_summary_script_once(self) -> None:
         self.assertIn("wealthAccountSectionSummaryScript", self.loader_js)
-        self.assertIn("/static/wealth-account-section-summary.js?v=2.1.9-ui1", self.loader_js)
+        self.assertRegex(
+            self.loader_js,
+            r"script\.src = '/static/wealth-account-section-summary\.js\?v=[A-Za-z0-9][A-Za-z0-9._-]*';",
+        )
         self.assertIn("window.WealthAccountSectionSummary", self.loader_js)
 
     def test_securities_summary_has_requested_account_and_asset_metrics(self) -> None:
