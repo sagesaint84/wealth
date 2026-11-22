@@ -10652,9 +10652,10 @@ function renderTossWtsIncomeTable() {
   tbody.innerHTML = rows.map((row, index) => {
     const imported = tossWtsIncomeState.importedIndices.has(index);
     const selected = tossWtsIncomeState.selectedIndices.has(index);
-    const check = imported
-      ? '<span class="toss-wts-badge-imported">처리됨</span>'
-      : `<input type="checkbox" class="wts-income-row-cb" data-index="${index}" ${selected ? 'checked' : ''}>`;
+    const check = brokerUI.feedSelectionCell({
+      index, selected, imported, checkboxClass: 'wts-income-row-cb',
+      badgeClass: 'toss-wts-badge-imported', importedText: '처리됨',
+    });
     const market = String(row.market || '').toUpperCase();
     const marketBadge = market === 'KR'
       ? '<span class="toss-wts-market-badge kr">국내</span>'
