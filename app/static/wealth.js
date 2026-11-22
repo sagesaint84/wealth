@@ -11477,9 +11477,7 @@ function populateKisDestinationAccounts() {
 }
 
 function kisSelectedItems() {
-  return Array.from(kisRealizedState.selectedIndices).sort((a, b) => a - b).map(idx => {
-    return brokerImportSelectedItem(kisRealizedState, idx);
-  }).filter(Boolean);
+  return brokerRealizedFeedController.selectedImportItems(kisRealizedState, brokerImportSelectedItem);
 }
 
 async function openKisImportPreview() {
@@ -11680,10 +11678,7 @@ function setNhLoading(loading) {
 }
 function nhSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
 function nhSelectedItems() {
-  return Array.from(nhRealizedState.selectedIndices).sort((a, b) => a - b).map(idx => {
-    const row = nhRealizedState.rows[idx]; const token = nhRealizedState.selectionTokens[idx];
-    return row && token ? brokerImportSelectedItem(nhRealizedState, idx) : null;
-  }).filter(Boolean);
+  return brokerRealizedFeedController.selectedImportItems(nhRealizedState, brokerImportSelectedItem);
 }
 function populateNhSourceAccounts() {
   const select = document.getElementById('nhSourceAccount'); if (!select) return;
@@ -11823,10 +11818,7 @@ function setKiwoomLoading(loading) {
 }
 function kiwoomSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
 function kiwoomSelectedItems() {
-  return Array.from(kiwoomRealizedState.selectedIndices).sort((a, b) => a - b).map(idx => {
-    const row = kiwoomRealizedState.rows[idx]; const token = kiwoomRealizedState.selectionTokens[idx];
-    return row && token ? brokerImportSelectedItem(kiwoomRealizedState, idx) : null;
-  }).filter(Boolean);
+  return brokerRealizedFeedController.selectedImportItems(kiwoomRealizedState, brokerImportSelectedItem);
 }
 function populateKiwoomSourceAccounts() {
   const select = document.getElementById('kiwoomSourceAccount'); if (!select) return;
@@ -12076,10 +12068,7 @@ function setKbLoading(loading) {
 }
 function kbSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
 function kbSelectedItems() {
-  return Array.from(kbRealizedState.selectedIndices).sort((a, b) => a - b).map(idx => {
-    const row = kbRealizedState.rows[idx]; const token = kbRealizedState.selectionTokens[idx];
-    return row && token ? brokerImportSelectedItem(kbRealizedState, idx) : null;
-  }).filter(Boolean);
+  return brokerRealizedFeedController.selectedImportItems(kbRealizedState, brokerImportSelectedItem);
 }
 function populateKbSourceAccounts() {
   const select = document.getElementById('kbSourceAccount'); if (!select) return;
