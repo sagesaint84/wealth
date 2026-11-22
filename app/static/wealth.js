@@ -11745,7 +11745,7 @@ function nhSelectedItems() {
 function populateNhSourceAccounts() {
   const select = document.getElementById('nhSourceAccount'); if (!select) return;
   const current = select.value; select.innerHTML = '<option value="">원본 계좌 선택...</option>';
-  nhRealizedState.accounts.forEach(account => { const option = document.createElement('option'); option.value = account.source_account_key; option.textContent = account.source_account_label || '마스킹된 NH 계좌'; select.appendChild(option); });
+  nhRealizedState.accounts.forEach(account => { brokerUI.appendSelectOption(select, account.source_account_key, account.source_account_label || '마스킹된 NH 계좌'); });
   select.disabled = nhRealizedState.accounts.length === 0;
   if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
   else if (nhRealizedState.accounts.length === 1) select.value = nhRealizedState.accounts[0].source_account_key;
@@ -11773,7 +11773,7 @@ function populateNhDestinationAccounts() {
   const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
   const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
   const source = nhRealizedState.accounts.find(a => a.source_account_key === nhRealizedState.sourceAccountKey);
-  realizedDestinationAccounts(accounts, 'nh', source?.candidate_account_ids).forEach(acc => { const option = document.createElement('option'); option.value = String(acc.id || ''); option.textContent = `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`; select.appendChild(option); });
+  realizedDestinationAccounts(accounts, 'nh', source?.candidate_account_ids).forEach(acc => { brokerUI.appendSelectOption(select, String(acc.id || ''), `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`); });
   setRealizedDestinationEmptyMessage(select);
   const preferred = nhRealizedState.mappedDestAccountId;
   if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
@@ -11900,10 +11900,7 @@ function populateKiwoomSourceAccounts() {
   const select = document.getElementById('kiwoomSourceAccount'); if (!select) return;
   const current = select.value; select.innerHTML = '<option value="">원본 계좌 선택...</option>';
   kiwoomRealizedState.accounts.forEach(account => {
-    const option = document.createElement('option');
-    option.value = account.source_account_key;
-    option.textContent = account.source_account_label || '마스킹된 키움 계좌';
-    select.appendChild(option);
+    brokerUI.appendSelectOption(select, account.source_account_key, account.source_account_label || '마스킹된 키움 계좌');
   });
   select.disabled = kiwoomRealizedState.accounts.length === 0;
   if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
@@ -11944,10 +11941,7 @@ function populateKiwoomDestinationAccounts() {
   const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
   const source = kiwoomRealizedState.accounts.find(a => a.source_account_key === kiwoomRealizedState.sourceAccountKey);
   realizedDestinationAccounts(accounts, 'kiwoom', source?.candidate_account_ids).forEach(acc => {
-    const option = document.createElement('option');
-    option.value = String(acc.id || '');
-    option.textContent = `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`;
-    select.appendChild(option);
+    brokerUI.appendSelectOption(select, String(acc.id || ''), `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`);
   });
   setRealizedDestinationEmptyMessage(select);
   const preferred = kiwoomRealizedState.mappedDestAccountId;
@@ -12174,10 +12168,7 @@ function populateKbSourceAccounts() {
   const select = document.getElementById('kbSourceAccount'); if (!select) return;
   const current = select.value; select.innerHTML = '<option value="">원본 계좌 선택...</option>';
   kbRealizedState.accounts.forEach(account => {
-    const option = document.createElement('option');
-    option.value = account.source_account_key;
-    option.textContent = account.source_account_label || '마스킹된 KB 계좌';
-    select.appendChild(option);
+    brokerUI.appendSelectOption(select, account.source_account_key, account.source_account_label || '마스킹된 KB 계좌');
   });
   select.disabled = kbRealizedState.accounts.length === 0;
   if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
@@ -12218,10 +12209,7 @@ function populateKbDestinationAccounts() {
   const current = select.value; select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
   const source = kbRealizedState.accounts.find(a => a.source_account_key === kbRealizedState.sourceAccountKey);
   realizedDestinationAccounts(accounts, 'kb', source?.candidate_account_ids).forEach(acc => {
-    const option = document.createElement('option');
-    option.value = String(acc.id || '');
-    option.textContent = `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`;
-    select.appendChild(option);
+    brokerUI.appendSelectOption(select, String(acc.id || ''), `[${acc.broker || 'Wealth'}] ${maskAccountDisplayLabel(acc.account_name || acc.name || `계좌 ${acc.id || ''}`)}${acc.owner ? ` (${acc.owner})` : ''}`);
   });
   setRealizedDestinationEmptyMessage(select);
   const preferred = kbRealizedState.mappedDestAccountId;
