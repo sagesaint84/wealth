@@ -11865,7 +11865,7 @@ function renderNhPreviewModal(data) {
     updateCommitButton: updateNhCommitButton, renderDetails: renderBrokerImportPreviewDetails,
   });
 }
-function updateNhCommitButton() { const button = document.getElementById('btnNhConfirmCommit'); const counts = nhRealizedState.preview?.counts || {}; const include = !!document.getElementById('nhIncludePossibleDuplicates')?.checked; const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0); if (button) { button.textContent = `${eligible}건 가져오기 완료`; button.disabled = eligible === 0 || !nhRealizedState.previewTicket || nhRealizedState.importing; } }
+function updateNhCommitButton() { const button = document.getElementById('btnNhConfirmCommit'); const counts = nhRealizedState.preview?.counts || {}; const include = !!document.getElementById('nhIncludePossibleDuplicates')?.checked; const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0); if (button) { button.textContent = `${eligible}건 가져오기 완료`; brokerUI.setButtonDisabled('btnNhConfirmCommit', eligible === 0 || !nhRealizedState.previewTicket || nhRealizedState.importing); } }
 function closeNhImportModal() { brokerUI.setModalVisible('nhImportModalOverlay', false); nhRealizedState.preview = null; nhRealizedState.previewTicket = null; }
 async function commitNhImport() {
   if (nhRealizedState.importing || !nhRealizedState.previewTicket) return; nhRealizedState.importing = true; updateNhCommitButton();
@@ -12070,7 +12070,7 @@ function updateKiwoomCommitButton() {
   const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0);
   if (button) {
     button.textContent = `${eligible}건 가져오기 완료`;
-    button.disabled = eligible === 0 || !kiwoomRealizedState.previewTicket || kiwoomRealizedState.importing;
+    brokerUI.setButtonDisabled('btnKiwoomConfirmCommit', eligible === 0 || !kiwoomRealizedState.previewTicket || kiwoomRealizedState.importing);
   }
 }
 function closeKiwoomImportModal() {
@@ -12347,7 +12347,7 @@ function updateKbCommitButton() {
   const eligible = (counts.new || 0) + (include ? (counts.possible_duplicate || 0) : 0);
   if (button) {
     button.textContent = `${eligible}건 가져오기 완료`;
-    button.disabled = eligible === 0 || !kbRealizedState.previewTicket || kbRealizedState.importing;
+    brokerUI.setButtonDisabled('btnKbConfirmCommit', eligible === 0 || !kbRealizedState.previewTicket || kbRealizedState.importing);
   }
 }
 function closeKbImportModal() {
