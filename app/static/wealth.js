@@ -10043,7 +10043,7 @@ function checkTossWtsFormStale() {
   if (!staleEl) return;
 
   if (!tossWtsState.lastRequested || !tossWtsState.rows || tossWtsState.rows.length === 0) {
-    staleEl.style.display = 'none';
+    brokerUI.renderStaleHint(staleEl.id, false);
     return;
   }
 
@@ -10057,12 +10057,7 @@ function checkTossWtsFormStale() {
     curBasis !== tossWtsState.fetchedBasis
   );
 
-  if (isStale) {
-    staleEl.textContent = '조회 조건이 변경되었습니다. [WTS 조회]를 눌러 다시 조회하세요.';
-    staleEl.style.display = 'block';
-  } else {
-    staleEl.style.display = 'none';
-  }
+  brokerUI.renderStaleHint(staleEl.id, isStale, '조회 조건이 변경되었습니다. [WTS 조회]를 눌러 다시 조회하세요.');
 }
 
 function updateTossWtsMetaUI() {
@@ -11274,7 +11269,7 @@ function checkKisFormStale() {
   if (!staleEl) return;
 
   if (!kisRealizedState.lastRequested || !kisRealizedState.rows || kisRealizedState.rows.length === 0) {
-    staleEl.style.display = 'none';
+    brokerUI.renderStaleHint(staleEl.id, false);
     return;
   }
 
@@ -11288,12 +11283,7 @@ function checkKisFormStale() {
     curTo !== kisRealizedState.fetchedToDate
   );
 
-  if (isStale) {
-    staleEl.textContent = '조회 조건이 변경되었습니다. [한투 실현손익 조회]를 눌러 다시 조회하세요.';
-    staleEl.style.display = 'block';
-  } else {
-    staleEl.style.display = 'none';
-  }
+  brokerUI.renderStaleHint(staleEl.id, isStale, '조회 조건이 변경되었습니다. [한투 실현손익 조회]를 눌러 다시 조회하세요.');
 }
 
 function updateKisMetaUI() {
