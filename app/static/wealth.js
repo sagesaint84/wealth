@@ -10070,8 +10070,7 @@ function updateTossWtsMetaUI() {
   if (!metaEl) return;
 
   if (!tossWtsState.lastRequested || !tossWtsState.rows) {
-    metaEl.style.display = 'none';
-    metaEl.innerHTML = '';
+    brokerUI.renderFeedMetadata(metaEl, null);
     checkTossWtsFormStale();
     return;
   }
@@ -10086,7 +10085,7 @@ function updateTossWtsMetaUI() {
   const count = tossWtsState.rows.length;
   const timeStr = tossWtsState.fetchedAt ? new Date(tossWtsState.fetchedAt).toLocaleTimeString('ko-KR') : '';
 
-  metaEl.innerHTML = `
+  brokerUI.renderFeedMetadata(metaEl, `
     <span class="toss-wts-meta-item">조회 기간: <strong>${html(fromDate)} ~ ${html(toDate)}</strong></span>
     <span class="toss-wts-meta-sep">·</span>
     <span class="toss-wts-meta-item">수익률 기준: <strong>${html(basis)}</strong></span>
@@ -10094,8 +10093,7 @@ function updateTossWtsMetaUI() {
     ${timeStr ? `<span class="toss-wts-meta-sep">·</span><span class="toss-wts-meta-item">조회 시각: ${html(timeStr)}</span>` : ''}
     <span class="toss-wts-meta-sep">·</span>
     <span class="toss-wts-meta-item"><strong>${count}건</strong></span>
-  `;
-  metaEl.style.display = 'flex';
+  `);
   checkTossWtsFormStale();
 }
 
@@ -10624,12 +10622,11 @@ function updateTossWtsIncomeMeta(data = null) {
   const el = document.getElementById('tossWtsIncomeMeta');
   if (!el) return;
   if (!data) {
-    el.style.display = 'none';
-    el.innerHTML = '';
+    brokerUI.renderFeedMetadata(el, null);
     return;
   }
   const requested = data.requested || {};
-  el.innerHTML = `
+  brokerUI.renderFeedMetadata(el, `
     <span class="toss-wts-meta-item">조회 기간: <strong>${html(requested.from_date || '-')} ~ ${html(requested.to_date || '-')}</strong></span>
     <span class="toss-wts-meta-sep">·</span>
     <span class="toss-wts-meta-item">거래원장 <strong>${Number(data.fetched || 0)}건</strong></span>
@@ -10637,8 +10634,7 @@ function updateTossWtsIncomeMeta(data = null) {
     <span class="toss-wts-meta-item">가져오기 대상 <strong>${Number(data.eligible || 0)}건</strong></span>
     <span class="toss-wts-meta-sep">·</span>
     <span class="toss-wts-meta-item">제외 ${Number(data.ignored || 0)}건 · 무효 ${Number(data.invalid || 0)}건</span>
-  `;
-  el.style.display = 'flex';
+  `);
 }
 
 function renderTossWtsIncomeTable() {
@@ -11305,8 +11301,7 @@ function updateKisMetaUI() {
   if (!metaEl) return;
 
   if (!kisRealizedState.lastRequested || !kisRealizedState.rows) {
-    metaEl.style.display = 'none';
-    metaEl.innerHTML = '';
+    brokerUI.renderFeedMetadata(metaEl, null);
     checkKisFormStale();
     return;
   }
@@ -11317,15 +11312,14 @@ function updateKisMetaUI() {
   const count = kisRealizedState.rows.length;
   const timeStr = kisRealizedState.fetchedAt ? new Date(kisRealizedState.fetchedAt).toLocaleTimeString('ko-KR') : '';
 
-  metaEl.innerHTML = `
+  brokerUI.renderFeedMetadata(metaEl, `
     <span class="toss-wts-meta-item">조회 시장: <strong>${html(mktLabel)}</strong></span>
     <span class="toss-wts-meta-sep">·</span>
     <span class="toss-wts-meta-item">조회 기간: <strong>${html(fromDate)} ~ ${html(toDate)}</strong></span>
     ${timeStr ? `<span class="toss-wts-meta-sep">·</span><span class="toss-wts-meta-item">조회 시각: ${html(timeStr)}</span>` : ''}
     <span class="toss-wts-meta-sep">·</span>
     <span class="toss-wts-meta-item"><strong>${count}건</strong></span>
-  `;
-  metaEl.style.display = 'flex';
+  `);
   checkKisFormStale();
 }
 
