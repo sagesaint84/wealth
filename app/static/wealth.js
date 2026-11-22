@@ -11740,10 +11740,11 @@ function renderNhFeedTable() {
 }
 function updateNhSelectionUI() {
   populateNhDestinationAccounts();
-  const count = nhRealizedState.selectedIndices.size;
-  brokerUI.renderSelectionState({ badgeId: 'nhSelectedCountBadge', count,
+  brokerUI.renderBrokerImportSelectionState(nhRealizedState, {
+    badgeId: 'nhSelectedCountBadge',
     buttonId: 'btnNhImportSelected',
-    disabled: count === 0 || !document.getElementById('nhDestinationAccount')?.value || nhRealizedState.loading || nhRealizedState.importing });
+    destinationSelectId: 'nhDestinationAccount',
+  });
   syncBrokerRowImportOptions(nhRealizedState);
 }
 async function openNhImportPreview() {
@@ -11911,10 +11912,11 @@ function renderKiwoomFeedTable() {
 }
 function updateKiwoomSelectionUI() {
   populateKiwoomDestinationAccounts();
-  const count = kiwoomRealizedState.selectedIndices.size;
-  brokerUI.renderSelectionState({ badgeId: 'kiwoomSelectedCountBadge', count,
+  brokerUI.renderBrokerImportSelectionState(kiwoomRealizedState, {
+    badgeId: 'kiwoomSelectedCountBadge',
     buttonId: 'btnKiwoomImportSelected',
-    disabled: count === 0 || !document.getElementById('kiwoomDestinationAccount')?.value || kiwoomRealizedState.loading || kiwoomRealizedState.importing });
+    destinationSelectId: 'kiwoomDestinationAccount',
+  });
   syncBrokerRowImportOptions(kiwoomRealizedState);
 }
 async function openKiwoomImportPreview() {
@@ -12164,10 +12166,11 @@ function renderKbFeedTable() {
 }
 function updateKbSelectionUI() {
   populateKbDestinationAccounts();
-  const count = kbRealizedState.selectedIndices.size;
-  brokerUI.renderSelectionState({ badgeId: 'kbSelectedCountBadge', count,
+  brokerUI.renderBrokerImportSelectionState(kbRealizedState, {
+    badgeId: 'kbSelectedCountBadge',
     buttonId: 'btnKbImportSelected',
-    disabled: count === 0 || !document.getElementById('kbDestinationAccount')?.value || kbRealizedState.loading || kbRealizedState.importing });
+    destinationSelectId: 'kbDestinationAccount',
+  });
   syncBrokerRowImportOptions(kbRealizedState);
 }
 async function openKbImportPreview() {

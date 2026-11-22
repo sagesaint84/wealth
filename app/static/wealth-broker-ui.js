@@ -313,6 +313,16 @@
       if (disabled !== undefined) setButtonDisabled(id, disabled);
     }
 
+    function renderBrokerImportSelectionState(state, { badgeId, buttonId, destinationSelectId }) {
+      const count = state.selectedIndices.size;
+      renderSelectionState({
+        badgeId,
+        count,
+        buttonId,
+        disabled: count === 0 || !document.getElementById(destinationSelectId)?.value || state.loading || state.importing,
+      });
+    }
+
     function renderSelectionState({ badgeId, count, buttonId, disabled, barId, barDisplay }) {
       const badge = document.getElementById(badgeId);
       if (badge) badge.textContent = `선택 ${count}건`;
@@ -383,7 +393,7 @@
       `</div>`;
     }
 
-    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, appendSelectOption, populateBrokerSourceAccountSelect, populateBrokerDestinationAccountSelect, renderSelectAllState, renderSelectionState, setButtonDisabled, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
+    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, appendSelectOption, populateBrokerSourceAccountSelect, populateBrokerDestinationAccountSelect, renderSelectAllState, renderSelectionState, renderBrokerImportSelectionState, setButtonDisabled, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
   }
   window.WealthBrokerUI = Object.freeze({ create });
 })();
