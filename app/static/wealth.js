@@ -11676,7 +11676,7 @@ function setNhLoading(loading) {
   nhRealizedState.loading = loading;
   brokerUI.setAccountFeedButtonsDisabled('btnCheckNhStatus', 'btnFetchNhFeed', loading, nhRealizedState.sourceAccountKey);
 }
-function nhSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
+function nhSafeError(error, fallback) { return brokerUI.brokerErrorText(error, fallback); }
 function nhSelectedItems() {
   return brokerRealizedFeedController.selectedImportItems(nhRealizedState, brokerImportSelectedItem);
 }
@@ -11817,7 +11817,7 @@ function setKiwoomLoading(loading) {
   kiwoomRealizedState.loading = loading;
   brokerUI.setAccountFeedButtonsDisabled('btnCheckKiwoomStatus', 'btnFetchKiwoomFeed', loading, kiwoomRealizedState.sourceAccountKey);
 }
-function kiwoomSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
+function kiwoomSafeError(error, fallback) { return brokerUI.brokerErrorText(error, fallback); }
 function kiwoomSelectedItems() {
   return brokerRealizedFeedController.selectedImportItems(kiwoomRealizedState, brokerImportSelectedItem);
 }
@@ -12068,7 +12068,7 @@ function setKbLoading(loading) {
   kbRealizedState.loading = loading;
   brokerUI.setAccountFeedButtonsDisabled('btnCheckKbStatus', 'btnFetchKbFeed', loading, kbRealizedState.sourceAccountKey);
 }
-function kbSafeError(error, fallback) { return error?.detail?.message || error?.detail?.code || fallback; }
+function kbSafeError(error, fallback) { return brokerUI.brokerErrorText(error, fallback); }
 function kbSelectedItems() {
   return brokerRealizedFeedController.selectedImportItems(kbRealizedState, brokerImportSelectedItem);
 }
