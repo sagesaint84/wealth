@@ -10314,8 +10314,7 @@ function updateWtsSelectionUI() {
   const selectAll = document.getElementById('wtsSelectAll');
   if (selectAll && tossWtsState.rows) {
     const importableCount = tossWtsState.rows.filter((_, idx) => !tossWtsState.importedIndices.has(idx)).length;
-    selectAll.checked = importableCount > 0 && count === importableCount;
-    selectAll.disabled = importableCount === 0;
+    brokerUI.renderSelectAllState('wtsSelectAll', importableCount > 0 && count === importableCount, importableCount === 0);
   }
   syncBrokerRowImportOptions(tossWtsState);
 }
@@ -10694,8 +10693,7 @@ function updateTossWtsIncomeSelectionUI() {
   const selectAll = document.getElementById('wtsIncomeSelectAll');
   if (selectAll) {
     const available = tossWtsIncomeState.rows.filter((_, index) => !tossWtsIncomeState.importedIndices.has(index)).length;
-    selectAll.checked = available > 0 && count === available;
-    selectAll.disabled = available === 0;
+    brokerUI.renderSelectAllState('wtsIncomeSelectAll', available > 0 && count === available, available === 0);
   }
 }
 
@@ -11465,7 +11463,7 @@ function updateKisSelectionUI() {
 
   if (selectAll && kisRealizedState.rows) {
     const unimportedCount = kisRealizedState.rows.filter((_, idx) => !kisRealizedState.importedIndices.has(idx)).length;
-    selectAll.checked = unimportedCount > 0 && count === unimportedCount;
+    brokerUI.renderSelectAllState('kisSelectAll', unimportedCount > 0 && count === unimportedCount);
   }
   syncBrokerRowImportOptions(kisRealizedState);
 }

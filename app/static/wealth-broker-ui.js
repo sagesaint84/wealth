@@ -238,6 +238,13 @@
       if (button) button.disabled = disabled;
     }
 
+    function renderSelectAllState(id, checked, disabled) {
+      const checkbox = document.getElementById(id);
+      if (!checkbox) return;
+      checkbox.checked = checked;
+      if (disabled !== undefined) setButtonDisabled(id, disabled);
+    }
+
     function renderSelectionState({ badgeId, count, buttonId, disabled, barId, barDisplay }) {
       const badge = document.getElementById(badgeId);
       if (badge) badge.textContent = `선택 ${count}건`;
@@ -308,7 +315,7 @@
       `</div>`;
     }
 
-    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, renderSelectionState, setButtonDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
+    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, renderSelectAllState, renderSelectionState, setButtonDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
   }
   window.WealthBrokerUI = Object.freeze({ create });
 })();
