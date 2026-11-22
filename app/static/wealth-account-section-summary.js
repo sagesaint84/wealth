@@ -211,7 +211,7 @@
     if (window.WealthIpoSaleBridge || document.getElementById('wealthIpoSaleBridgeScript')) return;
     const script = document.createElement('script');
     script.id = 'wealthIpoSaleBridgeScript';
-    script.src = '/static/wealth-ipo-sale-bridge.js?v=10.6c';
+    script.src = '/static/wealth-ipo-sale-bridge.js?v=2.1.9-sale-dialog1';
     script.async = false;
     document.head.appendChild(script);
   }

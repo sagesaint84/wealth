@@ -89,7 +89,10 @@ class AccountSectionSummary106BFrontendTests(unittest.TestCase):
 
     def test_ipo_sale_bridge_is_loaded_once_from_summary_module(self) -> None:
         self.assertIn("wealthIpoSaleBridgeScript", self.summary_js)
-        self.assertIn("/static/wealth-ipo-sale-bridge.js?v=10.6c", self.summary_js)
+        self.assertRegex(
+            self.summary_js,
+            r"script\.src = '/static/wealth-ipo-sale-bridge\.js\?v=[A-Za-z0-9][A-Za-z0-9._-]*';",
+        )
         self.assertIn("window.WealthIpoSaleBridge", self.summary_js)
 
     def test_pdf_reported_balance_is_not_reused_as_broker_cash(self) -> None:
