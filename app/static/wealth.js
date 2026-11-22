@@ -11736,7 +11736,7 @@ function renderNhFeedTable() {
     toss: false,
   });
   syncBrokerRowImportOptions(nhRealizedState);
-  brokerUI.bindFeedSelection(tbody, '.nh-row-check', event => { const index = Number(event.target.dataset.index); event.target.checked ? nhRealizedState.selectedIndices.add(index) : nhRealizedState.selectedIndices.delete(index); updateNhSelectionUI(); });
+  brokerUI.bindBrokerImportRowSelection(tbody, '.nh-row-check', nhRealizedState, updateNhSelectionUI);
 }
 function updateNhSelectionUI() {
   populateNhDestinationAccounts();
@@ -11904,11 +11904,7 @@ function renderKiwoomFeedTable() {
     toss: false,
   });
   syncBrokerRowImportOptions(kiwoomRealizedState);
-  brokerUI.bindFeedSelection(tbody, '.kiwoom-row-check', event => {
-    const index = Number(event.target.dataset.index);
-    event.target.checked ? kiwoomRealizedState.selectedIndices.add(index) : kiwoomRealizedState.selectedIndices.delete(index);
-    updateKiwoomSelectionUI();
-  });
+  brokerUI.bindBrokerImportRowSelection(tbody, '.kiwoom-row-check', kiwoomRealizedState, updateKiwoomSelectionUI);
 }
 function updateKiwoomSelectionUI() {
   populateKiwoomDestinationAccounts();
@@ -12158,11 +12154,7 @@ function renderKbFeedTable() {
     toss: false,
   });
   syncBrokerRowImportOptions(kbRealizedState);
-  brokerUI.bindFeedSelection(tbody, '.kb-row-check', event => {
-    const index = Number(event.target.dataset.index);
-    event.target.checked ? kbRealizedState.selectedIndices.add(index) : kbRealizedState.selectedIndices.delete(index);
-    updateKbSelectionUI();
-  });
+  brokerUI.bindBrokerImportRowSelection(tbody, '.kb-row-check', kbRealizedState, updateKbSelectionUI);
 }
 function updateKbSelectionUI() {
   populateKbDestinationAccounts();
