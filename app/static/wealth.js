@@ -10270,13 +10270,7 @@ async function fetchTossWtsRealizedFeed() {
       to_date: tossWtsState.fetchedToDate,
     };
     tossWtsState.fetchedAt = data.fetched_at;
-    const sortedFeed = sortBrokerRealizedFeedRows(data.rows || [], data.selection_tokens || []);
-    tossWtsState.rows = sortedFeed.rows;
-    tossWtsState.selectionTokens = sortedFeed.selectionTokens;
-    tossWtsState.selectedIndices.clear();
-    tossWtsState.importedIndices.clear();
-    tossWtsState.importPreferences.clear();
-    tossWtsState.previewTicket = null;
+    brokerRealizedFeedController.applySuccessfulFeed(tossWtsState, data.rows || [], data.selection_tokens || []);
 
     if (data.date_compatibility?.adjusted) {
       showTossWtsMessage(
