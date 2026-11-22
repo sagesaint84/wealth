@@ -52,7 +52,14 @@
       state.previewTicket = null;
     }
 
-    return Object.freeze({ applySuccessfulFeed });
+    function selectedImportItems(state, buildItem) {
+      return Array.from(state.selectedIndices)
+        .sort((a, b) => a - b)
+        .map(index => buildItem(state, index))
+        .filter(Boolean);
+    }
+
+    return Object.freeze({ applySuccessfulFeed, selectedImportItems });
   }
 
   window.WealthBrokerRealizedFeedController = Object.freeze({ create, sortRows: sortBrokerRealizedFeedRows, dateKey: brokerRealizedDateKey });
