@@ -279,6 +279,26 @@
       return select.value;
     }
 
+    function populateBrokerDestinationAccountSelect(select, accounts, preferred, maskAccountDisplayLabel) {
+      const current = select.value;
+      select.innerHTML = '<option value="">귀속 계좌 선택...</option>';
+      accounts.forEach(account => {
+        const id = String(account.id || '');
+        const name = maskAccountDisplayLabel(account.account_name || account.name || `계좌 ${id}`);
+        const owner = account.owner ? ` (${account.owner})` : '';
+        appendSelectOption(select, id, `[${account.broker || 'Wealth'}] ${name}${owner}`);
+      });
+      if (select.options.length === 1) {
+        select.options[0].textContent = '해당 증권사 계좌를 먼저 등록하세요.';
+      }
+      const hasOption = value => Array.from(select.options).some(option => option.value === value);
+      if (current && hasOption(current)) {
+        select.value = current;
+      } else if (preferred && hasOption(String(preferred))) {
+        select.value = String(preferred);
+      }
+    }
+
     function appendSelectOption(select, value, label) {
       const option = document.createElement('option');
       option.value = value;
@@ -363,7 +383,7 @@
       `</div>`;
     }
 
-    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, appendSelectOption, populateBrokerSourceAccountSelect, renderSelectAllState, renderSelectionState, setButtonDisabled, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
+    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, appendSelectOption, populateBrokerSourceAccountSelect, populateBrokerDestinationAccountSelect, renderSelectAllState, renderSelectionState, setButtonDisabled, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
   }
   window.WealthBrokerUI = Object.freeze({ create });
 })();
