@@ -61,9 +61,7 @@
   function ensureDialog() {
     let dialog = document.getElementById(DIALOG_ID);
     if (dialog) return dialog;
-    dialog = document.createElement('dialog');
-    dialog.id = DIALOG_ID;
-    dialog.className = 'dialog';
+    dialog = window.WealthDialogShell.create({id: DIALOG_ID});
     dialog.innerHTML = `
       <div class="dialog-head">
         <h2>📦 공모주 매도 실현손익 기록</h2>
