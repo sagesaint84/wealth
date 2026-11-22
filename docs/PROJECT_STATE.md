@@ -1531,3 +1531,13 @@ PR #219 병합 및 작업 커밋 포함을 확인하고 승인된 planning-dialo
 - 기존 String(value ?? '')와 &, <, >, 큰따옴표, 작은따옴표의 치환 결과(&#39; 포함)는 동일하다. 기존 순차 치환의 & 처리가 먼저였으므로 새로 생성한 entity가 재치환되지 않는 계약도 같다. 배당 출처와 What-if는 기존 &#039; 또는 String(value) 차이를 보존하기 위해 이번 대상에서 제외했다.
 - 두 JS 문법·git diff --check PASS. 공통 Format이 두 화면보다 먼저 정확히 한 번 로드되는 것을 확인했다. 두 기존 렌더러의 치환 구간 외 코드, API·금융 계산·권한·저장·사용자 범위·금액 포맷은 유지한다. index의 두 JS revision만 갱신했으며 APP_VERSION 2.1.9는 유지한다.
 - 이 후보의 브라우저·실제 가족 자료 및 특수문자 출력 검증은 미실행/PENDING이다. 사용자 최종 체크리스트 21개는 그대로 PENDING이다. 새 검사·fixture·서버·백업은 만들지 않았고 이 후보의 Commit·Push·PR·Merge·추가 삭제·Oracle 배포는 실행하지 않는다.
+
+
+### 후속 자율 후보 — 소득 증권사 필터 옵션 표시 (기준 main 112809d)
+
+PR #220 병합·작업 커밋 포함 및 예상 SHA를 확인하고 승인된 family-income-display-owner 원격·로컬 브랜치와 CLEAN 작업용 worktree만 정리했다. 기존 21개 worktree는 보존한다. 새 후보는 codex/income-filter-display-owner 독립 환경 한 곳에 둔다.
+
+- WealthFormat.escapeHtml이 실현손익 ensureBrokerFilter와 배당 ensureDividendBrokerFilter의 option 표시를 담당한다. 기존 escapeOption 진입점에서 period.text(value)의 NFKC·공백 정규화를 먼저 수행하고 공통 소유자에 위임한다. 기존 다섯 문자 치환 및 &#39; 결과를 유지한다.
+- 계좌 요약의 독립 CommonJS 계약과 배당 출처·What-if의 다른 null/entity 계약은 이번 범위에서 제외했다. 필터 선택·연도/월·owner·원본 데이터·금융 계산·API·저장·권한은 변경하지 않는다.
+- 기존 allocation 로더와 index의 관련 asset revision만 갱신한다. 공통 Format → allocation → period core → income filter 로드 순서와 v2.1.9를 유지한다. 기존 검사 하나의 과거 revision 고정값만 정확한 loadScriptOnce ID·경로·유효 revision 정규식으로 바꾸고 core 선행 순서 assertion과 나머지 검사는 보존했다.
+- 변경 JS 문법·Python AST·git diff --check PASS. pytest·동적 Node·브라우저·실자료 검증은 실행하지 않았다. 브라우저 및 특수문자 옵션·기존 선택값 복원은 PENDING이며 사용자 체크리스트 21개도 그대로 PENDING이다. 새 파일·fixture·실행기·백업은 만들지 않았고 이 후보의 Commit·Push·PR·Merge·추가 삭제·Oracle 배포는 실행하지 않는다.

@@ -25,7 +25,11 @@ class IncomePeriodBrokerFilterFrontendTests(unittest.TestCase):
         self.assertIn("wealthPeriodFilterCoreScript", self.loader_js)
         self.assertIn("/static/wealth-period-filter-core.js?v=10.6f1", self.loader_js)
         self.assertIn("wealthIncomePeriodBrokerFilterScript", self.loader_js)
-        self.assertIn("/static/wealth-income-period-broker-filter.js?v=2.1.3-p0", self.loader_js)
+        self.assertRegex(
+            self.loader_js,
+            r"loadScriptOnce\('wealthIncomePeriodBrokerFilterScript', "
+            r"'/static/wealth-income-period-broker-filter\.js\?v=[A-Za-z0-9][A-Za-z0-9._-]*'\)",
+        )
         self.assertLess(
             self.loader_js.index("wealthPeriodFilterCoreScript"),
             self.loader_js.index("wealthIncomePeriodBrokerFilterScript"),

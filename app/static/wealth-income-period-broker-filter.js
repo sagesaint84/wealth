@@ -74,12 +74,7 @@
   }
 
   function escapeOption(value) {
-    return text(value)
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
+    return window.WealthFormat.escapeHtml(text(value));
   }
 
   function allDividendIncomeRecords(rawData) {
