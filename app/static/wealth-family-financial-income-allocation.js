@@ -5,7 +5,7 @@
   const API_PATH = '/api/dividends/financial-income-family-allocation-simulation';
   const money = value => value === null || value === undefined
     ? '확인 불가'
-    : `₩${Math.round(Number(value)).toLocaleString('ko-KR')}`;
+    : `₩${window.WealthFormat.roundGroupedKoKr(Number(value))}`;
   const escapeHtml = window.WealthFormat.escapeHtml;
   const taxWorkspaceActive = () => {
     if (globalThis.WealthStartup?.visible('accountsPanel') === false) return false;

@@ -1541,3 +1541,12 @@ PR #220 병합·작업 커밋 포함 및 예상 SHA를 확인하고 승인된 fa
 - 계좌 요약의 독립 CommonJS 계약과 배당 출처·What-if의 다른 null/entity 계약은 이번 범위에서 제외했다. 필터 선택·연도/월·owner·원본 데이터·금융 계산·API·저장·권한은 변경하지 않는다.
 - 기존 allocation 로더와 index의 관련 asset revision만 갱신한다. 공통 Format → allocation → period core → income filter 로드 순서와 v2.1.9를 유지한다. 기존 검사 하나의 과거 revision 고정값만 정확한 loadScriptOnce ID·경로·유효 revision 정규식으로 바꾸고 core 선행 순서 assertion과 나머지 검사는 보존했다.
 - 변경 JS 문법·Python AST·git diff --check PASS. pytest·동적 Node·브라우저·실자료 검증은 실행하지 않았다. 브라우저 및 특수문자 옵션·기존 선택값 복원은 PENDING이며 사용자 체크리스트 21개도 그대로 PENDING이다. 새 파일·fixture·실행기·백업은 만들지 않았고 이 후보의 Commit·Push·PR·Merge·추가 삭제·Oracle 배포는 실행하지 않는다.
+
+
+### 후속 자율 후보 — 금융소득 원화 표시 재사용 (기준 main 4248c82)
+
+PR #221 병합·정정된 작업 SHA·main 포함 관계를 확인하고 승인된 income-filter-display-owner 원격·로컬 브랜치와 CLEAN 작업용 worktree만 정리했다. 기존 21개 worktree와 M2 merge는 보존했다. 새 후보는 codex/financial-income-money-owner 독립 환경 한 곳에서 관리한다.
+
+- What-if·가족 금융소득 위험·가족 분산 시뮬레이션의 기존 money 진입점이 WealthFormat.roundGroupedKoKr(Number(value))를 재사용한다. 기존 Math.round(Number(value)).toLocaleString('ko-KR')와 같은 계산·표시 순서이며 원화 접두사와 각 화면의 기존 null/undefined/NaN/무한대 조건을 그대로 둔다. formatMoney로 바꾸어 결측값 계약을 통일하지 않는다.
+- 세 소스는 해당 표현식 한 곳씩 외에 바이트 정규화 비교상 불변이다. 금액 기준·배분·세금 계산, API·DB·권한·owner·요청·저장은 변경하지 않는다. index는 관련 세 JS revision만 갱신하고 공통 Format 선행 순서와 앱 버전 2.1.9를 유지한다.
+- 세 JS 문법·로드 순서·git diff --check PASS. 브라우저·실자료·표시 경계값은 미실행/PENDING이며 기존 사용자 체크리스트 21개도 그대로 PENDING이다. 새 파일·테스트·fixture·실행기·백업은 만들지 않았다. 이 후보의 Commit·Push·PR·Merge·추가 삭제·Oracle 배포는 실행하지 않는다.
