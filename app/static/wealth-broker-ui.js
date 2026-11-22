@@ -148,6 +148,18 @@
       }));
     }
 
+    function bindBrokerImportRowSelection(body, selector, state, onUpdate) {
+      bindFeedSelection(body, selector, event => {
+        const index = Number(event.target.dataset.index);
+        if (event.target.checked) {
+          state.selectedIndices.add(index);
+        } else {
+          state.selectedIndices.delete(index);
+        }
+        onUpdate();
+      });
+    }
+
     function initializeBrokerScreens(screens, onSwitch, extraDateFields = []) {
       const range = window.WealthDateHelper.getKstDateRange(30);
       [...screens, ...extraDateFields].forEach(screen => {
@@ -397,7 +409,7 @@
       `</div>`;
     }
 
-    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, appendSelectOption, populateBrokerSourceAccountSelect, populateBrokerDestinationAccountSelect, renderSelectAllState, renderSelectionState, renderBrokerImportSelectionState, setButtonDisabled, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, brokerErrorText, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
+    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, bindBrokerImportRowSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, appendSelectOption, populateBrokerSourceAccountSelect, populateBrokerDestinationAccountSelect, renderSelectAllState, renderSelectionState, renderBrokerImportSelectionState, setButtonDisabled, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, brokerErrorText, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
   }
   window.WealthBrokerUI = Object.freeze({ create });
 })();
