@@ -264,6 +264,21 @@
       setButtonDisabled(fetchButtonId, loading || !sourceAccountKey);
     }
 
+    function populateBrokerSourceAccountSelect(select, accounts, fallbackLabel) {
+      const current = select.value;
+      select.innerHTML = '<option value="">원본 계좌 선택...</option>';
+      accounts.forEach(account => {
+        appendSelectOption(select, account.source_account_key, account.source_account_label || fallbackLabel);
+      });
+      select.disabled = accounts.length === 0;
+      if (current && Array.from(select.options).some(option => option.value === current)) {
+        select.value = current;
+      } else if (accounts.length === 1) {
+        select.value = accounts[0].source_account_key;
+      }
+      return select.value;
+    }
+
     function appendSelectOption(select, value, label) {
       const option = document.createElement('option');
       option.value = value;
@@ -348,7 +363,7 @@
       `</div>`;
     }
 
-    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, appendSelectOption, renderSelectAllState, renderSelectionState, setButtonDisabled, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
+    return Object.freeze({ renderFeedImportOptions, renderBrokerState, renderRealizedTable, feedSelectionCell, bindFeedSelection, initializeBrokerScreens, showBrokerScreen, renderFeedMetadata, renderStaleHint, renderStatus, hideBrokerMessage, renderPreviewSummary, renderDestinationAccount, renderPreviewCounts, setModalVisible, appendSelectOption, populateBrokerSourceAccountSelect, renderSelectAllState, renderSelectionState, setButtonDisabled, setAccountFeedButtonsDisabled, applyDefaultDateRange, brokerImportPreviewRow, showBrokerMessage, brokerTableEmptyRow, brokerTableLoadingRow });
   }
   window.WealthBrokerUI = Object.freeze({ create });
 })();
