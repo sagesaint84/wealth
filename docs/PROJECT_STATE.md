@@ -1577,3 +1577,11 @@ PR #224 병합·작업 SHA·main 포함 관계를 확인하고 승인된 money-h
 - 홈의 기존 won(value)을 WealthFormat.roundGroupedKoKr(value)에 위임했다. wealth:summary의 자산 요약·자산배분 합계와 범례, investmentDetail, signedWon이 동일 소유자를 재사용한다. 원 접미사, 기존 부호와 Number(value) || 0 처리, 결측값·수익률·분류·합계 계산은 그대로다.
 - Layout은 이 표현식 한 곳 외 코드 불변이다. index의 Format script 한 개를 Layout 앞으로 이동하고 Layout revision만 변경했다. 순수 Format은 DOM·API·이벤트를 실행하지 않으며 다른 모든 script의 상대 순서는 그대로다. Donut → Layout → wealth.js 기존 순서를 유지하고 APP_VERSION 2.1.9·금융·API·DB·권한·저장 계약은 바꾸지 않았다.
 - JS 문법·로드 순서·git diff --check PASS. 브라우저·실자료·자산배분·signed 금액 경계값은 미실행/PENDING이며 기존 사용자 체크리스트 21개도 PENDING이다. 새 파일·테스트·fixture·실행기·백업은 만들지 않는다. 지속 승인 범위에서 이 세 파일만 Commit·일반 Push하고 PR·병합은 ChatGPT가 수행한다. Oracle 배포는 하지 않는다.
+
+
+### 후속 자율 후보 — 계좌정보 미리보기 원화 표시 (기준 main bc4dd1b)
+
+codex/accountinfo-money-display-owner에서 계좌정보 PDF의 은행·증권 미리보기 renderPreview가 쓰는 money를 기존 WealthFormat.roundGroupedKoKr에 연결했다. Number(value || 0), 비유한 값의 -, ₩ 접두사와 미확인 잔액의 0원(미확인)은 그대로다. 실제 저장·계좌 귀속·잔액 판단·PDF 파싱·마스킹·CommonJS 공개 도구는 변경하지 않았다. 원본 22개 worktree(기존 21개 및 PR #225 작업용)를 보존하며 어떤 브랜치·worktree도 정리하지 않는다.
+
+- Import 소스는 표시 표현식 한 곳 외 비교상 불변이다. Money Input 동적 loader와 index의 연결된 revision만 갱신했고 Format → Money Input → 계좌정보 import 순서를 유지한다. 기존 검사 하나의 과거 revision 고정값만 정확한 script.src 경로·유효 revision 검사로 바꾸고 나머지 assertion은 그대로다.
+- 변경 JS 문법·Python AST·git diff --check PASS. 브라우저·실제 PDF·표시 경계값은 미실행/PENDING이다. 사용자 체크리스트 21개도 PENDING으로 유지한다. 앱 버전 2.1.9·금융·API·DB·권한·KST·저장 계약은 유지한다. 새 파일·테스트·fixture·실행기·백업은 만들지 않는다. 지속 승인 범위에서 이 다섯 파일만 Commit·일반 Push하고 PR·병합은 ChatGPT가 수행한다. Oracle 배포는 하지 않는다.
