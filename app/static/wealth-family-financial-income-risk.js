@@ -13,7 +13,7 @@
     if (value === null || value === undefined || !Number.isFinite(Number(value))) {
       return '확인 불가';
     }
-    return `₩${Math.round(Number(value)).toLocaleString('ko-KR')}`;
+    return `₩${window.WealthFormat.roundGroupedKoKr(Number(value))}`;
   }
 
   function taxWorkspaceActive() {

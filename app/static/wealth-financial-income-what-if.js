@@ -9,7 +9,7 @@
 
   function money(value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) return '확인 불가';
-    return `₩${Math.round(Number(value)).toLocaleString('ko-KR')}`;
+    return `₩${window.WealthFormat.roundGroupedKoKr(Number(value))}`;
   }
 
   function percent(value) {
