@@ -1550,3 +1550,12 @@ PR #221 병합·정정된 작업 SHA·main 포함 관계를 확인하고 승인�
 - What-if·가족 금융소득 위험·가족 분산 시뮬레이션의 기존 money 진입점이 WealthFormat.roundGroupedKoKr(Number(value))를 재사용한다. 기존 Math.round(Number(value)).toLocaleString('ko-KR')와 같은 계산·표시 순서이며 원화 접두사와 각 화면의 기존 null/undefined/NaN/무한대 조건을 그대로 둔다. formatMoney로 바꾸어 결측값 계약을 통일하지 않는다.
 - 세 소스는 해당 표현식 한 곳씩 외에 바이트 정규화 비교상 불변이다. 금액 기준·배분·세금 계산, API·DB·권한·owner·요청·저장은 변경하지 않는다. index는 관련 세 JS revision만 갱신하고 공통 Format 선행 순서와 앱 버전 2.1.9를 유지한다.
 - 세 JS 문법·로드 순서·git diff --check PASS. 브라우저·실자료·표시 경계값은 미실행/PENDING이며 기존 사용자 체크리스트 21개도 그대로 PENDING이다. 새 파일·테스트·fixture·실행기·백업은 만들지 않았다. 이 후보의 Commit·Push·PR·Merge·추가 삭제·Oracle 배포는 실행하지 않는다.
+
+
+### 후속 자율 후보 — 배당 HTML escape 호환 재사용 (기준 main 206588e)
+
+PR #222 병합·작업 SHA·main 포함 관계를 확인하고 승인된 financial-income-money-owner 원격·로컬 브랜치와 CLEAN 작업용 worktree만 정리했다. 기존 21개 worktree와 M2 merge는 보존한다. 새 후보는 codex/dividend-escape-compat-owner 한 곳에서 분리한다.
+
+- 배당 출처와 What-if의 escapeHtml 공개 진입점이 기존 WealthFormat.escapeHtml을 재사용한다. 배당 출처는 String(value ?? ''), What-if는 String(value)를 먼저 적용하므로 서로 다른 null/undefined 계약을 유지한다. 공통 출력의 &#39;만 기존 &#039;로 복원해 HTML 문자열까지 보존한다.
+- 기존 입력의 &가 먼저 escape되므로 이미 존재하는 &#39; 문자열은 &amp;#39;가 되며 호환 치환 대상이 아니다. 공통 다섯 문자 매핑과 기존 entity 형식 외 책임은 추가하지 않았다. 두 소스의 escape 본문·주석 외 코드는 비교상 불변이다. 링크 허용·권한·owner·금액·API·금융 계산·저장은 변경하지 않는다.
+- index의 두 JS revision만 갱신하고 Format 선행 로드 및 v2.1.9를 유지한다. 두 JS 문법·로드 순서·git diff --check PASS. 브라우저·실자료·악성 문자열 동적 검증은 미실행/PENDING이고 사용자 체크리스트 21개도 PENDING이다. 새 파일·테스트·fixture·실행기·백업·Oracle 배포는 만들거나 실행하지 않는다. 기존 지속 승인 범위에서 정적 게이트 확인 후 정확한 이 후보만 Commit·일반 Push하며 PR·병합은 ChatGPT가 수행한다.

@@ -47,12 +47,8 @@
   }
 
   function escapeHtml(value) {
-    return String(value)
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#039;');
+    // Preserve the legacy apostrophe entity in generated HTML.
+    return window.WealthFormat.escapeHtml(String(value)).replaceAll('&#39;', '&#039;');
   }
 
   function presetMarkup() {
