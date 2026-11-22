@@ -1559,3 +1559,12 @@ PR #222 병합·작업 SHA·main 포함 관계를 확인하고 승인된 financi
 - 배당 출처와 What-if의 escapeHtml 공개 진입점이 기존 WealthFormat.escapeHtml을 재사용한다. 배당 출처는 String(value ?? ''), What-if는 String(value)를 먼저 적용하므로 서로 다른 null/undefined 계약을 유지한다. 공통 출력의 &#39;만 기존 &#039;로 복원해 HTML 문자열까지 보존한다.
 - 기존 입력의 &가 먼저 escape되므로 이미 존재하는 &#39; 문자열은 &amp;#39;가 되며 호환 치환 대상이 아니다. 공통 다섯 문자 매핑과 기존 entity 형식 외 책임은 추가하지 않았다. 두 소스의 escape 본문·주석 외 코드는 비교상 불변이다. 링크 허용·권한·owner·금액·API·금융 계산·저장은 변경하지 않는다.
 - index의 두 JS revision만 갱신하고 Format 선행 로드 및 v2.1.9를 유지한다. 두 JS 문법·로드 순서·git diff --check PASS. 브라우저·실자료·악성 문자열 동적 검증은 미실행/PENDING이고 사용자 체크리스트 21개도 PENDING이다. 새 파일·테스트·fixture·실행기·백업·Oracle 배포는 만들거나 실행하지 않는다. 기존 지속 승인 범위에서 정적 게이트 확인 후 정확한 이 후보만 Commit·일반 Push하며 PR·병합은 ChatGPT가 수행한다.
+
+
+### 후속 자율 후보 — 금액 입력·프리셋 안내 표시 (기준 main a9ecc05)
+
+PR #223 병합·예상 SHA·main 포함 관계를 확인하고 승인된 dividend-escape-compat-owner 원격·로컬 브랜치와 CLEAN 작업용 worktree만 정리했다. 기존 21개 worktree·M2 merge·사용자 데이터는 보존한다. 다음 후보는 codex/money-hint-display-owner 한 곳에서 분리한다.
+
+- Money Input의 renderUsdHint와 What-if의 presetMarkup이 WealthFormat.roundGroupedKoKr를 재사용한다. 기존 parsed * usdKrwRate, value / 10_000 피연산식과 평가 시점·예외값 조건은 유지한다. 약 ₩/만 문구·부호·입력 상태·환율 취득·원화 환산 대기·프리셋 data 값과 이벤트는 변경하지 않는다.
+- 각 JS는 표시 표현식 한 곳 외 코드가 비교상 불변이며 index는 관련 두 revision만 변경했다. 공통 Format 선행 로드와 앱 버전 2.1.9를 유지한다. 금융 계산·API·DB·권한·저장 계약은 바꾸지 않는다.
+- 변경 JS 문법·로드 순서·git diff --check PASS. 브라우저·실자료·환율 안내와 프리셋 조작의 동적 검증은 미실행/PENDING이며 사용자 체크리스트 21개도 PENDING이다. 새 파일·테스트·fixture·실행기·백업은 만들지 않는다. 지속 승인 범위의 이 네 파일만 Commit·일반 Push하며 PR·병합은 ChatGPT가 수행한다. Oracle 배포는 실행하지 않는다.

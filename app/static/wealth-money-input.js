@@ -219,7 +219,7 @@
     const krw = document.createElement('span');
     krw.className = 'usd-money-preview-krw';
     krw.textContent = Number.isFinite(usdKrwRate) && usdKrwRate > 0
-      ? `약 ₩${Math.round(parsed * usdKrwRate).toLocaleString('ko-KR')}`
+      ? `약 ₩${window.WealthFormat.roundGroupedKoKr(parsed * usdKrwRate)}`
       : '원화 환산 대기';
 
     hint.style.display = 'flex';

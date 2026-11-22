@@ -54,7 +54,7 @@
   function presetMarkup() {
     return DIVIDEND_PRESETS.map(value => `
       <button type="button" class="fi-dividend-preset" data-dividend-preset="${value}">
-        +${Math.round(value / 10_000).toLocaleString('ko-KR')}만
+        +${window.WealthFormat.roundGroupedKoKr(value / 10_000)}만
       </button>
     `).join('');
   }
