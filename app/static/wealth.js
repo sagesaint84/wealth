@@ -10434,10 +10434,10 @@ function updateWtsCommitButton() {
   const totalEligible = newCount + (includeDup ? dupCount : 0);
 
   if (totalEligible > 0 && currentPreviewData?.preview_ticket && tossWtsState.previewTicket && !tossWtsState.importing) {
-    commitBtn.disabled = false;
+    brokerUI.setButtonDisabled('btnWtsConfirmCommit', false);
     commitBtn.textContent = `신규 ${totalEligible}건 Wealth에 추가`;
   } else {
-    commitBtn.disabled = true;
+    brokerUI.setButtonDisabled('btnWtsConfirmCommit', true);
     commitBtn.textContent = totalEligible > 0 ? `신규 ${totalEligible}건 Wealth에 추가` : '신규 0건 Wealth에 추가';
   }
 }
@@ -10830,7 +10830,7 @@ function updateTossWtsIncomeCommitButton() {
   const counts = tossWtsIncomeState.previewData?.counts || {};
   const includeDup = Boolean(document.getElementById('wtsIncomeIncludePossibleDuplicates')?.checked);
   const total = Number(counts.new || 0) + (includeDup ? Number(counts.possible_duplicate || 0) : 0);
-  button.disabled = tossWtsIncomeState.importing || !tossWtsIncomeState.previewTicket || total <= 0;
+  brokerUI.setButtonDisabled('btnWtsIncomeConfirmCommit', tossWtsIncomeState.importing || !tossWtsIncomeState.previewTicket || total <= 0);
   button.textContent = `${total}건 가져오기`;
 }
 
@@ -11646,7 +11646,7 @@ function updateKisCommitButton() {
   const eligibleCount = newCnt + (includeDup ? dupCnt : 0);
 
   commitBtn.textContent = `${eligibleCount}건 가져오기 완료`;
-  commitBtn.disabled = eligibleCount === 0 || !kisRealizedState.previewTicket || kisRealizedState.importing;
+  brokerUI.setButtonDisabled('btnKisConfirmCommit', eligibleCount === 0 || !kisRealizedState.previewTicket || kisRealizedState.importing);
 }
 
 function closeKisImportModal() {
