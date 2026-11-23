@@ -64,7 +64,41 @@
       state.previewTicket = null;
     }
 
-    return Object.freeze({ applySuccessfulFeed, selectedImportItems, clearImportPreview });
+    async function checkOpenApiStatus({
+      state, request, setLoading, hideMessage, showMessage, renderState,
+      populateSourceAccounts, updateSelectionUI, errorText, errorFallback,
+      configurationWarning, noAccountsWarning,
+    }) {
+      if (state.loading) return;
+      setLoading(true);
+      hideMessage();
+      renderState('checking', '상태 확인 중');
+      try {
+        const res = await request();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw data;
+        state.status = data;
+        state.accounts = Array.isArray(data.accounts) ? data.accounts : [];
+        populateSourceAccounts();
+        if (!data.configured) {
+          renderState('action_required', '미설정 (API 키 필요)');
+          showMessage(configurationWarning, 'warning');
+        } else if (!state.accounts.length) {
+          renderState('action_required', '계좌 미등록');
+          showMessage(noAccountsWarning, 'warning');
+        } else {
+          renderState(state.sourceAccountKey ? 'ready' : 'action_required', '계좌 선택 가능');
+        }
+      } catch (error) {
+        renderState('error', '상태 확인 실패');
+        showMessage(errorText(error, errorFallback), 'error');
+      } finally {
+        setLoading(false);
+        updateSelectionUI();
+      }
+    }
+
+    return Object.freeze({ applySuccessfulFeed, selectedImportItems, clearImportPreview, checkOpenApiStatus });
   }
 
   window.WealthBrokerRealizedFeedController = Object.freeze({ create, sortRows: sortBrokerRealizedFeedRows, dateKey: brokerRealizedDateKey });
