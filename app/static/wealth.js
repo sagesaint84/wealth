@@ -11669,12 +11669,22 @@ const nhRealizedState = {
   previewTicket: null, preview: null,
 };
 window.nhRealizedState = nhRealizedState;
+const nhScreenController = window.WealthBrokerNhScreenController.create({
+  document, brokerUI, state: nhRealizedState,
+  html, brokerRealizedDisplayRow, nhNumber, syncBrokerRowImportOptions, populateNhDestinationAccounts,
+  previewScreenController: window.WealthBrokerImportPreviewScreenController,
+  maskAccountDisplayLabel, brokerPreviewStatusLabel, updateNhCommitButton, renderBrokerImportPreviewDetails,
+});
 
-function showNhMessage(message, type = 'info') { return brokerUI.showBrokerMessage('nhMessage', message, type); }
-function hideNhMessage() { brokerUI.hideBrokerMessage('nhMessage'); }
+function showNhMessage(message, type = 'info') {
+  return nhScreenController.showNhMessage(message, type);
+}
+function hideNhMessage() {
+  return nhScreenController.hideNhMessage();
+}
 function setNhLoading(loading) {
   nhRealizedState.loading = loading;
-  brokerUI.setAccountFeedButtonsDisabled('btnCheckNhStatus', 'btnFetchNhFeed', loading, nhRealizedState.sourceAccountKey);
+  nhScreenController.renderNhLoading(loading);
 }
 function nhSafeError(error, fallback) { return brokerUI.brokerErrorText(error, fallback); }
 function nhSelectedItems() {
@@ -11727,24 +11737,10 @@ async function fetchNhRealizedFeed() {
 }
 function nhNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoKr(value, digits); }
 function renderNhFeedTable() {
-  const tbody = document.getElementById('nhTableBody');
-  if (!tbody) return;
-  brokerUI.renderBrokerImportFeedTable({
-    body: tbody, state: nhRealizedState, checkboxClass: 'nh-row-check',
-    emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
-    adapt: row => brokerRealizedDisplayRow(row, { market: nhRealizedState.market, currency: nhRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: nhNumber }),
-    syncRowOptions: syncBrokerRowImportOptions,
-    onUpdate: updateNhSelectionUI,
-  });
+  return nhScreenController.renderNhFeedTable();
 }
 function updateNhSelectionUI() {
-  populateNhDestinationAccounts();
-  brokerUI.renderBrokerImportSelectionState(nhRealizedState, {
-    badgeId: 'nhSelectedCountBadge',
-    buttonId: 'btnNhImportSelected',
-    destinationSelectId: 'nhDestinationAccount',
-  });
-  syncBrokerRowImportOptions(nhRealizedState);
+  return nhScreenController.updateNhSelectionUI();
 }
 async function openNhImportPreview() {
   const accountId = document.getElementById('nhDestinationAccount')?.value; const selectedItems = nhSelectedItems();
@@ -11779,15 +11775,7 @@ async function openNhImportPreview() {
   }
 }
 function renderNhPreviewModal(data) {
-  const counts = data.counts || {};
-  const dest = data.destination_account || {};
-  window.WealthBrokerImportPreviewScreenController.renderPreviewModal({
-    document, brokerUI, data, prefix: 'nh', counts,
-    destination: brokerUI.brokerPreviewDestinationText(dest, maskAccountDisplayLabel),
-    html, statusLabel: brokerPreviewStatusLabel, formatNumber: nhNumber,
-    pnlDigits: 2, defaultCurrency: '',
-    updateCommitButton: updateNhCommitButton, renderDetails: renderBrokerImportPreviewDetails,
-  });
+  return nhScreenController.renderNhPreviewModal(data);
 }
 function updateNhCommitButton() {
   const counts = nhRealizedState.preview?.counts || {};
