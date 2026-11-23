@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
 from html import unescape
 import json
@@ -20,6 +21,15 @@ KST = timezone(timedelta(hours=9))
 
 class NpayIpoClientError(RuntimeError):
     pass
+
+
+class NpayIpoCalendarIncomplete(NpayIpoClientError):
+    """Parsed rows can confirm dates, but cannot establish missing entries."""
+
+    def __init__(self, reason: str, observations: list[dict[str, Any]]) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.observations = observations
 
 
 def _visible_text(html_text: str) -> str:
@@ -96,7 +106,7 @@ def parse_npay_ipo_html(html_text: str, *, target_date_str: str) -> list[dict[st
     active_pattern = re.compile(
         r"진행중\s+(?P<month>\d{1,2})\.(?P<day>\d{1,2})\s+마감\s+"
         r"(?P<body>.*?)"
-        r"(?=(?:D-\d+\s+\d{1,2}\.\d{1,2}\s+예정)|(?:청약 전에도)|(?:지금 거래 많은)|$)",
+        r"(?=(?:진행중\s+\d{1,2}\.\d{1,2}\s+마감)|(?:D-\d+\s+\d{1,2}\.\d{1,2}\s+예정)|(?:청약 전에도)|(?:지금 거래 많은)|$)",
         flags=re.IGNORECASE,
     )
 
@@ -225,10 +235,16 @@ class NpayIpoClient:
         errors: list[Exception] = []
         rows: list[dict[str, Any]] = []
         successful = 0
+        def read_stock():
+            stock = NaverIpoDiscoveryClient(timeout_seconds=self.timeout_seconds)
+            items = stock.fetch_ipo_discovery_items()
+            if getattr(stock, "discovery_page_complete", None) is False:
+                self.source_statuses["npay_stock"] = "partial (bounded_or_incomplete_page)"
+            return items
+
         for url, read in (
             (self.url, lambda: self._fetch_unlisted_ipos(target_date_str=target_date_str)),
-            (NPAY_STOCK_IPO_URL, lambda: NaverIpoDiscoveryClient(
-                timeout_seconds=self.timeout_seconds).fetch_ipo_discovery_items()),
+            (NPAY_STOCK_IPO_URL, read_stock),
         ):
             key = "npay_stock" if url == NPAY_STOCK_IPO_URL else "npay_unlisted"
             try:
@@ -242,7 +258,7 @@ class NpayIpoClient:
                 errors.append(exc)
                 continue
             successful += 1
-            self.source_statuses[key] = "read_ok"
+            self.source_statuses.setdefault(key, "read_ok")
             for item in items:
                 if url == NPAY_STOCK_IPO_URL:
                     item = {**item, "sources": {"npay": {
@@ -277,7 +293,8 @@ class NpayIpoClient:
                     "field_paths": {"actual_listing_date": "lcalDate (LISTING response, ipoStatus=상장)"}}}})
         return observations
 
-    def fetch_calendar_month(self, *, start_date: str, end_date: str) -> list[dict[str, Any]]:
+    def fetch_calendar_month(self, *, start_date: str, end_date: str,
+                             require_complete: bool = False) -> list[dict[str, Any]]:
         """Read the public month calendar. No storage or recurring-refresh effects."""
         from app.services.ipo.naver_client import normalize_naver_ipo_code
         begin, end = date.fromisoformat(start_date), date.fromisoformat(end_date)
@@ -294,10 +311,28 @@ class NpayIpoClient:
         rows = payload.get("ipoCalendarResponses") if isinstance(payload, dict) else None
         if not isinstance(rows, list):
             raise NpayIpoClientError("Npay calendar response contract missing")
+        incomplete_reason = None
+        if require_complete:
+            total = payload.get("totalCount")
+            # The public response can contain only the event list. A final
+            # page or an empty cursor alone does not prove the entire month.
+            if (end.day != monthrange(begin.year, begin.month)[1]
+                    or any(payload.get(key) for key in (
+                        "hasMore", "hasNext", "hasNextPage", "nextCursor", "nextPage", "cursor",
+                        "pagination", "pageInfo", "offset", "startIdx",
+                    ))
+                    or payload.get("totalPages", 1) != 1
+                    or payload.get("isLast") is False or payload.get("complete") is False
+                    or (type(total) is int and total != len(rows))):
+                incomplete_reason = "calendar_response_incomplete"
+            elif payload.get("complete") is not True or type(total) is not int:
+                incomplete_reason = "calendar_completeness_unverified"
         observations = []
         observed_at = datetime.now(KST).isoformat()
         for raw in rows:
             kind = raw.get("calendarStockType") if isinstance(raw, dict) else None
+            if require_complete and not kind:
+                raise NpayIpoClientError("Npay calendar event type is missing")
             if kind not in {"OFFER_SUBSCRIPTION", "TO_BE_LISTED"}:
                 continue
             code = normalize_naver_ipo_code(raw.get("stockCode"))
@@ -306,6 +341,8 @@ class NpayIpoClient:
             name = str(raw.get("stockName") or "").strip()
             if not name or last < first or (kind == "TO_BE_LISTED" and first != last):
                 raise NpayIpoClientError("Npay calendar identity/date is invalid")
+            if require_complete and (first > end.isoformat() or last < begin.isoformat()):
+                raise NpayIpoClientError("Npay calendar event is outside the requested month")
             item = {"stock_code": code, "company_name": name}
             if kind == "OFFER_SUBSCRIPTION":
                 item.update(subscription_start=first, subscription_end=last)
@@ -321,6 +358,8 @@ class NpayIpoClient:
                 "field_paths": ({"subscription_start": "startDate", "subscription_end": "endDate"}
                                 if kind == "OFFER_SUBSCRIPTION" else {"expected_listing_date": "startDate"})}}
             observations.append(item)
+        if incomplete_reason:
+            raise NpayIpoCalendarIncomplete(incomplete_reason, observations)
         return observations
 
     def _fetch_unlisted_ipos(self, *, target_date_str: str) -> list[dict[str, Any]]:

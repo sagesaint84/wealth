@@ -228,8 +228,18 @@
     if (historicalButton) historicalButton.disabled = true;
     try {
       const data = await window.fetchJson('/api/ipo/market/refresh', { method: 'POST' });
-      if (Array.isArray(data.market?.ipos)) setMarketIpos(data.market.ipos);
-      renderIpoList();
+      if (Array.isArray(data.market?.ipos)) {
+        setMarketIpos(data.market.ipos);
+        renderIpoList();
+        const calendar = window.WealthCalendar;
+        if (calendar?.isCalendarPanelActive?.()) await calendar.loadCalendar();
+      }
+      if (data.refresh?.status === 'partial' && wrapper) {
+        const message = document.createElement('p');
+        message.className = 'empty-text ipo-refresh-error';
+        message.textContent = 'Npay 일정을 일부만 확인했습니다. 확인하지 못한 일정은 기존 정보를 유지합니다.';
+        wrapper.prepend(message);
+      }
     } catch (err) {
       console.error('Failed to refresh IPO market data:', err);
       if (wrapper) {
@@ -470,9 +480,11 @@
       const marketStateLabels = { POSTPONED: '청약 연기 · 새 일정 확인 필요', WITHDRAWN: '공모 철회', UPCOMING: '청약예정', SUBSCRIPTION_OPEN: '청약중', SUBSCRIPTION_CLOSED: '청약마감', LISTING_UPCOMING: '상장예정', LISTED: '상장완료', DATE_UNKNOWN: '일정 확인 필요' };
       const userStateLabels = { NOT_APPLIED: '미신청', APPLIED: '신청완료', ALLOCATED_UNSOLD: '배정 보유', PARTIALLY_SOLD: '일부 매도', FULLY_SOLD: '매도 완료', LINK_DATA_MISSING: '연결 확인 필요' };
       const reasonLabels = {api_key_missing:'DART 인증 미설정',api_key_invalid:'DART 인증 오류',network_error:'공시 통신 오류',network_disabled:'외부 통신 차단',refresh_failed:'공시 갱신 실패',legacy_not_checked:'이전 저장 일정 · 공식 확인 전',cache_not_current:'최근 공식 확인 필요',end_date_not_confirmed:'종료일 확인 필요',schedule_date_conflict:'출처 간 일정 충돌',identity_or_schedule_ambiguous:'기업 동일성 확인 필요',invalid_schedule:'일정 형식 확인 필요',conflicting_official_identifier:'기업 식별자 충돌',duplicate_stock_identifier:'종목 코드 중복 확인 필요',ambiguous_corporate_identifier:'법인 식별자 확인 필요'};
+      const missingSchedule = Object.keys(ipo.sources?.npay_schedule_missing || {}).length > 0;
       const reason = ipo.sources?.schedule_reconciliation?.reason || ipo.sources?.dart_schedule_verification?.reason;
       const marketStateLabel = (hasConfirmedListing(ipo) ? '상장완료' : ipo.market_state === 'LISTED' ? '상장 상태 미확인' : (marketStateLabels[ipo.market_state] || '일정 확인 필요'))
-        + (ipo.market_state === 'DATE_UNKNOWN' && reasonLabels[reason] ? ' · ' + reasonLabels[reason] : '')
+        + (missingSchedule ? ' · 최신 Npay 일정에서 미확인'
+          : ipo.market_state === 'DATE_UNKNOWN' && reasonLabels[reason] ? ' · ' + reasonLabels[reason] : '')
         + (ipo.identity_review_required ? ' · 기업 동일성 확인 필요' : '');
       const userStateLabel = userStateLabels[ipo.user_state] || '미신청';
       const managers = (ipo.lead_managers && ipo.lead_managers.length > 0)

@@ -12,6 +12,7 @@ from app.services import portfolio
 from app.services.broker_registry import normalize_broker, get_display_name
 from app.services.pnl_records import read_pnl_records_readonly
 from app.services.ipo.display import (
+    current_schedule,
     display_records,
     npay_schedule_field_confirmed,
     npay_schedule_field_currently_confirmed,
@@ -257,11 +258,12 @@ def present_market_store(username: str | None, market: dict[str, Any], today: da
     data = _read_portfolio_for_presentation(username)
     applications = (((data.get("settings") or {}).get("ipo") or {}).get("applications") or {})
     records = read_pnl_records_readonly(username)
-    for item in output.get("ipos", []) if isinstance(output.get("ipos"), list) else []:
+    for index, item in enumerate(output["ipos"]):
         if not isinstance(item, dict):
             continue
         application = applications.get(str(item.get("ipo_id") or "")) if isinstance(applications, dict) else None
         annotate_visibility(item, (((data.get("settings") or {}).get("ipo") or {}).get("schedule_exclusions") or {}))
+        item = output["ipos"][index] = current_schedule(item, today)
         market_state = derive_market_state(item, today)
         user_state, applicant_counts = derive_user_state(application, records)
         related = [derive_user_state(applications.get(key), records)

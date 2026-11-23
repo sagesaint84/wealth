@@ -209,4 +209,19 @@ class NaverIpoDiscoveryClient:
             raise NaverIpoClientError(f"NAVER discovery HTTP error {response.status_code}")
         if not response.text.strip():
             raise NaverIpoClientError("Empty response body from NAVER IPO discovery endpoint")
-        return parse_naver_ipo_discovery_json(response.text)
+        try:
+            payload = json.loads(response.text)
+        except ValueError as exc:
+            raise NaverIpoClientError("NAVER IPO response is not valid JSON") from exc
+        observations = parse_naver_ipo_discovery_json(payload)
+        containers = [rows for key, rows in payload.items() if key.endswith("List")]
+        # The primary stock endpoint reads one bounded page. It provides
+        # positive evidence even when the page cannot support a negative check.
+        total = sum(map(len, containers))
+        self.discovery_page_complete = (
+            not any(payload.get(key) for key in ("hasMore", "hasNext", "hasNextPage", "nextCursor", "nextPage"))
+            and payload.get("isLast") is not False
+            and payload.get("totalCount", total) == total
+            and total < page_size
+        )
+        return observations

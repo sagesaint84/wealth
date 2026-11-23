@@ -8,21 +8,32 @@ def market_day():
     return datetime.now(timezone(timedelta(hours=9))).date().isoformat()
 
 
-def schedule_field_confirmed(ipo, key):
+def _schedule_field_evidence(ipo, key):
     sources = ipo.get("sources")
     fields = sources.get("schedule_fields") if isinstance(sources, dict) else None
     evidence = fields.get(key) if isinstance(fields, dict) else None
-    return (isinstance(evidence, dict)
-            and evidence.get("source") in {"naver", "npay", "kind", "dart"}
+    return evidence if isinstance(evidence, dict) else {}
+
+
+def schedule_field_confirmed(ipo, key):
+    evidence = _schedule_field_evidence(ipo, key)
+    return (evidence.get("source") in {"naver", "npay", "kind", "dart"}
             and bool(ipo.get(key)) and evidence.get("value") == ipo.get(key))
 
 
 def npay_schedule_field_confirmed(ipo, key):
-    sources = ipo.get("sources")
-    fields = sources.get("schedule_fields") if isinstance(sources, dict) else None
-    evidence = fields.get(key) if isinstance(fields, dict) else None
-    return (isinstance(evidence, dict) and evidence.get("source") == "npay"
+    evidence = _schedule_field_evidence(ipo, key)
+    return (evidence.get("source") == "npay"
             and bool(ipo.get(key)) and evidence.get("value") == ipo.get(key))
+
+
+def _schedule_timestamp(value):
+    try:
+        timestamp = datetime.fromisoformat(str(value or ""))
+    except ValueError:
+        return None
+    kst = timezone(timedelta(hours=9))
+    return timestamp.astimezone(kst) if timestamp.tzinfo else timestamp.replace(tzinfo=kst)
 
 
 def npay_schedule_field_currently_confirmed(ipo, key):
@@ -30,23 +41,16 @@ def npay_schedule_field_currently_confirmed(ipo, key):
     if not npay_schedule_field_confirmed(ipo, key):
         return False
     sources = ipo.get("sources") if isinstance(ipo.get("sources"), dict) else {}
-    fields = sources.get("schedule_fields") if isinstance(sources.get("schedule_fields"), dict) else {}
-    evidence = fields.get(key) if isinstance(fields.get(key), dict) else {}
+    evidence = _schedule_field_evidence(ipo, key)
     attempts = sources.get("schedule_refresh_attempts")
     attempt = attempts.get("npay") if isinstance(attempts, dict) else None
     if not isinstance(attempt, dict):
         return True
     if not str(attempt.get("outcome") or "").startswith(("read_ok", "partial_item_error")):
         return False
-    try:
-        observed_at = datetime.fromisoformat(str(evidence.get("observed_at") or ""))
-        attempted_at = datetime.fromisoformat(str(attempt.get("last_attempt_at") or ""))
-        kst = timezone(timedelta(hours=9))
-        observed_at = observed_at.astimezone(kst) if observed_at.tzinfo else observed_at.replace(tzinfo=kst)
-        attempted_at = attempted_at.astimezone(kst) if attempted_at.tzinfo else attempted_at.replace(tzinfo=kst)
-    except ValueError:
-        return False
-    return observed_at >= attempted_at
+    observed_at = _schedule_timestamp(evidence.get("observed_at"))
+    attempted_at = _schedule_timestamp(attempt.get("last_attempt_at"))
+    return observed_at is not None and attempted_at is not None and observed_at >= attempted_at
 
 
 def schedule_condition(ipo):
@@ -70,6 +74,81 @@ def schedule_condition(ipo):
     if not observed and isinstance(verification, dict) and verification.get("status") == "unverified":
         return "unverified"
     return "scheduled"
+
+
+_NPAY_SCHEDULE_FIELDS = {"subscription_start", "subscription_end", "expected_listing_date"}
+
+
+def _npay_disputed_fields(ipo, reconciliation):
+    """Return unresolved fields, or None for reconciliation from another path."""
+    if not isinstance(reconciliation, dict) or reconciliation.get("source") != "npay":
+        return None
+    reason = reconciliation.get("reason")
+    if reason == "end_date_not_confirmed":
+        end = ipo.get("subscription_end")
+        start = ipo.get("subscription_start")
+        revision_at = _schedule_timestamp(reconciliation.get("source_observed_at")
+                                          or reconciliation.get("observed_at"))
+        evidence_at = _schedule_timestamp(_schedule_field_evidence(ipo, "subscription_end").get("observed_at"))
+        if (start and end and start <= end
+                and schedule_field_confirmed(ipo, "subscription_end")
+                and not npay_schedule_field_confirmed(ipo, "subscription_end")
+                and revision_at is not None and evidence_at is not None and evidence_at >= revision_at):
+            return set()
+        return {"subscription_end"}
+    if reason == "schedule_date_conflict":
+        observed = reconciliation.get("observed_schedule") or {}
+        disputed = set(observed) & _NPAY_SCHEDULE_FIELDS
+        if disputed & {"subscription_start", "subscription_end"}:
+            disputed.update(("subscription_start", "subscription_end"))
+        if disputed:
+            return {key for key in disputed
+                    if not schedule_field_confirmed(ipo, key) or npay_schedule_field_confirmed(ipo, key)}
+    return None
+
+
+def _valid_npay_absence(ipo, key, marker):
+    if (not isinstance(marker, dict) or marker.get("coverage") != "explicit_complete_month"
+            or not npay_schedule_field_confirmed(ipo, key) or marker.get("value") != ipo.get(key)):
+        return False
+    value = ipo[key]
+    if not str(marker.get("from") or "") <= value <= str(marker.get("to") or ""):
+        return False
+    observed = _schedule_timestamp(_schedule_field_evidence(ipo, key).get("observed_at"))
+    complete = _schedule_timestamp(marker.get("last_complete_at"))
+    return observed is not None and complete is not None and observed < complete
+
+
+def current_schedule(ipo, today=None):
+    """Read projection shared by the market list and integrated calendar."""
+    today = today.isoformat() if today is not None else market_day()
+    sources = ipo.get("sources") or {}
+    missing = sources.get("npay_schedule_missing")
+    if not isinstance(missing, dict):
+        missing = {}
+    valid_missing = {key: missing[key] for key in _NPAY_SCHEDULE_FIELDS
+                     if _valid_npay_absence(ipo, key, missing.get(key))}
+    suppressed = set(valid_missing)
+    reconciliation = sources.get("schedule_reconciliation")
+    disputed = _npay_disputed_fields(ipo, reconciliation)
+    if disputed:
+        if reconciliation.get("reason") == "end_date_not_confirmed":
+            suppressed.update(disputed)
+        else:
+            suppressed.update(key for key in disputed if str(ipo.get(key) or "") >= today)
+
+    # Keep the raw evidence intact while exposing only current notices to both
+    # readers. Markers from the old, unverified coverage gate cannot hide dates.
+    resolved = disputed is not None and not disputed
+    if "npay_schedule_missing" in sources or resolved:
+        sources = dict(sources)
+        if valid_missing:
+            sources["npay_schedule_missing"] = valid_missing
+        else:
+            sources.pop("npay_schedule_missing", None)
+        if resolved:
+            sources.pop("schedule_reconciliation", None)
+    return {**ipo, "sources": sources, **dict.fromkeys(suppressed)}
 
 
 def _same_offering(a, b):
