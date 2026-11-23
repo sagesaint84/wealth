@@ -6,7 +6,14 @@ from typing import Any
 
 from app.services.ipo.identity import find_matching_ipo, generate_ipo_id
 from app.services.ipo.models import IpoRecord
-from app.services.ipo.display import display_records, annotate_visibility, schedule_condition, schedule_field_confirmed, npay_schedule_field_confirmed
+from app.services.ipo.display import (
+    annotate_visibility,
+    current_schedule,
+    display_records,
+    npay_schedule_field_confirmed,
+    schedule_condition,
+    schedule_field_confirmed,
+)
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 DATA_DIR = ROOT_DIR / "data" / "ipo"
@@ -253,6 +260,7 @@ def get_ipo_calendar_events(
     for ipo in display_records(store.get("ipos", [])):
         if annotate_visibility(ipo, exclusions)["user_excluded"]:
             continue
+        ipo = current_schedule(ipo)
         verification = ipo.get("sources", {}).get("dart_schedule_verification", {}).get("status")
         schedule_unknown = schedule_condition(ipo) == "unverified"
         listing_unknown = schedule_unknown and not schedule_field_confirmed(ipo, "expected_listing_date")
@@ -338,7 +346,8 @@ def get_ipo_calendar_events(
                 "subtype": "공모주",
                 "owner": "모두",
                 "title": (f"🎯 {company} 청약 일정 확인 필요 (기존 예정일)"
-                          if schedule_unknown else f"🎯 {company} {label}"),
+                          if schedule_unknown and not (phase == "first" and not sub_end)
+                          else f"🎯 {company} {label}"),
                 "amount_krw": None,
                 "source_id": ipo_id,
                 "meta": event_meta,

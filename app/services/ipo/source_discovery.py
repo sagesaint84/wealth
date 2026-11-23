@@ -20,6 +20,7 @@ from app.services.network_policy import ExternalNetworkDisabled
 
 
 KST = timezone(timedelta(hours=9))
+_NPAY_CALENDAR_FIELDS = ("subscription_start", "subscription_end", "expected_listing_date")
 
 
 def _shift_month(first: date, months: int) -> date:
@@ -735,9 +736,17 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
 
     schedule_conflict = incoming_schedule_invalid
     if target is not None:
+        stable_npay_revision = source_name == "npay" and any(
+            item.get(key) and item[key] == target.get(key) for key in ("stock_code", "corp_code")
+        )
+        revised_start_without_end = (
+            stable_npay_revision and item.get("subscription_start")
+            and item["subscription_start"] != target.get("subscription_start")
+            and not item.get("subscription_end")
+        )
         merged_start = str(item.get("subscription_start") or target.get("subscription_start") or "")[:10]
         merged_end = str(item.get("subscription_end") or target.get("subscription_end") or "")[:10]
-        if merged_start and merged_end and merged_start > merged_end:
+        if merged_start and merged_end and merged_start > merged_end and not revised_start_without_end:
             schedule_conflict = True
             item.pop("subscription_start", None)
             item.pop("subscription_end", None)
@@ -830,6 +839,7 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
         return saved, review
 
     previous_subscription_start = target.get("subscription_start")
+    previous_reconciliation = target.get("sources", {}).get("schedule_reconciliation") or {}
     protect = _source_priority_present(target, source_name)
     if (source_name != "dart" and target.get("sources", {}).get(
             "dart_schedule_status", {}).get("status") in {"postponed", "withdrawn"}):
@@ -909,8 +919,32 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
             fields[key] = field_evidence(key)
     incoming_start = str(item.get("subscription_start") or "")[:10]
     incoming_end = str(item.get("subscription_end") or "")[:10]
+    if source_name == "npay":
+        missing = target["sources"].get("npay_schedule_missing")
+        if isinstance(missing, dict):
+            for key in accepted_fields & set(_NPAY_CALENDAR_FIELDS):
+                missing.pop(key, None)
+            if not missing:
+                target["sources"].pop("npay_schedule_missing")
+
+    disputed_fields = set(previous_reconciliation.get("observed_schedule") or {}) & set(_NPAY_CALENDAR_FIELDS)
     if schedule_conflict:
         pass
+    elif (source_name == "npay" and previous_reconciliation.get("reason") == "schedule_date_conflict"
+          and disputed_fields and disputed_fields <= accepted_fields
+          and ("subscription_start" not in disputed_fields or "subscription_end" in accepted_fields)):
+        _set_schedule_reconciliation(
+            target, item, source_name=source_name, status="verified",
+            reason="complete_schedule_observation", observed_at=observed_at,
+        )
+        _resolve_schedule_reviews(store, target, item, resolved_at=observed_at)
+    elif (source_name == "npay" and "subscription_end" in accepted_fields
+          and previous_reconciliation.get("reason") == "end_date_not_confirmed"
+          and target.get("subscription_start")):
+        _set_schedule_reconciliation(
+            target, item, source_name=source_name, status="verified",
+            reason="complete_schedule_observation", observed_at=observed_at,
+        )
     elif incoming_start and incoming_end and target.get("subscription_start") == incoming_start \
             and target.get("subscription_end") == incoming_end:
         _set_schedule_reconciliation(
@@ -926,7 +960,7 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
             reason="end_date_not_confirmed", observed_at=observed_at,
         )
     target["updated_at"] = datetime.now(KST).isoformat()
-    return target, False
+    return target, schedule_conflict
 
 
 def _kind_items(kind: KindClient, *, target_date_str: str, start: date, end: date,
@@ -1203,6 +1237,122 @@ def _provider_read(read):
             "elapsed_ms": round((perf_counter() - began) * 1000, 3)}
 
 
+def _observation_key(item, existing):
+    match = _unique_stock_match(item, existing) or _unique_name_match(item, existing)
+    if match is not None:
+        return ("ipo_id", match.get("ipo_id"))
+    if item.get("stock_code"):
+        return ("stock_code", item["stock_code"])
+    return ("name", normalize_company_name(item.get("company_name") or ""))
+
+
+def _conflicting_npay_schedules(items, existing):
+    values = {}
+    for item in items:
+        dates = values.setdefault(_observation_key(item, existing), {})
+        for field in _NPAY_CALENDAR_FIELDS:
+            if item.get(field):
+                dates.setdefault(field, set()).add(item[field])
+    return {key for key, dates in values.items() if any(len(days) > 1 for days in dates.values())}
+
+
+def _reconcile_missing_npay_schedules(npay, market, raw_items, *, target, end, attempted_at, statuses):
+    """Require both primary reads and complete, date-bounded calendar evidence."""
+    existing = market["ipos"]
+    candidates = {}
+    for ipo in existing:
+        sources = ipo.get("sources") or {}
+        stock_code = ipo.get("stock_code")
+        if not stock_code or _unique_stock_match(ipo, existing) is not ipo or not sources.get("npay"):
+            continue
+        if (sources.get("schedule_reconciliation") or {}).get("status") == "review_required":
+            continue
+        name = normalize_company_name(ipo.get("company_name") or "")
+        spac = spac_name_key(ipo) if is_spac_ipo(ipo) else None
+        # A code-less row may be this offering. An unresolved name/alias can
+        # block a negative conclusion but never supplies identity for a merge.
+        if any(not row.get("stock_code") and (
+            normalize_company_name(row.get("company_name") or "") == name
+            or (spac and is_spac_ipo(row) and spac_name_key(row) == spac)
+        ) for row in raw_items if isinstance(row, dict)):
+            continue
+        fields = sources.get("schedule_fields") or {}
+        for field in _NPAY_CALENDAR_FIELDS:
+            value = ipo.get(field)
+            evidence = fields.get(field) or {}
+            if (field == "expected_listing_date" and ipo.get("actual_listing_date")
+                    or not _date_in_window(value, target, end)
+                    or evidence.get("source") == "npay" and evidence.get("value") == value
+                    and str(evidence.get("observed_at") or "") >= attempted_at):
+                continue
+            month = date.fromisoformat(value[:10]).replace(day=1)
+            candidates.setdefault(month, []).append((ipo, field, value))
+
+    snapshots = {}
+    failed = 0
+    for month in sorted(candidates):
+        last = _shift_month(month, 1) - timedelta(days=1)
+        status_key = f"npay_calendar_{month:%Y-%m}"
+        try:
+            rows = npay.fetch_calendar_month(start_date=month.isoformat(), end_date=last.isoformat(),
+                                             require_complete=True)
+            if (not isinstance(rows, list) or _conflicting_npay_schedules(rows, existing)):
+                raise ValueError("ambiguous Npay calendar snapshot")
+        except Exception as exc:
+            statuses[status_key] = f"source_error ({type(exc).__name__})"
+            failed += 1
+            continue
+        statuses[status_key] = "read_ok"
+        snapshots[month] = (last, rows, datetime.now(KST).isoformat())
+    if failed:
+        return failed, 0
+
+    reviews = 0
+    for month, (last, rows, observed_at) in snapshots.items():
+        for ipo, field, old_value in candidates[month]:
+            if ipo.get(field) != old_value:
+                continue  # A positive observation for another boundary already revised it.
+            sources = ipo["sources"]
+            fields = sources.get("schedule_fields") or {}
+            evidence = fields.get(field) or {}
+            if (evidence.get("source") == "npay" and evidence.get("value") == old_value
+                    and str(evidence.get("observed_at") or "") >= attempted_at):
+                continue
+            calendar_row = next((row for row in rows if row.get("stock_code") == ipo["stock_code"]
+                                 and row.get(field)), None)
+            if calendar_row is not None:
+                # Do not pair a calendar boundary with a conflicting date
+                # freshly observed on a primary surface.
+                conflicts = [key for key in _NPAY_CALENDAR_FIELDS if calendar_row.get(key)
+                             and (fields.get(key) or {}).get("source") == "npay"
+                             and str((fields.get(key) or {}).get("observed_at") or "") >= attempted_at
+                             and calendar_row[key] != ipo.get(key)]
+                schedule = {key: calendar_row[key] for key in _NPAY_CALENDAR_FIELDS if calendar_row.get(key)}
+                if conflicts:
+                    _set_schedule_reconciliation(
+                        ipo, calendar_row, source_name="npay", status="review_required",
+                        reason="schedule_date_conflict", observed_at=observed_at,
+                        observed_schedule=schedule,
+                    )
+                    _record_schedule_review(
+                        market, calendar_row, source_name="npay", reason="schedule_date_conflict",
+                        candidate_ids=[ipo["ipo_id"]], observed_at=observed_at, observed_schedule=schedule,
+                    )
+                    reviews += 1
+                else:
+                    _, review = _apply_observation(market, {"stock_code": ipo["stock_code"],
+                        "company_name": ipo["company_name"], "sources": calendar_row["sources"],
+                        **schedule}, source_name="npay")
+                    reviews += int(review)
+                continue
+            sources.setdefault("npay_schedule_missing", {})[field] = {
+                "value": old_value, "reason": "not_observed_in_npay_calendar",
+                "last_observed_at": evidence.get("observed_at") if evidence.get("value") == old_value else None,
+                "last_complete_at": observed_at, "from": month.isoformat(), "to": last.isoformat(),
+            }
+    return 0, reviews
+
+
 def discover_and_merge_primary_sources(
     *,
     username: str | None,
@@ -1239,7 +1389,9 @@ def discover_and_merge_primary_sources(
         if not isinstance(raw_items, list):
             raise TypeError("Npay IPO response must be a list")
     except Exception as exc:
-        statuses.update(getattr(npay, "source_statuses", {}))
+        source_statuses = getattr(npay, "source_statuses", None)
+        if isinstance(source_statuses, dict):
+            statuses.update(source_statuses)
         status = ("source_unavailable (external_network_disabled)"
                   if isinstance(exc, ExternalNetworkDisabled)
                   else f"source_error ({type(exc).__name__})")
@@ -1255,37 +1407,67 @@ def discover_and_merge_primary_sources(
             "review_required": 0, "failed": 1,
         }
 
-    statuses.update(getattr(npay, "source_statuses", {}))
+    source_statuses = getattr(npay, "source_statuses", None)
+    if isinstance(source_statuses, dict):
+        statuses.update(source_statuses)
     observed_at = datetime.now(KST).isoformat()
     relevant_items = [
         copy.deepcopy(item) for item in raw_items
         if isinstance(item, dict) and (
             _relevant_schedule(item, start, end)
+            or _unique_stock_match(item, market.get("ipos", [])) is not None
             or bool(_exact_name_candidates(item, market.get("ipos", [])))
         )
     ]
     reviews = 0
     # A successful page must not hide failure of the other Npay page.
-    failed = len(getattr(npay, "source_errors", {}))
-    for item in relevant_items:
+    source_errors = getattr(npay, "source_errors", None)
+    failed = len(source_errors) if isinstance(source_errors, dict) else 0
+    failed += sum(str(statuses.get(key, "")).startswith("partial") for key in ("npay_stock", "npay_unlisted"))
+    existing = market.get("ipos", [])
+    keys = [_observation_key(item, existing) for item in relevant_items]
+    conflicts = _conflicting_npay_schedules(relevant_items, existing)
+    for item, key in zip(relevant_items, keys):
         source_meta = item.setdefault("sources", {}).setdefault("npay", {})
         source_meta.setdefault("schedule_source", "npay_unlisted_public_ipo")
         source_meta.setdefault("url", "https://ustock.naver.com/service/ipo?schedule=toBeIPOList")
         source_meta.setdefault("observed_at", observed_at)
+        if key in conflicts:
+            target_ipo = next((ipo for ipo in existing if key == ("ipo_id", ipo["ipo_id"])), None)
+            schedule = {field: item[field] for field in _NPAY_CALENDAR_FIELDS if item.get(field)}
+            if target_ipo is not None:
+                _set_schedule_reconciliation(
+                    target_ipo, item, source_name="npay", status="review_required",
+                    reason="schedule_date_conflict", observed_at=observed_at, observed_schedule=schedule,
+                )
+            _record_schedule_review(
+                market, item, source_name="npay", reason="schedule_date_conflict",
+                candidate_ids=[target_ipo["ipo_id"]] if target_ipo is not None else [],
+                observed_at=observed_at, observed_schedule=schedule,
+            )
+            reviews += 1
+            continue
         try:
             _, review = _apply_observation(market, item, source_name="npay")
             reviews += int(review)
         except Exception:
             failed += 1
 
+    if failed == 0 and all(statuses.get(key) == "read_ok" for key in ("npay_stock", "npay_unlisted")):
+        # Historic refresh targets have no authority to retract today's schedule.
+        target = max(date.fromisoformat(target_date_str), datetime.now(KST).date())
+        calendar_failures, calendar_reviews = _reconcile_missing_npay_schedules(
+            npay, market, raw_items, target=target, end=end, attempted_at=attempted_at, statuses=statuses,
+        )
+        failed += calendar_failures
+        reviews += calendar_reviews
     outcome = "read_ok" if failed == 0 else "partial_item_error"
     _record_schedule_attempt(market, source_name="npay", start=start, end=end,
                              attempted_at=attempted_at, outcome=outcome)
     write_market_store(market)
     timings["npay_discovery_ms"] = round((perf_counter() - began) * 1000, 3)
-    statuses["npay"] = (
-        f"sync_ok (relevant={len(relevant_items)}, review_required={reviews}, failed={failed})"
-    )
+    summary = "sync_partial" if failed else "sync_ok"
+    statuses["npay"] = f"{summary} (relevant={len(relevant_items)}, review_required={reviews}, failed={failed})"
     return {
         "status": "partial" if failed else "ok", "statuses": statuses, "timings": timings,
         "window_start": start.isoformat(), "window_end": end.isoformat(),

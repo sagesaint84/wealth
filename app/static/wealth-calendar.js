@@ -598,6 +598,7 @@
     getCurrentYear: () => currentYear,
     getCurrentMonth: () => currentMonth,
     hasInitializedDefaultDate: () => hasInitializedDefaultDate,
+    isCalendarPanelActive,
     closeDetailPanel,
     loadCalendar,
   };

@@ -72,6 +72,31 @@ def schedule_condition(ipo):
     return "scheduled"
 
 
+def current_schedule(ipo, today=None):
+    """Read projection shared by the market list and integrated calendar."""
+    today = today.isoformat() if today is not None else market_day()
+    sources = ipo.get("sources") or {}
+    missing = sources.get("npay_schedule_missing")
+    if not isinstance(missing, dict):
+        missing = {}
+    reconciliation = sources.get("schedule_reconciliation") or {}
+    suppressed = {
+        key for key in ("subscription_start", "subscription_end", "expected_listing_date")
+        if isinstance(missing.get(key), dict) and missing[key].get("value") == ipo.get(key)
+    }
+    if reconciliation.get("source") == "npay":
+        reason = reconciliation.get("reason")
+        if reason == "end_date_not_confirmed":
+            suppressed.add("subscription_end")
+        elif reason == "schedule_date_conflict":
+            observed = reconciliation.get("observed_schedule") or {}
+            disputed = set(observed) & {"subscription_start", "subscription_end", "expected_listing_date"}
+            if disputed & {"subscription_start", "subscription_end"}:
+                disputed.update(("subscription_start", "subscription_end"))
+            suppressed.update(key for key in disputed if str(ipo.get(key) or "") >= today)
+    return {**ipo, **dict.fromkeys(suppressed)} if suppressed else ipo
+
+
 def _same_offering(a, b):
     # Never merge by a name suffix; conflicting authoritative IDs fail closed.
     for field in ("corp_code", "stock_code"):

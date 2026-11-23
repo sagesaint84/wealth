@@ -29,11 +29,8 @@ def _refresh_npay_only(*, username: str | None, target_date_str: str | None) -> 
 
     statuses = result.get("statuses") if isinstance(result.get("statuses"), dict) else {}
     npay_status = str(statuses.get("npay") or "")
-    successful = npay_status.startswith("sync_ok")
     output = {
-        "status": "ok" if successful and result.get("failed", 0) == 0 else (
-            "partial" if successful else "preserved"
-        ),
+        "status": result.get("status", "preserved"),
         "mode": "npay_only",
         "target_date": resolved_target,
         "sources": statuses,
