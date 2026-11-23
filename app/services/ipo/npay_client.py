@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
 from html import unescape
 import json
@@ -20,6 +21,15 @@ KST = timezone(timedelta(hours=9))
 
 class NpayIpoClientError(RuntimeError):
     pass
+
+
+class NpayIpoCalendarIncomplete(NpayIpoClientError):
+    """Parsed rows can confirm dates, but cannot establish missing entries."""
+
+    def __init__(self, reason: str, observations: list[dict[str, Any]]) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.observations = observations
 
 
 def _visible_text(html_text: str) -> str:
@@ -301,12 +311,22 @@ class NpayIpoClient:
         rows = payload.get("ipoCalendarResponses") if isinstance(payload, dict) else None
         if not isinstance(rows, list):
             raise NpayIpoClientError("Npay calendar response contract missing")
+        incomplete_reason = None
         if require_complete:
-            total = payload.get("totalCount", len(rows))
-            if (any(payload.get(key) for key in ("hasMore", "hasNext", "hasNextPage", "nextCursor", "nextPage"))
+            total = payload.get("totalCount")
+            # The public response can contain only the event list. A final
+            # page or an empty cursor alone does not prove the entire month.
+            if (end.day != monthrange(begin.year, begin.month)[1]
+                    or any(payload.get(key) for key in (
+                        "hasMore", "hasNext", "hasNextPage", "nextCursor", "nextPage", "cursor",
+                        "pagination", "pageInfo", "offset", "startIdx",
+                    ))
+                    or payload.get("totalPages", 1) != 1
                     or payload.get("isLast") is False or payload.get("complete") is False
-                    or not isinstance(total, int) or total != len(rows)):
-                raise NpayIpoClientError("Npay calendar response is incomplete")
+                    or (type(total) is int and total != len(rows))):
+                incomplete_reason = "calendar_response_incomplete"
+            elif payload.get("complete") is not True or type(total) is not int:
+                incomplete_reason = "calendar_completeness_unverified"
         observations = []
         observed_at = datetime.now(KST).isoformat()
         for raw in rows:
@@ -338,6 +358,8 @@ class NpayIpoClient:
                 "field_paths": ({"subscription_start": "startDate", "subscription_end": "endDate"}
                                 if kind == "OFFER_SUBSCRIPTION" else {"expected_listing_date": "startDate"})}}
             observations.append(item)
+        if incomplete_reason:
+            raise NpayIpoCalendarIncomplete(incomplete_reason, observations)
         return observations
 
     def _fetch_unlisted_ipos(self, *, target_date_str: str) -> list[dict[str, Any]]:

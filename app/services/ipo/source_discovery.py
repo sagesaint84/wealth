@@ -9,12 +9,13 @@ from time import perf_counter
 from app.services.ipo.dart_client import DartClient, DartAuthError
 import httpx
 from app.services.ipo.dart_offering_schedule import build_dart_offering_schedule, select_dart_schedule_filing, dart_schedule_restriction
+from app.services.ipo.display import npay_schedule_field_confirmed, schedule_field_confirmed
 from app.services.ipo.identity import is_spac_ipo, normalize_company_name, spac_name_key
 from app.services.ipo.kind_client import KindClient
 from app.services.ipo.metalogos_client import MetalogosIpoClient, metalogos_identity_matches
-from app.services.ipo.naver_client import NaverIpoClient
+from app.services.ipo.naver_client import NaverIpoClient, NaverIpoClientError, normalize_naver_ipo_code
 from app.services.ipo.naver_discovery import NaverIpoDiscoveryClient
-from app.services.ipo.npay_client import NpayIpoClient
+from app.services.ipo.npay_client import NpayIpoCalendarIncomplete, NpayIpoClient
 from app.services.ipo.store import merge_ipo_record, read_market_store, write_market_store
 from app.services.network_policy import ExternalNetworkDisabled
 
@@ -879,6 +880,10 @@ def _apply_observation(store: dict[str, Any], item: dict[str, Any], *, source_na
             continue
         if protect and key in protected_fields and target.get(key) not in (None, "", []):
             continue
+        if (source_name == "npay" and key in _NPAY_CALENDAR_FIELDS and target.get(key) == value
+                and schedule_field_confirmed(target, key) and not npay_schedule_field_confirmed(target, key)):
+            # A matching Npay observation does not replace official field provenance.
+            continue
         if key in {"stock_code", "corp_code"} and target.get(key) not in (None, ""):
             continue
         if key == "stock_code":
@@ -1263,9 +1268,14 @@ def _reconcile_missing_npay_schedules(npay, market, raw_items, *, target, end, a
     for ipo in existing:
         sources = ipo.get("sources") or {}
         stock_code = ipo.get("stock_code")
-        if not stock_code or _unique_stock_match(ipo, existing) is not ipo or not sources.get("npay"):
+        try:
+            canonical_code = normalize_naver_ipo_code(stock_code)
+        except NaverIpoClientError:
             continue
-        if (sources.get("schedule_reconciliation") or {}).get("status") == "review_required":
+        if stock_code != canonical_code or _unique_stock_match(ipo, existing) is not ipo:
+            continue
+        if (sources.get("identity_conflicts")
+                or (sources.get("schedule_reconciliation") or {}).get("status") == "review_required"):
             continue
         name = normalize_company_name(ipo.get("company_name") or "")
         spac = spac_name_key(ipo) if is_spac_ipo(ipo) else None
@@ -1276,14 +1286,14 @@ def _reconcile_missing_npay_schedules(npay, market, raw_items, *, target, end, a
             or (spac and is_spac_ipo(row) and spac_name_key(row) == spac)
         ) for row in raw_items if isinstance(row, dict)):
             continue
-        fields = sources.get("schedule_fields") or {}
+        fields = sources.get("schedule_fields")
         for field in _NPAY_CALENDAR_FIELDS:
             value = ipo.get(field)
-            evidence = fields.get(field) or {}
-            if (field == "expected_listing_date" and ipo.get("actual_listing_date")
+            npay_field = npay_schedule_field_confirmed(ipo, field)
+            if (not npay_field and not sources.get("npay")
+                    or (field == "expected_listing_date" and ipo.get("actual_listing_date"))
                     or not _date_in_window(value, target, end)
-                    or evidence.get("source") == "npay" and evidence.get("value") == value
-                    and str(evidence.get("observed_at") or "") >= attempted_at):
+                    or (npay_field and str(fields[field].get("observed_at") or "") >= attempted_at)):
                 continue
             month = date.fromisoformat(value[:10]).replace(day=1)
             candidates.setdefault(month, []).append((ipo, field, value))
@@ -1293,19 +1303,27 @@ def _reconcile_missing_npay_schedules(npay, market, raw_items, *, target, end, a
     for month in sorted(candidates):
         last = _shift_month(month, 1) - timedelta(days=1)
         status_key = f"npay_calendar_{month:%Y-%m}"
+        partial_reason = None
         try:
             rows = npay.fetch_calendar_month(start_date=month.isoformat(), end_date=last.isoformat(),
                                              require_complete=True)
-            if (not isinstance(rows, list) or _conflicting_npay_schedules(rows, existing)):
-                raise ValueError("ambiguous Npay calendar snapshot")
+        except NpayIpoCalendarIncomplete as exc:
+            rows = exc.observations
+            partial_reason = exc.reason
         except Exception as exc:
             statuses[status_key] = f"source_error ({type(exc).__name__})"
             failed += 1
             continue
-        statuses[status_key] = "read_ok"
+        if not isinstance(rows, list) or _conflicting_npay_schedules(rows, existing):
+            statuses[status_key] = "source_error (ambiguous_calendar_snapshot)"
+            failed += 1
+            continue
+        if partial_reason:
+            statuses[status_key] = f"partial ({partial_reason})"
+            failed += 1
+        else:
+            statuses[status_key] = "read_ok"
         snapshots[month] = (last, rows, datetime.now(KST).isoformat())
-    if failed:
-        return failed, 0
 
     reviews = 0
     for month, (last, rows, observed_at) in snapshots.items():
@@ -1314,9 +1332,8 @@ def _reconcile_missing_npay_schedules(npay, market, raw_items, *, target, end, a
                 continue  # A positive observation for another boundary already revised it.
             sources = ipo["sources"]
             fields = sources.get("schedule_fields") or {}
-            evidence = fields.get(field) or {}
-            if (evidence.get("source") == "npay" and evidence.get("value") == old_value
-                    and str(evidence.get("observed_at") or "") >= attempted_at):
+            npay_field = npay_schedule_field_confirmed(ipo, field)
+            if npay_field and str(fields[field].get("observed_at") or "") >= attempted_at:
                 continue
             calendar_row = next((row for row in rows if row.get("stock_code") == ipo["stock_code"]
                                  and row.get(field)), None)
@@ -1324,9 +1341,10 @@ def _reconcile_missing_npay_schedules(npay, market, raw_items, *, target, end, a
                 # Do not pair a calendar boundary with a conflicting date
                 # freshly observed on a primary surface.
                 conflicts = [key for key in _NPAY_CALENDAR_FIELDS if calendar_row.get(key)
-                             and (fields.get(key) or {}).get("source") == "npay"
-                             and str((fields.get(key) or {}).get("observed_at") or "") >= attempted_at
-                             and calendar_row[key] != ipo.get(key)]
+                             and calendar_row[key] != ipo.get(key)
+                             and schedule_field_confirmed(ipo, key)
+                             and (not npay_schedule_field_confirmed(ipo, key)
+                                  or str(fields[key].get("observed_at") or "") >= attempted_at)]
                 schedule = {key: calendar_row[key] for key in _NPAY_CALENDAR_FIELDS if calendar_row.get(key)}
                 if conflicts:
                     _set_schedule_reconciliation(
@@ -1345,12 +1363,16 @@ def _reconcile_missing_npay_schedules(npay, market, raw_items, *, target, end, a
                         **schedule}, source_name="npay")
                     reviews += int(review)
                 continue
-            sources.setdefault("npay_schedule_missing", {})[field] = {
-                "value": old_value, "reason": "not_observed_in_npay_calendar",
-                "last_observed_at": evidence.get("observed_at") if evidence.get("value") == old_value else None,
-                "last_complete_at": observed_at, "from": month.isoformat(), "to": last.isoformat(),
-            }
-    return 0, reviews
+            # The issuer's Npay history only enables supplemental lookup.
+            # Hiding a date requires Npay provenance for that exact field.
+            if not failed and npay_field and fields[field].get("observed_at"):
+                sources.setdefault("npay_schedule_missing", {})[field] = {
+                    "value": old_value, "reason": "not_observed_in_npay_calendar",
+                    "coverage": "explicit_complete_month",
+                    "last_observed_at": fields[field]["observed_at"],
+                    "last_complete_at": observed_at, "from": month.isoformat(), "to": last.isoformat(),
+                }
+    return failed, reviews
 
 
 def discover_and_merge_primary_sources(
