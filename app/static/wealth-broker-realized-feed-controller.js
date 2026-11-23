@@ -59,7 +59,12 @@
         .filter(Boolean);
     }
 
-    return Object.freeze({ applySuccessfulFeed, selectedImportItems });
+    function clearImportPreview(state) {
+      state.preview = null;
+      state.previewTicket = null;
+    }
+
+    return Object.freeze({ applySuccessfulFeed, selectedImportItems, clearImportPreview });
   }
 
   window.WealthBrokerRealizedFeedController = Object.freeze({ create, sortRows: sortBrokerRealizedFeedRows, dateKey: brokerRealizedDateKey });
