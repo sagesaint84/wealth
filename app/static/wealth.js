@@ -11664,6 +11664,19 @@ async function commitKisImport() {
 
 // ── NH투자증권 (NH) 실현손익 UI ─────────────────────────────────────────────
 // NH keeps its own state so broker tabs cannot share signed rows or preview tickets.
+function refreshBrokerImportedResults() {
+  if (typeof loadPnlRecords === 'function') loadPnlRecords();
+  if (typeof loadDashboard === 'function') loadDashboard();
+  else if (typeof fetchDashboard === 'function') fetchDashboard();
+}
+
+function populateOpenApiDestinationAccounts(select, state, broker) {
+  const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
+  const source = state.accounts.find(a => a.source_account_key === state.sourceAccountKey);
+  const allowedAccounts = realizedDestinationAccounts(accounts, broker, source?.candidate_account_ids);
+  brokerUI.populateBrokerDestinationAccountSelect(select, allowedAccounts, state.mappedDestAccountId, maskAccountDisplayLabel);
+}
+
 const brokerRealizedScreenDependencies = {
   document, brokerUI, html, brokerRealizedDisplayRow, syncBrokerRowImportOptions,
   previewScreenController: window.WealthBrokerImportPreviewScreenController,
@@ -11702,8 +11715,7 @@ function nhSelectedItems() {
 function populateNhSourceAccounts() {
   const select = document.getElementById('nhSourceAccount'); if (!select) return;
   nhRealizedState.sourceAccountKey = brokerUI.populateBrokerSourceAccountSelect(select, nhRealizedState.accounts, '마스킹된 NH 계좌');
-  const sourceAccount = nhRealizedState.accounts.find(a => a.source_account_key === nhRealizedState.sourceAccountKey);
-  nhRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
+  nhRealizedState.mappedDestAccountId = brokerRealizedFeedController.mappedDestinationAccountId(nhRealizedState, nhRealizedState.sourceAccountKey);
 }
 async function checkNhStatus() {
   return brokerRealizedFeedController.checkOpenApiStatus({
@@ -11719,27 +11731,23 @@ async function checkNhStatus() {
 }
 function populateNhDestinationAccounts() {
   const select = document.getElementById('nhDestinationAccount'); if (!select) return;
-  const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
-  const source = nhRealizedState.accounts.find(a => a.source_account_key === nhRealizedState.sourceAccountKey);
-  const allowedAccounts = realizedDestinationAccounts(accounts, 'nh', source?.candidate_account_ids);
-  brokerUI.populateBrokerDestinationAccountSelect(select, allowedAccounts, nhRealizedState.mappedDestAccountId, maskAccountDisplayLabel);
+  populateOpenApiDestinationAccounts(select, nhRealizedState, 'nh');
 }
 async function fetchNhRealizedFeed() {
   if (nhRealizedState.loading) return;
   const market = document.getElementById('nhMarketSelect')?.value || 'kr'; const fromDate = document.getElementById('nhFromDate')?.value; const toDate = document.getElementById('nhToDate')?.value;
   if (!nhRealizedState.sourceAccountKey) return showNhMessage('마스킹된 NH 원본 계좌를 선택하세요.', 'warning');
   if (!fromDate || !toDate || fromDate > toDate) return showNhMessage('유효한 시작일과 종료일을 선택하세요.', 'warning');
-  setNhLoading(true); hideNhMessage();
-  try {
-    const res = await fetch('/api/nh/realized-feed/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ market, from_date: fromDate, to_date: toDate, source_account_key: nhRealizedState.sourceAccountKey }) });
-    const data = await res.json().catch(() => ({})); if (!res.ok) throw data;
-    brokerRealizedFeedController.applySuccessfulFeed(nhRealizedState, data.rows || [], data.selection_tokens || []);
-    nhRealizedState.preview = null;
-    nhRealizedState.market = data.market || market;
-    brokerUI.renderBrokerFetchMetadata('nhMeta', nhRealizedState.market, nhRealizedState.rows.length);
-    renderNhFeedTable(); updateNhSelectionUI(); if (!nhRealizedState.rows.length) showNhMessage('해당 기간의 실현손익 내역이 없습니다.', 'info');
-  } catch (error) { showNhMessage(nhSafeError(error, 'NH 실현손익 조회에 실패했습니다.'), 'error'); renderNhFeedTable(); }
-  finally { setNhLoading(false); }
+  return brokerRealizedFeedController.fetchOpenApiRealizedFeed({
+    state: nhRealizedState,
+    request: () => fetch('/api/nh/realized-feed/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ market, from_date: fromDate, to_date: toDate, source_account_key: nhRealizedState.sourceAccountKey }) }),
+    resolveMarket: data => data.market || market,
+    setLoading: setNhLoading, hideMessage: hideNhMessage, showMessage: showNhMessage,
+    renderMetadata: (market, rowCount) => brokerUI.renderBrokerFetchMetadata('nhMeta', market, rowCount),
+    renderFeedTable: renderNhFeedTable, updateSelectionUI: updateNhSelectionUI,
+    emptyMessage: '해당 기간의 실현손익 내역이 없습니다.',
+    errorText: nhSafeError, errorFallback: 'NH 실현손익 조회에 실패했습니다.',
+  });
 }
 function nhNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoKr(value, digits); }
 function renderNhFeedTable() {
@@ -11751,9 +11759,9 @@ function updateNhSelectionUI() {
 async function openNhImportPreview() {
   const accountId = document.getElementById('nhDestinationAccount')?.value; const selectedItems = nhSelectedItems();
   if (!accountId) return showNhMessage('귀속할 Wealth 계좌를 선택하세요.', 'warning'); if (!selectedItems.length) return;
-  setNhLoading(true); hideNhMessage();
-  try {
-    const res = await fetch('/api/nh/realized-feed/import-preview', {
+  return brokerRealizedFeedController.previewOpenApiImport({
+    state: nhRealizedState,
+    request: () => fetch('/api/nh/realized-feed/import-preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -11762,23 +11770,11 @@ async function openNhImportPreview() {
         market: nhRealizedState.market,
         source_account_key: nhRealizedState.sourceAccountKey
       })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      nhRealizedState.previewTicket = null;
-      updateNhCommitButton();
-      throw data;
-    }
-    nhRealizedState.preview = data;
-    nhRealizedState.previewTicket = data.preview_ticket;
-    renderNhPreviewModal(data);
-  } catch (error) {
-    nhRealizedState.previewTicket = null;
-    updateNhCommitButton();
-    showNhMessage(nhSafeError(error, 'NH 미리보기 검증에 실패했습니다.'), 'error');
-  } finally {
-    setNhLoading(false);
-  }
+    }),
+    setLoading: setNhLoading, hideMessage: hideNhMessage, showMessage: showNhMessage,
+    renderPreviewModal: renderNhPreviewModal, updateCommitButton: updateNhCommitButton,
+    errorText: nhSafeError, errorFallback: 'NH 미리보기 검증에 실패했습니다.',
+  });
 }
 function renderNhPreviewModal(data) {
   return nhScreenController.renderPreviewModal(data);
@@ -11794,9 +11790,18 @@ function closeNhImportModal() {
   brokerRealizedFeedController.clearImportPreview(nhRealizedState);
 }
 async function commitNhImport() {
-  if (nhRealizedState.importing || !nhRealizedState.previewTicket) return; nhRealizedState.importing = true; updateNhCommitButton();
-  const accountId = nhRealizedState.preview?.destination_account?.id || document.getElementById('nhDestinationAccount')?.value;
-  try { const res = await fetch('/api/nh/realized-feed/import', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ selected_items: nhSelectedItems(), account_id: accountId, market: nhRealizedState.market, source_account_key: nhRealizedState.sourceAccountKey, preview_ticket: nhRealizedState.previewTicket, include_possible_duplicates: !!document.getElementById('nhIncludePossibleDuplicates')?.checked }) }); const data = await res.json().catch(() => ({})); if (!res.ok) throw data; nhRealizedState.selectedIndices.forEach(index => nhRealizedState.importedIndices.add(index)); nhRealizedState.selectedIndices.clear(); nhRealizedState.previewTicket = null; closeNhImportModal(); renderNhFeedTable(); updateNhSelectionUI(); showNhMessage(`NH 실현손익 ${data.imported || 0}건을 Wealth 계좌에 가져왔습니다.`, 'success'); if (typeof loadPnlRecords === 'function') loadPnlRecords(); if (typeof loadDashboard === 'function') loadDashboard(); else if (typeof fetchDashboard === 'function') fetchDashboard(); } catch (error) { showNhMessage(nhSafeError(error, 'NH 가져오기에 실패했습니다.'), 'error'); } finally { nhRealizedState.importing = false; updateNhCommitButton(); updateNhSelectionUI(); }
+  if (nhRealizedState.importing || !nhRealizedState.previewTicket) return;
+  nhRealizedState.importing = true;
+  return brokerRealizedFeedController.commitOpenApiImport({
+    state: nhRealizedState,
+    destinationAccountId: () => nhRealizedState.preview?.destination_account?.id || document.getElementById('nhDestinationAccount')?.value,
+    request: accountId => fetch('/api/nh/realized-feed/import', { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ selected_items: nhSelectedItems(), account_id: accountId, market: nhRealizedState.market, source_account_key: nhRealizedState.sourceAccountKey, preview_ticket: nhRealizedState.previewTicket, include_possible_duplicates: !!document.getElementById('nhIncludePossibleDuplicates')?.checked }) }),
+    updateCommitButton: updateNhCommitButton, updateSelectionUI: updateNhSelectionUI,
+    closeModal: closeNhImportModal, renderFeedTable: renderNhFeedTable,
+    showResult: data => showNhMessage(`NH 실현손익 ${data.imported || 0}건을 Wealth 계좌에 가져왔습니다.`, 'success'),
+    refreshResults: refreshBrokerImportedResults,
+    showMessage: showNhMessage, errorText: nhSafeError, errorFallback: 'NH 가져오기에 실패했습니다.',
+  });
 }
 
 // ── 키움증권 (Kiwoom) 실현손익 UI ──────────────────────────────────────────
@@ -11832,8 +11837,7 @@ function kiwoomSelectedItems() {
 function populateKiwoomSourceAccounts() {
   const select = document.getElementById('kiwoomSourceAccount'); if (!select) return;
   kiwoomRealizedState.sourceAccountKey = brokerUI.populateBrokerSourceAccountSelect(select, kiwoomRealizedState.accounts, '마스킹된 키움 계좌');
-  const sourceAccount = kiwoomRealizedState.accounts.find(a => a.source_account_key === kiwoomRealizedState.sourceAccountKey);
-  kiwoomRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
+  kiwoomRealizedState.mappedDestAccountId = brokerRealizedFeedController.mappedDestinationAccountId(kiwoomRealizedState, kiwoomRealizedState.sourceAccountKey);
 }
 async function checkKiwoomStatus() {
   return brokerRealizedFeedController.checkOpenApiStatus({
@@ -11849,10 +11853,7 @@ async function checkKiwoomStatus() {
 }
 function populateKiwoomDestinationAccounts() {
   const select = document.getElementById('kiwoomDestinationAccount'); if (!select) return;
-  const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
-  const source = kiwoomRealizedState.accounts.find(a => a.source_account_key === kiwoomRealizedState.sourceAccountKey);
-  const allowedAccounts = realizedDestinationAccounts(accounts, 'kiwoom', source?.candidate_account_ids);
-  brokerUI.populateBrokerDestinationAccountSelect(select, allowedAccounts, kiwoomRealizedState.mappedDestAccountId, maskAccountDisplayLabel);
+  populateOpenApiDestinationAccounts(select, kiwoomRealizedState, 'kiwoom');
 }
 async function fetchKiwoomRealizedFeed() {
   if (kiwoomRealizedState.loading) return;
@@ -11861,27 +11862,20 @@ async function fetchKiwoomRealizedFeed() {
   const toDate = document.getElementById('kiwoomToDate')?.value;
   if (!kiwoomRealizedState.sourceAccountKey) return showKiwoomMessage('마스킹된 키움 원본 계좌를 선택하세요.', 'warning');
   if (!fromDate || !toDate || fromDate > toDate) return showKiwoomMessage('유효한 시작일과 종료일을 선택하세요.', 'warning');
-  setKiwoomLoading(true); hideKiwoomMessage();
-  try {
-    const res = await fetch('/api/kiwoom/realized-feed/fetch', {
+  return brokerRealizedFeedController.fetchOpenApiRealizedFeed({
+    state: kiwoomRealizedState,
+    request: () => fetch('/api/kiwoom/realized-feed/fetch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ market, from_date: fromDate, to_date: toDate, source_account_key: kiwoomRealizedState.sourceAccountKey })
-    });
-    const data = await res.json().catch(() => ({})); if (!res.ok) throw data;
-    brokerRealizedFeedController.applySuccessfulFeed(kiwoomRealizedState, data.rows || [], data.selection_tokens || []);
-    kiwoomRealizedState.preview = null;
-    kiwoomRealizedState.market = data.market || market;
-    brokerUI.renderBrokerFetchMetadata('kiwoomMeta', kiwoomRealizedState.market, kiwoomRealizedState.rows.length);
-    renderKiwoomFeedTable();
-    updateKiwoomSelectionUI();
-    if (!kiwoomRealizedState.rows.length) showKiwoomMessage('해당 기간의 실현손익 내역이 없습니다.', 'info');
-  } catch (error) {
-    showKiwoomMessage(kiwoomSafeError(error, '키움 실현손익 조회에 실패했습니다.'), 'error');
-    renderKiwoomFeedTable();
-  } finally {
-    setKiwoomLoading(false);
-  }
+    }),
+    resolveMarket: data => data.market || market,
+    setLoading: setKiwoomLoading, hideMessage: hideKiwoomMessage, showMessage: showKiwoomMessage,
+    renderMetadata: (market, rowCount) => brokerUI.renderBrokerFetchMetadata('kiwoomMeta', market, rowCount),
+    renderFeedTable: renderKiwoomFeedTable, updateSelectionUI: updateKiwoomSelectionUI,
+    emptyMessage: '해당 기간의 실현손익 내역이 없습니다.',
+    errorText: kiwoomSafeError, errorFallback: '키움 실현손익 조회에 실패했습니다.',
+  });
 }
 function kiwoomNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoKr(value, digits); }
 function renderKiwoomFeedTable() {
@@ -11895,10 +11889,9 @@ async function openKiwoomImportPreview() {
   const selectedItems = kiwoomSelectedItems();
   if (!accountId) return showKiwoomMessage('귀속할 Wealth 계좌를 선택하세요.', 'warning');
   if (!selectedItems.length) return;
-  setKiwoomLoading(true);
-  hideKiwoomMessage();
-  try {
-    const res = await fetch('/api/kiwoom/realized-feed/import-preview', {
+  return brokerRealizedFeedController.previewOpenApiImport({
+    state: kiwoomRealizedState,
+    request: () => fetch('/api/kiwoom/realized-feed/import-preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -11907,23 +11900,11 @@ async function openKiwoomImportPreview() {
         market: kiwoomRealizedState.market,
         source_account_key: kiwoomRealizedState.sourceAccountKey
       })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      kiwoomRealizedState.previewTicket = null;
-      updateKiwoomCommitButton();
-      throw data;
-    }
-    kiwoomRealizedState.preview = data;
-    kiwoomRealizedState.previewTicket = data.preview_ticket;
-    renderKiwoomPreviewModal(data);
-  } catch (error) {
-    kiwoomRealizedState.previewTicket = null;
-    updateKiwoomCommitButton();
-    showKiwoomMessage(kiwoomSafeError(error, '키움 미리보기 검증에 실패했습니다.'), 'error');
-  } finally {
-    setKiwoomLoading(false);
-  }
+    }),
+    setLoading: setKiwoomLoading, hideMessage: hideKiwoomMessage, showMessage: showKiwoomMessage,
+    renderPreviewModal: renderKiwoomPreviewModal, updateCommitButton: updateKiwoomCommitButton,
+    errorText: kiwoomSafeError, errorFallback: '키움 미리보기 검증에 실패했습니다.',
+  });
 }
 function renderKiwoomPreviewModal(data) {
   return kiwoomScreenController.renderPreviewModal(data);
@@ -11941,10 +11922,10 @@ function closeKiwoomImportModal() {
 async function commitKiwoomImport() {
   if (kiwoomRealizedState.importing || !kiwoomRealizedState.previewTicket) return;
   kiwoomRealizedState.importing = true;
-  updateKiwoomCommitButton();
-  const accountId = kiwoomRealizedState.preview?.destination_account?.id || document.getElementById('kiwoomDestinationAccount')?.value;
-  try {
-    const res = await fetch('/api/kiwoom/realized-feed/import', {
+  return brokerRealizedFeedController.commitOpenApiImport({
+    state: kiwoomRealizedState,
+    destinationAccountId: () => kiwoomRealizedState.preview?.destination_account?.id || document.getElementById('kiwoomDestinationAccount')?.value,
+    request: accountId => fetch('/api/kiwoom/realized-feed/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -11955,56 +11936,32 @@ async function commitKiwoomImport() {
         preview_ticket: kiwoomRealizedState.previewTicket,
         include_possible_duplicates: !!document.getElementById('kiwoomIncludePossibleDuplicates')?.checked
       })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw data;
-    kiwoomRealizedState.selectedIndices.forEach(index => kiwoomRealizedState.importedIndices.add(index));
-    kiwoomRealizedState.selectedIndices.clear();
-    kiwoomRealizedState.previewTicket = null;
-    closeKiwoomImportModal();
-    renderKiwoomFeedTable();
-    updateKiwoomSelectionUI();
-    if (data.partial_success || data.mapping_warning === 'MAPPING_PERSISTENCE_FAILED') {
-      showKiwoomMessage(`키움 실현손익 ${data.imported || 0}건 가져오기를 완료했으나, 계좌 매핑 저장에 실패했습니다. 재시도 시 손익 중복 없이 매핑을 복구할 수 있습니다.`, 'warning');
-    } else if (data.mapping_repaired) {
-      showKiwoomMessage(`키움 실현손익 ${data.imported || 0}건을 가져오고 계좌 매핑을 복구했습니다.`, 'success');
-    } else {
-      showKiwoomMessage(`키움 실현손익 ${data.imported || 0}건을 Wealth 계좌에 가져왔습니다.`, 'success');
-    }
-    if (typeof loadPnlRecords === 'function') loadPnlRecords();
-    if (typeof loadDashboard === 'function') loadDashboard();
-    else if (typeof fetchDashboard === 'function') fetchDashboard();
-  } catch (error) {
-    showKiwoomMessage(kiwoomSafeError(error, '키움 가져오기에 실패했습니다.'), 'error');
-  } finally {
-    kiwoomRealizedState.importing = false;
-    updateKiwoomCommitButton();
-    updateKiwoomSelectionUI();
-  }
+    }),
+    updateCommitButton: updateKiwoomCommitButton, updateSelectionUI: updateKiwoomSelectionUI,
+    closeModal: closeKiwoomImportModal, renderFeedTable: renderKiwoomFeedTable,
+    showResult: data => {
+      if (data.partial_success || data.mapping_warning === 'MAPPING_PERSISTENCE_FAILED') {
+        showKiwoomMessage(`키움 실현손익 ${data.imported || 0}건 가져오기를 완료했으나, 계좌 매핑 저장에 실패했습니다. 재시도 시 손익 중복 없이 매핑을 복구할 수 있습니다.`, 'warning');
+      } else if (data.mapping_repaired) {
+        showKiwoomMessage(`키움 실현손익 ${data.imported || 0}건을 가져오고 계좌 매핑을 복구했습니다.`, 'success');
+      } else {
+        showKiwoomMessage(`키움 실현손익 ${data.imported || 0}건을 Wealth 계좌에 가져왔습니다.`, 'success');
+      }
+    },
+    refreshResults: refreshBrokerImportedResults,
+    showMessage: showKiwoomMessage, errorText: kiwoomSafeError, errorFallback: '키움 가져오기에 실패했습니다.',
+  });
 }
 function initKiwoomRealizedUI() {
-  document.getElementById('kiwoomSourceAccount')?.addEventListener('change', event => {
-    kiwoomRealizedState.sourceAccountKey = event.target.value;
-    const sourceAccount = kiwoomRealizedState.accounts.find(a => a.source_account_key === event.target.value);
-    kiwoomRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
-    updateKiwoomSelectionUI();
-    setKiwoomLoading(false);
+  kiwoomScreenController.bindImportEvents({
+    confirmButtonId: 'btnKiwoomConfirmCommit', closeButtonId: 'btnKiwoomModalClose', cancelButtonId: 'btnKiwoomModalCancel',
+    setLoading: setKiwoomLoading, openPreview: openKiwoomImportPreview, closeModal: closeKiwoomImportModal,
+    updateCommitButton: updateKiwoomCommitButton, commit: commitKiwoomImport,
+    sourceAccountChanged: key => {
+      kiwoomRealizedState.sourceAccountKey = key;
+      kiwoomRealizedState.mappedDestAccountId = brokerRealizedFeedController.mappedDestinationAccountId(kiwoomRealizedState, key);
+    },
   });
-  document.getElementById('kiwoomDestinationAccount')?.addEventListener('change', updateKiwoomSelectionUI);
-  document.getElementById('kiwoomSelectAll')?.addEventListener('change', event => {
-    kiwoomRealizedState.rows.forEach((_, index) => {
-      if (!kiwoomRealizedState.importedIndices.has(index)) {
-        event.target.checked ? kiwoomRealizedState.selectedIndices.add(index) : kiwoomRealizedState.selectedIndices.delete(index);
-      }
-    });
-    renderKiwoomFeedTable();
-    updateKiwoomSelectionUI();
-  });
-  document.getElementById('btnKiwoomImportSelected')?.addEventListener('click', openKiwoomImportPreview);
-  document.getElementById('btnKiwoomModalClose')?.addEventListener('click', closeKiwoomImportModal);
-  document.getElementById('btnKiwoomModalCancel')?.addEventListener('click', closeKiwoomImportModal);
-  document.getElementById('kiwoomIncludePossibleDuplicates')?.addEventListener('change', updateKiwoomCommitButton);
-  document.getElementById('btnKiwoomConfirmCommit')?.addEventListener('click', commitKiwoomImport);
 }
 
 // ── KB증권 (KB Securities) 실현손익 UI ──────────────────────────────────────
@@ -12040,8 +11997,7 @@ function kbSelectedItems() {
 function populateKbSourceAccounts() {
   const select = document.getElementById('kbSourceAccount'); if (!select) return;
   kbRealizedState.sourceAccountKey = brokerUI.populateBrokerSourceAccountSelect(select, kbRealizedState.accounts, '마스킹된 KB 계좌');
-  const sourceAccount = kbRealizedState.accounts.find(a => a.source_account_key === kbRealizedState.sourceAccountKey);
-  kbRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
+  kbRealizedState.mappedDestAccountId = brokerRealizedFeedController.mappedDestinationAccountId(kbRealizedState, kbRealizedState.sourceAccountKey);
 }
 async function checkKbStatus() {
   return brokerRealizedFeedController.checkOpenApiStatus({
@@ -12057,10 +12013,7 @@ async function checkKbStatus() {
 }
 function populateKbDestinationAccounts() {
   const select = document.getElementById('kbDestinationAccount'); if (!select) return;
-  const accounts = (typeof dashboard !== 'undefined' && dashboard && Array.isArray(dashboard.accounts)) ? dashboard.accounts : (typeof window !== 'undefined' && Array.isArray(window.pnlState?.accounts) ? window.pnlState.accounts : []);
-  const source = kbRealizedState.accounts.find(a => a.source_account_key === kbRealizedState.sourceAccountKey);
-  const allowedAccounts = realizedDestinationAccounts(accounts, 'kb', source?.candidate_account_ids);
-  brokerUI.populateBrokerDestinationAccountSelect(select, allowedAccounts, kbRealizedState.mappedDestAccountId, maskAccountDisplayLabel);
+  populateOpenApiDestinationAccounts(select, kbRealizedState, 'kb');
 }
 async function fetchKbRealizedFeed() {
   if (kbRealizedState.loading) return;
@@ -12072,27 +12025,20 @@ async function fetchKbRealizedFeed() {
   const toDate = document.getElementById('kbToDate')?.value;
   if (!kbRealizedState.sourceAccountKey) return showKbMessage('마스킹된 KB 원본 계좌를 선택하세요.', 'warning');
   if (!fromDate || !toDate || fromDate > toDate) return showKbMessage('유효한 시작일과 종료일을 선택하세요.', 'warning');
-  setKbLoading(true); hideKbMessage();
-  try {
-    const res = await fetch('/api/kb/realized-feed/fetch', {
+  return brokerRealizedFeedController.fetchOpenApiRealizedFeed({
+    state: kbRealizedState,
+    request: () => fetch('/api/kb/realized-feed/fetch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ market: 'kr', from_date: fromDate, to_date: toDate, source_account_key: kbRealizedState.sourceAccountKey })
-    });
-    const data = await res.json().catch(() => ({})); if (!res.ok) throw data;
-    brokerRealizedFeedController.applySuccessfulFeed(kbRealizedState, data.rows || [], data.selection_tokens || []);
-    kbRealizedState.preview = null;
-    kbRealizedState.market = 'kr';
-    brokerUI.renderBrokerFetchMetadata('kbMeta', 'kr', kbRealizedState.rows.length);
-    renderKbFeedTable();
-    updateKbSelectionUI();
-    if (!kbRealizedState.rows.length) showKbMessage('해당 기간의 실현손익 내역이 없습니다.', 'info');
-  } catch (error) {
-    showKbMessage(kbSafeError(error, 'KB 실현손익 조회에 실패했습니다.'), 'error');
-    renderKbFeedTable();
-  } finally {
-    setKbLoading(false);
-  }
+    }),
+    resolveMarket: () => 'kr',
+    setLoading: setKbLoading, hideMessage: hideKbMessage, showMessage: showKbMessage,
+    renderMetadata: (market, rowCount) => brokerUI.renderBrokerFetchMetadata('kbMeta', market, rowCount),
+    renderFeedTable: renderKbFeedTable, updateSelectionUI: updateKbSelectionUI,
+    emptyMessage: '해당 기간의 실현손익 내역이 없습니다.',
+    errorText: kbSafeError, errorFallback: 'KB 실현손익 조회에 실패했습니다.',
+  });
 }
 function kbNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoKr(value, digits); }
 function renderKbFeedTable() {
@@ -12106,10 +12052,9 @@ async function openKbImportPreview() {
   const selectedItems = kbSelectedItems();
   if (!accountId) return showKbMessage('귀속할 Wealth 계좌를 선택하세요.', 'warning');
   if (!selectedItems.length) return;
-  setKbLoading(true);
-  hideKbMessage();
-  try {
-    const res = await fetch('/api/kb/realized-feed/import-preview', {
+  return brokerRealizedFeedController.previewOpenApiImport({
+    state: kbRealizedState,
+    request: () => fetch('/api/kb/realized-feed/import-preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -12118,23 +12063,11 @@ async function openKbImportPreview() {
         market: 'kr',
         source_account_key: kbRealizedState.sourceAccountKey
       })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      kbRealizedState.previewTicket = null;
-      updateKbCommitButton();
-      throw data;
-    }
-    kbRealizedState.preview = data;
-    kbRealizedState.previewTicket = data.preview_ticket;
-    renderKbPreviewModal(data);
-  } catch (error) {
-    kbRealizedState.previewTicket = null;
-    updateKbCommitButton();
-    showKbMessage(kbSafeError(error, 'KB 미리보기 검증에 실패했습니다.'), 'error');
-  } finally {
-    setKbLoading(false);
-  }
+    }),
+    setLoading: setKbLoading, hideMessage: hideKbMessage, showMessage: showKbMessage,
+    renderPreviewModal: renderKbPreviewModal, updateCommitButton: updateKbCommitButton,
+    errorText: kbSafeError, errorFallback: 'KB 미리보기 검증에 실패했습니다.',
+  });
 }
 function renderKbPreviewModal(data) {
   return kbScreenController.renderPreviewModal(data);
@@ -12152,10 +12085,10 @@ function closeKbImportModal() {
 async function commitKbImport() {
   if (kbRealizedState.importing || !kbRealizedState.previewTicket) return;
   kbRealizedState.importing = true;
-  updateKbCommitButton();
-  const accountId = kbRealizedState.preview?.destination_account?.id || document.getElementById('kbDestinationAccount')?.value;
-  try {
-    const res = await fetch('/api/kb/realized-feed/import', {
+  return brokerRealizedFeedController.commitOpenApiImport({
+    state: kbRealizedState,
+    destinationAccountId: () => kbRealizedState.preview?.destination_account?.id || document.getElementById('kbDestinationAccount')?.value,
+    request: accountId => fetch('/api/kb/realized-feed/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -12166,56 +12099,32 @@ async function commitKbImport() {
         preview_ticket: kbRealizedState.previewTicket,
         include_possible_duplicates: !!document.getElementById('kbIncludePossibleDuplicates')?.checked
       })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw data;
-    kbRealizedState.selectedIndices.forEach(index => kbRealizedState.importedIndices.add(index));
-    kbRealizedState.selectedIndices.clear();
-    kbRealizedState.previewTicket = null;
-    closeKbImportModal();
-    renderKbFeedTable();
-    updateKbSelectionUI();
-    if (data.partial_success || data.mapping_warning === 'MAPPING_PERSISTENCE_FAILED') {
-      showKbMessage(`KB 실현손익 ${data.imported || 0}건 가져오기를 완료했으나, 계좌 매핑 저장에 실패했습니다. 재시도 시 손익 중복 없이 매핑을 복구할 수 있습니다.`, 'warning');
-    } else if (data.mapping_repaired) {
-      showKbMessage(`KB 실현손익 ${data.imported || 0}건을 가져오고 계좌 매핑을 복구했습니다.`, 'success');
-    } else {
-      showKbMessage(`KB 실현손익 ${data.imported || 0}건을 Wealth 계좌에 가져왔습니다.`, 'success');
-    }
-    if (typeof loadPnlRecords === 'function') loadPnlRecords();
-    if (typeof loadDashboard === 'function') loadDashboard();
-    else if (typeof fetchDashboard === 'function') fetchDashboard();
-  } catch (error) {
-    showKbMessage(kbSafeError(error, 'KB 가져오기에 실패했습니다.'), 'error');
-  } finally {
-    kbRealizedState.importing = false;
-    updateKbCommitButton();
-    updateKbSelectionUI();
-  }
+    }),
+    updateCommitButton: updateKbCommitButton, updateSelectionUI: updateKbSelectionUI,
+    closeModal: closeKbImportModal, renderFeedTable: renderKbFeedTable,
+    showResult: data => {
+      if (data.partial_success || data.mapping_warning === 'MAPPING_PERSISTENCE_FAILED') {
+        showKbMessage(`KB 실현손익 ${data.imported || 0}건 가져오기를 완료했으나, 계좌 매핑 저장에 실패했습니다. 재시도 시 손익 중복 없이 매핑을 복구할 수 있습니다.`, 'warning');
+      } else if (data.mapping_repaired) {
+        showKbMessage(`KB 실현손익 ${data.imported || 0}건을 가져오고 계좌 매핑을 복구했습니다.`, 'success');
+      } else {
+        showKbMessage(`KB 실현손익 ${data.imported || 0}건을 Wealth 계좌에 가져왔습니다.`, 'success');
+      }
+    },
+    refreshResults: refreshBrokerImportedResults,
+    showMessage: showKbMessage, errorText: kbSafeError, errorFallback: 'KB 가져오기에 실패했습니다.',
+  });
 }
 function initKbRealizedUI() {
-  document.getElementById('kbSourceAccount')?.addEventListener('change', event => {
-    kbRealizedState.sourceAccountKey = event.target.value;
-    const sourceAccount = kbRealizedState.accounts.find(a => a.source_account_key === event.target.value);
-    kbRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
-    updateKbSelectionUI();
-    setKbLoading(false);
+  kbScreenController.bindImportEvents({
+    confirmButtonId: 'btnKbConfirmCommit', closeButtonId: 'btnKbModalClose', cancelButtonId: 'btnKbModalCancel',
+    setLoading: setKbLoading, openPreview: openKbImportPreview, closeModal: closeKbImportModal,
+    updateCommitButton: updateKbCommitButton, commit: commitKbImport,
+    sourceAccountChanged: key => {
+      kbRealizedState.sourceAccountKey = key;
+      kbRealizedState.mappedDestAccountId = brokerRealizedFeedController.mappedDestinationAccountId(kbRealizedState, key);
+    },
   });
-  document.getElementById('kbDestinationAccount')?.addEventListener('change', updateKbSelectionUI);
-  document.getElementById('kbSelectAll')?.addEventListener('change', event => {
-    kbRealizedState.rows.forEach((_, index) => {
-      if (!kbRealizedState.importedIndices.has(index)) {
-        event.target.checked ? kbRealizedState.selectedIndices.add(index) : kbRealizedState.selectedIndices.delete(index);
-      }
-    });
-    renderKbFeedTable();
-    updateKbSelectionUI();
-  });
-  document.getElementById('btnKbImportSelected')?.addEventListener('click', openKbImportPreview);
-  document.getElementById('btnKbModalClose')?.addEventListener('click', closeKbImportModal);
-  document.getElementById('btnKbModalCancel')?.addEventListener('click', closeKbImportModal);
-  document.getElementById('kbIncludePossibleDuplicates')?.addEventListener('change', updateKbCommitButton);
-  document.getElementById('btnKbConfirmCommit')?.addEventListener('click', commitKbImport);
   document.getElementById('kbMarketSelect')?.addEventListener('change', () => {
     const val = document.getElementById('kbMarketSelect')?.value;
     if (val !== 'kr') {
@@ -12228,6 +12137,19 @@ function initKbRealizedUI() {
 
 function switchRealizedBroker(broker) {
   brokerUI.showBrokerScreen(realizedBrokerScreens, broker);
+}
+
+function initNhRealizedUI() {
+  nhScreenController.bindImportEvents({
+    confirmButtonId: 'btnNhConfirmCommit', closeButtonId: 'btnNhModalClose', cancelButtonId: 'btnNhModalCancel',
+    setLoading: setNhLoading, openPreview: openNhImportPreview, closeModal: closeNhImportModal,
+    updateCommitButton: updateNhCommitButton, commit: commitNhImport,
+    sourceAccountChanged: key => {
+      const mappedId = brokerRealizedFeedController.mappedDestinationAccountId(nhRealizedState, key);
+      nhRealizedState.sourceAccountKey = key;
+      nhRealizedState.mappedDestAccountId = mappedId;
+    },
+  });
 }
 
 function initKisRealizedUI() {
@@ -12275,14 +12197,7 @@ function initKisRealizedUI() {
   fromInput?.addEventListener('input', checkKisFormStale);
   toInput?.addEventListener('input', checkKisFormStale);
 
-  document.getElementById('nhSourceAccount')?.addEventListener('change', event => { const sourceAccount = nhRealizedState.accounts.find(a => a.source_account_key === event.target.value); nhRealizedState.sourceAccountKey = event.target.value; nhRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || ''; updateNhSelectionUI(); setNhLoading(false); });
-  document.getElementById('nhDestinationAccount')?.addEventListener('change', updateNhSelectionUI);
-  document.getElementById('nhSelectAll')?.addEventListener('change', event => { nhRealizedState.rows.forEach((_, index) => { if (!nhRealizedState.importedIndices.has(index)) event.target.checked ? nhRealizedState.selectedIndices.add(index) : nhRealizedState.selectedIndices.delete(index); }); renderNhFeedTable(); updateNhSelectionUI(); });
-  document.getElementById('btnNhImportSelected')?.addEventListener('click', openNhImportPreview);
-  document.getElementById('btnNhModalClose')?.addEventListener('click', closeNhImportModal);
-  document.getElementById('btnNhModalCancel')?.addEventListener('click', closeNhImportModal);
-  document.getElementById('nhIncludePossibleDuplicates')?.addEventListener('change', updateNhCommitButton);
-  document.getElementById('btnNhConfirmCommit')?.addEventListener('click', commitNhImport);
+  initNhRealizedUI();
 }
 
 // ── APP BOOTSTRAP ─────────────────────────────────────────────────────────────

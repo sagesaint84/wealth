@@ -76,8 +76,34 @@
       brokerUI.setAccountFeedButtonsDisabled(statusButtonId, fetchButtonId, loading, state.sourceAccountKey);
     }
 
+    function bindImportEvents({
+      confirmButtonId, closeButtonId, cancelButtonId, setLoading, openPreview, closeModal, updateCommitButton, commit,
+      sourceAccountChanged,
+    }) {
+      document.getElementById(`${prefix}SourceAccount`)?.addEventListener('change', event => {
+        sourceAccountChanged(event.target.value);
+        updateSelectionUI();
+        setLoading(false);
+      });
+      document.getElementById(`${prefix}DestinationAccount`)?.addEventListener('change', updateSelectionUI);
+      document.getElementById(`${prefix}SelectAll`)?.addEventListener('change', event => {
+        state.rows.forEach((_, index) => {
+          if (state.importedIndices.has(index)) return;
+          if (event.target.checked) state.selectedIndices.add(index);
+          else state.selectedIndices.delete(index);
+        });
+        renderFeedTable();
+        updateSelectionUI();
+      });
+      document.getElementById(importButtonId)?.addEventListener('click', openPreview);
+      document.getElementById(closeButtonId)?.addEventListener('click', closeModal);
+      document.getElementById(cancelButtonId)?.addEventListener('click', closeModal);
+      document.getElementById(`${prefix}IncludePossibleDuplicates`)?.addEventListener('change', updateCommitButton);
+      document.getElementById(confirmButtonId)?.addEventListener('click', commit);
+    }
+
     return Object.freeze({
-      showMessage, hideMessage, renderLoading, renderFeedTable, updateSelectionUI, renderPreviewModal,
+      showMessage, hideMessage, renderLoading, renderFeedTable, updateSelectionUI, renderPreviewModal, bindImportEvents,
     });
   }
 
