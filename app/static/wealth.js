@@ -11661,6 +11661,12 @@ async function commitKisImport() {
 
 // ── NH투자증권 (NH) 실현손익 UI ─────────────────────────────────────────────
 // NH keeps its own state so broker tabs cannot share signed rows or preview tickets.
+const brokerRealizedScreenDependencies = {
+  document, brokerUI, html, brokerRealizedDisplayRow, syncBrokerRowImportOptions,
+  previewScreenController: window.WealthBrokerImportPreviewScreenController,
+  maskAccountDisplayLabel, brokerPreviewStatusLabel, renderBrokerImportPreviewDetails,
+};
+
 const nhRealizedState = {
   status: null, accounts: [], sourceAccountKey: '', mappedDestAccountId: '',
   loading: false, importing: false, rows: [], selectionTokens: [],
@@ -11669,22 +11675,22 @@ const nhRealizedState = {
   previewTicket: null, preview: null,
 };
 window.nhRealizedState = nhRealizedState;
-const nhScreenController = window.WealthBrokerNhScreenController.create({
-  document, brokerUI, state: nhRealizedState,
-  html, brokerRealizedDisplayRow, nhNumber, syncBrokerRowImportOptions, populateNhDestinationAccounts,
-  previewScreenController: window.WealthBrokerImportPreviewScreenController,
-  maskAccountDisplayLabel, brokerPreviewStatusLabel, updateNhCommitButton, renderBrokerImportPreviewDetails,
+const nhScreenController = window.WealthBrokerRealizedScreenController.create({
+  ...brokerRealizedScreenDependencies, state: nhRealizedState, prefix: 'nh',
+  statusButtonId: 'btnCheckNhStatus', fetchButtonId: 'btnFetchNhFeed', importButtonId: 'btnNhImportSelected',
+  formatNumber: nhNumber, pnlDigits: 2, defaultCurrency: '',
+  populateDestinationAccounts: populateNhDestinationAccounts, updateCommitButton: updateNhCommitButton,
 });
 
 function showNhMessage(message, type = 'info') {
-  return nhScreenController.showNhMessage(message, type);
+  return nhScreenController.showMessage(message, type);
 }
 function hideNhMessage() {
-  return nhScreenController.hideNhMessage();
+  return nhScreenController.hideMessage();
 }
 function setNhLoading(loading) {
   nhRealizedState.loading = loading;
-  nhScreenController.renderNhLoading(loading);
+  nhScreenController.renderLoading(loading);
 }
 function nhSafeError(error, fallback) { return brokerUI.brokerErrorText(error, fallback); }
 function nhSelectedItems() {
@@ -11737,10 +11743,10 @@ async function fetchNhRealizedFeed() {
 }
 function nhNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoKr(value, digits); }
 function renderNhFeedTable() {
-  return nhScreenController.renderNhFeedTable();
+  return nhScreenController.renderFeedTable();
 }
 function updateNhSelectionUI() {
-  return nhScreenController.updateNhSelectionUI();
+  return nhScreenController.updateSelectionUI();
 }
 async function openNhImportPreview() {
   const accountId = document.getElementById('nhDestinationAccount')?.value; const selectedItems = nhSelectedItems();
@@ -11775,7 +11781,7 @@ async function openNhImportPreview() {
   }
 }
 function renderNhPreviewModal(data) {
-  return nhScreenController.renderNhPreviewModal(data);
+  return nhScreenController.renderPreviewModal(data);
 }
 function updateNhCommitButton() {
   const counts = nhRealizedState.preview?.counts || {};
@@ -11802,12 +11808,22 @@ const kiwoomRealizedState = {
   previewTicket: null, preview: null,
 };
 window.kiwoomRealizedState = kiwoomRealizedState;
+const kiwoomScreenController = window.WealthBrokerRealizedScreenController.create({
+  ...brokerRealizedScreenDependencies, state: kiwoomRealizedState, prefix: 'kiwoom',
+  statusButtonId: 'btnCheckKiwoomStatus', fetchButtonId: 'btnFetchKiwoomFeed', importButtonId: 'btnKiwoomImportSelected',
+  formatNumber: kiwoomNumber, pnlDigits: 2, defaultCurrency: '',
+  populateDestinationAccounts: populateKiwoomDestinationAccounts, updateCommitButton: updateKiwoomCommitButton,
+});
 
-function showKiwoomMessage(message, type = 'info') { return brokerUI.showBrokerMessage('kiwoomMessage', message, type); }
-function hideKiwoomMessage() { brokerUI.hideBrokerMessage('kiwoomMessage'); }
+function showKiwoomMessage(message, type = 'info') {
+  return kiwoomScreenController.showMessage(message, type);
+}
+function hideKiwoomMessage() {
+  return kiwoomScreenController.hideMessage();
+}
 function setKiwoomLoading(loading) {
   kiwoomRealizedState.loading = loading;
-  brokerUI.setAccountFeedButtonsDisabled('btnCheckKiwoomStatus', 'btnFetchKiwoomFeed', loading, kiwoomRealizedState.sourceAccountKey);
+  kiwoomScreenController.renderLoading(loading);
 }
 function kiwoomSafeError(error, fallback) { return brokerUI.brokerErrorText(error, fallback); }
 function kiwoomSelectedItems() {
@@ -11883,24 +11899,10 @@ async function fetchKiwoomRealizedFeed() {
 }
 function kiwoomNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoKr(value, digits); }
 function renderKiwoomFeedTable() {
-  const tbody = document.getElementById('kiwoomTableBody');
-  if (!tbody) return;
-  brokerUI.renderBrokerImportFeedTable({
-    body: tbody, state: kiwoomRealizedState, checkboxClass: 'kiwoom-row-check',
-    emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
-    adapt: row => brokerRealizedDisplayRow(row, { market: kiwoomRealizedState.market, currency: kiwoomRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: kiwoomNumber }),
-    syncRowOptions: syncBrokerRowImportOptions,
-    onUpdate: updateKiwoomSelectionUI,
-  });
+  return kiwoomScreenController.renderFeedTable();
 }
 function updateKiwoomSelectionUI() {
-  populateKiwoomDestinationAccounts();
-  brokerUI.renderBrokerImportSelectionState(kiwoomRealizedState, {
-    badgeId: 'kiwoomSelectedCountBadge',
-    buttonId: 'btnKiwoomImportSelected',
-    destinationSelectId: 'kiwoomDestinationAccount',
-  });
-  syncBrokerRowImportOptions(kiwoomRealizedState);
+  return kiwoomScreenController.updateSelectionUI();
 }
 async function openKiwoomImportPreview() {
   const accountId = document.getElementById('kiwoomDestinationAccount')?.value;
@@ -11938,15 +11940,7 @@ async function openKiwoomImportPreview() {
   }
 }
 function renderKiwoomPreviewModal(data) {
-  const counts = data.counts || {};
-  const dest = data.destination_account || {};
-  window.WealthBrokerImportPreviewScreenController.renderPreviewModal({
-    document, brokerUI, data, prefix: 'kiwoom', counts,
-    destination: brokerUI.brokerPreviewDestinationText(dest, maskAccountDisplayLabel),
-    html, statusLabel: brokerPreviewStatusLabel, formatNumber: kiwoomNumber,
-    pnlDigits: 2, defaultCurrency: '',
-    updateCommitButton: updateKiwoomCommitButton, renderDetails: renderBrokerImportPreviewDetails,
-  });
+  return kiwoomScreenController.renderPreviewModal(data);
 }
 function updateKiwoomCommitButton() {
   const counts = kiwoomRealizedState.preview?.counts || {};
@@ -12036,12 +12030,22 @@ const kbRealizedState = {
   previewTicket: null, preview: null,
 };
 window.kbRealizedState = kbRealizedState;
+const kbScreenController = window.WealthBrokerRealizedScreenController.create({
+  ...brokerRealizedScreenDependencies, state: kbRealizedState, prefix: 'kb',
+  statusButtonId: 'btnCheckKbStatus', fetchButtonId: 'btnFetchKbFeed', importButtonId: 'btnKbImportSelected',
+  formatNumber: kbNumber, pnlDigits: 0, defaultCurrency: 'KRW',
+  populateDestinationAccounts: populateKbDestinationAccounts, updateCommitButton: updateKbCommitButton,
+});
 
-function showKbMessage(message, type = 'info') { return brokerUI.showBrokerMessage('kbMessage', message, type); }
-function hideKbMessage() { brokerUI.hideBrokerMessage('kbMessage'); }
+function showKbMessage(message, type = 'info') {
+  return kbScreenController.showMessage(message, type);
+}
+function hideKbMessage() {
+  return kbScreenController.hideMessage();
+}
 function setKbLoading(loading) {
   kbRealizedState.loading = loading;
-  brokerUI.setAccountFeedButtonsDisabled('btnCheckKbStatus', 'btnFetchKbFeed', loading, kbRealizedState.sourceAccountKey);
+  kbScreenController.renderLoading(loading);
 }
 function kbSafeError(error, fallback) { return brokerUI.brokerErrorText(error, fallback); }
 function kbSelectedItems() {
@@ -12120,24 +12124,10 @@ async function fetchKbRealizedFeed() {
 }
 function kbNumber(value, digits = 0) { return window.WealthFormat.fixedNumberKoKr(value, digits); }
 function renderKbFeedTable() {
-  const tbody = document.getElementById('kbTableBody');
-  if (!tbody) return;
-  brokerUI.renderBrokerImportFeedTable({
-    body: tbody, state: kbRealizedState, checkboxClass: 'kb-row-check',
-    emptyMessage: '조회 버튼을 눌러 실현손익을 조회하세요.',
-    adapt: row => brokerRealizedDisplayRow(row, { market: kbRealizedState.market, currency: kbRealizedState.market === 'us' ? 'USD' : 'KRW', formatNumber: kbNumber }),
-    syncRowOptions: syncBrokerRowImportOptions,
-    onUpdate: updateKbSelectionUI,
-  });
+  return kbScreenController.renderFeedTable();
 }
 function updateKbSelectionUI() {
-  populateKbDestinationAccounts();
-  brokerUI.renderBrokerImportSelectionState(kbRealizedState, {
-    badgeId: 'kbSelectedCountBadge',
-    buttonId: 'btnKbImportSelected',
-    destinationSelectId: 'kbDestinationAccount',
-  });
-  syncBrokerRowImportOptions(kbRealizedState);
+  return kbScreenController.updateSelectionUI();
 }
 async function openKbImportPreview() {
   const accountId = document.getElementById('kbDestinationAccount')?.value;
@@ -12175,15 +12165,7 @@ async function openKbImportPreview() {
   }
 }
 function renderKbPreviewModal(data) {
-  const counts = data.counts || {};
-  const dest = data.destination_account || {};
-  window.WealthBrokerImportPreviewScreenController.renderPreviewModal({
-    document, brokerUI, data, prefix: 'kb', counts,
-    destination: brokerUI.brokerPreviewDestinationText(dest, maskAccountDisplayLabel),
-    html, statusLabel: brokerPreviewStatusLabel, formatNumber: kbNumber,
-    pnlDigits: 0, defaultCurrency: 'KRW',
-    updateCommitButton: updateKbCommitButton, renderDetails: renderBrokerImportPreviewDetails,
-  });
+  return kbScreenController.renderPreviewModal(data);
 }
 function updateKbCommitButton() {
   const counts = kbRealizedState.preview?.counts || {};
