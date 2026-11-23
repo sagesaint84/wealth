@@ -10016,9 +10016,29 @@ const tossWtsState = {
   fetchedAt: null,        // response.fetched_at
 };
 
-function showTossWtsMessage(msg, type = 'info') { return brokerUI.showBrokerMessage('tossWtsMessage', msg, type); }
+const tossWtsScreenController = window.WealthBrokerRealizedScreenController.create({
+  document, brokerUI, state: tossWtsState, prefix: 'tossWts', syncBrokerRowImportOptions,
+  loadingButtonIds: ['btnCheckTossWtsStatus', 'btnConfirmTossWtsSession',
+    'btnCheckTossWtsIncomeStatus', 'btnConfirmTossWtsIncomeSession', 'btnFetchTossWtsFeed'],
+  feedTable: {
+    bodyId: 'tossWtsTableBody', checkboxClass: 'wts-row-cb', toss: true,
+    emptyMessage: '선택한 기간에 조회된 실현손익 내역이 없습니다.',
+    adaptRow: (row, basis) => brokerRealizedDisplayRow(row, {
+      market: '', currency: basis, toss: true, formatNumber: number,
+    }),
+    shouldSyncRowOptions: (rows, status) => rows?.length && status !== 'error',
+    readIndex: target => parseInt(target.dataset.index, 10),
+    onUpdate: updateWtsSelectionUI,
+  },
+});
 
-function hideTossWtsMessage() { brokerUI.hideBrokerMessage('tossWtsMessage'); }
+function showTossWtsMessage(msg, type = 'info') {
+  return tossWtsScreenController.showMessage(msg, type);
+}
+
+function hideTossWtsMessage() {
+  tossWtsScreenController.hideMessage();
+}
 
 function clearTossWtsFetchLoadingRow(message = '조회에 실패했습니다. 조건을 확인한 뒤 다시 시도하세요.') {
   const tbody = document.getElementById('tossWtsTableBody');
@@ -10033,9 +10053,7 @@ function updateTossWtsStatusUI(text, stateClass) {
 
 function setTossWtsLoading(isLoading) {
   tossWtsState.loading = isLoading;
-  ['btnCheckTossWtsStatus', 'btnConfirmTossWtsSession',
-   'btnCheckTossWtsIncomeStatus', 'btnConfirmTossWtsIncomeSession', 'btnFetchTossWtsFeed']
-    .forEach(id => brokerUI.setButtonDisabled(id, isLoading));
+  tossWtsScreenController.renderLoading(isLoading);
 }
 
 function checkTossWtsFormStale() {
@@ -10525,24 +10543,7 @@ function brokerRealizedDisplayRow(row, { market, currency, formatNumber, toss = 
 }
 
 function renderTossWtsFeedTable(rows, basis = 'KRW', status = 'ok') {
-  const tbody = document.getElementById('tossWtsTableBody');
-  if (!tbody) return;
-  brokerUI.renderRealizedTable({
-    body: tbody, rows: rows || [], status: status, emptyMessage: '선택한 기간에 조회된 실현손익 내역이 없습니다.',
-    selection: tossWtsState, checkboxClass: 'wts-row-cb',
-    adapt: row => brokerRealizedDisplayRow(row, { market: '', currency: basis, toss: true, formatNumber: number }),
-    toss: true,
-  });
-  if (rows?.length && status !== 'error') syncBrokerRowImportOptions(tossWtsState);
-  brokerUI.bindFeedSelection(tbody, '.wts-row-cb', (e) => {
-      const index = parseInt(e.target.dataset.index, 10);
-      if (e.target.checked) {
-        tossWtsState.selectedIndices.add(index);
-      } else {
-        tossWtsState.selectedIndices.delete(index);
-      }
-      updateWtsSelectionUI();
-  });
+  tossWtsScreenController.renderFeedTable(rows, basis, status);
 }
 
 // ── 토스 WTS 배당·이자 피드 (선택 가져오기) ───────────────────────────────────
@@ -11210,10 +11211,31 @@ const kisRealizedState = {
   currentPreviewClassification: null,
 };
 window.kisRealizedState = kisRealizedState;
+const kisScreenController = window.WealthBrokerRealizedScreenController.create({
+  document, brokerUI, state: kisRealizedState, prefix: 'kis', syncBrokerRowImportOptions,
+  loadingButtonIds: ['btnCheckKisStatus', 'btnFetchKisFeed'],
+  feedTable: {
+    bodyId: 'kisTableBody', checkboxClass: 'kis-row-check',
+    emptyMessage: '조회된 실현손익 내역이 없습니다.',
+    beforeRender: () => {
+      const selectAll = document.getElementById('kisSelectAll');
+      if (selectAll) selectAll.checked = false;
+    },
+    adaptRow: (row, market) => brokerRealizedDisplayRow(row, {
+      market, currency: market === 'us' ? 'USD' : 'KRW', kis: true, formatNumber: number,
+    }),
+    readIndex: target => parseInt(target.getAttribute('data-index'), 10),
+    onUpdate: updateKisSelectionUI,
+  },
+});
 
-function showKisMessage(msg, type = 'info') { return brokerUI.showBrokerMessage('kisMessage', msg, type); }
+function showKisMessage(msg, type = 'info') {
+  return kisScreenController.showMessage(msg, type);
+}
 
-function hideKisMessage() { brokerUI.hideBrokerMessage('kisMessage'); }
+function hideKisMessage() {
+  kisScreenController.hideMessage();
+}
 
 function updateKisStatusUI(text, stateClass) {
   brokerUI.renderBrokerState('kis', stateClass, text);
@@ -11221,7 +11243,7 @@ function updateKisStatusUI(text, stateClass) {
 
 function setKisLoading(isLoading) {
   kisRealizedState.loading = isLoading;
-  ['btnCheckKisStatus', 'btnFetchKisFeed'].forEach(id => brokerUI.setButtonDisabled(id, isLoading));
+  kisScreenController.renderLoading(isLoading);
 }
 
 function checkKisFormStale() {
@@ -11373,26 +11395,7 @@ async function fetchKisRealizedFeed() {
 }
 
 function renderKisFeedTable(rows, market, state) {
-  const tbody = document.getElementById('kisTableBody');
-  if (!tbody) return;
-  const selectAll = document.getElementById('kisSelectAll');
-  if (selectAll) selectAll.checked = false;
-  brokerUI.renderRealizedTable({
-    body: tbody, rows: rows || [], status: 'ok', emptyMessage: '조회된 실현손익 내역이 없습니다.',
-    selection: kisRealizedState, checkboxClass: 'kis-row-check',
-    adapt: row => brokerRealizedDisplayRow(row, { market, currency: market === 'us' ? 'USD' : 'KRW', kis: true, formatNumber: number }),
-    toss: false,
-  });
-  syncBrokerRowImportOptions(kisRealizedState);
-  brokerUI.bindFeedSelection(tbody, '.kis-row-check', (e) => {
-      const idx = parseInt(e.target.getAttribute('data-index'), 10);
-      if (e.target.checked) {
-        kisRealizedState.selectedIndices.add(idx);
-      } else {
-        kisRealizedState.selectedIndices.delete(idx);
-      }
-      updateKisSelectionUI();
-  });
+  kisScreenController.renderFeedTable(rows, market);
 }
 
 function updateKisSelectionUI() {
