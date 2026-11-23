@@ -11706,19 +11706,16 @@ function populateNhSourceAccounts() {
   nhRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
 }
 async function checkNhStatus() {
-  if (nhRealizedState.loading) return;
-  setNhLoading(true); hideNhMessage();
-  brokerUI.renderBrokerState('nh', 'checking', '상태 확인 중');
-  try {
-    const res = await fetch('/api/nh/status'); const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw data;
-    nhRealizedState.status = data; nhRealizedState.accounts = Array.isArray(data.accounts) ? data.accounts : [];
-    populateNhSourceAccounts();
-    if (!data.configured) { brokerUI.renderBrokerState('nh', 'action_required', '미설정 (API 키 필요)'); showNhMessage('NH투자증권 OpenAPI 설정이 필요합니다.', 'warning'); }
-    else if (!nhRealizedState.accounts.length) { brokerUI.renderBrokerState('nh', 'action_required', '계좌 미등록'); showNhMessage('조회 가능한 NH 계좌가 없습니다.', 'warning'); }
-    else { brokerUI.renderBrokerState('nh', nhRealizedState.sourceAccountKey ? 'ready' : 'action_required', '계좌 선택 가능');  }
-  } catch (error) { brokerUI.renderBrokerState('nh', 'error', '상태 확인 실패'); showNhMessage(nhSafeError(error, 'NH 연동 상태 확인에 실패했습니다.'), 'error'); }
-  finally { setNhLoading(false); updateNhSelectionUI(); }
+  return brokerRealizedFeedController.checkOpenApiStatus({
+    state: nhRealizedState,
+    request: () => fetch('/api/nh/status'),
+    setLoading: setNhLoading, hideMessage: hideNhMessage, showMessage: showNhMessage,
+    renderState: (status, text) => brokerUI.renderBrokerState('nh', status, text),
+    populateSourceAccounts: populateNhSourceAccounts, updateSelectionUI: updateNhSelectionUI,
+    errorText: nhSafeError, errorFallback: 'NH 연동 상태 확인에 실패했습니다.',
+    configurationWarning: 'NH투자증권 OpenAPI 설정이 필요합니다.',
+    noAccountsWarning: '조회 가능한 NH 계좌가 없습니다.',
+  });
 }
 function populateNhDestinationAccounts() {
   const select = document.getElementById('nhDestinationAccount'); if (!select) return;
@@ -11839,30 +11836,16 @@ function populateKiwoomSourceAccounts() {
   kiwoomRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
 }
 async function checkKiwoomStatus() {
-  if (kiwoomRealizedState.loading) return;
-  setKiwoomLoading(true); hideKiwoomMessage();
-  brokerUI.renderBrokerState('kiwoom', 'checking', '상태 확인 중');
-  try {
-    const res = await fetch('/api/kiwoom/status'); const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw data;
-    kiwoomRealizedState.status = data; kiwoomRealizedState.accounts = Array.isArray(data.accounts) ? data.accounts : [];
-    populateKiwoomSourceAccounts();
-    if (!data.configured) {
-      brokerUI.renderBrokerState('kiwoom', 'action_required', '미설정 (API 키 필요)');
-      showKiwoomMessage('키움증권 OpenAPI 설정이 필요합니다.', 'warning');
-    } else if (!kiwoomRealizedState.accounts.length) {
-      brokerUI.renderBrokerState('kiwoom', 'action_required', '계좌 미등록');
-      showKiwoomMessage('조회 가능한 키움 계좌가 없습니다.', 'warning');
-    } else {
-      brokerUI.renderBrokerState('kiwoom', kiwoomRealizedState.sourceAccountKey ? 'ready' : 'action_required', '계좌 선택 가능');
-
-    }
-  } catch (error) { brokerUI.renderBrokerState('kiwoom', 'error', '상태 확인 실패');
-    showKiwoomMessage(kiwoomSafeError(error, '키움 연동 상태 확인에 실패했습니다.'), 'error');
-  } finally {
-    setKiwoomLoading(false);
-    updateKiwoomSelectionUI();
-  }
+  return brokerRealizedFeedController.checkOpenApiStatus({
+    state: kiwoomRealizedState,
+    request: () => fetch('/api/kiwoom/status'),
+    setLoading: setKiwoomLoading, hideMessage: hideKiwoomMessage, showMessage: showKiwoomMessage,
+    renderState: (status, text) => brokerUI.renderBrokerState('kiwoom', status, text),
+    populateSourceAccounts: populateKiwoomSourceAccounts, updateSelectionUI: updateKiwoomSelectionUI,
+    errorText: kiwoomSafeError, errorFallback: '키움 연동 상태 확인에 실패했습니다.',
+    configurationWarning: '키움증권 OpenAPI 설정이 필요합니다.',
+    noAccountsWarning: '조회 가능한 키움 계좌가 없습니다.',
+  });
 }
 function populateKiwoomDestinationAccounts() {
   const select = document.getElementById('kiwoomDestinationAccount'); if (!select) return;
@@ -12061,30 +12044,16 @@ function populateKbSourceAccounts() {
   kbRealizedState.mappedDestAccountId = sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
 }
 async function checkKbStatus() {
-  if (kbRealizedState.loading) return;
-  setKbLoading(true); hideKbMessage();
-  brokerUI.renderBrokerState('kb', 'checking', '상태 확인 중');
-  try {
-    const res = await fetch('/api/kb/status'); const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw data;
-    kbRealizedState.status = data; kbRealizedState.accounts = Array.isArray(data.accounts) ? data.accounts : [];
-    populateKbSourceAccounts();
-    if (!data.configured) {
-      brokerUI.renderBrokerState('kb', 'action_required', '미설정 (API 키 필요)');
-      showKbMessage('KB증권 OpenAPI 설정이 필요합니다.', 'warning');
-    } else if (!kbRealizedState.accounts.length) {
-      brokerUI.renderBrokerState('kb', 'action_required', '계좌 미등록');
-      showKbMessage('조회 가능한 KB 계좌가 없습니다.', 'warning');
-    } else {
-      brokerUI.renderBrokerState('kb', kbRealizedState.sourceAccountKey ? 'ready' : 'action_required', '계좌 선택 가능');
-
-    }
-  } catch (error) { brokerUI.renderBrokerState('kb', 'error', '상태 확인 실패');
-    showKbMessage(kbSafeError(error, 'KB 연동 상태 확인에 실패했습니다.'), 'error');
-  } finally {
-    setKbLoading(false);
-    updateKbSelectionUI();
-  }
+  return brokerRealizedFeedController.checkOpenApiStatus({
+    state: kbRealizedState,
+    request: () => fetch('/api/kb/status'),
+    setLoading: setKbLoading, hideMessage: hideKbMessage, showMessage: showKbMessage,
+    renderState: (status, text) => brokerUI.renderBrokerState('kb', status, text),
+    populateSourceAccounts: populateKbSourceAccounts, updateSelectionUI: updateKbSelectionUI,
+    errorText: kbSafeError, errorFallback: 'KB 연동 상태 확인에 실패했습니다.',
+    configurationWarning: 'KB증권 OpenAPI 설정이 필요합니다.',
+    noAccountsWarning: '조회 가능한 KB 계좌가 없습니다.',
+  });
 }
 function populateKbDestinationAccounts() {
   const select = document.getElementById('kbDestinationAccount'); if (!select) return;
