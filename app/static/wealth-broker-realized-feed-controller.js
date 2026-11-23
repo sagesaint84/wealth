@@ -98,7 +98,93 @@
       }
     }
 
-    return Object.freeze({ applySuccessfulFeed, selectedImportItems, clearImportPreview, checkOpenApiStatus });
+    async function fetchOpenApiRealizedFeed({
+      state, request, resolveMarket, setLoading, hideMessage, showMessage,
+      renderMetadata, renderFeedTable, updateSelectionUI, emptyMessage, errorText, errorFallback,
+    }) {
+      setLoading(true);
+      hideMessage();
+      try {
+        const res = await request();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw data;
+        applySuccessfulFeed(state, data.rows || [], data.selection_tokens || []);
+        state.preview = null;
+        state.market = resolveMarket(data);
+        renderMetadata(state.market, state.rows.length);
+        renderFeedTable();
+        updateSelectionUI();
+        if (!state.rows.length) showMessage(emptyMessage, 'info');
+      } catch (error) {
+        showMessage(errorText(error, errorFallback), 'error');
+        renderFeedTable();
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function mappedDestinationAccountId(state, sourceAccountKey) {
+      const sourceAccount = state.accounts.find(account => account.source_account_key === sourceAccountKey);
+      return sourceAccount?.auto_selected_account_id || sourceAccount?.mapped_destination_account_id || '';
+    }
+
+    async function previewOpenApiImport({
+      state, request, setLoading, hideMessage, showMessage, renderPreviewModal,
+      updateCommitButton, errorText, errorFallback,
+    }) {
+      setLoading(true);
+      hideMessage();
+      try {
+        const res = await request();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          state.previewTicket = null;
+          updateCommitButton();
+          throw data;
+        }
+        state.preview = data;
+        state.previewTicket = data.preview_ticket;
+        renderPreviewModal(data);
+      } catch (error) {
+        state.previewTicket = null;
+        updateCommitButton();
+        showMessage(errorText(error, errorFallback), 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function commitOpenApiImport({
+      state, destinationAccountId, request, updateCommitButton, updateSelectionUI,
+      closeModal, renderFeedTable, showResult, refreshResults, showMessage, errorText, errorFallback,
+    }) {
+      updateCommitButton();
+      const accountId = destinationAccountId();
+      try {
+        const res = await request(accountId);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw data;
+        state.selectedIndices.forEach(index => state.importedIndices.add(index));
+        state.selectedIndices.clear();
+        state.previewTicket = null;
+        closeModal();
+        renderFeedTable();
+        updateSelectionUI();
+        showResult(data);
+        refreshResults();
+      } catch (error) {
+        showMessage(errorText(error, errorFallback), 'error');
+      } finally {
+        state.importing = false;
+        updateCommitButton();
+        updateSelectionUI();
+      }
+    }
+
+    return Object.freeze({
+      applySuccessfulFeed, selectedImportItems, clearImportPreview, checkOpenApiStatus, fetchOpenApiRealizedFeed,
+      mappedDestinationAccountId, previewOpenApiImport, commitOpenApiImport,
+    });
   }
 
   window.WealthBrokerRealizedFeedController = Object.freeze({ create, sortRows: sortBrokerRealizedFeedRows, dateKey: brokerRealizedDateKey });
