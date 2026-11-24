@@ -39,15 +39,32 @@ def fragment(source, start, end):
     return start + source.split(start, 1)[1].split(end, 1)[0]
 
 
-def startup_code(source, *, modern=True):
+def startup_transport_code(source, *, modern=True):
     api = fragment(source, 'const startupReadPending = new Map();', 'const fetchJson = api;')
     coordinator = (source.split('// Opt-in synthetic profiling only:', 1)[1].split('const startupReadPending = new Map();', 1)[0]
         if modern else '')
     # The first line after the comment is prose, not executable JavaScript.
     if modern:
         coordinator = coordinator[coordinator.index('globalThis.WealthStartup ='):]
-    return coordinator + api + fragment(source, 'async function loadDashboard(recordSnapshots = false) {', '\nfunction normalizeYear') + fragment(
-        source, 'async function initAuthSession() {', '\nasync function handleForcePasswordSubmit')
+    return coordinator + api
+
+
+def startup_code(source, *, modern=True):
+    dashboard = fragment(source, 'async function loadDashboard(recordSnapshots = false) {', '\nfunction normalizeYear')
+    if not modern:
+        auth = fragment(source, 'async function initAuthSession() {', '\nasync function handleForcePasswordSubmit')
+    else:
+        auth = (STATIC / 'wealth-user-access-feature-controller.js').read_text(encoding='utf-8') + r"""
+window.WealthAdminUsersView = {create: () => ({
+  getTables: () => [], renderStatus() {}, renderCounts() {}, renderUsers() {},
+})};
+const access = window.WealthUserAccessFeatureController.create({
+  window, document, api, html: String, toast, loadFamilyMembers, loadDashboard, finishStartupIncomeReads,
+});
+Object.defineProperty(globalThis, 'currentUserProfile', {get: access.getCurrentUserProfile});
+Object.assign(globalThis, access.actions);
+"""
+    return startup_transport_code(source, modern=modern) + dashboard + auth
 
 
 HARNESS = r"""
@@ -95,7 +112,10 @@ async function scenario(code, modern, mode='ok', role='user') {
  const auth=c.initAuthSession(); await flush();
  if(role!=='user') {
    assert.equal(await auth,true === (role==='admin'));
-   assert.deepEqual(calls,['/api/auth/me']);
+   assert.deepEqual(calls, role==='admin'?['/api/auth/me','/api/admin/users']:['/api/auth/me']);
+   await c.loadAssetDataForUser();
+   if(role==='forced') await c.refreshAdminUserList();
+   assert.deepEqual(calls, role==='admin'?['/api/auth/me','/api/admin/users']:['/api/auth/me']);
    assert.equal(renders.length,0);
    assert.equal(c.WealthStartup.canRead(),false);
    if(role==='forced') assert.equal(node('forcePasswordModal').open,true);
@@ -387,7 +407,7 @@ vm.createContext(c);vm.runInContext(process.argv[1],c);c.renderHistory();
 
 
 def test_opt_in_metrics_count_shared_get_and_cache_invalidation_without_payloads():
-    code=startup_code(SOURCE.read_text(encoding='utf-8'))
+    code=startup_transport_code(SOURCE.read_text(encoding='utf-8'))
     run(r"""
 const assert=require('node:assert/strict'),vm=require('node:vm');
 const calls=[];

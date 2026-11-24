@@ -65,6 +65,8 @@ ALLOWED.update({
     'wealth-holdings-row-view.js',
     'wealth-asset-records-screen-controller.js',
     'wealth-admin-users-view.js',
+    'wealth-user-access-feature-controller.js',
+    'wealth-user-credentials-feature-controller.js',
     'wealth-investment-summary-view.js',
     'wealth-account-yearly-view.js',
     'wealth-donut-chart.js',

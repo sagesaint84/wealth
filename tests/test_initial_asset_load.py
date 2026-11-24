@@ -4,10 +4,20 @@ import subprocess
 from pathlib import Path
 
 
+STATIC = Path(__file__).resolve().parents[1] / "app/static"
+ACCESS = (STATIC / "wealth-user-access-feature-controller.js").read_text(encoding="utf-8")
+ACCESS_SETUP = """
+window.WealthAdminUsersView = {create: () => ({})};
+Object.assign(globalThis, window.WealthUserAccessFeatureController.create({
+  window, document: globalThis.document, api, html: String, toast, loadFamilyMembers,
+  loadDashboard, finishStartupIncomeReads,
+}).actions);
+"""
+
+
 def test_initial_dashboard_renders_without_waiting_for_asset_records():
     source = (Path(__file__).resolve().parents[1] / "app/static/wealth.js").read_text(encoding="utf-8")
     dashboard_fn = source.split("async function loadDashboard(recordSnapshots = false) {", 1)[1].split("\nfunction normalizeYear", 1)[0]
-    bootstrap_fn = source.split("async function loadAssetDataForUser() {", 1)[1].split("\nasync function handleForcePasswordSubmit", 1)[0]
     script = r"""
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
@@ -24,6 +34,7 @@ const context = {
   currentOwner: '모두', selectedDividendYear: 'all', selectedPnlYear: 'all',
   currentPnlTradeType: 'all', rawDashboard: null, dashboard: null,
   allAssetRecords: [], window: {dispatchEvent() {}}, CustomEvent: class {},
+  html: String,
   toast(error) { throw Error(error); },
   api(path) {
     requests.push(path);
@@ -59,7 +70,7 @@ vm.runInContext(source, context);
         "async function loadDashboard(recordSnapshots = false) {" + dashboard_fn
         + "\nasync function loadAssetRecords(owner) {\n"
         + "  const allRes = await api('/api/asset-records'); allAssetRecords = allRes.records || [];\n}\n"
-        + "async function loadAssetDataForUser() {" + bootstrap_fn
+        + ACCESS + ACCESS_SETUP
     )
     result = subprocess.run(["node", "-e", script, functions], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -88,8 +99,7 @@ assert.equal(writes, 1);
 
 
 def test_price_refresh_success_and_failure_preserve_snapshot_order():
-    source = (Path(__file__).resolve().parents[1] / 'app/static/wealth.js').read_text(encoding='utf-8')
-    code='async function loadAssetDataForUser() {'+source.split('async function loadAssetDataForUser() {',1)[1].split('\nasync function handleForcePasswordSubmit',1)[0]
+    code = ACCESS + ACCESS_SETUP
     script=r"""
 const assert=require('node:assert/strict'),vm=require('node:vm');
 (async()=>{for(const fail of [false,true]){

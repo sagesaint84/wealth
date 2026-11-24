@@ -23,6 +23,9 @@ window.fetch=async function(url,options={}){
   const rows=[{id:'11111111-1111-4111-8111-111111111111',username:'admin',role:'admin',created_at:'2026-10-26'},
     {id:'22222222-2222-4222-8222-222222222222',username:'sagesaint',role:'user',created_at:'2026-10-26',permissions:{system_update:__u.userGrant}},
     {id:'33333333-3333-4333-8333-333333333333',username:'newuser',role:'user',must_change_password:true,permissions:{system_update:false}}];
+  if(path==='/api/admin/users/sagesaint'&&options.method==='DELETE'){
+   return {ok:false,status:409,json:async()=>({detail:'Synthetic delete rejected'})};
+  }
   if(path==='/api/admin/users')return {ok:true,json:async()=>({users:rows})};
   if(path.endsWith('/challenge'))return {ok:true,json:async()=>({csrf_token:'synthetic-admin-csrf',intent_token:'synthetic-intent'})};
   if(path.endsWith('/system-update')){__u.userGrant=body.enabled;return {ok:true,json:async()=>({role:'user',permissions:{system_update:body.enabled}})};}
@@ -181,6 +184,21 @@ def test_actual_admin_console_reaches_single_update_panel_and_grants_by_id(chrom
     assert not evaluate("!!document.getElementById('userAssetDashboardWrapper').getClientRects().length")
     assert evaluate('__u.finance')==[]
     assert evaluate('__u.requests')==[]
+    before = evaluate('__u.adminRequests.length')
+    evaluate("""
+        window.__deleteFeedback = [];
+        const originalAlert = window.alert, originalConfirm = window.confirm, originalToast = window.toast;
+        window.alert = message => __deleteFeedback.push({type: 'alert', message});
+        window.confirm = () => true;
+        window.toast = message => __deleteFeedback.push({type: 'toast', message});
+        (async () => {
+            try { await handleAdminDeleteUser('sagesaint'); }
+            finally { window.alert = originalAlert; window.confirm = originalConfirm; window.toast = originalToast; }
+        })()
+    """)
+    assert evaluate('__deleteFeedback') == [{'type': 'alert', 'message': 'Synthetic delete rejected'}]
+    assert evaluate('__u.adminRequests.length') == before + 1
+    assert evaluate('__u.adminRequests.at(-1).path') == '/api/admin/users/sagesaint'
     selector='#adminMainUserListTbody input[data-update-name="sagesaint"]'
     assert not evaluate(f'document.querySelector({selector!r}).checked')
     assert evaluate("document.querySelector('#adminMainUserListTbody input[data-update-name=newuser]').disabled")

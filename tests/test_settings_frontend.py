@@ -84,7 +84,7 @@ def test_listing_reminder_settings_are_independent_from_subscription_reminders()
 
 
 def test_opendart_user_credential_ui_is_integrated_into_user_openapi():
-    wealth_js = (ROOT / "app/static/wealth.js").read_text(encoding="utf-8")
+    wealth_js = (ROOT / "app/static/wealth-user-credentials-feature-controller.js").read_text(encoding="utf-8")
     assert 'id="openapiDartSection"' in HTML
     assert "시장 데이터 API · OpenDART" in HTML
     assert 'id="openapiDartKey"' in HTML

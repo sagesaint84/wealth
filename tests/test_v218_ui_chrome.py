@@ -53,9 +53,17 @@ def test_market_card_preferences_are_local_per_account(chrome_preview,width):
         evaluate('renderMarkets()')
         assert evaluate('__tabs.markets')==reads
         assert evaluate('document.querySelectorAll("#marketGrid .market-card").length')==0
-        evaluate('window.__savedProfile=currentUserProfile;currentUserProfile={...currentUserProfile,id:"synthetic-other",username:"synthetic-other"};window.dispatchEvent(new CustomEvent("wealth:role",{detail:{isAdminUser:false}}))')
+        evaluate("""
+            window.__originalProfileFetch = window.fetch;
+            const otherProfile = {...currentUserProfile, id: 'synthetic-other', username: 'synthetic-other'};
+            window.fetch = (url, options) => new URL(url, location.href).pathname === '/api/auth/me'
+                ? Promise.resolve(Response.json(otherProfile))
+                : window.__originalProfileFetch(url, options);
+            initAuthSession();
+        """)
+        wait_for(evaluate, 'currentUserProfile.username==="synthetic-other"')
         assert evaluate('document.querySelectorAll("#marketGrid .market-card").length')>0
-        evaluate('currentUserProfile=__savedProfile;window.dispatchEvent(new CustomEvent("wealth:role",{detail:{isAdminUser:false}}))')
+        evaluate('window.fetch=window.__originalProfileFetch;initAuthSession()')
         assert evaluate('document.querySelectorAll("#marketGrid .market-card").length')==0
         call('Page.reload',{'ignoreCache':True})
         wait_for(evaluate,'typeof WealthStartup!=="undefined" && WealthStartup.canRead() && document.getElementById("marketCardSettings") && __tabs.markets===1')
