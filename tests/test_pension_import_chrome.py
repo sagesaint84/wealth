@@ -231,7 +231,7 @@ def test_review_partial_approval_draft_conflict_and_five_tab_geometry(chrome_pre
             assert_real_estate_details_inside(evaluate,width)
             assert_real_estate_buttons_hittable(call,evaluate)
             no_overflow(evaluate,width)
-            original=evaluate('JSON.stringify(rawRealEstates)')
+            original=evaluate('JSON.stringify(realEstateFeature.rawRealEstates)')
             click(call,evaluate,'#catPanelRealEstate [data-re-edit-id="demo-home"]')
             assert evaluate("document.getElementById('realEstateDialog').open")
             assert_real_estate_form_usable(evaluate,width)
@@ -241,7 +241,7 @@ def test_review_partial_approval_draft_conflict_and_five_tab_geometry(chrome_pre
             assert_real_estate_form_usable(evaluate,width)
             click(call,evaluate,'#realEstateDialog .dialog-actions [value=cancel]')
             assert not evaluate("document.getElementById('realEstateDialog').open")
-            assert evaluate('JSON.stringify(rawRealEstates)')==original
+            assert evaluate('JSON.stringify(realEstateFeature.rawRealEstates)')==original
             # Exercise the actual delete control, explicitly cancelling its confirmation.
             # The fixture is synthetic; no DELETE request should ever be sent.
             evaluate("window.__priorEstateConfirm=window.confirm;window.__estateDeletePrompts=0;window.confirm=()=>{__estateDeletePrompts++;return false;}")
@@ -251,7 +251,7 @@ def test_review_partial_approval_draft_conflict_and_five_tab_geometry(chrome_pre
                 click(call,evaluate,'#catPanelRealEstate [data-re-del-id="demo-home"]')
                 assert evaluate('__estateDeletePrompts')==1
                 assert evaluate('__realEstateDeleteRequests')==0
-                assert evaluate('JSON.stringify(rawRealEstates)')==original
+                assert evaluate('JSON.stringify(realEstateFeature.rawRealEstates)')==original
                 click(call,evaluate,'#catPanelRealEstate .wealth-row-more > summary')
             finally:
                 evaluate('window.confirm=__priorEstateConfirm')

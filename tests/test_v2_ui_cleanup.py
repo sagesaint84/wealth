@@ -167,7 +167,7 @@ assert.match(roi([pension]).description, /연금형/);
                             capture_output=True, text=True, timeout=15)
     assert result.returncode == 0, result.stderr
     source = (ROOT / 'app/static/wealth.js').read_text(encoding='utf-8')
-    assert 'insuranceReturn: window.WealthInsuranceReturnDisplay?.(data.insurance_accounts || rawInsuranceAccounts || [], o)' in source
+    assert 'insuranceReturn: window.WealthInsuranceReturnDisplay?.(data.insurance_accounts || insuranceFeature.rawInsuranceAccounts || [], o)' in source
     assert 'market_value_krw: insuranceTotal' in source
     assert 'cost_value_krw: insuranceTotal' in source
     assert 'const totalSafeAssets = totalAllCash + totalTenantDepositVal + insuranceTotal' in source

@@ -437,14 +437,15 @@ def test_dividend_mode_dashboard_visibility_and_tax_restore(chrome_preview, widt
       const risk=document.getElementById('familyFinancialIncomeRiskPanel');
       const allocation=document.getElementById('familyFinancialIncomeAllocationPanel');
       const input=document.getElementById('fiWhatIfExtraDividend'); input.value='123456';
-      const originalDashboard=rawDashboard, originalInsurance=rawInsuranceAccounts, owner=currentOwner;
+      const originalDashboard=rawDashboard, originalInsurance=insuranceFeature.rawInsuranceAccounts, owner=currentOwner;
       let result;
       try {
         rawDashboard={accounts:[
           {id:'synthetic-irr',name:'합성 IRP',account_type:'irp',owner:'모두'},
           {id:'synthetic-pension',name:'합성 연금저축',account_type:'pension_savings',owner:'모두'}]};
-        rawInsuranceAccounts=[{id:'synthetic-national',product_name:'합성 국민연금',insurance_type:'national_pension',owner:'모두'}];
-        currentOwner='모두'; renderAssetTaxInformation(); renderAssetTaxInformation();
+        currentOwner='모두';
+        renderInsurance([{id:'synthetic-national',product_name:'합성 국민연금',insurance_type:'national_pension',owner:'모두'}], currentOwner);
+        renderAssetTaxInformation(); renderAssetTaxInformation();
         WealthTaxWorkspace.ensure(); WealthTaxWorkspace.ensure();
         const information=document.getElementById('assetTaxInformation');
         result={workspaceSame:workspace===document.getElementById('taxWorkspaceBody'),
@@ -455,7 +456,10 @@ def test_dividend_mode_dashboard_visibility_and_tax_restore(chrome_preview, widt
           panelCount:document.querySelectorAll('#catPanelTax').length,
           informationCount:document.querySelectorAll('#assetTaxInformation').length,
           cards:[...information.querySelectorAll('.np-tax-card h3')].map(node=>node.textContent)};
-      } finally {rawDashboard=originalDashboard;rawInsuranceAccounts=originalInsurance;currentOwner=owner;renderAssetTaxInformation();}
+      } finally {
+        rawDashboard=originalDashboard; currentOwner=owner;
+        renderInsurance(originalInsurance, owner); renderAssetTaxInformation();
+      }
       return result;
     })()""")
     assert preserved['workspaceSame'] and preserved['pickerSame'], preserved
