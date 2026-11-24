@@ -19,6 +19,8 @@ class WealthBatch4PolishTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.wealth_js = WEALTH_JS.read_text(encoding="utf-8")
+        cls.account_feature = WEALTH_JS.with_name("wealth-account-feature-controller.js").read_text(encoding="utf-8")
+        cls.securities_view = WEALTH_JS.with_name("wealth-securities-accounts-view.js").read_text(encoding="utf-8")
         cls.layout_js = WEALTH_LAYOUT_JS.read_text(encoding="utf-8")
         cls.planning_js = WEALTH_PLANNING_JS.read_text(encoding="utf-8")
         cls.layout_css = WEALTH_LAYOUT_CSS.read_text(encoding="utf-8")
@@ -133,7 +135,7 @@ process.stdout.write(JSON.stringify(out));
             res["ownerBenefits"]["cumulative"]["byOwner"]["홍길동"]["taxSaved"],
         )
         self.assertNotIn("function calcSingleAccountCumulativeTaxSaved", self.wealth_js)
-        self.assertIn("accountTaxBenefits.cumulative.byAccount[accountKey]?.taxSaved", self.wealth_js)
+        self.assertIn("accountTaxBenefits.cumulative.byAccount[accountKey]?.taxSaved", self.account_feature)
 
     def test_non_deductible_account_shows_zero_cumulative_tax_savings(self) -> None:
         """P0 Regression Test: Non-deductible accounts must show 0 and not fabricate tax savings."""
@@ -164,9 +166,8 @@ process.stdout.write(JSON.stringify(out));
         self.assertEqual(per_acct["pension-non-deductible"]["allocatedSaved"], 0)
 
         # In renderAccounts, non-deductible accounts must not render cumSaved
-        render_start = self.wealth_js.index("function renderAccounts(items)")
-        render_end = self.wealth_js.index("function renderSavings", render_start)
-        render_body = self.wealth_js[render_start:render_end]
+        self.assertIn("securitiesAccountsView.renderAccounts(container, displayGroups)", self.account_feature)
+        render_body = self.securities_view
         self.assertIn("🌿 비공제 계좌", render_body)
         # The non-deductible branch must not contain cumSaved
         nonded_start = render_body.index("if (!isTaxDeductible) {")

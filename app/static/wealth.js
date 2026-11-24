@@ -191,7 +191,7 @@ function computeFilteredClassifications(holdings, accounts, fxRates, owner = '�
   const filterByOwner = (arr) => owner === '모두' ? (arr || []) : (arr || []).filter(x => (x.owner || '모두') === owner);
 
   // 1. 부동산 순에퀴티 (자가 & 임대 투자자산) 및 임차보증금 (안전자산)
-  const allREs = src.real_estates || rawRealEstates || [];
+  const allREs = src.real_estates || realEstateFeature.rawRealEstates || [];
   let totalREInvestEquity = 0;
   let totalTenantDepositVal = 0;
   let reInvestCount = 0;
@@ -273,10 +273,10 @@ function computeFilteredClassifications(holdings, accounts, fxRates, owner = '�
   });
   const stockCashTotal = cashKrw + cashUsd * usdKrw;
 
-  const curBanks = filterByOwner(src.bank_accounts || rawBankAccounts || []);
+  const curBanks = filterByOwner(src.bank_accounts || accountFeature.rawBankAccounts || []);
   const bankCashTotal = curBanks.reduce((acc, b) => acc + Math.max(0, Number(b.balance) || 0), 0);
 
-  const curSavings = filterByOwner(src.savings_accounts || rawSavingsAccounts || []);
+  const curSavings = filterByOwner(src.savings_accounts || accountFeature.rawSavingsAccounts || []);
   const savingsTotal = curSavings.reduce((acc, s) => acc + (Number(s.current_value) || Number(s.current_paid_amount) || Number(s.balance) || 0), 0);
 
   const totalAllCash = stockCashTotal + bankCashTotal + savingsTotal;
@@ -292,7 +292,7 @@ function computeFilteredClassifications(holdings, accounts, fxRates, owner = '�
   }
 
   // 4. 보험 (해약환급금 / 예상 수령액 / 20년 환산 총자산)
-  const curInsurances = filterByOwner(src.insurance_accounts || rawInsuranceAccounts || []);
+  const curInsurances = filterByOwner(src.insurance_accounts || insuranceFeature.rawInsuranceAccounts || []);
   const insuranceTotal = curInsurances.reduce((acc, ins) => acc + (Number(ins.expected_amount) || Number(ins.converted_total_asset) || Number(ins.total_paid_amount) || Number(ins.expected_refund_amount) || Number(ins.accumulated_paid_amount) || 0), 0);
   if (insuranceTotal > 0) {
     groups['보험'] = {
@@ -996,11 +996,11 @@ function renderSummary(data) {
   const filterByOwner = (arr) => o === '모두' ? (arr || []) : (arr || []).filter(x => (x.owner || '모두') === o);
 
   // 1. 총 부채 및 자산 계산
-  const curLoans = filterByOwner(data.loan_accounts || rawLoanAccounts || []);
-  const curBanks = filterByOwner(data.bank_accounts || rawBankAccounts || []);
-  const curSavings = filterByOwner(data.savings_accounts || rawSavingsAccounts || []);
-  const curInsurances = filterByOwner(data.insurance_accounts || rawInsuranceAccounts || []);
-  const allREs = data.real_estates || rawRealEstates || [];
+  const curLoans = filterByOwner(data.loan_accounts || accountFeature.rawLoanAccounts || []);
+  const curBanks = filterByOwner(data.bank_accounts || accountFeature.rawBankAccounts || []);
+  const curSavings = filterByOwner(data.savings_accounts || accountFeature.rawSavingsAccounts || []);
+  const curInsurances = filterByOwner(data.insurance_accounts || insuranceFeature.rawInsuranceAccounts || []);
+  const allREs = data.real_estates || realEstateFeature.rawRealEstates || [];
 
   const posBanks = curBanks.filter(b => (Number(b.balance) || 0) >= 0);
 
@@ -1305,7 +1305,7 @@ function renderSummary(data) {
     realized: combinedRealizedKrw, safe: totalSafeAssets,
     stock: totalStockVal, property: totalREInvestEquity,
     deposits: totalTenantDepositVal, insurance: insuranceTotal,
-    insuranceReturn: window.WealthInsuranceReturnDisplay?.(data.insurance_accounts || rawInsuranceAccounts || [], o),
+    insuranceReturn: window.WealthInsuranceReturnDisplay?.(data.insurance_accounts || insuranceFeature.rawInsuranceAccounts || [], o),
     realizedTrade: totalRealizedKrw, dividendInterest: totalActualDivKrw,
     realizedYear: combinedYearRealizedKrw, realizedMonth: combinedMonthRealizedKrw,
     dayProfit: Number((data.day_change || {}).day_profit_krw || 0),
@@ -1364,520 +1364,67 @@ function isTaxAdvantagedAccount(account) {
 }
 
 // ── 4. 계좌 목록 렌더링 ──────────────────────────────────────────────────────
-const securitiesAccountsView = window.WealthSecuritiesAccountsView.create({
-  html, number, signClass, maskBrokerAccountNo, accountReorder: window.WealthAccountReorder,
+const accountYearlyView = window.WealthAccountYearlyView.create({ html, number });
+
+const accountFeature = window.WealthAccountFeatureController.create({
+  $,
+  accountYearlyView,
+  action,
+  api,
+  busy,
+  calculateOwnerYearPensionTaxBenefits,
+  closeDialog,
+  get currentOwner() { return currentOwner; },
+  get dashboard() { return dashboard; },
+  html,
+  isAccountTaxDeductible,
+  loadDashboard,
+  maskBrokerAccountNo,
+  normalizeYear,
+  number,
+  get rawDashboard() { return rawDashboard; },
+  refreshDialogKoreanHints,
+  renderWithOwner,
+  signClass,
+  toast,
 });
-function renderAccounts(items) {
-  const container = $("#accountList");
-  if (!container) return;
-  if (!items || !items.length) {
-    securitiesAccountsView.renderEmpty(container);
-    return;
-  }
-  const accountTaxBenefits = calculateOwnerYearPensionTaxBenefits(items);
-  const groups = new Map();
-  items.forEach((item) => {
-    const current = groups.get(item.broker) || { broker: item.broker, count: 0, items: [] };
-    current.count += 1;
-    current.items.push(item);
-    groups.set(item.broker, current);
-  });
-  const displayGroups = [...groups.values()].map(group => ({
-    broker: group.broker,
-    count: group.count,
-    items: group.items.map(account => {
-      const stockVal = Number(account.stock_value_krw || 0);
-      const cashKrw = Number(account.cash_krw || 0);
-      const cashUsd = Number(account.cash_usd || 0);
-      const usdRate = Number(dashboard?.fx_rates?.USD || dashboard?.summary?.usd_krw_rate || rawDashboard?.summary?.usd_krw_rate || 1400);
-      const cashTotalKrw = account.cash_total_krw !== undefined && account.cash_total_krw !== null
-        ? Number(account.cash_total_krw)
-        : (cashKrw + cashUsd * usdRate);
-      const totalVal = Number(account.market_value_krw !== undefined ? account.market_value_krw : (stockVal + cashTotalKrw));
-      const profitVal = Number(account.profit_krw || 0);
-
-      const accountType = String(account.account_type || "").toLowerCase();
-      const accountName = String(account.name || account.account_name || "").toLowerCase();
-      const aType = accountType.startsWith("irp") || accountName.includes("irp")
-        ? "irp"
-        : (accountType.startsWith("pension_savings") || accountName.includes("연금")
-          ? "pension_savings"
-          : (accountType === "isa" || accountName.includes("isa") ? "isa" : "general"));
-      const isTaxDeductible = isAccountTaxDeductible(account);
-
-      let pension = null;
-      if (aType === "pension_savings" || aType === "irp") {
-        const dep = Number(account.annual_deposit) || 0;
-        const ownerKey = String(account.owner || "모두");
-        const currentSaved = accountTaxBenefits.current.byOwner[ownerKey]?.taxSaved || 0;
-        const accountKey = String(account.id || '');
-        const cumSaved = accountTaxBenefits.cumulative.byAccount[accountKey]?.taxSaved || 0;
-        const rate = isTaxDeductible ? (account.income_level === "high" ? 13.2 : 16.5) : null;
-        pension = { dep, currentSaved, cumSaved, rate };
-      }
-      return { account, stockVal, cashKrw, cashUsd, cashTotalKrw, totalVal, profitVal, aType, isTaxDeductible, pension };
-    }),
-  }));
-  securitiesAccountsView.renderAccounts(container, displayGroups);
-}
-
-// ── 4-1. 예·적금, 일반 은행 계좌 및 대출·마이너스통장 ───────────────────────
-let rawBankAccounts = [];
-let rawSavingsAccounts = [];
-let rawLoanAccounts = [];
-let currentSavingsSubtab = 'all'; // 'all' (전체) | 'banks' (자유) | 'savings' (예·적금) | 'loans' (대출)
-
-const LOAN_TYPE_LABELS = {
-  minus: "마이너스통장",
-  credit: "신용대출",
-  mortgage: "담보대출",
-  etc: "기타 대출",
-};
-
-const REPAYMENT_TYPE_LABELS = {
-  bullet: "만기일시상환",
-  amortizing: "원리금균등",
-  principal: "원금균등",
-};
-
-const bankingView = window.WealthBankingView.create({ $, document, html, number, maskBrokerAccountNo, getSavingsContributions: () => window.WealthSavingsContributions });
-
-function renderSavings(savingsList, bankList, loanList, owner = '모두') {
-  rawSavingsAccounts = savingsList || [];
-  rawBankAccounts = bankList || [];
-  if (Array.isArray(loanList)) {
-    rawLoanAccounts = loanList;
-  } else if (typeof loanList === 'string') {
-    owner = loanList;
-  }
-  renderSavingsWithOwner(owner);
-}
-
-function renderSavingsWithOwner(owner = '모두') {
-  const o = owner || currentOwner || '모두';
-  const filteredSavings = window.WealthDashboardOwnerModel.selectOwnedAccounts(rawSavingsAccounts, o);
-  const filteredBanks = window.WealthDashboardOwnerModel.selectOwnedAccounts(rawBankAccounts, o);
-  const filteredLoans = window.WealthDashboardOwnerModel.selectOwnedAccounts(rawLoanAccounts, o);
-
-  // 1) 자유통장 잔고 분리
-  const positiveBanks = filteredBanks.filter(b => (Number(b.balance) || 0) >= 0);
-  const minusDebtBanks = filteredBanks.filter(b => (Number(b.balance) || 0) < 0);
-  const minusBanks = minusDebtBanks; // 하위 호환 참조 유지
-
-  // 2) 대출 탭에 표시할 마통 계좌: 실제 음수 잔고이거나 약정 한도(limit_amount > 0)가 등록된 계좌
-  const minusOrCreditLineBanks = filteredBanks.filter(b => (Number(b.balance) || 0) < 0 || (Number(b.limit_amount) || 0) > 0);
-
-  const totalPositiveBank = positiveBanks.reduce((sum, b) => sum + (Number(b.balance) || 0), 0);
-  const representedOverdraftBanks = new Set(filteredLoans
-    .filter(l => l.loan_type === 'minus' && Number(l.current_balance) > 0 && l.overdraft_bank_account_id)
-    .map(l => `${l.owner || '모두'}\u0000${l.overdraft_bank_account_id}`));
-  const unrepresentedMinusBanks = minusDebtBanks.filter(b => !representedOverdraftBanks.has(`${b.owner || '모두'}\u0000${b.id}`));
-  const totalMinusDebt = unrepresentedMinusBanks.reduce((sum, b) => sum + Math.abs(Number(b.balance) || 0), 0);
-
-  const totalPaid = filteredSavings.reduce((sum, s) => sum + (Number(s.current_value) || Number(s.current_paid_amount) || 0), 0);
-  const totalMaturity = filteredSavings.reduce((sum, s) => sum + (Number(s.calc?.maturity_total) || 0), 0);
-  const totalPureLoan = filteredLoans.reduce((sum, l) => sum + (Number(l.current_balance) || 0), 0);
-  const totalCombinedDebt = totalPureLoan + totalMinusDebt;
-
-  // 순수 대출 이자 + 자유연동 마통 월 예상 이자 합산 (실제 음수 잔고일 때만 이자 발생)
-  const totalMinusInterest = unrepresentedMinusBanks.reduce((sum, b) => {
-    const debt = Math.abs(Number(b.balance || 0));
-    const rate = Number(b.interest_rate || 0);
-    return sum + (rate > 0 ? Math.round(debt * (rate / 100) / 12) : 0);
-  }, 0);
-  const totalPureLoanInterest = filteredLoans.reduce((sum, l) => sum + (Number(l.monthly_interest) || Number(l.calc?.monthly_interest) || 0), 0);
-  const totalLoanInterest = totalPureLoanInterest + totalMinusInterest;
-
-  // 상단 요약 카드 집계
-  if ($("#totalBankBalanceVal")) $("#totalBankBalanceVal").textContent = `₩${number(totalPositiveBank, 0)}`;
-  if ($("#totalSavingsPaidVal")) $("#totalSavingsPaidVal").textContent = `₩${number(totalPaid, 0)}`;
-  if ($("#totalSavingsMaturityVal")) $("#totalSavingsMaturityVal").textContent = `₩${number(totalMaturity, 0)}`;
-  if ($("#totalLoanBalanceVal")) $("#totalLoanBalanceVal").textContent = `₩${number(totalCombinedDebt, 0)}`;
-  if ($("#totalLoanInterestSub")) {
-    const activeMinusCount = minusDebtBanks.length;
-    const minusNote = activeMinusCount > 0 ? ` (마통 ${activeMinusCount}건 사용 중)` : '';
-    $("#totalLoanInterestSub").textContent = `월 예상 이자: ₩${number(totalLoanInterest, 0)}${minusNote}`;
-  }
-
-  const totalLoanListCount = filteredLoans.length + minusOrCreditLineBanks.length;
-  const totalBankAllCount = filteredBanks.length + filteredSavings.length + totalLoanListCount;
-  if ($("#allBankCount")) $("#allBankCount").textContent = totalBankAllCount;
-  if ($("#banksCount")) $("#banksCount").textContent = filteredBanks.length;
-  if ($("#savingsCount")) $("#savingsCount").textContent = filteredSavings.length;
-  if ($("#loansCount")) $("#loansCount").textContent = totalLoanListCount;
-
-  // 서브탭 표시 상태 동기화
-  const isAll = currentSavingsSubtab === 'all';
-  const isBanks = currentSavingsSubtab === 'banks';
-  const isSavings = currentSavingsSubtab === 'savings';
-  const isLoans = currentSavingsSubtab === 'loans';
-
-  const secFree = $("#bankSectionFree");
-  const secSavings = $("#bankSectionSavings");
-  const secLoans = $("#bankSectionLoans");
-  const titleFree = $("#bankTitleFree");
-  const titleSavings = $("#bankTitleSavings");
-  const titleLoans = $("#bankTitleLoans");
-
-  if (secFree) secFree.style.display = (isAll || isBanks) ? 'block' : 'none';
-  if (secSavings) secSavings.style.display = (isAll || isSavings) ? 'block' : 'none';
-  if (secLoans) secLoans.style.display = (isAll || isLoans) ? 'block' : 'none';
-
-  if (titleFree) {
-    titleFree.style.display = isAll ? 'flex' : 'none';
-    titleFree.innerHTML = `<span>🏦 자유입출금 통장 (${filteredBanks.length}건)</span>`;
-  }
-  if (titleSavings) {
-    titleSavings.style.display = isAll ? 'flex' : 'none';
-    titleSavings.innerHTML = `<span>💰 예·적금 상품 (${filteredSavings.length}건)</span>`;
-  }
-  if (titleLoans) {
-    titleLoans.style.display = isAll ? 'flex' : 'none';
-    titleLoans.innerHTML = `<span>💳 대출 · 마이너스통장 (${totalLoanListCount}건)</span>`;
-  }
-
-  if ($("#banksListWrap")) $("#banksListWrap").style.display = (isAll || isBanks) ? 'block' : 'none';
-  if ($("#savingsGrid")) $("#savingsGrid").style.display = (isAll || isSavings) ? 'grid' : 'none';
-  if ($("#loansGrid")) $("#loansGrid").style.display = (isAll || isLoans) ? 'grid' : 'none';
-  document.querySelectorAll('.savings-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === currentSavingsSubtab));
-
-  // 은행 계좌 매핑 사전 (출금/입금 통장 표시용)
-  const bankMap = new Map();
-  rawBankAccounts.forEach(b => bankMap.set(b.id, `${b.bank_name} ${b.account_name}`));
-
-  // 1) 예·적금 카드 그리드 렌더링
-  const savingsGrid = $("#savingsGrid");
-  if (savingsGrid) {
-    const savingsRows = filteredSavings.map(s => {
-      const isHousing = s.saving_type === 'housing' || !s.end_date;
-      const calc = s.calc || {};
-      const withdrawName = s.withdraw_account_id ? (bankMap.get(s.withdraw_account_id) || '연결통장') : '미설정';
-      const depositName = s.deposit_account_id ? (bankMap.get(s.deposit_account_id) || '연결통장') : '미설정';
-
-      const curVal = Number(s.current_value || s.current_paid_amount || 0);
-      const progress = isHousing ? 100 : Math.min(100, Math.max(0, s.progress_percent || 0));
-      const maturityValue = isHousing ? (curVal + (calc.after_tax_interest || 0)) : (calc.maturity_total || 0);
-      return { s, withdrawName, depositName, curVal, progress, maturityValue };
-    });
-    bankingView.renderSavings(savingsGrid, savingsRows);
-  }
-
-  // 2) 자유입출금 통장 목록 테이블 렌더링
-  const banksWrap = $("#banksListWrap");
-  if (banksWrap) {
-    const bankRows = filteredBanks.map(b => {
-      const bal = Number(b.balance || 0);
-      return { b, bal, isMinus: bal < 0 };
-    });
-    bankingView.renderBanks(banksWrap, bankRows);
-  }
-
-  // 3) 대출·마이너스통장 카드 그리드 렌더링
-  const loansGrid = $("#loansGrid");
-  if (loansGrid) {
-    const allLoanItems = [...filteredLoans];
-    // 자유입출금 계좌 중 음수 잔고 부채이거나 마통 약정한도(limit_amount > 0)가 있는 계좌도 대출 탭에 연동 표시
-    minusOrCreditLineBanks.forEach(mb => {
-      const rawBal = Number(mb.balance || 0);
-      const isMinus = rawBal < 0;
-      const curBal = isMinus ? Math.abs(rawBal) : 0;
-      const limitAmt = Number(mb.limit_amount || 0);
-      const rate = Number(mb.interest_rate || 0);
-      const monthlyInt = (curBal > 0 && rate > 0) ? Math.round(curBal * (rate / 100) / 12) : 0;
-      let dDay = null;
-      if (mb.maturity_date) {
-        try {
-          const endDt = new Date(mb.maturity_date.substring(0, 10));
-          const nowDt = new Date();
-          nowDt.setHours(0, 0, 0, 0);
-          dDay = Math.round((endDt - nowDt) / (1000 * 60 * 60 * 24));
-        } catch (e) {}
-      }
-
-      allLoanItems.push({
-        id: mb.id,
-        is_from_bank: true,
-        loan_type: "minus",
-        bank_name: mb.bank_name,
-        product_name: `${mb.account_name} (자유통장 연동)`,
-        owner: mb.owner,
-        current_balance: curBal,
-        raw_balance: rawBal,
-        limit_amount: limitAmt,
-        interest_rate: rate,
-        monthly_interest: monthlyInt,
-        repayment_type: "bullet",
-        maturity_date: mb.maturity_date || "",
-        d_day: dDay,
-        linked_account_id: mb.id,
-        memo: mb.memo || (isMinus ? "자유입출금 마이너스 잔고 부채" : "자유입출금 연동 마이너스통장 (한도 대기)"),
-      });
-    });
-
-    const loanRows = allLoanItems.map(l => {
-      const curBal = Number(l.current_balance || 0);
-      const limitAmt = Number(l.limit_amount || 0);
-      const monthlyInt = Number(l.monthly_interest || l.calc?.monthly_interest || 0);
-      const monthlyPay = Number(l.monthly_payment || l.calc?.monthly_payment || monthlyInt);
-
-      let utilPercent = 0;
-      if (l.loan_type === 'minus' && limitAmt > 0) {
-        utilPercent = Math.min(100, Math.round((curBal / limitAmt) * 100));
-      }
-
-      const linkedAccountText = l.linked_account_id ? (bankMap.get(l.linked_account_id) || "연결통장") : "미지정";
-      const isUnusedMinus = l.is_from_bank && curBal === 0;
-      return { l, curBal, limitAmt, monthlyInt, monthlyPay, utilPercent, linkedAccountText, isUnusedMinus };
-    });
-    bankingView.renderLoans(loansGrid, loanRows, LOAN_TYPE_LABELS, REPAYMENT_TYPE_LABELS);
-  }
-  window.WealthAccountReorder?.rendered('banking');
-}
-
-function calcSavingInterestPreview() {
-  const type = $("#savingTypeSelect")?.value || "deposit";
-  const months = Number($("#savingDurationMonths")?.value) || 12;
-  const rate = (Number($("#savingInterestRate")?.value) || 0) / 100;
-  const taxType = $("#savingTaxType")?.value || "normal";
-
-  let principal = 0;
-  let preTax = 0;
-
-  if (type === "deposit") {
-    principal = Number($("#savingTargetAmount")?.value) || 0;
-    preTax = principal * rate * (months / 12);
-  } else if (type === "housing") {
-    const curPaid = Number($("#savingCurrentPaid")?.value) || 0;
-    const monthly = Number($("#savingMonthlyAmount")?.value) || 0;
-    principal = curPaid > 0 ? curPaid : monthly;
-    preTax = principal * rate;
-  } else {
-    const monthly = Number($("#savingMonthlyAmount")?.value) || 0;
-    principal = monthly * months;
-    preTax = monthly * rate * (months * (months + 1) / 24);
-  }
-
-  let taxRate = 0.154;
-  if (taxType === "preferential") taxRate = 0.014;
-  else if (taxType === "tax_free") taxRate = 0.0;
-
-  const tax = Math.floor(preTax * taxRate);
-  const afterTax = preTax - tax;
-  const maturity = principal + afterTax;
-
-  bankingView.renderSavingPreview({ principal, preTax, tax, maturity });
-}
-
-function calcBankMinusPreview() {
-  const balInput = Number($("#bankBalanceInput")?.value || 0);
-  const limitInput = Number($("#bankLimitAmount")?.value || 0);
-  const rateInput = Number($("#bankInterestRate")?.value || 0);
-
-  const previewBox = $("#bankMinusPreviewBox");
-  if (!previewBox) return;
-
-  const isMinus = balInput < 0;
-  if (isMinus || limitInput > 0 || rateInput > 0) {
-    previewBox.style.display = "flex";
-    // 잔고가 음수일 때만 실제 대출 사용액(부채)
-    const debt = isMinus ? Math.abs(balInput) : 0;
-    const monthlyInt = (debt > 0 && rateInput > 0) ? Math.round(debt * (rateInput / 100) / 12) : 0;
-    const utilPercent = (debt > 0 && limitInput > 0) ? Math.min(100, Math.round((debt / limitInput) * 100)) : 0;
-
-    bankingView.renderBankMinusPreview({ debt, monthlyInt, utilPercent, limitInput });
-  } else {
-    previewBox.style.display = "none";
-  }
-}
-
-function openBankAccountDialog(account = null, fromLoan = false) {
-  window.WealthSavingsDialogController.openBank({
-    $, account, fromLoan, currentOwner,
-    isMinusAccount: () => account && (Number(account.balance) < 0 || Number(account.limit_amount) > 0 || fromLoan),
-    calcBankMinusPreview, refreshDialogKoreanHints,
-  });
-}
-
-function openSavingAccountDialog(saving = null) {
-  window.WealthSavingsDialogController.openSaving({
-    $, saving, currentOwner, rawBankAccounts,
-    isHousingSaving: () => saving ? (saving.saving_type === "housing" || !saving.end_date) : false,
-    updateSavingTypeFields, calcSavingInterestPreview, refreshDialogKoreanHints,
-  });
-}
-
-function updateSavingAutoContributionFields() {
-  const form = $("#savingAccountForm");
-  const enabled = $("#savingAutoContributionEnabled");
-  const debit = $("#savingAutoDebitBalance");
-  if (!form || !enabled || !debit) return;
-  const eligible = ["installment", "free", "housing"].includes($("#savingTypeSelect")?.value);
-  $("#savingAutoContributionSettings").hidden = !eligible;
-  enabled.disabled = !eligible;
-  if (!eligible) enabled.checked = false;
-  const active = eligible && enabled.checked;
-  $("#savingAutoDebitSettings").hidden = !active;
-  debit.disabled = !active;
-  $("#savingAutoDebitWarning").hidden = !active || debit.checked;
-  const day = form.elements.auto_transfer_day;
-  day.required = active;
-  day.min = active ? "1" : "0";
-  const monthly = $("#savingMonthlyAmount");
-  monthly.required = active;
-  monthly.min = active ? "0.01" : "0";
-  const withdraw = $("#savingWithdrawAccountSelect");
-  withdraw.required = active;
-  const owner = form.elements.owner.value || "모두";
-  const selected = withdraw.value;
-  const banks = rawBankAccounts.filter(b => !active || ((b.currency || "KRW") === "KRW"
-    && (owner === "모두" || [owner, "모두"].includes(b.owner || "모두"))));
-  window.WealthBankAccountOptions.render(withdraw, banks, {
-    placeholder: "-- 은행 계좌 선택 --", separator: " - ", emptyMissingId: true,
-  });
-  withdraw.value = selected;
-}
-
-function updateSavingTypeFields() {
-  updateSavingAutoContributionFields();
-  const type = $("#savingTypeSelect")?.value || "deposit";
-  const monthlyLabel = $("#monthlyAmountLabel");
-  const targetLabel = $("#targetAmountLabel");
-  const noMaturityCheck = $("#savingNoMaturityCheck");
-  const endDateInput = $("#savingEndDate");
-  const durationInput = $("#savingDurationMonths");
-  const durationLabel = $("#savingDurationLabel");
-
-  const isHousing = type === "housing";
-  if (isHousing && noMaturityCheck) {
-    noMaturityCheck.checked = true;
-  }
-  const isNoMaturity = isHousing || Boolean(noMaturityCheck?.checked);
-
-  if (endDateInput) {
-    if (isNoMaturity) {
-      endDateInput.value = "";
-      endDateInput.removeAttribute("required");
-      endDateInput.disabled = true;
-      endDateInput.style.opacity = "0.4";
-    } else {
-      endDateInput.disabled = false;
-      endDateInput.style.opacity = "1";
-      endDateInput.setAttribute("required", "");
-      if (!endDateInput.value) {
-        const nextYear = new Date();
-        nextYear.setFullYear(nextYear.getFullYear() + 1);
-        endDateInput.value = nextYear.toISOString().slice(0, 10);
-      }
-    }
-  }
-
-  if (durationLabel && durationInput) {
-    if (isNoMaturity) {
-      durationLabel.style.display = "none";
-      durationInput.removeAttribute("required");
-      durationInput.value = "0";
-    } else {
-      durationLabel.style.display = "";
-      durationInput.setAttribute("required", "");
-      if (Number(durationInput.value) <= 0) durationInput.value = "12";
-    }
-  }
-
-  if (type === "deposit") {
-    if (monthlyLabel) monthlyLabel.style.display = "none";
-    if (targetLabel) {
-      targetLabel.style.display = "";
-      targetLabel.childNodes[0].nodeValue = "총 예치 원금 (KRW)\n";
-    }
-  } else if (type === "housing") {
-    if (monthlyLabel) {
-      monthlyLabel.style.display = "";
-      monthlyLabel.childNodes[0].nodeValue = "월 납입 금액 (선택)\n";
-    }
-    if (targetLabel) targetLabel.style.display = "none";
-  } else {
-    if (monthlyLabel) {
-      monthlyLabel.style.display = "";
-      monthlyLabel.childNodes[0].nodeValue = "월 납입 금액 (KRW)\n";
-    }
-    if (targetLabel) {
-      targetLabel.style.display = "";
-      targetLabel.childNodes[0].nodeValue = "만기 목표 원금 (KRW)\n";
-    }
-  }
-}
-
-function calcLoanPreview() {
-  const curBal = Number(document.getElementById('loanCurrentBalance')?.value) || 0;
-  const rate = Number(document.getElementById('loanInterestRate')?.value) || 0;
-  const repayType = document.getElementById('loanRepaymentType')?.value || 'bullet';
-
-  const monthlyRate = (rate / 100) / 12;
-  const monthlyInterest = Math.round(curBal * monthlyRate);
-
-  let monthlyPayment = monthlyInterest;
-  if (repayType === 'amortizing' && curBal > 0 && monthlyRate > 0) {
-    const factor = Math.pow(1 + monthlyRate, 12);
-    monthlyPayment = Math.round(curBal * (monthlyRate * factor) / (factor - 1));
-  } else if (repayType === 'principal' && curBal > 0) {
-    monthlyPayment = Math.round(curBal / 12) + monthlyInterest;
-  }
-
-  bankingView.renderLoanPreview({ curBal, rate, monthlyInterest, monthlyPayment });
-}
-
-function refreshLoanOverdraftBankOptions(selectedValue = null) {
-  const form = $("#loanAccountForm");
-  const label = $("#loanOverdraftBankLabel");
-  const select = $("#loanOverdraftBankSelect");
-  if (!form || !label || !select) return;
-
-  const loanType = form.querySelector("[name='loan_type']")?.value || "minus";
-  const owner = form.querySelector("[name='owner']")?.value || "모두";
-  const currentLoanId = form.querySelector("[name='id']")?.value || "";
-  label.style.display = loanType === "minus" ? "" : "none";
-  if (loanType !== "minus") {
-    select.value = "";
-    return;
-  }
-
-  const previousValue = selectedValue !== null ? selectedValue : select.value;
-  const occupiedBankIds = new Set(
-    rawLoanAccounts
-      .filter(l => l.id !== currentLoanId && l.loan_type === "minus" && l.overdraft_bank_account_id)
-      .map(l => l.overdraft_bank_account_id)
-  );
-  const eligibleBanks = rawBankAccounts.filter(b =>
-    String(b.currency || "KRW").toUpperCase() === "KRW" &&
-    Number(b.balance || 0) >= 0 &&
-    (b.owner || "모두") === owner &&
-    !occupiedBankIds.has(b.id)
-  );
-  window.WealthBankAccountOptions.render(select, eligibleBanks, {
-    placeholder: "-- 자동 상계 사용 안 함 --",
-  });
-  select.value = eligibleBanks.some(b => b.id === previousValue) ? previousValue : "";
-}
-
-function openLoanAccountDialog(loan = null) {
-  window.WealthSavingsDialogController.openLoan({
-    $, loan, currentOwner, rawBankAccounts, refreshLoanOverdraftBankOptions,
-    calcLoanPreview, refreshDialogKoreanHints,
-  });
-}
-
-function openIntegratedBankDialog() {
-  if (currentSavingsSubtab === 'savings') {
-    openSavingAccountDialog();
-  } else if (currentSavingsSubtab === 'loans') {
-    openLoanAccountDialog();
-  } else {
-    openBankAccountDialog();
-  }
-}
+const {
+  renderAccounts,
+  renderSavings,
+  openBankAccountDialog,
+  openSavingAccountDialog,
+  openLoanAccountDialog,
+  openIntegratedBankDialog,
+} = accountFeature.publicActions;
+Object.assign(window, accountFeature.publicActions);
 
 // ── 4-2. 통합 계좌 카테고리 탭 (증권 / 은행 / 보험) ─────────────────────────
-let rawInsuranceAccounts = [];
+const insuranceFeature = window.WealthInsurancePensionFeatureController.create({
+  $,
+  accountYearlyView,
+  api,
+  calculateOwnerYearPensionTaxBenefits,
+  closeDialog,
+  get currentAccountCategory() { return currentAccountCategory; },
+  get currentOwner() { return currentOwner; },
+  get dashboard() { return dashboard; },
+  getTaxCategory,
+  html,
+  isAccountTaxDeductible,
+  isContributionTaxDeductible,
+  isTaxAdvantagedAccount,
+  loadDashboard,
+  number,
+  get rawDashboard() { return rawDashboard; },
+  refreshDialogKoreanHints,
+  toast,
+});
+const {
+  renderAssetTaxInformation,
+  renderInsurance,
+  openInsuranceAccountDialog,
+} = insuranceFeature.publicActions;
+Object.assign(window, insuranceFeature.publicActions);
 let currentAccountCategory = window.WealthAssetCategoryState?.current() || 'securities';
 
 // 머니 로그는 캘린더, 실현손익, 배당·이자, 가계부, 공모주 패널을 공유하며 화면만 전환합니다.
@@ -1969,20 +1516,7 @@ document.getElementById('incomeTabs')?.addEventListener('click', event => {
 });
 setIncomeTab(document.querySelector('.wealth-workspace')?.dataset.incomeTab || ({ pnl: 'pnl', dividend: 'dividend', ledger: 'ledger', ipo: 'ipo' }[location.hash.slice(1)] || 'calendar'), { updateHash: false, loadContent: false });
 
-const INSURANCE_TYPE_LABELS = {
-  protection: "보장성보험",
-  savings: "저축성보험",
-  national_pension: "국민연금",
-  yellow_umbrella: "노란우산공제",
-  irp: "개인연금 / IRP",
-  etc: "기타 공제",
-};
 
-const PAYMENT_STATUS_LABELS = {
-  paying: "납입중",
-  completed: "납입완료",
-  deferred: "거치중",
-};
 
 function switchAccountCategory(category) {
   category = window.WealthAssetCategoryState?.select(category) || category;
@@ -2016,41 +1550,7 @@ function switchAccountCategory(category) {
 
 switchAccountCategory(currentAccountCategory);
 
-function renderAssetTaxInformation() {
-  const panel=document.getElementById('catPanelTax');if(!panel)return;
-  let information=panel.querySelector('#assetTaxInformation');
-  if(!information){
-    information=document.createElement('div');information.id='assetTaxInformation';
-    panel.prepend(information);
-  }
-  // This renderer owns product information only, not the independent tax tools.
-  information.replaceChildren();
-  const intro=document.createElement('p');intro.className='dialog-description';
-  intro.textContent='소득공제와 세액공제는 서로 다른 제도입니다. 확인된 입력과 기존 계산 화면을 구분하여 확인하세요. 이 화면은 세금을 새로 계산하지 않습니다.';information.append(intro);
-  const accounts=(rawDashboard?.accounts||[]).filter(item=>isTaxAdvantagedAccount(item));
-  const insurances=rawInsuranceAccounts.filter(item=>['national_pension','yellow_umbrella','pension','irp'].includes(item.insurance_type));
-  [...insurances,...accounts].filter(item=>currentOwner==='모두'||(item.owner||'모두')===currentOwner).forEach(item=>{
-    const card=document.createElement('article');card.className='np-tax-card';
-    const title=document.createElement('h3');title.textContent=item.product_name||item.name||'연금 상품';card.append(title);
-    const text=document.createElement('p');
-    const national=item.insurance_type==='national_pension', umbrella=item.insurance_type==='yellow_umbrella';
-    text.textContent=national?'국민연금: 연금보험료 소득공제. 실제 본인 인정액과 해당 연도 과세표준이 필요합니다.':umbrella?'노란우산: 소득공제. 기존 소유자별 공제 한도·세금 계산을 유지합니다.':'연금저축·IRP: 세액공제. 국민연금 소득공제와 합산하지 않습니다. ISA는 별도 비과세·분리과세 제도입니다.';card.append(text);
-    if(!national){
-      const note=document.createElement('p');
-      note.textContent=`공제 설정: ${item.tax_deductible===false?'비공제':item.tax_deductible===true?'공제 대상 설정':'확인 필요'} · 연간 납입 참고값 ${item.annual_deposit==null?'미확인':number(item.annual_deposit,0)+'원'}`;card.append(note);
-      (item.yearly_contributions||[]).forEach(row=>{const line=document.createElement('p');line.textContent=`${row.year}년 납부액 ${row.deposit==null?'미확인':number(row.deposit,0)+'원'} · ${row.is_deductible===false?'비공제':'개별 인정 한도·신고 자료 확인 필요'}`;card.append(line);});
-    }
-    if(national){
-      const button=document.createElement('button');button.type='button';button.className='button secondary compact';
-      button.dataset.nationalAnalysisId=item.id;button.textContent='가입유형·세금·수익 분석';card.append(button);
-      (item.national_pension_analysis?.tax_years||[]).forEach(row=>{
-        const note=document.createElement('p');note.textContent=`${row.year}년 · 인정 공제액 ${row.allowed_deduction==null?'미확인':number(row.allowed_deduction,0)+'원'} · ${row.source==='tax_return'&&row.verified?'신고 자료 확인':'신고 확인 미완료'}`;card.append(note);
-      });
-    }
-    information.append(card);
-  });
-  if(!information.querySelector('article')){const empty=document.createElement('p');empty.textContent='등록된 연금·공제 상품이 없습니다.';information.append(empty);}
-}
+
 
 // Check URL query parameters for callback result notifications
 (() => {
@@ -2076,1116 +1576,32 @@ function renderAssetTaxInformation() {
   }
 })();
 
-function nationalPensionHistoryMarkup(ins) {
-  const records = Array.isArray(ins.yearly_contributions) ? ins.yearly_contributions : [];
-  const malformed = (ins.yearly_contributions != null && !Array.isArray(ins.yearly_contributions)) ||
-    records.some(row => !row || !/^\d{4}$/.test(String(row.year)) || Number(row.year) < 1988 || Number(row.year) > new Date().getFullYear() || !Number.isFinite(row.deposit) || row.deposit < 0) ||
-    new Set(records.map(row => String(row.year))).size !== records.length;
-  if (malformed) return '<p class="np-history">등록 납부 이력 형식을 확인해 주세요. 합계는 산정하지 않았습니다.</p>';
-  const byYear = new Map(records.map(row => [String(row.year), row.deposit]));
-  const currentYear = new Date().getFullYear();
-  const firstYear = Math.min(2013, ...records.map(row => Number(row.year)).filter(year => year >= 1988 && year <= currentYear));
-  const total = records.reduce((sum, row) => sum + (Number.isFinite(row.deposit) && row.deposit >= 0 ? row.deposit : 0), 0);
-  const paid = Number(ins.total_paid_amount);
-  const difference = Number.isFinite(paid) ? total - paid : null;
-  const rows = [];
-  for (let year = currentYear; year >= firstYear; year--) {
-    const amount = byYear.get(String(year));
-    const text = !byYear.has(String(year)) ? '미확인' : amount === 0 ? '납부 없음 (0원)' : `₩${number(amount, 0)}`;
-    rows.push(`<div class="np-history-line"><span>${year}년</span><span>${text}</span></div>`);
-  }
-  return `<div class="np-card-actions">
-    <button type="button" class="button secondary compact" data-national-history-id="${html(ins.id)}">납부 이력 편집</button>
-    <button type="button" class="button secondary compact" data-national-analysis-id="${html(ins.id)}">가입유형·세금·수익 분석</button>
-    <button type="button" class="button secondary compact" data-national-import-id="${html(ins.id)}">📄 국민연금 자료 가져오기 · PDF·사진</button>
-    </div><details class="np-history"><summary>연도별 실제 납부 이력 · ${records.length}건</summary>
-    <p>입력 이력 합계 ₩${number(total, 0)} · 기존 누적납입액 ₩${number(ins.total_paid_amount || 0, 0)}</p>
-    <p>${difference === null ? '기존 누적납입액 확인 필요' : difference === 0 ? '기존 누적납입액과 일치' : `입력 이력과 누적납입액 차이 ₩${number(difference, 0)} (자동 변경 없음)`}</p>
-    <p>미확인은 미입력 연도입니다. 첫해·당해연도 금액은 확인한 부분 납부액 그대로 기록합니다.</p>
-    <div class="np-history-list">${rows.join('')}</div></details>`;
-}
-
-let nationalPensionHistoryItem = null;
-let nationalPensionHistoryOriginal = [];
-let nationalPensionRowCounter = 0;
-let nationalPensionHistorySaving = false;
-function addNationalPensionHistoryRow(record = {}) {
-  const list = document.getElementById('nationalPensionYearlyList');
-  const id = ++nationalPensionRowCounter;
-  const row = document.createElement('div'); row.className = 'np-history-edit-row';
-  row.innerHTML = `<label for="npYear${id}">연도<input id="npYear${id}" data-np-year type="number" min="1988" max="${new Date().getFullYear()}" step="1" placeholder="2013"></label>
-    <label for="npAmount${id}">실제 납부액<input id="npAmount${id}" data-np-amount type="number" min="0" step="any" data-korean-currency placeholder="미확인: 비워 두기"></label>
-    <button type="button" class="button secondary compact" aria-label="납부 이력 행 삭제">삭제</button>`;
-  row.querySelector('[data-np-year]').value = record.year ?? '';
-  row.querySelector('[data-np-amount]').value = record.deposit ?? '';
-  row.querySelector('button').onclick = () => { if (confirm('이 연도의 납부 이력을 삭제할까요? 저장 전까지 실제 기록은 유지됩니다.')) row.remove(); };
-  list.append(row);
-  refreshDialogKoreanHints(document.getElementById('nationalPensionHistoryDialog'));
-}
-function openNationalPensionHistory(ins) {
-  if (!ins?.id) { toast('상품을 먼저 저장해 주세요.'); return; }
-  if (nationalPensionHistorySaving) { toast('납부 이력 저장이 진행 중입니다. 잠시 후 다시 열어 주세요.'); return; }
-  nationalPensionHistoryItem = ins;
-  nationalPensionHistoryOriginal = structuredClone(ins.yearly_contributions || []);
-  nationalPensionRowCounter = 0;
-  document.getElementById('nationalPensionYearlyList').replaceChildren();
-  nationalPensionHistoryOriginal.forEach(addNationalPensionHistoryRow);
-  document.getElementById('nationalPensionHistoryNotice').textContent = `기존 누적납입액 ₩${number(ins.total_paid_amount || 0, 0)}는 이력 저장으로 변경되지 않습니다. 연금 개시일은 납부 종료일로 사용하지 않습니다.`;
-  document.getElementById('nationalPensionHistoryDialog').showModal();
-  window.WealthNationalPension?.open(ins);
-}
-function readNationalPensionHistoryRows() {
-  const result = [], years = new Set(), currentYear = new Date().getFullYear();
-  document.querySelectorAll('#nationalPensionYearlyList .np-history-edit-row').forEach(row => {
-    const year = row.querySelector('[data-np-year]').value.trim();
-    const raw = row.querySelector('[data-np-amount]').value.trim();
-    if (!year && !raw) return;
-    const amount = Number(raw);
-    if (!/^\d{4}$/.test(year) || Number(year) < 1988 || Number(year) > currentYear || years.has(year)) throw new Error('1988년부터 당해연도까지 중복 없는 연도를 입력하세요.');
-    if (!raw || !Number.isFinite(amount) || amount < 0) throw new Error('실제 납부액을 입력하세요. 납부 없음은 0원, 미확인은 행을 추가하지 않습니다.');
-    years.add(year); result.push({year, deposit: amount});
-  });
-  return result;
-}
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('addNationalPensionYear')?.addEventListener('click', () => addNationalPensionHistoryRow());
-  document.getElementById('nationalPensionHistoryForm')?.addEventListener('submit', async event => {
-    event.preventDefault();
-    if (nationalPensionHistorySaving) return;
-    const item = nationalPensionHistoryItem;
-    const notice = document.getElementById('nationalPensionHistoryNotice');
-    const button = event.target.querySelector('[type=submit]');
-    try {
-      const records = readNationalPensionHistoryRows(); button.disabled = true; nationalPensionHistorySaving = true;
-      const result = await api(`/api/insurance-accounts/${encodeURIComponent(item.id)}/yearly-contributions`, {
-        method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({yearly_contributions:records, expected_history:nationalPensionHistoryOriginal})});
-      // Apply only history; enriched valuation and the owner's original totals stay unchanged.
-      item.yearly_contributions = result.insurance.yearly_contributions;
-      renderInsuranceWithOwner(currentOwner);
-      closeDialog('nationalPensionHistoryDialog'); toast('국민연금 납부 이력이 저장되었습니다.');
-    } catch (error) { notice.textContent = error.message; toast(error.message, true); }
-    finally { button.disabled = false; nationalPensionHistorySaving = false; }
-  });
-});
-
-const insuranceView = window.WealthInsuranceView.create({ html, number });
-
-function renderInsurance(insuranceList, owner = '모두') {
-  rawInsuranceAccounts = insuranceList || [];
-  renderInsuranceWithOwner(owner);
-}
-
-function renderInsuranceWithOwner(owner = '모두') {
-  if(currentAccountCategory==='tax')renderAssetTaxInformation();
-  const o = owner || currentOwner || '모두';
-  const filtered = window.WealthDashboardOwnerModel.selectOwnedAccounts(rawInsuranceAccounts, o);
-
-  const totalMonthly = filtered.reduce((sum, i) => sum + (Number(i.monthly_premium) || 0), 0);
-  const totalPaid = filtered.reduce((sum, i) => sum + (Number(i.total_paid_amount) || 0), 0);
-  const totalExpected = filtered.reduce((sum, i) => sum + (Number(i.expected_amount) || 0), 0);
-
-  if ($("#totalInsuranceMonthlyVal")) $("#totalInsuranceMonthlyVal").textContent = `₩${number(totalMonthly, 0)}`;
-  if ($("#totalInsurancePaidVal")) $("#totalInsurancePaidVal").textContent = `₩${number(totalPaid, 0)}`;
-  if ($("#totalInsuranceExpectedVal")) $("#totalInsuranceExpectedVal").textContent = `₩${number(totalExpected, 0)}`;
-
-
-  const grid = $("#insuranceGrid");
-  if (!grid) return;
-
-  // 상단 절세 요약 배너 업데이트
-  let totalCumulativeYuTaxSaved = 0;
-  const yuTaxSaved = filtered.filter(i => (i.insurance_type === 'yellow_umbrella' || (i.product_name || '').includes('노란우산'))).reduce((sum, i) => {
-    const monthly = Number(i.monthly_premium) || 0;
-    const bracket = i.income_bracket || '40m_to_100m';
-    const rate = Number(i.marginal_tax_rate) || 26.4;
-    const limits = { under_40m: 5000000, "40m_to_100m": 3000000, over_100m: 2000000 };
-    const limit = limits[bracket] || 3000000;
-    const deduction = Math.min(monthly * 12, limit);
-    const saved = Math.floor(deduction * (rate / 100));
-
-    // 누적 절세액 합산
-    const yuList = Array.isArray(i.yearly_contributions) ? i.yearly_contributions : [];
-    if (yuList.length > 0) {
-      yuList.forEach(y => {
-        const isDed = y.is_deductible !== false && String(y.is_deductible) !== 'false';
-        if (isDed) {
-          totalCumulativeYuTaxSaved += Math.floor(Math.min(Number(y.deposit || 0), limit) * (rate / 100));
-        }
-      });
-    } else {
-      totalCumulativeYuTaxSaved += saved;
-    }
-
-    return sum + saved;
-  }, 0);
-
-  // 증권 계좌 연금/IRP 절세액 합산
-  const secAccounts = (dashboard?.accounts || []).filter(a => o === '모두' || (a.owner || '모두') === o);
-  const pensionTaxBenefits = calculateOwnerYearPensionTaxBenefits(secAccounts);
-  const pensionTaxSaved = pensionTaxBenefits.current.taxSaved;
-  const totalCumulativePensionTaxSaved = pensionTaxBenefits.cumulative.taxSaved;
-
-  const grandTotalTax = yuTaxSaved + pensionTaxSaved;
-  const grandCumulativeTax = totalCumulativeYuTaxSaved + totalCumulativePensionTaxSaved;
-  if ($("#grandTotalTaxBenefitVal")) {
-    if (grandCumulativeTax > grandTotalTax) {
-      $("#grandTotalTaxBenefitVal").innerHTML = `₩${number(grandTotalTax, 0)} <span style="font-size:12px;color:#a78bfa;font-weight:600;">(누적 ₩${number(grandCumulativeTax, 0)})</span>`;
-    } else {
-      $("#grandTotalTaxBenefitVal").textContent = `₩${number(grandTotalTax, 0)}`;
-    }
-  }
-
-  // 증권 계좌 연금저축 & IRP 카드 생성
-  const secPensionAccounts = (dashboard?.accounts || []).filter(a => {
-    if (o !== '모두' && (a.owner || '모두') !== o) return false;
-    return isTaxAdvantagedAccount(a) && getTaxCategory(a) !== 'isa';
-  });
-
-  const pensionCardsHtml = secPensionAccounts.map(a => {
-    const aType = getTaxCategory(a);
-    const isTaxDeductible = isAccountTaxDeductible(a);
-    const dep = Number(a.annual_deposit) || 0;
-    const rate = a.income_level === 'high' ? 13.2 : 16.5;
-    const ownerKey = String(a.owner || '모두');
-    const ownerCurrent = pensionTaxBenefits.current.byOwner[ownerKey] || { eligibleContribution: 0, isaDeductionTarget: 0, taxSaved: 0 };
-    const ownerCumulative = pensionTaxBenefits.cumulative.byOwner[ownerKey] || { taxSaved: 0 };
-    const totalTarget = ownerCurrent.eligibleContribution + ownerCurrent.isaDeductionTarget;
-    const refund = ownerCurrent.taxSaved;
-
-    const typeLabel = aType === 'pension_savings' ? '연금저축' : '개인형 IRP';
-    const badgeClass = isTaxDeductible ? 'pension' : 'non-deductible';
-    const statusLabel = isTaxDeductible ? '세액공제 신청' : '세액공제 제외(비공제)';
-
-    const yearlyContributions = Array.isArray(a.yearly_contributions) ? a.yearly_contributions : [];
-    let yearlyHistoryHtml = '';
-
-    if (yearlyContributions.length > 0) {
-      const yearlyRows = yearlyContributions.map(yc => {
-        const yYear = String(yc.year || '').trim();
-        const yDep = Number(yc.deposit || 0);
-        const yDeductible = isTaxDeductible && isContributionTaxDeductible(yc.is_deductible);
-        const ownerYear = pensionTaxBenefits.cumulative.byOwnerYear[`${ownerKey}\u0000${yYear}`] || { taxSaved: 0 };
-        const ySaved = yDeductible ? ownerYear.taxSaved : 0;
-
-        return insuranceView.pensionYearRow({ yYear, yDep, yDeductible, ySaved });
-      }).join('');
-
-      yearlyHistoryHtml = `
-        <div class="insurance-yearly-history" style="margin-top:10px;padding:8px 10px;border:1px solid ${isTaxDeductible ? 'rgba(56,189,248,0.25)' : 'rgba(16,185,129,0.25)'};border-radius:6px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11.5px;">
-            <span style="font-weight:700;color:${isTaxDeductible ? '#38bdf8' : '#34d399'};">📅 연도별 절세 이력</span>
-            <span style="font-weight:700;color:#4ade80;font-size:12px;">소유자 합산 누적: ₩${number(ownerCumulative.taxSaved, 0)}</span>
-          </div>
-          ${yearlyRows}
-        </div>
-      `;
-    }
-
-    return insuranceView.pensionCard({ a, isTaxDeductible, badgeClass, typeLabel, statusLabel, dep, rate, totalTarget, ownerCurrent, refund, yearlyHistoryHtml });
-  }).join('');
-
-  const insuranceCardsHtml = filtered.map(ins => {
-    const typeKey = ins.insurance_type || 'protection';
-    const typeLabel = INSURANCE_TYPE_LABELS[typeKey] || '보험/공제';
-    const statusKey = ins.payment_status || 'paying';
-    const statusLabel = PAYMENT_STATUS_LABELS[statusKey] || '납입중';
-
-    const periodText = typeKey === 'national_pension'
-      ? `가입 ${ins.start_date || '미지정'} · 연금개시 예정 ${ins.maturity_date || '미지정'}`
-      : (ins.start_date || ins.maturity_date)
-      ? `${ins.start_date || '가입'} ~ ${ins.maturity_date || '만기'}`
-      : '기간 미지정';
-
-    const isYU = typeKey === 'yellow_umbrella' || (ins.product_name || '').includes('노란우산');
-    let yuTaxBox = '';
-    let yuYearlyRowsHtml = '';
-    if (isYU) {
-      const monthly = Number(ins.monthly_premium) || 0;
-      const bracket = ins.income_bracket || '40m_to_100m';
-      const rate = Number(ins.marginal_tax_rate) || 26.4;
-      const limits = { under_40m: 5000000, "40m_to_100m": 3000000, over_100m: 2000000 };
-      const limit = limits[bracket] || 3000000;
-      const deduction = Math.min(monthly * 12, limit);
-      const taxSaved = Math.floor(deduction * (rate / 100));
-
-      const yuYearlyList = Array.isArray(ins.yearly_contributions) ? ins.yearly_contributions : [];
-      let yuCumulativeSaved = 0;
-
-      if (yuYearlyList.length > 0) {
-        const rows = yuYearlyList.map(yc => {
-          const yYear = String(yc.year || '').trim();
-          const yDep = Number(yc.deposit || 0);
-          const yDeductible = yc.is_deductible !== false && String(yc.is_deductible) !== 'false';
-          const yTarget = yDeductible ? Math.min(yDep, limit) : 0;
-          const ySaved = yDeductible ? Math.floor(yTarget * (rate / 100)) : 0;
-          if (yDeductible) yuCumulativeSaved += ySaved;
-
-          return insuranceView.umbrellaYearRow({ yYear, yDep, yDeductible, ySaved });
-        }).join('');
-
-        yuYearlyRowsHtml = `
-          <div class="insurance-yearly-history" style="margin-top:10px;padding:8px 10px;border:1px solid rgba(234,179,8,0.3);border-radius:6px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11.5px;">
-              <span style="font-weight:700;color:#facc15;">📅 연도별 소득공제 이력</span>
-              <span style="font-weight:700;color:#4ade80;font-size:12px;">누적 절세액: ₩${number(yuCumulativeSaved, 0)}</span>
-            </div>
-            ${rows}
-          </div>
-        `;
-      } else {
-        yuCumulativeSaved = taxSaved;
-      }
-
-      yuTaxBox = `
-        <div class="saving-interest-box" style="background:rgba(234,179,8,0.08);border-color:rgba(234,179,8,0.35);margin-top:8px;">
-          <div class="saving-interest-row">
-            <span style="color:#facc15;">연간 소득공제 대상</span>
-            <span class="saving-detail-val" style="font-weight:600;">₩${number(deduction, 0)} (한도 ₩${number(limit, 0)})</span>
-          </div>
-          <div class="saving-interest-row maturity-row" style="border-top:1px dashed rgba(234,179,8,0.3);padding-top:4px;margin-top:4px;">
-            <span style="color:#facc15;">예상 세금 절감(환급)액</span>
-            <span style="color:#4ade80;font-size:14px;font-weight:700;">+₩${number(taxSaved, 0)} (${rate}%)</span>
-          </div>
-        </div>
-        ${yuYearlyRowsHtml}
-      `;
-    }
-
-    return insuranceView.productCard(insuranceView.productStart({ ins, isYU, typeKey, typeLabel, statusKey, statusLabel, periodText, yuTaxBox }), typeKey === 'national_pension' ? nationalPensionHistoryMarkup(ins) : '', insuranceView.productEnd({ ins, isYU }));
-  }).join('');
-
-  grid.innerHTML = (pensionCardsHtml + insuranceCardsHtml) || '<div class="empty">등록된 보험/연금 상품이 없습니다.</div>';
-}
-
-function updatePensionPayoutFields() {
-  const isPension = $("#payoutTypeMonthlyPension")?.checked;
-  const lumpSumGroup = $("#lumpSumAmountGroup");
-  const pensionGroup = $("#pensionPayoutGroup");
-
-  if (lumpSumGroup) lumpSumGroup.style.display = isPension ? "none" : "block";
-  if (pensionGroup) pensionGroup.style.display = isPension ? "block" : "none";
-
-  if (isPension) {
-    const monthly = Number($("#pensionMonthlyPayout")?.value) || 0;
-    const years = Number($("#pensionDurationSelect")?.value) || 20;
-    const totalMonths = Math.round(years * 12);
-    const converted = Math.round(monthly * totalMonths);
-
-    if ($("#pensionDurationText")) {
-      $("#pensionDurationText").textContent = `${years}년 (${totalMonths}개월)`;
-    }
-    if ($("#pensionConvertedTotalText")) {
-      $("#pensionConvertedTotalText").textContent = `₩${number(converted, 0)}`;
-    }
-    // 일시금 필드에도 동기화하여 안전자산 및 호환성 보장
-    if ($("#insuranceExpectedAmount")) {
-      $("#insuranceExpectedAmount").value = converted > 0 ? converted : "";
-    }
-  }
-}
-
-let yuCurrentYearlyList = [];
-
-const accountYearlyView = window.WealthAccountYearlyView.create({ html, number });
-
-function renderYuYearlyFormRows(form = document.getElementById("insuranceAccountForm")) {
-  const container = form?.querySelector("#yuYearlyList");
-  if (!container) return;
-
-  const bracket = form.querySelector("#yuIncomeBracket")?.value || "40m_to_100m";
-  const rate = Number(form.querySelector("#yuMarginalRate")?.value) || 26.4;
-  const limits = { under_40m: 5000000, "40m_to_100m": 3000000, over_100m: 2000000 };
-  const maxLimit = limits[bracket] || 3000000;
-
-  let cumulativeSaved = 0;
-
-  const rows = yuCurrentYearlyList.map((yc, idx) => {
-    const yr = yc.year || (2024 - idx);
-    const dep = Number(yc.deposit || 0);
-    const ded = yc.is_deductible !== false && String(yc.is_deductible) !== "false";
-    const target = ded ? Math.min(dep, maxLimit) : 0;
-    const saved = ded ? Math.floor(target * (rate / 100)) : 0;
-    if (ded) cumulativeSaved += saved;
-    return { idx, yr, dep, ded, saved };
-  });
-  accountYearlyView.renderYellowUmbrella(form, container, rows, cumulativeSaved);
-}
-
-function updateYellowUmbrellaFields() {
-  const type = $("#insuranceTypeSelect")?.value;
-  const taxGroup = $("#yellowUmbrellaTaxGroup");
-  const isYU = type === "yellow_umbrella";
-  if (taxGroup) taxGroup.style.display = isYU ? "block" : "none";
-
-  if (isYU) {
-    const monthly = Number($("#insuranceAccountForm [name='monthly_premium']")?.value) || 0;
-    const bracket = $("#yuIncomeBracket")?.value || "40m_to_100m";
-    const rate = Number($("#yuMarginalRate")?.value) || 26.4;
-
-    const limits = { under_40m: 5000000, "40m_to_100m": 3000000, over_100m: 2000000 };
-    const maxLimit = limits[bracket] || 3000000;
-    const annualPaid = monthly * 12;
-    const deduction = Math.min(annualPaid, maxLimit);
-    const taxSaved = Math.floor(deduction * (rate / 100));
-
-    if ($("#yuDeductionAmountText")) $("#yuDeductionAmountText").textContent = `₩${number(deduction, 0)} (한도 ₩${number(maxLimit, 0)})`;
-    if ($("#yuTaxSavedText")) $("#yuTaxSavedText").textContent = `₩${number(taxSaved, 0)} (${rate}%)`;
-
-    renderYuYearlyFormRows($("#insuranceAccountForm"));
-  }
-}
-
-function openInsuranceAccountDialog(item = null) {
-  const dialog = $("#insuranceAccountDialog");
-  const form = $("#insuranceAccountForm");
-  if (!dialog || !form) return;
-  form.reset();
-  form.querySelector("[name='id']").value = item ? item.id : "";
-  if ($("#insuranceAccountDialogTitle")) {
-    $("#insuranceAccountDialogTitle").textContent = item ? "보험 / 연금 / 공제 상품 수정" : "보험 / 연금 / 공제 상품 추가";
-  }
-  if (item) {
-    const initial = window.WealthInsuranceFormModel.editValues(item);
-    for (const [name, value] of Object.entries(initial.fields)) {
-      form.querySelector(`[name='${name}']`).value = value;
-    }
-
-    const isMonthlyPension = item.payout_type === "monthly_pension" || (Number(item.monthly_payout) || 0) > 0 || item.insurance_type === "national_pension";
-    if (isMonthlyPension) {
-      if ($("#payoutTypeMonthlyPension")) $("#payoutTypeMonthlyPension").checked = true;
-      if ($("#pensionMonthlyPayout")) $("#pensionMonthlyPayout").value = initial.monthlyPayout;
-      if ($("#pensionDurationSelect")) $("#pensionDurationSelect").value = initial.payoutDuration;
-    } else {
-      if ($("#payoutTypeLumpSum")) $("#payoutTypeLumpSum").checked = true;
-    }
-
-    for (const [name, value] of Object.entries(initial.datesAndMemo)) {
-      form.querySelector(`[name='${name}']`).value = value;
-    }
-
-    yuCurrentYearlyList = Array.isArray(item.yearly_contributions)
-      ? JSON.parse(JSON.stringify(item.yearly_contributions))
-      : [];
-  } else {
-    form.querySelector("[name='owner']").value = currentOwner !== "모두" ? currentOwner : "모두";
-    if ($("#payoutTypeLumpSum")) $("#payoutTypeLumpSum").checked = true;
-    if ($("#pensionDurationSelect")) $("#pensionDurationSelect").value = "20";
-    yuCurrentYearlyList = [];
-  }
-  updateYellowUmbrellaFields();
-  updatePensionPayoutFields();
-  renderYuYearlyFormRows(form);
-  dialog.querySelector('[data-np-edit-entry]')?.remove();
-  if(item?.id&&item.insurance_type==='national_pension'){
-    const initial=JSON.stringify([...new FormData(form).entries()]);
-    const entry=document.createElement('button');entry.type='button';entry.className='button secondary compact';
-    entry.dataset.npEditEntry='';entry.textContent='가입유형·세금·수익 분석 / 자료 가져오기';
-    entry.onclick=()=>{
-      if(JSON.stringify([...new FormData(form).entries()])!==initial){toast('수정 중인 기본 정보를 먼저 저장하거나 취소해 주세요.',true);return;}
-      closeDialog('insuranceAccountDialog');openNationalPensionHistory(item);
-    };
-    form.append(entry);
-  }
-  refreshDialogKoreanHints(dialog);
-  dialog.showModal();
-}
+insuranceFeature.actions.bindPensionHistory();
 
 // ── 4-3. 부동산 (자가 / 임대 / 임차 / 매도) 자산 관리 ──────────────────────────────
-let rawRealEstates = [];
-let rawSoldRealEstates = [];
-let currentRealEstateSubtab = 'all'; // 'all' | 'own' | 'rental' | 'lease' | 'sold'
-
-const PROPERTY_TYPE_LABELS = {
-  own: "🏠 자가",
-  rental: "🏢 임대",
-  lease: "🔑 임차",
-  sold: "🏷️ 매도",
-};
-
-const realEstateView = window.WealthRealEstateView.create({ $, html, number });
-
-function renderRealEstate(reList, owner = '모두', soldList = null) {
-  rawRealEstates = reList || [];
-  
-  // 모든 가용 원천에서 매도 부동산 후보군 통합 수집 및 정밀 감지
-  const allCandidateRecords = [
-    ...(soldList || []),
-    ...((rawDashboard && rawDashboard.sold_real_estates) || []),
-    ...((rawDashboard && rawDashboard.realized_pnl_records) || []),
-    ...((pnlData && pnlData.records) || [])
-  ];
-  const registeredNames = (rawRealEstates || []).map(r => (r.name || '').trim()).filter(n => n.length >= 2);
-  const reKw = /부동산|아파트|오피스텔|빌라|주택|단지|상가|토지|건물|원룸|분양권|재개발/i;
-
-  const map = new Map();
-  allCandidateRecords.forEach(r => {
-    if (!r || !r.id) return;
-    const name = r.name || '';
-    const memo = r.memo || '';
-    const isRe = r.asset_type === 'real_estate' || r.code === 'REAL_ESTATE' || r.broker === '부동산' ||
-      name.includes('[부동산]') || name.includes('부동산') ||
-      registeredNames.some(rn => name.includes(rn)) ||
-      reKw.test(name) || (memo && reKw.test(memo) && r.asset_type !== 'stock');
-    if (isRe) {
-      map.set(r.id, r);
-    }
-  });
-  rawSoldRealEstates = Array.from(map.values()).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  renderRealEstateWithOwner(owner);
-}
-
-function renderRealEstateWithOwner(owner = '모두') {
-  const o = owner || currentOwner || '모두';
-  const filtered = [];
-
-  rawRealEstates.forEach(r => {
-    const ownerships = (r.ownerships && r.ownerships.length) 
-      ? r.ownerships 
-      : [{ owner: r.owner || '모두', ratio: 100 }];
-
-    let share = 1.0;
-    if (o !== '모두') {
-      let matched = ownerships.find(x => x.owner === o);
-      if (!matched && r.owner && r.owner.includes(o)) {
-        const m = r.owner.match(new RegExp(`${o}\\s*([0-9.]+)%`));
-        if (m) {
-          share = parseFloat(m[1]) / 100;
-        } else {
-          share = 0.5;
-        }
-      } else if (matched && matched.ratio > 0) {
-        share = (matched.ratio || 100) / 100;
-      } else {
-        return;
-      }
-    }
-    const clone = Object.assign({}, r, { _shareRatio: share });
-    filtered.push(clone);
-  });
-
-  // 매도 부동산 목록 소유자 필터링
-  const filteredSold = [];
-  rawSoldRealEstates.forEach(s => {
-    let share = 1.0;
-    if (o !== '모두') {
-      const ownerships = (s.ownerships && s.ownerships.length)
-        ? s.ownerships
-        : [{ owner: s.owner || '모두', ratio: 100 }];
-      let matched = ownerships.find(x => x.owner === o);
-      if (!matched && s.owner && s.owner.includes(o)) {
-        const m = s.owner.match(new RegExp(`${o}\\s*([0-9.]+)%`));
-        if (m) {
-          share = parseFloat(m[1]) / 100;
-        } else {
-          share = 0.5;
-        }
-      } else if (matched && matched.ratio > 0) {
-        share = (matched.ratio || 100) / 100;
-      } else if (s.owner === o) {
-        share = 1.0;
-      } else {
-        return;
-      }
-    }
-    const clone = Object.assign({}, s, { _shareRatio: share });
-    filteredSold.push(clone);
-  });
-
-  const ownList = filtered.filter(r => (r.property_type || 'own') === 'own');
-  const rentalList = filtered.filter(r => r.property_type === 'rental');
-  const leaseList = filtered.filter(r => r.property_type === 'lease');
-
-  const totalREVal = ownList.concat(rentalList).reduce((sum, r) => sum + ((Number(r.current_price) || 0) * (r._shareRatio || 1.0)), 0);
-  const totalPurchaseVal = ownList.concat(rentalList).reduce((sum, r) => sum + ((Number(r.purchase_price) || 0) * (r._shareRatio || 1.0)), 0);
-  const totalProfit = totalPurchaseVal > 0 ? (totalREVal - totalPurchaseVal) : 0;
-  const totalProfitRate = totalPurchaseVal > 0 ? ((totalProfit / totalPurchaseVal) * 100).toFixed(1) : "0.0";
-
-  const totalTenantDeposit = leaseList.reduce((sum, r) => sum + ((Number(r.deposit_amount) || 0) * (r._shareRatio || 1.0)), 0);
-  const totalLandlordDeposit = rentalList.reduce((sum, r) => sum + ((Number(r.deposit_amount) || 0) * (r._shareRatio || 1.0)), 0);
-  
-  let totalLinkedLoanBalance = 0;
-  const loanMap = new Map();
-  rawLoanAccounts.forEach(l => loanMap.set(l.id, l));
-
-  filtered.forEach(r => {
-    (r.linked_loan_ids || []).forEach(lid => {
-      const l = loanMap.get(lid);
-      if (l) totalLinkedLoanBalance += ((Number(l.current_balance) || 0) * (r._shareRatio || 1.0));
-    });
-  });
-
-  const totalREDebt = totalLandlordDeposit + totalLinkedLoanBalance;
-
-  // 매도 부동산 총 실현손익, 양도가, 취득가 계산
-  const totalSoldPnl = filteredSold.reduce((sum, s) => sum + ((Number(s.pnl_krw != null ? s.pnl_krw : s.pnl) || 0) * (s._shareRatio || 1.0)), 0);
-  const totalSoldPurch = filteredSold.reduce((sum, s) => sum + ((Number(s.purchase_price) || 0) * (s._shareRatio || 1.0)), 0);
-  const totalSoldSell = filteredSold.reduce((sum, s) => sum + ((Number(s.sell_price) || 0) * (s._shareRatio || 1.0)), 0);
-  const soldProfitRate = totalSoldPurch > 0 ? ((totalSoldPnl / totalSoldPurch) * 100).toFixed(1) : "0.0";
-
-  realEstateView.updateSummary({ o, totalREVal, ownList, rentalList, totalPurchaseVal, totalTenantDeposit, totalProfit, totalProfitRate, totalREDebt, totalLinkedLoanBalance, totalLandlordDeposit, totalSoldPnl, totalSoldPurch, soldProfitRate, filteredSold, filtered, leaseList, currentRealEstateSubtab });
-
-  let displayList = filtered;
-  if (currentRealEstateSubtab === 'own') {
-    displayList = ownList;
-  } else if (currentRealEstateSubtab === 'rental') {
-    displayList = rentalList;
-  } else if (currentRealEstateSubtab === 'lease') {
-    displayList = leaseList;
-  } else if (currentRealEstateSubtab === 'sold') {
-    displayList = filteredSold;
-  }
-
-  const grid = $("#realEstateGrid");
-  if (!grid) return;
-
-  if (currentRealEstateSubtab === 'sold') {
-    if (!filteredSold.length) {
-      grid.innerHTML = realEstateView.emptySold();
-      return;
-    }
-
-    grid.innerHTML = filteredSold.map(sold => {
-      const shareRatio = sold._shareRatio || 1.0;
-      const isPartial = shareRatio < 0.999;
-      const rawPurch = Number(sold.purchase_price) || 0;
-      const rawSell = Number(sold.sell_price) || 0;
-      const rawExp = Number(sold.expenses) || 0;
-      const rawPnl = Number(sold.pnl_krw != null ? sold.pnl_krw : sold.pnl) || 0;
-
-      const purch = isPartial ? rawPurch * shareRatio : rawPurch;
-      const sell = isPartial ? rawSell * shareRatio : rawSell;
-      const exp = isPartial ? rawExp * shareRatio : rawExp;
-      const pnl = isPartial ? rawPnl * shareRatio : rawPnl;
-
-      const profitSign = pnl >= 0 ? "+" : "";
-      const profitColor = pnl > 0 ? "#42d5a3" : (pnl < 0 ? "#f43f5e" : "#94a3b8");
-      const profitRate = purch > 0 ? ((pnl / purch) * 100).toFixed(1) : null;
-
-      const titleName = sold.clean_name || (sold.name || '부동산').replace('[부동산]', '').trim() || '부동산 매도';
-      const ownerBadgeText = sold.is_joint_ownership
-        ? (isPartial ? `🤝 ${o} ${(shareRatio * 100).toFixed(0)}% (공동명의)` : `🤝 ${sold.owner}`)
-        : (sold.owner || '모두');
-
-      return realEstateView.soldCard({ sold, ownerBadgeText, titleName, purch, isPartial, rawPurch, sell, rawSell, exp, rawExp, profitColor, profitSign, pnl, profitRate });
-    }).join("");
-    return;
-  }
-
-  if (!displayList.length) {
-    grid.innerHTML = realEstateView.emptyProperties();
-    return;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  grid.innerHTML = displayList.map(re => {
-    const pType = re.property_type || 'own';
-    const typeLabel = PROPERTY_TYPE_LABELS[pType] || "부동산";
-    const typeBadgeClass = pType === 'own' ? 'badge-own' : (pType === 'rental' ? 'badge-rental' : 'badge-lease');
-    const shareRatio = re._shareRatio || 1.0;
-    const isPartial = shareRatio < 0.999;
-
-    const rawPurch = Number(re.purchase_price || 0);
-    const rawCurr = Number(re.current_price || 0);
-    const rawDep = Number(re.deposit_amount || 0);
-    const rawRent = Number(re.monthly_rent || 0);
-
-    const purch = isPartial ? rawPurch * shareRatio : rawPurch;
-    const curr = isPartial ? rawCurr * shareRatio : rawCurr;
-    const dep = isPartial ? rawDep * shareRatio : rawDep;
-    const rent = isPartial ? rawRent * shareRatio : rawRent;
-
-    const profit = (pType !== 'lease' && purch > 0) ? (curr - purch) : 0;
-    const profitRate = (pType !== 'lease' && purch > 0) ? ((profit / purch) * 100).toFixed(1) : "0.0";
-    const profitSign = profit >= 0 ? "+" : "";
-    const profitColor = profit >= 0 ? "#42d5a3" : "#f43f5e";
-
-    let dDayText = "";
-    if (re.expiry_date) {
-      try {
-        const expDt = new Date(re.expiry_date.substring(0, 10));
-        const diffDays = Math.round((expDt - today) / (1000 * 60 * 60 * 24));
-        dDayText = diffDays <= 0 ? "만기 경과" : `만기 D-${diffDays}`;
-      } catch (e) {}
-    }
-
-    const connectedLoanItems = (re.linked_loan_ids || []).map(lid => loanMap.get(lid)).filter(Boolean);
-    const linkedLoanTotalBal = connectedLoanItems.reduce((acc, l) => acc + Number(l.current_balance || 0) * shareRatio, 0);
-    const linkedLoanTotalInterest = connectedLoanItems.reduce((acc, l) => acc + (Number(l.monthly_interest) || Number(l.calc?.monthly_interest) || 0) * shareRatio, 0);
-
-    let netEquity = 0;
-    if (pType === 'own') {
-      netEquity = curr - linkedLoanTotalBal;
-    } else if (pType === 'rental') {
-      netEquity = curr - (dep + linkedLoanTotalBal);
-    } else {
-      netEquity = dep - linkedLoanTotalBal;
-    }
-
-    const pyungText = re.exclusive_area > 0 ? ` (약 ${(re.exclusive_area / 3.3058).toFixed(1)}평)` : '';
-
-    // 네이버 부동산 검색 링크: 동·호수를 제외한 깨끗한 단지명으로 검색
-    const cleanSearchKeyword = (re.name || '').replace(/\s*\d+[-~_동호].*$/i, '').trim() || re.name || re.address || '';
-    const naverLandUrl = `https://m.land.naver.com/search/result/${encodeURIComponent(cleanSearchKeyword)}`;
-
-    // 카드 타이틀에 동·호수 결합 표시
-    const titleHtml = realEstateView.title({ re });
-
-    // 소유자 배지 라벨
-    const ownerBadgeText = re.is_joint_ownership
-      ? (isPartial ? `🤝 ${o} ${(shareRatio * 100).toFixed(0)}% (공동명의)` : `🤝 ${re.owner}`)
-      : (re.owner || '모두');
-
-    return realEstateView.propertyCard({ re, typeBadgeClass, typeLabel, ownerBadgeText, dDayText, titleHtml, pType, naverLandUrl, cleanSearchKeyword, isPartial, o, purch, rawPurch, curr, rawCurr, profitColor, profitSign, profit, profitRate, dep, rawDep, rent, pyungText, connectedLoanItems, linkedLoanTotalBal, linkedLoanTotalInterest, netEquity });
-  }).join("");
-}
-
-function calcRealEstatePreview() {
-  const pType = $("#reTypeSelect")?.value || "own";
-  const purch = Number($("#rePurchasePrice")?.value || 0);
-  const curr = Number($("#reCurrentPrice")?.value || 0);
-  const dep = Number($("#reDepositAmount")?.value || 0);
-
-  const selectedLoanId = $("#reLinkedLoansSelect")?.value || "";
-  let loanBal = 0;
-  if (selectedLoanId) {
-    const l = rawLoanAccounts.find(x => x.id === selectedLoanId);
-    if (l) loanBal = Number(l.current_balance || 0);
-  }
-
-  let netEquity = 0;
-  let profit = 0;
-  let profitRate = "0.0";
-
-  if (pType === 'own') {
-    netEquity = curr - loanBal;
-    if (purch > 0) {
-      profit = curr - purch;
-      profitRate = ((profit / purch) * 100).toFixed(1);
-    }
-  } else if (pType === 'rental') {
-    netEquity = curr - (dep + loanBal);
-    if (purch > 0) {
-      profit = curr - purch;
-      profitRate = ((profit / purch) * 100).toFixed(1);
-    }
-  } else {
-    netEquity = dep - loanBal;
-  }
-
-  if ($("#rePreviewEquity")) $("#rePreviewEquity").textContent = `₩${number(netEquity, 0)}`;
-  if ($("#rePreviewProfitWrap")) {
-    $("#rePreviewProfitWrap").style.display = pType !== 'lease' ? "block" : "none";
-    if (pType !== 'lease') {
-      const pSign = profit >= 0 ? "+" : "";
-      if ($("#rePreviewProfit")) {
-        $("#rePreviewProfit").textContent = `${pSign}₩${number(profit, 0)} (${pSign}${profitRate}%)`;
-        $("#rePreviewProfit").style.color = profit >= 0 ? "#42d5a3" : "#f43f5e";
-      }
-    }
-  }
-}
-
-function updateRealEstateTypeFields() {
-  realEstateView.updateFormTypeFields();
-
-  calcRealEstatePreview();
-}
-
-function renderJointOwnershipRows(ownerships = []) {
-  const container = $("#reJointRows");
-  if (!container) return;
-  const members = (typeof familyMembers !== 'undefined' && familyMembers && familyMembers.length) 
-    ? familyMembers 
-    : ['아빠', '엄마', '자녀'];
-
-  const rows = (ownerships && ownerships.length) ? ownerships : [
-    { owner: members[0] || '아빠', ratio: 50 },
-    { owner: members[1] || '엄마', ratio: 50 }
-  ];
-
-  container.innerHTML = rows.map(r => `
-    <div class="re-joint-row" style="display:flex;align-items:center;gap:8px;">
-      <select class="re-joint-owner-select" style="flex:1;">
-        ${members.map(m => `<option value="${m}" ${m === r.owner ? 'selected' : ''}>${m}</option>`).join('')}
-      </select>
-      <div style="display:flex;align-items:center;gap:4px;width:110px;">
-        <input type="number" class="re-joint-ratio-input" value="${r.ratio}" min="1" max="100" step="1" style="width:70px;text-align:right;" />
-        <span style="font-size:12px;color:#94a3b8;">%</span>
-      </div>
-      <button type="button" class="mini-delete-button re-joint-del-btn" title="삭제" style="padding:2px 6px;">×</button>
-    </div>
-  `).join('');
-
-  updateJointTotalRatio();
-}
-
-function updateJointTotalRatio() {
-  const inputs = document.querySelectorAll('.re-joint-ratio-input');
-  let sum = 0;
-  inputs.forEach(inp => sum += Number(inp.value || 0));
-  const totalEl = $("#reJointTotalRatio");
-  if (totalEl) {
-    totalEl.textContent = `지분율 합계: ${sum}%`;
-    totalEl.style.color = sum === 100 ? "#38bdf8" : "#fb7185";
-  }
-}
-
-function openRealEstateDialog(reItem = null) {
-  const dialog = $("#realEstateDialog");
-  const form = $("#realEstateForm");
-  if (!dialog || !form) return;
-  form.reset();
-  form.querySelector("[name='id']").value = reItem ? reItem.id : "";
-
-  if ($("#realEstateDialogTitle")) {
-    $("#realEstateDialogTitle").textContent = reItem ? "부동산 자산 수정" : "부동산 자산 추가";
-  }
-
-  const loanSelect = $("#reLinkedLoansSelect");
-  if (loanSelect) {
-    let opts = '<option value="">-- 연결 대출 없음 --</option>';
-    rawLoanAccounts.forEach(l => {
-      const typeStr = LOAN_TYPE_LABELS[l.loan_type] || "대출";
-      opts += `<option value="${l.id}">${l.bank_name} - ${l.product_name} (${typeStr}, 잔액 ₩${number(l.current_balance, 0)})</option>`;
-    });
-    loanSelect.innerHTML = opts;
-  }
-
-  const isJoint = Boolean(reItem?.is_joint_ownership);
-  const jointCheck = $("#reIsJointCheck");
-  if (jointCheck) jointCheck.checked = isJoint;
-
-  realEstateView.showJointOwnershipFields(isJoint);
-
-  renderJointOwnershipRows(reItem?.ownerships || []);
-
-  if (reItem) {
-    form.querySelector("[name='property_type']").value = reItem.property_type || "own";
-    form.querySelector("[name='owner']").value = reItem.ownerships?.[0]?.owner || reItem.owner || "모두";
-    form.querySelector("[name='name']").value = reItem.name || "";
-    form.querySelector("[name='dong_ho']").value = reItem.dong_ho || "";
-    form.querySelector("[name='address']").value = reItem.address || "";
-    form.querySelector("[name='purchase_price']").value = reItem.purchase_price || "";
-    form.querySelector("[name='current_price']").value = reItem.current_price || "";
-    form.querySelector("[name='deposit_amount']").value = reItem.deposit_amount || "";
-    form.querySelector("[name='monthly_rent']").value = reItem.monthly_rent || "";
-    form.querySelector("[name='contract_date']").value = reItem.contract_date || "";
-    form.querySelector("[name='expiry_date']").value = reItem.expiry_date || "";
-    form.querySelector("[name='exclusive_area']").value = reItem.exclusive_area || "";
-    form.querySelector("[name='memo']").value = reItem.memo || "";
-    form.querySelector("[name='kb_complex_no']").value = reItem.kb_complex_no || "";
-
-    const linkedIds = reItem.linked_loan_ids || [];
-    if (loanSelect) loanSelect.value = linkedIds[0] || "";
-  } else {
-    form.querySelector("[name='owner']").value = currentOwner !== "모두" ? currentOwner : "모두";
-    form.querySelector("[name='kb_complex_no']").value = "";
-  }
-
-  const kbBox = $("#reKbResultBox");
-  if (kbBox) kbBox.style.display = "none";
-
-  updateRealEstateTypeFields();
-  refreshDialogKoreanHints(dialog);
-  dialog.showModal();
-}
-
-let currentKbTypes = [];
-
-async function fetchKbMarketPrice() {
-  const nameInput = $("#reNameInput");
-  const areaInput = $("#reExclusiveArea");
-  const complexNoInput = $("#reKbComplexNo");
-  const btn = $("#reFetchKbBtn");
-  const resultBox = $("#reKbResultBox");
-  const resultDetail = $("#reKbResultDetail");
-  const typeSelectWrap = $("#reKbTypeSelectWrap");
-  const typeSelect = $("#reKbTypeSelect");
-
-  const name = (nameInput?.value || "").trim();
-  if (!name) {
-    alert("단지명(아파트명)을 먼저 입력해 주세요.");
-    nameInput?.focus();
-    return;
-  }
-
-  const area = Number(areaInput?.value || 0);
-  const complexNo = (complexNoInput?.value || "").trim();
-
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "⏳ 조회 중...";
-  }
-
-  try {
-    const res = await api(`/api/real-estates/kb-price?name=${encodeURIComponent(name)}&area=${area}&complex_no=${encodeURIComponent(complexNo)}`);
-    if (!res.ok) {
-      alert(res.message || "KB시세를 찾을 수 없습니다.");
-      return;
-    }
-
-    if (complexNoInput) complexNoInput.value = res.complex_no;
-    currentKbTypes = res.types || [];
-
-    const matched = res.matched;
-    if (resultBox) resultBox.style.display = "block";
-
-    if (matched) {
-      if (resultDetail) {
-        resultDetail.innerHTML = `
-          <strong>단지</strong>: ${html(res.complex_info?.name || name)} 
-          <span style="color:#facc15;">[${html(matched.type_display)}]</span><br/>
-          <strong>KB 매매 일반평균가</strong>: <span style="font-size:13px;font-weight:700;color:#38bdf8;">₩${number(matched.deal_avg, 0)}</span><br/>
-          <small style="color:#94a3b8;">하한가 ₩${number(matched.deal_low, 0)} ~ 상한가 ₩${number(matched.deal_high, 0)} · 전세 ₩${number(matched.lease_avg, 0)}</small>
-        `;
-      }
-      // 현재 시세에 자동 적용
-      const currInput = $("#reCurrentPrice");
-      if (currInput && (!currInput.value || Number(currInput.value) === 0 || confirm(`조회된 KB 일반평균가(₩${number(matched.deal_avg, 0)})를 현재 시세에 적용할까요?`))) {
-        currInput.value = matched.deal_avg;
-        updateKoreanCurrencyHint(currInput);
-        calcRealEstatePreview();
-      }
-    }
-
-    // 평형 선택 드롭다운 구성
-    if (typeSelect && currentKbTypes.length > 1) {
-      typeSelect.innerHTML = currentKbTypes.map((t, idx) => `
-        <option value="${idx}" ${t === matched ? 'selected' : ''}>
-          ${t.type_display} - 일반가 ₩${number(t.deal_avg, 0)}
-        </option>
-      `).join('');
-      if (typeSelectWrap) typeSelectWrap.style.display = "block";
-    } else if (typeSelectWrap) {
-      typeSelectWrap.style.display = "none";
-    }
-
-  } catch (err) {
-    alert("KB시세 조회 실패: " + (err.message || err));
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = "🔍 KB시세 조회";
-    }
-  }
-}
-
-// ── 부동산 매각 및 실현손익 기록 다이얼로그 제어 ─────────────────────────
-function openRealEstateSellDialog(reItem, editPnlItem = null) {
-  const dlg = document.getElementById("realEstateSellDialog");
-  if (!dlg) return;
-
-  const titleEl = document.getElementById("reSellDialogTitle");
-  const targetIdEl = document.getElementById("reSellTargetId");
-  const editPnlIdEl = document.getElementById("reSellEditPnlId");
-  const nameEl = document.getElementById("reSellName");
-  const addressEl = document.getElementById("reSellAddress");
-  const ownerEl = document.getElementById("reSellOwner");
-  const dateEl = document.getElementById("reSellDate");
-  const purchEl = document.getElementById("reSellPurchasePrice");
-  const priceEl = document.getElementById("reSellPrice");
-  const expEl = document.getElementById("reSellExpenses");
-  const memoEl = document.getElementById("reSellMemo");
-  const removeEl = document.getElementById("reSellRemoveFromAssets");
-  const removeWrap = document.getElementById("reSellRemoveFromAssetsWrap");
-  const submitBtn = document.getElementById("reSellSubmitBtn");
-
-  // 가족 소유자 목록 옵션 갱신
-  if (ownerEl) {
-    const familyMembers = (rawDashboard && rawDashboard.family_members) || ['아빠', '엄마'];
-    const opts = ['모두', ...familyMembers];
-    ownerEl.innerHTML = Array.from(new Set(opts)).map(m => `<option value="${m}">${m}</option>`).join('');
-  }
-
-  if (editPnlItem) {
-    // 1) 기존 매도 기록 수정 모드
-    if (titleEl) titleEl.textContent = "🏢 부동산 매도 기록 수정";
-    if (submitBtn) submitBtn.textContent = "매도 기록 수정 완료";
-    if (targetIdEl) targetIdEl.value = "";
-    if (editPnlIdEl) editPnlIdEl.value = editPnlItem.id || "";
-    if (nameEl) {
-      nameEl.value = editPnlItem.clean_name || (editPnlItem.name || '').replace('[부동산]', '').trim() || "";
-      nameEl.readOnly = false;
-      nameEl.style.background = "";
-      nameEl.style.color = "";
-    }
-    if (addressEl) addressEl.value = editPnlItem.address || "";
-    if (ownerEl) ownerEl.value = editPnlItem.owner || "모두";
-    if (dateEl) dateEl.value = editPnlItem.date || new Date().toISOString().slice(0, 10);
-    if (purchEl) {
-      purchEl.value = editPnlItem.purchase_price || 0;
-      purchEl.readOnly = false;
-      purchEl.style.background = "";
-      purchEl.style.color = "";
-    }
-    if (priceEl) priceEl.value = editPnlItem.sell_price || 0;
-    if (expEl) expEl.value = editPnlItem.expenses || 0;
-    if (memoEl) memoEl.value = editPnlItem.memo || "";
-    if (removeWrap) removeWrap.style.display = "none";
-  } else if (reItem) {
-    // 2) 보유 부동산 매각 모드
-    if (titleEl) titleEl.textContent = "🏢 부동산 매각 및 실현손익 기록";
-    if (submitBtn) submitBtn.textContent = "실현손익에 기록";
-    if (targetIdEl) targetIdEl.value = reItem.id || "";
-    if (editPnlIdEl) editPnlIdEl.value = "";
-    if (nameEl) {
-      nameEl.value = reItem.name || "부동산";
-      nameEl.readOnly = true;
-      nameEl.style.background = "rgba(255,255,255,0.05)";
-      nameEl.style.color = "#94a3b8";
-    }
-    if (addressEl) addressEl.value = reItem.address || "";
-    if (ownerEl) ownerEl.value = reItem.owner || "모두";
-    if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
-    if (purchEl) {
-      purchEl.value = reItem.purchase_price || 0;
-      purchEl.readOnly = true;
-      purchEl.style.background = "rgba(255,255,255,0.05)";
-      purchEl.style.color = "#94a3b8";
-    }
-    if (priceEl) priceEl.value = reItem.current_price || reItem.purchase_price || "";
-    if (expEl) expEl.value = 0;
-    if (memoEl) memoEl.value = "";
-    if (removeWrap) removeWrap.style.display = "block";
-    if (removeEl) removeEl.checked = true;
-  } else {
-    // 3) 직접 매도 기록 추가 모드
-    if (titleEl) titleEl.textContent = "🏢 부동산 매도 기록 직접 추가";
-    if (submitBtn) submitBtn.textContent = "매도 기록 등록";
-    if (targetIdEl) targetIdEl.value = "direct";
-    if (editPnlIdEl) editPnlIdEl.value = "";
-    if (nameEl) {
-      nameEl.value = "";
-      nameEl.readOnly = false;
-      nameEl.style.background = "";
-      nameEl.style.color = "";
-    }
-    if (addressEl) addressEl.value = "";
-    if (ownerEl) ownerEl.value = currentOwner || "모두";
-    if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
-    if (purchEl) {
-      purchEl.value = "";
-      purchEl.readOnly = false;
-      purchEl.style.background = "";
-      purchEl.style.color = "";
-    }
-    if (priceEl) priceEl.value = "";
-    if (expEl) expEl.value = 0;
-    if (memoEl) memoEl.value = "";
-    if (removeWrap) removeWrap.style.display = "none";
-  }
-
-  // 한글 통화 힌트 업데이트
-  if (purchEl && typeof updateKoreanCurrencyHint === 'function') updateKoreanCurrencyHint(purchEl);
-  if (priceEl && typeof updateKoreanCurrencyHint === 'function') updateKoreanCurrencyHint(priceEl);
-  if (expEl && typeof updateKoreanCurrencyHint === 'function') updateKoreanCurrencyHint(expEl);
-
-  calcRealEstateSellProfit();
-  dlg.showModal();
-}
-window.openRealEstateSellDialog = openRealEstateSellDialog;
-
-function openDirectAddSoldReDialog() {
-  openRealEstateSellDialog(null, null);
-}
-window.openDirectAddSoldReDialog = openDirectAddSoldReDialog;
-
-function calcRealEstateSellProfit() {
-  const purch = Number(document.getElementById("reSellPurchasePrice")?.value || 0);
-  const sell = Number(document.getElementById("reSellPrice")?.value || 0);
-  const exp = Number(document.getElementById("reSellExpenses")?.value || 0);
-  const pnl = sell - purch - exp;
-
-  const pnlEl = document.getElementById("reSellPnlPreview");
-  const formulaEl = document.getElementById("reSellCalcFormula");
-
-  if (pnlEl) {
-    const sign = pnl >= 0 ? "+" : "";
-    pnlEl.textContent = `${sign}₩${number(pnl, 0)}`;
-    pnlEl.style.color = pnl > 0 ? "#42d5a3" : (pnl < 0 ? "#f43f5e" : "#38bdf8");
-  }
-  if (formulaEl) {
-    formulaEl.textContent = `양도가 ₩${number(sell, 0)} - 취득가 ₩${number(purch, 0)} - 필요경비 ₩${number(exp, 0)}`;
-  }
-}
-window.calcRealEstateSellProfit = calcRealEstateSellProfit;
-
-async function submitRealEstateSell() {
-  const reId = document.getElementById("reSellTargetId")?.value;
-  const editPnlId = document.getElementById("reSellEditPnlId")?.value;
-
-  const name = document.getElementById("reSellName")?.value?.trim() || "부동산";
-  const address = document.getElementById("reSellAddress")?.value?.trim() || "";
-  const owner = document.getElementById("reSellOwner")?.value || "모두";
-  const sellPrice = Number(document.getElementById("reSellPrice")?.value || 0);
-  const purchPrice = Number(document.getElementById("reSellPurchasePrice")?.value || 0);
-  const sellDate = document.getElementById("reSellDate")?.value;
-  const expenses = Number(document.getElementById("reSellExpenses")?.value || 0);
-  const memo = document.getElementById("reSellMemo")?.value?.trim() || "";
-  const removeFromAssets = document.getElementById("reSellRemoveFromAssets")?.checked ?? true;
-
-  if (sellPrice <= 0) {
-    alert("매도가액(양도가)을 올바르게 입력해 주세요.");
-    return;
-  }
-
-  try {
-    if (editPnlId) {
-      // 1) 기존 매도 기록 수정
-      const pnlKrw = Math.round(sellPrice - purchPrice - expenses);
-      await api(`/api/realized-pnl/${editPnlId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: `[부동산] ${name}`,
-          code: "REAL_ESTATE",
-          asset_type: "real_estate",
-          date: sellDate,
-          currency: "KRW",
-          pnl: pnlKrw,
-          pnl_krw: pnlKrw,
-          owner: owner,
-          memo: memo || `매도가 ₩${number(sellPrice, 0)}, 매수가 ₩${number(purchPrice, 0)}, 필요경비 ₩${number(expenses, 0)}`,
-          real_estate_name: name,
-          purchase_price: purchPrice,
-          sell_price: sellPrice,
-          expenses: expenses,
-          address: address,
-        }),
-      });
-      toast("부동산 매도 기록이 수정되었습니다.");
-    } else {
-      // 2) 신규 매각 기록 (보유 부동산 매각 or 직접 매도 추가)
-      const targetEndpoint = (reId && reId !== "direct") ? `/api/real-estates/${reId}/sell` : `/api/real-estates/direct/sell`;
-      const res = await api(targetEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name,
-          owner: owner,
-          purchase_price: purchPrice,
-          sell_price: sellPrice,
-          sell_date: sellDate,
-          expenses: expenses,
-          address: address,
-          remove_from_assets: (reId && reId !== "direct") ? removeFromAssets : false,
-          memo: memo,
-        }),
-      });
-      toast(res.message || "부동산 매각 실현손익이 기록되었습니다.");
-    }
-
-    document.getElementById("realEstateSellDialog")?.close();
-    await loadDashboard();
-    await loadRealizedPnl(currentOwner);
-  } catch (err) {
-    alert(`부동산 매각 처리 오류: ${err.message}`);
-  }
-}
-window.submitRealEstateSell = submitRealEstateSell;
-
+const realEstateFeature = window.WealthRealEstateFeatureController.create({
+  $,
+  api,
+  closeDialog,
+  get currentOwner() { return currentOwner; },
+  html,
+  loadDashboard,
+  loadRealizedPnl,
+  loanTypeLabels: accountFeature.loanTypeLabels,
+  number,
+  get pnlData() { return pnlData; },
+  get rawDashboard() { return rawDashboard; },
+  get rawLoanAccounts() { return accountFeature.rawLoanAccounts; },
+  refreshDialogKoreanHints,
+  toast,
+  updateKoreanCurrencyHint,
+});
+const {
+  renderRealEstate,
+  renderRealEstateWithOwner,
+  openRealEstateDialog,
+} = realEstateFeature.publicActions;
+Object.assign(window, realEstateFeature.publicActions);
 
 // ── 5. 자산 히트맵 (정통 Squarify 면적 트리맵 + 와이드 카드형 뷰) ─────────────
 const PERIOD_LABELS = {
@@ -4206,89 +2622,6 @@ function openAssetRecordDialog(record = null) {
   });
 }
 
-function openAccountCashDialog(account) {
-  const form = $("#accountCashForm");
-  if (!form || !account) return;
-  form.reset();
-  form.dataset.accountId = account.id;
-  $("#accountCashDialogTitle").textContent = `[${account.broker} · ${account.name}] 예수금 입력 / 수정`;
-  form.cash_krw.value = account.cash_krw || "";
-  form.cash_usd.value = account.cash_usd || "";
-  $("#accountCashDialog")?.showModal();
-}
-
-let accountCurrentYearlyList = [];
-
-function renderAccountYearlyFormRows(form = document.getElementById("accountEditForm")) {
-  const container = form?.querySelector("#accountYearlyList");
-  if (!container) return;
-
-  const accType = form.querySelector(".account-type-select")?.value || "pension_savings";
-  const defaultIncomeLvl = form.querySelector(".pension-income-level")?.value || "low";
-  const baseLimit = accType === "pension_savings" ? 6000000 : 9000000;
-
-  let cumulativeSaved = 0;
-  let cumulativeDeposit = 0;
-
-  let rows = [];
-  if (accountCurrentYearlyList?.length) {
-    // Sort descending by year
-    accountCurrentYearlyList.sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
-
-    rows = accountCurrentYearlyList.map((yc, idx) => {
-      const yr = String(yc.year || "").trim();
-      const dep = Number(yc.deposit || 0);
-      const isDed = yc.is_deductible !== false && String(yc.is_deductible) !== "false";
-      const incLvl = yc.income_level || defaultIncomeLvl;
-      const rate = incLvl === "high" ? 13.2 : 16.5;
-      const target = isDed ? Math.min(dep, baseLimit) : 0;
-      const saved = isDed ? Math.floor(target * (rate / 100)) : 0;
-
-      cumulativeDeposit += dep;
-      if (isDed) cumulativeSaved += saved;
-
-      return { idx, yr, dep, isDed, rate, saved };
-    });
-  }
-
-  accountYearlyView.render(form, container, rows, { cumulativeSaved, cumulativeDeposit });
-}
-
-function updateAccountTaxBenefitFields(form) {
-  if (!form) return;
-  const accType = form.querySelector(".account-type-select")?.value || "general";
-  const taxGroup = form.querySelector(".pension-tax-benefit-group");
-  const isPension = accType === "pension_savings" || accType === "irp";
-  if (taxGroup) taxGroup.style.display = isPension ? "block" : "none";
-
-  if (isPension) {
-    const isDeductible = form.querySelector(".pension-tax-deductible")?.value !== "false";
-    const annualDep = Number(form.querySelector(".pension-annual-deposit")?.value) || 0;
-    const isaTr = Number(form.querySelector(".pension-isa-transfer")?.value) || 0;
-    const incomeLvl = form.querySelector(".pension-income-level")?.value || "low";
-    const rate = incomeLvl === "low" ? 16.5 : 13.2;
-
-    const baseLimit = isDeductible ? (accType === "pension_savings" ? 6000000 : 9000000) : 0;
-    const baseTarget = Math.min(annualDep, baseLimit);
-    const isaTarget = Math.min(isaTr * 0.10, 3000000);
-    const totalTarget = baseTarget + isaTarget;
-    const totalRefund = Math.floor(totalTarget * (rate / 100));
-
-    const targetEl = form.querySelector(".pension-deduction-target-text");
-    const refundEl = form.querySelector(".pension-tax-refund-text");
-
-    if (!isDeductible) {
-      if (targetEl) targetEl.textContent = isaTarget > 0 ? ` (ISA 추가 ₩${number(isaTarget, 0)})` : '';
-      if (refundEl) refundEl.innerHTML = isaTarget > 0
-        ? `+₩${number(Math.floor(isaTarget * (rate / 100)), 0)} <span style="font-size:11px;color:#a7f3d0;">(원금 ₩${number(annualDep, 0)} 비과세)</span>`
-        : `<span style="color:#a7f3d0;font-size:12px;">₩0 (원금 비과세 인출 대상)</span>`;
-    } else {
-      if (targetEl) targetEl.textContent = isaTarget > 0 ? ` (ISA 추가 ₩${number(isaTarget, 0)})` : '';
-      if (refundEl) refundEl.textContent = `₩${number(totalRefund, 0)} (${rate}%)`;
-    }
-  }
-}
-
 function normalizeYear(val) {
   if (!val) return "";
   const digits = String(val).replace(/\D/g, "");
@@ -4301,214 +2634,18 @@ function normalizeYear(val) {
 }
 window.normalizeYear = normalizeYear;
 
-let editingAccountYearlyIndex = null;
-
-function resetAddAccountYearlyBtn() {
-  const btn = document.getElementById("addAccountYearlyBtn");
-  if (btn) {
-    btn.innerHTML = `<span>➕</span> <span>연도 추가 / 반영</span>`;
-    btn.style.background = "linear-gradient(135deg, #0284c7, #0ea5e9)";
-  }
-}
-
-function setEditingAccountYearlyBtn(yr) {
-  const btn = document.getElementById("addAccountYearlyBtn");
-  if (btn) {
-    btn.innerHTML = `<span>✏️</span> <span>[${yr}년] 수정 반영</span>`;
-    btn.style.background = "linear-gradient(135deg, #059669, #10b981)";
-  }
-}
-
-function handleAddAccountYearly() {
-  const editForm = document.getElementById("accountEditForm");
-  const yrInput = editForm?.querySelector(".pension-entry-year") || document.getElementById("accountInputYear");
-  const depInput = editForm?.querySelector(".pension-annual-deposit") || document.getElementById("accountInputDeposit");
-  const dedInput = editForm?.querySelector(".pension-tax-deductible") || document.getElementById("accountInputDeductible");
-  const incInput = editForm?.querySelector(".pension-income-level") || document.getElementById("accountInputIncomeLevel");
-
-  const rawYr = (yrInput?.value || "").trim();
-  const yr = normalizeYear(rawYr);
-  const dep = Number(depInput?.value) || 0;
-  const isDed = dedInput ? dedInput.value !== "false" : true;
-  const incLvl = incInput?.value || "low";
-
-  if (!yr) {
-    alert("연도를 올바르게 입력해 주세요 (예: 2024 또는 24년).");
-    yrInput?.focus();
-    return;
-  }
-  if (dep < 0) {
-    alert("납입액을 0원 이상 입력해 주세요.");
-    depInput?.focus();
-    return;
-  }
-
-  // 상단 입력창에도 정규화된 4자리 연도로 표시
-  if (yrInput) yrInput.value = yr;
-
-  if (editingAccountYearlyIndex !== null && accountCurrentYearlyList[editingAccountYearlyIndex]) {
-    const oldYr = accountCurrentYearlyList[editingAccountYearlyIndex].year;
-    accountCurrentYearlyList[editingAccountYearlyIndex].year = yr;
-    accountCurrentYearlyList[editingAccountYearlyIndex].deposit = dep;
-    accountCurrentYearlyList[editingAccountYearlyIndex].is_deductible = isDed;
-    accountCurrentYearlyList[editingAccountYearlyIndex].income_level = incLvl;
-    editingAccountYearlyIndex = null;
-    resetAddAccountYearlyBtn();
-    toast(`[${oldYr}년 ➔ ${yr}년 ₩${number(dep, 0)}] 수정이 반영되었습니다. 하단 [저장]을 눌러 최종 저장하세요.`);
-  } else {
-    // 기존 연도 확인 (있으면 갱신, 없으면 추가)
-    const existingIdx = accountCurrentYearlyList.findIndex(y => normalizeYear(y.year) === yr);
-    if (existingIdx >= 0) {
-      accountCurrentYearlyList[existingIdx].year = yr;
-      accountCurrentYearlyList[existingIdx].deposit = dep;
-      accountCurrentYearlyList[existingIdx].is_deductible = isDed;
-      accountCurrentYearlyList[existingIdx].income_level = incLvl;
-      toast(`[${yr}년 ₩${number(dep, 0)}] 이력이 반영되었습니다. 하단 [저장]을 눌러 최종 저장하세요.`);
-    } else {
-      accountCurrentYearlyList.push({
-        year: yr,
-        deposit: dep,
-        is_deductible: isDed,
-        income_level: incLvl
-      });
-      toast(`[${yr}년 ₩${number(dep, 0)}] 이력이 목록에 추가되었습니다. 하단 [저장]을 눌러 최종 저장하세요.`);
-    }
-  }
-
-  // 연도 내림차순 정렬 후 렌더링
-  accountCurrentYearlyList.sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
-  renderAccountYearlyFormRows(editForm);
-  updateAccountTaxBenefitFields(editForm);
-  refreshDialogKoreanHints(editForm);
-}
-window.handleAddAccountYearly = handleAddAccountYearly;
-
-let currentEditingAccountId = null;
-
-function openAccountEditDialog(account) {
-  const form = $("#accountEditForm");
-  if (!form || !account) return;
-  form.reset();
-  editingAccountYearlyIndex = null;
-  resetAddAccountYearlyBtn();
-  currentEditingAccountId = account.id;
-  form.removeAttribute("data-account-id");
-  form.removeAttribute("data-account-edit-id");
-  delete form.dataset.accountId;
-  delete form.dataset.accountEditId;
-  let idInput = form.querySelector("[name='id']");
-  if (!idInput) {
-    idInput = document.createElement("input");
-    idInput.type = "hidden";
-    idInput.name = "id";
-    form.prepend(idInput);
-  }
-  idInput.value = account.id;
-  form.broker.value = account.broker || "";
-  form.name.value = account.name || "";
-  if (form.account_no) form.account_no.value = account.account_no || "";
-  if (form.owner) form.owner.value = account.owner || "모두";
-  if (form.cash_krw) form.cash_krw.value = account.cash_krw || "";
-  if (form.cash_usd) form.cash_usd.value = account.cash_usd || "";
-
-  const aName = (account.name || "").toLowerCase();
-  const aType = account.account_type || (aName.includes("연금") ? "pension_savings" : (aName.includes("irp") ? "irp" : (aName.includes("isa") ? "isa" : "general")));
-  const typeSelect = form.querySelector(".account-type-select");
-  if (typeSelect) typeSelect.value = aType;
-
-  const isTaxDeductible = isAccountTaxDeductible(account);
-  const dedSel = form.querySelector(".pension-tax-deductible");
-  if (dedSel) dedSel.value = isTaxDeductible ? "true" : "false";
-
-  const incomeLvl = form.querySelector(".pension-income-level");
-  const acctIncomeLvl = account.income_level || "low";
-  if (incomeLvl) incomeLvl.value = acctIncomeLvl;
-  const annualDep = form.querySelector(".pension-annual-deposit");
-  if (annualDep) annualDep.value = (account.annual_deposit !== undefined && account.annual_deposit !== null && account.annual_deposit !== "") ? account.annual_deposit : "";
-  const isaTr = form.querySelector(".pension-isa-transfer");
-  if (isaTr) isaTr.value = (account.isa_transfer_amount !== undefined && account.isa_transfer_amount !== null && account.isa_transfer_amount !== "") ? account.isa_transfer_amount : "";
-  const isaYear = form.querySelector(".pension-isa-year");
-  if (isaYear) isaYear.value = account.isa_transfer_year || "2026";
-
-  accountCurrentYearlyList = Array.isArray(account.yearly_contributions)
-    ? JSON.parse(JSON.stringify(account.yearly_contributions))
-    : [];
-
-  const curYrStr = String(new Date().getFullYear());
-  const acctAnnualDep = Number(account.annual_deposit) || 0;
-  if ((aType === "pension_savings" || aType === "irp") && accountCurrentYearlyList.length === 0 && acctAnnualDep > 0) {
-    accountCurrentYearlyList.push({
-      year: curYrStr,
-      deposit: acctAnnualDep,
-      is_deductible: isTaxDeductible,
-      income_level: acctIncomeLvl
-    });
-  }
-
-  // Sort descending by year
-  accountCurrentYearlyList.sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
-
-  // If account has an income_level, fill it in for yearly items that don't have one
-  if (account.income_level) {
-    accountCurrentYearlyList.forEach(item => {
-      if (!item.income_level) item.income_level = acctIncomeLvl;
-    });
-  }
-
-  // Set top input year & values
-  const yrInput = form.querySelector(".pension-entry-year");
-  if (yrInput) {
-    if (accountCurrentYearlyList.length > 0) {
-      const topItem = accountCurrentYearlyList[0];
-      yrInput.value = topItem.year || curYrStr;
-      if (annualDep) {
-        annualDep.value = (topItem.deposit !== undefined && topItem.deposit !== null) ? topItem.deposit : (account.annual_deposit || "");
-      }
-      if (dedSel && topItem.is_deductible !== undefined) {
-        dedSel.value = (topItem.is_deductible !== false && String(topItem.is_deductible) !== "false") ? "true" : "false";
-      }
-      if (incomeLvl) {
-        incomeLvl.value = topItem.income_level || acctIncomeLvl;
-      }
-    } else {
-      yrInput.value = curYrStr;
-      if (annualDep) annualDep.value = (account.annual_deposit && account.annual_deposit > 0) ? account.annual_deposit : "";
-    }
-  }
-
-  updateAccountTaxBenefitFields(form);
-  renderAccountYearlyFormRows(form);
-  refreshDialogKoreanHints($("#accountEditDialog"));
-  $("#accountEditDialog")?.showModal();
-}
-
 // ── 14. 가족 구성원 관리 함수들 ──────────────────────────────────────────────
-const familyView = window.WealthFamilyView.create({ document });
-function renderFamilyMemberList(members) { familyView.renderFamilyMemberList(members); }
-
-async function openFamilyManager() {
-  const dlg = document.getElementById('familyManagerDialog');
-  if (!dlg) return;
-  try {
-    const res = await api('/api/family-members');
-    renderFamilyMemberList(res.members || []);
-  } catch(e) {
-    renderFamilyMemberList([]);
-  }
-  dlg.showModal();
-}
-
-async function loadFamilyMembers() {
-  try {
-    const res = await api('/api/family-members');
-    const members = res.members || [];
-    renderFamilyTabs(members);
-    updateOwnerSelectOptions(members);
-  } catch (e) {}
-}
-
-function updateOwnerSelectOptions(members) { familyView.updateOwnerSelectOptions(members); }
-function renderFamilyTabs(members) { familyView.renderFamilyTabs(members, currentOwner); }
+const familyFeature = window.WealthFamilyFeatureController.create({
+  api,
+  get currentOwner() { return currentOwner; },
+  loadDashboard,
+  toast,
+});
+const {
+  openFamilyManager,
+  loadFamilyMembers,
+} = familyFeature.publicActions;
+Object.assign(window, familyFeature.publicActions);
 
 // ── 전역 클릭 이벤트 위임 ───────────────────────────────────────────────────
 document.addEventListener('click', async (e) => {
@@ -4553,15 +2690,7 @@ document.addEventListener('click', async (e) => {
 
   // ➕ 계좌 추가 모달 열기 (증권 계좌)
   if (e.target.closest('#addAccountBtn')) {
-    const form = document.getElementById("accountAddForm");
-    if (form) {
-      form.reset();
-      const ownerSelect = form.querySelector("[name='owner']");
-      if (ownerSelect && currentOwner !== "모두") {
-        ownerSelect.value = currentOwner;
-      }
-    }
-    document.getElementById("accountAddDialog")?.showModal();
+    accountFeature.actions.openAccountAddDialog();
     return;
   }
 
@@ -4604,14 +2733,7 @@ document.addEventListener('click', async (e) => {
   // ✎ 증권/연금/IRP 계좌 정보 수정 모달 열기 (증권 탭, 보험/연금 탭, 절세계좌 탭 어디서든 100% 동작)
   const acctEditBtn = e.target.closest('[data-account-edit-id]');
   if (acctEditBtn) {
-    e.preventDefault();
-    const aid = acctEditBtn.dataset.accountEditId;
-    const acct = (dashboard?.accounts || []).find(a => a.id === aid) || (rawDashboard?.accounts || []).find(a => a.id === aid);
-    if (acct) {
-      openAccountEditDialog(acct);
-    } else {
-      console.warn("[openAccountEditDialog] 계좌를 찾을 수 없습니다:", aid);
-    }
+    accountFeature.actions.editAccountFromRow(e, acctEditBtn);
     return;
   }
 
@@ -4619,174 +2741,100 @@ document.addEventListener('click', async (e) => {
   const analysisButton=e.target.closest('[data-national-analysis-id]');
   const importButton=e.target.closest('[data-national-import-id]');
   if(analysisButton||importButton){
-    const id=analysisButton?.dataset.nationalAnalysisId||importButton.dataset.nationalImportId;
-    const item=rawInsuranceAccounts.find(row=>row.id===id&&row.insurance_type==='national_pension');
-    if(item){openNationalPensionHistory(item);if(importButton)window.WealthPensionImport?.open(item);else document.getElementById('npAnalysisPanel')?.scrollIntoView({block:'start'});}
+    insuranceFeature.actions.openNationalPensionTool(analysisButton, importButton);
     return;
   }
   if (historyButton) {
-    const item = rawInsuranceAccounts.find(item => item.id === historyButton.dataset.nationalHistoryId && item.insurance_type === 'national_pension');
-    if (item) openNationalPensionHistory(item);
+    insuranceFeature.actions.openNationalPensionHistoryFromRow(historyButton);
     return;
   }
   // 보험/연금 수정
   const insEditBtn = e.target.closest('[data-insurance-edit-id]');
   if (insEditBtn) {
-    const iid = insEditBtn.dataset.insuranceEditId;
-    const ins = rawInsuranceAccounts.find(i => i.id === iid);
-    if (ins) openInsuranceAccountDialog(ins);
+    insuranceFeature.actions.editInsuranceAccount(insEditBtn);
     return;
   }
 
   // 보험/연금 삭제
   const insDelBtn = e.target.closest('[data-insurance-del-id]');
   if (insDelBtn) {
-    const iid = insDelBtn.dataset.insuranceDelId;
-    if (confirm('이 보험/연금 상품을 삭제하시겠습니까?')) {
-      try {
-        await api(`/api/insurance-accounts/${iid}`, { method: 'DELETE' });
-        toast('보험/연금 상품이 삭제되었습니다.');
-        await loadDashboard();
-      } catch (err) {
-        toast(err.message || '삭제 실패', true);
-      }
-    }
+    await insuranceFeature.actions.deleteInsuranceAccount(insDelBtn);
     return;
   }
 
   // 대출·마이너스통장 수정
   const loanEditBtn = e.target.closest('[data-loan-edit-id]');
   if (loanEditBtn) {
-    const lid = loanEditBtn.dataset.loanEditId;
-    const loan = rawLoanAccounts.find(l => l.id === lid);
-    if (loan) openLoanAccountDialog(loan);
+    accountFeature.actions.editLoanAccount(loanEditBtn);
     return;
   }
 
   // 대출·마이너스통장 삭제
   const loanDelBtn = e.target.closest('[data-loan-del-id]');
   if (loanDelBtn) {
-    const lid = loanDelBtn.dataset.loanDelId;
-    if (confirm('이 대출·마이너스통장 항목을 삭제하시겠습니까?')) {
-      try {
-        await api(`/api/loan-accounts/${lid}`, { method: 'DELETE' });
-        toast('대출·마이너스통장이 삭제되었습니다.');
-        await loadDashboard();
-      } catch (err) {
-        toast(err.message || '삭제 실패', true);
-      }
-    }
+    await accountFeature.actions.deleteLoanAccount(loanDelBtn);
     return;
   }
 
   // 🗂️ 은행 서브 탭 전환 (전체 / 자유 / 예적금 / 대출)
   const subtabBtn = e.target.closest('.savings-subtab');
   if (subtabBtn) {
-    const subtab = subtabBtn.dataset.subtab;
-    currentSavingsSubtab = subtab;
-    document.querySelectorAll('.savings-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === subtab));
-    renderSavingsWithOwner(currentOwner);
+    accountFeature.actions.selectSavingsSubtab(subtabBtn);
     return;
   }
 
   // 🏷️ 상단 부동산 실현손익 카드 클릭 시 [매도] 서브탭으로 즉시 전환
   if (e.target.closest('#cardRealEstateRealized')) {
-    currentRealEstateSubtab = 'sold';
-    document.querySelectorAll('.real-estate-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === 'sold'));
-    renderRealEstateWithOwner(currentOwner);
+    realEstateFeature.actions.showSoldRealEstates();
     return;
   }
 
   // 🗂️ 부동산 서브 탭 전환 (전체 / 자가보유 / 임대 / 임차 / 매도)
   const reSubtabBtn = e.target.closest('.real-estate-subtab');
   if (reSubtabBtn) {
-    const subtab = reSubtabBtn.dataset.subtab;
-    currentRealEstateSubtab = subtab;
-    document.querySelectorAll('.real-estate-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === subtab));
-    renderRealEstateWithOwner(currentOwner);
+    realEstateFeature.actions.selectRealEstateSubtab(reSubtabBtn);
     return;
   }
 
   // 매도 부동산 기록 수정
   const soldEditBtn = e.target.closest('[data-sold-re-edit]');
   if (soldEditBtn) {
-    const sid = soldEditBtn.dataset.soldReEdit;
-    const soldItem = rawSoldRealEstates.find(s => s.id === sid);
-    if (soldItem) openRealEstateSellDialog(null, soldItem);
+    realEstateFeature.actions.editSoldRealEstate(soldEditBtn);
     return;
   }
 
   // 매도 부동산 기록 삭제
   const soldDelBtn = e.target.closest('[data-sold-re-del]');
   if (soldDelBtn) {
-    const sid = soldDelBtn.dataset.soldReDel;
-    const soldItem = rawSoldRealEstates.find(s => s.id === sid);
-    const sName = soldItem ? (soldItem.clean_name || soldItem.name || '부동산') : '이 부동산 매도';
-    if (confirm(`'${sName}'의 매도 실현손익 기록을 삭제하시겠습니까?`)) {
-      try {
-        await api(`/api/realized-pnl/${sid}`, { method: 'DELETE' });
-        toast('부동산 매도 실현손익 기록이 삭제되었습니다.');
-        await loadDashboard();
-        await loadRealizedPnl(currentOwner);
-      } catch (err) {
-        toast(err.message || '삭제 실패', true);
-      }
-    }
+    await realEstateFeature.actions.deleteSoldRealEstate(soldDelBtn);
     return;
   }
 
   // 부동산 KB시세 즉시 갱신
   const reKbRefreshBtn = e.target.closest('[data-re-refresh-kb-id]');
   if (reKbRefreshBtn) {
-    const rid = reKbRefreshBtn.dataset.reRefreshKbId;
-    reKbRefreshBtn.disabled = true;
-    reKbRefreshBtn.textContent = '⏳';
-    try {
-      const res = await api(`/api/real-estates/${rid}/refresh-kb-price`, { method: 'POST' });
-      toast(res.message || 'KB시세가 갱신되었습니다.');
-      await loadDashboard();
-    } catch (err) {
-      toast(err.message || 'KB시세 갱신 실패', true);
-    } finally {
-      reKbRefreshBtn.disabled = false;
-      reKbRefreshBtn.textContent = '🔄';
-    }
+    await realEstateFeature.actions.refreshRealEstateKbPrice(reKbRefreshBtn);
     return;
   }
 
   // 부동산 매각 및 실현손익 기록
   const reSellBtn = e.target.closest('[data-re-sell-id]');
   if (reSellBtn) {
-    const rid = reSellBtn.dataset.reSellId;
-    const reItem = rawRealEstates.find(r => r.id === rid);
-    if (reItem) openRealEstateSellDialog(reItem);
+    realEstateFeature.actions.openRealEstateSale(reSellBtn);
     return;
   }
 
   // 부동산 수정
   const reEditBtn = e.target.closest('[data-re-edit-id]');
   if (reEditBtn) {
-    const rid = reEditBtn.dataset.reEditId;
-    const reItem = rawRealEstates.find(r => r.id === rid);
-    if (reItem) openRealEstateDialog(reItem);
+    realEstateFeature.actions.editRealEstate(reEditBtn);
     return;
   }
 
   // 부동산 삭제
   const reDelBtn = e.target.closest('[data-re-del-id]');
   if (reDelBtn) {
-    const rid = reDelBtn.dataset.reDelId;
-    const reItem = rawRealEstates.find(r => r.id === rid);
-    const reName = reItem ? reItem.name : '이 부동산 자산';
-    if (confirm(`'${reName}'을(를) 삭제하시겠습니까?\n(연결된 대출과의 링크도 함께 해제됩니다.)`)) {
-      try {
-        await api(`/api/real-estates/${rid}`, { method: 'DELETE' });
-        toast('부동산 자산이 삭제되었습니다.');
-        await loadDashboard();
-      } catch (err) {
-        toast(err.message || '삭제 실패', true);
-      }
-    }
+    await realEstateFeature.actions.deleteRealEstate(reDelBtn);
     return;
   }
 
@@ -4794,109 +2842,48 @@ document.addEventListener('click', async (e) => {
   // 예·적금 수정
   const savingEditBtn = e.target.closest('[data-saving-edit-id]');
   if (savingEditBtn) {
-    const sid = savingEditBtn.dataset.savingEditId;
-    const saving = rawSavingsAccounts.find(s => s.id === sid);
-    if (saving) openSavingAccountDialog(saving);
+    accountFeature.actions.editSavingAccount(savingEditBtn);
     return;
   }
 
   // 예·적금 삭제
   const savingDelBtn = e.target.closest('[data-saving-del-id]');
   if (savingDelBtn) {
-    const sid = savingDelBtn.dataset.savingDelId;
-    if (confirm('이 예·적금 상품을 삭제하시겠습니까?')) {
-      try {
-        await api(`/api/savings-accounts/${sid}`, { method: 'DELETE' });
-        toast('예·적금 상품이 삭제되었습니다.');
-        await loadDashboard();
-      } catch (err) {
-        toast(err.message || '삭제 실패', true);
-      }
-    }
+    await accountFeature.actions.deleteSavingAccount(savingDelBtn);
     return;
   }
 
   // 은행 계좌 수정
   const bankEditBtn = e.target.closest('[data-bank-edit-id]');
   if (bankEditBtn) {
-    const bid = bankEditBtn.dataset.bankEditId;
-    const bank = rawBankAccounts.find(b => b.id === bid);
-    if (bank) openBankAccountDialog(bank);
+    accountFeature.actions.editBankAccount(bankEditBtn);
     return;
   }
 
   // 은행 계좌 삭제
   const bankDelBtn = e.target.closest('[data-bank-del-id]');
   if (bankDelBtn) {
-    const bid = bankDelBtn.dataset.bankDelId;
-    if (confirm('이 은행 계좌를 삭제하시겠습니까?')) {
-      try {
-        await api(`/api/bank-accounts/${bid}`, { method: 'DELETE' });
-        toast('은행 계좌가 삭제되었습니다.');
-        await loadDashboard();
-      } catch (err) {
-        toast(err.message || '삭제 실패', true);
-      }
-    }
+    await accountFeature.actions.deleteBankAccount(bankDelBtn);
     return;
   }
 
   // 가족 구성원 추가
   if (e.target.closest('#addMemberBtn')) {
-    const input = document.getElementById('newMemberName');
-    const name = (input?.value || '').trim();
-    if (!name) { toast('이름을 입력해 주세요.', true); return; }
-    try {
-      const res = await api('/api/family-members', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      });
-      toast(res.message || '추가했습니다.');
-      if (input) input.value = '';
-      renderFamilyTabs(res.members || []);
-      updateOwnerSelectOptions(res.members || []);
-      renderFamilyMemberList(res.members || []);
-    } catch(err) { toast(err.message, true); }
+    await familyFeature.actions.addFamilyMember();
     return;
   }
 
   // 가족 구성원 이름 수정
   const renameBtn = e.target.closest('.family-rename-btn');
   if (renameBtn) {
-    const row = renameBtn.closest('.family-member-row');
-    const input = row?.querySelector('.family-member-name-input');
-    const oldName = renameBtn.dataset.name;
-    const newName = (input?.value || '').trim();
-    if (!newName || newName === oldName) return;
-    try {
-      const res = await api(`/api/family-members/${encodeURIComponent(oldName)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName }),
-      });
-      toast(res.message || '수정했습니다.');
-      renderFamilyTabs(res.members || []);
-      updateOwnerSelectOptions(res.members || []);
-      renderFamilyMemberList(res.members || []);
-      await loadDashboard();
-    } catch(err) { toast(err.message, true); }
+    await familyFeature.actions.renameFamilyMember(renameBtn);
     return;
   }
 
   // 가족 구성원 삭제
   const deleteMemberBtn = e.target.closest('.family-delete-btn');
   if (deleteMemberBtn) {
-    const name = deleteMemberBtn.dataset.name;
-    if (!confirm(`'${name}' 구성원을 삭제할까요?\n연결된 계좌는 '모두'로 변경됩니다.`)) return;
-    try {
-      const res = await api(`/api/family-members/${encodeURIComponent(name)}`, { method: 'DELETE' });
-      toast(res.message || '삭제했습니다.');
-      renderFamilyTabs(res.members || []);
-      updateOwnerSelectOptions(res.members || []);
-      renderFamilyMemberList(res.members || []);
-      await loadDashboard();
-    } catch(err) { toast(err.message, true); }
+    await familyFeature.actions.deleteFamilyMember(deleteMemberBtn);
     return;
   }
 
@@ -5420,69 +3407,7 @@ $("#holdingsBody")?.addEventListener("click", (e) => {
 });
 
 // 9. 계좌 목록 클릭
-$("#accountList")?.addEventListener("click", async (e) => {
-  const toggleTaxBtn = e.target.closest("[data-toggle-tax-account-id]");
-  const cashBtn = e.target.closest("[data-cash-id]");
-  const editBtn = e.target.closest("[data-account-edit-id]");
-  const delBtn = e.target.closest("[data-account-del-id]");
-
-  if (toggleTaxBtn) {
-    const accId = toggleTaxBtn.dataset.toggleTaxAccountId;
-    const acct = (dashboard?.accounts || []).find(a => a.id === accId) || (rawDashboard?.accounts || []).find(a => a.id === accId);
-    if (acct) {
-      const currentDed = isAccountTaxDeductible(acct);
-      const newDed = !currentDed;
-      const acctName = acct.name || "";
-      acct.tax_deductible = newDed;
-      if (rawDashboard && Array.isArray(rawDashboard.accounts)) {
-        const rAcct = rawDashboard.accounts.find(a => a.id === accId);
-        if (rAcct) { rAcct.tax_deductible = newDed; }
-      }
-      if (dashboard && Array.isArray(dashboard.accounts)) {
-        const dAcct = dashboard.accounts.find(a => a.id === accId);
-        if (dAcct) { dAcct.tax_deductible = newDed; }
-      }
-      renderWithOwner(rawDashboard || dashboard, currentOwner);
-      try {
-        await api(`/api/accounts/${accId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            broker: acct.broker,
-            name: acctName,
-            owner: acct.owner || "모두",
-            account_type: acct.account_type || "pension_savings",
-            tax_deductible: newDed,
-            income_level: acct.income_level || "low",
-            annual_deposit: Number(acct.annual_deposit) || 0,
-            isa_transfer_amount: Number(acct.isa_transfer_amount) || 0,
-            isa_transfer_year: acct.isa_transfer_year || "2026",
-            yearly_contributions: acct.yearly_contributions || []
-          })
-        });
-        toast(`[${acctName}] ${newDed ? '🎯 세액공제 신청' : '🌿 세액공제 제외(비공제)'}으로 전환되었습니다.`);
-        await loadDashboard();
-      } catch (err) {
-        alert(`전환 실패: ${err.message}`);
-        await loadDashboard();
-      }
-    }
-    return;
-  }
-  if (cashBtn) {
-    const acct = (dashboard?.accounts || []).find(a => a.id === cashBtn.dataset.cashId) || (rawDashboard?.accounts || []).find(a => a.id === cashBtn.dataset.cashId);
-    if (acct) openAccountCashDialog(acct);
-    return;
-  }
-  if (editBtn) {
-    const acct = (dashboard?.accounts || []).find(a => a.id === editBtn.dataset.accountEditId) || (rawDashboard?.accounts || []).find(a => a.id === editBtn.dataset.accountEditId);
-    if (acct) openAccountEditDialog(acct);
-    return;
-  }
-  if (delBtn && confirm("이 계좌를 삭제할까요? 연결된 보유종목도 함께 삭제됩니다.")) {
-    await action(delBtn, () => api(`/api/accounts/${delBtn.dataset.accountDelId}`, { method: "DELETE" }));
-  }
-});
+accountFeature.actions.bindAccountList();
 
 // 10. 자산기록 리스트 수정/삭제 및 절세계좌 필터 클릭
 $("#assetRecordList")?.addEventListener("click", async (e) => {
@@ -5702,276 +3627,7 @@ $("#accountCashForm")?.addEventListener("submit", async (e) => {
   }
 });
 
-let isSavingAccount = false;
-
-async function saveEditAccount() {
-  if (isSavingAccount) return;
-  const form = document.getElementById("accountEditForm");
-  if (!form) return;
-  const saveBtn = document.getElementById("accountEditSaveBtn");
-  isSavingAccount = true;
-  if (saveBtn) busy(saveBtn, true);
-
-  try {
-    const accountId = form.querySelector("[name='id']")?.value || currentEditingAccountId || form.dataset.accountId || form.getAttribute("data-account-id");
-    if (!accountId) {
-      alert("계좌 식별자(ID)를 찾을 수 없습니다. 다시 시도해 주세요.");
-      return;
-    }
-    const existingAcct = (dashboard?.accounts || []).find(a => a.id === accountId) || (rawDashboard?.accounts || []).find(a => a.id === accountId);
-    const broker = (form.querySelector("[name='broker']")?.value || "").trim() || (existingAcct?.broker || "");
-    const name = (form.querySelector("[name='name']")?.value || "").trim() || (existingAcct?.name || "");
-    const owner = (form.querySelector("[name='owner']")?.value || "").trim() || (existingAcct?.owner || "모두");
-    const account_no = (form.querySelector("[name='account_no']")?.value || "").trim();
-
-    if (!broker || !name) {
-      alert("증권사와 계좌 이름을 모두 입력해 주세요.");
-      return;
-    }
-
-    const account_type = form.querySelector(".account-type-select")?.value || "general";
-    let isDeductible = form.querySelector(".pension-tax-deductible")?.value === "true";
-    let income_level = form.querySelector(".pension-income-level")?.value || "low";
-    let annual_deposit = Number(form.querySelector(".pension-annual-deposit")?.value) || 0;
-    const isa_transfer_amount = Number(form.querySelector(".pension-isa-transfer")?.value) || 0;
-    const isa_transfer_year = form.querySelector(".pension-isa-year")?.value || "2026";
-    const cash_krw = Number(form.querySelector("[name='cash_krw']")?.value) || 0;
-    const cash_usd = Number(form.querySelector("[name='cash_usd']")?.value) || 0;
-
-    // 만약 특정 연도 항목을 [수정] 모드로 변경 중인 상태에서 바로 [저장]을 누른 경우
-    let editingIndexApplied = false;
-    if (editingAccountYearlyIndex !== null && accountCurrentYearlyList[editingAccountYearlyIndex]) {
-      const rawYr = (form.querySelector(".pension-entry-year")?.value || "").trim();
-      const normYr = normalizeYear(rawYr) || accountCurrentYearlyList[editingAccountYearlyIndex].year;
-      accountCurrentYearlyList[editingAccountYearlyIndex].year = normYr;
-      accountCurrentYearlyList[editingAccountYearlyIndex].deposit = annual_deposit;
-      accountCurrentYearlyList[editingAccountYearlyIndex].is_deductible = isDeductible;
-      accountCurrentYearlyList[editingAccountYearlyIndex].income_level = income_level;
-      editingAccountYearlyIndex = null;
-      resetAddAccountYearlyBtn();
-      editingIndexApplied = true;
-    }
-
-    const yearly_contributions = [];
-    accountCurrentYearlyList.forEach(item => {
-      if (item && item.year) {
-        const normYr = normalizeYear(item.year);
-        if (normYr) {
-          yearly_contributions.push({
-            year: normYr,
-            deposit: Number(item.deposit || 0),
-            is_deductible: item.is_deductible !== false && String(item.is_deductible) !== "false",
-            income_level: item.income_level || income_level
-          });
-        }
-      }
-    });
-
-    // 상단 입력창에 입력된 연도/금액 동기화 (수정 모드에서 이미 반영된 경우 중복 방지)
-    if (!editingIndexApplied && (account_type === "pension_savings" || account_type === "irp")) {
-      const rawTopYr = (form.querySelector(".pension-entry-year")?.value || "").trim();
-      const topYr = normalizeYear(rawTopYr);
-      if (topYr) {
-        const existing = yearly_contributions.find(y => normalizeYear(y.year) === topYr);
-        if (existing) {
-          existing.deposit = annual_deposit;
-          existing.is_deductible = isDeductible;
-          existing.income_level = income_level;
-        } else if (annual_deposit > 0) {
-          yearly_contributions.push({
-            year: topYr,
-            deposit: annual_deposit,
-            is_deductible: isDeductible,
-            income_level: income_level
-          });
-        }
-      }
-    }
-
-    // 연도 내림차순 정렬
-    yearly_contributions.sort((a, b) => Number(b.year || 0) - Number(a.year || 0));
-
-    // 최신 연도 입금액을 annual_deposit에 동기화
-    if (yearly_contributions.length > 0) {
-      const curYearStr = String(new Date().getFullYear());
-      const matchedCur = yearly_contributions.find(y => y.year === curYearStr);
-      if (matchedCur) {
-        annual_deposit = matchedCur.deposit;
-      } else {
-        annual_deposit = yearly_contributions[0].deposit;
-      }
-    } else {
-      annual_deposit = 0;
-    }
-
-    // 전역 상태 동기화
-    accountCurrentYearlyList = JSON.parse(JSON.stringify(yearly_contributions));
-
-    // 1. 메모리 데이터 즉시 갱신 (Optimistic Update)
-    const updateAcctInMemory = (acctObj) => {
-      if (!acctObj) return;
-      acctObj.broker = broker;
-      acctObj.name = name;
-      acctObj.account_no = account_no;
-      acctObj.owner = owner;
-      acctObj.account_type = account_type;
-      acctObj.tax_deductible = isDeductible;
-      acctObj.income_level = income_level;
-      acctObj.annual_deposit = annual_deposit;
-      acctObj.isa_transfer_amount = isa_transfer_amount;
-      acctObj.isa_transfer_year = isa_transfer_year;
-      acctObj.yearly_contributions = yearly_contributions;
-      acctObj.cash_krw = cash_krw;
-      acctObj.cash_usd = cash_usd;
-      const usdRate = Number(dashboard?.summary?.usd_krw_rate || rawDashboard?.summary?.usd_krw_rate || 1400);
-      acctObj.cash_total_krw = cash_krw + (cash_usd * usdRate);
-      acctObj.market_value_krw = Number(acctObj.stock_value_krw || 0) + acctObj.cash_total_krw;
-    };
-
-    if (rawDashboard && Array.isArray(rawDashboard.accounts)) {
-      updateAcctInMemory(rawDashboard.accounts.find(a => a.id === accountId));
-    }
-    if (dashboard && Array.isArray(dashboard.accounts)) {
-      updateAcctInMemory(dashboard.accounts.find(a => a.id === accountId));
-    }
-
-    // 2. 화면 즉시 재렌더링
-    if (rawDashboard || dashboard) renderWithOwner(rawDashboard || dashboard, currentOwner);
-
-    // 3. 다이얼로그 즉시 닫기
-    document.getElementById("accountEditDialog")?.close();
-
-    // 4. 서버 PUT API 전송
-    const res = await api(`/api/accounts/${accountId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        broker,
-        name,
-        account_no,
-        owner,
-        account_type,
-        tax_deductible: isDeductible,
-        income_level,
-        annual_deposit,
-        isa_transfer_amount,
-        isa_transfer_year,
-        yearly_contributions,
-        cash_krw,
-        cash_usd
-      })
-    });
-
-    if (account_type === "pension_savings" || account_type === "irp") {
-      toast(`[${name}] ${isDeductible ? '🎯 세액공제 신청' : '🌿 세액공제 제외(비공제)'} (납입 ₩${number(annual_deposit, 0)}) 저장되었습니다.`);
-    } else {
-      toast(`[${name}] 계좌 정보 및 예수금이 저장되었습니다.`);
-    }
-    await loadDashboard();
-  } catch (err) {
-    console.error("계좌 수정 오류:", err);
-    alert(`계좌 정보 저장 중 오류가 발생했습니다: ${err.message || err}`);
-    toast(err.message || String(err), true);
-    await loadDashboard();
-  } finally {
-    isSavingAccount = false;
-    if (saveBtn) busy(saveBtn, false);
-  }
-}
-
-let isSavingNewAccount = false;
-
-async function saveNewAccount() {
-  if (isSavingNewAccount) return;
-  const form = document.getElementById("accountAddForm");
-  if (!form) return;
-  const broker = (form.querySelector("[name='broker']")?.value || "").trim();
-  const account_name = (form.querySelector("[name='account_name']")?.value || "").trim();
-  const account_no = (form.querySelector("[name='account_no']")?.value || "").trim();
-  const owner = (form.querySelector("[name='owner']")?.value || "모두").trim();
-  const account_type = form.querySelector(".account-type-select")?.value || "general";
-  const isDeductible = form.querySelector(".pension-tax-deductible")?.value === "true";
-  const income_level = form.querySelector(".pension-income-level")?.value || "low";
-  const annual_deposit = Number(form.querySelector(".pension-annual-deposit")?.value) || 0;
-  const isa_transfer_amount = Number(form.querySelector(".pension-isa-transfer")?.value) || 0;
-  const isa_transfer_year = form.querySelector(".pension-isa-year")?.value || "2026";
-  const cash_krw = Number(form.querySelector("[name='cash_krw']")?.value) || 0;
-  const cash_usd = Number(form.querySelector("[name='cash_usd']")?.value) || 0;
-
-  if (!broker || !account_name) {
-    alert("증권사와 계좌 이름을 모두 입력해 주세요.");
-    return;
-  }
-
-  const saveBtn = document.getElementById("accountAddSaveBtn");
-  isSavingNewAccount = true;
-  if (saveBtn) busy(saveBtn, true);
-
-  try {
-    const res = await api("/api/accounts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        broker,
-        account_name,
-        name: account_name,
-        account_no,
-        owner,
-        account_type,
-        tax_deductible: isDeductible,
-        income_level,
-        annual_deposit,
-        isa_transfer_amount,
-        isa_transfer_year,
-        yearly_contributions: (annual_deposit > 0 && (account_type === 'pension_savings' || account_type === 'irp')) ? [{
-          year: "2026",
-          deposit: annual_deposit,
-          is_deductible: isDeductible,
-          income_level: income_level
-        }] : [],
-        cash_krw,
-        cash_usd
-      })
-    });
-    document.getElementById("accountAddDialog")?.close();
-    form.reset();
-    toast(`[${account_name}] ${isDeductible ? '🎯 세액공제 신청' : '🌿 세액공제 제외(비공제)'} 계좌가 추가되었습니다.`);
-    await loadDashboard();
-  } catch (err) {
-    console.error("계좌 추가 오류:", err);
-    alert(`계좌 추가 중 오류가 발생했습니다: ${err.message}`);
-    toast(err.message, true);
-  } finally {
-    isSavingNewAccount = false;
-    if (saveBtn) busy(saveBtn, false);
-  }
-}
-
-window.saveEditAccount = saveEditAccount;
-window.saveNewAccount = saveNewAccount;
-window.openAccountEditDialog = openAccountEditDialog;
-
-document.getElementById("accountEditSaveBtn")?.addEventListener("click", (e) => {
-  e.preventDefault();
-  saveEditAccount();
-});
-document.getElementById("accountAddSaveBtn")?.addEventListener("click", (e) => {
-  e.preventDefault();
-  saveNewAccount();
-});
-
-$("#accountEditForm")?.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.target.closest("textarea")) {
-    e.preventDefault();
-    saveEditAccount();
-  }
-});
-$("#accountAddForm")?.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.target.closest("textarea")) {
-    e.preventDefault();
-    saveNewAccount();
-  }
-});
+accountFeature.actions.bindSaveButtons();
 
 // ── 종목 사전 및 양방향 자동완성 (종목코드 ↔ 종목명) ─────────────────────────
 const stockAutocomplete = window.WealthStockAutocomplete.create({
@@ -7139,14 +4795,14 @@ async function loadRealizedPnl(owner = currentOwner, year = selectedPnlYear, tra
 
     // 실현손익 내 부동산 매도 기록을 부동산 탭 원장과 즉시 연동
     if (res?.records) {
-      const registeredNames = (rawRealEstates || []).map(r => (r.name || '').trim()).filter(n => n.length >= 2);
+      const registeredNames = (realEstateFeature.rawRealEstates || []).map(r => (r.name || '').trim()).filter(n => n.length >= 2);
       const reKw = /부동산|아파트|오피스텔|빌라|주택|단지|상가|토지|건물|원룸|분양권|재개발/i;
       const reRecords = res.records.filter(r => 
         r.asset_type === 'real_estate' || r.code === 'REAL_ESTATE' || r.broker === '부동산' ||
         (r.name && (r.name.includes('[부동산]') || r.name.includes('부동산') || registeredNames.some(rn => r.name.includes(rn)) || reKw.test(r.name)))
       );
       if (reRecords.length > 0) {
-        renderRealEstate(rawRealEstates, currentOwner, null);
+        renderRealEstate(realEstateFeature.rawRealEstates, currentOwner, null);
       }
     }
   } catch (err) {
@@ -7460,7 +5116,7 @@ function onSelectPnlRealEstate() {
   const reId = sel.value;
   if (!reId) return;
 
-  const list = rawRealEstates || rawDashboard?.real_estates || [];
+  const list = realEstateFeature.rawRealEstates || rawDashboard?.real_estates || [];
   const target = list.find(r => r.id === reId);
   if (!target) return;
 
@@ -8370,518 +6026,11 @@ async function handleSaveUserOpenApi(e) {
 window.handleSaveUserOpenApi = handleSaveUserOpenApi;
 
 function initSavingsListeners() {
-  // 🏦 은행 계좌 모달 상단 카테고리 전환기 (자유통장 ↔ 예·적금 ↔ 대출)
-  document.querySelectorAll('.bank-category-switcher').forEach(sel => {
-    sel.addEventListener('change', (e) => {
-      const nextType = e.target.value;
-      closeDialog('bankAccountDialog');
-      closeDialog('savingAccountDialog');
-      closeDialog('loanAccountDialog');
-      if (nextType === 'savings') {
-        openSavingAccountDialog();
-      } else if (nextType === 'loans') {
-        openLoanAccountDialog();
-      } else {
-        openBankAccountDialog();
-      }
-    });
-  });
-
-  const savingForm = $("#savingAccountForm");
-  if (savingForm) {
-    savingForm.addEventListener("input", () => {
-      updateSavingTypeFields();
-      calcSavingInterestPreview();
-    });
-    savingForm.addEventListener("change", () => {
-      updateSavingTypeFields();
-      calcSavingInterestPreview();
-    });
-    $("#savingNoMaturityCheck")?.addEventListener("change", () => {
-      updateSavingTypeFields();
-      calcSavingInterestPreview();
-    });
-
-    savingForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(savingForm);
-      const isNoMaturity = fd.get("saving_type") === "housing" || Boolean($("#savingNoMaturityCheck")?.checked);
-      const payload = {
-        id: fd.get("id") || undefined,
-        saving_type: fd.get("saving_type") || "deposit",
-        owner: fd.get("owner") || "모두",
-        bank_name: fd.get("bank_name") || "",
-        product_name: fd.get("product_name") || "",
-        start_date: fd.get("start_date") || "",
-        end_date: isNoMaturity ? "" : (fd.get("end_date") || ""),
-        duration_months: isNoMaturity ? 0 : (Number(fd.get("duration_months")) || 12),
-        interest_rate: Number(fd.get("interest_rate")) || 0,
-        monthly_amount: Number(fd.get("monthly_amount")) || 0,
-        target_amount: Number(fd.get("target_amount")) || 0,
-        current_paid_amount: Number(fd.get("current_paid_amount")) || 0,
-        tax_type: fd.get("tax_type") || "normal",
-        auto_transfer_day: Number(fd.get("auto_transfer_day")) || 0,
-        auto_contribution_enabled: $("#savingAutoContributionEnabled").checked,
-        auto_contribution_debit_balance: $("#savingAutoDebitBalance").checked,
-        withdraw_account_id: fd.get("withdraw_account_id") || "",
-        deposit_account_id: fd.get("deposit_account_id") || "",
-        memo: fd.get("memo") || "",
-      };
-
-      try {
-        await api("/api/savings-accounts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        toast("예·적금 상품이 저장되었습니다.");
-        closeDialog("savingAccountDialog");
-        await loadDashboard();
-      } catch (err) {
-        toast(err.message || "예·적금 저장 실패", true);
-      }
-    });
-  }
-
-  const bankForm = $("#bankAccountForm");
-  if (bankForm) {
-    bankForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(bankForm);
-      const payload = {
-        id: fd.get("id") || undefined,
-        bank_name: fd.get("bank_name") || "",
-        account_name: fd.get("account_name") || "",
-        account_number: fd.get("account_number") || "",
-        owner: fd.get("owner") || "모두",
-        balance: Number(fd.get("balance")) || 0,
-        limit_amount: Number(fd.get("limit_amount")) || 0,
-        interest_rate: Number(fd.get("interest_rate")) || 0,
-        maturity_date: fd.get("maturity_date") || "",
-        currency: "KRW",
-        memo: fd.get("memo") || "",
-      };
-
-      try {
-        await api("/api/bank-accounts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        toast("자유입출금 통장(마통) 정보가 저장되었습니다.");
-        closeDialog("bankAccountDialog");
-        await loadDashboard();
-      } catch (err) {
-        toast(err.message || "통장 저장 실패", true);
-      }
-    });
-
-    ["bankBalanceInput", "bankLimitAmount", "bankInterestRate"].forEach(id => {
-      document.getElementById(id)?.addEventListener("input", calcBankMinusPreview);
-      document.getElementById(id)?.addEventListener("change", calcBankMinusPreview);
-    });
-  }
-
-  const insForm = $("#insuranceAccountForm");
-  if (insForm) {
-    insuranceView.bindFormInputs({ $, insForm, updateYellowUmbrellaFields, updatePensionPayoutFields });
-
-    insForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(insForm);
-      const pType = fd.get("payout_type") || "lump_sum";
-      const mPayout = Number(fd.get("monthly_payout")) || 0;
-      const pYears = Number(fd.get("payout_duration_years")) || 20;
-      const convertedTotal = Math.round(mPayout * 12 * pYears);
-
-      const yu_yearly_contributions = [];
-      document.querySelectorAll("#yuYearlyList .yu-yearly-row").forEach(row => {
-        const yr = (row.querySelector(".yu-yearly-year")?.value || "").trim();
-        const dep = Number(row.querySelector(".yu-yearly-deposit")?.value) || 0;
-        const ded = row.querySelector(".yu-yearly-deductible")?.value === "true";
-        if (yr) {
-          yu_yearly_contributions.push({ year: yr, deposit: dep, is_deductible: ded });
-        }
-      });
-
-      const payload = {
-        id: fd.get("id") || undefined,
-        insurance_type: fd.get("insurance_type") || "protection",
-        owner: fd.get("owner") || "모두",
-        company_name: fd.get("company_name") || "",
-        product_name: fd.get("product_name") || "",
-        payment_status: fd.get("payment_status") || "paying",
-        income_bracket: fd.get("income_bracket") || "40m_to_100m",
-        marginal_tax_rate: Number(fd.get("marginal_tax_rate")) || 26.4,
-        monthly_premium: Number(fd.get("monthly_premium")) || 0,
-        total_paid_amount: Number(fd.get("total_paid_amount")) || 0,
-        expected_amount: pType === "monthly_pension" ? convertedTotal : (Number(fd.get("expected_amount")) || 0),
-        payout_type: pType,
-        monthly_payout: mPayout,
-        payout_duration_years: pYears,
-        converted_total_asset: pType === "monthly_pension" ? convertedTotal : (Number(fd.get("expected_amount")) || 0),
-        start_date: fd.get("start_date") || "",
-        maturity_date: fd.get("maturity_date") || "",
-        memo: fd.get("memo") || "",
-        yearly_contributions: yu_yearly_contributions,
-      };
-
-      try {
-        await api("/api/insurance-accounts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        toast("보험/연금/공제 상품이 저장되었습니다.");
-        closeDialog("insuranceAccountDialog");
-        await loadDashboard();
-      } catch (err) {
-        toast(err.message || "보험/연금 상품 저장 실패", true);
-      }
-    });
-
-    // 연금/IRP 연도별 이력 관리 이벤트 (상단 입력값 -> 하단 이력에 추가/갱신)
-    document.getElementById("addAccountYearlyBtn")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      handleAddAccountYearly();
-    });
-
-    // 연도 입력창 변경 시 해당 연도 기존 이력 데이터 자동 로드 및 정규화
-    document.getElementById("accountInputYear")?.addEventListener("change", (e) => {
-      const rawYr = (e.target.value || "").trim();
-      const yr = normalizeYear(rawYr);
-      if (!yr) return;
-      e.target.value = yr;
-      const match = accountCurrentYearlyList.find(y => normalizeYear(y.year) === yr);
-      const editForm = document.getElementById("accountEditForm");
-      if (!editForm) return;
-      const depInput = editForm.querySelector(".pension-annual-deposit");
-      const dedInput = editForm.querySelector(".pension-tax-deductible");
-      const incInput = editForm.querySelector(".pension-income-level");
-      if (match) {
-        if (depInput) depInput.value = (match.deposit !== undefined && match.deposit !== null) ? match.deposit : "";
-        if (dedInput) dedInput.value = match.is_deductible !== false ? "true" : "false";
-        if (incInput && match.income_level) incInput.value = match.income_level;
-      }
-      updateAccountTaxBenefitFields(editForm);
-      refreshDialogKoreanHints(editForm);
-    });
-
-    document.getElementById("accountInputYear")?.addEventListener("blur", (e) => {
-      const norm = normalizeYear(e.target.value);
-      if (norm) e.target.value = norm;
-    });
-
-    document.getElementById("accountYearlyList")?.addEventListener("click", (e) => {
-      const delBtn = e.target.closest(".account-yearly-del-btn");
-      if (delBtn) {
-        const idx = Number(delBtn.dataset.index);
-        if (!isNaN(idx) && accountCurrentYearlyList[idx]) {
-          const removedYr = accountCurrentYearlyList[idx].year;
-          accountCurrentYearlyList.splice(idx, 1);
-          if (editingAccountYearlyIndex === idx) {
-            editingAccountYearlyIndex = null;
-            resetAddAccountYearlyBtn();
-          } else if (editingAccountYearlyIndex !== null && editingAccountYearlyIndex > idx) {
-            editingAccountYearlyIndex--;
-          }
-          renderAccountYearlyFormRows();
-          toast(`${removedYr}년 이력이 삭제되었습니다.`);
-
-          // 상단 입력창이 삭제된 연도를 가리키고 있었다면 초기화하여 저장 시 부활 방지
-          const editForm = document.getElementById("accountEditForm");
-          const yrInput = editForm?.querySelector(".pension-entry-year");
-          const depInput = editForm?.querySelector(".pension-annual-deposit");
-          if (yrInput && normalizeYear(yrInput.value) === normalizeYear(removedYr)) {
-            if (accountCurrentYearlyList.length > 0) {
-              yrInput.value = accountCurrentYearlyList[0].year;
-              if (depInput) depInput.value = accountCurrentYearlyList[0].deposit || "";
-            } else {
-              yrInput.value = String(new Date().getFullYear());
-              if (depInput) depInput.value = "";
-            }
-            refreshDialogKoreanHints(editForm);
-            updateAccountTaxBenefitFields(editForm);
-          }
-        }
-        return;
-      }
-
-      const editBtn = e.target.closest(".account-yearly-edit-btn") || e.target.closest(".account-yearly-card");
-      if (editBtn) {
-        const idx = Number(editBtn.dataset.index);
-        const item = accountCurrentYearlyList[idx];
-        if (item) {
-          editingAccountYearlyIndex = idx;
-          const editForm = document.getElementById("accountEditForm");
-          const yrInput = editForm?.querySelector(".pension-entry-year") || document.getElementById("accountInputYear");
-          const depInput = editForm?.querySelector(".pension-annual-deposit") || document.getElementById("accountInputDeposit");
-          const dedInput = editForm?.querySelector(".pension-tax-deductible") || document.getElementById("accountInputDeductible");
-          const incInput = editForm?.querySelector(".pension-income-level") || document.getElementById("accountInputIncomeLevel");
-
-          if (yrInput) yrInput.value = item.year || "";
-          if (depInput) {
-            depInput.value = item.deposit || "";
-            refreshDialogKoreanHints($("#accountEditDialog"));
-            depInput.focus();
-            depInput.select();
-          }
-          if (dedInput) dedInput.value = (item.is_deductible !== false && String(item.is_deductible) !== "false") ? "true" : "false";
-          if (incInput) incInput.value = item.income_level || "low";
-
-          setEditingAccountYearlyBtn(item.year || "");
-          updateAccountTaxBenefitFields(editForm);
-          toast(`[${item.year}년] 수정 모드: 연도나 납입액을 변경한 후 [수정 반영] 또는 하단 [저장]을 눌러주세요.`);
-        }
-        return;
-      }
-    });
-
-    // 노란우산공제 연도별 이력 관리 이벤트
-    document.getElementById("addYuYearlyBtn")?.addEventListener("click", () => {
-      const years = yuCurrentYearlyList.map(y => Number(y.year) || 2024);
-      const nextYr = years.length > 0 ? Math.min(...years) - 1 : 2024;
-      yuCurrentYearlyList.push({ year: nextYr, deposit: 2400000, is_deductible: true });
-      renderYuYearlyFormRows();
-    });
-
-    const handleYuYearlyRowChange = (e) => {
-      const row = e.target.closest(".yu-yearly-row");
-      if (!row) return;
-      const idx = Number(row.dataset.index);
-      if (yuCurrentYearlyList[idx]) {
-        yuCurrentYearlyList[idx].year = row.querySelector(".yu-yearly-year")?.value || "";
-        yuCurrentYearlyList[idx].deposit = Number(row.querySelector(".yu-yearly-deposit")?.value) || 0;
-        yuCurrentYearlyList[idx].is_deductible = row.querySelector(".yu-yearly-deductible")?.value === "true";
-        renderYuYearlyFormRows();
-      }
-    };
-    document.getElementById("yuYearlyList")?.addEventListener("change", handleYuYearlyRowChange);
-
-    document.getElementById("yuYearlyList")?.addEventListener("click", (e) => {
-      const delBtn = e.target.closest(".yu-yearly-del-btn");
-      if (!delBtn) return;
-      const idx = Number(delBtn.dataset.index);
-      if (!isNaN(idx)) {
-        yuCurrentYearlyList.splice(idx, 1);
-        renderYuYearlyFormRows();
-      }
-    });
-  }
-
-  // 증권 계좌 추가 및 수정 폼 실시간 절세 프리뷰 이벤트 바인딩
-  ["accountAddForm", "accountEditForm"].forEach(id => {
-    const f = document.getElementById(id);
-    if (f) {
-      f.addEventListener("input", () => updateAccountTaxBenefitFields(f));
-      f.addEventListener("change", (e) => {
-        if (e.target && e.target.matches(".pension-income-level")) {
-          const newInc = e.target.value || "low";
-          if (id === "accountEditForm" && accountCurrentYearlyList && accountCurrentYearlyList.length > 0) {
-            accountCurrentYearlyList.forEach(item => {
-              item.income_level = newInc;
-            });
-            renderAccountYearlyFormRows(f);
-          }
-        }
-        updateAccountTaxBenefitFields(f);
-      });
-    }
-  });
-
-  const loanForm = $("#loanAccountForm");
-  if (loanForm) {
-    loanForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(loanForm);
-      const payload = {
-        id: fd.get("id") || undefined,
-        loan_type: fd.get("loan_type") || "minus",
-        owner: fd.get("owner") || "모두",
-        bank_name: fd.get("bank_name") || "",
-        product_name: fd.get("product_name") || "",
-        limit_amount: Number(fd.get("limit_amount")) || 0,
-        current_balance: Number(fd.get("current_balance")) || 0,
-        interest_rate: Number(fd.get("interest_rate")) || 0,
-        repayment_type: fd.get("repayment_type") || "bullet",
-        linked_account_id: fd.get("linked_account_id") || "",
-        overdraft_bank_account_id: fd.get("overdraft_bank_account_id") || "",
-        maturity_date: fd.get("maturity_date") || "",
-        memo: fd.get("memo") || "",
-      };
-
-      try {
-        await api("/api/loan-accounts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        toast("대출·마이너스통장이 저장되었습니다.");
-        closeDialog("loanAccountDialog");
-        await loadDashboard();
-      } catch (err) {
-        toast(err.message || "대출·마이너스통장 저장 실패", true);
-      }
-    });
-
-    ["loanCurrentBalance", "loanInterestRate", "loanRepaymentType"].forEach(id => {
-      document.getElementById(id)?.addEventListener("input", calcLoanPreview);
-      document.getElementById(id)?.addEventListener("change", calcLoanPreview);
-    });
-
-    document.getElementById("loanTypeSelect")?.addEventListener("change", (e) => {
-      const isMinus = e.target.value === "minus";
-      const limitLabel = document.getElementById("loanLimitLabel");
-      if (limitLabel) limitLabel.style.display = isMinus ? "" : "none";
-      refreshLoanOverdraftBankOptions();
-    });
-    document.getElementById("loanOwnerSelect")?.addEventListener("change", () => {
-      refreshLoanOverdraftBankOptions();
-    });
-  }
-
-  const reForm = $("#realEstateForm");
-  if (reForm) {
-    reForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fd = new FormData(reForm);
-      const linkedLoanId = fd.get("linked_loan_ids");
-      const linkedLoanIds = linkedLoanId ? [linkedLoanId] : [];
-
-      const isJoint = Boolean(document.getElementById("reIsJointCheck")?.checked);
-      const ownerships = [];
-      if (isJoint) {
-        document.querySelectorAll("#reJointRows .re-joint-row").forEach(row => {
-          const mOwner = row.querySelector(".re-joint-owner-select")?.value;
-          const mRatio = Number(row.querySelector(".re-joint-ratio-input")?.value || 0);
-          if (mOwner && mRatio > 0) {
-            ownerships.push({ owner: mOwner, ratio: mRatio });
-          }
-        });
-      }
-
-      const payload = {
-        id: fd.get("id") || undefined,
-        property_type: fd.get("property_type") || "own",
-        owner: fd.get("owner") || "모두",
-        name: fd.get("name") || "",
-        dong_ho: fd.get("dong_ho") || "",
-        address: fd.get("address") || "",
-        is_joint_ownership: isJoint,
-        ownerships: ownerships,
-        purchase_price: Number(fd.get("purchase_price")) || 0,
-        current_price: Number(fd.get("current_price")) || 0,
-        deposit_amount: Number(fd.get("deposit_amount")) || 0,
-        monthly_rent: Number(fd.get("monthly_rent")) || 0,
-        contract_date: fd.get("contract_date") || "",
-        expiry_date: fd.get("expiry_date") || "",
-        exclusive_area: Number(fd.get("exclusive_area")) || 0,
-        kb_complex_no: fd.get("kb_complex_no") || "",
-        linked_loan_ids: linkedLoanIds,
-        memo: fd.get("memo") || "",
-      };
-
-      try {
-        await api("/api/real-estates", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        toast("부동산 자산 정보가 저장되었습니다.");
-        closeDialog("realEstateDialog");
-        await loadDashboard();
-      } catch (err) {
-        toast(err.message || "부동산 자산 저장 실패", true);
-      }
-    });
-
-    realEstateView.bindFormInputs({ updateRealEstateTypeFields, calcRealEstatePreview });
-
-    // KB시세 조회 버튼 리스너
-    document.getElementById("reFetchKbBtn")?.addEventListener("click", fetchKbMarketPrice);
-
-    // KB시세 적용 버튼 리스너
-    document.getElementById("reApplyKbPriceBtn")?.addEventListener("click", () => {
-      const typeSelect = document.getElementById("reKbTypeSelect");
-      const currInput = document.getElementById("reCurrentPrice");
-      if (typeSelect && currentKbTypes.length && currInput) {
-        const selectedIdx = Number(typeSelect.value || 0);
-        const selType = currentKbTypes[selectedIdx];
-        if (selType && selType.deal_avg > 0) {
-          currInput.value = selType.deal_avg;
-          updateKoreanCurrencyHint(currInput);
-          calcRealEstatePreview();
-          toast(`KB시세(₩${number(selType.deal_avg, 0)})가 현재 시세에 적용되었습니다.`);
-        }
-      }
-    });
-
-    // KB 평형 선택 변경 리스너
-    document.getElementById("reKbTypeSelect")?.addEventListener("change", (e) => {
-      const idx = Number(e.target.value || 0);
-      const selType = currentKbTypes[idx];
-      const resultDetail = document.getElementById("reKbResultDetail");
-      const name = document.getElementById("reNameInput")?.value || "";
-      if (selType && resultDetail) {
-        resultDetail.innerHTML = `
-          <strong>단지</strong>: ${html(name)} 
-          <span style="color:#facc15;">[${html(selType.type_display)}]</span><br/>
-          <strong>KB 매매 일반평균가</strong>: <span style="font-size:13px;font-weight:700;color:#38bdf8;">₩${number(selType.deal_avg, 0)}</span><br/>
-          <small style="color:#94a3b8;">하한가 ₩${number(selType.deal_low, 0)} ~ 상한가 ₩${number(selType.deal_high, 0)} · 전세 ₩${number(selType.lease_avg, 0)}</small>
-        `;
-      }
-    });
-
-    // 공동명의 체크박스 토글 리스너
-    document.getElementById("reIsJointCheck")?.addEventListener("change", (e) => {
-      const checked = e.target.checked;
-      const singleWrap = document.getElementById("reSingleOwnerWrap");
-      const jointWrap = document.getElementById("reJointOwnershipWrap");
-      if (singleWrap) singleWrap.style.display = checked ? "none" : "block";
-      if (jointWrap) jointWrap.style.display = checked ? "block" : "none";
-      if (checked) {
-        const rows = document.querySelectorAll("#reJointRows .re-joint-row");
-        if (!rows.length) renderJointOwnershipRows();
-      }
-    });
-
-    // 공동명의 행 추가 버튼 리스너
-    document.getElementById("reAddJointRowBtn")?.addEventListener("click", () => {
-      const container = document.getElementById("reJointRows");
-      if (!container) return;
-      const members = (typeof familyMembers !== 'undefined' && familyMembers && familyMembers.length) 
-        ? familyMembers 
-        : ['아빠', '엄마', '자녀'];
-      const div = document.createElement("div");
-      div.className = "re-joint-row";
-      div.style.cssText = "display:flex;align-items:center;gap:8px;";
-      div.innerHTML = `
-        <select class="re-joint-owner-select" style="flex:1;">
-          ${members.map(m => `<option value="${m}">${m}</option>`).join('')}
-        </select>
-        <div style="display:flex;align-items:center;gap:4px;width:110px;">
-          <input type="number" class="re-joint-ratio-input" value="50" min="1" max="100" step="1" style="width:70px;text-align:right;" />
-          <span style="font-size:12px;color:#94a3b8;">%</span>
-        </div>
-        <button type="button" class="mini-delete-button re-joint-del-btn" title="삭제" style="padding:2px 6px;">×</button>
-      `;
-      container.appendChild(div);
-      updateJointTotalRatio();
-    });
-
-    // 공동명의 행 삭제 및 지분율 입력 이벤트 위임
-    document.getElementById("reJointRows")?.addEventListener("click", (e) => {
-      if (e.target.closest(".re-joint-del-btn")) {
-        e.target.closest(".re-joint-row")?.remove();
-        updateJointTotalRatio();
-      }
-    });
-    document.getElementById("reJointRows")?.addEventListener("input", (e) => {
-      if (e.target.classList.contains("re-joint-ratio-input")) {
-        updateJointTotalRatio();
-      }
-    });
-  }
+  accountFeature.actions.bindBankForms();
+  insuranceFeature.actions.bindForm(accountFeature.actions.bindSecuritiesYearlyForm);
+  accountFeature.actions.bindSecuritiesTaxPreview();
+  accountFeature.actions.bindLoanForm();
+  realEstateFeature.actions.bindForm();
 }
 
 // ===========================================================================
@@ -8894,7 +6043,7 @@ const ledgerFeature = window.WealthLedgerFeatureController.create({
   getUsername: () => currentUserProfile?.username || '',
   getReadEpoch: () => startupReadEpoch,
   invalidateStartupReads,
-  getAccounts: () => ({ rawDashboard, dashboard, rawBankAccounts, rawSavingsAccounts }),
+  getAccounts: () => ({ rawDashboard, dashboard, rawBankAccounts: accountFeature.rawBankAccounts, rawSavingsAccounts: accountFeature.rawSavingsAccounts }),
 });
 window.WealthLedgerFeature = ledgerFeature;
 Object.assign(window, ledgerFeature.actions);

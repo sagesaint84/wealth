@@ -36,7 +36,7 @@ window.fetch=async function(url,options={}){
  }
  return autoFetch.apply(this,arguments);
 };
-openSavingAccountDialog(rawSavingsAccounts.find(s=>s.id==='housing'));
+openSavingAccountDialog(accountFeature.rawSavingsAccounts.find(s=>s.id==='housing'));
 ''')
     assert not evaluate("document.getElementById('savingAutoContributionEnabled').checked")
     assert evaluate("document.getElementById('savingAutoDebitBalance').checked")
@@ -64,7 +64,7 @@ openSavingAccountDialog(rawSavingsAccounts.find(s=>s.id==='housing'));
     assert evaluate('__autoWrites[0].auto_contribution_enabled') is True
     assert evaluate('__autoWrites[0].auto_contribution_debit_balance') is False
     assert evaluate("'auto_contribution_enabled_at' in __autoWrites[0]") is False
-    evaluate("openSavingAccountDialog(rawSavingsAccounts.find(s=>s.id==='housing'))")
+    evaluate("openSavingAccountDialog(accountFeature.rawSavingsAccounts.find(s=>s.id==='housing'))")
     assert evaluate("document.getElementById('savingAutoContributionEnabled').checked")
     assert not evaluate("document.getElementById('savingAutoDebitBalance').checked")
     click(call, evaluate, '#savingAutoContributionEnabled')
@@ -80,7 +80,7 @@ openSavingAccountDialog(rawSavingsAccounts.find(s=>s.id==='housing'));
 @pytest.mark.parametrize('kind', ['installment', 'free', 'housing', 'deposit'])
 def test_native_types_legacy_disabled_and_default_debit(chrome_preview, width, kind):
     call, evaluate = prepare(chrome_preview, width)
-    evaluate(f"openSavingAccountDialog(rawSavingsAccounts.find(s=>s.id==={json.dumps(kind)}))")
+    evaluate(f"openSavingAccountDialog(accountFeature.rawSavingsAccounts.find(s=>s.id==={json.dumps(kind)}))")
     eligible = kind != 'deposit'
     assert evaluate("document.getElementById('savingAutoContributionSettings').hidden") is not eligible
     assert evaluate("document.getElementById('savingAutoContributionEnabled').disabled") is not eligible

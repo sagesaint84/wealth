@@ -22,8 +22,13 @@ class TaxWorkspaceRelocationStaticTest(unittest.TestCase):
         self.assertIn('if (!body)', self.risk)
 
     def test_product_information_renderer_preserves_tax_workspace(self):
-        core = (ROOT / 'app/static/wealth.js').read_text(encoding='utf-8')
-        renderer = core.split('function renderAssetTaxInformation() {', 1)[1].split('// Check URL query parameters', 1)[0]
+        static = ROOT / 'app/static'
+        controller = (static / 'wealth-insurance-pension-feature-controller.js').read_text(encoding='utf-8')
+        core = (static / 'wealth.js').read_text(encoding='utf-8')
+        renderer = controller[controller.index('function renderAssetTaxInformation() {'):
+                              controller.index('function nationalPensionHistoryMarkup(')]
+        self.assertIn('if (category === \'tax\') renderAssetTaxInformation();', core)
+        self.assertIn('} = insuranceFeature.publicActions;', core)
         self.assertIn("panel.querySelector('#assetTaxInformation')", renderer)
         self.assertIn('information.replaceChildren()', renderer)
         self.assertIn('information.append(card)', renderer)

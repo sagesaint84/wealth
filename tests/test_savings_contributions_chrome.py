@@ -37,7 +37,7 @@ window.fetch=async function(url,options={}){
 
 def prepare(preview,width):
     call,evaluate=start(preview,width,BOOT)
-    wait_for(evaluate,'!!window.WealthSavingsContributions&&rawSavingsAccounts.length===4')
+    wait_for(evaluate,'!!window.WealthSavingsContributions&&accountFeature.rawSavingsAccounts.length===4')
     evaluate("currentOwner='모두';location.hash='assets';switchAccountCategory('banking');renderSavings(__contributions.savings,__contributions.banks,[],'모두')")
     evaluate(FRAMES)
     return call,evaluate
@@ -81,9 +81,9 @@ def test_native_payment_crud_and_history_total_readonly(chrome_preview,width,tmp
     assert evaluate('__contributions.savings[0].contribution_opening_amount')==8000000
     assert evaluate('__contributions.banks[0].balance')==1000000
     click(call,evaluate,'#savingContributionsClose')
-    evaluate("openSavingAccountDialog(rawSavingsAccounts.find(s=>s.id==='installment'))")
+    evaluate("openSavingAccountDialog(accountFeature.rawSavingsAccounts.find(s=>s.id==='installment'))")
     assert evaluate("document.getElementById('savingCurrentPaid').readOnly")
-    evaluate("document.getElementById('savingAccountDialog').close();openSavingAccountDialog(rawSavingsAccounts.find(s=>s.id==='free'))")
+    evaluate("document.getElementById('savingAccountDialog').close();openSavingAccountDialog(accountFeature.rawSavingsAccounts.find(s=>s.id==='free'))")
     assert not evaluate("document.getElementById('savingCurrentPaid').readOnly")
     assert evaluate('__settingsProbe.errors')==[]
 

@@ -46,7 +46,12 @@
     window.refreshDialogKoreanHints?.(document.getElementById('nationalPensionHistoryDialog'));
   }
   function safeDraft() {
-    if(window.WealthNationalPension?.hasDraft()||JSON.stringify(readNationalPensionHistoryRows())!==JSON.stringify(nationalPensionHistoryOriginal)){
+    const analysis = window.WealthNationalPension;
+    const hasUnsavedHistory = window.hasUnsavedNationalPensionHistory;
+    if (typeof analysis?.hasDraft !== 'function' || typeof hasUnsavedHistory !== 'function') {
+      throw new Error('국민연금 미저장 상태를 확인할 수 없습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.');
+    }
+    if (analysis.hasDraft() || hasUnsavedHistory()) {
       throw new Error('저장하지 않은 납부 이력·분석이 있습니다. 먼저 저장하거나 취소·다시 불러와 주세요.');
     }
   }
@@ -99,10 +104,15 @@
     }catch(error){if(token===generation){status(`${error.message} 검토 초안은 유지됩니다. 충돌 시 자료를 다시 분석하세요.`);toast(error.message,true);}}
     finally{if(token===generation){busy=false;document.getElementById('npImportFields').disabled=false;}}
   }
-  function open(currentItem) {
+  function open(currentItem, { showPanel = true } = {}) {
     if(!currentItem?.id)return;
     if(busy){status('진행 중인 요청이 끝난 뒤 다시 시도하세요.');return;}
-    item=currentItem;panel().hidden=false;panel().open=true;panel().scrollIntoView({block:'start'});
+    item = currentItem;
+    if (!showPanel) return;
+    const section = panel();
+    section.hidden = false;
+    section.open = true;
+    section.scrollIntoView({block:'start'});
   }
   document.addEventListener('DOMContentLoaded',()=>{
     const dialog=document.getElementById('nationalPensionHistoryDialog');
@@ -119,7 +129,7 @@
     fields.append(button('확인한 연도 실제 납부액 추가',()=>{if(draft){reviewRow('annual','사용자 확인 실제 연도 납부액',{year:'',deposit:null},'기간 합계를 자동 배분하지 않습니다. 확인한 실제 연도 금액만 선택하세요.');}}));
     const notice=node('p');notice.id='npImportStatus';notice.setAttribute('role','status');notice.setAttribute('aria-live','polite');section.append(notice);
     document.getElementById('npAnalysisPanel').before(section);
-    const entry=button('📄 국민연금 자료 가져오기',()=>open(nationalPensionHistoryItem));section.before(entry);
+    const entry=button('📄 국민연금 자료 가져오기',()=>open(item));section.before(entry);
     dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});
     dialog.addEventListener('click',event=>{if(busy&&event.target.closest('.close,button[value=cancel],[data-np-action],[data-np-add]')){event.preventDefault();event.stopImmediatePropagation();status('요청이 진행 중입니다. 완료 후 다른 작업을 해 주세요.');}},true);
     document.getElementById('nationalPensionHistoryForm').addEventListener('submit',event=>{if(busy){event.preventDefault();event.stopImmediatePropagation();}},true);

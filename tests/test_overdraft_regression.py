@@ -550,7 +550,7 @@ class OverdraftRegressionTests(IsolatedDataTestCase):
     def test_ui_exposes_separate_interest_and_overdraft_account_fields(self) -> None:
         project_root = Path(__file__).resolve().parents[1]
         html = (project_root / "app" / "static" / "index.html").read_text(encoding="utf-8")
-        javascript = (project_root / "app" / "static" / "wealth.js").read_text(encoding="utf-8")
+        javascript = (project_root / "app" / "static" / "wealth-account-feature-controller.js").read_text(encoding="utf-8")
         self.assertIn("이자 출금 통장 (연동)", html)
         self.assertIn("마이너스통장 연결 계좌 (자동 상계)", html)
         self.assertIn('name="overdraft_bank_account_id"', html)

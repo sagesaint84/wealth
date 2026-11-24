@@ -20,6 +20,29 @@
   #savingContributionSummary,#savingContributionForm { grid-template-columns:minmax(0,1fr); }
   .saving-contribution-row { grid-template-columns:minmax(0,1fr); }
 }
+#savingAccountForm .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+#savingAccountForm .form-grid > label,
+#savingAccountForm .saving-calc-preview-grid > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#savingAccountForm .form-grid :is(input:not([type="checkbox"]), select) {
+  min-width: 0;
+  max-width: 100%;
+}
+#savingAccountForm .saving-calc-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  font-size: 12px;
+}
+@media (max-width: 480px) {
+  #savingAccountForm .form-grid { grid-template-columns: minmax(0, 1fr); }
+  #savingAccountForm .saving-calc-preview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #savingEndDateLabel > div { flex-wrap: wrap; }
+}
 #savingAccountDialog .saving-auto-settings { min-width:0; margin:16px 0; padding:12px; border:1px solid var(--line); border-radius:10px; }
 #savingAccountDialog .saving-auto-toggle { display:flex; align-items:center; gap:8px; min-height:36px; font-size:12px; }
 #savingAccountDialog .saving-auto-toggle input { flex:0 0 auto; width:18px; height:18px; padding:0; margin:0; }

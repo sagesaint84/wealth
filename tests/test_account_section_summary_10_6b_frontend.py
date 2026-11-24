@@ -14,7 +14,7 @@ class AccountSectionSummary106BFrontendTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.summary_js = SUMMARY_JS.read_text(encoding="utf-8")
         cls.loader_js = LOADER_JS.read_text(encoding="utf-8")
-        cls.money_js = (ROOT / "app/static/wealth.js").read_text(encoding="utf-8")
+        cls.account_feature = (ROOT / "app/static/wealth-account-feature-controller.js").read_text(encoding="utf-8")
 
     def test_loader_registers_versioned_summary_script_once(self) -> None:
         self.assertIn("wealthAccountSectionSummaryScript", self.loader_js)
@@ -48,16 +48,16 @@ class AccountSectionSummary106BFrontendTests(unittest.TestCase):
         self.assertIn("!linkedBankIds.has(text(item?.id))", self.summary_js)
 
     def test_bank_summary_uses_actual_debt_not_agreement_count_as_debt(self) -> None:
-        self.assertIn("const totalCombinedDebt = totalPureLoan + totalMinusDebt", self.money_js)
-        self.assertIn("Math.abs(Number(b.balance) || 0)", self.money_js)
-        self.assertIn('number(totalCombinedDebt, 0)', self.money_js)
+        self.assertIn("const totalCombinedDebt = totalPureLoan + totalMinusDebt", self.account_feature)
+        self.assertIn("Math.abs(Number(b.balance) || 0)", self.account_feature)
+        self.assertIn('app.number(totalCombinedDebt, 0)', self.account_feature)
 
     def test_bank_summary_dedupes_linked_overdraft_debt(self) -> None:
-        self.assertIn("const representedOverdraftBanks = new Set", self.money_js)
-        self.assertIn("l.loan_type === 'minus'", self.money_js)
-        self.assertIn("Number(l.current_balance) > 0", self.money_js)
-        self.assertIn("representedOverdraftBanks.has", self.money_js)
-        self.assertIn("unrepresentedMinusBanks.reduce", self.money_js)
+        self.assertIn("const representedOverdraftBanks = new Set", self.account_feature)
+        self.assertIn("l.loan_type === 'minus'", self.account_feature)
+        self.assertIn("Number(l.current_balance) > 0", self.account_feature)
+        self.assertIn("representedOverdraftBanks.has", self.account_feature)
+        self.assertIn("unrepresentedMinusBanks.reduce", self.account_feature)
 
     def test_bank_visible_counts_follow_actual_accounts_and_separate_agreements(self) -> None:
         self.assertIn("syncBankCountBadges(bankAccounts.length, agreements.length)", self.summary_js)

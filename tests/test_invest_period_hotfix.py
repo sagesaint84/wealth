@@ -25,21 +25,41 @@ def canonical(rows, owner='모두', year=None):
 
 def render(rows, *, owner='모두', at='2026-09-30T15:30:00Z', intl_failure=False):
     code = r'''
-const fs=require('fs'),vm=require('vm');
+const fs=require('fs'),vm=require('vm'),path=require('path');
 const source=fs.readFileSync(process.argv[1],'utf8'), input=JSON.parse(process.argv[2]);
+const staticDir=path.dirname(process.argv[1]);
 const elements={}, RealDate=Date;
 class Clock extends RealDate { constructor(...a){super(...(a.length?a:[input.at]));} }
+function createElement() {
+  const element = {textContent: '', style: {}, className: ''};
+  element.classList = {
+    toggle(name, force) {
+      const classes = element.className.split(/\s+/).filter(Boolean);
+      const present = classes.includes(name);
+      const enabled = force === undefined ? !present : Boolean(force);
+      if (enabled !== present) {
+        element.className = (enabled ? [...classes, name] : classes.filter(token => token !== name)).join(' ');
+      }
+      return enabled;
+    },
+  };
+  return element;
+}
 const sandbox={Date:Clock,Intl:input.intlFailure?{...Intl,DateTimeFormat:()=>{throw Error('unavailable')},NumberFormat:Intl.NumberFormat}:Intl,
  currentOwner:input.owner,STOCK_PORTFOLIO_MODE:'sector',rawDashboard:null,pnlData:null,actualDividendData:null,
- rawLoanAccounts:[],rawBankAccounts:[],rawSavingsAccounts:[],rawInsuranceAccounts:[],rawRealEstates:[],
+ accountFeature:{rawLoanAccounts:[],rawBankAccounts:[],rawSavingsAccounts:[]},
+ insuranceFeature:{rawInsuranceAccounts:[]},realEstateFeature:{rawRealEstates:[]},
  calculateDashboardDebt:()=>({totalMinusBankDebt:0,totalPureDebt:0}),
- $:selector=>elements[selector]||(elements[selector]={textContent:'',style:{},className:''}),
+ $:selector=>elements[selector]||(elements[selector]=createElement()),
  CustomEvent:class{constructor(type,init){this.detail=init.detail;}},
  window:{dispatchEvent:e=>{sandbox.summary=e.detail;}}};
 vm.createContext(sandbox);
-vm.runInContext(source.slice(source.indexOf('function getKstYearMonth'),source.indexOf('function shiftYearMonth')),sandbox);
+for (const asset of ['wealth-date-helper.js', 'wealth-format.js', 'wealth-investment-summary-view.js']) {
+  vm.runInContext(fs.readFileSync(path.join(staticDir, asset), 'utf8'), sandbox);
+}
+sandbox.getKstYearMonth=sandbox.window.WealthDateHelper.getKstYearMonth;
 vm.runInContext(source.slice(source.indexOf('const number ='),source.indexOf('function formatKoreanMoneyFriendly')),sandbox);
-vm.runInContext(source.slice(source.indexOf('function finiteRealizedPnlNumber'),source.indexOf('const SECTOR_COLORS')),sandbox);
+vm.runInContext(source.slice(source.indexOf('function finiteRealizedPnlNumber'),source.indexOf('const sectorView =')),sandbox);
 sandbox.renderSummary({realized_pnl_records:input.rows,realized_pnl_summary:input.canonical});
 process.stdout.write(JSON.stringify({summary:sandbox.summary,elements}));
 '''
