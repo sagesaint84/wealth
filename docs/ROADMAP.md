@@ -1,9 +1,16 @@
 # Wealth Roadmap
 
-## v2.1.10 개발 후보 — 사용자 접근 및 자격증명 제어기
+## v2.1.11 개발 후보 — 앱 셸과 릴리스 일관성
 
-- `codex/user-access-credentials-batch`에서 세션·관리자 처리와 증권사·OpenDART·KRX 설정 모듈화를 버전 변경과 함께 제출한다.
-- GitHub main 병합 대기. v2.1.10 GHCR 이미지 미게시. v2.1.10 Oracle 운영 미배포.
+- 공통 다이얼로그와 입력 이벤트, 테마·PWA, 화면 전환, 부트스트랩을 기존 FeatureController와 연결하는 앱 셸로 이전했다.
+- [Issue #182](https://github.com/sagesaint84/wealth/issues/182) 정책에 따라 GHCR 버전 태그는 직전 main 대비 APP_VERSION 증가 시에만 게시한다.
+- [Issue #206](https://github.com/sagesaint84/wealth/issues/206) Toss WTS 두 날짜 범위는 공통 KST 30일 기본값을 사용한다. 수동 선택의 화면 검증은 대기 중이다.
+- GitHub 병합과 Git 태그 대기. GHCR 이미지 미게시. Oracle 운영 배포 미실행.
+
+## v2.1.10 — 사용자 접근 및 자격증명 제어기 릴리스
+
+- [PR #260](https://github.com/sagesaint84/wealth/pull/260) 사용자 접근·자격증명과 [PR #261](https://github.com/sagesaint84/wealth/pull/261) GHCR 버전 태그가 main `e0e93deec1ad9ca2b8316cd768d82dbe468041fe`에 반영됐다.
+- Git 태그 `v2.1.10` 게시 완료. [Actions #45479870999](https://github.com/sagesaint84/wealth/actions/runs/45479870999) SUCCESS. GHCR `latest`, `e0e93de`, `2.1.10`의 게시 당시 manifest digest는 `sha256:690edc10225a4a510086e758cf423b31d3d3b67429e178371aa49ff9cfdfc767`이다. Oracle 운영 반영은 사용자 확인 대기다.
 
 ## 투자 화면 기능 제어기
 

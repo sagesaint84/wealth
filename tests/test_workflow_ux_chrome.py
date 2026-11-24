@@ -120,6 +120,20 @@ def test_bucket_palette_filter_owner_and_totals(chrome_preview,width):
 @pytest.mark.parametrize('width',[1280,390])
 def test_wts_controls_type_preferences_and_preview_contract(chrome_preview,width):
     call,evaluate=start(chrome_preview,width,'pnl')
+    date_ids = ['tossWtsFromDate', 'tossWtsToDate', 'tossWtsIncomeFromDate', 'tossWtsIncomeToDate']
+    selectors = json.dumps(date_ids)
+    values = f"{selectors}.map(id => document.getElementById(id).value)"
+    dates = evaluate("WealthDateHelper.getKstDateRange(30)")
+    expected = [dates['fromDate'], dates['toDate']] * 2
+    assert evaluate(values) == expected
+
+    manual_dates = ['2026-01-02', '2026-01-30', '2026-02-03', '2026-02-24']
+    evaluate(f"{selectors}.forEach((id,i) => {{const input=document.getElementById(id); input.value={json.dumps(manual_dates)}[i]; input.dispatchEvent(new Event('input',{{bubbles:true}}));}})")
+    for tab in ('dividend', 'pnl'):
+        evaluate(f"location.hash={tab!r}")
+        wait_for(evaluate, f"document.querySelector('.wealth-workspace').dataset.incomeTab === {tab!r}")
+        assert evaluate(values) == manual_dates
+
     evaluate(r'''(()=>{
       dashboard.accounts=[{id:'a',broker:'토스증권',name:'계좌 A',owner:'아빠'}];
       const row={date:'2026-10-07',name:'가상종목',symbol:'DEMO',market_type:'US',quantity:2,buy_amount:{krw:100},sell_amount:{krw:200},profit_loss:{krw:100},profit_rate:100};
