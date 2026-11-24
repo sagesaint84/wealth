@@ -38,6 +38,14 @@ def _listing_track(company_name: str, gsr_class: str) -> str:
     return "spac" if (gsr_class == "S" or "스팩" in compact or "기업인수목적" in compact or "SPAC" in compact) else "general"
 
 
+def naver_ipo_offering_status(value: object) -> str | None:
+    if value == "공모철회":
+        return "withdrawn"
+    if value in ("증권신고서제출", "수요예측", "청약", "청약완료"):
+        return "scheduled"
+    return None
+
+
 def parse_naver_ipo_discovery_json(raw_json_str: str | dict[str, Any]) -> list[dict[str, Any]]:
     """Keep Naver IPO progress identities even before ``lcalDate`` is announced.
 
@@ -122,9 +130,11 @@ def parse_naver_ipo_discovery_json(raw_json_str: str | dict[str, Any]) -> list[d
 def _merge_discovery_offerings(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     dates = ("subscription_start", "subscription_end", "expected_listing_date")
 
-    def identity(row: dict[str, Any]) -> tuple[str, str]:
+    def identity(row: dict[str, Any]) -> tuple[str, str, bool]:
         name = row["company_name"]
-        return row["stock_code"], normalize_company_name(name) or name
+        # Keep explicit withdrawal evidence separate from other status rows.
+        withdrawn = naver_ipo_offering_status(row.get("ipo_status")) == "withdrawn"
+        return row["stock_code"], normalize_company_name(name) or name, withdrawn
 
     def compatible(left: dict[str, Any], right: dict[str, Any]) -> bool:
         return identity(left) == identity(right) and all(

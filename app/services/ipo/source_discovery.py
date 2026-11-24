@@ -8,14 +8,19 @@ from time import perf_counter
 
 from app.services.ipo.dart_client import DartClient, DartAuthError
 import httpx
-from app.services.ipo.dart_offering_schedule import build_dart_offering_schedule, select_dart_schedule_filing, dart_schedule_restriction
+from app.services.ipo.dart_offering_schedule import (
+    build_dart_offering_schedule,
+    dart_schedule_restriction,
+    find_verified_offering_withdrawal,
+    select_dart_schedule_filing,
+)
 from app.services.ipo.display import npay_schedule_field_confirmed, schedule_field_confirmed
 from app.services.ipo.identity import is_spac_ipo, normalize_company_name, spac_name_key
 from app.services.ipo.kind_client import KindClient
 from app.services.ipo.metalogos_client import MetalogosIpoClient, metalogos_identity_matches
 from app.services.ipo.naver_client import NaverIpoClient, NaverIpoClientError, normalize_naver_ipo_code
-from app.services.ipo.naver_discovery import NaverIpoDiscoveryClient
-from app.services.ipo.npay_client import NpayIpoCalendarIncomplete, NpayIpoClient
+from app.services.ipo.naver_discovery import NaverIpoDiscoveryClient, naver_ipo_offering_status
+from app.services.ipo.npay_client import NPAY_IPO_URL, NPAY_STOCK_IPO_URL, NpayIpoCalendarIncomplete, NpayIpoClient
 from app.services.ipo.store import merge_ipo_record, read_market_store, write_market_store
 from app.services.network_policy import ExternalNetworkDisabled
 
@@ -1242,6 +1247,134 @@ def _provider_read(read):
             "elapsed_ms": round((perf_counter() - began) * 1000, 3)}
 
 
+def _npay_stock_observation(item):
+    source = (item.get("sources") or {}).get("npay") or {}
+    return source.get("url") == NPAY_STOCK_IPO_URL and source.get("schedule_source") == "npay_stock_public_ipo"
+
+
+def _same_withdrawal_period(stored, observation):
+    boundaries = [(stored[key], observation[key]) for key in ("subscription_start", "subscription_end")
+                  if stored.get(key) and observation.get(key)]
+    return bool(boundaries) and all(old == new for old, new in boundaries)
+
+
+def _npay_unlisted_schedule_observation(item):
+    source = (item.get("sources") or {}).get("npay") or {}
+    return source.get("url") == NPAY_IPO_URL and source.get("subscription_status") in {"active", "upcoming"}
+
+
+def _contrary_npay_observation(withdrawal, observation):
+    observed_code = observation.get("stock_code")
+    same_issuer = (
+        observed_code == withdrawal["stock_code"] if observed_code else (
+            _npay_unlisted_schedule_observation(observation)
+            and bool(_exact_name_candidates(withdrawal, [observation]))
+        )
+    )
+    return same_issuer and _same_withdrawal_period(withdrawal, observation)
+
+
+def _record_npay_withdrawals(market, withdrawals, *, today, observed_at,
+                             positive_observations=(), unlisted_read_ok=True):
+    existing = market["ipos"]
+    reviews = 0
+    for item in withdrawals:
+        matching = _unique_stock_match(item, existing)
+        if matching is None and any(row.get("stock_code") == item["stock_code"] for row in existing):
+            continue
+        if matching is not None:
+            candidates = [matching] if _same_withdrawal_period(matching, item) else []
+        else:
+            # A matching name and dated period can flag a conflict, never
+            # resolve two different provider codes or merge their records.
+            candidates = [row for row in _exact_name_candidates(item, existing)
+                          if row.get("stock_code") and row.get("subscription_start")
+                          and row["subscription_start"] == item.get("subscription_start")
+                          and _same_withdrawal_period(row, item)]
+        if len(candidates) != 1:
+            continue
+        ipo = candidates[0]
+        if ipo.get("actual_listing_date"):
+            continue
+        sources = ipo.get("sources")
+        sources = sources if isinstance(sources, dict) else {}
+        marker = sources.get("npay_offering_restriction") or {}
+        if matching is None and marker.get("status") == "withdrawn":
+            continue
+        same_period = marker.get("stock_code") == item["stock_code"] and _same_withdrawal_period(marker, item)
+        # Retrieval order is not publication order. Keep contrary evidence
+        # until an explicit later offering or corroborated reopening.
+        contrary = [
+            {"stock_code": row.get("stock_code"),
+             "subscription_start": row.get("subscription_start"),
+             "subscription_end": row.get("subscription_end"),
+             "reported_status": row.get("ipo_status") or row.get("npay_subscription_status"),
+             "observed_at": row["sources"]["npay"].get("observed_at"),
+             "url": row["sources"]["npay"].get("url")}
+            for row in positive_observations if _contrary_npay_observation(item, row)
+        ]
+        if not contrary and same_period:
+            contrary = marker.get("contrary_observations") or []
+        periods = {(row.get("subscription_start"), row.get("subscription_end")) for row in withdrawals
+                   if row["stock_code"] == item["stock_code"] and _same_withdrawal_period(ipo, row)}
+        if matching is None:
+            status = "identity_review"
+        elif (contrary or len(periods) > 1
+              or (not unlisted_read_ok and not (same_period and marker.get("status") == "withdrawn"))):
+            status = "source_review"
+        else:
+            status = "withdrawn"
+        official = None
+        if len(periods) <= 1:
+            official = find_verified_offering_withdrawal(
+                normalize_company_name(ipo.get("company_name") or ""),
+                ipo.get("stock_code"), item["stock_code"],
+                item.get("subscription_start"), item.get("subscription_end"),
+            )
+        if not official and not any(
+            str(row.get(field) or "") >= today for row in (ipo, item) for field in _NPAY_CALENDAR_FIELDS
+        ):
+            continue
+        effective_date = (marker.get("effective_date") if same_period else None) or observed_at[:10]
+        if official:
+            status = "withdrawn"
+            effective_date = datetime.strptime(official["source_date"], "%Y%m%d").date().isoformat()
+        reviews += int(status != "withdrawn")
+        ipo["sources"] = sources
+        sources["npay_offering_restriction"] = {
+            "status": status,
+            "stock_code": item["stock_code"],
+            "reported_status": item["ipo_status"],
+            "subscription_start": item.get("subscription_start"),
+            "subscription_end": item.get("subscription_end"),
+            "observed_at": (item.get("sources", {}).get("npay") or {}).get("observed_at") or observed_at,
+            "effective_date": effective_date,
+            "url": NPAY_STOCK_IPO_URL,
+            "contrary_observations": contrary,
+        }
+        if official:
+            sources["npay_offering_restriction"]["official_withdrawal"] = official
+    return reviews
+
+
+def _npay_new_offering(item, ipo, restriction, withdrawals, positive_observations):
+    start, end = item.get("subscription_start"), item.get("subscription_end")
+    if (not _npay_stock_observation(item) or naver_ipo_offering_status(item.get("ipo_status")) != "scheduled"
+            or item.get("stock_code") != ipo.get("stock_code") or not (start and end and start <= end)):
+        return False
+    if any(_contrary_npay_observation(stopped, item) for stopped in withdrawals):
+        return False
+    previous_end = restriction.get("subscription_end")
+    if previous_end and start > previous_end:
+        return True
+    return (not restriction.get("official_withdrawal")
+            and restriction.get("stock_code") == item["stock_code"]
+            and _same_withdrawal_period(restriction, item) and any(
+        _npay_unlisted_schedule_observation(row) and row.get("stock_code") == item["stock_code"]
+        and _same_withdrawal_period(item, row) for row in positive_observations
+    ))
+
+
 def _observation_key(item, existing):
     match = _unique_stock_match(item, existing) or _unique_name_match(item, existing)
     if match is not None:
@@ -1274,7 +1407,7 @@ def _reconcile_missing_npay_schedules(npay, market, raw_items, *, target, end, a
             continue
         if stock_code != canonical_code or _unique_stock_match(ipo, existing) is not ipo:
             continue
-        if (sources.get("identity_conflicts")
+        if (sources.get("identity_conflicts") or sources.get("npay_offering_restriction")
                 or (sources.get("schedule_reconciliation") or {}).get("status") == "review_required"):
             continue
         name = normalize_company_name(ipo.get("company_name") or "")
@@ -1447,6 +1580,32 @@ def discover_and_merge_primary_sources(
     failed = len(source_errors) if isinstance(source_errors, dict) else 0
     failed += sum(str(statuses.get(key, "")).startswith("partial") for key in ("npay_stock", "npay_unlisted"))
     existing = market.get("ipos", [])
+    withdrawals = [item for item in raw_items if isinstance(item, dict)
+                   and _npay_stock_observation(item) and naver_ipo_offering_status(item.get("ipo_status")) == "withdrawn"
+                   and item.get("stock_code")]
+    today = max(date.fromisoformat(target_date_str), datetime.now(KST).date()).isoformat()
+    positive_observations = [
+        item for item in raw_items if isinstance(item, dict) and (
+            _npay_unlisted_schedule_observation(item) or (
+                _npay_stock_observation(item) and naver_ipo_offering_status(item.get("ipo_status")) == "scheduled"
+            )
+        )
+    ]
+    reviews += _record_npay_withdrawals(
+        market, withdrawals, today=today, observed_at=observed_at,
+        positive_observations=positive_observations, unlisted_read_ok=statuses.get("npay_unlisted") == "read_ok",
+    )
+    relevant_items = [
+        item for item in relevant_items
+        if not any(
+            (item.get("stock_code") == stopped["stock_code"] or (
+                normalize_company_name(item.get("company_name") or "")
+                == normalize_company_name(stopped.get("company_name") or "")))
+            and (_same_withdrawal_period(item, stopped)
+                 or naver_ipo_offering_status(item.get("ipo_status")) == "withdrawn")
+            for stopped in withdrawals
+        )
+    ]
     keys = [_observation_key(item, existing) for item in relevant_items]
     conflicts = _conflicting_npay_schedules(relevant_items, existing)
     for item, key in zip(relevant_items, keys):
@@ -1454,8 +1613,11 @@ def discover_and_merge_primary_sources(
         source_meta.setdefault("schedule_source", "npay_unlisted_public_ipo")
         source_meta.setdefault("url", "https://ustock.naver.com/service/ipo?schedule=toBeIPOList")
         source_meta.setdefault("observed_at", observed_at)
+        target_ipo = next((ipo for ipo in existing if key == ("ipo_id", ipo["ipo_id"])), None)
+        restriction = ((target_ipo or {}).get("sources") or {}).get("npay_offering_restriction")
+        if restriction and not _npay_new_offering(item, target_ipo, restriction, withdrawals, positive_observations):
+            continue
         if key in conflicts:
-            target_ipo = next((ipo for ipo in existing if key == ("ipo_id", ipo["ipo_id"])), None)
             schedule = {field: item[field] for field in _NPAY_CALENDAR_FIELDS if item.get(field)}
             if target_ipo is not None:
                 _set_schedule_reconciliation(
@@ -1470,8 +1632,11 @@ def discover_and_merge_primary_sources(
             reviews += 1
             continue
         try:
-            _, review = _apply_observation(market, item, source_name="npay")
+            saved, review = _apply_observation(market, item, source_name="npay")
             reviews += int(review)
+            if (restriction and not review and saved is target_ipo
+                    and all(saved.get(key) == item[key] for key in ("subscription_start", "subscription_end"))):
+                saved["sources"].pop("npay_offering_restriction", None)
         except Exception:
             failed += 1
 

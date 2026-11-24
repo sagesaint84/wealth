@@ -140,6 +140,26 @@ def dart_schedule_restriction(filings: list[dict[str, Any]]) -> dict[str, Any] |
     return max(notices, key=lambda r: (r["source_date"], r["rcept_no"]), default=None)
 
 
+# Public DART notices verified against the cancelled offering. Retain exact
+# provider codes and dates so a later offering by the same issuer is unaffected.
+_VERIFIED_WITHDRAWAL_FILINGS = {
+    ("케이엠에프", "0103V0", "0103V0", "2026-11-24", "2026-11-25"): ("20261123", "20261123000066"),
+    ("아델", "Z00459", "0181E0", "2026-11-23", "2026-11-24"): ("20261120", "20261120000119"),
+}
+
+
+def find_verified_offering_withdrawal(company_name, stored_code, reported_code, start, end):
+    """Return bounded official evidence for a known provider conflict."""
+    filing = _VERIFIED_WITHDRAWAL_FILINGS.get((company_name, stored_code, reported_code, start, end))
+    if filing is None:
+        return None
+    source_date, receipt = filing
+    restriction = dart_schedule_restriction([
+        {"report_nm": "철회신고서", "rcept_dt": source_date, "rcept_no": receipt},
+    ])
+    return {**restriction, "url": f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={receipt}"}
+
+
 def select_dart_schedule_filing(
     filings: list[dict[str, Any]],
     raw_structured: dict[str, Any] | list[Any],

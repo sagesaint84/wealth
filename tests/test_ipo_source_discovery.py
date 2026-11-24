@@ -1,14 +1,100 @@
 from __future__ import annotations
 
+from datetime import date
 import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from app.services.ipo.source_discovery import _apply_observation, discover_and_merge_primary_sources
+from app.services.ipo.display import current_schedule, display_records, schedule_condition
+from app.services.ipo.npay_client import parse_npay_ipo_html
+from app.services.ipo.presentation import derive_market_state
+from app.services.ipo.source_discovery import (
+    _apply_observation,
+    _record_npay_withdrawals,
+    discover_and_merge_primary_sources,
+)
 from app.services.ipo.store import read_market_store
-from app.services.ipo.display import schedule_condition
+
+
+class NpayWithdrawalProjectionTests(unittest.TestCase):
+    def test_same_period_requires_matching_code_for_withdrawn_state(self):
+        observed = {
+            "stock_code": "0103V0", "company_name": "Example IPO",
+            "ipo_status": "공모철회", "subscription_start": "2026-11-24",
+            "subscription_end": "2026-11-25",
+        }
+        today = date(2026, 11, 24)
+        for code, expected in (("0103V0", "WITHDRAWN"), ("Z00459", "DATE_UNKNOWN")):
+            with self.subTest(code=code):
+                ipo = {
+                    "ipo_id": "existing-ipo", "stock_code": code, "company_name": observed["company_name"],
+                    "subscription_start": observed["subscription_start"],
+                    "subscription_end": observed["subscription_end"],
+                }
+                _record_npay_withdrawals({"ipos": [ipo]}, [observed], today=today.isoformat(),
+                                         observed_at="2026-11-24T10:00:00+09:00")
+                displayed = current_schedule(display_records([ipo], today)[0], today)
+                self.assertEqual(derive_market_state(displayed, today), expected)
+                self.assertIsNone(displayed["subscription_start"])
+                self.assertIsNone(displayed["subscription_end"])
+                self.assertEqual(ipo["ipo_id"], "existing-ipo")
+                self.assertEqual(ipo["stock_code"], code)
+                self.assertEqual(ipo["subscription_start"], "2026-11-24")
+                self.assertEqual(ipo["subscription_end"], "2026-11-25")
+
+    def test_active_unlisted_row_with_same_code_and_close_date_keeps_withdrawal_under_review(self):
+        today = date(2026, 11, 24)
+        ipo = {"ipo_id": "existing-ipo", "stock_code": "0103V0", "company_name": "Example IPO",
+               "subscription_start": "2026-11-24", "subscription_end": "2026-11-25"}
+        withdrawn = {**ipo, "ipo_status": "공모철회"}
+        positive = parse_npay_ipo_html(
+            """다가오는 청약 종목 청약진행중 1 청약예정 0 진행중 11.25 마감 Example IPO 공모가 15,000원
+            <script id="__NEXT_DATA__" type="application/json">
+            {"props":{"pageProps":{"dehydratedState":{"queries":[{"queryKey":["upcomingStocks"],
+            "state":{"data":{"toBeIPOList":[],"beingIPOList":[{"stockCode":"0103V0",
+            "closedDate":"2026-11-25","stockName":"Example IPO"}]}}}]}}}}
+            </script>""",
+            target_date_str=today.isoformat(),
+        )
+        self.assertEqual(positive[0]["stock_code"], ipo["stock_code"])
+        for observed_at, observations in (
+            ("2026-11-24T10:00:00+09:00", positive),
+            ("2026-11-24T11:00:00+09:00", []),
+        ):
+            _record_npay_withdrawals({"ipos": [ipo]}, [withdrawn], today=today.isoformat(),
+                                     observed_at=observed_at, positive_observations=observations)
+            viewed = current_schedule(display_records([ipo], today)[0], today)
+            self.assertEqual(schedule_condition(viewed), "unverified")
+            self.assertEqual(derive_market_state(viewed, today), "DATE_UNKNOWN")
+            self.assertIsNone(viewed["subscription_end"])
+            self.assertEqual(ipo["subscription_end"], "2026-11-25")
+            self.assertEqual(ipo["ipo_id"], "existing-ipo")
+
+
+    def test_official_filing_resolves_known_conflicts_without_changing_the_ipo_identity(self):
+        for name, stored_code, reported_code, start, end, receipt in (
+            ("케이엠에프", "0103V0", "0103V0", "2026-11-24", "2026-11-25", "20261123000066"),
+            ("아델", "Z00459", "0181E0", "2026-11-23", "2026-11-24", "20261120000119"),
+        ):
+            with self.subTest(name=name):
+                ipo = {"ipo_id": "existing-ipo", "stock_code": stored_code, "company_name": name,
+                       "subscription_start": start}
+                stopped = {**ipo, "stock_code": reported_code, "ipo_status": "공모철회", "subscription_end": end}
+                market = {"ipos": [ipo]}
+                reviews = _record_npay_withdrawals(
+                    market, [stopped], today="2026-11-26", observed_at="2026-11-26T10:00:00+09:00",
+                    unlisted_read_ok=False,
+                )
+                self.assertEqual(reviews, 0)
+                self.assertEqual(ipo["sources"]["npay_offering_restriction"]["official_withdrawal"]["rcept_no"], receipt)
+                view = current_schedule(display_records(market["ipos"])[0])
+                self.assertEqual(schedule_condition(view), "withdrawn")
+                self.assertIsNone(view["subscription_start"])
+                self.assertEqual(ipo["subscription_start"], start)
+                self.assertEqual(ipo["stock_code"], stored_code)
+                self.assertEqual(ipo["ipo_id"], "existing-ipo")
 
 
 class _DartOff:

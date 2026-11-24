@@ -168,7 +168,7 @@ def parse_npay_ipo_html(html_text: str, *, target_date_str: str) -> list[dict[st
     for match in upcoming_pattern.finditer(text):
         append_row(match, status="upcoming")
 
-    # The same public page embeds full-year upcoming dates and security codes.
+    # The same public page embeds full-year dates and security codes.
     # Join only a unique name AND exact observed date, never by name alone.
     state_match = re.search(r'<script\b(?=[^>]*\bid=["\']__NEXT_DATA__["\'])[^>]*>(.*?)</script>',
                             html_text, flags=re.IGNORECASE | re.DOTALL)
@@ -185,28 +185,36 @@ def parse_npay_ipo_html(html_text: str, *, target_date_str: str) -> list[dict[st
                 continue
             query_state = query.get("state")
             data = query_state.get("data") if isinstance(query_state, dict) else None
-            if not isinstance(data, dict) or not isinstance(data.get("toBeIPOList"), list):
+            if not isinstance(data, dict):
                 continue
-            for raw in data["toBeIPOList"]:
-                if not isinstance(raw, dict):
+            for container, field, raw_field in (
+                ("toBeIPOList", "subscription_start", "offeringStartAt"),
+                ("beingIPOList", "subscription_end", "closedDate"),
+            ):
+                rows = data.get(container)
+                if not isinstance(rows, list):
                     continue
-                day = str(raw.get("offeringStartAt") or "")
-                try:
-                    if datetime.strptime(day, "%Y-%m-%d").strftime("%Y-%m-%d") != day:
+                for raw in rows:
+                    if not isinstance(raw, dict):
                         continue
-                    code = normalize_naver_ipo_code(raw.get("stockCode"))
-                except (ValueError, NaverIpoClientError):
-                    continue
-                key = (_clean_company_name(raw.get("stockName")), day)
-                candidates.setdefault(key, []).append(code)
+                    day = str(raw.get(raw_field) or "")
+                    try:
+                        if date.fromisoformat(day).isoformat() != day:
+                            continue
+                        code = normalize_naver_ipo_code(raw.get("stockCode"))
+                    except (ValueError, NaverIpoClientError):
+                        continue
+                    key = (field, _clean_company_name(raw.get("stockName")), day)
+                    candidates.setdefault(key, []).append((code, container, raw_field))
         for item in results:
-            key = (item["company_name"], item.get("subscription_start"))
-            codes = candidates.get(key, [])
-            if len(codes) == 1:
-                item["stock_code"] = codes[0]
+            field = "subscription_end" if item["npay_subscription_status"] == "active" else "subscription_start"
+            matches = candidates.get((field, item["company_name"], item.get(field)), [])
+            if len(matches) == 1:
+                code, container, raw_field = matches[0]
+                item["stock_code"] = code
                 item["sources"]["npay"]["field_paths"] = {
-                    "subscription_start": "upcomingStocks.toBeIPOList.offeringStartAt",
-                    "stock_code": "upcomingStocks.toBeIPOList.stockCode",
+                    field: f"upcomingStocks.{container}.{raw_field}",
+                    "stock_code": f"upcomingStocks.{container}.stockCode",
                 }
 
     # An intact page with both schedule section labels and no listings is a
