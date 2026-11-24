@@ -94,6 +94,7 @@ ALLOWED.update({
     'wealth-ledger-cards-view.js',
     'wealth-ledger-recurring-view.js',
     'wealth-ledger-data.js',
+    'wealth-ledger-feature-controller.js',
     'wealth-ledger-transactions-model.js',
     'wealth-stock-records-model.js',
     'wealth-banking-view.js',

@@ -2,16 +2,11 @@
   'use strict';
 
   const period = window.WealthPeriodFilter;
-  if (!period || typeof api !== 'function' || typeof renderLedger !== 'function') {
-    console.error('Ledger period filter requires WealthPeriodFilter, api, and renderLedger.');
+  const ledger = window.WealthLedgerFeature;
+  if (!period || !ledger) {
+    console.error('Ledger period controls require WealthPeriodFilter and WealthLedgerFeature.');
     return;
   }
-
-  const originalRenderLedger = renderLedger;
-  let annualView = false;
-  let requestSequence = 0;
-
-  const moneyNumber = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
 
   function currentKstYear() {
     if (typeof getKstYearMonth === 'function') return Number(getKstYearMonth().year);
@@ -19,7 +14,7 @@
   }
 
   function ledgerYearOptions() {
-    const selected = typeof currentLedgerYear !== 'undefined' ? currentLedgerYear : currentKstYear();
+    const selected = ledger.getYear();
     return period.fixedYearRange(currentKstYear(), 6, selected);
   }
 
@@ -41,102 +36,25 @@
       select.addEventListener('change', () => {
         const year = Number(select.value);
         if (!Number.isInteger(year)) return;
-        currentLedgerYear = year;
-        annualView = true;
-        void window.loadLedger();
+        void ledger.selectAnnualYear(year);
       });
 
       select.addEventListener('pointerdown', () => {
         // 실현손익/배당·이자와 동일하게 연도 컨트롤을 조작하면 연간 보기로 전환한다.
-        annualView = true;
+        ledger.setAnnualView(true);
       }, true);
       select.addEventListener('click', () => {
-        if (!annualView) return;
+        if (!ledger.isAnnualView()) return;
         const year = Number(select.value);
-        if (Number.isInteger(year) && year === Number(currentLedgerYear)) void window.loadLedger();
+        if (Number.isInteger(year) && year === Number(ledger.getYear())) void ledger.loadLedger();
       });
     }
 
     const years = ledgerYearOptions();
     const html = years.map((year) => `<option value="${year}">${year}년</option>`).join('');
     if (select.innerHTML !== html) select.innerHTML = html;
-    select.value = String(currentLedgerYear);
+    select.value = String(ledger.getYear());
     return select;
-  }
-
-  function enterMonthlyView() {
-    annualView = false;
-  }
-
-  async function fetchLedgerMonth(owner, year, month) {
-    return api(`/api/ledger?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}&owner=${encodeURIComponent(owner)}`);
-  }
-
-  function aggregateCategories(months, key, total) {
-    const sums = new Map();
-    months.forEach((item) => {
-      (item?.[key] || []).forEach((row) => {
-        const category = period.text(row?.category) || (key === 'category_expenses' ? '기타지출' : '기타수입');
-        sums.set(category, (sums.get(category) || 0) + moneyNumber(row?.amount));
-      });
-    });
-    return [...sums.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([category, amount]) => ({
-        category,
-        amount,
-        ...(key === 'category_expenses' ? { percent: total > 0 ? Math.round((amount / total) * 1000) / 10 : 0 } : {}),
-      }));
-  }
-
-  function mergeAnnualLedger(months, owner, year) {
-    const monthRows = months.filter(Boolean);
-    const totalIncome = monthRows.reduce((sum, row) => sum + moneyNumber(row.total_income), 0);
-    const totalExpense = monthRows.reduce((sum, row) => sum + moneyNumber(row.total_expense), 0);
-    const totalTransfer = monthRows.reduce((sum, row) => sum + moneyNumber(row.total_transfer), 0);
-    const netSavings = totalIncome - totalExpense;
-    const last = monthRows.at(-1) || {};
-    const transactions = monthRows
-      .flatMap((row) => Array.isArray(row.transactions) ? row.transactions : [])
-      .sort((a, b) => period.text(b?.date).localeCompare(period.text(a?.date)));
-
-    return {
-      ...last,
-      year,
-      month: null,
-      owner,
-      period_mode: 'annual',
-      total_income: totalIncome,
-      total_expense: totalExpense,
-      total_transfer: totalTransfer,
-      net_savings: netSavings,
-      savings_rate: totalIncome > 0 ? Math.round((netSavings / totalIncome) * 1000) / 10 : 0,
-      recurring_expense_total: moneyNumber(last.recurring_expense_total),
-      category_expenses: aggregateCategories(monthRows, 'category_expenses', totalExpense),
-      category_incomes: aggregateCategories(monthRows, 'category_incomes', totalIncome),
-      monthly_trend: Array.from({ length: 12 }, (_, idx) => {
-        const month = idx + 1;
-        const row = monthRows.find((item) => Number(item.month) === month) || {};
-        const income = moneyNumber(row.total_income);
-        const expense = moneyNumber(row.total_expense);
-        return { year, month, label: `${month}월`, income, expense, savings: income - expense };
-      }),
-      transactions,
-      record_count: transactions.length,
-      __ledger_annual_view: true,
-    };
-  }
-
-  async function loadAnnualLedger(owner, year, sequence, epoch) {
-    const rows = [];
-    for (let month = 1; month <= 12; month += 1) {
-      const row = await fetchLedgerMonth(owner, year, month);
-      if (sequence !== requestSequence || owner !== currentOwner || year !== Number(currentLedgerYear)
-          || !annualView || epoch !== (typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch)
-          || globalThis.WealthStartup?.visible('ledgerSectionPanel') === false) return null;
-      rows.push(row);
-    }
-    return mergeAnnualLedger(rows, owner, year);
   }
 
   function updateLedgerHeaderForAnnual(data) {
@@ -178,67 +96,38 @@
       col.style.cursor = '';
     });
     const select = ensureLedgerYearFilter();
-    if (select) select.value = String(data?.year ?? currentLedgerYear);
+    if (select) select.value = String(data?.year ?? ledger.getYear());
   }
 
-  function renderLedgerPeriodAware(data) {
-    if (!data) return;
-    if (data.__ledger_annual_view || annualView) {
-      const renderData = { ...data, month: Number(currentLedgerMonth) || 1 };
-      originalRenderLedger(renderData);
+  function renderLedgerPeriodAware(data, render) {
+    if (data.__ledger_annual_view || ledger.isAnnualView()) {
+      render({ ...data, month: Number(ledger.getMonth()) || 1 });
       updateLedgerHeaderForAnnual(data);
     } else {
-      originalRenderLedger(data);
+      render(data);
       updateLedgerHeaderForMonthly(data);
     }
     ensureLedgerYearFilter();
   }
 
-  window.renderLedger = renderLedgerPeriodAware;
-
-  window.loadLedger = async function loadLedgerWithPeriodScope() {
-    if (globalThis.WealthStartup?.visible('ledgerSectionPanel') === false) return;
-    const sequence = ++requestSequence;
-    const month = Number(currentLedgerMonth) || 1;
-    const annual = annualView;
-    const epoch = typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch;
-    const owner = typeof currentOwner !== 'undefined' && currentOwner ? currentOwner : '모두';
-    const year = Number(currentLedgerYear) || currentKstYear();
-    try {
-      const data = annual
-        ? await loadAnnualLedger(owner, year, sequence, epoch)
-        : await fetchLedgerMonth(owner, year, month);
-      if (!data || sequence !== requestSequence || owner !== currentOwner
-          || year !== Number(currentLedgerYear) || month !== (Number(currentLedgerMonth) || 1)
-          || annual !== annualView || epoch !== (typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch)
-          || globalThis.WealthStartup?.visible('ledgerSectionPanel') === false) return;
-      if (typeof rawLedgerData !== 'undefined') rawLedgerData = data;
-      renderLedgerPeriodAware(data);
-      return data;
-    } catch (err) {
-      console.error('가계부 기간 조회 오류:', err);
-      return undefined;
-    }
-  };
+  ledger.setPeriodRenderer(renderLedgerPeriodAware);
 
   document.addEventListener('pointerdown', (event) => {
     if (event.target?.closest?.('#ledgerPrevMonthBtn, #ledgerNextMonthBtn, #ledgerTodayMonthBtn, #ledgerMonthPicker')) {
-      enterMonthlyView();
+      ledger.setAnnualView(false);
     }
   }, true);
 
   document.addEventListener('change', (event) => {
-    if (event.target?.id === 'ledgerMonthPicker') enterMonthlyView();
+    if (event.target?.id === 'ledgerMonthPicker') ledger.setAnnualView(false);
   }, true);
 
   document.addEventListener('click', (event) => {
     const col = event.target?.closest?.('#ledgerTrendContainer .ledger-trend-col[data-ledger-month]');
-    if (!col || !annualView) return;
+    if (!col || !ledger.isAnnualView()) return;
     const month = Number(col.dataset.ledgerMonth);
     if (!Number.isInteger(month) || month < 1 || month > 12) return;
-    currentLedgerMonth = month;
-    annualView = false;
-    void window.loadLedger();
+    void ledger.selectMonth(ledger.getYear(), month);
   });
 
   function install() {
@@ -249,9 +138,9 @@
   else install();
 
   window.WealthLedgerPeriodFilter = {
-    isAnnualView: () => annualView,
-    setAnnualView(value) { annualView = Boolean(value); },
-    mergeAnnualLedger,
+    isAnnualView: ledger.isAnnualView,
+    setAnnualView: ledger.setAnnualView,
+    mergeAnnualLedger: window.WealthLedgerData.mergeAnnualLedger,
     ensureLedgerYearFilter,
   };
 })();

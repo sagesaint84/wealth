@@ -167,7 +167,10 @@
       status.textContent=wasUncertain
         ? '기존 가계부를 다시 조회했습니다. 이전 저장 여부를 내역에서 확인하고, 이미 추가된 행은 제외하세요. 자동으로 다시 저장하지 않습니다.'
         : result.duplicates.some(Boolean)?'중복 후보를 확인해 주세요. 별도 거래로 확인하면 다시 검토해 주세요.':'검토 완료. 마지막 확인 후 추가할 수 있습니다.';
-      if(wasUncertain && typeof window.loadLedger==='function')window.loadLedger().catch(()=>{status.textContent+=' 내역 화면을 새로고침해 확인해 주세요.';});
+      if(wasUncertain && typeof window.loadLedger==='function'){
+        window.WealthLedgerFeature?.invalidateAfterExternalWrite();
+        window.loadLedger().catch(()=>{status.textContent+=' 내역 화면을 새로고침해 확인해 주세요.';});
+      }
       render();
     } catch(error){checked=null;confirmation.hidden=true;status.textContent=error.message+' 초안은 유지됩니다.';}
     finally {busy=false;controls();}
@@ -182,7 +185,10 @@
       const result=await request('commit',body);
       const ids=new Set(savedIds);drafts=drafts.filter(row=>!ids.has(row.id));pending=null;
       changed();render();status.textContent=`${result.count}건 추가 완료`;
-      if(typeof window.loadLedger==='function')window.loadLedger().catch(()=>{status.textContent='가계부 저장은 완료됐습니다. 화면은 새로고침해 주세요.';});
+      if(typeof window.loadLedger==='function'){
+        window.WealthLedgerFeature?.invalidateAfterExternalWrite();
+        window.loadLedger().catch(()=>{status.textContent='가계부 저장은 완료됐습니다. 화면은 새로고침해 주세요.';});
+      }
     } catch(error) {
       pending=!(error.status>=400 && error.status<500);
       checked=null;confirmation.hidden=true;confirmed.checked=false;
