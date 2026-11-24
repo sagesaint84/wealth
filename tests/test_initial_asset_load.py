@@ -6,7 +6,7 @@ from pathlib import Path
 
 def test_initial_dashboard_renders_without_waiting_for_asset_records():
     source = (Path(__file__).resolve().parents[1] / "app/static/wealth.js").read_text(encoding="utf-8")
-    dashboard_fn = source.split("async function loadDashboard(recordSnapshots = false) {", 1)[1].split("\nasync function loadAssetRecords", 1)[0]
+    dashboard_fn = source.split("async function loadDashboard(recordSnapshots = false) {", 1)[1].split("\nfunction normalizeYear", 1)[0]
     bootstrap_fn = source.split("async function loadAssetDataForUser() {", 1)[1].split("\nasync function handleForcePasswordSubmit", 1)[0]
     script = r"""
 const assert = require('node:assert/strict');
@@ -66,8 +66,8 @@ vm.runInContext(source, context);
 
 
 def test_hidden_invest_heatmap_does_not_render_during_home_bootstrap():
-    source = (Path(__file__).resolve().parents[1] / "app/static/wealth.js").read_text(encoding="utf-8")
-    heatmap_fn = "function renderHeatmaps(data) {" + source.split("function renderHeatmaps(data) {", 1)[1].split("\nfunction ", 1)[0]
+    source = (Path(__file__).resolve().parents[1] / "app/static/wealth-investment-feature-controller.js").read_text(encoding="utf-8")
+    heatmap_fn = "const app = globalThis;\nfunction renderHeatmaps(data) {" + source.split("function renderHeatmaps(data) {", 1)[1].split("\n    function openHeatmapHolding", 1)[0]
     script = r"""
 const assert = require('node:assert/strict');
 const vm = require('node:vm');

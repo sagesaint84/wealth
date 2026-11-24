@@ -15,13 +15,16 @@ def _run_owner_script(mode: str) -> None:
     fragments = (
         ("function selectOwner(owner) {", "\n// ── 핵심 요약"),
         ("function renderWithOwner(data, owner) {", "\n// 다이얼로그"),
-        ("async function loadDashboard(recordSnapshots = false) {", "\nasync function loadAssetRecords"),
-        ("async function loadAssetRecords(owner) {", "\n// ── 다이얼로그"),
+        ("async function loadDashboard(recordSnapshots = false) {", "\nfunction normalizeYear"),
     )
-    code = ledger_feature_source() + "\n".join(
+    owner_model = (STATIC / "wealth-dashboard-owner-model.js").read_text(encoding="utf-8")
+    code = ledger_feature_source() + "\n" + owner_model + "\n" + "\n".join(
         start + source.split(start, 1)[1].split(end, 1)[0]
         for start, end in fragments
     )
+    feature = (STATIC / "wealth-investment-feature-controller.js").read_text(encoding="utf-8")
+    loader = "async function loadAssetRecords(owner) {"
+    code += "\nconst app = globalThis;\n" + loader + feature.split(loader, 1)[1].split("\n    function openImport", 1)[0]
     script = r"""
 const assert = require('node:assert/strict');
 const vm = require('node:vm');

@@ -46,7 +46,7 @@ def startup_code(source, *, modern=True):
     # The first line after the comment is prose, not executable JavaScript.
     if modern:
         coordinator = coordinator[coordinator.index('globalThis.WealthStartup ='):]
-    return coordinator + api + fragment(source, 'async function loadDashboard(recordSnapshots = false) {', '\nasync function loadAssetRecords') + fragment(
+    return coordinator + api + fragment(source, 'async function loadDashboard(recordSnapshots = false) {', '\nfunction normalizeYear') + fragment(
         source, 'async function initAuthSession() {', '\nasync function handleForcePasswordSubmit')
 
 

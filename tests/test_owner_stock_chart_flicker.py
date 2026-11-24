@@ -12,12 +12,15 @@ def test_owner_stock_chart_has_one_renderer_and_owner_scoped_source():
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const wealth = fs.readFileSync(process.argv[1], 'utf8');
+const feature = fs.readFileSync(process.argv[1], 'utf8');
+const path = require('node:path');
+const staticDir = path.dirname(process.argv[1]);
 const unified = fs.readFileSync(process.argv[2], 'utf8');
 const part = (text, start, end) => start + text.split(start, 2)[1].split(end, 1)[0];
 const code = [
-  part(wealth, 'function renderAssetRecords(records) {', '\n// ── 8-1.'),
-  part(wealth, 'async function loadAssetRecords(owner) {', '\n// ── 다이얼로그'),
+  'const app = globalThis;',
+  part(feature, 'function renderAssetRecords(records) {', '\n    const taxAccountsView'),
+  part(feature, 'async function loadAssetRecords(owner) {', '\n    function openImport'),
   part(unified, '  function stockSource() {', '\n  function captureNetWorthFromLegacy'),
   part(unified, '  function hostNeedsUnified(hostId) {', '\n  function install()'),
 ].join('\n');
@@ -31,6 +34,7 @@ let chartHtml = '';
 let taxView = false;
 let observerCallback;
 const chart = {
+  contains(target) { return target === this; },
   get innerHTML() { return chartHtml; },
   set innerHTML(value) { chartHtml = value; writes.push(value); },
   get firstElementChild() {
@@ -60,6 +64,13 @@ const context = {
   dividendMode:()=> 'estimated', netWorthCapturePending:false,
 };
 vm.createContext(context);
+for (const asset of ['wealth-stock-records-model.js','wealth-stock-records-view.js','wealth-asset-records-screen-controller.js']) {
+  vm.runInContext(fs.readFileSync(path.join(staticDir,asset),'utf8'), context);
+}
+vm.runInContext(`
+const stockRecordsView = window.WealthStockRecordsView.create({ $, window, money, number, signClass, html });
+const assetRecordsScreenController = window.WealthAssetRecordsScreenController.create({ document, $, stockRecordsView, renderTaxAccountHoldings });
+`, context);
 vm.runInContext(code, context);
 context.window.WealthUnifiedTimeseries = {renderStock:context.renderStock};
 context.installObserver();
@@ -68,7 +79,7 @@ context.installObserver();
     context.currentOwner=owner;
     const before=writes.length;
     await context.loadAssetRecords(owner);
-    observerCallback();
+    observerCallback([{target:chart, addedNodes:[]}]);
     assert.deepEqual(context.assetRecords.map(r=>r.owner), [owner]);
     assert.equal(writes.length-before, 1, 'owner switch must paint #assetChart once');
     assert.deepEqual(context.lastSource.map(r=>r.owner), [owner]);
@@ -77,23 +88,23 @@ context.installObserver();
   }
   context.currentOwner='모두';
   await context.loadAssetRecords('모두');
-  observerCallback();
+  observerCallback([{target:chart, addedNodes:[]}]);
   assert.deepEqual(context.lastSource.map(r=>r.owner), ['모두']);
   records=records.filter(record=>record.owner!=='모두');
   await context.loadAssetRecords('모두');
-  observerCallback();
+  observerCallback([{target:chart, addedNodes:[]}]);
   assert.deepEqual(context.lastSource.map(r=>r.owner), ['A','B']);
   taxView=true;
   chart.innerHTML='<table class="tax-holdings-table"></table>';
   const before=writes.length;
   context.renderStock();
-  observerCallback();
+  observerCallback([{target:chart, addedNodes:[]}]);
   assert.equal(writes.length, before);
   assert.match(chart.innerHTML, /tax-holdings-table/);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
     result = subprocess.run(
-        ["node", "-e", script, str(ROOT / "app/static/wealth.js"),
+        ["node", "-e", script, str(ROOT / "app/static/wealth-investment-feature-controller.js"),
          str(ROOT / "app/static/wealth-timeseries-unified.js")],
         capture_output=True, text=True, encoding="utf-8",
     )

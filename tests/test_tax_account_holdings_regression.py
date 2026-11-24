@@ -5,14 +5,14 @@ import subprocess
 
 
 def test_tax_holdings_all_account_filter_and_sort():
-    source_path = Path(__file__).resolve().parents[1] / "app/static/wealth.js"
+    source_path = Path(__file__).resolve().parents[1] / "app/static/wealth-investment-feature-controller.js"
     script = r"""
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const source = fs.readFileSync(process.argv[1], 'utf8');
-const renderer = 'function renderTaxAccountHoldings(owner = currentOwner) {' +
-  source.split('function renderTaxAccountHoldings(owner = currentOwner) {')[1].split('\n// ── 9.')[0];
+const renderer = 'function renderTaxAccountHoldings(owner = app.currentOwner) {' +
+  source.split('function renderTaxAccountHoldings(owner = app.currentOwner) {')[1].split('\n    let investmentRenderedData')[0];
 const chart = {innerHTML: ''};
 const list = {innerHTML: ''};
 const panel = {classList: {add() {}}};
@@ -43,7 +43,16 @@ const context = {
   signClass: () => '',
 };
 vm.createContext(context);
-vm.runInContext(renderer, context);
+context.window = context;
+const path = require('node:path');
+for (const asset of ['wealth-holdings-row-view.js','wealth-tax-accounts-view.js']) {
+  vm.runInContext(fs.readFileSync(path.join(path.dirname(process.argv[1]),asset),'utf8'), context);
+}
+vm.runInContext(`
+const app = globalThis;
+const holdingRows = window.WealthHoldingsRowView.create({ html, number, money: number, signClass });
+const taxAccountsView = window.WealthTaxAccountsView.create({ html, number, signClass, holdingRows });
+` + renderer, context);
 const codes = () => [...chart.innerHTML.matchAll(/<tr data-code="([A-Z]+)"/g)].map(match => match[1]);
 context.renderTaxAccountHoldings('모두');
 assert.deepEqual(codes(), ['BBB','AAA','CCC']);

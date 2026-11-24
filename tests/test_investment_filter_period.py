@@ -4,15 +4,15 @@ from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-WEALTH_JS = ROOT / "app" / "static" / "wealth.js"
+STOCK_RECORDS_MODEL = ROOT / "app" / "static" / "wealth-stock-records-model.js"
 PLANNING_JS = ROOT / "app" / "static" / "wealth-planning.js"
 
 
 class InvestmentFilterPeriodTests(unittest.TestCase):
     def test_investment_screen_retains_5_day_weekly_semantics(self):
-        source = WEALTH_JS.read_text(encoding="utf-8")
+        source = STOCK_RECORDS_MODEL.read_text(encoding="utf-8")
         start = source.index("function filterRecordsByPeriod(records, period) {")
-        end = source.index("function renderMarkets(", start)
+        end = source.index("function buildPreviousRecordMap(", start)
         fn_code = source[start:end]
 
         self.assertIn("if (period === '1W') {", fn_code)

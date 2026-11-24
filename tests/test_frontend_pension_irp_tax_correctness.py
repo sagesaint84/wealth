@@ -32,7 +32,7 @@ const deductibleEnd = source.indexOf('\nfunction isTaxAdvantagedAccount', deduct
 const advantagedStart = deductibleEnd + 1;
 const advantagedEnd = source.indexOf('\n// ── 4.', advantagedStart);
 const categoryStart = source.indexOf('function getTaxCategory');
-const categoryEnd = source.indexOf('\nfunction renderTaxAccountHoldings', categoryStart);
+const categoryEnd = source.indexOf('\nfunction currentWealthView', categoryStart);
 if ([deductibleStart, deductibleEnd, advantagedEnd, categoryStart, categoryEnd].some(i => i < 0)) {
   throw new Error('pension tax helpers not found');
 }
@@ -298,11 +298,12 @@ process.stdout.write(JSON.stringify(result));
         self.assertIn("brokerImports.bindEvents();", self.source)
 
     def test_all_cumulative_display_consumers_use_owner_context(self) -> None:
-        self.assertNotIn("taxAccounts.reduce((sum, a) => sum + calcAccountCumulativeTaxSaved", self.source)
-        self.assertNotIn("irpAccounts.reduce((sum, a) => sum + calcAccountCumulativeTaxSaved", self.source)
-        self.assertNotIn("pensionAccounts.reduce((sum, a) => sum + calcAccountCumulativeTaxSaved", self.source)
-        self.assertIn("calcAccountCumulativeTaxSaved(targetAcc, taxAccounts)", self.source)
-        self.assertIn("calcAccountCumulativeTaxSaved(acct, taxAccounts)", self.source)
+        feature = WEALTH_JS.with_name("wealth-investment-feature-controller.js").read_text(encoding="utf-8")
+        self.assertNotIn("taxAccounts.reduce((sum, a) => sum + calcAccountCumulativeTaxSaved", feature.replace("app.calcAccountCumulativeTaxSaved", "calcAccountCumulativeTaxSaved") + self.source)
+        self.assertNotIn("irpAccounts.reduce((sum, a) => sum + calcAccountCumulativeTaxSaved", feature.replace("app.calcAccountCumulativeTaxSaved", "calcAccountCumulativeTaxSaved") + self.source)
+        self.assertNotIn("pensionAccounts.reduce((sum, a) => sum + calcAccountCumulativeTaxSaved", feature.replace("app.calcAccountCumulativeTaxSaved", "calcAccountCumulativeTaxSaved") + self.source)
+        self.assertIn("calcAccountCumulativeTaxSaved(targetAcc, taxAccounts)", feature)
+        self.assertIn("calcAccountCumulativeTaxSaved(acct, taxAccounts)", feature)
 
 
 if __name__ == "__main__":
