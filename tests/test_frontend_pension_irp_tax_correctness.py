@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+
+from tests.test_broker_realized_ipo_frontend import FEATURE, broker_function
 import shutil
 import subprocess
 import unittest
@@ -289,10 +291,11 @@ process.stdout.write(JSON.stringify(result));
         self.assertEqual(result["current"]["eligibleContribution"], 9_000_000)
 
     def test_preexisting_kb_ui_hunks_remain_present(self) -> None:
-        self.assertIn("const kbRealizedState = {", self.source)
-        self.assertIn("function renderKbFeedTable()", self.source)
-        self.assertIn("function initKbRealizedUI()", self.source)
-        self.assertIn("initKbRealizedUI();", self.source)
+        self.assertIn("const kbRealizedState = {", FEATURE)
+        self.assertIn("function renderKbFeedTable()", FEATURE)
+        self.assertIn("function initKbRealizedUI()", FEATURE)
+        self.assertIn("initKbRealizedUI();", broker_function(FEATURE, "bindEvents"))
+        self.assertIn("brokerImports.bindEvents();", self.source)
 
     def test_all_cumulative_display_consumers_use_owner_context(self) -> None:
         self.assertNotIn("taxAccounts.reduce((sum, a) => sum + calcAccountCumulativeTaxSaved", self.source)

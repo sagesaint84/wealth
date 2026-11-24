@@ -1,11 +1,10 @@
 # Wealth Project State
 
-## 가계부 기능 제어기 로컬 후보 — 2026-11-24 KST
+## 가계부 기능 제어기 통합 — 2026-11-24 KST
 
-- 기반 main `26a63df9a2a1908b2e04476da32283391221abd5`, 작업 브랜치 `codex/ledger-feature-controller`. 공유·지연 응답 검사를 월·연간 조회의 단일 소유자에 두고, 기존 HTML 진입점과 계산·저장 payload를 유지했다.
-- 검증은 JS 문법, 호출·스크립트 순서, diff 검사와 기존 읽기 전용 Chromium 합성 미리보기로 제한했다. 월 이동, 연간 12개월 조회, 소유자 전환, 거래·카드·정기지출·가져오기 모달을 기준 main과 대조했다.
-- 저장·정산·엑셀 및 OCR 확정과 동시 요청 검증은 PENDING이다. 커밋·Push·병합 및 Oracle 배포는 수행하지 않았다.
-- 기존 테스트 두 곳은 wealth.js 내부의 옛 가계부 조회 블록을 추출한다. 합성 미리보기의 자산 허용 목록도 새 제어기 경로를 추가해야 한다. 이번 범위에서는 기존 테스트와 미리보기 소스를 보존했다.
+- [PR #255](https://github.com/sagesaint84/wealth/pull/255)가 main의 `c300ecbe1cd165afaaba42fd812d6e09181891af`에 병합됐다. 월·연간 조회 범위와 진행 중 요청 공유, 오래된 응답 무효화를 한 제어기에 통합했다.
+- 기존 테스트를 새 모듈 소유자에 연결하고 합성 미리보기 목록에 제어기를 추가했다. 정적 검사와 읽기 전용 Chromium 탐색·모달 비교를 마쳤다. 실제 저장·정산·가져오기 확정의 동적 검증은 PENDING이다.
+- [GHCR #45398570493](https://github.com/sagesaint84/wealth/actions/runs/45398570493)가 해당 main SHA에서 SUCCESS였다. Oracle 배포는 수행하지 않았다.
 
 ## 현재 운영 상태 — 2026-11-03 KST
 

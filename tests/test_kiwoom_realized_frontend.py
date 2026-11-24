@@ -5,14 +5,15 @@ without launching a browser or performing real provider calls.
 """
 from __future__ import annotations
 
-import re
 import unittest
 from pathlib import Path
 
+from tests.test_broker_realized_ipo_frontend import (
+    FEATURE as JS, FEED, PREVIEW_SCREEN, SCREEN, UI, assert_explicit_broker_tab, assert_mapped_import, broker_function, mapped_config,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
-JS = (ROOT / "app" / "static" / "wealth.js").read_text(encoding="utf-8")
 
 
 class KiwoomRealizedFrontendTests(unittest.TestCase):
@@ -38,19 +39,10 @@ class KiwoomRealizedFrontendTests(unittest.TestCase):
             with self.subTest(route=route):
                 self.assertIn(route, JS)
         self.assertIn("const kiwoomRealizedState", JS)
-        self.assertIn("switchRealizedBroker('kiwoom')", JS)
+        assert_explicit_broker_tab(self, "kiwoom", "Kiwoom")
 
     def test_tab_switch_does_not_auto_fetch_kiwoom_status_or_feed(self) -> None:
-        switch_body = re.search(
-            r"else if \(broker === 'kiwoom'\) \{(?P<body>.*?)\n  \} else",
-            JS, re.DOTALL,
-        )
-        self.assertIsNotNone(switch_body)
-        body_text = switch_body.group("body")
-        self.assertNotIn("checkKiwoomStatus(", body_text)
-        self.assertNotIn("fetchKiwoomRealizedFeed(", body_text)
-        self.assertIn("btnCheckKiwoomStatus", JS)
-        self.assertIn("btnFetchKiwoomFeed", JS)
+        assert_explicit_broker_tab(self, "kiwoom", "Kiwoom")
 
     def test_market_selection_options_and_no_auto_fetch(self) -> None:
         kiwoom_section = HTML.split('id="kiwoomRealizedCard"', 1)[1].split('</div>\n          </div>', 1)[0]
@@ -61,9 +53,12 @@ class KiwoomRealizedFrontendTests(unittest.TestCase):
 
     def test_shared_display_masking_is_used_by_kiwoom(self) -> None:
         self.assertIn("function maskAccountDisplayLabel", JS)
-        self.assertIn("kiwoomModalDestAccountDisplay", JS)
-        self.assertIn("maskAccountDisplayLabel(dest.account_name", JS)
-        self.assertIn("populateKiwoomDestinationAccounts", JS)
+        self.assertIn('id="kiwoomModalDestAccountDisplay"', HTML)
+        self.assertIn("maskAccountDisplayLabel(destination.account_name", broker_function(UI, "brokerPreviewDestinationText"))
+        self.assertIn("brokerUI.brokerPreviewDestinationText(dest, maskAccountDisplayLabel)", SCREEN)
+        self.assertIn("destinationId: `${prefix}ModalDestAccountDisplay`", PREVIEW_SCREEN)
+        self.assertIn("populateOpenApiDestinationAccounts(select, kiwoomRealizedState, 'kiwoom')",
+                      broker_function(JS, "populateKiwoomDestinationAccounts"))
 
     def test_no_raw_kiwoom_account_number_field_is_rendered(self) -> None:
         kiwoom_section = HTML.split('id="kiwoomRealizedCard"', 1)[1].split('id="kbRealizedCard"', 1)[0]
@@ -74,54 +69,49 @@ class KiwoomRealizedFrontendTests(unittest.TestCase):
         self.assertIn("source_account_key", JS)  # opaque route scope only
 
     def test_overseas_columns_do_not_claim_fabricated_krw_or_fx(self) -> None:
-        render_body = re.search(
-            r"function renderKiwoomFeedTable\(\) \{(?P<body>.*?)\n\}\nfunction updateKiwoomSelectionUI",
-            JS, re.DOTALL,
-        )
-        self.assertIsNotNone(render_body)
-        body = render_body.group("body")
-        self.assertIn("expenses_total", body)
-        self.assertNotIn("pnl_krw", body)
-        self.assertNotIn("fx_rate", body)
-        self.assertIn("USD", body)
+        self.assertIn("kiwoomScreenController.renderFeedTable()", broker_function(JS, "renderKiwoomFeedTable"))
+        self.assertIn("brokerRealizedDisplayRow", broker_function(SCREEN, "renderFeedTable"))
+        display = broker_function(JS, "brokerRealizedDisplayRow")
+        self.assertIn("present(row.expenses_total)", display)
+        self.assertIn("currency === 'USD'", display)
+        self.assertNotIn("row.pnl_krw", display)
+        self.assertRegex(display, r"if \(kis && market === 'us'\) \{\s+if \(present\(row.profit_loss_krw\)\)")
+        self.assertNotIn("kis: true", JS.split("const kiwoomScreenController", 1)[1].split("\n    });", 1)[0])
 
     def test_double_submit_guard_and_preview_gate_exist(self) -> None:
-        self.assertIn("kiwoomRealizedState.importing || !kiwoomRealizedState.previewTicket", JS)
-        self.assertIn("kiwoomRealizedState.importing = true", JS)
-        self.assertIn("preview_ticket: kiwoomRealizedState.previewTicket", JS)
+        assert_mapped_import(self, "kiwoom", "Kiwoom")
 
     def test_no_first_use_auto_destination(self) -> None:
         # Default destination select option must be empty placeholder
         self.assertIn('<select id="kiwoomDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌"><option value="">계좌 선택...</option></select>', HTML)
-        self.assertIn('select.innerHTML = \'<option value="">귀속 계좌 선택...</option>\';', JS)
+        populate = broker_function(UI, "populateBrokerDestinationAccountSelect")
+        self.assertIn('<option value="">귀속 계좌 선택...</option>', populate)
+        self.assertIn("if (current && hasOption(current))", populate)
+        self.assertIn("else if (preferred && hasOption(String(preferred)))", populate)
+        self.assertNotIn("selectedIndex", populate)
+        self.assertNotIn("accounts.length === 1", populate)
 
     def test_partial_success_mapping_error_ux_messaging(self) -> None:
         # Verify accurate partial-success message acknowledging persisted records without claim of failure
         self.assertIn("partial_success", JS)
-        self.assertIn("MAPPING_PERSISTENCE_FAILED", JS)
+        self.assertIn("reportMappingResult: true", mapped_config("kiwoom"))
+        result = broker_function(broker_function(JS, "createMappedImport"), "showResult")
+        self.assertIn("data.partial_success || data.mapping_warning === 'MAPPING_PERSISTENCE_FAILED'", result)
         self.assertIn("계좌 매핑 저장에 실패했습니다. 재시도 시 손익 중복 없이 매핑을 복구할 수 있습니다", JS)
-        self.assertIn("mapping_repaired", JS)
+        self.assertIn("data.mapping_repaired", result)
 
     def test_client_does_not_recompute_canonical_financial_values(self) -> None:
-        # Client must send server-issued selection tokens and untouched row objects
-        selected_items_fn = re.search(
-            r"function kiwoomSelectedItems\(\) \{(?P<body>.*?)\n\}",
-            JS, re.DOTALL,
-        )
-        self.assertIsNotNone(selected_items_fn)
-        body = selected_items_fn.group("body")
-        self.assertIn("const row = kiwoomRealizedState.rows[idx]", body)
-        self.assertIn("brokerImportSelectedItem(kiwoomRealizedState, idx)", body)
-        common_builder = re.search(
-            r"function brokerImportSelectedItem\(state, index\) \{(?P<body>.*?)\n\}",
-            JS, re.DOTALL,
-        )
-        self.assertIsNotNone(common_builder)
-        self.assertIn("row,", common_builder.group("body"))
-        self.assertIn("selection_token: token", common_builder.group("body"))
-        self.assertNotIn("buy_amount =", body)
-        self.assertNotIn("sell_amount =", body)
-        self.assertNotIn("pnl =", body)
+        selection = broker_function(JS, "kiwoomSelectedItems")
+        self.assertIn("selectedImportItems(kiwoomRealizedState, brokerImportSelectedItem)", selection)
+        common = broker_function(FEED, "selectedImportItems")
+        self.assertIn(".sort((a, b) => a - b)", common)
+        self.assertIn(".map(index => buildItem(state, index))", common)
+        builder = broker_function(JS, "brokerImportSelectedItem")
+        self.assertIn("state.rows?.[index]", builder)
+        self.assertIn("row,", builder)
+        self.assertIn("selection_token: token", builder)
+        for field in ("buy_amount", "sell_amount", "pnl"):
+            self.assertNotRegex(selection + common + builder, rf"\b{field}\s*=")
 
     def test_existing_toss_kis_nh_hooks_remain(self) -> None:
         for marker in (

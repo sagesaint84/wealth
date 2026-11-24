@@ -75,6 +75,8 @@ ALLOWED.update({
     'wealth-broker-ui.js',
     'wealth-date-helper.js',
     'wealth-broker-realized-feed-controller.js',
+    'wealth-broker-realized-screen-controller.js',
+    'wealth-broker-import-feature-controller.js',
     'wealth-dialog-shell.js',
     'wealth-market-card-preferences.js',
     'wealth-market-view.js',

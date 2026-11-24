@@ -19,7 +19,7 @@ from app.services.toss_wts_adapter import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WEALTH_JS = ROOT / "app" / "static" / "wealth.js"
+FEATURE_JS = ROOT / "app" / "static" / "wealth-broker-import-feature-controller.js"
 INDEX_HTML = ROOT / "app" / "static" / "index.html"
 MAIN_PY = ROOT / "app" / "main.py"
 
@@ -132,11 +132,6 @@ class TossWtsKstUtcDateCompatibilityTests(unittest.TestCase):
         script = r"""
 const fs = require('fs');
 const vm = require('vm');
-const source = fs.readFileSync(process.argv[1], 'utf8');
-const helperStart = source.indexOf('function clearTossWtsFetchLoadingRow');
-const helperEnd = source.indexOf('\nfunction updateTossWtsStatusUI', helperStart);
-const fetchStart = source.indexOf('async function fetchTossWtsRealizedFeed');
-const fetchEnd = source.indexOf('\nfunction updateWtsSelectionUI', fetchStart);
 const input = JSON.parse(process.argv[2]);
 const elements = {
   tossWtsFromDate: { value: '2026-09-01' },
@@ -151,21 +146,35 @@ const sandbox = {
   document: { getElementById: id => elements[id] || null },
   fetch: async () => ({ status: input.status, ok: input.status >= 200 && input.status < 300, json: async () => input.payload }),
   html: value => String(value),
-  tossWtsState: {
-    loading: false, rows: [], selectionTokens: [], selectedIndices: new Set(), importedIndices: new Set(),
-    importPreferences: new Map(), previewTicket: null, lastRequested: null,
-  },
-  setTossWtsLoading: value => { sandbox.tossWtsState.loading = value; },
-  showTossWtsMessage: (message, type) => { sandbox.message = { message, type }; },
-  hideTossWtsMessage: () => { sandbox.message = { hidden: true }; },
-  updateTossWtsMetaUI: () => {}, populateWtsAccounts: () => {}, updateWtsSelectionUI: () => {},
-  sortBrokerRealizedFeedRows: (rows, selectionTokens) => ({ rows, selectionTokens }),
-  renderTossWtsFeedTable: rows => { sandbox.renderedRows = rows.length; elements.tossWtsTableBody.innerHTML = 'rendered'; },
 };
-vm.runInNewContext(
-  source.slice(helperStart, helperEnd) + '\n' + source.slice(fetchStart, fetchEnd) +
-  '\nthis.fetchTossWtsRealizedFeed = fetchTossWtsRealizedFeed;', sandbox
-);
+sandbox.window = sandbox;
+sandbox.WealthBrokerRealizedScreenController = {
+  create: () => ({
+    renderLoading() {},
+    showMessage: (message, type) => { sandbox.message = { message, type }; },
+    hideMessage: () => { sandbox.message = { hidden: true }; },
+    renderFeedTable: rows => {
+      sandbox.renderedRows = rows.length;
+      elements.tossWtsTableBody.innerHTML = 'rendered';
+    },
+  }),
+};
+const brokerUI = {
+  renderSelectionState() {},
+  renderRealizedTable({body, status, emptyMessage}) {
+    body.innerHTML = status === 'loading'
+      ? '<tr><td class="toss-wts-loading">loading</td></tr>'
+      : '<tr><td class="toss-wts-empty">' + emptyMessage + '</td></tr>';
+  },
+};
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync('app/static/wealth-broker-realized-feed-controller.js','utf8'), sandbox);
+vm.runInContext(fs.readFileSync(process.argv[1],'utf8'), sandbox);
+const feature = sandbox.WealthBrokerImportFeatureController.create({
+  window: sandbox, document: sandbox.document, brokerUI, html: sandbox.html,
+  number: String, getDashboard: () => null,
+});
+Object.assign(sandbox, feature.actions);
 sandbox.fetchTossWtsRealizedFeed().then(() => process.stdout.write(JSON.stringify({
   table: elements.tossWtsTableBody.innerHTML,
   message: sandbox.message,
@@ -176,7 +185,7 @@ sandbox.fetchTossWtsRealizedFeed().then(() => process.stdout.write(JSON.stringif
 }))).catch(error => { console.error(error); process.exit(1); });
 """
         completed = subprocess.run(
-            ["node", "-e", script, str(WEALTH_JS), json.dumps({"status": status, "payload": payload})],
+            ["node", "-e", script, str(FEATURE_JS), json.dumps({"status": status, "payload": payload})],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -218,7 +227,7 @@ sandbox.fetchTossWtsRealizedFeed().then(() => process.stdout.write(JSON.stringif
 
     def test_confirmation_wording_describes_runtime_not_live_authentication(self) -> None:
         html = INDEX_HTML.read_text(encoding="utf-8")
-        js = WEALTH_JS.read_text(encoding="utf-8")
+        js = FEATURE_JS.read_text(encoding="utf-8")
         self.assertIn("WTS 런타임 확인</button>", html)
         self.assertIn("런타임 확인 완료", js)
         self.assertIn("WTS 로컬 런타임이 확인되었습니다", js)
