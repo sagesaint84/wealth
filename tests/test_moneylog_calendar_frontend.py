@@ -30,11 +30,19 @@ class MoneyLogCalendarFrontendTests(unittest.TestCase):
         return res.stdout.strip()
 
     def _execute_harness(self, test_body: str, today_kst: str = "2026-09-23") -> dict:
-        calendar_path = CALENDAR_JS.as_posix()
+        static = CALENDAR_JS.parent
+        assets = [static / "wealth-format.js", static / "wealth-date-helper.js", CALENDAR_JS]
+        sources = json.dumps([asset.as_posix() for asset in assets])
         harness_script = f"""
         const fs = require('fs');
         const vm = require('vm');
-        const code = fs.readFileSync('{calendar_path}', 'utf8');
+        const paths = {sources};
+        class FixedDate extends Date {{
+          constructor(...args) {{
+            if (args.length) super(...args);
+            else super('{today_kst}T03:00:00Z');
+          }}
+        }}
 
         function createHarness() {{
           const elements = {{}};
@@ -134,9 +142,6 @@ class MoneyLogCalendarFrontendTests(unittest.TestCase):
             dispatchEvent: (evt) => {{
               (windowListeners[evt.type] || []).forEach(fn => fn(evt));
             }},
-            WealthIpoDate: {{
-              todayKst: () => '{today_kst}'
-            }}
           }};
 
           const mockDocument = {{
@@ -196,13 +201,13 @@ class MoneyLogCalendarFrontendTests(unittest.TestCase):
             CustomEvent,
             URL,
             Intl,
-            Date,
+            Date: FixedDate,
             console,
             alert: () => {{}},
           }};
 
           vm.createContext(sandbox);
-          vm.runInContext(code, sandbox);
+          for (const path of paths) vm.runInContext(fs.readFileSync(path, 'utf8'), sandbox);
           return {{ sandbox, elements, mockWindow, getEl }};
         }}
 

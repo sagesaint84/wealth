@@ -10,7 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _run_js_suite(script_body: str) -> str:
-    source = (ROOT / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")
+    static = ROOT / "app" / "static"
+    assets = ("wealth-format.js", "wealth-date-helper.js", "wealth-ipo-applicant-view.js",
+              "wealth-ipo-schedule-card-view.js", "wealth-ipo.js")
+    sources = [(static / name).read_text(encoding="utf-8") for name in assets]
     harness = f"""
 const fs = require('fs');
 
@@ -176,7 +179,7 @@ class FixedDate extends NativeDate {{
 }}
 globalThis.Date = FixedDate;
 
-eval({json.dumps(source)});
+for (const source of {json.dumps(sources)}) eval(source);
 
 {script_body}
 """

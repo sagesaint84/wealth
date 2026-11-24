@@ -16,13 +16,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _run_ipo_date_js(expression: str) -> str:
-    source = (ROOT / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")
+    static = ROOT / "app" / "static"
+    assets = ("wealth-format.js", "wealth-date-helper.js", "wealth-ipo.js")
+    sources = [(static / name).read_text(encoding="utf-8") for name in assets]
     script = f"""
-const fs = require('fs');
 globalThis.window = {{ addEventListener: () => {{}}, dispatchEvent: () => {{}} }};
 globalThis.document = {{ getElementById: () => null, querySelector: () => null }};
 globalThis.CustomEvent = function CustomEvent() {{}};
-eval({json.dumps(source)});
+for (const source of {json.dumps(sources)}) eval(source);
 process.stdout.write(String({expression}));
 """
     # Keep large browser assets out of Windows' command-line length limit.
@@ -120,16 +121,33 @@ class IpoPresentationTests(unittest.TestCase):
         self.assertIn("if (calendar?.isCalendarPanelActive?.()) await calendar.loadCalendar();", ipo)
 
     def test_ipo_account_controls_use_backend_broker_and_candidate_resolution(self):
-        ipo = (ROOT / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")
-        self.assertIn("/broker-options", ipo)
-        self.assertIn("/account-candidates?owner=", ipo)
+        static = ROOT / "app" / "static"
+        ipo = (static / "wealth-ipo.js").read_text(encoding="utf-8")
+        api = (static / "wealth-ipo-applicant-api.js").read_text(encoding="utf-8")
+        view = (static / "wealth-ipo-applicant-view.js").read_text(encoding="utf-8")
+        model = (static / "wealth-ipo-applicant-model.js").read_text(encoding="utf-8")
+        index = (static / "index.html").read_text(encoding="utf-8")
+        for module in ("api", "view", "model"):
+            self.assertLess(index.index(f"/static/wealth-ipo-applicant-{module}.js?"),
+                            index.index("/static/wealth-ipo.js?"))
+        self.assertIn("WealthIpoApplicantApi.loadBrokers(ipoId)", ipo)
+        self.assertIn("WealthIpoApplicantApi.loadAccountCandidates(ipoId, owner, broker, remap)", ipo)
+        self.assertIn("/broker-options", api)
+        self.assertIn("/account-candidates?owner=", api)
+        self.assertIn("encodeURIComponent(owner)", api)
+        self.assertIn("encodeURIComponent(broker)", api)
+        self.assertIn("remap ? '&remap=true'", api)
+        self.assertIn("WealthIpoApplicantModel.accountOptions(result.candidates)", ipo)
+        self.assertIn("id: item.account_id", model)
+        self.assertIn("WealthIpoApplicantView.renderAccountStatus(status, result.resolution_status)", ipo)
+        self.assertIn("AUTO_SELECTED", view)
+        self.assertIn("AMBIGUOUS_ACCOUNT", view)
         self.assertIn("/applicants/${encodeURIComponent(owner)}/account", ipo)
         self.assertIn("/account/remap", ipo)
-        self.assertIn("expected_current_account_id", ipo)
+        self.assertIn("expected_current_account_id = currentMapping.account_id", ipo)
         self.assertIn("계좌 변경", ipo)
-        self.assertIn("AUTO_SELECTED", ipo)
-        self.assertIn("AMBIGUOUS_ACCOUNT", ipo)
-        self.assertNotIn("realizedBrokerId", ipo)
+        for source in (ipo, api, view, model):
+            self.assertNotIn("realizedBrokerId", source)
 
     def test_calendar_detail_uses_canonical_ipo_event_labels_and_tooltips(self):
         calendar = (ROOT / "app" / "static" / "wealth-calendar.js").read_text(encoding="utf-8")

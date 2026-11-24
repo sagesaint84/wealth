@@ -22,15 +22,13 @@ class HistoricalIpoImportFrontendContractTests(unittest.TestCase):
 
     def test_preview_renders_issues_without_html_injection(self):
         js = (ROOT / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")
-        self.assertIn('renderHistoricalImportPreview', js)
-        self.assertIn("row.textContent =", js)
-        self.assertIn("summary.textContent =", js)
-        self.assertIn("issues_truncated", js)
-        self.assertNotIn(
-            "preview.innerHTML",
-            js,
-            "Historical import server/user text must not be inserted with innerHTML",
-        )
+        view = (ROOT / "app" / "static" / "wealth-ipo-historical-preview-view.js").read_text(encoding="utf-8")
+        self.assertIn("renderHistoricalImportPreview(payload);", js)
+        self.assertIn("window.WealthIpoHistoricalPreviewView.render(payload)", js)
+        self.assertIn("row.textContent =", view)
+        self.assertIn("summary.textContent =", view)
+        self.assertIn("issues_truncated", view)
+        self.assertNotIn(".innerHTML", view, "Historical import server/user text must use safe DOM output")
 
     def test_historical_cards_use_actual_historical_fields(self):
         js = (ROOT / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")
@@ -42,8 +40,11 @@ class HistoricalIpoImportFrontendContractTests(unittest.TestCase):
 
     def test_commit_resets_past_month_to_latest_imported_month(self):
         js = (ROOT / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")
-        self.assertIn("ipoFilterGroup = 'PAST';", js)
-        self.assertIn("ipoHistoryInitialized = false;", js)
+        commit = js.split("async function commitHistoricalImport()", 1)[1].split("let showExcludedSchedules", 1)[0]
+        self.assertIn("ipoFilterGroup = 'LISTED';", commit)
+        self.assertIn("ipoMonthExplicitlySelected = false;", commit)
+        self.assertIn("ipoHistoryInitialized = false;", commit)
+        self.assertLess(commit.index("ipoHistoryInitialized = false;"), commit.index("renderIpoList();"))
 
 
 if __name__ == "__main__":
