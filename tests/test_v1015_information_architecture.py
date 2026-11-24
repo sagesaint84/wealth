@@ -17,7 +17,8 @@ class WealthV1015InformationArchitectureTests(unittest.TestCase):
         self.assertNotIn('id="allocTabs"', self.html)
         sector = (Path(__file__).resolve().parents[1] / "app/static/wealth-sector-view.js").read_text(encoding="utf-8")
         self.assertIn("sector_classifications", sector)
-        self.assertIn("return sectorView.renderClassifications(items)", self.js)
+        feature = (Path(__file__).resolve().parents[1] / "app/static/wealth-investment-feature-controller.js").read_text(encoding="utf-8")
+        self.assertIn("return sectorView.renderClassifications(items)", feature)
         self.assertNotIn("currentAllocTab", self.js)
 
     def test_home_asset_portfolio_is_page_local_and_rich(self):

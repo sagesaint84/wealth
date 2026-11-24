@@ -1,8 +1,12 @@
 # Wealth Roadmap
 
+## 투자 화면 기능 제어기
+
+- `codex/investment-feature-batch` 로컬 후보. 보유종목, 주식기록, 히트맵, 절세계좌와 공통 기간 선택을 투자 제어기로 연결했다. 동적 검증과 GitHub 통합은 PENDING이다.
+
 ## 배당·이자와 실현손익 기능 제어기
 
-- `codex/income-feature-batch` 로컬 후보. 월 탐색, 조회 응답 검증, 배당 모드, 두 화면의 기록 폼과 저장 후 갱신을 공통 제어기로 연결했다. 동적 검증과 GitHub 통합은 PENDING이다.
+- [PR #258](https://github.com/sagesaint84/wealth/pull/258) main `d114f54979e1bd1092556eadcaa5457464e7248d` 반영 완료. [GHCR #45464788158](https://github.com/sagesaint84/wealth/actions/runs/45464788158) SUCCESS. 작업 브랜치와 worktree 정리 완료.
 
 ## 자산·계좌 기능 제어기 — 2026-11-25 KST
 

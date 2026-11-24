@@ -174,8 +174,7 @@ assert.match(roi([pension]).description, /연금형/);
 
 
 def test_tax_card_header_roles_keep_filter_and_edit_contracts():
-    source = (ROOT / 'app/static/wealth.js').read_text(encoding='utf-8')
-    renderer = source.split('function renderTaxAccountHoldings(owner = currentOwner) {', 1)[1].split('// ── 9.', 1)[0]
+    renderer = (ROOT / 'app/static/wealth-tax-accounts-view.js').read_text(encoding='utf-8')
     assert renderer.count('class="tax-card-head"') == 5
     assert renderer.count('class="tax-card-selected"') == 5
     for value in ('all', 'isa', 'irp', 'pension_savings', 'acc_' + '$' + '{acct.id}'):

@@ -11,7 +11,8 @@ class TestStockRecordDialog(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
-        cls.wealth_js = (ROOT / "app" / "static" / "wealth.js").read_text(encoding="utf-8")
+        cls.investment_js = (ROOT / "app/static/wealth-investment-feature-controller.js").read_text(encoding="utf-8")
+        cls.record_screen = (ROOT / "app/static/wealth-asset-records-screen-controller.js").read_text(encoding="utf-8")
         cls.layout_js = (ROOT / "app" / "static" / "wealth-layout.js").read_text(encoding="utf-8")
         cls.planning_js = (ROOT / "app" / "static" / "wealth-planning.js").read_text(encoding="utf-8")
 
@@ -23,9 +24,9 @@ class TestStockRecordDialog(unittest.TestCase):
         # 1. Add modal default title in index.html
         self.assertIn('<h2 id="assetRecordDialogTitle">주식기록 추가</h2>', self.dialog_html)
 
-        # 2. Dynamic title switching in wealth.js
-        self.assertIn('record ? "주식기록 수정" : "주식기록 추가"', self.wealth_js)
-        self.assertNotIn('record ? "자산기록 수정" : "자산기록 추가"', self.wealth_js)
+        # 2. Dynamic title switching in the record screen controller
+        self.assertIn('record ? "주식기록 수정" : "주식기록 추가"', self.record_screen)
+        self.assertNotIn('record ? "자산기록 수정" : "자산기록 추가"', self.record_screen)
 
     def test_stock_dialog_contains_exact_11_fields_in_order(self):
         self.assertTrue(self.dialog_html, "assetRecordDialog must exist in index.html")
@@ -87,45 +88,46 @@ class TestStockRecordDialog(unittest.TestCase):
 
     def test_stock_record_edit_binding_in_wealth_js(self):
         # Check openAssetRecordDialog binds all 11 fields
-        self.assertIn("form.date.value = record?.date", self.wealth_js)
-        self.assertIn("form.total_value_krw.value = record?.total_value_krw", self.wealth_js)
-        self.assertIn("form.total_cost_krw.value = record?.total_cost_krw", self.wealth_js)
-        self.assertIn("form.profit_krw.value = record?.profit_krw", self.wealth_js)
-        self.assertIn("form.return_rate.value = record?.return_rate", self.wealth_js)
-        self.assertIn("form.day_profit_krw.value = record?.day_profit_krw", self.wealth_js)
-        self.assertIn("form.krw_value_krw.value = record?.krw_value_krw", self.wealth_js)
-        self.assertIn("form.usd_value_krw.value = record?.usd_value_krw", self.wealth_js)
-        self.assertIn("form.holding_count.value = record?.holding_count", self.wealth_js)
-        self.assertIn("form.memo.value = record?.memo", self.wealth_js)
-        self.assertIn("form.owner.value = record?.owner", self.wealth_js)
+        self.assertIn("form.date.value = record?.date", self.record_screen)
+        self.assertIn("form.total_value_krw.value = record?.total_value_krw", self.record_screen)
+        self.assertIn("form.total_cost_krw.value = record?.total_cost_krw", self.record_screen)
+        self.assertIn("form.profit_krw.value = record?.profit_krw", self.record_screen)
+        self.assertIn("form.return_rate.value = record?.return_rate", self.record_screen)
+        self.assertIn("form.day_profit_krw.value = record?.day_profit_krw", self.record_screen)
+        self.assertIn("form.krw_value_krw.value = record?.krw_value_krw", self.record_screen)
+        self.assertIn("form.usd_value_krw.value = record?.usd_value_krw", self.record_screen)
+        self.assertIn("form.holding_count.value = record?.holding_count", self.record_screen)
+        self.assertIn("form.memo.value = record?.memo", self.record_screen)
+        self.assertIn("form.owner.value = getOwner()", self.record_screen)
+        self.assertIn("getOwner: () => record?.owner || app.currentOwner", self.investment_js)
 
     def test_save_payload_and_backward_compatibility_maintained(self):
         # Submit handler creates safe fallbacks for legacy consumers using zero-safe checks
-        self.assertIn("!isPresent(payload.total_value_krw) && isPresent(payload.total_assets_krw)", self.wealth_js)
-        self.assertIn("!isPresent(payload.total_assets_krw) && isPresent(payload.total_value_krw)", self.wealth_js)
-        self.assertIn('payload.owner = payload.owner || currentOwner || "모두";', self.wealth_js)
+        self.assertIn("!isPresent(payload.total_value_krw) && isPresent(payload.total_assets_krw)", self.investment_js)
+        self.assertIn("!isPresent(payload.total_assets_krw) && isPresent(payload.total_value_krw)", self.investment_js)
+        self.assertIn('payload.owner = payload.owner || app.currentOwner || "모두";', self.investment_js)
 
     def test_zero_safe_compatibility_fallback_preserves_zero(self):
         import json
         import shutil
         import subprocess
 
-        # 1. Verify static code patterns in wealth.js
-        self.assertIn("const isPresent = v => v !== null && v !== undefined && String(v).trim() !== \"\"", self.wealth_js)
-        self.assertIn("record?.total_value_krw ?? record?.total_assets_krw ?? \"\"", self.wealth_js)
+        # 1. Verify the submit handler and record screen source
+        self.assertIn("const isPresent = v => v !== null && v !== undefined && String(v).trim() !== \"\"", self.investment_js)
+        self.assertIn("record?.total_value_krw ?? record?.total_assets_krw ?? \"\"", self.record_screen)
 
-        # 2. Dynamic execution of wealth.js fallback logic via node
+        # 2. Execute the feature controller fallback logic via Node
         node_path = shutil.which("node")
         if node_path:
             node_script = """
             const fs = require('fs');
-            const js = fs.readFileSync('app/static/wealth.js', 'utf8');
+            const js = fs.readFileSync('app/static/wealth-investment-feature-controller.js', 'utf8');
             const match = js.match(/(const isPresent = [\\s\\S]*?payload\\.owner = payload\\.owner[\\s\\S]*?;)/);
             if (!match) {
                 console.error("Snippet not found");
                 process.exit(1);
             }
-            const fn = new Function('payload', 'currentOwner', match[1] + '\\nreturn payload;');
+            const fn = new Function('payload', 'currentOwner', 'const app = { currentOwner }; ' + match[1] + '\\nreturn payload;');
 
             // Case 1: total_value_krw is explicitly 0, total_assets_krw is positive -> 0 must be preserved
             const c1 = fn({ total_value_krw: 0, total_assets_krw: 500000 });

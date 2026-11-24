@@ -78,6 +78,7 @@ ALLOWED.update({
     'wealth-broker-realized-screen-controller.js',
     'wealth-broker-import-feature-controller.js',
     'wealth-income-feature-controller.js',
+    'wealth-investment-feature-controller.js',
     'wealth-account-feature-controller.js',
     'wealth-insurance-pension-feature-controller.js',
     'wealth-real-estate-feature-controller.js',

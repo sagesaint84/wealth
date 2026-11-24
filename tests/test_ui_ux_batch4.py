@@ -72,7 +72,7 @@ const deductibleEnd = source.indexOf('\nfunction isTaxAdvantagedAccount', deduct
 const advantagedStart = deductibleEnd + 1;
 const advantagedEnd = source.indexOf('\n// ── 4.', advantagedStart);
 const categoryStart = source.indexOf('function getTaxCategory');
-const categoryEnd = source.indexOf('\nfunction renderTaxAccountHoldings', categoryStart);
+const categoryEnd = source.indexOf('\nfunction currentWealthView', categoryStart);
 const sandbox = {};
 vm.runInNewContext(
   source.slice(deductibleStart, deductibleEnd) + '\n' +

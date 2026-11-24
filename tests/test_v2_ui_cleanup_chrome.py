@@ -25,11 +25,11 @@ def test_tax_cards_keep_titles_and_selection_on_one_line(chrome_preview, width, 
       dashboard.holdings=rawDashboard.holdings;
       location.hash='invest';window.dispatchEvent(new Event('hashchange'));
       document.querySelector('[data-invest=tax_accounts]').click();
-      currentTaxAccountFilter='all';renderTaxAccountHoldings('모두');
+      renderTaxAccountHoldings('모두');document.querySelector('[data-tax-filter=all]').click();
     })()''')
     wait_for(evaluate, "document.querySelectorAll('.tax-card-head').length>=7")
     for selected in ('all', 'isa', 'irp', 'pension_savings', 'acc_v2-isa'):
-        evaluate(f"currentTaxAccountFilter={json.dumps(selected)};renderTaxAccountHoldings('모두')")
+        evaluate(f"document.querySelector('[data-tax-filter=' + {json.dumps(selected)} + ']').click()")
         evaluate(FRAMES)
         state = evaluate(r'''[...document.querySelectorAll('.tax-card')].map(card=>{
           const title=card.querySelector('.tax-card-title'),badge=card.querySelector('.tax-card-selected');

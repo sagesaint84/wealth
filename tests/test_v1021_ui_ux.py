@@ -34,8 +34,8 @@ def test_home_kpi_secondary_rows_simplified():
 def test_history_actions_have_short_labels_and_row_actions():
     assert '>기록</button>' in HTML
     assert '>추가</button>' in HTML
-    assert 'data-record-edit' in (ROOT / "app/static/wealth.js").read_text(encoding="utf-8")
-    assert 'data-record-delete' in (ROOT / "app/static/wealth.js").read_text(encoding="utf-8")
+    assert 'data-record-edit' in (ROOT / "app/static/wealth-investment-feature-controller.js").read_text(encoding="utf-8")
+    assert 'data-record-delete' in (ROOT / "app/static/wealth-investment-feature-controller.js").read_text(encoding="utf-8")
 
 
 def test_mobile_bottom_navigation_contract():
