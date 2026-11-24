@@ -32,6 +32,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Read application version
+        id: app_version
+        run: |
+          version="$(sed -nE 's/^APP_VERSION = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' app/main.py)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -40,6 +47,7 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha,prefix=,format=short
+            type=raw,value=${{ steps.app_version.outputs.version }}
 
       - name: Build and push image
         uses: docker/build-push-action@v5
