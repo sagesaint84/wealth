@@ -1,5 +1,10 @@
 # Wealth Roadmap
 
+## 자산·계좌 기능 제어기 — 2026-11-25 KST
+
+- [PR #256](https://github.com/sagesaint84/wealth/pull/256) 증권사 가져오기 통합이 main에 반영됐다. [GHCR #45416863394](https://github.com/sagesaint84/wealth/actions/runs/45416863394)는 SUCCESS다.
+- 은행·증권 계좌, 보험·연금, 부동산, 가족 관리의 제어 흐름을 분리했다. 화면과 저장 동작 검증 및 main 통합은 PENDING이다.
+
 ## 가계부 기능 제어기 — 2026-11-24 KST
 
 - [PR #255](https://github.com/sagesaint84/wealth/pull/255) main 반영 완료. 공통 제어기가 월·연간 및 소유자별 조회, 거래·카드·정기지출·가져오기 흐름을 담당하고 기존 화면 제어기와 View가 표시를 담당한다.

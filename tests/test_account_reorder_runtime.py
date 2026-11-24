@@ -231,10 +231,13 @@ def test_reorder_is_wired_only_to_supported_renderers_and_has_no_storage_or_obse
     root = Path(__file__).resolve().parents[1] / 'app/static'
     module = (root / 'wealth-account-reorder.js').read_text(encoding='utf-8')
     index = (root / 'index.html').read_text(encoding='utf-8')
-    wealth = (root / 'wealth.js').read_text(encoding='utf-8')
+    securities_view = (root / 'wealth-securities-accounts-view.js').read_text(encoding='utf-8')
+    account_feature = (root / 'wealth-account-feature-controller.js').read_text(encoding='utf-8')
     assert index.index('/static/wealth-account-reorder.js') < index.index('/static/wealth.js')
     assert 'localStorage' not in module and 'MutationObserver' not in module
-    assert "rendered('securities')" in wealth and "rendered('banking')" in wealth
+    assert "rendered('securities')" in securities_view
+    assert "rendered('banking')" in account_feature
+    assert "securitiesAccountsView.renderAccounts(container, displayGroups)" in account_feature
     assert 'draggable=' not in module
     for forbidden in ['pointerdown', 'pointermove', 'pointerup', 'touchmove', 'preventDefault', 'setPointerCapture', 'setTimeout', 'requestAnimationFrame', 'ArrowUp', 'ArrowDown']:
         assert forbidden not in module

@@ -1,5 +1,10 @@
 # Wealth Project State
 
+## 자산·계좌 제어기 분리 — 2026-11-25 KST
+
+- 증권사 가져오기 [PR #256](https://github.com/sagesaint84/wealth/pull/256)이 main `4d100a2fa30cdb42ca33c3cf161d9f54e455feb7`에 반영됐다. [GHCR #45416863394](https://github.com/sagesaint84/wealth/actions/runs/45416863394)는 SUCCESS이며 manifest digest는 `sha256:d9d39fde4c796cdcff6491d0ee2ada87a2079c1ad2d260a370aa32ce429c1252`다.
+- 계좌·보험/연금·부동산·가족 제어기를 `codex/asset-account-feature-batch`에서 분리했다. 정적 검증을 마쳤으며 화면과 실제 저장 동작 검증은 PENDING이다.
+
 ## 가계부 기능 제어기 통합 — 2026-11-24 KST
 
 - [PR #255](https://github.com/sagesaint84/wealth/pull/255)가 main의 `c300ecbe1cd165afaaba42fd812d6e09181891af`에 병합됐다. 월·연간 조회 범위와 진행 중 요청 공유, 오래된 응답 무효화를 한 제어기에 통합했다.

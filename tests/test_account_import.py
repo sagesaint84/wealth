@@ -142,8 +142,12 @@ class AccountImportTests(unittest.TestCase):
         self.assertGreaterEqual(sheet.max_row, 6)
 
     def test_account_card_uses_mask_helper_without_full_number_interpolation(self):
-        source = (Path(__file__).resolve().parents[1] / "app" / "static" / "wealth.js").read_text(encoding="utf-8")
-        card_region = source[source.index("function renderAccounts"):source.index("function renderHoldings")]
+        static = Path(__file__).resolve().parents[1] / "app" / "static"
+        source = (static / "wealth.js").read_text(encoding="utf-8")
+        controller = (static / "wealth-account-feature-controller.js").read_text(encoding="utf-8")
+        card_region = (static / "wealth-securities-accounts-view.js").read_text(encoding="utf-8")
+        self.assertIn("maskBrokerAccountNo: app.maskBrokerAccountNo", controller)
+        self.assertIn("securitiesAccountsView.renderAccounts(container, displayGroups)", controller)
         self.assertIn("function maskBrokerAccountNo", source)
         self.assertIn("계좌 ****${normalized.slice(-4)}", source)
         self.assertIn("maskBrokerAccountNo(account.account_no)", card_region)
