@@ -32,7 +32,8 @@ class KftcOpenBankingUITests(unittest.TestCase):
     def test_other_openapi_controls_stay_available(self):
         for marker in ('settingsApiPanel', 'openapiTossKey', 'openapiKbKey', 'openapiDartKey'):
             self.assertIn(f'id="{marker}"', self.index_html)
-        self.assertIn('function renderDartOpenApiStatus', self.wealth_js)
+        credentials = (self.static_dir / 'wealth-user-credentials-feature-controller.js').read_text(encoding='utf-8')
+        self.assertIn('function renderDartOpenApiStatus', credentials)
 
     def test_old_admin_kftc_section_removed_from_notification_dialog(self):
         # Old admin section should no longer exist in notificationSettingsDialog

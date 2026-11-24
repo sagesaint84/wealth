@@ -1,8 +1,13 @@
 # Wealth Project State
 
+## v2.1.10 개발 후보 — 사용자 접근 및 자격증명 제어기
+
+- `codex/user-access-credentials-batch`에서 세션·관리자 처리와 증권사·OpenDART·KRX 설정 모듈화를 버전 변경과 함께 제출한다.
+- GitHub main 병합 대기. v2.1.10 GHCR 이미지 미게시. v2.1.10 Oracle 운영 미배포.
+
 ## 투자 화면 기능 제어기
 
-- `codex/investment-feature-batch` 로컬 후보. 보유종목, 주식기록, 히트맵, 절세계좌와 공통 기간 선택을 투자 제어기로 연결했다. 동적 검증과 GitHub 통합은 PENDING이다.
+- [PR #259](https://github.com/sagesaint84/wealth/pull/259) Squash Merge 완료. main `a877df14cd115ff8f278ca498bb6c0b48e18035f` 반영. [GHCR #45471397430](https://github.com/sagesaint84/wealth/actions/runs/45471397430) SUCCESS, manifest digest `sha256:a71f8146cd535c7183c49efe099453b47221e6d08a7a9a224206d6639850335f`. 작업 브랜치와 worktree 정리를 완료했다. Oracle 운영 배포 미실행.
 
 ## 배당·이자와 실현손익 기능 제어기
 

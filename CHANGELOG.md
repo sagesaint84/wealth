@@ -1,5 +1,12 @@
 # Wealth 변경 이력
 
+## Wealth v2.1.10 — 사용자 접근 및 자격증명 제어기
+
+- 로그인 세션, 역할별 화면, 비밀번호 변경, 관리자 사용자 관리와 초기 자산 로딩을 사용자 접근 제어기로 이전했다.
+- 증권사 OpenAPI, OpenDART, KRX Data Marketplace 설정을 자격증명 제어기로 이전했다. 사용자별 격리, 마스킹 표시와 변경 필드 전송 계약을 유지했다.
+- FastAPI와 화면의 앱 버전을 2.1.10으로 맞추고, 변경된 JavaScript 3개에 독립 캐시 revision을 적용했다.
+- GitHub 병합 대기. GHCR 이미지 미게시. Oracle 운영 미배포.
+
 ## Wealth v2.1.9 — M1·M2 공통 UI 운영 반영 (2026-11-03 KST)
 
 - [M1 #196](https://github.com/sagesaint84/wealth/pull/196): 공통 Button 스타일을 상단 시세 갱신·계좌 동기화에 opt-in 적용. 병합 SHA `892e745695e4791ec5ab47e78c0b6ff8d5539829`.
