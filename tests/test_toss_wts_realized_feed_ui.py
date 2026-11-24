@@ -36,10 +36,11 @@ from app.services.toss_wts_feed_runtime import (
 from app.services.user_identity import generate_user_id
 from tests.test_request_state_user_id import _import_main_without_loading_real_env
 
+from tests.test_broker_realized_ipo_frontend import APP, FEATURE as JS, UI, broker_function
+
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
 CSS = (ROOT / "app/static/wealth-layout.css").read_text(encoding="utf-8")
-JS = (ROOT / "app/static/wealth.js").read_text(encoding="utf-8")
 SW = (ROOT / "app/static/sw.js").read_text(encoding="utf-8")
 
 
@@ -61,7 +62,7 @@ class TossWtsRealizedFeedUiStaticTests(unittest.TestCase):
         """UI must clearly state '토스 WTS 실현손익' with a '읽기 전용' badge."""
         self.assertIn("토스 WTS 실현손익", HTML)
         self.assertIn("읽기 전용", HTML)
-        self.assertIn('class="toss-wts-badge">읽기 전용</span>', HTML)
+        self.assertIn('class="toss-wts-badge">WTS · 읽기 전용</span>', HTML)
 
     def test_prominent_warning_banner_exact_text_and_role_note(self):
         """Warning banner must display canonical safety disclaimer with role='note'."""
@@ -156,7 +157,9 @@ class TossWtsRealizedFeedUiStaticTests(unittest.TestCase):
         ):
             self.assertIn(fn, JS)
 
-        self.assertIn("initTossWtsUI()", JS)
+        self.assertIn("initTossWtsUI();", broker_function(JS, "bindEvents"))
+        self.assertIn("brokerImports.bindEvents();", APP)
+        self.assertIn("Object.assign(window, brokerImports.actions);", APP)
 
     def test_zero_client_storage_persistence(self):
         """Ensure WTS feed data is NEVER stored in localStorage, sessionStorage, or IndexedDB."""
@@ -183,13 +186,18 @@ class TossWtsRealizedFeedUiStaticTests(unittest.TestCase):
         # Find basisSelect listener in wealth.js
         self.assertIn("basisSelect?.addEventListener('change', checkTossWtsFormStale)", JS)
         # Ensure renderTossWtsFeedTable is never called directly on basisSelect change
-        self.assertNotIn("basisSelect?.addEventListener('change', () => {\n    if (tossWtsState.rows", JS)
+        self.assertNotRegex(JS, r"basisSelect\?\.addEventListener\(\x27change\x27, \(\) => \{\s*if \(tossWtsState.rows")
         self.assertNotIn("renderTossWtsFeedTable(tossWtsState.rows, basisSelect.value", JS)
 
     def test_date_change_does_not_relabel_result_in_js(self):
         """Changing date inputs must only check staleness and NOT auto-fetch or relabel."""
         self.assertIn("fromInput?.addEventListener('input', checkTossWtsFormStale)", JS)
         self.assertIn("toInput?.addEventListener('input', checkTossWtsFormStale)", JS)
+        self.assertIn("getKstDateRange(30)", broker_function(UI, "initializeBrokerScreens"))
+        defaults = broker_function(UI, "applyDefaultDateRange")
+        self.assertIn("if (fromInput && !fromInput.value)", defaults)
+        self.assertIn("if (toInput && !toInput.value)", defaults)
+        self.assertNotIn(".value =", broker_function(UI, "showBrokerScreen"))
 
     def test_status_ui_privacy_guarantees(self):
         """Status UI strings must be high-level and safe; no internal paths or env vars."""

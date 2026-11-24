@@ -4,9 +4,10 @@ from pathlib import Path
 from html.parser import HTMLParser
 import unittest
 
+from tests.test_broker_realized_ipo_frontend import APP, FEATURE as JS, broker_function
+
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "app/static/index.html").read_text(encoding="utf-8")
-JS = (ROOT / "app/static/wealth.js").read_text(encoding="utf-8")
 CSS = (ROOT / "app/static/wealth-layout.css").read_text(encoding="utf-8")
 
 
@@ -46,8 +47,10 @@ class TossWtsIncomeUiTests(unittest.TestCase):
         estimated = HTML.index('data-div-mode="estimated"', tabs)
         self.assertLess(actual, estimated)
         self.assertIn('class="heatmap-tab active" data-div-mode="actual"', HTML)
-        self.assertIn("let currentDividendMode = 'actual'", JS)
-        self.assertIn("incomeSection.style.display = currentDividendMode === 'actual' ? 'flex' : 'none';", JS)
+        self.assertIn("let currentDividendMode = 'actual'", APP)
+        self.assertIn("incomeSection.style.display = getDividendMode() === 'actual' ? 'flex' : 'none';",
+                      broker_function(JS, "initTossWtsIncomeUI"))
+        self.assertIn("getDividendMode: () => currentDividendMode", APP)
 
     def test_income_controls_table_and_confirmation_modal_exist(self):
         for value in (
@@ -91,7 +94,17 @@ class TossWtsIncomeUiTests(unittest.TestCase):
             "/api/toss-wts/income-feed/import",
         ):
             self.assertIn(value, JS)
-        self.assertIn("initTossWtsIncomeUI();", JS)
+        self.assertIn("initTossWtsIncomeUI();", broker_function(JS, "initTossWtsUI"))
+        self.assertIn("brokerImports.bindEvents();", APP)
+        preview = broker_function(JS, "openTossWtsIncomeImportPreview")
+        commit = broker_function(JS, "commitTossWtsIncomeImport")
+        for body in (preview, commit):
+            self.assertIn("selected_items: selectedItems", body)
+            self.assertIn("account_id:", body)
+            self.assertNotIn("profit_rate_basis:", body)
+        self.assertIn("preview_ticket:", commit)
+        self.assertIn("include_possible_duplicates:", commit)
+        self.assertIn("profit_rate_basis:", broker_function(JS, "commitWtsImport"))
 
     def test_income_feed_is_not_persisted_in_browser_storage(self):
         self.assertNotIn("localStorage.setItem('tossWtsIncome", JS)

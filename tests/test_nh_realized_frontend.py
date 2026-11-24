@@ -4,15 +4,16 @@ These tests intentionally do not launch a browser or make provider requests.
 """
 from __future__ import annotations
 
-import re
 import subprocess
 import unittest
 from pathlib import Path
 
+from tests.test_broker_realized_ipo_frontend import (
+    FEATURE as JS, SCREEN, UI, assert_explicit_broker_tab, assert_mapped_import, broker_function,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
-JS = (ROOT / "app" / "static" / "wealth.js").read_text(encoding="utf-8")
 
 
 class NhRealizedFrontendTests(unittest.TestCase):
@@ -33,19 +34,18 @@ class NhRealizedFrontendTests(unittest.TestCase):
             self.assertIn(route, JS)
         self.assertIn("const nhRealizedState", JS)
         self.assertIn("const kisRealizedState", JS)
-        self.assertIn("switchRealizedBroker('nh')", JS)
+        assert_explicit_broker_tab(self, "nh", "Nh")
 
     def test_tab_switch_does_not_auto_fetch_nh_status(self) -> None:
-        switch_body = re.search(r"else if \(broker === 'nh'\) \{(?P<body>.*?)\n  \} else", JS, re.DOTALL)
-        self.assertIsNotNone(switch_body)
-        self.assertNotIn("checkNhStatus(", switch_body.group("body"))
-        self.assertIn("btnCheckNhStatus", JS)
+        assert_explicit_broker_tab(self, "nh", "Nh")
 
     def test_shared_display_masking_is_used_by_kis_and_nh(self) -> None:
         self.assertIn("function maskAccountDisplayLabel", JS)
-        self.assertGreaterEqual(JS.count("maskAccountDisplayLabel("), 7)
-        self.assertIn("kisModalDestAccountDisplay", JS)
-        self.assertIn("nhModalDestAccountDisplay", JS)
+        self.assertIn("maskAccountDisplayLabel(dest.account_name", broker_function(JS, "renderKisPreviewModal"))
+        self.assertIn("brokerUI.brokerPreviewDestinationText(dest, maskAccountDisplayLabel)", SCREEN)
+        self.assertIn("maskAccountDisplayLabel(destination.account_name", broker_function(UI, "brokerPreviewDestinationText"))
+        self.assertIn("maskAccountDisplayLabel(account.account_name", broker_function(UI, "populateBrokerDestinationAccountSelect"))
+        self.assertIn('id="nhModalDestAccountDisplay"', HTML)
         self.assertIn("wtsModalDestAccountName", JS)
         self.assertIn("persisted account name", JS)
 
@@ -55,10 +55,17 @@ class NhRealizedFrontendTests(unittest.TestCase):
             self.skipTest("node runtime is not available")
         script = r'''
 const fs = require("fs");
-const source = fs.readFileSync("app/static/wealth.js", "utf8");
-const match = source.match(/function maskAccountDisplayLabel\(value\) \{[\s\S]*?\r?\n\}\r?\n\r?\nconst kisRealizedState/);
-if (!match) process.exit(2);
-eval(match[0].replace(/\r?\n\r?\nconst kisRealizedState$/, ""));
+const vm = require("node:vm");
+const sandbox = {document: {}};
+sandbox.window = sandbox;
+sandbox.WealthBrokerRealizedScreenController = {create: () => ({})};
+vm.createContext(sandbox);
+for (const asset of ["wealth-broker-realized-feed-controller.js", "wealth-broker-import-feature-controller.js"]) {
+  vm.runInContext(fs.readFileSync("app/static/" + asset, "utf8"), sandbox);
+}
+const { maskAccountDisplayLabel } = sandbox.WealthBrokerImportFeatureController.create({
+  window: sandbox, document: sandbox.document, brokerUI: {},
+}).actions;
 console.log(JSON.stringify([
   maskAccountDisplayLabel("12345678"),
   maskAccountDisplayLabel("1234567890"),
@@ -97,17 +104,17 @@ console.log(JSON.stringify([
         self.assertIn("source_account_key", JS)  # opaque route scope only
 
     def test_overseas_columns_do_not_claim_fabricated_krw_or_fx(self) -> None:
-        render_body = re.search(r"function renderNhFeedTable\(\) \{(?P<body>.*?)\n\}\nfunction updateNhSelectionUI", JS, re.DOTALL)
-        self.assertIsNotNone(render_body)
-        self.assertIn("expenses_total", render_body.group("body"))
-        self.assertNotIn("pnl_krw", render_body.group("body"))
-        self.assertNotIn("fx_rate", render_body.group("body"))
+        self.assertIn("nhScreenController.renderFeedTable()", broker_function(JS, "renderNhFeedTable"))
+        self.assertIn("brokerRealizedDisplayRow", broker_function(SCREEN, "renderFeedTable"))
+        display = broker_function(JS, "brokerRealizedDisplayRow")
+        self.assertIn("present(row.expenses_total)", display)
+        self.assertIn("currency === 'USD'", display)
+        self.assertNotIn("row.pnl_krw", display)
+        self.assertRegex(display, r"if \(kis && market === 'us'\) \{\s+if \(present\(row.profit_loss_krw\)\)")
+        self.assertNotIn("kis: true", JS.split("const nhScreenController", 1)[1].split("\n    });", 1)[0])
 
     def test_double_submit_guard_and_preview_gate_exist(self) -> None:
-        self.assertIn("nhRealizedState.importing || !nhRealizedState.previewTicket", JS)
-        self.assertIn("nhRealizedState.importing = true", JS)
-        self.assertIn("if (!accountId)", JS)
-        self.assertIn("preview_ticket: nhRealizedState.previewTicket", JS)
+        assert_mapped_import(self, "nh", "Nh")
 
     def test_existing_toss_and_kis_hooks_remain(self) -> None:
         for marker in ("btnTabBrokerToss", "btnTabBrokerKis", "tossWtsCard", "kisRealizedCard"):

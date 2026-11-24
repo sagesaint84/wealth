@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import re
 import unittest
 from pathlib import Path
 
+from tests.test_broker_realized_ipo_frontend import (
+    FEATURE as JS, MODEL, assert_explicit_broker_tab, broker_function,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
-JS = (ROOT / "app" / "static" / "wealth.js").read_text(encoding="utf-8")
 LAYOUT_CSS = (ROOT / "app" / "static" / "wealth-layout.css").read_text(encoding="utf-8")
 
 
@@ -16,36 +17,31 @@ class KisRealizedFrontendTests(unittest.TestCase):
         for marker in (
             "kisSourceAccount", "kisMarketSelect", "kisFromDate", "kisToDate",
             "btnFetchKisFeed", "kisSelectAll", "kisDestinationAccount",
-            "kisImportOptions", "kisImportModalOverlay", "kisModalCountNew",
+            "kisTableBody", "kisImportModalOverlay", "kisModalCountNew",
             "kisModalCountAlready", "kisModalCountDup", "kisModalCountInvalid",
             "btnKisConfirmCommit",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, HTML)
-        self.assertIn("brokerImportSelectedItem(kisRealizedState, idx)", JS)
-        self.assertIn("renderBrokerImportOptions(kisRealizedState", JS)
+        self.assertIn("selectedImportItems(kisRealizedState, brokerImportSelectedItem)", broker_function(JS, "kisSelectedItems"))
+        self.assertIn("syncBrokerRowImportOptions", JS.split("const kisScreenController", 1)[1].split("\n    });", 1)[0])
         self.assertIn("renderBrokerImportPreviewDetails(data, 'kisImportModalOverlay')", JS)
 
     def test_kis_tab_status_fetch_and_import_are_explicit(self) -> None:
-        switch = re.search(r"if \(broker === 'kis'\) \{(?P<body>.*?)\n  \} else if \(broker === 'nh'\)", JS, re.DOTALL)
-        self.assertIsNotNone(switch)
-        self.assertNotIn("checkKisStatus(", switch.group("body"))
-        self.assertNotIn("fetchKisRealizedFeed(", switch.group("body"))
-        self.assertIn("btnCheckKisStatus')?.addEventListener('click', checkKisStatus", JS)
-        self.assertIn("btnFetchKisFeed')?.addEventListener('click', fetchKisRealizedFeed", JS)
-        self.assertIn("btnKisImportSelected')?.addEventListener('click', openKisImportPreview", JS)
-        self.assertIn("btnKisConfirmCommit')?.addEventListener('click', commitKisImport", JS)
+        assert_explicit_broker_tab(self, "kis", "Kis")
+        bind = broker_function(JS, "initKisRealizedUI")
+        self.assertIn("btnKisImportSelected')?.addEventListener('click', openKisImportPreview", bind)
+        self.assertIn("btnKisConfirmCommit')?.addEventListener('click', commitKisImport", bind)
 
     def test_kis_table_matches_common_ten_column_shape_and_preserves_missing_values(self) -> None:
         section = HTML.split('id="kisRealizedCard"', 1)[1].split('id="nhRealizedCard"', 1)[0]
         self.assertIn('colspan="10"', section)
         self.assertIn("시장 / 통화", section)
-        render = re.search(r"function renderKisFeedTable\(rows, market, state\) \{(?P<body>.*?)\n\}", JS, re.DOTALL)
-        self.assertIsNotNone(render)
-        body = render.group("body")
-        self.assertIn("sellRaw == null", body)
-        self.assertIn("buyRaw == null", body)
-        self.assertIn("'—'", body)
+        self.assertIn("kisScreenController.renderFeedTable(rows, market", broker_function(JS, "renderKisFeedTable"))
+        row = broker_function(JS, "brokerRealizedDisplayRow")
+        self.assertIn("present(value) ?", row)
+        self.assertIn(": '';", row)
+        self.assertIn("buy: amount(rawAmount('buy_amount')), sell: amount(rawAmount('sell_amount'))", row)
 
     def test_kis_preview_uses_common_status_language_and_ipo_details(self) -> None:
         section = HTML.split('id="kisImportModalOverlay"', 1)[1].split('id="kisNotice"', 1)[0]
@@ -53,14 +49,14 @@ class KisRealizedFrontendTests(unittest.TestCase):
             self.assertIn(label, section)
         self.assertIn("brokerPreviewStatusLabel(it.status)", JS)
         self.assertIn("공모수수료 2천원 차감", (ROOT / "app" / "services" / "broker_realized_import.py").read_text(encoding="utf-8"))
-        self.assertIn("provider_realized_pnl", JS)
-        self.assertIn("final_wealth_pnl", JS)
+        self.assertIn("provider_realized_pnl", MODEL)
+        self.assertIn("final_wealth_pnl", MODEL)
 
     def test_kis_error_is_not_converted_to_successful_empty_response(self) -> None:
-        fetch = re.search(r"async function fetchKisRealizedFeed\(\) \{(?P<body>.*?)\n\}", JS, re.DOTALL)
-        self.assertIsNotNone(fetch)
-        self.assertIn("if (!res.ok)", fetch.group("body"))
-        self.assertIn("showKisMessage", fetch.group("body"))
+        fetch = broker_function(JS, "fetchKisRealizedFeed")
+        self.assertIn("if (!res.ok)", fetch)
+        self.assertIn("showKisMessage", fetch)
+        self.assertLess(fetch.index("if (!res.ok)"), fetch.index("applySuccessfulFeed"))
 
     def test_kis_double_submit_and_partial_success_guards_match_new_flow(self) -> None:
         self.assertIn("kisRealizedState.importing || !kisRealizedState.previewTicket", JS)
@@ -73,8 +69,12 @@ class KisRealizedFrontendTests(unittest.TestCase):
         self.assertIn("realizedBrokerId(account.broker) === provider", JS)
         self.assertIn("candidate_account_ids", JS)
         self.assertIn("해당 증권사 계좌를 먼저 등록하세요.", JS)
-        for provider in ("'kis'", "'nh'", "'kiwoom'", "'kb'"):
-            self.assertIn(f"realizedDestinationAccounts(accounts, {provider}", JS)
+        self.assertIn("realizedDestinationAccounts(accounts, 'kis'", broker_function(JS, "populateKisDestinationAccounts"))
+        self.assertIn("realizedDestinationAccounts(accounts, broker, source?.candidate_account_ids)",
+                      broker_function(JS, "populateOpenApiDestinationAccounts"))
+        for provider, title in (("nh", "Nh"), ("kiwoom", "Kiwoom"), ("kb", "Kb")):
+            self.assertIn(f"populateOpenApiDestinationAccounts(select, {provider}RealizedState, '{provider}')",
+                          broker_function(JS, f"populate{title}DestinationAccounts"))
 
     def test_shared_layout_remains_responsive(self) -> None:
         self.assertIn(".toss-wts-controls", LAYOUT_CSS)

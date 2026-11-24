@@ -2,21 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests.test_broker_realized_ipo_frontend import FEATURE, MODEL, UI, broker_function
+
 
 ROOT = Path(__file__).resolve().parents[1]
-WEALTH_JS = ROOT / "app" / "static" / "wealth.js"
 LAYOUT_CSS = ROOT / "app" / "static" / "wealth-layout.css"
 
 
-def _function_block(source: str, start_marker: str, end_marker: str) -> str:
-    start = source.index(start_marker)
-    end = source.index(end_marker, start)
-    return source[start:end]
-
-
 def test_toss_wts_realized_destination_dropdown_only_lists_toss_accounts() -> None:
-    source = WEALTH_JS.read_text(encoding="utf-8")
-    block = _function_block(source, "function populateWtsAccounts() {", "\nlet currentPreviewData")
+    block = broker_function(FEATURE, "populateWtsAccounts")
 
     assert ".filter(account => {" in block
     assert "broker.includes('토스') || broker.includes('toss')" in block
@@ -27,13 +21,8 @@ def test_toss_wts_realized_destination_dropdown_only_lists_toss_accounts() -> No
 
 
 def test_broker_import_preview_formats_currency_and_profit_loss_direction() -> None:
-    source = WEALTH_JS.read_text(encoding="utf-8")
 
-    helper = _function_block(
-        source,
-        "function brokerImportPnlPresentation(candidate, value) {",
-        "\nfunction renderBrokerImportPreviewDetails",
-    )
+    helper = broker_function(FEATURE, "brokerImportPnlPresentation")
     assert "candidate?.currency" in helper
     assert "currency === 'USD'" in helper
     assert "`$" in helper or "$${" in helper
@@ -42,17 +31,15 @@ def test_broker_import_preview_formats_currency_and_profit_loss_direction() -> N
     assert "pnl-positive" in helper
     assert "pnl-negative" in helper
 
-    preview = _function_block(
-        source,
-        "function renderBrokerImportPreviewDetails(data, overlayId) {",
-        "\n// ── 한국투자증권",
-    )
-    assert "const itemNameSizeClass = brokerImportNameSizeClass(itemName);" in preview
-    assert 'class="broker-import-item-name ${itemNameSizeClass}"' in preview
-    assert "brokerImportPnlPresentation(candidate, choice.provider_realized_pnl" in preview
-    assert "brokerImportPnlPresentation(candidate, choice.final_wealth_pnl" in preview
-    assert 'class="broker-import-pnl ${providerPnl.toneClass}"' in preview
-    assert 'class="broker-import-pnl ${finalPnl.toneClass}"' in preview
+    preview = broker_function(FEATURE, "renderBrokerImportPreviewDetails")
+    assert "formatters: { brokerImportNameSizeClass, brokerImportPnlPresentation }" in preview
+    assert "WealthBrokerImportPreviewScreenController.renderDetails" in preview
+    assert "const itemNameSizeClass = brokerImportNameSizeClass(itemName);" in MODEL
+    assert 'class="broker-import-item-name ${itemNameSizeClass}"' in UI
+    assert "brokerImportPnlPresentation(candidate, choice.provider_realized_pnl" in MODEL
+    assert "brokerImportPnlPresentation(candidate, choice.final_wealth_pnl" in MODEL
+    assert 'class="broker-import-pnl ${providerPnl.toneClass}"' in UI
+    assert 'class="broker-import-pnl ${finalPnl.toneClass}"' in UI
 
 
 def test_broker_import_preview_has_compact_name_and_red_blue_pnl_styles() -> None:

@@ -5,14 +5,15 @@ and contract invariants without launching a browser or performing real provider 
 """
 from __future__ import annotations
 
-import re
 import unittest
 from pathlib import Path
 
+from tests.test_broker_realized_ipo_frontend import (
+    FEATURE as JS, APP, FEED, PREVIEW_SCREEN, SCREEN, UI, assert_explicit_broker_tab, assert_mapped_import, broker_function, mapped_config,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8") + (ROOT / "app/static/wealth-settings-surface.js").read_text(encoding="utf-8")
-JS = (ROOT / "app" / "static" / "wealth.js").read_text(encoding="utf-8")
 MAIN = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
 
 
@@ -39,19 +40,10 @@ class KbRealizedFrontendTests(unittest.TestCase):
             with self.subTest(route=route):
                 self.assertIn(route, JS)
         self.assertIn("const kbRealizedState", JS)
-        self.assertIn("switchRealizedBroker('kb')", JS)
+        assert_explicit_broker_tab(self, "kb", "Kb")
 
     def test_tab_switch_does_not_auto_fetch_kb_status_or_feed(self) -> None:
-        switch_body = re.search(
-            r"else if \(broker === 'kb'\) \{(?P<body>.*?)\n  \}",
-            JS, re.DOTALL,
-        )
-        self.assertIsNotNone(switch_body)
-        body_text = switch_body.group("body")
-        self.assertNotIn("checkKbStatus(", body_text)
-        self.assertNotIn("fetchKbRealizedFeed(", body_text)
-        self.assertIn("btnCheckKbStatus", JS)
-        self.assertIn("btnFetchKbFeed", JS)
+        assert_explicit_broker_tab(self, "kb", "Kb")
 
     def test_market_selection_domestic_only(self) -> None:
         kb_section = HTML.split('id="kbRealizedCard"', 1)[1].split('</div>\n          </div>', 1)[0]
@@ -66,9 +58,12 @@ class KbRealizedFrontendTests(unittest.TestCase):
 
     def test_shared_display_masking_is_used_by_kb(self) -> None:
         self.assertIn("function maskAccountDisplayLabel", JS)
-        self.assertIn("kbModalDestAccountDisplay", JS)
-        self.assertIn("maskAccountDisplayLabel(dest.account_name", JS)
-        self.assertIn("populateKbDestinationAccounts", JS)
+        self.assertIn('id="kbModalDestAccountDisplay"', HTML)
+        self.assertIn("maskAccountDisplayLabel(destination.account_name", broker_function(UI, "brokerPreviewDestinationText"))
+        self.assertIn("brokerUI.brokerPreviewDestinationText(dest, maskAccountDisplayLabel)", SCREEN)
+        self.assertIn("destinationId: `${prefix}ModalDestAccountDisplay`", PREVIEW_SCREEN)
+        self.assertIn("populateOpenApiDestinationAccounts(select, kbRealizedState, 'kb')",
+                      broker_function(JS, "populateKbDestinationAccounts"))
 
     def test_no_raw_kb_account_number_field_is_rendered(self) -> None:
         # Bound the assertion to the KB card itself.  Later dialogs can
@@ -81,31 +76,36 @@ class KbRealizedFrontendTests(unittest.TestCase):
         self.assertIn("source_account_key", JS)  # opaque route scope only
 
     def test_double_submit_guard_and_preview_gate_exist(self) -> None:
-        self.assertIn("kbRealizedState.importing || !kbRealizedState.previewTicket", JS)
-        self.assertIn("kbRealizedState.importing = true", JS)
-        self.assertIn("preview_ticket: kbRealizedState.previewTicket", JS)
+        assert_mapped_import(self, "kb", "Kb")
 
     def test_no_first_use_auto_destination(self) -> None:
         # Default destination select option must be empty placeholder
         self.assertIn('<select id="kbDestinationAccount" class="toss-wts-select" aria-label="귀속할 Wealth 계좌"><option value="">계좌 선택...</option></select>', HTML)
-        self.assertIn('select.innerHTML = \'<option value="">귀속 계좌 선택...</option>\';', JS)
+        populate = broker_function(UI, "populateBrokerDestinationAccountSelect")
+        self.assertIn('<option value="">귀속 계좌 선택...</option>', populate)
+        self.assertIn("if (current && hasOption(current))", populate)
+        self.assertIn("else if (preferred && hasOption(String(preferred)))", populate)
+        self.assertNotIn("selectedIndex", populate)
+        self.assertNotIn("accounts.length === 1", populate)
 
     def test_partial_success_mapping_error_ux_messaging(self) -> None:
-        self.assertIn("MAPPING_PERSISTENCE_FAILED", JS)
-        self.assertIn("mapping_repaired", JS)
+        self.assertIn("reportMappingResult: true", mapped_config("kb"))
+        result = broker_function(broker_function(JS, "createMappedImport"), "showResult")
+        self.assertIn("data.partial_success || data.mapping_warning === 'MAPPING_PERSISTENCE_FAILED'", result)
+        self.assertIn("data.mapping_repaired", result)
 
     def test_client_does_not_recompute_canonical_financial_values(self) -> None:
-        selected_items_fn = re.search(
-            r"function kbSelectedItems\(\) \{(?P<body>.*?)\n\}",
-            JS, re.DOTALL,
-        )
-        self.assertIsNotNone(selected_items_fn)
-        body = selected_items_fn.group("body")
-        self.assertIn("const row = kbRealizedState.rows[idx]", body)
-        self.assertIn("brokerImportSelectedItem(kbRealizedState, idx)", body)
-        self.assertNotIn("buy_amount =", body)
-        self.assertNotIn("sell_amount =", body)
-        self.assertNotIn("pnl =", body)
+        selection = broker_function(JS, "kbSelectedItems")
+        self.assertIn("selectedImportItems(kbRealizedState, brokerImportSelectedItem)", selection)
+        common = broker_function(FEED, "selectedImportItems")
+        self.assertIn(".sort((a, b) => a - b)", common)
+        self.assertIn(".map(index => buildItem(state, index))", common)
+        builder = broker_function(JS, "brokerImportSelectedItem")
+        self.assertIn("state.rows?.[index]", builder)
+        self.assertIn("row,", builder)
+        self.assertIn("selection_token: token", builder)
+        for field in ("buy_amount", "sell_amount", "pnl"):
+            self.assertNotRegex(selection + common + builder, rf"\b{field}\s*=")
 
     def test_kb_overlay_registered_in_modal_second_chance(self) -> None:
         self.assertIn("if (overlayId === 'kbImportModalOverlay')", JS)
@@ -115,14 +115,10 @@ class KbRealizedFrontendTests(unittest.TestCase):
         self.assertIn("commitButtonId: 'btnKbConfirmCommit',", JS)
 
     def test_kb_commit_button_disabled_when_preview_ticket_null(self) -> None:
-        kb_update = re.search(r"function updateKbCommitButton\(\) \{(?P<body>.*?)\n\}", JS, re.DOTALL)
-        self.assertIsNotNone(kb_update)
-        self.assertIn("!kbRealizedState.previewTicket", kb_update.group("body"))
+        assert_mapped_import(self, "kb", "Kb")
 
     def test_kb_modal_close_clears_preview_ticket(self) -> None:
-        match = re.search(r"function closeKbImportModal\(\) \{(?P<body>.*?)\n\}", JS, re.DOTALL)
-        self.assertIsNotNone(match)
-        self.assertIn("kbRealizedState.previewTicket = null", match.group("body"))
+        assert_mapped_import(self, "kb", "Kb")
 
     def test_kb_preview_and_import_routes_use_common_layer(self) -> None:
         for name in ("kb_realized_feed_import_preview", "kb_realized_feed_import"):
@@ -139,10 +135,10 @@ class KbRealizedFrontendTests(unittest.TestCase):
                 self.assertIn(f'id="{element_id}"', HTML)
         # Separate product input is absent from normal UI
         self.assertNotIn('id="openapiKbProductNo"', HTML)
-        self.assertNotIn("openapiKbProductNo", JS)
-        self.assertIn("kb: ['Kb', 'KB App Secret 입력']", JS)
-        self.assertIn("'openapi' + prefix + suffix", JS)
-        self.assertIn("field('AccountNo')", JS)
+        self.assertNotIn("openapiKbProductNo", APP)
+        self.assertIn("kb: ['Kb', 'KB App Secret 입력']", APP)
+        self.assertIn("'openapi' + prefix + suffix", APP)
+        self.assertIn("field('AccountNo')", APP)
         self.assertIn("KB증권 계좌번호 (11자리)", HTML)
         self.assertIn("하이픈 없이 11자리 계좌번호를 입력하세요.", HTML)
 
