@@ -101,9 +101,12 @@ process.stdout.write(JSON.stringify(sandbox.build(input.summary, input.records, 
         self.assertNotIn("Number(r.pnl_krw || 0)", render_body)
         self.assertIn("buildRealizedPnlDisplaySummary(pnlRes, [], true)", overview_body)
         self.assertIn("pnlView.completenessNote", overview_body)
-        monthly_start = self.source.index("function renderPnlMonthlyDetail")
-        monthly_end = self.source.index("\nfunction calcPnlReProfit", monthly_start)
-        monthly_body = self.source[monthly_start:monthly_end]
+        feature = WEALTH_JS.with_name("wealth-income-feature-controller.js").read_text(encoding="utf-8")
+        monthly_start = feature.index("function renderPnlMonthlyDetail")
+        monthly_end = feature.index("\n    function calcPnlReProfit", monthly_start)
+        monthly_body = feature[monthly_start:monthly_end]
+        self.assertIn("WealthRealizedPnlView.renderMonthlyDetail", monthly_body)
+        monthly_body += WEALTH_JS.with_name("wealth-realized-pnl-view.js").read_text(encoding="utf-8")
         self.assertNotIn("Number(cur.pnl_krw || 0)", monthly_body)
         self.assertNotIn("money(item.pnl_krw)", monthly_body)
         self.assertIn("formatOptionalRealizedPnlValue(item.pnl_krw", monthly_body)

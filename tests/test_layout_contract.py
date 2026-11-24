@@ -341,10 +341,12 @@ class LayoutContractTests(unittest.TestCase):
         self.assertIn('--card-overflow-wrap: anywhere;', css)
         density = (STATIC / 'wealth-ui-density.css').read_text(encoding='utf-8')
         self.assertIn('#realizedPnlPanel .div-summary-card {', density)
-        js = (STATIC / 'wealth.js').read_text(encoding='utf-8')
-        self.assertIn('const totalEl = $("#pnlTotal");', js)
-        self.assertIn('$("#divTotalAnnual").textContent = money(totalAnnual)', js)
-        self.assertNotIn('wealth-ui-card', js)
+        pnl_view = (STATIC / 'wealth-realized-pnl-view.js').read_text(encoding='utf-8')
+        income = (STATIC / 'wealth-income-feature-controller.js').read_text(encoding='utf-8')
+        main = (STATIC / 'wealth.js').read_text(encoding='utf-8')
+        self.assertIn('const totalEl = $("#pnlTotal");', pnl_view)
+        self.assertIn('app.$("#divTotalAnnual").textContent = app.money(totalAnnual)', income)
+        self.assertNotIn('wealth-ui-card', main + income + pnl_view)
 
     def test_stock_profit_alignment_preserves_ids_and_scopes_the_frame(self):
         tree = SectionHeaderElements((STATIC / 'index.html').read_text(encoding='utf-8'))

@@ -1,9 +1,13 @@
 # Wealth Project State
 
+## 배당·이자와 실현손익 기능 제어기
+
+- `codex/income-feature-batch` 로컬 후보. 월 탐색, 조회 응답 검증, 배당 모드, 두 화면의 기록 폼과 저장 후 갱신을 공통 제어기로 연결했다. 동적 검증과 GitHub 통합은 PENDING이다.
+
 ## 자산·계좌 제어기 분리 — 2026-11-25 KST
 
 - 증권사 가져오기 [PR #256](https://github.com/sagesaint84/wealth/pull/256)이 main `4d100a2fa30cdb42ca33c3cf161d9f54e455feb7`에 반영됐다. [GHCR #45416863394](https://github.com/sagesaint84/wealth/actions/runs/45416863394)는 SUCCESS이며 manifest digest는 `sha256:d9d39fde4c796cdcff6491d0ee2ada87a2079c1ad2d260a370aa32ce429c1252`다.
-- 계좌·보험/연금·부동산·가족 제어기를 `codex/asset-account-feature-batch`에서 분리했다. 정적 검증을 마쳤으며 화면과 실제 저장 동작 검증은 PENDING이다.
+- [PR #257](https://github.com/sagesaint84/wealth/pull/257)이 main `e2a11ddf6c77aa3758e4e59715a9b2850d5008e5`에 반영됐다. [GHCR #45447094121](https://github.com/sagesaint84/wealth/actions/runs/45447094121) SUCCESS, manifest digest `sha256:2450c28d818cd1933378f60fed83ac1ccb3728947ca11af6fe147e6fe0c987b7`. 작업 브랜치와 worktree를 정리했으며 Oracle 배포는 수행하지 않았다.
 
 ## 가계부 기능 제어기 통합 — 2026-11-24 KST
 

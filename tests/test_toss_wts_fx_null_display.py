@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WEALTH_JS = ROOT / "app" / "static" / "wealth.js"
+FEATURE_JS = ROOT / "app" / "static" / "wealth-income-feature-controller.js"
 
 
 class TossWtsFxNullDisplayTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class TossWtsFxNullDisplayTests(unittest.TestCase):
         script = r'''
 const fs = require('fs');
 const source = fs.readFileSync(process.argv[1], 'utf8');
-const match = source.match(/function formatOptionalTossWtsFxDisplay\(record, value, formatter\) \{\r?\n  return record\?\.source === 'toss_wts' && value == null \? '—' : formatter\(value\);\r?\n\}/);
+const match = source.match(/function formatOptionalTossWtsFxDisplay\(record, value, formatter\) \{\r?\n\s+return record\?\.source === 'toss_wts' && value == null \? '—' : formatter\(value\);\r?\n\s+\}/);
 if (!match) process.exit(2);
 eval(match[0]);
 const before = {source: 'toss_wts', fx_rate: null, fx_pnl_krw: null};
@@ -29,21 +29,21 @@ if (formatOptionalTossWtsFxDisplay({source: 'toss_wts'}, 12, value => `number:${
 if (formatOptionalTossWtsFxDisplay({source: 'manual', broker: '토스증권'}, null, value => `legacy:${value}`) !== 'legacy:null') process.exit(7);
 if (JSON.stringify(before) !== snapshot) process.exit(8);
 '''
-        result = subprocess.run(["node", "-e", script, str(WEALTH_JS)], capture_output=True, text=True, check=False)
+        result = subprocess.run(["node", "-e", script, str(FEATURE_JS)], capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_source_aware_null_display_and_numeric_preservation(self):
         self.run_helper()
 
     def test_realized_detail_uses_local_source_aware_branches(self):
-        source = WEALTH_JS.read_text(encoding="utf-8")
+        source = FEATURE_JS.with_name("wealth-realized-pnl-view.js").read_text(encoding="utf-8")
         self.assertIn("const wtsFxPnlUnavailable = item.source === 'toss_wts' && item.fx_pnl_krw == null;", source)
         self.assertIn("const fxRateDisplay = formatOptionalRealizedPnlValue(item.fx_rate", source)
         self.assertIn("const fxPnlDisplay = formatOptionalTossWtsFxDisplay(item, item.fx_pnl_krw", source)
-        self.assertNotIn("broker === '토스증권'", source[source.index("function formatOptionalTossWtsFxDisplay"):source.index("function formatOptionalTossWtsFxDisplay") + 1200])
+        self.assertNotIn("broker === '토스증권'", FEATURE_JS.read_text(encoding="utf-8").split("function formatOptionalTossWtsFxDisplay", 1)[1].split("function formatOptionalRealizedPnlValue", 1)[0])
 
     def test_format_optional_toss_wts_fx_display_static_contract(self):
-        source = WEALTH_JS.read_text(encoding="utf-8")
+        source = FEATURE_JS.read_text(encoding="utf-8")
         self.assertIn("function formatOptionalTossWtsFxDisplay(record, value, formatter) {", source)
         self.assertIn("return record?.source === 'toss_wts' && value == null ? '—' : formatter(value);", source)
 

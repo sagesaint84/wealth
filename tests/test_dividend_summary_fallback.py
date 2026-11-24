@@ -10,13 +10,13 @@ class DividendSummaryFallbackTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.source = (Path(__file__).resolve().parents[1] / "app/static/wealth.js").read_text(encoding="utf-8")
+        cls.source = (Path(__file__).resolve().parents[1] / "app/static/wealth-income-feature-controller.js").read_text(encoding="utf-8")
 
     def normalized_schedule(self, value):
         if not shutil.which("node"):
             self.skipTest("node runtime is not available")
         start = self.source.index("function normalizeMonthlyDividendSchedule(")
-        end = self.source.index("\nasync function loadDividends", start)
+        end = self.source.index("\n    function beginIncomeRead", start)
         helper = self.source[start:end]
         invocation = "normalizeMonthlyDividendSchedule()" if value is self.MISSING else "normalizeMonthlyDividendSchedule(JSON.parse(process.argv[1]))"
         script = f"{helper}\nconst result = {invocation};\nprocess.stdout.write(JSON.stringify(result));"

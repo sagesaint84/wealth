@@ -451,15 +451,6 @@
     return `${broker} 실현손익만 일괄 삭제하시겠습니까?\n다른 증권사의 실현손익은 유지됩니다. 삭제된 내역은 복구할 수 없습니다.`;
   }
 
-  async function refreshAfterPnlClear() {
-    const owner = typeof currentOwner !== 'undefined' ? currentOwner : '모두';
-    const year = typeof selectedPnlYear !== 'undefined' ? selectedPnlYear : 'all';
-    const tradeType = typeof currentPnlTradeType !== 'undefined' ? currentPnlTradeType : 'all';
-    if (typeof loadRealizedPnl === 'function') await loadRealizedPnl(owner, year, tradeType);
-    if (typeof updateOverviewCardsAllTime === 'function') await updateOverviewCardsAllTime(owner);
-    if (typeof dashboard !== 'undefined' && dashboard && typeof refresh === 'function') await refresh();
-  }
-
   async function handleClearAllPnl(event) {
     const button = event.target?.closest?.('#clearAllPnlBtn');
     if (!button) return;
@@ -485,7 +476,8 @@
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(pnlClearErrorMessage(result));
       if (typeof toast === 'function') toast(result.message || '실현손익 기록이 삭제되었습니다.');
-      await refreshAfterPnlClear();
+      invalidateStartupReads();
+      await incomeFeature.actions.refreshClearedIncome('pnl');
     } catch (error) {
       if (typeof toast === 'function') {
         toast(error?.message || '실현손익 일괄삭제 중 오류가 발생했습니다.', true);
