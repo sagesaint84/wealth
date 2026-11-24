@@ -92,8 +92,8 @@
     <link rel="stylesheet" href="/static/wealth.css?v=2.1.9-ipo-common-integration1" />
     <link rel="stylesheet" href="/static/wealth-savings-contributions.css?v=2.1.9-contribution-type1" />
     <link rel="stylesheet" href="/static/wealth-account-reorder.css?v=1.3.0" />
-    <link rel="stylesheet" href="/static/wealth-overrides.css?v=2.1.9-common-donut1" />
-    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.9-full-integration1" />
+    <link rel="stylesheet" href="/static/wealth-overrides.css?v=2.1.9-ui-foundation1" />
+    <link rel="stylesheet" href="/static/wealth-layout.css?v=2.1.9-ui-foundation1" />
     <link rel="stylesheet" href="/static/wealth-color-preferences.css?v=10.9r6" />
   <link rel="stylesheet" href="/static/wealth-color-picker.css?v=10.9r2" />
     <link rel="stylesheet" href="/static/wealth-financial-income-what-if.css?v=2.1.0-b2" />
@@ -102,7 +102,7 @@
     <link rel="stylesheet" href="/static/wealth-system-update.css?v=2.1.9-action-confirm1" />
     <link rel="stylesheet" href="/static/wealth-ui-density.css?v=2.1.3-uiux1" />
     <link rel="stylesheet" href="/static/wealth-national-pension.css?v=2.0.2-r2" />
-    <link rel="stylesheet" href="/static/wealth-dialog-system.css?v=2.0.3-ai1" />
+    <link rel="stylesheet" href="/static/wealth-dialog-system.css?v=2.1.9-ui-foundation1" />
   </head>
   <body class="wealth-layout">
     <main class="shell">
@@ -486,14 +486,14 @@
           </div>
           <div class="toolbar" style="margin-left:auto;">
             <input id="searchInput" type="search" class="wealth-ui-input" data-ui="input" placeholder="종목명·코드·증권사 검색" />
-            <button id="addButton" class="button secondary compact" type="button">➕ 종목추가</button>
-            <button id="importButton" class="button secondary compact" type="button">📂 가져오기</button>
-            <button id="clearAllHoldingsBtn" class="button secondary danger compact" type="button" title="보유종목 전체 일괄 삭제">🗑️ 일괄삭제</button>
+            <button id="addButton" class="button secondary wealth-ui-button" data-ui="button" type="button">➕ 종목추가</button>
+            <button id="importButton" class="button secondary wealth-ui-button" data-ui="button" type="button">📂 가져오기</button>
+            <button id="clearAllHoldingsBtn" class="button secondary danger wealth-ui-button" data-ui="button" type="button" title="보유종목 전체 일괄 삭제">🗑️ 일괄삭제</button>
           </div>
         </div>
 
         <div class="table-wrap">
-          <table>
+          <table data-ui="table">
             <thead>
               <tr>
                 <th data-sort="name" class="sortable-th">종목 <span class="sort-icon"></span></th>
@@ -510,7 +510,7 @@
             <tbody id="holdingsBody"></tbody>
           </table>
         </div>
-        <div id="emptyHoldings" class="empty">
+        <div id="emptyHoldings" class="empty" data-ui="empty-state">
           <strong>아직 불러온 보유종목이 없습니다.</strong>
           <p>각 증권사 동기화 또는 파일 가져오기로 시작하세요.</p>
           <button id="demoButton" class="button text" type="button">예시 화면 보기</button>
@@ -569,11 +569,11 @@
             <div class="toolbar" style="margin-left:auto;display:flex;gap:6px;align-items:center;">
               <button id="accountOrderLock" class="button secondary compact" type="button" title="계좌/기관 순서 잠금" aria-label="계좌/기관 순서 잠금" aria-pressed="false" disabled>🔒 순서 잠금</button>
               <div id="securitiesActions" style="display:flex;gap:6px;align-items:center;">
-                <button id="addAccountBtn" class="button secondary compact" type="button" title="증권 계좌 추가">➕ 증권계좌 추가</button>
+                <button id="addAccountBtn" class="button secondary wealth-ui-button" data-ui="button" type="button" title="증권 계좌 추가">➕ 증권계좌 추가</button>
                 <button id="accountImportBtn" class="button secondary compact" type="button" title="증권계좌 파일 가져오기">📂 계좌 가져오기</button>
               </div>
               <div id="bankingActions" style="display:none;gap:6px;align-items:center;">
-                <button id="addBankIntegratedBtn" class="button secondary compact" type="button" title="은행 계좌 추가 (자유통장 / 예·적금 / 대출)">🏦 계좌 추가</button>
+                <button id="addBankIntegratedBtn" class="button secondary wealth-ui-button" data-ui="button" type="button" title="은행 계좌 추가 (자유통장 / 예·적금 / 대출)">🏦 계좌 추가</button>
               </div>
               <div id="insuranceActions" style="display:none;gap:6px;align-items:center;">
                 <button id="addInsuranceBtn" class="button secondary compact" type="button" title="보험 / 연금 / 공제 추가">➕ 보험/연금 추가</button>
@@ -783,9 +783,9 @@
             </select>
           </div>
           <div class="toolbar wealth-ui-section-header__actions">
-            <button id="addPnlBtn" class="button secondary compact" type="button" title="매도 실현손익 추가">➕ 손익 추가</button>
+            <button id="addPnlBtn" class="button secondary wealth-ui-button" data-ui="button" type="button" title="매도 실현손익 추가">➕ 손익 추가</button>
             <button id="importPnlBtn" class="button secondary compact" type="button" title="매도 실현손익 엑셀 가져오기">📂 가져오기</button>
-            <button id="clearAllPnlBtn" class="button secondary danger compact" type="button" title="매도 실현손익 전체 일괄 삭제">🗑️ 일괄삭제</button>
+            <button id="clearAllPnlBtn" class="button secondary danger wealth-ui-button" data-ui="button" type="button" title="매도 실현손익 전체 일괄 삭제">🗑️ 일괄삭제</button>
           </div>
         </div>
 
@@ -901,7 +901,7 @@
 
             <!-- 실현손익 목록 테이블 -->
             <div id="tossWtsTableWrap" class="toss-wts-table-wrap">
-              <table id="tossWtsTable" class="toss-wts-table">
+              <table id="tossWtsTable" class="toss-wts-table" data-ui="table">
                 <thead>
                   <tr>
                     <th class="center" style="width:36px;"><input type="checkbox" id="wtsSelectAll" title="전체 선택" aria-label="전체 선택"></th>
@@ -1034,7 +1034,7 @@
 
             <!-- 실현손익 테이블 -->
             <div id="kisTableWrap" class="toss-wts-table-wrap">
-              <table id="kisTable" class="toss-wts-table">
+              <table id="kisTable" class="toss-wts-table" data-ui="table">
                 <thead>
                   <tr>
                     <th class="toss-wts-th-check"><input type="checkbox" id="kisSelectAll" aria-label="전체 선택"></th>
@@ -1166,7 +1166,7 @@
             </div>
             <div id="nhMessage" class="toss-wts-message" style="display:none;" role="status"></div>
             <div id="nhMeta" class="toss-wts-meta" style="display:none;"></div>
-            <div class="toss-wts-table-wrap"><table class="toss-wts-table">
+            <div class="toss-wts-table-wrap"><table class="toss-wts-table" data-ui="table">
               <thead><tr><th class="toss-wts-th-check"><input type="checkbox" id="nhSelectAll" aria-label="전체 선택"></th><th>매매일자</th><th>종목</th><th>국가 / 통화</th><th class="num">매도수량</th><th class="num">매수금액</th><th class="num">매도금액</th><th class="num">실현손익</th><th class="num">수익률</th><th class="num" id="nhExpenseColumn">수수료 / 제세금</th></tr></thead>
               <tbody id="nhTableBody"><tr><td colspan="10" class="toss-wts-empty">상태 확인 후 NH 실현손익을 조회하세요.</td></tr></tbody>
             </table></div>
@@ -1206,7 +1206,7 @@
             </div>
             <div id="kiwoomMessage" class="toss-wts-message" style="display:none;" role="status"></div>
             <div id="kiwoomMeta" class="toss-wts-meta" style="display:none;"></div>
-            <div id="kiwoomTableWrap" class="toss-wts-table-wrap"><table class="toss-wts-table">
+            <div id="kiwoomTableWrap" class="toss-wts-table-wrap"><table class="toss-wts-table" data-ui="table">
               <thead><tr><th class="toss-wts-th-check"><input type="checkbox" id="kiwoomSelectAll" aria-label="전체 선택"></th><th>매매일자</th><th>종목</th><th>국가 / 통화</th><th class="num">매도수량</th><th class="num">매수금액</th><th class="num">매도금액</th><th class="num">실현손익</th><th class="num">수익률</th><th class="num" id="kiwoomExpenseColumn">수수료 / 제세금</th></tr></thead>
               <tbody id="kiwoomTableBody"><tr><td colspan="10" class="toss-wts-empty">상태 확인 후 키움 실현손익을 조회하세요.</td></tr></tbody>
             </table></div>
@@ -1246,7 +1246,7 @@
             </div>
             <div id="kbMessage" class="toss-wts-message" style="display:none;" role="status"></div>
             <div id="kbMeta" class="toss-wts-meta" style="display:none;"></div>
-            <div id="kbTableWrap" class="toss-wts-table-wrap"><table class="toss-wts-table">
+            <div id="kbTableWrap" class="toss-wts-table-wrap"><table class="toss-wts-table" data-ui="table">
               <thead><tr><th class="toss-wts-th-check"><input type="checkbox" id="kbSelectAll" aria-label="전체 선택"></th><th>매매일자</th><th>종목</th><th>국가 / 통화</th><th class="num">매도수량</th><th class="num">매수금액</th><th class="num">매도금액</th><th class="num">실현손익</th><th class="num">수익률</th><th class="num" id="kbExpenseColumn">수수료 / 제세금</th></tr></thead>
               <tbody id="kbTableBody"><tr><td colspan="10" class="toss-wts-empty">상태 확인 후 KB 실현손익을 조회하세요.</td></tr></tbody>
             </table></div>
@@ -1286,10 +1286,10 @@
             </select>
           </div>
           <div class="toolbar wealth-ui-section-header__actions">
-            <button id="refreshDividendBtn" class="button secondary compact" type="button" title="배당 정보 재조회" style="display:none;">↻ 조회</button>
-            <button id="addDividendBtn" class="button secondary compact" type="button" title="실제 입금 배당금 추가">➕ 배당 추가</button>
+            <button id="refreshDividendBtn" class="button secondary wealth-ui-button" data-ui="button" type="button" title="배당 정보 재조회" style="display:none;">↻ 조회</button>
+            <button id="addDividendBtn" class="button secondary wealth-ui-button" data-ui="button" type="button" title="실제 입금 배당금 추가">➕ 배당 추가</button>
             <button id="importDividendBtn" class="button secondary compact" type="button" title="실제 배당금 엑셀 가져오기">📂 가져오기</button>
-            <button id="clearAllDividendBtn" class="button secondary danger compact" type="button" title="실제 배당금 전체 일괄 삭제">🗑️ 일괄삭제</button>
+            <button id="clearAllDividendBtn" class="button secondary danger wealth-ui-button" data-ui="button" type="button" title="실제 배당금 전체 일괄 삭제">🗑️ 일괄삭제</button>
           </div>
         </div>
 
@@ -1374,7 +1374,7 @@
             <div id="tossWtsIncomeMeta" class="toss-wts-meta" style="display:none;"></div>
 
             <div class="toss-wts-table-wrap">
-              <table id="tossWtsIncomeTable" class="toss-wts-table">
+              <table id="tossWtsIncomeTable" class="toss-wts-table" data-ui="table">
                 <thead>
                   <tr>
                     <th class="center" style="width:36px;"><input type="checkbox" id="wtsIncomeSelectAll" aria-label="배당 이자 전체 선택"></th>
@@ -1445,7 +1445,7 @@
             <button id="ledgerOpenCardsBtn" class="button secondary compact" type="button" onclick="openLedgerCardsModal()">💳 카드 관리</button>
             <button id="ledgerOpenRecurringBtn" class="button secondary compact" type="button" onclick="openLedgerRecurringModal()">🛡️ 고정지출</button>
             <button id="ledgerOpenExcelBtn" class="button secondary compact" type="button" onclick="openLedgerExcelModal()">📂 가져오기</button>
-            <button id="ledgerAddTxBtn" class="button primary compact" type="button" onclick="openLedgerTxModal()">➕ 내역 추가</button>
+            <button id="ledgerAddTxBtn" class="button primary wealth-ui-button" data-ui="button" type="button" onclick="openLedgerTxModal()">➕ 내역 추가</button>
           </div>
         </div>
 
@@ -1529,12 +1529,12 @@
             <h2>공모주 <small style="font-size:12px;color:var(--muted,#94a3b8);font-weight:normal;">Wealth IPO Subsystem</small></h2>
           </div>
           <div class="toolbar ipo-toolbar">
-            <button type="button" id="ipoRefreshBtn" class="button secondary compact">새로고침</button>
-            <button type="button" id="ipoHistoricalImportBtn" class="button secondary compact">과거자료 가져오기</button>
+            <button type="button" id="ipoRefreshBtn" class="button secondary wealth-ui-button" data-ui="button">새로고침</button>
+            <button type="button" id="ipoHistoricalImportBtn" class="button secondary wealth-ui-button" data-ui="button">과거자료 가져오기</button>
           </div>
         </div>
         <div id="ipoListWrapper" class="ipo-list-wrapper">
-          <p class="empty-text" style="padding:24px;text-align:center;">공모주 일정을 불러오는 중입니다...</p>
+          <p class="empty-text" data-ui="loading-state" style="padding:24px;text-align:center;">공모주 일정을 불러오는 중입니다...</p>
         </div>
       </section>
 </section><section data-wealth-page="settings" aria-label="설정" hidden=""><script>WealthWorkspaceRoute.select(document.currentScript.parentElement);</script><article class="wealth-settings-card"><h3>계정과 데이터</h3><p class="wealth-help">가족 구성원, 비밀번호, 테마와 백업을 관리합니다.</p><div class="wealth-settings-actions"><button id="topbarFamilyBtn" class="button secondary compact" type="button" title="가족 구성원 관리" style="font-size:11.5px;padding:5px 9px;border-radius:8px;color:#cbd5e1;border-color:#334155;">👨‍👩‍👧‍👦 가족</button></div></article></section>
@@ -1869,7 +1869,7 @@
 
         <div class="dialog-actions" style="margin-top:14px;">
           <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
-          <button id="accountEditSaveBtn" class="button primary" type="button">저장</button>
+          <button id="accountEditSaveBtn" class="button primary wealth-ui-button" data-ui="button" data-button-size="standard" type="button">저장</button>
         </div>
       </form>
     </dialog>
@@ -1948,7 +1948,7 @@
 
         <div class="dialog-actions" style="margin-top:14px;">
           <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
-          <button id="accountAddSaveBtn" class="button primary" type="button">저장</button>
+          <button id="accountAddSaveBtn" class="button primary wealth-ui-button" data-ui="button" data-button-size="standard" type="button">저장</button>
         </div>
       </form>
     </dialog>
@@ -2803,7 +2803,7 @@
       </div>
       <div class="dialog-actions" style="margin-top:16px;">
         <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
-        <button id="ledgerTxSaveBtn" class="button primary" type="button" onclick="saveLedgerTransaction()">저장</button>
+        <button id="ledgerTxSaveBtn" class="button primary wealth-ui-button" data-ui="button" data-button-size="standard" type="button" onclick="saveLedgerTransaction()">저장</button>
       </div>
     </form>
   </dialog>
@@ -2923,7 +2923,7 @@
             <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-month" id="ledgerPayDateMonth" placeholder="MM" aria-label="결제일자 월 2자리" autocomplete="off" title="마우스 휠로 월 조절 가능" />
             <span class="date-part-sep">-</span>
             <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-day" id="ledgerPayDateDay" placeholder="DD" aria-label="결제일자 일 2자리" autocomplete="off" title="마우스 휠로 일 조절 가능" />
-            <button type="button" class="date-picker-trigger" id="ledgerPayDatePickerTrigger" title="달력에서 선택" aria-label="달력에서 날짜 선택">📅</button>
+            <button type="button" class="date-picker-trigger" id="ledgerPayDatePickerTrigger" title="달력에서 선택" aria-label="달력에서 날짜 선택"><span class="wealth-ui-icon" data-icon="calendar" aria-hidden="true"></span></button>
             <input type="date" name="pay_date" id="ledgerPayDateInput" required tabindex="-1" class="sr-only-picker" />
           </div>
         </label>
@@ -3251,7 +3251,7 @@
         </div>
         <div class="dialog-actions">
           <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
-          <button id="dividendSaveBtn" class="button primary" type="button">저장하기</button>
+          <button id="dividendSaveBtn" class="button primary wealth-ui-button" data-ui="button" data-button-size="standard" type="button">저장하기</button>
         </div>
       </form>
     </dialog>
@@ -3285,7 +3285,7 @@
               <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-month" id="pnlDateMonth" placeholder="MM" aria-label="매도일 월 2자리" autocomplete="off" title="마우스 휠로 월 조절 가능" />
               <span class="date-part-sep">-</span>
               <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="date-part date-part-day" id="pnlDateDay" placeholder="DD" aria-label="매도일 일 2자리" autocomplete="off" title="마우스 휠로 일 조절 가능" />
-              <button type="button" class="date-picker-trigger" id="pnlDatePickerTrigger" title="달력에서 선택" aria-label="달력에서 날짜 선택">📅</button>
+              <button type="button" class="date-picker-trigger" id="pnlDatePickerTrigger" title="달력에서 선택" aria-label="달력에서 날짜 선택"><span class="wealth-ui-icon" data-icon="calendar" aria-hidden="true"></span></button>
               <input name="date" id="pnlNativeDate" type="date" required tabindex="-1" class="sr-only-picker" />
             </div>
           </label>
@@ -3345,7 +3345,7 @@
         </div>
         <div class="dialog-actions">
           <button class="button secondary" type="button" onclick="this.closest('dialog')?.close()">취소</button>
-          <button id="pnlSaveBtn" class="button primary" type="button">저장하기</button>
+          <button id="pnlSaveBtn" class="button primary wealth-ui-button" data-ui="button" data-button-size="standard" type="button">저장하기</button>
         </div>
       </form>
     </dialog>
@@ -3490,7 +3490,7 @@
     <script src="/static/wealth-color-preferences.js?v=10.9r6"></script>
     <script src="/static/wealth-settings-surface.js?v=2.1.9-toss-session1"></script>
     <script src="/static/wealth-donut-chart.js?v=2.1.9-common-donut1"></script>
-    <script src="/static/wealth-format.js?v=2.1.9-display-reuse1"></script>
+    <script src="/static/wealth-format.js?v=2.1.9-ui-foundation1"></script>
     <script src="/static/wealth-layout.js?v=2.1.9-home-money1"></script>
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
     <script src="/static/wealth-ledger-cards-view.js?v=2.1.9-full-integration1"></script>
@@ -3521,7 +3521,7 @@
     <script src="/static/wealth-holdings-row-view.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-sector-view.js?v=2.1.9-common-donut1"></script>
     <script src="/static/wealth-dividend-summary-view.js?v=2.1.9-full-integration1"></script>
-    <script src="/static/wealth-securities-accounts-view.js?v=2.1.9-final-integration1"></script>
+    <script src="/static/wealth-securities-accounts-view.js?v=2.1.9-ui-foundation1"></script>
     <script src="/static/wealth-tax-accounts-view.js?v=2.1.9-final-integration1"></script>
     <script src="/static/wealth-holding-account-options-view.js?v=2.1.9-final-integration1"></script>
     <script src="/static/wealth-holding-dialog-controller.js?v=2.1.9-final-integration1"></script>
@@ -3536,7 +3536,7 @@
     <script src="/static/wealth-insurance-form-model.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-insurance-view.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-real-estate-view.js?v=2.1.9-full-integration1"></script>
-    <script src="/static/wealth-operation-feedback.js?v=2.1.9-module-integration1"></script>
+    <script src="/static/wealth-operation-feedback.js?v=2.1.9-ui-foundation1"></script>
     <script src="/static/wealth-family-view.js?v=2.1.9-module-integration1"></script>
     <script src="/static/wealth-heatmap-model.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-heatmap-view.js?v=2.1.9-m100-view3"></script>
@@ -3559,8 +3559,8 @@
     <script src="/static/wealth-ipo-applicant-view.js?v=2.1.9-applicant-display1"></script>
     <script src="/static/wealth-ipo-historical-preview-view.js?v=2.1.9-final-integration1"></script>
     <script src="/static/wealth-ipo-schedule-card-view.js?v=2.1.9-final-integration1"></script>
-    <script src="/static/wealth-ipo.js?v=2.1.9-schedule-source1"></script>
-    <script src="/static/wealth-calendar.js?v=2.1.9-schedule-source1"></script>
+    <script src="/static/wealth-ipo.js?v=2.1.9-ui-foundation1"></script>
+    <script src="/static/wealth-calendar.js?v=2.1.9-ui-foundation1"></script>
     <script src="/static/wealth-planning-model.js?v=2.1.9-observer-scope1"></script>
     <script src="/static/wealth-planning.js?v=2.1.9-dialog-owner2"></script>
   </body>

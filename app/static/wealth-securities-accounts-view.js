@@ -4,7 +4,7 @@
 
   function create({ html, number, signClass, maskBrokerAccountNo, accountReorder }) {
 function renderEmpty(container) {
-  container.innerHTML = '<div class="empty">동기화된 계좌가 없습니다.</div>';
+  window.WealthOperationFeedback.renderEmpty(container, '동기화된 계좌가 없습니다.');
 }
 
 function renderAccounts(container, groups) {

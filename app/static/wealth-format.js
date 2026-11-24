@@ -38,5 +38,9 @@
     };
   }
 
-  window.WealthFormat = Object.freeze({ formatMoney, roundGroupedKoKr, fixedNumberKoKr, createCurrencyFormatter, escapeHtml });
+  function escapeOptionalHtml(value) {
+    return value ? escapeHtml(value) : '';
+  }
+
+  window.WealthFormat = Object.freeze({ formatMoney, roundGroupedKoKr, fixedNumberKoKr, createCurrencyFormatter, escapeHtml, escapeOptionalHtml });
 })();

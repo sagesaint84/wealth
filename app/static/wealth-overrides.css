@@ -937,17 +937,17 @@
 .topbar-actions a.button,
 .top-actions .button.compact,
 .top-actions a.button {
-  font-size: 11.5px !important;
-  font-weight: 600 !important;
-  height: 31px !important;
-  min-height: 31px !important;
-  padding: 0 10px !important;
-  border-radius: 8px !important;
+  font-size: var(--ui-text-compact) !important;
+  font-weight: var(--ui-weight-semibold) !important;
+  height: var(--ui-compact-control-height) !important;
+  min-height: var(--ui-compact-control-height) !important;
+  padding: 0 var(--ui-compact-control-padding) !important;
+  border-radius: var(--ui-radius-sm) !important;
   line-height: 1 !important;
   display: inline-flex;
   align-items: center !important;
   justify-content: center !important;
-  gap: 4px !important;
+  gap: var(--ui-gap-xs) !important;
   white-space: nowrap !important;
   box-sizing: border-box !important;
 }
@@ -3305,10 +3305,10 @@ dialog.dialog .dialog-actions {
 .money-month-nav {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ui-gap-xs);
   background: #0d1527;
   border: 1px solid #23314f;
-  border-radius: 10px;
+  border-radius: var(--ui-radius-control);
   padding: 3px 6px;
   position: relative;
 }
@@ -3316,7 +3316,7 @@ dialog.dialog .dialog-actions {
 .money-month-text {
   font-family: inherit;
   font-size: 14.5px;
-  font-weight: 800;
+  font-weight: var(--ui-weight-title);
   color: #f8fafc;
   background: transparent;
   border: none;
@@ -3345,7 +3345,7 @@ dialog.dialog .dialog-actions {
 .ledger-month-btn,
 .money-month-nav-btn {
   padding: 4px 8px !important;
-  font-size: 11.5px !important;
+  font-size: var(--ui-text-compact) !important;
   line-height: 1 !important;
   min-height: unset !important;
 }
@@ -3577,10 +3577,9 @@ dialog.dialog .dialog-actions {
   border: 1px solid rgba(56, 189, 248, 0.25);
 }
 .ledger-tx-count-badge {
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: var(--ui-text-compact);
+  font-weight: var(--ui-weight-semibold);
   padding: 2px 8px;
-  border-radius: 6px;
   background: #1e293b;
   color: #94a3b8;
 }
