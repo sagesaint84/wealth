@@ -32,8 +32,13 @@ def test_existing_future_navigation_and_metadata_use_core_snapshot():
     assert "market || 'KOSDAQ'" not in source
     assert 'loadIpoMetadata' not in source
     assert 'invalidateIpoMetadata' not in source
+    assert 'window.WealthIpoScheduleCardView.scoreDiagnosticText(score)' in source
+    assert 'window.WealthIpoScheduleCardView.renderMetalogosReference(ipo, escapeHtml)' in source
+    card_view = (ROOT / 'app/static/wealth-ipo-schedule-card-view.js').read_text(encoding='utf-8')
+    html = (ROOT / 'app/static/index.html').read_text(encoding='utf-8')
+    assert html.index('/static/wealth-ipo-schedule-card-view.js?') < html.index('/static/wealth-ipo.js?')
     for key, label in [('institutional_competition_ratio', '기관경쟁률'),
                        ('lockup_commitment_ratio', '의무보유확약률'),
                        ('tradable_share_ratio', '유통가능주식비율'),
                        ('pricing_discipline', '공모가 결정정보')]:
-        assert f"{key}: '{label}'" in source
+        assert f"{key}: '{label}'" in card_view
