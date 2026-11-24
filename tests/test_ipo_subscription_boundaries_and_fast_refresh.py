@@ -76,16 +76,20 @@ def test_single_day_subscription_is_projected_once() -> None:
 
 
 def test_subscription_reminders_only_run_on_boundary_days_with_phase_wording() -> None:
+    confirmed = {**IPO, "sources": {**IPO["sources"], "schedule_fields": {
+        field: {"source": "npay", "value": IPO[field], "observed_at": f"{IPO[field]}T09:00:00+09:00"}
+        for field in ("subscription_start", "subscription_end")
+    }}}
     middle = _FakeNotifier()
     middle_result = _run_reminders_locked(
-        middle, {"ipos": [dict(IPO)]}, _apps(), date(2026, 10, 3), "1500", None, is_last_slot=True,
+        middle, {"ipos": [confirmed]}, _apps(), date(2026, 10, 3), "1500", None, is_last_slot=True,
     )
     assert middle_result["eligible_ipos"] == 0
     assert middle.messages == []
 
     first = _FakeNotifier()
     first_result = _run_reminders_locked(
-        first, {"ipos": [dict(IPO)]}, _apps(), date(2026, 10, 2), "1500", None, is_last_slot=True,
+        first, {"ipos": [confirmed]}, _apps(), date(2026, 10, 2), "1500", None, is_last_slot=True,
     )
     assert first_result["notifications_sent_count"] == 1
     assert "공모주 청약 첫째날 — 15:00" in first.messages[0]
@@ -93,7 +97,7 @@ def test_subscription_reminders_only_run_on_boundary_days_with_phase_wording() -
 
     last = _FakeNotifier()
     last_result = _run_reminders_locked(
-        last, {"ipos": [dict(IPO)]}, _apps(), date(2026, 10, 6), "1500", None, is_last_slot=True,
+        last, {"ipos": [confirmed]}, _apps(), date(2026, 10, 6), "1500", None, is_last_slot=True,
     )
     assert last_result["notifications_sent_count"] == 1
     assert "공모주 청약 마지막날 — 15:00" in last.messages[0]

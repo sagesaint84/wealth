@@ -9,16 +9,19 @@ def test_reference_link_is_first_and_supplemental_tooltip_survives_rerender(tmp_
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required for frontend runtime test')
-    source = (Path(__file__).resolve().parents[1] / 'app/static/wealth-ipo.js').read_text(encoding='utf-8')
-    functions = source[source.index('  function trustedMetalogosUrl('):source.index('  // Presentation metadata')]
+    static = Path(__file__).resolve().parents[1] / 'app/static'
+    sources = [static / name for name in ('wealth-format.js', 'wealth-ipo-schedule-card-view.js')]
+    modules = '\n'.join(path.read_text(encoding='utf-8') for path in sources)
     script = tmp_path / 'reference-ui.js'
     script.write_text("""
 const assert = require('node:assert/strict');
-const escapeHtml = value => String(value).replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;');
-""" + functions + """
+globalThis.window = {};
+""" + modules + """
+const {renderMetalogosReference} = window.WealthIpoScheduleCardView;
+const {escapeHtml} = window.WealthFormat;
 const reference = {url:'https://metalogos.ai/160ipo/stock/B202605261', attractiveness_score:79,
  demand_participant_count_reference:2367, lockup_participant_count_reference:355, tradable_share_ratio_reference:20.81};
-const render = ref => renderMetalogosReference({sources:{metalogos160:ref}});
+const render = ref => renderMetalogosReference({sources:{metalogos160:ref}}, escapeHtml);
 const html = render(reference);
 assert.ok(html.includes('target="_blank" rel="noopener noreferrer">160 원문</a> · 매력지수 79'));
 assert.ok(html.includes('Wealth IPO Score 산정에는 사용하지 않습니다.'));
@@ -31,7 +34,7 @@ for(const url of ['http://metalogos.ai/160ipo/stock/A','https://evil.example/160
  assert.ok(rejected.includes('>매력지수 79</span>'));
 }
 assert.ok(render({...reference,url:'https://www.metalogos.ai/160ipo/stock/A'}).includes('<a '));
-assert.equal(renderMetalogosReference({}), '');
+assert.equal(renderMetalogosReference({}, escapeHtml), '');
 assert.equal(render({...reference,url:'',attractiveness_score:'invalid'}), '');
 assert.ok(!html.includes('2367')&&!html.includes('355')&&!html.includes('20.81'));
 """, encoding='utf-8')

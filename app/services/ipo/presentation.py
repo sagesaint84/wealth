@@ -14,6 +14,7 @@ from app.services.pnl_records import read_pnl_records_readonly
 from app.services.ipo.display import (
     current_schedule,
     display_records,
+    npay_offering_restriction,
     npay_schedule_field_confirmed,
     npay_schedule_field_currently_confirmed,
     schedule_condition,
@@ -73,6 +74,12 @@ def _date(value: object) -> date | None:
 def derive_market_state(ipo: dict[str, Any], today: date | None = None) -> str:
     today = today or current_market_date()
     condition = schedule_condition(ipo)
+    if npay_offering_restriction(ipo):
+        if condition == "withdrawn":
+            return "WITHDRAWN"
+        if condition == "postponed":
+            return "POSTPONED"
+        return "DATE_UNKNOWN"
     sources = ipo.get("sources") if isinstance(ipo.get("sources"), dict) else {}
     npay = sources.get("npay") if isinstance(sources.get("npay"), dict) else {}
     reconciliation = sources.get("schedule_reconciliation")

@@ -39,7 +39,9 @@ class NpayIpoClientTests(unittest.TestCase):
                 "app.services.ipo.npay_client.httpx.Client",
                 side_effect=lambda **kwargs: real_client(transport=httpx.MockTransport(respond), **kwargs),
             ):
-                return NpayIpoClient().fetch_upcoming_ipos(target_date_str="2026-11-10")
+                # Check the HTML transport boundary. The public aggregator
+                # separately attempts the approved stock API after a failure.
+                return NpayIpoClient()._fetch_unlisted_ipos(target_date_str="2026-11-10")
         finally:
             self.assertEqual(requests, [NPAY_IPO_URL])
 

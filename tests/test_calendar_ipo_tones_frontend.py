@@ -7,7 +7,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TONES_JS = ROOT / "app" / "static" / "wealth-calendar-ipo-tones.js"
 LOADER_JS = ROOT / "app" / "static" / "wealth-family-financial-income-allocation.js"
 CALENDAR_JS = ROOT / "app" / "static" / "wealth-calendar.js"
 LAYOUT_CSS = ROOT / "app" / "static" / "wealth-layout.css"
@@ -17,7 +16,6 @@ INDEX_HTML = ROOT / "app" / "static" / "index.html"
 class CalendarIpoToneFrontendTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.tones_js = TONES_JS.read_text(encoding="utf-8")
         cls.loader_js = LOADER_JS.read_text(encoding="utf-8")
         cls.calendar_js = CALENDAR_JS.read_text(encoding="utf-8")
         cls.layout_css = LAYOUT_CSS.read_text(encoding="utf-8")
@@ -42,20 +40,24 @@ class CalendarIpoToneFrontendTests(unittest.TestCase):
 
     def test_final_tones_are_in_first_paint_stylesheet(self) -> None:
         self.assertNotIn("wealthCalendarIpoTonesScript", self.loader_js)
-        class Scripts(HTMLParser):
+        class Assets(HTMLParser):
             def __init__(self):
                 super().__init__()
-                self.sources = []
+                self.scripts = []
+                self.stylesheets = []
 
             def handle_starttag(self, tag, attrs):
-                if tag == 'script':
-                    self.sources.append(dict(attrs).get('src', ''))
+                attrs = dict(attrs)
+                if tag == "script":
+                    self.scripts.append(attrs.get("src", "").split("?", 1)[0])
+                if tag == "link" and attrs.get("rel") == "stylesheet":
+                    self.stylesheets.append(attrs.get("href", "").split("?", 1)[0])
 
-        scripts = Scripts()
-        scripts.feed(self.index_html)
-        allocation_path = '/static/wealth-family-financial-income-allocation.js'
-        sources = [src for src in scripts.sources if src.split('?', 1)[0] == allocation_path]
-        self.assertEqual(sources, [allocation_path + '?v=2.1.3-p0'])
+        assets = Assets()
+        assets.feed(self.index_html)
+        self.assertEqual(assets.stylesheets.count("/static/wealth-layout.css"), 1)
+        self.assertEqual(assets.scripts.count("/static/wealth-family-financial-income-allocation.js"), 1)
+        self.assertNotIn("/static/wealth-calendar-ipo-tones.js", assets.scripts)
         self.assertIn(".cal-badge.tone-ipo-subscription", self.layout_css)
         self.assertIn(".calendar-legend-item.tone-ipo-subscription", self.layout_css)
 

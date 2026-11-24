@@ -53,6 +53,15 @@ def npay_schedule_field_currently_confirmed(ipo, key):
     return observed_at is not None and attempted_at is not None and observed_at >= attempted_at
 
 
+def npay_offering_restriction(ipo):
+    sources = ipo.get("sources")
+    restriction = sources.get("npay_offering_restriction") if isinstance(sources, dict) else None
+    if (not ipo.get("actual_listing_date") and isinstance(restriction, dict)
+            and restriction.get("status") in {"withdrawn", "identity_review", "source_review"}):
+        return restriction
+    return None
+
+
 def schedule_condition(ipo):
     sources = ipo.get("sources") or {}
     if not isinstance(sources, dict):
@@ -63,6 +72,9 @@ def schedule_condition(ipo):
     status = state.get("status") if isinstance(state, dict) else None
     if status in {"postponed", "withdrawn"}:
         return status
+    restriction = npay_offering_restriction(ipo)
+    if restriction:
+        return "withdrawn" if restriction["status"] == "withdrawn" else "unverified"
     reconciliation_status = reconciliation.get("status") if isinstance(reconciliation, dict) else None
     if reconciliation_status in {"partial", "review_required"}:
         return "unverified"
@@ -129,6 +141,15 @@ def current_schedule(ipo, today=None):
     valid_missing = {key: missing[key] for key in _NPAY_SCHEDULE_FIELDS
                      if _valid_npay_absence(ipo, key, missing.get(key))}
     suppressed = set(valid_missing)
+    restriction = npay_offering_restriction(ipo)
+    if restriction:
+        effective_date = restriction.get("effective_date")
+        if effective_date:
+            suppressed.update(
+                key for key in _NPAY_SCHEDULE_FIELDS if str(ipo.get(key) or "") >= effective_date
+                and (restriction["status"] == "withdrawn"
+                     or not schedule_field_confirmed(ipo, key) or npay_schedule_field_confirmed(ipo, key))
+            )
     reconciliation = sources.get("schedule_reconciliation")
     disputed = _npay_disputed_fields(ipo, reconciliation)
     if disputed:
@@ -214,13 +235,20 @@ def display_records(records, today=None):
             canonical["company_name"] = official_name
         # The newest official stop notice wins even when another alias has old dates.
         stops = [r["sources"]["dart_schedule_status"] for r in group
-                 if schedule_condition(r) in {"postponed", "withdrawn"}]
+                 if r["sources"].get("dart_schedule_status", {}).get("status") in {"postponed", "withdrawn"}]
         if stops:
             order = lambda r: (str(r.get("source_date") or "").replace("-", ""), str(r.get("rcept_no") or ""))
             stop = max(stops, key=order)
             if order(stop) >= order(canonical["sources"].get("dart_schedule", {})):
                 canonical["sources"]["dart_schedule_status"] = stop
         if len(group) > 1:
+            restrictions = [restriction for row in group if (restriction := npay_offering_restriction(row))]
+            if restrictions and not any(row.get("actual_listing_date") for row in group):
+                # Aliases are already proven to represent the same offering.
+                # Unresolved contrary evidence cannot be discarded by display ranking.
+                canonical["sources"]["npay_offering_restriction"] = max(
+                    restrictions, key=lambda record: (record["status"] != "withdrawn", record.get("observed_at") or "")
+                )
             canonical["identity_resolution"] = "official_identifiers_same_offering"
         result.append(canonical)
     return result
