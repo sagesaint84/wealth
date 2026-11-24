@@ -1,9 +1,13 @@
 # Wealth Roadmap
 
+## 배당·이자와 실현손익 기능 제어기
+
+- `codex/income-feature-batch` 로컬 후보. 월 탐색, 조회 응답 검증, 배당 모드, 두 화면의 기록 폼과 저장 후 갱신을 공통 제어기로 연결했다. 동적 검증과 GitHub 통합은 PENDING이다.
+
 ## 자산·계좌 기능 제어기 — 2026-11-25 KST
 
 - [PR #256](https://github.com/sagesaint84/wealth/pull/256) 증권사 가져오기 통합이 main에 반영됐다. [GHCR #45416863394](https://github.com/sagesaint84/wealth/actions/runs/45416863394)는 SUCCESS다.
-- 은행·증권 계좌, 보험·연금, 부동산, 가족 관리의 제어 흐름을 분리했다. 화면과 저장 동작 검증 및 main 통합은 PENDING이다.
+- 은행·증권 계좌, 보험·연금, 부동산, 가족 관리 제어기는 [PR #257](https://github.com/sagesaint84/wealth/pull/257)에서 반영됐다. GHCR 게시와 기존 후보 정리 근거는 [PROJECT_STATE](PROJECT_STATE.md)에 기록했다.
 
 ## 가계부 기능 제어기 — 2026-11-24 KST
 

@@ -313,6 +313,6 @@ class PnlRecordsStorageAndValidationTests(IsolatedDataTestCase):
         self.assertEqual(updated["date"], "2026-09-02")
 
     def test_open_pnl_record_dialog_normalizes_compact_date_frontend(self):
-        js = (Path(__file__).resolve().parents[1] / "app" / "static" / "wealth.js").read_text(encoding="utf-8")
+        js = (Path(__file__).resolve().parents[1] / "app" / "static" / "wealth-income-feature-controller.js").read_text(encoding="utf-8")
         self.assertIn("/^\\d{8}$/.test(targetDate.trim())", js)
         self.assertIn("targetDate = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}`", js)

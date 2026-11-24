@@ -22,27 +22,41 @@ const waitUntil=async(predicate,label)=>{
  throw Error(label+' not ready: '+JSON.stringify({hash:location.hash,tab:currentIncomeTab,owner:currentOwner,
   pnlVisible:WealthStartup.visible('pnlBarChartWrap'),dividendVisible:WealthStartup.visible('dividendBarChartWrap'),
   pnlUnified:!!document.querySelector('#pnlBarChartWrap .wealth-unified-chart-shell'),
-  dividendUnified:!!document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell'),errors:__chartErrors}));
+  dividendUnified:!!document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell'),
+  route:document.querySelector('.wealth-workspace')?.dataset.activeView,
+  activeTab:document.querySelector('#incomeTabs .income-tab.active')?.dataset.income,
+  pnlPanelDisplay:getComputedStyle(document.getElementById('realizedPnlPanel')).display,
+  pnlChartDisplay:getComputedStyle(document.getElementById('pnlBarChartWrap')).display,
+  canRead:WealthStartup.canRead(),calls:window.__incomeCalls?.slice(-8),errors:__chartErrors}));
 };
 await waitUntil(()=>WealthStartup.canRead()&&!loadAssetDataForUser.pending
  && !window.setIncomeTab.pendingTarget&&document.getElementById('pnlBrokerFilter')
  && document.getElementById('dividendBrokerFilter'),'startup and filter modules');
-currentOwner='감사';selectedPnlYear='2026';selectedDividendYear='2026';selectedPnlMonth=10;selectedDividendMonth=10;
 const record=(id,date,value,extra={})=>({id,date,owner:'감사',broker:'가상증권',name:id,code:id,currency:'KRW',pnl:value,pnl_krw:value,amount:value,amount_krw:value,...extra});
 window.__pnl=[record('P2025','2025-10-05',100),record('P2026','2026-10-05',200),record('P9','2026-09-05',90),record('P9Broker','2026-09-06',9,{broker:'다른증권'}),record('P11','2026-11-05',110),record('P7a','2026-10-07',30,{is_ipo:true}),record('P7b','2026-10-07',40),record('P8','2026-10-08',80),record('OTHER','2026-10-07',999,{broker:'다른증권',owner:'다른사람'})];
 window.__div=[record('D2025','2025-10-05',100),record('D2026','2026-10-05',200),record('D9','2026-09-05',90),record('D9Broker','2026-09-06',9,{broker:'다른증권'}),record('D11','2026-11-05',110),record('D7a','2026-10-07',30),record('D7b','2026-10-07',40),record('D8','2026-10-08',80),record('OTHER-D','2026-10-07',999,{broker:'다른증권',owner:'다른사람'})];
 window.__interest=[record('I7','2026-10-07',50,{income_type:'account_interest'}),record('I8','2026-10-08',60,{income_type:'account_interest'})];
-window.__incomeCalls=[];let incomePending=0;const nativeApi=api;
-api=async function(path,...args){
- __incomeCalls.push(path);incomePending++;
- try{const params=new URL(path,location.origin).searchParams;
- const owner=params.get('owner');
- const filtered=rows=>rows.filter(r=>owner==='모두'||r.owner===owner);
- if(path.startsWith('/api/realized-pnl?'))return {records:filtered(__pnl).filter(r=>(params.get('year')==='all'||r.date.startsWith(params.get('year')+'-'))&&(params.get('trade_type')!=='ipo'||r.is_ipo)),available_years:[2025,2026]};
- if(path.startsWith('/api/actual-dividends?'))return {records:filtered(__div),interest_records:filtered(__interest),available_years:[2025,2026]};
- return await nativeApi(path,...args);
+window.__incomeCalls=[];let incomePending=0;const nativeFetch=window.fetch;
+window.fetch=async function(input,options){
+ const url=new URL(input instanceof Request ? input.url : input, location.origin);
+ if(url.origin!==location.origin||options?.method&&options.method!=='GET'
+     ||!['/api/realized-pnl','/api/actual-dividends'].includes(url.pathname)){
+  return nativeFetch.call(this,input,options);
+ }
+ __incomeCalls.push(url.pathname+url.search);incomePending++;
+ try{
+  const params=url.searchParams;
+  const owner=params.get('owner');
+  const filtered=rows=>rows.filter(r=>owner==='모두'||r.owner===owner);
+  const result=url.pathname==='/api/realized-pnl'
+   ?{records:filtered(__pnl).filter(r=>(params.get('year')==='all'||r.date.startsWith(params.get('year')+'-'))&&(params.get('trade_type')!=='ipo'||r.is_ipo)),available_years:[2025,2026]}
+   :{records:filtered(__div),interest_records:filtered(__interest),available_years:[2025,2026]};
+  return Response.json(result);
  }finally{incomePending--;}
 };
+window.setSelectedPnlPeriod(2026,10);
+window.setSelectedDividendPeriod(2026,10);
+selectOwner('감사');
 for(const id of ['pnlBrokerFilter','dividendBrokerFilter'])document.getElementById(id).innerHTML='<option value="all">전체</option><option value="가상증권">가상증권</option><option value="다른증권">다른증권</option>';
 document.querySelectorAll('#pnlTradeTypeTabs [data-trade-type]').forEach(n=>n.classList.toggle('active',n.dataset.tradeType==='all'));
 document.querySelectorAll('#dividendModeTabs [data-div-mode]').forEach(n=>n.classList.toggle('active',n.dataset.divMode==='actual'));
@@ -495,7 +509,11 @@ def test_income_bucket_runtime(chrome_preview, scenario):
     call('Emulation.setDeviceMetricsOverride', {'width': 390, 'height': 844, 'deviceScaleFactor': 1, 'mobile': True})
     call('Page.navigate', {'url': f'http://127.0.0.1:{port}/#pnl'})
     wait_for(evaluate, "document.readyState==='complete' && !!window.WealthUnifiedTimeseries && !!window.WealthTimeseriesVisibleRange")
-    assert evaluate('(async()=>{' + SETUP + SCENARIOS[scenario] + ';return true;})()')
+    result = evaluate(
+        '(async()=>{try{' + SETUP + SCENARIOS[scenario] +
+        ';return true;}catch(error){return error.stack || String(error);}})()'
+    )
+    assert result is True, result
     assert evaluate('document.documentElement.scrollWidth<=innerWidth')
 
 

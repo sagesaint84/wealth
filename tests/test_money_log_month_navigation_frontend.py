@@ -20,9 +20,42 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
         if not shutil.which("node"):
             raise unittest.SkipTest("node runtime is not available")
         cls.wealth_js = WEALTH_JS.read_text(encoding="utf-8")
+        cls.income_js = WEALTH_JS.with_name("wealth-income-feature-controller.js").read_text(encoding="utf-8")
         cls.wealth_ipo_js = WEALTH_IPO_JS.read_text(encoding="utf-8")
         cls.index_html = INDEX_HTML.read_text(encoding="utf-8")
         cls.css = CSS_OVERRIDES.read_text(encoding="utf-8")
+
+    @staticmethod
+    def income_vm_setup() -> str:
+        return r"""
+        const staticDir = require('path').dirname(wealthPath);
+        for (const name of [
+          'wealth-date-helper.js', 'wealth-format.js', 'wealth-realized-pnl-view.js',
+          'wealth-dividend-summary-view.js', 'wealth-income-feature-controller.js'
+        ]) {
+          vm.runInContext(fs.readFileSync(require('path').join(staticDir, name), 'utf8'), sandbox);
+        }
+        Object.assign(sandbox, window.WealthDateHelper);
+        const source = fs.readFileSync(wealthPath, 'utf8');
+        function extract(start, end) {
+          const a = source.indexOf(start);
+          const b = source.indexOf(end, a);
+          if (a < 0 || b < 0) throw Error('Missing summary dependency: ' + start);
+          return source.slice(a, b);
+        }
+        const dependencies = vm.runInContext(
+          extract('const number =', 'function formatKoreanMoneyFriendly') +
+          extract('function finiteRealizedPnlNumber', 'const investmentSummaryView =') +
+          '({ number, money, finiteRealizedPnlNumber, buildRealizedPnlDisplaySummary })', sandbox
+        );
+        const income = window.WealthIncomeFeatureController.create({
+          ...dependencies,
+          $: document.querySelector,
+          html: window.WealthFormat.escapeHtml,
+          currentOwner: '\uBAA8\uB450',
+        });
+        Object.assign(window, income.publicActions);
+        """
 
     def run_node_eval(self, script: str) -> str:
         cmd = ["node", "-e", script]
@@ -140,7 +173,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
         script = f"""
         const fs = require('fs');
         const vm = require('vm');
-        const code = fs.readFileSync('{WEALTH_JS.as_posix()}', 'utf8');
+        const wealthPath = '{WEALTH_JS.as_posix()}';
 
         // Setup DOM simulation
         const elements = {{}};
@@ -187,8 +220,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
         }};
         vm.createContext(sandbox);
 
-        // Load wealth.js in context
-        vm.runInContext(code, sandbox);
+        {self.income_vm_setup()}
 
         // Mock test data with 2 different months: 2026-08 and 2026-09
         const testData = {{
@@ -208,7 +240,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
 
         // Test month 8
         sandbox.window.setSelectedPnlPeriod("2026", 8);
-        sandbox.renderRealizedPnl(testData);
+        sandbox.window.renderRealizedPnl(testData);
 
         const outMonth8 = {{
           totalText: elements['pnlTotal']?.textContent,
@@ -220,7 +252,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
 
         // Test month 9
         sandbox.window.setSelectedPnlPeriod("2026", 9);
-        sandbox.renderRealizedPnl(testData);
+        sandbox.window.renderRealizedPnl(testData);
 
         const outMonth9 = {{
           totalText: elements['pnlTotal']?.textContent,
@@ -250,7 +282,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
 
     # 6. Trade type switching preserves selected month
     def test_pnl_trade_type_switch_preserves_selected_month(self):
-        self.assertNotIn("selectedPnlMonth = null;\n    loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType);", self.wealth_js)
+        self.assertNotIn("selectedPnlMonth = null;\n    loadRealizedPnl(app.currentOwner, selectedPnlYear, currentPnlTradeType);", self.income_js)
         # Ensure selectedDividendMonth is also preserved in mode tabs
     # 7. Record Date Inputs are full YYYY-MM-DD and not converted to month-only
     def test_record_date_inputs_remain_full_date(self):
@@ -266,7 +298,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
         script = f"""
         const fs = require('fs');
         const vm = require('vm');
-        const code = fs.readFileSync('{WEALTH_JS.as_posix()}', 'utf8');
+        const wealthPath = '{WEALTH_JS.as_posix()}';
 
         const elements = {{}};
         const makeElement = () => ({{
@@ -311,7 +343,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
           console
         }};
         vm.createContext(sandbox);
-        vm.runInContext(code, sandbox);
+        {self.income_vm_setup()}
 
         const testDividendData = {{
           records: [
@@ -326,7 +358,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
 
         // Test month 8
         sandbox.window.setSelectedDividendPeriod("2026", 8);
-        sandbox.renderActualDividends(testDividendData);
+        sandbox.window.renderActualDividends(testDividendData);
 
         const outMonth8 = {{
           totalText: elements['divTotalAnnual']?.textContent,
@@ -336,7 +368,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
 
         // Test month 9
         sandbox.window.setSelectedDividendPeriod("2026", 9);
-        sandbox.renderActualDividends(testDividendData);
+        sandbox.window.renderActualDividends(testDividendData);
 
         const outMonth9 = {{
           totalText: elements['divTotalAnnual']?.textContent,
@@ -365,7 +397,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
         script = f"""
         const fs = require('fs');
         const vm = require('vm');
-        const code = fs.readFileSync('{WEALTH_JS.as_posix()}', 'utf8');
+        const wealthPath = '{WEALTH_JS.as_posix()}';
 
         const elements = {{}};
         const makeElement = () => ({{
@@ -410,7 +442,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
           console
         }};
         vm.createContext(sandbox);
-        vm.runInContext(code, sandbox);
+        {self.income_vm_setup()}
 
         // Change PnL period to 2025-05
         sandbox.window.setSelectedPnlPeriod("2025", 5);
@@ -446,9 +478,9 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
 
     # 12. Actual monthly receipts and year totals have distinct scopes.
     def test_actual_dividend_monthly_and_annual_card_labels(self):
-        self.assertIn('divCardLabel2: `${periodLabel} 총 세전 배당금`', self.wealth_js)
-        self.assertIn('divCardLabel3: `${periodLabel} 누적 실제 수령 배당금`', self.wealth_js)
-        self.assertIn('divYieldSub: hasEstimates ? \'일부 예상값 포함\'', self.wealth_js)
+        self.assertIn('divCardLabel2: `${periodLabel} 총 세전 배당금`', self.income_js)
+        self.assertIn('divCardLabel3: `${periodLabel} 누적 실제 수령 배당금`', self.income_js)
+        self.assertIn('divYieldSub: hasEstimates ? \'일부 예상값 포함\'', self.income_js)
 
 
 if __name__ == "__main__":

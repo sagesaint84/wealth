@@ -306,13 +306,17 @@ def test_same_synthetic_scenario_compares_v212_request_counts_without_claiming_r
 
 
 def test_ledger_and_pnl_discard_old_owner_period_and_detached_tab_responses():
-    source=SOURCE.read_text(encoding='utf-8')
-    code=ledger_feature_source()+fragment(
-        source,'async function loadRealizedPnl(owner = currentOwner, year = selectedPnlYear, tradeType = currentPnlTradeType) {','\nfunction renderRealizedPnl')
+    income_code = (STATIC / 'wealth-income-feature-controller.js').read_text(encoding='utf-8')
+    code = ledger_feature_source() + '\n' + income_code + r"""
+const income = WealthIncomeFeatureController.create({ api, get currentOwner() { return currentOwner; } });
+income.legacyState.selectedPnlYear = selectedPnlYear;
+window.loadRealizedPnl = income.publicActions.loadRealizedPnl;
+"""
     run(r"""
 const assert=require('node:assert/strict'),vm=require('node:vm');
 let shown=true;const pending=[],rendered=[];
 const c={currentOwner:'A',currentUserProfile:{username:'synthetic'},selectedPnlYear:'2026',currentPnlTradeType:'all',
+ getKstYearMonth:()=>({year:2026,month:10}),
  WealthStartup:{visible:()=>shown,count(){}},console,
  api:url=>new Promise(resolve=>pending.push({url,resolve})),
  renderLedger:r=>rendered.push(r.tag),renderRealizedPnl:r=>rendered.push(r.tag),updatePnlYearOptions(){}};

@@ -223,12 +223,12 @@ class DividendPreview(IncomePreview):
                 and parse_qs(parsed.query).get('owner') == ['synthetic-empty']):
             self.send({'records': [], 'interest_records': [], 'monthly': [], 'available_years': []})
             return
-        if parsed.path in ("/static/wealth.js", "/static/wealth-timeseries-unified.js"):
+        if parsed.path in ("/static/wealth-income-feature-controller.js", "/static/wealth-timeseries-unified.js"):
             name = parsed.path.rsplit("/", 1)[-1]
             source = assets[name].decode("utf-8")
-            marker = ("function renderActualDividends(data) {" if name == "wealth.js"
+            marker = ("function renderActualDividends(data) {" if name == "wealth-income-feature-controller.js"
                       else "async function renderDividend() {")
-            counter = "actualCalls" if name == "wealth.js" else "unifiedCalls"
+            counter = "actualCalls" if name == "wealth-income-feature-controller.js" else "unifiedCalls"
             assert source.count(marker) == 1
             source = source.replace(marker, marker + f"\n    window.__divTrace.{counter}++;", 1)
             self.send(source.encode("utf-8"), "text/javascript; charset=utf-8")
