@@ -67,20 +67,7 @@
     return { year: parts.year, month: parts.month, key: `${parts.year}-${mm}` };
   };
 
-  const shiftIpoMonth = (year, month, delta) => {
-    let nextMonth = month + delta;
-    let nextYear = year;
-    while (nextMonth < 1) {
-      nextMonth += 12;
-      nextYear -= 1;
-    }
-    while (nextMonth > 12) {
-      nextMonth -= 12;
-      nextYear += 1;
-    }
-    const mm = String(nextMonth).padStart(2, '0');
-    return { year: nextYear, month: nextMonth, key: `${nextYear}-${mm}` };
-  };
+  const shiftIpoMonth = (year, month, delta) => window.WealthDateHelper.shiftYearMonth(year, month, delta);
 
   const getLatestPastMonth = (ipos) => {
     const pastIpos = (ipos || []).filter(item => item && hasConfirmedListing(item));
@@ -136,8 +123,7 @@
   const formatMoney = window.WealthFormat.formatMoney;
 
   function escapeHtml(str) {
-    if (!str) return '';
-    return window.WealthFormat.escapeHtml(str);
+    return window.WealthFormat.escapeOptionalHtml(str);
   }
 
 
@@ -245,6 +231,8 @@
       if (wrapper) {
         const message = document.createElement('p');
         message.className = 'empty-text ipo-refresh-error';
+        message.dataset.ui = 'alert';
+        message.setAttribute('role', 'alert');
         message.textContent = '공모주 일정 동기화에 실패했습니다. 기존 데이터를 유지합니다.';
         wrapper.prepend(message);
       }
@@ -657,9 +645,9 @@
     if (visibleIpos.length === 0 && fallbackIpos.length === 0) {
       if (monthControlHtml) {
         const scopeLabel = ipoFilterGroup === 'LISTED' ? '과거 공모주 일정' : '공모주 일정';
-        html += `<p class="empty-text" style="padding:28px;text-align:center;">선택한 월(${ipoHistoryYear}년 ${ipoHistoryMonth}월)에 해당하는 ${scopeLabel}이 없습니다.</p>`;
+        html += `<p class="empty-text" data-ui="empty-state" style="padding:28px;text-align:center;">선택한 월(${ipoHistoryYear}년 ${ipoHistoryMonth}월)에 해당하는 ${scopeLabel}이 없습니다.</p>`;
       } else {
-        html += '<p class="empty-text" style="padding:28px;text-align:center;">해당 조건에 맞는 공모주 일정이 없습니다.</p>';
+        html += '<p class="empty-text" data-ui="empty-state" style="padding:28px;text-align:center;">해당 조건에 맞는 공모주 일정이 없습니다.</p>';
       }
     } else {
       if (visibleIpos.length > 0) {
@@ -668,7 +656,7 @@
         html += '</div>';
       } else if (monthControlHtml) {
         const scopeLabel = ipoFilterGroup === 'LISTED' ? '과거 공모주 일정' : '공모주 일정';
-        html += `<p class="empty-text" style="padding:28px;text-align:center;">선택한 월(${ipoHistoryYear}년 ${ipoHistoryMonth}월)에 해당하는 ${scopeLabel}이 없습니다.</p>`;
+        html += `<p class="empty-text" data-ui="empty-state" style="padding:28px;text-align:center;">선택한 월(${ipoHistoryYear}년 ${ipoHistoryMonth}월)에 해당하는 ${scopeLabel}이 없습니다.</p>`;
       }
 
       if (fallbackIpos.length > 0) {

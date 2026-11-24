@@ -17,6 +17,8 @@
       if (!button) return;
       button.dataset.label ??= button.textContent;
       button.disabled = enabled;
+      if (enabled) button.setAttribute("aria-busy", "true");
+      else button.removeAttribute("aria-busy");
       button.textContent = enabled ? "처리 중…" : button.dataset.label;
     }
 
@@ -39,6 +41,7 @@
   function renderEmpty(container, message, { fullWidth = false } = {}) {
     const empty = container.ownerDocument.createElement("div");
     empty.className = "empty";
+    empty.dataset.ui = "empty-state";
     if (fullWidth) empty.setAttribute("style", "grid-column:1/-1;");
     empty.textContent = message;
     container.replaceChildren(empty);

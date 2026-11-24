@@ -545,8 +545,7 @@
   }
 
   function escapeHtml(str) {
-    if (!str) return '';
-    return window.WealthFormat.escapeHtml(str);
+    return window.WealthFormat.escapeOptionalHtml(str);
   }
 
   // Navigation handlers

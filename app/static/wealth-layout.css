@@ -7,6 +7,41 @@
   font-weight: 400; font-style: normal; font-display: swap;
   unicode-range: U+1F4C5;
 }
+/* Shared typography, density and feedback. Colors follow the active theme. */
+:root {
+  --ui-font-icon: "Wealth Tossface", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  --ui-text-caption: 10px;
+  --ui-text-compact: 11.5px;
+  --ui-text-body: 12px;
+  --ui-text-label: 14px;
+  --ui-text-title: 20px;
+  --ui-weight-semibold: 600;
+  --ui-weight-bold: 700;
+  --ui-weight-title: 800;
+  --ui-leading-control: 1.4;
+  --ui-leading-copy: 1.6;
+  --ui-title-tracking: -.4px;
+  --ui-gap-xs: 4px;
+  --ui-gap-sm: 8px;
+  --ui-gap-md: 12px;
+  --ui-radius-badge: 6px;
+  --ui-radius-sm: 8px;
+  --ui-radius-control: 10px;
+  --ui-radius-surface: 16px;
+  --ui-shadow-surface: 0 2px 10px #0001;
+  --ui-control-disabled-opacity: .42;
+  --ui-focus-width: 2px;
+  --ui-focus-offset: 3px;
+  --ui-compact-control-height: 31px;
+  --ui-compact-control-padding: 10px;
+  --ui-default-control-height: 38px;
+}
+/* Keep neutral, informational, and financial colors distinct. */
+.wealth-layout {
+  --ui-feedback-neutral: var(--muted);
+  --ui-feedback-loading: var(--workspace-accent);
+  --ui-feedback-error: var(--red);
+}
 /* Semantic Icon API: consumers provide the name, never a copied emoji. */
 .wealth-layout {
   --icon-size: 1em; --icon-gap: .3em;
@@ -14,7 +49,7 @@
 .wealth-layout .wealth-ui-icon {
   display: inline-flex; align-items: center; justify-content: center;
   flex: 0 0 auto; width: var(--icon-size); height: var(--icon-size);
-  font-family: "Wealth Tossface", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  font-family: var(--ui-font-icon);
   font-size: var(--icon-size); font-weight: 400; font-style: normal; line-height: 1;
   vertical-align: -.125em; margin-inline-end: var(--icon-gap);
   color: inherit; pointer-events: none;
@@ -177,11 +212,11 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 /* M2 SectionHeader owner: section-level h2 headers only, opt-in and parent-independent.
    Keep the dividend-head hook: startup temporarily moves the same header node. */
 .wealth-layout .wealth-ui-section-header[data-ui="section-header"] {
-  --section-header-gap: 8px;
+  --section-header-gap: var(--ui-gap-sm);
   --section-header-leading-gap: 10px;
   --section-header-action-gap: 6px;
-  --section-header-title-size: 20px;
-  --section-header-eyebrow-size: 10px;
+  --section-header-title-size: var(--ui-text-title);
+  --section-header-eyebrow-size: var(--ui-text-caption);
   --section-header-eyebrow-spacing: 1.5px;
   --section-header-eyebrow-margin: 4px;
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
@@ -196,8 +231,8 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 }
 .wealth-layout .wealth-ui-section-header[data-ui="section-header"] .wealth-ui-section-header__heading > h2 {
   display: block; margin: 0; font-family: inherit;
-  font-size: var(--section-header-title-size); font-weight: 800;
-  letter-spacing: -.4px; overflow-wrap: anywhere;
+  font-size: var(--section-header-title-size); font-weight: var(--ui-weight-title);
+  letter-spacing: var(--ui-title-tracking); overflow-wrap: anywhere;
 }
 .wealth-layout .wealth-ui-section-header[data-ui="section-header"] .wealth-ui-section-header__heading > .eyebrow {
   margin: 0 0 var(--section-header-eyebrow-margin);
@@ -296,13 +331,13 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 .wealth-layout {
   --surface-1: var(--panel); --surface-2: var(--panel-2);
   --surface-hover: color-mix(in srgb, var(--panel-2) 88%, var(--text));
-  --border-subtle: var(--line); --control-radius: 10px;
+  --border-subtle: var(--line); --control-radius: var(--ui-radius-control);
 }
 .wealth-layout .button {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   min-height: 40px; padding: 10px 14px; border: 1px solid var(--border-subtle);
-  border-radius: var(--control-radius); font-family: inherit; font-size: 12px;
-  font-weight: 600; line-height: 1.3; color: var(--text); background: var(--surface-2);
+  border-radius: var(--control-radius); font-family: inherit; font-size: var(--ui-text-body);
+  font-weight: var(--ui-weight-semibold); line-height: 1.3; color: var(--text); background: var(--surface-2);
   transition: background-color .15s, border-color .15s, box-shadow .15s;
 }
 .wealth-layout .button.primary { color: #fff; background: #694bd1; border-color: #8b70e9; box-shadow: none; }
@@ -316,33 +351,20 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
   .wealth-layout .button.danger:not(:disabled):hover { color: var(--red); border-color: var(--red); background: color-mix(in srgb,var(--red) 16%,var(--surface-1)); }
 }
 .wealth-layout .button:not(:disabled):active { transform: none; box-shadow: inset 0 2px 4px #0003; }
-.wealth-layout .button:disabled { opacity: .42; cursor: not-allowed; filter: none; transform: none; box-shadow: none; }
-.wealth-layout :is(.button,input:not(.wealth-ui-input[data-ui="input"]),textarea,select:not(.wealth-ui-select[data-ui="select"])):focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 3px; }
+.wealth-layout .button:disabled { opacity: var(--ui-control-disabled-opacity); cursor: not-allowed; filter: none; transform: none; box-shadow: none; }
+.wealth-layout :is(.button,input:not(.wealth-ui-input[data-ui="input"]),textarea,select:not(.wealth-ui-select[data-ui="select"])):focus-visible { outline: var(--ui-focus-width) solid var(--workspace-accent); outline-offset: var(--ui-focus-offset); }
 .wealth-layout .button[hidden], .wealth-history-dialog [hidden] { display: none !important; }
 /* Shared native Select/Input frame; features retain values, filtering, and layout. */
 .wealth-layout {
-  --ui-control-height: 38px;
+  --ui-control-height: var(--ui-default-control-height);
   --ui-control-padding-block: 8px;
   --ui-control-padding-inline: 10px;
   --ui-control-font-size: .875rem;
-  --ui-control-font-weight: 600;
-  --ui-control-line-height: 1.4;
-  --ui-control-disabled-opacity: .42;
-  --ui-focus-width: 2px;
-  --ui-focus-offset: 3px;
+  --ui-control-font-weight: var(--ui-weight-semibold);
+  --ui-control-line-height: var(--ui-leading-control);
 }
-.wealth-layout select.wealth-ui-select[data-ui="select"] {
-  box-sizing: border-box;
-  min-width: 0; max-width: 100%; min-height: var(--ui-control-height);
-  padding: var(--ui-control-padding-block) var(--ui-control-padding-inline);
-  font: inherit; font-size: var(--ui-control-font-size); font-weight: var(--ui-control-font-weight);
-  line-height: var(--ui-control-line-height);
-  color: var(--text); background: var(--surface-2);
-  border: 1px solid var(--border-subtle); border-radius: var(--control-radius);
-  cursor: pointer;
-}
+.wealth-layout select.wealth-ui-select[data-ui="select"],
 .wealth-layout input.wealth-ui-input[data-ui="input"] {
-  --ui-control-font-size: 12px;
   box-sizing: border-box;
   min-width: 0; max-width: 100%; min-height: var(--ui-control-height);
   padding: var(--ui-control-padding-block) var(--ui-control-padding-inline);
@@ -351,45 +373,38 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
   color: var(--text); background: var(--surface-2);
   border: 1px solid var(--border-subtle); border-radius: var(--control-radius);
 }
+.wealth-layout select.wealth-ui-select[data-ui="select"] { cursor: pointer; }
+.wealth-layout input.wealth-ui-input[data-ui="input"] { --ui-control-font-size: var(--ui-text-body); }
 .wealth-layout select.wealth-ui-select[data-ui="select"][data-select-variant="compact"] {
-  --ui-control-height: 32px; --ui-control-padding-block: 7px; --ui-control-font-size: 12px;
+  --ui-control-height: 32px; --ui-control-padding-block: 7px; --ui-control-font-size: var(--ui-text-body);
 }
 .wealth-layout input.wealth-ui-input[data-ui="input"][data-input-variant="compact"] {
   --ui-control-height: 32px; --ui-control-padding-block: 5px; --ui-control-padding-inline: 9px;
 }
 .wealth-layout input.wealth-ui-input[data-ui="input"]::placeholder { color: var(--muted); opacity: 1; }
 @media (hover: hover) {
-  .wealth-layout select.wealth-ui-select[data-ui="select"]:not(:disabled):hover {
-    border-color: var(--workspace-accent);
-  }
+  .wealth-layout select.wealth-ui-select[data-ui="select"]:not(:disabled):hover,
   .wealth-layout input.wealth-ui-input[data-ui="input"]:not(:disabled):not([readonly]):hover {
     border-color: var(--workspace-accent);
   }
 }
-.wealth-layout select.wealth-ui-select[data-ui="select"]:focus-visible {
-  outline: var(--ui-focus-width) solid var(--workspace-accent); outline-offset: var(--ui-focus-offset);
-  border-color: var(--workspace-accent);
-}
-.wealth-layout select.wealth-ui-select[data-ui="select"]:disabled {
-  opacity: var(--ui-control-disabled-opacity); cursor: not-allowed;
-}
+.wealth-layout select.wealth-ui-select[data-ui="select"]:focus-visible,
 .wealth-layout input.wealth-ui-input[data-ui="input"]:focus-visible {
   outline: var(--ui-focus-width) solid var(--workspace-accent); outline-offset: var(--ui-focus-offset);
   border-color: var(--workspace-accent);
 }
+.wealth-layout select.wealth-ui-select[data-ui="select"]:disabled,
 .wealth-layout input.wealth-ui-input[data-ui="input"]:disabled {
   opacity: var(--ui-control-disabled-opacity); cursor: not-allowed;
 }
-/* M1 Button owner: opt-in only; legacy buttons retain their existing cascade.
-   compact is intentionally absent on migrated buttons, so no precedence bridge is needed.
-   busy() still owns disabled/text updates; aria-busy is styled if a controller supplies it. */
+/* Shared action button. Compact callers use the same density as legacy toolbars. */
 .wealth-layout .button.wealth-ui-button[data-ui="button"] {
-  --button-height: 31px;
-  --button-gap: 4px;
-  --button-padding-inline: 10px;
-  --button-radius: 8px;
-  --button-font-size: 11.5px;
-  --button-font-weight: 600;
+  --button-height: var(--ui-compact-control-height);
+  --button-gap: var(--ui-gap-xs);
+  --button-padding-inline: var(--ui-compact-control-padding);
+  --button-radius: var(--ui-radius-sm);
+  --button-font-size: var(--ui-text-compact);
+  --button-font-weight: var(--ui-weight-semibold);
   --button-background: var(--surface-2);
   --button-foreground: var(--text);
   --button-border: var(--border-subtle);
@@ -430,18 +445,26 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
   transform: none; box-shadow: inset 0 2px 4px #0003;
 }
 .wealth-layout .button.wealth-ui-button[data-ui="button"]:focus-visible {
-  outline: 2px solid var(--workspace-accent); outline-offset: 3px;
+  outline: var(--ui-focus-width) solid var(--workspace-accent); outline-offset: var(--ui-focus-offset);
 }
 .wealth-layout .button.wealth-ui-button[data-ui="button"]:disabled {
-  opacity: .42; cursor: not-allowed; transform: none; filter: none; box-shadow: none;
+  opacity: var(--ui-control-disabled-opacity); cursor: not-allowed; transform: none; filter: none; box-shadow: none;
 }
 .wealth-layout .button.wealth-ui-button[data-ui="button"][aria-busy="true"] { cursor: progress; }
+.wealth-layout .button.wealth-ui-button[data-ui="button"][data-button-size="standard"] {
+  --button-height: 40px;
+  --button-padding-inline: 14px;
+  --button-gap: 7px;
+  --button-radius: var(--ui-radius-control);
+  --button-font-size: var(--ui-text-body);
+  line-height: 1.3;
+}
 @media (prefers-reduced-motion: reduce) {
   .wealth-layout .button.wealth-ui-button[data-ui="button"] { transition: none; }
 }
 /* End M1 Button owner. */
 .wealth-layout :is(.panel,.summary-card,.market-card,.wealth-composition,.wealth-settings-card) {
-  background: var(--surface-1); border-color: var(--border-subtle); border-radius: 16px; box-shadow: 0 2px 10px #0001;
+  background: var(--surface-1); border-color: var(--border-subtle); border-radius: var(--ui-radius-surface); box-shadow: var(--ui-shadow-surface);
 }
 /* M3 Shared Card owner. Opt-in metric frames only; labels/amounts remain domain-owned.
    These tokens retain existing div-summary-card colors, geometry and hover behavior. */
@@ -464,8 +487,8 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
 }
 .wealth-layout .wealth-ui-card[data-ui="card"][data-card-variant="metric"] {
   --card-padding: 14px 16px;
-  --card-radius: 10px;
-  --card-gap: 4px;
+  --card-radius: var(--ui-radius-control);
+  --card-gap: var(--ui-gap-xs);
   --card-overflow-wrap: anywhere;
   display: flex; flex-direction: column;
   box-sizing: border-box; min-width: 0;
@@ -488,13 +511,14 @@ html[data-wealth-invest-tab]:not([data-wealth-invest-tab="buckets"]) #bucketPane
   }
 }
 /* End M3 Shared Card owner. */
-.wealth-layout .wealth-invest-tabs { display: flex; flex-wrap: nowrap; gap: 4px; margin: 0 0 18px; padding: 4px; overflow-x: auto; scrollbar-width: thin; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
-.wealth-layout .wealth-invest-tabs button { flex: 1 1 0; min-height: 38px; min-width: max-content; padding: 9px 13px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 650; line-height: normal; white-space: nowrap; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
-.wealth-layout .wealth-invest-tabs button:hover { color: var(--text); background: var(--surface-1); }
-.wealth-layout .wealth-invest-tabs button[aria-pressed="true"] { color: var(--text); background: var(--surface-1); border-color: color-mix(in srgb,var(--workspace-accent) 45%,var(--line)); box-shadow: 0 1px 4px #0002; }
-.wealth-layout .wealth-section-tabs { display: flex; flex-wrap: nowrap; width: 100%; gap: 4px; margin: 0 0 18px; padding: 4px; overflow-x: auto; scrollbar-width: thin; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
-.wealth-layout .wealth-section-tabs > button { flex: 1 1 0; min-height: 38px; min-width: max-content; padding: 9px 13px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 650; line-height: normal; white-space: nowrap; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.wealth-layout .wealth-invest-tabs,
+.wealth-layout .wealth-section-tabs { display: flex; flex-wrap: nowrap; gap: var(--ui-gap-xs); margin: 0 0 18px; padding: 4px; overflow-x: auto; scrollbar-width: thin; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.wealth-layout .wealth-section-tabs { width: 100%; }
+.wealth-layout .wealth-invest-tabs button,
+.wealth-layout .wealth-section-tabs > button { flex: 1 1 0; min-height: var(--ui-default-control-height); min-width: max-content; padding: 9px 13px; border: 1px solid transparent; border-radius: var(--ui-radius-sm); background: transparent; color: var(--muted); font: inherit; font-size: var(--ui-text-label); font-weight: 650; line-height: normal; white-space: nowrap; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.wealth-layout .wealth-invest-tabs button:hover,
 .wealth-layout .wealth-section-tabs > button:hover { color: var(--text); background: var(--surface-1); }
+.wealth-layout .wealth-invest-tabs button[aria-pressed="true"],
 .wealth-layout .wealth-section-tabs > button.active, .wealth-layout .wealth-section-tabs > button[aria-selected="true"] { color: var(--text); background: var(--surface-1); border-color: color-mix(in srgb,var(--workspace-accent) 45%,var(--line)); box-shadow: 0 1px 4px #0002; }
 .wealth-layout :is(.wealth-invest-tabs, .wealth-section-tabs) > button,
 .wealth-layout .wealth-invest-tabs button {
@@ -785,8 +809,8 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
 }
 .toss-wts-message {
   padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: var(--ui-radius-sm);
+  font-size: var(--ui-text-body);
   margin-bottom: 14px;
   line-height: 1.5;
 }
@@ -894,15 +918,25 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
   color: #c084fc;
   border: 1px solid rgba(168, 85, 247, 0.3);
 }
-.toss-wts-empty {
-  text-align: center;
-  padding: 32px 16px !important;
-  color: var(--muted, #94a3b8);
-}
+.toss-wts-empty,
 .toss-wts-loading {
   text-align: center;
   padding: 32px 16px !important;
-  color: var(--workspace-accent, #7c58f0);
+}
+.toss-wts-empty,
+.wealth-layout :where([data-ui="empty-state"]) {
+  color: var(--ui-feedback-neutral);
+}
+.toss-wts-loading,
+.wealth-layout :where([data-ui="loading-state"]) {
+  color: var(--ui-feedback-loading);
+}
+.wealth-layout :where([data-ui="alert"]) {
+  color: var(--ui-feedback-error);
+  line-height: var(--ui-leading-copy);
+}
+.wealth-layout :where([data-ui="table"]) td {
+  font-variant-numeric: tabular-nums;
 }
 .toss-wts-notice {
   font-size: 11px;
@@ -954,13 +988,16 @@ dialog.dialog.wealth-history-dialog { padding: 0 !important; max-height: calc(10
   gap: 12px;
   flex-wrap: wrap;
 }
+.toss-wts-selected-count,
+.ledger-tx-count-badge {
+  border-radius: var(--ui-radius-badge);
+}
 .toss-wts-selected-count {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--ui-text-body);
+  font-weight: var(--ui-weight-bold);
   color: var(--workspace-accent, #7c58f0);
   background: rgba(124, 88, 240, 0.12);
   padding: 4px 10px;
-  border-radius: 6px;
   border: 1px solid rgba(124, 88, 240, 0.3);
 }
 .toss-wts-dest-wrap {
@@ -2173,7 +2210,7 @@ body.wealth-layout {
     max-width:100%;
     flex-wrap:wrap;
   }
-  #accountsPanel .toolbar .button.compact,
+  #accountsPanel .toolbar .button:is(.compact, .wealth-ui-button[data-ui="button"]:not([data-button-size="standard"])),
   #catPanelRealEstate .saving-card-details .button.compact {
     min-width:0;
     max-width:100%;
