@@ -7,7 +7,32 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'app/static/wealth.js'
+STATIC = ROOT / "app/static"
 BASE = 'bdb03220674943ea833b746add12b85cba8bf5b0'
+
+
+def ledger_feature_source() -> str:
+    """Load the actual classic scripts with synthetic app and screen dependencies."""
+    modules = ("wealth-period-filter-core.js", "wealth-ledger-data.js", "wealth-ledger-feature-controller.js")
+    return "\n".join([
+        "window = globalThis;",
+        *((STATIC / name).read_text(encoding="utf-8") for name in modules),
+        r"""
+window.addEventListener = () => {};
+window.WealthLedgerScreenController = {create: () => ({render: data => renderLedger(data)})};
+for (const name of ['WealthLedgerTransactionsView', 'WealthLedgerCardsView', 'WealthLedgerRecurringView']) {
+  window[name] = {create: () => ({})};
+}
+window.ledger = window.WealthLedgerFeatureController.create({
+  window, document: window.document, api,
+  getKstYearMonth: () => ({year: 2026, month: 10}),
+  getOwner: () => currentOwner,
+  getUsername: () => currentUserProfile?.username || '',
+  getReadEpoch: () => window.ledgerEpoch ?? 0,
+});
+window.loadLedger = window.ledger.loadLedger;
+""",
+    ])
 
 
 def fragment(source, start, end):
@@ -41,7 +66,7 @@ async function scenario(code, modern, mode='ok', role='user') {
    performance:{now:()=>phase.length,clearMarks(){},mark:n=>phase.push(n)},
    currentOwner:'SYNTHETIC_PRIVATE_OWNER',currentUserProfile:null,
    selectedDividendYear:'2026',selectedPnlYear:'2026',currentPnlTradeType:'all',currentDividendMode:'actual',
-   currentLedgerYear:2026,currentLedgerMonth:10,rawDashboard:null,dashboard:null,
+   ledgerFeature:{getYear:()=>2026,getMonth:()=>10,isAnnualView:()=>false},rawDashboard:null,dashboard:null,
    document:{getElementById:node,querySelector:()=>null},console:{log(){},warn(){},error(){}},
    CustomEvent:class {constructor(type){this.type=type;}},
    toast:message=>notices.push(message),refreshAdminUserList:async()=>{},
@@ -282,12 +307,12 @@ def test_same_synthetic_scenario_compares_v212_request_counts_without_claiming_r
 
 def test_ledger_and_pnl_discard_old_owner_period_and_detached_tab_responses():
     source=SOURCE.read_text(encoding='utf-8')
-    code=fragment(source,'let ledgerPendingRead = null;','\nfunction renderLedger')+fragment(
+    code=ledger_feature_source()+fragment(
         source,'async function loadRealizedPnl(owner = currentOwner, year = selectedPnlYear, tradeType = currentPnlTradeType) {','\nfunction renderRealizedPnl')
     run(r"""
 const assert=require('node:assert/strict'),vm=require('node:vm');
 let shown=true;const pending=[],rendered=[];
-const c={currentOwner:'A',currentUserProfile:{username:'synthetic'},currentLedgerYear:2026,currentLedgerMonth:10,selectedPnlYear:'2026',currentPnlTradeType:'all',
+const c={currentOwner:'A',currentUserProfile:{username:'synthetic'},selectedPnlYear:'2026',currentPnlTradeType:'all',
  WealthStartup:{visible:()=>shown,count(){}},console,
  api:url=>new Promise(resolve=>pending.push({url,resolve})),
  renderLedger:r=>rendered.push(r.tag),renderRealizedPnl:r=>rendered.push(r.tag),updatePnlYearOptions(){}};
@@ -296,7 +321,10 @@ vm.createContext(c);vm.runInContext(process.argv[1],c);
  const a=c.loadLedger();c.currentOwner='B';const b=c.loadLedger();c.currentOwner='A';const newest=c.loadLedger();
  pending[2].resolve({tag:'new A'});await newest;pending[0].resolve({tag:'old A'});pending[1].resolve({tag:'old B'});await Promise.all([a,b]);
  assert.deepEqual(rendered,['new A']);
- const oldMonth=c.loadLedger();c.currentLedgerMonth=11;pending.at(-1).resolve({tag:'old month'});await oldMonth;
+ const oldMonth=c.loadLedger();const stale=pending.at(-1);const nextMonth=c.ledger.selectMonth(2026,11);
+ stale.resolve({tag:'old month'});await oldMonth;
+ assert.deepEqual(rendered,['new A']);
+ pending.at(-1).resolve(null);await nextMonth;
  const pnl=c.loadRealizedPnl();shown=false;pending.at(-1).resolve({tag:'hidden'});await pnl;
  assert.deepEqual(rendered,['new A']);
  const count=pending.length;await c.loadLedger();await c.loadRealizedPnl();assert.equal(pending.length,count);
@@ -654,58 +682,75 @@ const write = ()=>c.api('/api/actual-dividends',{method:'POST'});
 """, code)
 
 
-def test_late_ledger_period_wrapper_keeps_hidden_and_stale_guards():
-    source = (ROOT / 'app/static/wealth-ledger-period-filter.js').read_text(encoding='utf-8')
-    wrapper = fragment(source, 'window.loadLedger = async function', "\n  document.addEventListener('pointerdown'")
+def test_ledger_feature_keeps_hidden_and_stale_guards():
     run(r"""
 const assert=require('node:assert/strict'),vm=require('node:vm');
 (async()=>{
  for(const change of ['hidden','owner','year','month','annual','epoch','none']){
-  let active=false,reads=0,renders=0,resolve;
-  const c={window:{},globalThis:null,currentOwner:'synthetic',currentLedgerYear:2026,currentLedgerMonth:10,
-    annualView:false,startupReadEpoch:0,requestSequence:0,rawLedgerData:null,
-    WealthStartup:{visible:()=>active},currentKstYear:()=>2026,
-    fetchLedgerMonth:()=>{reads++;return new Promise(r=>resolve=r);},
-    renderLedgerPeriodAware:()=>renders++,console};
-  c.globalThis=c;vm.createContext(c);vm.runInContext(process.argv[1],c);
-  await c.window.loadLedger();assert.equal(reads,0,'hidden late-installed wrapper must not fetch');
-  active=true;const pending=c.window.loadLedger();assert.equal(reads,1);
+  let active=false,renders=0;
+  const reads=[];
+  const c={currentOwner:'synthetic',currentUserProfile:{username:'synthetic'},ledgerEpoch:0,
+    WealthStartup:{visible:()=>active,count(){}},
+    api:url=>new Promise(resolve=>reads.push({url,resolve})),renderLedger:()=>renders++,console};
+  vm.createContext(c);vm.runInContext(process.argv[1],c);
+  await c.ledger.loadLedger();assert.equal(reads.length,0,'hidden ledger must not fetch');
+  active=true;const pending=c.ledger.loadLedger();assert.equal(reads.length,1);
+  let replacement;
   if(change==='hidden')active=false;
   if(change==='owner')c.currentOwner='another';
-  if(change==='year')c.currentLedgerYear=2025;
-  if(change==='month')c.currentLedgerMonth=9;
-  if(change==='annual')c.annualView=true;
-  if(change==='epoch')c.startupReadEpoch++;
-  resolve({transactions:[]});await pending;
+  if(change==='year')replacement=c.ledger.selectMonth(2025,10);
+  if(change==='month')replacement=c.ledger.selectMonth(2026,9);
+  if(change==='annual')c.ledger.setAnnualView(true);
+  if(change==='epoch')c.ledgerEpoch++;
+  assert.equal(reads.length,replacement?2:1);
+  reads[0].resolve({transactions:[]});await pending;
   assert.equal(renders,change==='none'?1:0,'late ledger response must match active scope');
+  if(replacement){reads[1].resolve(null);await replacement;}
  }
 })().catch(e=>{console.error(e);process.exitCode=1;});
-""", wrapper)
+""", ledger_feature_source())
 
 
 def test_annual_ledger_stops_next_month_reads_after_scope_or_visibility_change():
-    source = (ROOT/'app/static/wealth-ledger-period-filter.js').read_text(encoding='utf-8')
-    helper = fragment(source, 'async function loadAnnualLedger(', '\n  function updateLedgerHeaderForAnnual')
     run(r"""
 const assert=require('node:assert/strict'),vm=require('node:vm');
 (async()=>{
  for(const change of ['hidden','owner','year','annual','epoch','none']){
-  let active=true,reads=0;
-  const c={currentOwner:'synthetic',currentLedgerYear:2026,annualView:true,startupReadEpoch:0,
-   requestSequence:1,WealthStartup:{visible:()=>active},mergeAnnualLedger:rows=>rows,
-   fetchLedgerMonth:async()=>{
-    reads++;
-    if(change==='hidden')active=false;
-    if(change==='owner')c.currentOwner='another';
-    if(change==='year')c.currentLedgerYear=2025;
-    if(change==='annual')c.annualView=false;
-    if(change==='epoch')c.startupReadEpoch++;
-    return {};
-   }};
+  let active=true,renders=0,resolveFirst,resolveReplacement;
+  const reads=[];
+  const c={currentOwner:'synthetic',currentUserProfile:{username:'synthetic'},ledgerEpoch:0,
+    WealthStartup:{visible:()=>active,count(){}},renderLedger:()=>renders++,console,
+    api:url=>{
+      const params=new URL(url,'http://synthetic.invalid').searchParams;
+      reads.push(params);
+      if(reads.length===1)return new Promise(resolve=>{resolveFirst=resolve;});
+      if(params.get('year')==='2025')return new Promise(resolve=>{resolveReplacement=resolve;});
+      return Promise.resolve({month:Number(params.get('month'))});
+    }};
   vm.createContext(c);vm.runInContext(process.argv[1],c);
-  const result=await c.loadAnnualLedger('synthetic',2026,1,0);
-  assert.equal(reads,change==='none'?12:1);
-  assert.equal(result===null,change!=='none');
+  const pending=c.ledger.selectAnnualYear(2026);assert.equal(reads.length,1);
+  let replacement;
+  if(change==='hidden')active=false;
+  if(change==='owner')c.currentOwner='another';
+  if(change==='year')replacement=c.ledger.selectAnnualYear(2025);
+  if(change==='annual')c.ledger.setAnnualView(false);
+  if(change==='epoch')c.ledgerEpoch++;
+  resolveFirst({month:1});
+  const result=await pending;
+  if(replacement){
+    assert.equal(reads[1].get('year'),'2025');
+    c.ledger.setAnnualView(false);
+    resolveReplacement({month:1});await replacement;
+  }
+  const annualReads=reads.filter(params=>params.get('year')==='2026');
+  assert.deepEqual(annualReads.map(params=>Number(params.get('month'))),
+    change==='none'?Array.from({length:12},(_,index)=>index+1):[1]);
+  assert.equal(renders,change==='none'?1:0);
+  if(change==='none'){
+    assert.equal(result.__ledger_annual_view,true);
+    assert.equal(result.year,2026);
+    assert.equal(result.monthly_trend.length,12);
+  }else assert.equal(result,undefined);
  }
 })().catch(e=>{console.error(e);process.exitCode=1;});
-""", helper)
+""", ledger_feature_source())

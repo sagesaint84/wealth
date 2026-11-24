@@ -75,7 +75,8 @@ def start(preview, width, mode):
     call('Page.navigate', {'url':f'http://127.0.0.1:{port}/#income'})
     wait_for(evaluate, "document.readyState==='complete' && !!window.WealthLedgerPeriodFilter")
     click(call, evaluate, '#incomeTabs [data-income="ledger"]')
-    wait_for(evaluate, '!!rawLedgerData')
+    wait_for(evaluate, '!!WealthLedgerFeature.getData()')
+    assert evaluate('window.loadLedger === WealthLedgerFeature.loadLedger') is True
     return call, evaluate
 
 
@@ -107,7 +108,7 @@ def test_ledger_renderer_load_contract(chrome_preview, width, mode):
         assert evaluate("document.getElementById('ledgerTxCountBadge').textContent") == '2건'
         assert evaluate("document.getElementById('ledgerTotalIncomeVal').textContent") == '₩100,000'
         evaluate("WealthLedgerTimeseriesHistory.expandHistory(document.querySelector('.wealth-timeseries-viewport[data-panzoom-kind=ledger]'))")
-        assert evaluate('rawLedgerData.monthly_trend.length') == 12
+        assert evaluate('WealthLedgerFeature.getData().monthly_trend.length') == 12
         assert evaluate('__ledgerTrace.replacements') == 0
         assert evaluate('__ledgerTrace.eyebrows') == 0
         assert evaluate('__ledgerTrace.errors') == []
@@ -122,15 +123,19 @@ def test_ledger_renderer_load_contract(chrome_preview, width, mode):
         click(call, evaluate, selector)
         assert_no_shadow(evaluate)
     evaluate("document.getElementById('ledgerMonthPicker').value='2025-02';document.getElementById('ledgerMonthPicker').dispatchEvent(new Event('change',{bubbles:true}))")
-    wait_for(evaluate, 'rawLedgerData.year===2025 && rawLedgerData.month===2')
+    wait_for(evaluate, """WealthLedgerFeature.getData()?.year===2025 &&
+        WealthLedgerFeature.getData()?.month===2 &&
+        document.getElementById('ledgerCurrentMonthText').textContent==='2025년 2월'""")
     click(call, evaluate, '.family-tab[data-owner="아빠"]')
-    wait_for(evaluate, "rawLedgerData.owner==='아빠'")
+    wait_for(evaluate, "WealthLedgerFeature.getData()?.owner==='아빠'")
     evaluate('loadLedger()')
     evaluate(FRAMES)
     assert_no_shadow(evaluate)
     # Annual filter must not overwrite the unified period title.
     evaluate("document.getElementById('ledgerYearSelect').value='2024';document.getElementById('ledgerYearSelect').dispatchEvent(new Event('change',{bubbles:true}))")
-    wait_for(evaluate, 'rawLedgerData.__ledger_annual_view && rawLedgerData.year===2024')
+    wait_for(evaluate, """WealthLedgerFeature.getData()?.__ledger_annual_view &&
+        WealthLedgerFeature.getData()?.year===2024 &&
+        document.getElementById('ledgerCurrentMonthText').textContent==='2024년 전체'""")
     evaluate(FRAMES)
     assert evaluate("document.querySelector('#ledgerTrendContainer').closest('.ledger-sub-panel').querySelector('h3').textContent") == '월간 현금흐름 추이'
     for mode_value, label in [('1D','일간'),('1W','주간'),('1M','월간'),('1Y','연간'),('ALL','전체')]:
@@ -180,7 +185,7 @@ def test_ledger_renderer_load_contract(chrome_preview, width, mode):
     evaluate("currentOwner='synthetic-fast';loadLedger()")
     evaluate('__releaseSlow()')
     evaluate(FRAMES)
-    assert evaluate('rawLedgerData.owner') == 'synthetic-fast'
+    assert evaluate('WealthLedgerFeature.getData().owner') == 'synthetic-fast'
     evaluate('__ledgerEmpty=true;loadLedger()')
     wait_for(evaluate, "!!document.querySelector('#ledgerTrendContainer .wealth-unified-empty')")
     evaluate('__ledgerFail=true;loadLedger()')

@@ -3495,7 +3495,7 @@
     <script src="/static/wealth-account-reorder.js?v=1.3.0"></script>
     <script src="/static/wealth-ledger-cards-view.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-ledger-recurring-view.js?v=2.1.9-full-integration1"></script>
-    <script src="/static/wealth-ledger-data.js?v=2.1.9-full-integration1"></script>
+    <script src="/static/wealth-ledger-data.js?v=2.1.9-ledger-feature1"></script>
     <script src="/static/wealth-ledger-transactions-model.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-stock-records-model.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-income-tabs-controller.js?v=2.1.9-full-integration1"></script>
@@ -3513,7 +3513,7 @@
     <script src="/static/wealth-broker-ui.js?v=2.1.9-broker-table-preview1"></script>
     <script src="/static/wealth-holding-signals.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-income-month-navigation.js?v=2.1.9-date-owner2"></script>
-    <script src="/static/wealth-ledger-screen-controller.js?v=2.1.9-ledger-form-display1"></script>
+    <script src="/static/wealth-ledger-screen-controller.js?v=2.1.9-ledger-feature1"></script>
     <script src="/static/wealth-account-yearly-view.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-investment-summary-view.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-admin-users-view.js?v=2.1.9-full-integration1"></script>
@@ -3541,8 +3541,9 @@
     <script src="/static/wealth-heatmap-model.js?v=2.1.9-full-integration1"></script>
     <script src="/static/wealth-heatmap-view.js?v=2.1.9-m100-view3"></script>
     <script src="/static/wealth-broker-realized-screen-controller.js?v=2.1.9-broker-workflows1"></script>
-    <script src="/static/wealth.js?v=2.1.9-broker-workflows1"></script>
-    <script src="/static/wealth-ledger-ocr.js?v=2.0.2-review2"></script>
+    <script src="/static/wealth-ledger-feature-controller.js?v=2.1.9-ledger-feature1"></script>
+    <script src="/static/wealth.js?v=2.1.9-ledger-feature1"></script>
+    <script src="/static/wealth-ledger-ocr.js?v=2.1.9-ledger-feature1"></script>
     <script src="/static/wealth-national-pension.js?v=2.0.2"></script>
     <script src="/static/wealth-pension-import.js?v=2.0.2"></script>
     <script src="/static/wealth-savings-contributions.js?v=2.1.9-display-reuse1"></script>
@@ -3551,6 +3552,9 @@
     <script src="/static/wealth-money-input.js?v=2.1.9-sale-dialog1"></script>
     <script src="/static/wealth-financial-income-what-if.js?v=2.1.9-money-hint1"></script>
     <script src="/static/wealth-family-financial-income-risk.js?v=2.1.9-income-money1"></script>
+    <!-- The extension loader reuses these parser-ordered scripts by ID. -->
+    <script id="wealthPeriodFilterCoreScript" data-loaded="true" src="/static/wealth-period-filter-core.js?v=10.6f1"></script>
+    <script id="wealthLedgerPeriodFilterScript" data-loaded="true" src="/static/wealth-ledger-period-filter.js?v=2.1.9-ledger-feature1"></script>
     <script src="/static/wealth-family-financial-income-allocation.js?v=2.1.9-income-money1"></script>
     <script src="/static/wealth-settings.js?v=2.1.9-toss-session1"></script>
     <script src="/static/wealth-system-update.js?v=2.1.9-action-confirm1"></script>

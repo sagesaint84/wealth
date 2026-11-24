@@ -20,7 +20,7 @@ let forbid=false,marketCalls=0;
 const context={__WEALTH_SYNTHETIC_PERF__:enabled,
  currentUserProfile:{username:'SYNTHETIC'},startupReadEpoch:0,currentOwner:'all',
  selectedDividendYear:2026,selectedPnlYear:2026,currentPnlTradeType:'all',currentDividendMode:'actual',
- currentLedgerYear:2026,currentLedgerMonth:10,
+ ledgerFeature:{getYear:()=>2026,getMonth:()=>10,isAnnualView:()=>false},
  performance:{now:()=>0,clearMarks(){},mark:name=>marks.push(name)},
  document:{getElementById(id){
    if(forbid)throw Error('disabled telemetry must not query DOM');
