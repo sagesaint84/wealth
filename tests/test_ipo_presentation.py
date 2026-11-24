@@ -100,7 +100,11 @@ class IpoPresentationTests(unittest.TestCase):
         calendar = (ROOT / "app" / "static" / "wealth-calendar.js").read_text(encoding="utf-8")
         self.assertIn("names.slice(0, 3)", calendar)
         self.assertIn("cal-ipo-overflow", calendar)
-        self.assertIn("timeZone: 'Asia/Seoul'", calendar)
+        helper = (ROOT / "app" / "static" / "wealth-date-helper.js").read_text(encoding="utf-8")
+        index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("const getKstToday = window.WealthDateHelper.getKstIsoDate;", calendar)
+        self.assertIn("timeZone: 'Asia/Seoul'", helper)
+        self.assertLess(index.index("/static/wealth-date-helper.js?"), index.index("/static/wealth-calendar.js?"))
         self.assertNotIn("new Date().toISOString().slice(0, 10)", calendar)
 
     def test_refresh_button_uses_wealth_action_style_and_restores_loading_state(self):
@@ -111,7 +115,9 @@ class IpoPresentationTests(unittest.TestCase):
         self.assertIn("button.setAttribute('aria-busy', 'true');", ipo)
         self.assertIn("button.disabled = false;", ipo)
         self.assertIn("refreshInFlight = false;", ipo)
-        self.assertIn("if (Array.isArray(data.market?.ipos)) setMarketIpos(data.market.ipos)", ipo)
+        self.assertIn("if (Array.isArray(data.market?.ipos)) {", ipo)
+        self.assertIn("setMarketIpos(data.market.ipos);", ipo)
+        self.assertIn("if (calendar?.isCalendarPanelActive?.()) await calendar.loadCalendar();", ipo)
 
     def test_ipo_account_controls_use_backend_broker_and_candidate_resolution(self):
         ipo = (ROOT / "app" / "static" / "wealth-ipo.js").read_text(encoding="utf-8")
