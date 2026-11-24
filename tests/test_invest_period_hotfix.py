@@ -30,12 +30,27 @@ const source=fs.readFileSync(process.argv[1],'utf8'), input=JSON.parse(process.a
 const staticDir=path.dirname(process.argv[1]);
 const elements={}, RealDate=Date;
 class Clock extends RealDate { constructor(...a){super(...(a.length?a:[input.at]));} }
+function createElement() {
+  const element = {textContent: '', style: {}, className: ''};
+  element.classList = {
+    toggle(name, force) {
+      const classes = element.className.split(/\s+/).filter(Boolean);
+      const present = classes.includes(name);
+      const enabled = force === undefined ? !present : Boolean(force);
+      if (enabled !== present) {
+        element.className = (enabled ? [...classes, name] : classes.filter(token => token !== name)).join(' ');
+      }
+      return enabled;
+    },
+  };
+  return element;
+}
 const sandbox={Date:Clock,Intl:input.intlFailure?{...Intl,DateTimeFormat:()=>{throw Error('unavailable')},NumberFormat:Intl.NumberFormat}:Intl,
  currentOwner:input.owner,STOCK_PORTFOLIO_MODE:'sector',rawDashboard:null,pnlData:null,actualDividendData:null,
  accountFeature:{rawLoanAccounts:[],rawBankAccounts:[],rawSavingsAccounts:[]},
  insuranceFeature:{rawInsuranceAccounts:[]},realEstateFeature:{rawRealEstates:[]},
  calculateDashboardDebt:()=>({totalMinusBankDebt:0,totalPureDebt:0}),
- $:selector=>elements[selector]||(elements[selector]={textContent:'',style:{},className:''}),
+ $:selector=>elements[selector]||(elements[selector]=createElement()),
  CustomEvent:class{constructor(type,init){this.detail=init.detail;}},
  window:{dispatchEvent:e=>{sandbox.summary=e.detail;}}};
 vm.createContext(sandbox);
