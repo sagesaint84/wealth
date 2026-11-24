@@ -101,7 +101,7 @@
       list.append(row);
       app.refreshDialogKoreanHints(document.getElementById('nationalPensionHistoryDialog'));
     }
-    function openNationalPensionHistory(ins) {
+    function openNationalPensionHistory(ins, { showImport = false } = {}) {
       if (!ins?.id) { app.toast('상품을 먼저 저장해 주세요.'); return; }
       if (nationalPensionHistorySaving) { app.toast('납부 이력 저장이 진행 중입니다. 잠시 후 다시 열어 주세요.'); return; }
       nationalPensionHistoryItem = ins;
@@ -112,6 +112,7 @@
       document.getElementById('nationalPensionHistoryNotice').textContent = `기존 누적납입액 ₩${app.number(ins.total_paid_amount || 0, 0)}는 이력 저장으로 변경되지 않습니다. 연금 개시일은 납부 종료일로 사용하지 않습니다.`;
       document.getElementById('nationalPensionHistoryDialog').showModal();
       window.WealthNationalPension?.open(ins);
+      window.WealthPensionImport?.open(ins, { showPanel: showImport });
     }
     function readNationalPensionHistoryRows() {
       const result = [], years = new Set(), currentYear = new Date().getFullYear();
@@ -127,6 +128,9 @@
       return result;
     }
 
+    function hasUnsavedNationalPensionHistory() {
+      return JSON.stringify(readNationalPensionHistoryRows()) !== JSON.stringify(nationalPensionHistoryOriginal);
+    }
 
     const insuranceView = window.WealthInsuranceView.create({ html: app.html, number: app.number });
 
@@ -568,7 +572,9 @@
     function openNationalPensionTool(analysisButton, importButton) {
       const id=analysisButton?.dataset.nationalAnalysisId||importButton.dataset.nationalImportId;
       const item=rawInsuranceAccounts.find(row=>row.id===id&&row.insurance_type==='national_pension');
-      if(item){openNationalPensionHistory(item);if(importButton)window.WealthPensionImport?.open(item);else document.getElementById('npAnalysisPanel')?.scrollIntoView({block:'start'});}
+      if (!item) return;
+      openNationalPensionHistory(item, { showImport: Boolean(importButton) });
+      if (!importButton) document.getElementById('npAnalysisPanel')?.scrollIntoView({block:'start'});
     }
 
     function openNationalPensionHistoryFromRow(historyButton) {
@@ -602,6 +608,7 @@
         addNationalPensionHistoryRow,
         openNationalPensionHistory,
         readNationalPensionHistoryRows,
+        hasUnsavedNationalPensionHistory,
         renderInsurance,
         renderInsuranceWithOwner,
         updatePensionPayoutFields,
