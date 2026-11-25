@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -34,10 +36,33 @@ jobs:
 
       - name: Read application version
         id: app_version
+        shell: bash
+        env:
+          PREVIOUS_MAIN: ${{ github.event.before }}
         run: |
-          version="$(sed -nE 's/^APP_VERSION = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' app/main.py)"
-          test -n "$version"
+          read_version() {
+            sed -nE 's/^APP_VERSION = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p'
+          }
+
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          version="$(read_version < app/main.py)"
+          [[ "$version" =~ $semver ]]
+
+          publish_version=false
+          # Compare with main before the push, including multi-commit merges.
+          if [[ "$PREVIOUS_MAIN" =~ ^[0-9a-f]{40}$ ]] &&
+             previous="$(git show "$PREVIOUS_MAIN:app/main.py" 2>/dev/null | read_version)" &&
+             [[ "$previous" =~ $semver ]]; then
+            highest="$(printf '%s\n' "$previous" "$version" | LC_ALL=C sort -V | tail -n 1)"
+            if [[ "$version" != "$previous" && "$version" == "$highest" ]]; then
+              publish_version=true
+            fi
+          else
+            echo "::warning::Cannot establish the previous main version; skipping the version tag."
+          fi
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish_version=$publish_version" >> "$GITHUB_OUTPUT"
 
       - name: Extract image metadata
         id: meta
@@ -47,7 +72,7 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha,prefix=,format=short
-            type=raw,value=${{ steps.app_version.outputs.version }}
+            type=raw,value=${{ steps.app_version.outputs.version }},enable=${{ steps.app_version.outputs.publish_version }}
 
       - name: Build and push image
         uses: docker/build-push-action@v5

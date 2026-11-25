@@ -1,4 +1,5 @@
 """Synthetic portfolios, native Chrome input, no financial storage or imports."""
+from datetime import date, datetime, timedelta, timezone
 import json
 import pytest
 from app.services.ipo.presentation import derive_lead_manager_filters
@@ -118,6 +119,30 @@ def test_bucket_palette_filter_owner_and_totals(chrome_preview,width):
     no_overflow(evaluate,width)
 
 @pytest.mark.parametrize('width',[1280,390])
+def test_wts_default_dates_and_manual_ranges_survive_tab_switch(chrome_preview, width):
+    kst = timezone(timedelta(hours=9))
+    today_before_load = datetime.now(kst).date()
+    _, evaluate = start(chrome_preview, width, 'pnl')
+    date_ids = ['tossWtsFromDate', 'tossWtsToDate', 'tossWtsIncomeFromDate', 'tossWtsIncomeToDate']
+    selectors = json.dumps(date_ids)
+    values = f"{selectors}.map(id => document.getElementById(id).value)"
+    dates = evaluate("WealthDateHelper.getKstDateRange(30)")
+    expected = [dates['fromDate'], dates['toDate']] * 2
+    assert evaluate(values) == expected
+    from_date = date.fromisoformat(dates['fromDate'])
+    to_date = date.fromisoformat(dates['toDate'])
+    assert (to_date - from_date).days + 1 == 30
+    assert to_date in (today_before_load, datetime.now(kst).date())
+
+    manual_dates = ['2026-01-02', '2026-01-30', '2026-02-03', '2026-02-24']
+    evaluate(f"{selectors}.forEach((id,i) => {{const input=document.getElementById(id); input.value={json.dumps(manual_dates)}[i]; input.dispatchEvent(new Event('input',{{bubbles:true}}));}})")
+    for tab in ('dividend', 'pnl'):
+        evaluate(f"location.hash={tab!r}")
+        wait_for(evaluate, f"document.querySelector('.wealth-workspace').dataset.incomeTab === {tab!r}")
+        assert evaluate(values) == manual_dates
+
+
+@pytest.mark.parametrize('width',[1280,390])
 def test_wts_controls_type_preferences_and_preview_contract(chrome_preview,width):
     call,evaluate=start(chrome_preview,width,'pnl')
     evaluate(r'''(()=>{
@@ -126,7 +151,7 @@ def test_wts_controls_type_preferences_and_preview_contract(chrome_preview,width
       tossWtsState.rows=[row,{...row,date:'2026-10-06'}];tossWtsState.selectionTokens=['one','two'];tossWtsState.selectedIndices.clear();tossWtsState.importedIndices.clear();tossWtsState.importPreferences.clear();
       populateWtsAccounts();document.getElementById('wtsDestinationAccount').value='a';renderTossWtsFeedTable(tossWtsState.rows);updateWtsSelectionUI();
     })()''')
-    for ids in [['tossWtsFromDate','tossWtsToDate','tossWtsBasisSelect','wtsDestinationAccount','btnFetchTossWtsFeed','btnWtsImportSelected'],['tossWtsIncomeFromDate','tossWtsIncomeToDate','wtsIncomeDestinationAccount','btnFetchTossWtsIncome','btnWtsIncomeImportSelected']]:
+    for ids in [['tossWtsBasisSelect','tossWtsFromDate','tossWtsToDate','wtsDestinationAccount','btnFetchTossWtsFeed','btnWtsImportSelected'],['tossWtsIncomeFromDate','tossWtsIncomeToDate','wtsIncomeDestinationAccount','btnFetchTossWtsIncome','btnWtsIncomeImportSelected']]:
         assert evaluate(f"(()=>{{const es={ids!r}.map(id=>document.getElementById(id));return es.every(e=>e.closest('.toss-wts-controls')===es[0].closest('.toss-wts-controls'))&&es.every((e,i)=>!i||!!(es[i-1].compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING))}})()")
     assert evaluate("[...document.querySelectorAll('#tossWtsTable th')].slice(1,5).map(e=>e.textContent)") == ['거래일자','시장','유형','종목명 (코드)']
     evaluate("const type=document.querySelector('#tossWtsTableBody select');type.value='ipo';type.dispatchEvent(new Event('change',{bubbles:true}));renderTossWtsFeedTable(tossWtsState.rows)")

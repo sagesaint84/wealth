@@ -1,11 +1,19 @@
 # Wealth 변경 이력
 
+## Wealth v2.1.11 — 앱 연결 제어기 및 릴리스 일관성
+
+- 공통 다이얼로그·입력 이벤트, 테마·PWA, 앱 화면 전환 및 부트스트랩 흐름을 앱 셸 제어기로 이전했다.
+- GHCR의 `latest`와 short SHA는 유지한다. 새 앱 버전 태그는 push 직전 main보다 APP_VERSION이 높을 때만 게시한다.
+- Toss WTS 실현손익·배당이자의 공통 KST 최근 30일 초기화와 수동 날짜 보존 검증을 기존 화면 테스트에 추가했다. 실행 대기 상태다.
+- GitHub 병합 대기. GHCR 이미지 미게시. Oracle 운영 배포 미실행.
+
 ## Wealth v2.1.10 — 사용자 접근 및 자격증명 제어기
 
 - 로그인 세션, 역할별 화면, 비밀번호 변경, 관리자 사용자 관리와 초기 자산 로딩을 사용자 접근 제어기로 이전했다.
 - 증권사 OpenAPI, OpenDART, KRX Data Marketplace 설정을 자격증명 제어기로 이전했다. 사용자별 격리, 마스킹 표시와 변경 필드 전송 계약을 유지했다.
 - FastAPI와 화면의 앱 버전을 2.1.10으로 맞추고, 변경된 JavaScript 3개에 독립 캐시 revision을 적용했다.
-- GitHub 병합 대기. GHCR 이미지 미게시. Oracle 운영 미배포.
+- [PR #260](https://github.com/sagesaint84/wealth/pull/260) 사용자 접근·자격증명과 [PR #261](https://github.com/sagesaint84/wealth/pull/261) GHCR 버전 태그가 main `e0e93deec1ad9ca2b8316cd768d82dbe468041fe`에 반영됐다.
+- Git 태그 `v2.1.10` 게시 완료. [Actions #45479870999](https://github.com/sagesaint84/wealth/actions/runs/45479870999) SUCCESS. GHCR `latest`, `e0e93de`, `2.1.10`의 게시 당시 manifest digest는 `sha256:690edc10225a4a510086e758cf423b31d3d3b67429e178371aa49ff9cfdfc767`이다. Oracle 운영 반영은 사용자 확인 대기다.
 
 ## Wealth v2.1.9 — M1·M2 공통 UI 운영 반영 (2026-11-03 KST)
 
