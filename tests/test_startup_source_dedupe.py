@@ -2,6 +2,8 @@
 from pathlib import Path
 import subprocess
 
+from tests.test_startup_performance_p0 import api_client_code, run
+
 
 def test_unified_pending_keys_retry_stale_owners_and_broker_filters():
     source = (Path(__file__).resolve().parents[1] / 'app/static/wealth-timeseries-unified.js').read_text(encoding='utf-8')
@@ -50,7 +52,7 @@ const rows=[{broker:'X',pnl_krw:1,amount_krw:1},{broker:'Y',pnl_krw:2,amount_krw
 
 def test_shared_api_normalizes_queries_reuses_income_and_retries_failure():
     source = (Path(__file__).resolve().parents[1] / 'app/static/wealth.js').read_text(encoding='utf-8')
-    functions = 'const startupReadPending = new Map();' + source.split('const startupReadPending = new Map();', 1)[1].split('const fetchJson = api;', 1)[0]
+    functions = api_client_code(source)
     script = r"""
 const assert=require('node:assert/strict'), vm=require('node:vm');
 const calls=[];
@@ -76,8 +78,7 @@ const response={ok:true,status:200,json:async()=>({records:[]})};
  assert.equal(calls.length,6);calls[5].resolve(response);await afterStartup;
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
-    result = subprocess.run(['node', '-e', script, functions], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
+    run(script, functions)
 
 
 def test_observer_recognizes_unified_empty_state_as_owned():

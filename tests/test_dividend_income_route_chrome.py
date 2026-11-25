@@ -1027,73 +1027,90 @@ def test_startup_request_dedupe_and_estimated_lazy_load(chrome_preview):
         assert check['activeOwner'] == check['owner'] and check['tab'] == check['kind'], check
         assert all(parse_qs(urlsplit(url).query).get('year') == ['all'] for url in check['urls']), check
     estimated = evaluate("""(async()=>{
-      const originalFetch=window.fetch,events=[],actions=[];
-      const owner=currentOwner;
-      let stage='first-entry';
-      const cacheState=()=>({present:!!dividendData,dataOwner:dividendDataOwner,
-        ownerMatches:dividendDataOwner===currentOwner,cacheEpoch:dividendDataEpoch,epoch:startupReadEpoch});
-      const calls=scope=>window.__divTrace.requests.filter(key=>{
-        const url=new URL(key,location.origin);
-        return url.pathname==='/api/dividends' && url.searchParams.get('owner')===scope;
-      });
-      const until=async(scope)=>{
+      const originalFetch=window.fetch,events=[];
+      const owner=currentOwner,slowOwner='synthetic-estimated-slow',otherOwner='synthetic-estimated-other';
+      const amounts=new Map([[owner,123456],[slowOwner,234567],[otherOwner,345678]]);
+      let releaseSlow;
+      const slowPending=new Promise(resolve=>{releaseSlow=resolve;});
+      const calls=scope=>events.filter(event=>event.owner===scope);
+      const screen=()=>({owner:currentOwner, epoch:startupReadEpoch,
+        amount:dividendData?.total_annual_dividend_krw ?? null,
+        displayed:document.getElementById('divTotalAnnual')?.textContent.replace(/[^0-9]/g,'')});
+      const until=async(predicate,phase)=>{
         const started=performance.now();
         for(let i=0;i<600 && performance.now()-started<10000;i++){
-          const key='/api/dividends?owner='+encodeURIComponent(scope);
-          if(currentIncomeTab==='dividend' && currentDividendMode==='estimated'
-              && currentOwner===scope && dividendData && dividendDataOwner===scope
-              && dividendDataEpoch===startupReadEpoch && !startupReadPending.has(key)
-              && document.getElementById('dividendPanel').getClientRects().length
-              && document.querySelector('#dividendBarChartWrap svg.record-chart')
-              && !document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell'))return;
+          if(predicate())return;
           await new Promise(requestAnimationFrame);
         }
-        throw new Error('estimated readiness timed out '+JSON.stringify({stage,owner:currentOwner,cache:cacheState(),events}));
+        throw new Error(phase+' timed out '+JSON.stringify({screen:screen(),events}));
       };
-      window.fetch=function(...args){
-        const url=new URL(String(args[0]),location.origin);
-        if(url.pathname!=='/api/dividends')return originalFetch.apply(this,args);
-        const event={url:url.pathname+url.search,owner:url.searchParams.get('owner'),stage,
-          started:performance.now(),tab:currentIncomeTab,mode:currentDividendMode,currentOwner,
-          cache:cacheState(),stack:new Error('estimated dividend GET caller').stack,
-          previous:events.map(item=>({url:item.url,started:item.started,completed:item.completed || null}))};
+      const ready=scope=>currentIncomeTab==='dividend' && currentDividendMode==='estimated'
+        && currentOwner===scope && !window.setIncomeTab.pendingTarget
+        && calls(scope).every(event=>event.delivered)
+        && screen().amount===amounts.get(scope) && screen().displayed===String(amounts.get(scope))
+        && document.getElementById('dividendPanel').getClientRects().length
+        && document.querySelector('#dividendBarChartWrap svg.record-chart')
+        && !document.querySelector('#dividendBarChartWrap .wealth-unified-chart-shell');
+      window.fetch=async function(input,options){
+        const url=new URL(String(input),location.origin);
+        const scope=url.searchParams.get('owner');
+        if(url.pathname!=='/api/dividends' || (options?.method || 'GET').toUpperCase()!=='GET'
+            || !amounts.has(scope))return originalFetch.apply(this,arguments);
+        const event={url:url.pathname+url.search,owner:scope,delivered:false};
         events.push(event);
-        return originalFetch.apply(this,args).then(response=>{
-          event.completed=performance.now();return response;
-        },error=>{event.failed=performance.now();throw error;});
+        // Keep the existing preview server and request trace; distinguish each
+        // owner's data and hold the old response until the new one is visible.
+        const response=await originalFetch.apply(this,arguments);
+        if(!response.ok)throw new Error('estimated dividend fixture failed: '+response.status);
+        const data=await response.json();
+        if(scope===slowOwner)await slowPending;
+        const amount=amounts.get(scope);
+        event.delivered=true;
+        return Response.json({...data,total_annual_dividend_krw:amount,
+          monthly_schedule:[{month:1,total_krw:amount,items:[]}]});
       };
       try{
-        actions.push({stage,owner,cache:cacheState(),mutation:false,refresh:false});
         document.querySelector('#dividendModeTabs [data-div-mode=estimated]').click();
-        await until(owner);
-        const first=[...calls(owner)],firstCache=cacheState();
-        stage='same-owner-reentry';
-        actions.push({stage,owner:currentOwner,cache:cacheState(),mutation:false,refresh:false});
+        await until(()=>ready(owner),'first estimated entry');
+        const first=calls(owner).map(event=>event.url),firstState=screen();
         document.querySelector('#dividendModeTabs [data-div-mode=actual]').click();
         document.querySelector('#dividendModeTabs [data-div-mode=estimated]').click();
-        await until(owner);
-        const reentry=[...calls(owner)],reentryCache=cacheState();
-        stage='owner-change';
-        const otherOwner='synthetic-estimated-other';
-        actions.push({stage,owner:otherOwner,mutation:false,refresh:false});
+        await until(()=>ready(owner),'same owner estimated reentry');
+        await new Promise(requestAnimationFrame);
+        const reentry=calls(owner).map(event=>event.url),reentryState=screen();
+
+        selectOwner(slowOwner);
+        const ownerChangeStarted=screen();
+        await until(()=>calls(slowOwner).length>0,'old owner GET queued');
+        const slowWasPending=calls(slowOwner).every(event=>!event.delivered);
         selectOwner(otherOwner);
-        const ownerChangeStarted=cacheState();
-        await until(otherOwner);
-        return {owner,otherOwner,first,reentry,firstCache,reentryCache,ownerChangeStarted,
-          otherCalls:calls(otherOwner),otherCache:cacheState(),events,actions};
-      }finally{window.fetch=originalFetch;}
+        await until(()=>ready(otherOwner),'new owner estimated render');
+        const otherState=screen();
+        releaseSlow();
+        await until(()=>calls(slowOwner).every(event=>event.delivered),'late old owner GET delivered');
+        await new Promise(requestAnimationFrame);
+        return {owner,slowOwner,otherOwner,first,reentry,firstState,reentryState,
+          ownerChangeStarted,slowWasPending,otherState,afterLate:screen(),events};
+      }finally{releaseSlow();window.fetch=originalFetch;}
     })()""")
     print('ESTIMATED_REQUESTS=' + json.dumps(estimated))
     assert len(estimated['first']) == 1, estimated
     assert estimated['reentry'] == estimated['first'], estimated
-    for state in (estimated['firstCache'], estimated['reentryCache']):
-        assert state['present'] and state['ownerMatches'] and state['dataOwner'] == estimated['owner'], estimated
-        assert state['cacheEpoch'] == state['epoch'], estimated
-    assert estimated['firstCache']['epoch'] == estimated['reentryCache']['epoch'], estimated
-    assert not estimated['ownerChangeStarted']['present'], estimated
-    assert len(estimated['otherCalls']) == 1, estimated
-    assert estimated['otherCache']['dataOwner'] == estimated['otherOwner'], estimated
-    assert estimated['otherCache']['ownerMatches'], estimated
+    assert estimated['firstState']['owner'] == estimated['owner'], estimated
+    assert estimated['firstState']['amount'] == 123456 and estimated['firstState']['displayed'] == '123456', estimated
+    assert estimated['reentryState'] == estimated['firstState'], estimated
+    assert estimated['ownerChangeStarted']['owner'] == estimated['slowOwner'], estimated
+    assert estimated['ownerChangeStarted']['amount'] is None, estimated
+    assert estimated['ownerChangeStarted']['epoch'] > estimated['reentryState']['epoch'], estimated
+    assert estimated['slowWasPending'], estimated
+    assert [event['owner'] for event in estimated['events']] == [
+        estimated['owner'], estimated['slowOwner'], estimated['otherOwner'],
+    ], estimated
+    assert all(event['delivered'] for event in estimated['events']), estimated
+    assert estimated['otherState']['owner'] == estimated['otherOwner'], estimated
+    assert estimated['otherState']['epoch'] > estimated['ownerChangeStarted']['epoch'], estimated
+    assert estimated['otherState']['amount'] == 345678 and estimated['otherState']['displayed'] == '345678', estimated
+    assert estimated['afterLate'] == estimated['otherState'], estimated
     empty = evaluate("""(async()=>{
       currentOwner='synthetic-empty';
       const checks=[];

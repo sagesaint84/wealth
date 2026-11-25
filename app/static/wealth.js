@@ -570,141 +570,42 @@ appShell.bindDialogControls();
 
 function sparkline(points, change) { return marketView.sparkline(points, change); }
 
-// Opt-in synthetic profiling only: bounded memory, fixed labels, no payloads/URLs.
-globalThis.WealthStartup = (() => {
-  const enabled = globalThis.__WEALTH_SYNTHETIC_PERF__ === true;
-  const counters = Object.create(null), events = [];
-  let assetsReady = false;
-  const visiblePending = new Map();
-  let visibleScope = null, visibleRevision = 0;
-  const labels = new Set(['auth:start','auth:end','prices:start','prices:end',
-    'snapshot:start','snapshot:end','dashboard:visible','request','render',
-    'supplementary','aux_request','inactive_request','inactive_skipped','merged_get','cache_hit','stale_ignored']);
-  function count(label) {
-    if (!enabled || !labels.has(label) || (label === 'dashboard:visible' && counters[label])) return;
-    counters[label] = (counters[label] || 0) + 1;
-    const time = globalThis.performance?.now?.() ?? 0;
-    events.push({label, time});
-    if (events.length > 128) events.shift();
-    const name = `wealth-startup:${label}`;
-    globalThis.performance?.clearMarks?.(name);
-    globalThis.performance?.mark?.(name);
-  }
-  function canRead() {
-    return assetsReady && typeof currentUserProfile !== 'undefined' &&
-      !!currentUserProfile && currentUserProfile.username !== 'admin' && !currentUserProfile.must_change_password;
-  }
-  function visible(id) {
-    return canRead() && !!document.getElementById(id)?.getClientRects().length;
-  }
-  function loadVisible(preparedDividend = null) {
-    if (!canRead()) return;
-    const scope = JSON.stringify([startupReadEpoch, currentOwner, selectedDividendYear, selectedPnlYear,
-      currentPnlTradeType, currentDividendMode, ledgerFeature.getYear(), ledgerFeature.getMonth(), ledgerFeature.isAnnualView(),
-      ['marketGrid','recordsPanel','ledgerSectionPanel','dividendPanel','realizedPnlPanel','summaryRealizedPnl'].map(visible)]);
-    if (scope !== visibleScope) { visibleScope = scope; visibleRevision++; }
-    const key = `${visibleRevision}:${scope}`;
-    if (visiblePending.has(key)) return visiblePending.get(key);
-    const jobs = [];
-    if (visible('marketGrid')) jobs.push(loadMarkets());
-    if (visible('recordsPanel')) jobs.push(loadAssetRecords(currentOwner));
-    if (visible('ledgerSectionPanel')) jobs.push(loadLedger());
-    if (visible('dividendPanel')) jobs.push(currentDividendMode === 'estimated'
-      ? loadDividends(currentOwner, {reuse:true}) : loadActualDividends(currentOwner, selectedDividendYear, preparedDividend));
-    if (visible('realizedPnlPanel')) jobs.push(loadRealizedPnl(currentOwner, selectedPnlYear, currentPnlTradeType));
-    if (visible('summaryRealizedPnl')) jobs.push(updateOverviewCardsAllTime(currentOwner));
-    const pending = Promise.allSettled(jobs).finally(() => {
-      if (visiblePending.get(key) === pending) visiblePending.delete(key);
-    });
-    visiblePending.set(key, pending);
-    return pending;
-  }
-  function request(path, allTime) {
-    if (!enabled) return;
-    if (!['/api/auth/me','/api/refresh-prices','/api/planning/snapshot-all','/api/dashboard'].includes(path)) count('aux_request');
-    const panels = {
-      '/api/ledger':['ledgerSectionPanel'], '/api/asset-records':['recordsPanel'],
-      '/api/dividends':['dividendPanel'], '/api/market-overview':['marketGrid'],
-      '/api/realized-pnl':allTime ? ['realizedPnlPanel','summaryRealizedPnl'] : ['realizedPnlPanel'],
-      '/api/actual-dividends':allTime ? ['dividendPanel','summaryRealizedPnl'] : ['dividendPanel'],
-    }[path];
-    const explicitDividendEntry = path === '/api/actual-dividends' && allTime
-      && typeof setIncomeTab === 'function' && setIncomeTab.pendingTarget === 'dividend';
-    if (panels && !panels.some(visible) && !explicitDividendEntry) count('inactive_request');
-  }
-  function dashboardRendered(data) {
-    if (!enabled) return;
-    if (data?.summary && Number.isFinite(Number(data.summary.total_value_krw)) &&
-        ['wealthAssetNetWorth','wealthNetWorth','totalValue'].some(id => document.getElementById(id)?.getClientRects().length)) count('dashboard:visible');
-  }
-  return {count, request, dashboardRendered, canRead, visible, loadVisible,
-    ready() { assetsReady = true; },
-    snapshot() { return {enabled, scope:'core-api-and-visible-render', counters:{...counters}, events:events.map(e => ({...e}))}; }};
-})();
+const apiClient = globalThis.WealthApiClient.create({
+  getStartup: () => globalThis.WealthStartup,
+  invalidateLedgerRead: () => ledgerFeature.invalidateRead(),
+});
+Object.assign(globalThis, {
+  api: apiClient.api,
+  apiRequest: apiClient.apiRequest,
+  invalidateStartupReads: apiClient.invalidateStartupReads,
+  finishStartupIncomeReads: apiClient.finishStartupIncomeReads,
+});
 
-const startupReadPending = new Map();
-const allTimeReadCache = new Map();
-let startupReadEpoch = 0;
-let startupIncomeReuse = true;
+// Classic-script consumers read the current epoch and inspect pending reads.
+Object.defineProperties(globalThis, {
+  startupReadEpoch: { configurable: true, get: apiClient.getReadEpoch },
+  startupIncomeReuse: { configurable: true, get: apiClient.isStartupIncomeReuseEnabled },
+  startupReadPending: { configurable: true, value: apiClient.pendingReads },
+});
 
-function invalidateStartupReads() {
-  startupReadEpoch++;
-  allTimeReadCache.clear();
-  startupReadPending.clear();
-}
-
-function finishStartupIncomeReads() {
-  startupIncomeReuse = false;
-  for (const key of allTimeReadCache.keys()) {
-    if (!key.startsWith('/api/ipo/market')) allTimeReadCache.delete(key);
-  }
-}
-
-async function api(url, options = {}) {
-  const parsed = new URL(url, location.origin);
-  parsed.searchParams.sort();
-  const key = parsed.pathname + parsed.search;
-  const isRead = !options.method || options.method.toUpperCase() === 'GET';
-  if (!isRead && parsed.pathname.startsWith('/api/ledger')) ledgerFeature.invalidateRead();
-  const shared = isRead && ['/api/realized-pnl', '/api/actual-dividends', '/api/family-members', '/api/ipo/market', '/api/accounts', '/api/asset-records', '/api/ledger', '/api/market-overview', '/api/dividends'].includes(parsed.pathname);
-  const reusable = shared && ((startupIncomeReuse && parsed.searchParams.get('year') === 'all') || parsed.pathname === '/api/ipo/market');
-  // Price/snapshot writes do not change realized income or IPO market records.
-  if (!isRead && !['/api/refresh-prices', '/api/planning/snapshot-all'].includes(parsed.pathname)) {
-    invalidateStartupReads();
-  }
-  if (reusable && options.cache !== 'no-store' && allTimeReadCache.has(key)) { globalThis.WealthStartup?.count('cache_hit'); return allTimeReadCache.get(key); }
-  if (shared && startupReadPending.has(key)) { globalThis.WealthStartup?.count('merged_get'); return startupReadPending.get(key); }
-  const epoch = startupReadEpoch;
-  const pending = apiRequest(url, options);
-  if (!shared) return pending;
-  startupReadPending.set(key, pending);
-  try {
-    const result = await pending;
-    if (reusable && epoch === startupReadEpoch && (startupIncomeReuse || parsed.pathname === '/api/ipo/market')) allTimeReadCache.set(key, result);
-    return result;
-  } finally {
-    if (startupReadPending.get(key) === pending) startupReadPending.delete(key);
-  }
-}
-
-async function apiRequest(url, options = {}) {
-  globalThis.WealthStartup?.count('request');
-  const address = new URL(url, location.origin);
-  globalThis.WealthStartup?.request(address.pathname, address.searchParams.get('year') === 'all');
-  const phase = ({'/api/auth/me':'auth', '/api/refresh-prices':'prices', '/api/planning/snapshot-all':'snapshot'})[address.pathname];
-  if (phase) globalThis.WealthStartup?.count(`${phase}:start`);
-  try {
-    options.credentials = options.credentials || 'include';
-    const response = await fetch(url, options);
-    if (response.status === 401) {
-      window.location.href = '/login';
-      throw new Error('로그인이 필요합니다.');
-    }
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.detail || result.message || "요청을 처리하지 못했습니다.");
-    return result;
-  } finally { if (phase) globalThis.WealthStartup?.count(`${phase}:end`); }
-}
+globalThis.WealthStartup = globalThis.WealthStartupReadController.create({
+  getUserProfile: () => typeof currentUserProfile === 'undefined' ? null : currentUserProfile,
+  get startupReadEpoch() { return apiClient.getReadEpoch(); },
+  get currentOwner() { return currentOwner; },
+  get selectedDividendYear() { return selectedDividendYear; },
+  get selectedPnlYear() { return selectedPnlYear; },
+  get currentPnlTradeType() { return currentPnlTradeType; },
+  get currentDividendMode() { return currentDividendMode; },
+  get ledgerFeature() { return ledgerFeature; },
+  isDividendEntryPending: () => typeof setIncomeTab === 'function' && setIncomeTab.pendingTarget === 'dividend',
+  loadMarkets: () => loadMarkets(),
+  loadAssetRecords: owner => loadAssetRecords(owner),
+  loadLedger: () => loadLedger(),
+  loadDividends: (owner, options) => loadDividends(owner, options),
+  loadActualDividends: (owner, year, prepared) => loadActualDividends(owner, year, prepared),
+  loadRealizedPnl: (owner, year, tradeType) => loadRealizedPnl(owner, year, tradeType),
+  updateOverviewCardsAllTime: owner => updateOverviewCardsAllTime(owner),
+});
 
 const fetchJson = api;
 window.fetchJson = api;
@@ -1356,7 +1257,7 @@ function setIncomeTab(tab, { updateHash = true, loadContent = true } = {}) {
         const prepared = await window.WealthUnifiedTimeseries.prepareDividend({refresh:true});
         if (!current()) return false;
         if (scope !== window.WealthUnifiedTimeseries.dividendScopeKey()) return setIncomeTab(tab, {updateHash, loadContent});
-        if (prepared.readEpoch !== (typeof startupReadEpoch === 'undefined' ? 0 : startupReadEpoch))
+        if (prepared.readEpoch !== apiClient.getReadEpoch())
           return setIncomeTab(tab, {updateHash, loadContent});
         setIncomeTab.cancelPending = null;
         return setIncomeTab(tab, {updateHash, loadContent, preparedDividend:prepared});
@@ -1481,7 +1382,7 @@ const incomeFeature = window.WealthIncomeFeatureController.create({
   get renderRealEstateWithOwner() { return renderRealEstateWithOwner; },
   get setIncomeTab() { return setIncomeTab; },
   get setupAutoAdvancingDateInput() { return setupAutoAdvancingDateInput; },
-  get startupReadEpoch() { return startupReadEpoch; },
+  get startupReadEpoch() { return apiClient.getReadEpoch(); },
   get toast() { return toast; },
   get updateKoreanCurrencyHint() { return updateKoreanCurrencyHint; },
   get updateOverviewCardsAllTime() { return updateOverviewCardsAllTime; },
@@ -1989,7 +1890,7 @@ const ledgerFeature = window.WealthLedgerFeatureController.create({
   setupAutoAdvancingDateInput, getKstYearMonth, shiftYearMonth, parseYearMonth,
   getOwner: () => currentOwner,
   getUsername: () => currentUserProfile?.username || '',
-  getReadEpoch: () => startupReadEpoch,
+  getReadEpoch: apiClient.getReadEpoch,
   invalidateStartupReads,
   getAccounts: () => ({ rawDashboard, dashboard, rawBankAccounts: accountFeature.rawBankAccounts, rawSavingsAccounts: accountFeature.rawSavingsAccounts }),
 });

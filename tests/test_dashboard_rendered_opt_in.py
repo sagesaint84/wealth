@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import pytest
 
-from tests.test_startup_performance_p0 import fragment, run
+from tests.test_startup_performance_p0 import run, startup_transport_code
 from tests.test_account_reorder_runtime import chrome_preview, wait_for
 from tests.test_static_transport_chrome import transport_server, PROFILE
 
@@ -12,13 +12,13 @@ SOURCE=Path(__file__).resolve().parents[1]/'app/static/wealth.js'
 
 @pytest.mark.parametrize('opt_in',[None,False,True])
 def test_telemetry_geometry_and_visible_loader_have_separate_opt_in_contracts(opt_in):
-    code=fragment(SOURCE.read_text(encoding='utf-8'),'globalThis.WealthStartup = (() => {','const startupReadPending = new Map();')
+    code = startup_transport_code(SOURCE.read_text(encoding='utf-8'))
     run(r"""
 const assert=require('node:assert/strict'),vm=require('node:vm');
 const enabled=JSON.parse(process.argv[2]),shown=new Set(),marks=[],reads=[];
 let forbid=false,marketCalls=0;
 const context={__WEALTH_SYNTHETIC_PERF__:enabled,
- currentUserProfile:{username:'SYNTHETIC'},startupReadEpoch:0,currentOwner:'all',
+ currentUserProfile:{username:'SYNTHETIC'},currentOwner:'all',
  selectedDividendYear:2026,selectedPnlYear:2026,currentPnlTradeType:'all',currentDividendMode:'actual',
  ledgerFeature:{getYear:()=>2026,getMonth:()=>10,isAnnualView:()=>false},
  performance:{now:()=>0,clearMarks(){},mark:name=>marks.push(name)},
