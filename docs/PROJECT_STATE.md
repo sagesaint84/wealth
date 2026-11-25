@@ -1,9 +1,16 @@
 # Wealth Project State
 
-## v2.1.13 개발 후보 — 공통 API와 시작 데이터 로딩
+## v2.1.14 개발 후보 — 가족별 자산 요약 모델과 화면 렌더링
+
+- 가족별 자산 선택과 집계는 기존 대시보드 모델이 담당한다. 기존 투자 요약 View는 카드 DOM을 갱신하며 앱은 기존 공개 진입점과 HOME 이벤트를 연결한다.
+- 가족별 금액, 기간 집계와 요약 카드 동작 검증은 대기 중이다.
+
+## v2.1.13 — 공통 API와 시작 데이터 로딩
 
 - 공통 API 클라이언트가 요청·응답 처리, GET 중복 제거, 캐시와 읽기 세대를 소유한다. 시작 읽기 제어기는 인증 상태·화면 가시성에 따른 보조 조회와 계측을 소유한다.
-- 구현 및 정적 검증 배치. 동적 검증과 GitHub 통합은 대기 중이다.
+- [PR #264](https://github.com/sagesaint84/wealth/pull/264) 병합 완료. main `328f5d735a61ac7e6ec203e8b3429433c5e63304`에 annotated Git 태그 `v2.1.13`을 게시했다.
+- [Actions #45582763356](https://github.com/sagesaint84/wealth/actions/runs/45582763356) SUCCESS. GHCR `latest`, `328f5d7`, `2.1.13`의 manifest digest는 `sha256:a3c3e9453a40ef8fcf2b4466ce19ecb903e845d2a829fe7e1ceded46e3497596`로 일치했다. Oracle 운영 반영은 사용자 확인 대기다.
+- Windows 집중 검증 8건 PASS. 작업 브랜치와 worktree 정리를 완료했다.
 
 ## v2.1.12 — 전역 클릭 위임과 분할 날짜 입력
 

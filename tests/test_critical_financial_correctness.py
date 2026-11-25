@@ -10,7 +10,7 @@ from app.services.tax_benefit import get_total_tax_benefits
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WEALTH_JS = ROOT / "app" / "static" / "wealth.js"
+OWNER_MODEL = ROOT / "app" / "static" / "wealth-dashboard-owner-model.js"
 
 
 class OverdraftNetWorthTests(unittest.TestCase):
@@ -21,16 +21,14 @@ class OverdraftNetWorthTests(unittest.TestCase):
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync(process.argv[1], 'utf8');
-const start = source.indexOf('function calculateDashboardDebt');
-const end = source.indexOf('\nfunction renderSummary', start);
-if (start < 0 || end < 0) throw new Error('debt helper not found');
-const sandbox = {};
-vm.runInNewContext(source.slice(start, end) + '\nthis.calculate = calculateDashboardDebt;', sandbox);
+const sandbox = {window: {}};
+vm.runInNewContext(source, sandbox);
+const {calculateDashboardDebt} = sandbox.window.WealthDashboardOwnerModel;
 const input = JSON.parse(process.argv[2]);
-process.stdout.write(JSON.stringify(sandbox.calculate(input.banks, input.loans)));
+process.stdout.write(JSON.stringify(calculateDashboardDebt(input.banks, input.loans)));
 """
         result = subprocess.run(
-            ["node", "-e", script, str(WEALTH_JS), json.dumps({"banks": banks, "loans": loans})],
+            ["node", "-e", script, str(OWNER_MODEL), json.dumps({"banks": banks, "loans": loans})],
             cwd=ROOT,
             capture_output=True,
             text=True,

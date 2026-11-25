@@ -185,7 +185,7 @@ class AssetCalculationRegressionTests(IsolatedDataTestCase):
         self.assertEqual((total_invest_assets + total_safe_assets) - total_debt, 875)
 
     def test_frontend_net_worth_formula_contract_is_unchanged(self) -> None:
-        source = (PROJECT_ROOT / "app" / "static" / "wealth.js").read_text(encoding="utf-8")
+        source = (PROJECT_ROOT / "app" / "static" / "wealth-dashboard-owner-model.js").read_text(encoding="utf-8")
 
         expected_lines = (
             "const totalAllDebt = totalPureDebt + totalMinusBankDebt + totalLandlordDepositDebt;",

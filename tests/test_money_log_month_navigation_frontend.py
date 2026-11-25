@@ -31,7 +31,7 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
         const staticDir = require('path').dirname(wealthPath);
         for (const name of [
           'wealth-date-helper.js', 'wealth-format.js', 'wealth-realized-pnl-view.js',
-          'wealth-dividend-summary-view.js', 'wealth-income-feature-controller.js'
+          'wealth-dividend-summary-view.js', 'wealth-dashboard-owner-model.js', 'wealth-income-feature-controller.js'
         ]) {
           vm.runInContext(fs.readFileSync(require('path').join(staticDir, name), 'utf8'), sandbox);
         }
@@ -43,13 +43,14 @@ class MoneyLogMonthNavigationFrontendTests(unittest.TestCase):
           if (a < 0 || b < 0) throw Error('Missing summary dependency: ' + start);
           return source.slice(a, b);
         }
-        const dependencies = vm.runInContext(
-          extract('const number =', 'function formatKoreanMoneyFriendly') +
-          extract('function finiteRealizedPnlNumber', 'const investmentSummaryView =') +
-          '({ number, money, finiteRealizedPnlNumber, buildRealizedPnlDisplaySummary })', sandbox
+        const formatters = vm.runInContext(
+          extract('const number =', 'function formatKoreanMoneyFriendly') + '({ number, money })',
+          sandbox
         );
+        const {finiteRealizedPnlNumber, buildRealizedPnlDisplaySummary} = window.WealthDashboardOwnerModel;
         const income = window.WealthIncomeFeatureController.create({
-          ...dependencies,
+          ...formatters,
+          finiteRealizedPnlNumber, buildRealizedPnlDisplaySummary,
           $: document.querySelector,
           html: window.WealthFormat.escapeHtml,
           currentOwner: '\uBAA8\uB450',

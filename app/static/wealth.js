@@ -65,20 +65,15 @@ async function updateOverviewCardsAllTime(owner = currentOwner) {
     if (pnlResult.status === 'rejected') throw pnlResult.reason;
     const pnlRes = pnlResult.value;
     if (pnlRes) {
-      const pnlView = buildRealizedPnlDisplaySummary(pnlRes, [], true);
+      const pnlView = dashboardOwnerModel.buildRealizedPnlDisplaySummary(pnlRes, [], true);
       totalPnl = pnlView.totalPnlKrw;
-      const winRate = pnlView.winRate;
-      const recordCount = pnlView.recordCount;
 
       const summaryPnlEl = $("#summaryRealizedPnl");
       if (summaryPnlEl) {
         summaryPnlEl.textContent = `${totalPnl > 0 ? '+' : ''}${money(totalPnl)}`;
         summaryPnlEl.className = `${totalPnl > 0 ? 'gain up' : (totalPnl < 0 ? 'loss down' : '')}`;
       }
-      const subEl = $("#summaryRealizedPnlSub");
-      if (subEl) {
-        subEl.textContent = `승률 ${number(winRate, 1)}% · 총 ${recordCount}건 실현${pnlView.completenessNote ? ` · ${pnlView.completenessNote}` : ''}`;
-      }
+      investmentSummaryView.renderRealizedPnlCaption(pnlView);
     }
   } catch (err) {
     console.error("핵심 요약 실현손익 갱신 실패:", err);
@@ -100,309 +95,36 @@ async function updateOverviewCardsAllTime(owner = currentOwner) {
   }
 }
 
-// ── 필터링된 데이터로 핵심 요약 재계산 ──────────────────────────────────────
-function computeFilteredSummary(accounts, holdings, fxRates) {
-  const usdKrw = (fxRates || {})['USD'] || 1385;
-  let total_stock_value_krw = 0, total_cash_krw = 0, total_cost_krw = 0, profit_krw = 0;
-  let cash_krw = 0, cash_usd = 0;
+const dashboardOwnerModel = window.WealthDashboardOwnerModel;
+const dashboardInputs = {
+  get rawDashboard() { return rawDashboard; },
+  get allAssetRecords() { return allAssetRecords; },
+  get pnlData() { return pnlData; },
+  get actualDividendData() { return actualDividendData; },
+  get rawLoanAccounts() { return accountFeature.rawLoanAccounts; },
+  get rawBankAccounts() { return accountFeature.rawBankAccounts; },
+  get rawSavingsAccounts() { return accountFeature.rawSavingsAccounts; },
+  get rawInsuranceAccounts() { return insuranceFeature.rawInsuranceAccounts; },
+  get rawRealEstates() { return realEstateFeature.rawRealEstates; },
+};
 
-  holdings.forEach(h => {
-    total_stock_value_krw += Number(h.market_value_krw || 0);
-    total_cost_krw        += Number(h.cost_value_krw  || 0);
-    profit_krw            += Number(h.profit_krw      || 0);
-  });
-  accounts.forEach(a => {
-    cash_krw += Number(a.cash_krw || 0);
-    cash_usd += Number(a.cash_usd || 0);
-  });
-  total_cash_krw = cash_krw + cash_usd * usdKrw;
-  const total_value_krw = total_stock_value_krw + total_cash_krw;
-  const return_rate = total_cost_krw > 0 ? (profit_krw / total_cost_krw) * 100 : 0;
-  return {
-    total_value_krw, total_stock_value_krw, total_cash_krw,
-    total_cost_krw, profit_krw, return_rate, cash_krw, cash_usd,
-    holding_count: holdings.length,
-    account_count: accounts.length,
-  };
-}
-
-const KR_ETF_PREFIXES = ['KODEX','TIGER','ACE','SOL','PLUS','RISE','HANARO','KOSEF','ARIRANG','KOACT','WON','1Q','KIWOOM','TIMEFOLIO','WOORI','KBSTAR'];
-const OVERSEAS_KEYWORDS = ['미국','S&P','나스닥','NASDAQ','다우','DOW','글로벌','GLOBAL','차이나','중국','CHINA','인도','INDIA','일본','JAPAN','TOPIX','NIKKEI','유로','EURO','베트남','VIETNAM','FANG','필라델피아','빅테크','BIG TECH','월드','WORLD','선진국','신흥국','MSCI','유럽','대만','해외'];
-const US_ETF_TICKERS = new Set([
-  'QQQ','QQQM','SPY','VOO','IVV','TLT','TQQQ','QLD','SOXL','SOXS','SQQQ','SCHD','JEPI','JEPQ','DIA','IWM','VNQ','GLD','SLV','SPYG',
-  'QNDX','SMH','XLK','XLE','XLF','XLV','XLY','XLP','XLI','XLU','XLRE','XLB','IEF','SHY','BND','AGG','VT','VTI','VXUS','ARKK',
-  'BIL','SHV','VGK','EEM','VWO','HYG','LQD','JNK','TMF','UPRO','SPXU','LABU','LABD','NUGT','DUST','FNGU','BULZ'
-]);
-
-function classifyHolding(h) {
-  const name = h.name || '';
-  const nameUpper = name.toUpperCase();
-  const codeUpper = (h.code || '').toUpperCase().trim();
-  const currency = (h.currency || 'KRW').toUpperCase();
-
-  if (currency === 'KRW') {
-    const isKrEtf = KR_ETF_PREFIXES.some(p => nameUpper.startsWith(p)) || nameUpper.includes('ETF');
-    if (isKrEtf) {
-      if (OVERSEAS_KEYWORDS.some(k => nameUpper.includes(k))) return '국내상장해외ETF';
-      return '국내ETF';
-    }
-    return '국내주식';
-  } else {
-    if (
-      US_ETF_TICKERS.has(codeUpper) ||
-      nameUpper.includes('ETF') ||
-      nameUpper.includes('TRUST') ||
-      nameUpper.includes('FUND') ||
-      nameUpper.includes('ISHARES') ||
-      nameUpper.includes('VANGUARD') ||
-      nameUpper.includes('INVESCO') ||
-      nameUpper.includes('SPDR')
-    ) {
-      return '해외ETF';
-    }
-    return '해외주식';
-  }
-}
+Object.assign(window, {
+  computeFilteredSummary: dashboardOwnerModel.computeFilteredSummary,
+  classifyHolding: dashboardOwnerModel.classifyHolding,
+  computeFilteredSectors: dashboardOwnerModel.computeFilteredSectors,
+  computeFilteredCurrencySummary: dashboardOwnerModel.computeFilteredCurrencySummary,
+  calculateDashboardDebt: dashboardOwnerModel.calculateDashboardDebt,
+  finiteRealizedPnlNumber: dashboardOwnerModel.finiteRealizedPnlNumber,
+  summarizeRealizedPnlRows: dashboardOwnerModel.summarizeRealizedPnlRows,
+  buildRealizedPnlDisplaySummary: dashboardOwnerModel.buildRealizedPnlDisplaySummary,
+});
 
 function computeFilteredClassifications(holdings, accounts, fxRates, owner = '모두', rawData = null) {
-  const usdKrw = (fxRates || {})['USD'] || 1385;
-  const groups = {};
-  let totalValue = 0;
-  const src = rawData || rawDashboard || {};
-
-  const filterByOwner = (arr) => owner === '모두' ? (arr || []) : (arr || []).filter(x => (x.owner || '모두') === owner);
-
-  // 1. 부동산 순에퀴티 (자가 & 임대 투자자산) 및 임차보증금 (안전자산)
-  const allREs = src.real_estates || realEstateFeature.rawRealEstates || [];
-  let totalREInvestEquity = 0;
-  let totalTenantDepositVal = 0;
-  let reInvestCount = 0;
-  let reLeaseCount = 0;
-
-  allREs.forEach(r => {
-    const ownerships = (r.ownerships && r.ownerships.length) 
-      ? r.ownerships 
-      : [{ owner: r.owner || '모두', ratio: 100 }];
-
-    let share = 1.0;
-    if (owner !== '모두') {
-      let matched = ownerships.find(x => x.owner === owner);
-      if (!matched && r.owner && r.owner.includes(owner)) {
-        const m = r.owner.match(new RegExp(`${owner}\\s*([0-9.]+)%`));
-        if (m) {
-          share = parseFloat(m[1]) / 100;
-        } else {
-          share = 0.5;
-        }
-      } else if (matched && matched.ratio > 0) {
-        share = (matched.ratio || 100) / 100;
-      } else {
-        return;
-      }
-    }
-
-    const pType = r.property_type || 'own';
-    if (pType !== 'lease') {
-      const pVal = (Number(r.current_price) || 0) * share;
-      totalREInvestEquity += pVal;
-      reInvestCount += 1;
-    } else {
-      totalTenantDepositVal += ((Number(r.deposit_amount) || 0) * share);
-      reLeaseCount += 1;
-    }
-  });
-
-  if (totalREInvestEquity > 0) {
-    groups['부동산'] = {
-      name: '부동산',
-      market_value_krw: totalREInvestEquity,
-      cost_value_krw: totalREInvestEquity,
-      profit_krw: 0,
-      holding_count: reInvestCount,
-    };
-    totalValue += totalREInvestEquity;
-  }
-
-  if (totalTenantDepositVal > 0) {
-    groups['임차보증금'] = {
-      name: '임차보증금',
-      market_value_krw: totalTenantDepositVal,
-      cost_value_krw: totalTenantDepositVal,
-      profit_krw: 0,
-      holding_count: reLeaseCount,
-    };
-    totalValue += totalTenantDepositVal;
-  }
-
-  // 2. 주식 및 ETF 보유종목 분류
-  holdings.forEach(h => {
-    let name = classifyHolding(h);
-    if (name === '해외주식') name = '해외ETF'; // 해외ETF / 해외주식 통합 표시
-    if (!groups[name]) groups[name] = { name, market_value_krw: 0, cost_value_krw: 0, profit_krw: 0, holding_count: 0 };
-    const g = groups[name];
-    g.market_value_krw += Number(h.market_value_krw || 0);
-    g.cost_value_krw   += Number(h.cost_value_krw   || 0);
-    g.profit_krw       += Number(h.profit_krw        || 0);
-    g.holding_count    += 1;
-    totalValue         += Number(h.market_value_krw || 0);
-  });
-
-  // 3. 현금·예수금 (증권사 예수금 + 은행 입출금 잔액 + 예적금 잔액)
-  let cashKrw = 0, cashUsd = 0;
-  (accounts || []).forEach(a => {
-    cashKrw += Number(a.cash_krw || a.cash || 0);
-    cashUsd += Number(a.cash_usd || 0);
-  });
-  const stockCashTotal = cashKrw + cashUsd * usdKrw;
-
-  const curBanks = filterByOwner(src.bank_accounts || accountFeature.rawBankAccounts || []);
-  const bankCashTotal = curBanks.reduce((acc, b) => acc + Math.max(0, Number(b.balance) || 0), 0);
-
-  const curSavings = filterByOwner(src.savings_accounts || accountFeature.rawSavingsAccounts || []);
-  const savingsTotal = curSavings.reduce((acc, s) => acc + (Number(s.current_value) || Number(s.current_paid_amount) || Number(s.balance) || 0), 0);
-
-  const totalAllCash = stockCashTotal + bankCashTotal + savingsTotal;
-  if (totalAllCash > 0) {
-    groups['현금·예수금'] = {
-      name: '현금·예수금',
-      market_value_krw: totalAllCash,
-      cost_value_krw: totalAllCash,
-      profit_krw: 0,
-      holding_count: (accounts || []).length + curBanks.length + curSavings.length,
-    };
-    totalValue += totalAllCash;
-  }
-
-  // 4. 보험 (해약환급금 / 예상 수령액 / 20년 환산 총자산)
-  const curInsurances = filterByOwner(src.insurance_accounts || insuranceFeature.rawInsuranceAccounts || []);
-  const insuranceTotal = curInsurances.reduce((acc, ins) => acc + (Number(ins.expected_amount) || Number(ins.converted_total_asset) || Number(ins.total_paid_amount) || Number(ins.expected_refund_amount) || Number(ins.accumulated_paid_amount) || 0), 0);
-  if (insuranceTotal > 0) {
-    groups['보험'] = {
-      name: '보험',
-      market_value_krw: insuranceTotal,
-      cost_value_krw: insuranceTotal,
-      profit_krw: 0,
-      holding_count: curInsurances.length,
-    };
-    totalValue += insuranceTotal;
-  }
-
-  return Object.values(groups).map(g => ({
-    ...g,
-    return_rate: g.cost_value_krw > 0 ? (g.profit_krw / g.cost_value_krw) * 100 : 0,
-    weight: totalValue > 0 ? (g.market_value_krw / totalValue) * 100 : 0,
-  })).sort((a, b) => (b.weight || 0) - (a.weight || 0));
-}
-
-function computeFilteredSectors(holdings, accounts, fxRates) {
-  const usdKrw = (fxRates || {})['USD'] || 1385;
-  const groups = {};
-  let totalValue = 0;
-  holdings.forEach(h => {
-    const sec = h.sector || '기타';
-    if (!groups[sec]) groups[sec] = { name: sec, market_value_krw: 0, cost_value_krw: 0, profit_krw: 0, holding_count: 0 };
-    const g = groups[sec];
-    g.market_value_krw += Number(h.market_value_krw || 0);
-    g.cost_value_krw   += Number(h.cost_value_krw   || 0);
-    g.profit_krw       += Number(h.profit_krw        || 0);
-    g.holding_count    += 1;
-    totalValue         += Number(h.market_value_krw || 0);
-  });
-  let cashKrw = 0, cashUsd = 0;
-  (accounts || []).forEach(a => {
-    cashKrw += Number(a.cash_krw || 0);
-    cashUsd += Number(a.cash_usd || 0);
-  });
-  const totalCash = cashKrw + cashUsd * usdKrw;
-  if (totalCash > 0) {
-    groups['현금·예수금'] = {
-      name: '현금·예수금', market_value_krw: totalCash,
-      cost_value_krw: totalCash, profit_krw: 0, holding_count: 0,
-    };
-    totalValue += totalCash;
-  }
-  return Object.values(groups).map(g => ({
-    ...g,
-    return_rate: g.cost_value_krw > 0 ? (g.profit_krw / g.cost_value_krw) * 100 : 0,
-    weight: totalValue > 0 ? (g.market_value_krw / totalValue) * 100 : 0,
-  })).sort((a, b) => b.market_value_krw - a.market_value_krw);
-}
-
-function computeFilteredCurrencySummary(holdings, accounts, fxRates) {
-  const usdKrw = (fxRates || {})['USD'] || 1385;
-  let krwStock = 0, usdStock = 0;
-  let krwCash = 0, usdCash = 0;
-  holdings.forEach(h => {
-    if (h.currency === 'KRW') krwStock += Number(h.market_value_krw || 0);
-    else usdStock += Number(h.market_value || (Number(h.market_value_krw || 0) / usdKrw));
-  });
-  accounts.forEach(a => {
-    krwCash += Number(a.cash_krw || 0);
-    usdCash += Number(a.cash_usd || 0);
-  });
-  return {
-    KRW: {
-      currency: 'KRW',
-      stock_value_krw: krwStock,
-      cash: krwCash,
-      market_value_krw: krwStock + krwCash,
-    },
-    USD: {
-      currency: 'USD',
-      stock_value: usdStock,
-      cash: usdCash,
-      market_value: usdStock + usdCash,
-      market_value_krw: (usdStock + usdCash) * usdKrw,
-    },
-  };
+  return dashboardOwnerModel.computeFilteredClassifications(holdings, accounts, fxRates, owner, rawData, dashboardInputs);
 }
 
 function computeFilteredDayChange(holdings, rawDayChange, owner = '모두', currentTotalValue = 0) {
-  const targetOwner = owner || '모두';
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const dayStr = String(now.getDate()).padStart(2, '0');
-  const todayStr = `${year}-${month}-${dayStr}`;
-
-  // 1. 자산기록(allAssetRecords)에서 오늘 이전(date < todayStr)의 해당 owner 직전 기록 찾기
-  const ownerRecords = (allAssetRecords || []).filter(r => 
-    (r.owner || '모두') === targetOwner && 
-    r.date && 
-    r.date < todayStr && 
-    Number(r.total_value_krw || 0) > 0
-  );
-
-  if (ownerRecords.length > 0) {
-    ownerRecords.sort((a, b) => String(a.date).localeCompare(String(b.date)));
-    const lastRec = ownerRecords[ownerRecords.length - 1];
-    const prevVal = Number(lastRec.total_value_krw || 0);
-    const prevDate = lastRec.date;
-    const change_krw = currentTotalValue - prevVal;
-    const change_rate = prevVal > 0 ? (change_krw / prevVal) * 100 : 0;
-    return {
-      day_profit_krw: null,
-      price_profit_status: 'unavailable',
-      record_change_rate: change_rate,
-      record_change_krw: change_krw,
-      change_rate,
-      change_krw,
-      date: prevDate,
-      value_krw: prevVal,
-    };
-  }
-
-  // A display-only 1D rate without prior session provenance must never be
-  // promoted to today's canonical price P/L.
-  return {
-    day_profit_krw: null,
-    price_profit_status: 'unavailable',
-    record_change_rate: null,
-    record_change_krw: null,
-    change_rate: null,
-    change_krw: null,
-    date: (rawDayChange || {}).date || "전일",
-  };
+  return dashboardOwnerModel.computeFilteredDayChange(holdings, rawDayChange, owner, currentTotalValue, dashboardInputs);
 }
 
 function renderWithOwner(data, owner) {
@@ -416,29 +138,7 @@ function renderWithOwner(data, owner) {
   const src = rawDashboard || targetData || dashboard;
   if (!src) return;
 
-  const filteredData = Object.assign({}, src);
-
-  if (effectiveOwner !== '모두') {
-    const owned = window.WealthDashboardOwnerModel.selectAccountsAndHoldings(src, effectiveOwner);
-    filteredData.accounts = owned.accounts;
-    filteredData.holdings = owned.holdings;
-
-    filteredData.summary               = computeFilteredSummary(filteredData.accounts, filteredData.holdings, src.fx_rates);
-    filteredData.classifications       = computeFilteredClassifications(filteredData.holdings, filteredData.accounts, src.fx_rates, effectiveOwner, src);
-    filteredData.sector_classifications= computeFilteredSectors(filteredData.holdings, filteredData.accounts, src.fx_rates);
-    filteredData.currency_summary      = computeFilteredCurrencySummary(filteredData.holdings, filteredData.accounts, src.fx_rates);
-    filteredData.day_change            = src.daily_metrics_by_owner?.[effectiveOwner]
-      || computeFilteredDayChange(filteredData.holdings, src.day_change, effectiveOwner, filteredData.summary?.total_stock_value_krw);
-  } else {
-    filteredData.accounts              = src.accounts               || [];
-    filteredData.holdings              = src.holdings               || [];
-    filteredData.summary               = src.summary                || {};
-    filteredData.classifications       = computeFilteredClassifications(filteredData.holdings, filteredData.accounts, src.fx_rates, '모두', src);
-    filteredData.sector_classifications= src.sector_classifications || [];
-    filteredData.currency_summary      = src.currency_summary       || {};
-    filteredData.day_change            = src.daily_metrics_by_owner?.['모두'] || src.day_change || {};
-  }
-
+  const filteredData = dashboardOwnerModel.buildOwnerDashboard(src, effectiveOwner, dashboardInputs);
   render(filteredData);
   loadAssetRecords(effectiveOwner);
   if (isLedgerViewActive()) loadLedger();
@@ -631,7 +331,7 @@ const investmentFeature = window.WealthInvestmentFeatureController.create({
   get attachStockAutoFill() { return attachStockAutoFill; },
   get calcAccountCumulativeTaxSaved() { return calcAccountCumulativeTaxSaved; },
   get calculateOwnerYearPensionTaxBenefits() { return calculateOwnerYearPensionTaxBenefits; },
-  get classifyHolding() { return classifyHolding; },
+  classifyHolding: dashboardOwnerModel.classifyHolding,
   get currentOwner() { return currentOwner; },
   get currentUserProfile() { return currentUserProfile; },
   get currentWealthView() { return currentWealthView; },
@@ -692,426 +392,17 @@ async function loadMarkets() {
 }
 
 // ── 2. 핵심 요약 렌더링 ──────────────────────────────────────────────────────
-function calculateDashboardDebt(bankAccounts, loanAccounts) {
-  const banks = Array.isArray(bankAccounts) ? bankAccounts : [];
-  const loans = Array.isArray(loanAccounts) ? loanAccounts : [];
-  const totalPureDebt = loans.reduce((acc, loan) => acc + (Number(loan.current_balance) || 0), 0);
-  const representedOverdraftBanks = new Set(
-    loans
-      .filter(loan => (
-        String(loan.loan_type || "") === "minus"
-        && String(loan.overdraft_bank_account_id || "").trim()
-        && (Number(loan.current_balance) || 0) > 0
-      ))
-      .map(loan => `${String(loan.owner || "모두")}\u0000${String(loan.overdraft_bank_account_id).trim()}`)
-  );
-  const totalMinusBankDebt = banks.reduce((acc, bank) => {
-    const balance = Number(bank.balance) || 0;
-    if (balance >= 0) return acc;
-    const relationshipKey = `${String(bank.owner || "모두")}\u0000${String(bank.id || "").trim()}`;
-    return representedOverdraftBanks.has(relationshipKey) ? acc : acc + Math.abs(balance);
-  }, 0);
-  return { totalPureDebt, totalMinusBankDebt };
-}
-
-function finiteRealizedPnlNumber(value) {
-  if (value === null || value === undefined || value === '') return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function summarizeRealizedPnlRows(records) {
-  const rows = Array.isArray(records) ? records : [];
-  let totalPnlKrw = 0;
-  let convertedRecordCount = 0;
-  let unconvertedRecordCount = 0;
-  let winCount = 0;
-  let lossCount = 0;
-  rows.forEach(record => {
-    const pnlKrw = finiteRealizedPnlNumber(record?.pnl_krw);
-    if (pnlKrw === null) unconvertedRecordCount += 1;
-    else {
-      totalPnlKrw += pnlKrw;
-      convertedRecordCount += 1;
-    }
-    const nativePnl = finiteRealizedPnlNumber(record?.pnl);
-    const signValue = nativePnl === null ? pnlKrw : nativePnl;
-    if (signValue > 0) winCount += 1;
-    else if (signValue < 0) lossCount += 1;
-  });
-  const classifiedCount = winCount + lossCount;
-  return {
-    totalPnlKrw,
-    convertedRecordCount,
-    unconvertedRecordCount,
-    recordCount: rows.length,
-    winCount,
-    lossCount,
-    winRate: classifiedCount ? (winCount / classifiedCount) * 100 : 0,
-    summaryComplete: unconvertedRecordCount === 0,
-  };
-}
-
-function buildRealizedPnlDisplaySummary(summary = {}, records = [], preferCanonical = true) {
-  const rowSummary = summarizeRealizedPnlRows(records);
-  const canonicalTotal = finiteRealizedPnlNumber(summary?.total_pnl_krw);
-  const canonicalUnconverted = finiteRealizedPnlNumber(summary?.unconverted_record_count);
-  const canonicalConverted = finiteRealizedPnlNumber(summary?.converted_record_count);
-  const canonicalRecordCount = finiteRealizedPnlNumber(summary?.record_count);
-  const canonicalWinRate = finiteRealizedPnlNumber(summary?.win_rate);
-  const useCanonical = preferCanonical && canonicalTotal !== null;
-  const unconvertedRecordCount = useCanonical && canonicalUnconverted !== null
-    ? canonicalUnconverted : rowSummary.unconvertedRecordCount;
-  const summaryComplete = useCanonical && typeof summary?.summary_complete === 'boolean'
-    ? summary.summary_complete : unconvertedRecordCount === 0;
-  return {
-    totalPnlKrw: useCanonical ? canonicalTotal : rowSummary.totalPnlKrw,
-    convertedRecordCount: useCanonical && canonicalConverted !== null ? canonicalConverted : rowSummary.convertedRecordCount,
-    unconvertedRecordCount,
-    recordCount: useCanonical && canonicalRecordCount !== null ? canonicalRecordCount : rowSummary.recordCount,
-    winRate: useCanonical && canonicalWinRate !== null ? canonicalWinRate : rowSummary.winRate,
-    summaryComplete,
-    canonicalUsed: useCanonical,
-    completenessNote: summaryComplete
-      ? ''
-      : (unconvertedRecordCount > 0 ? `미환산 해외 실현손익 ${unconvertedRecordCount}건 포함` : '원화 실현손익 합계 미완성'),
-  };
-}
-
 const investmentSummaryView = window.WealthInvestmentSummaryView.create({ $, money, number });
 
 function renderSummary(data) {
-  const s = data.summary || {}, currencies = data.currency_summary || {};
-  const krw = currencies.KRW || {}, usd = currencies.USD || {};
-  const o = currentOwner || '모두';
-  const filterByOwner = (arr) => o === '모두' ? (arr || []) : (arr || []).filter(x => (x.owner || '모두') === o);
-
-  // 1. 총 부채 및 자산 계산
-  const curLoans = filterByOwner(data.loan_accounts || accountFeature.rawLoanAccounts || []);
-  const curBanks = filterByOwner(data.bank_accounts || accountFeature.rawBankAccounts || []);
-  const curSavings = filterByOwner(data.savings_accounts || accountFeature.rawSavingsAccounts || []);
-  const curInsurances = filterByOwner(data.insurance_accounts || insuranceFeature.rawInsuranceAccounts || []);
-  const allREs = data.real_estates || realEstateFeature.rawRealEstates || [];
-
-  const posBanks = curBanks.filter(b => (Number(b.balance) || 0) >= 0);
-
-  const totalInvestVal = Number(s.total_value_krw || 0);
-  const totalStockVal = s.total_stock_value_krw || (totalInvestVal - Number(s.total_cash_krw || 0));
-  const totalPositiveBankVal = posBanks.reduce((acc, b) => acc + (Number(b.balance) || 0), 0);
-  const totalSavingVal = curSavings.reduce((acc, sv) => acc + (Number(sv.current_value) || Number(sv.current_paid_amount) || Number(sv.balance) || 0), 0);
-  const totalAllCash = Number(s.total_cash_krw || 0) + totalPositiveBankVal + totalSavingVal;
-  const insuranceTotal = curInsurances.reduce((acc, ins) => acc + (Number(ins.expected_amount) || Number(ins.converted_total_asset) || Number(ins.total_paid_amount) || Number(ins.expected_refund_amount) || Number(ins.accumulated_paid_amount) || 0), 0);
-
-  const { totalMinusBankDebt, totalPureDebt } = calculateDashboardDebt(curBanks, curLoans);
-
-  // 부동산 순에퀴티 & 전세보증금 부채 & 평가손익(예상 수익)
-  let totalREVal = 0;
-  let totalREPurchaseVal = 0;
-  let totalREProfit = 0;
-  let totalTenantDepositVal = 0;
-  let totalLandlordDepositDebt = 0;
-  let totalREInvestEquity = 0;
-
-  allREs.forEach(r => {
-    const ownerships = (r.ownerships && r.ownerships.length) 
-      ? r.ownerships 
-      : [{ owner: r.owner || '모두', ratio: 100 }];
-
-    let share = 1.0;
-    if (o !== '모두') {
-      let matched = ownerships.find(x => x.owner === o);
-      if (!matched && r.owner && r.owner.includes(o)) {
-        const m = r.owner.match(new RegExp(`${o}\\s*([0-9.]+)%`));
-        if (m) {
-          share = parseFloat(m[1]) / 100;
-        } else {
-          share = 0.5;
-        }
-      } else if (matched && matched.ratio > 0) {
-        share = (matched.ratio || 100) / 100;
-      } else {
-        return;
-      }
-    }
-
-    const pType = r.property_type || 'own';
-    if (pType !== 'lease') {
-      const pVal = (Number(r.current_price) || 0) * share;
-      const purchVal = (Number(r.purchase_price) || 0) * share;
-      const depDebt = pType === 'rental' ? ((Number(r.deposit_amount) || 0) * share) : 0;
-      totalREVal += pVal;
-      totalLandlordDepositDebt += depDebt;
-      totalREInvestEquity += pVal; // 부동산 시세 100% 반영
-      if (purchVal > 0) {
-        totalREPurchaseVal += purchVal;
-        totalREProfit += (pVal - purchVal);
-      } else if (pVal > 0) {
-        totalREPurchaseVal += pVal;
-      }
-    } else {
-      const depVal = ((Number(r.deposit_amount) || 0) * share);
-      totalTenantDepositVal += depVal;
-    }
-  });
-
-  const totalAllDebt = totalPureDebt + totalMinusBankDebt + totalLandlordDepositDebt;
-  const totalInvestAssets = totalREInvestEquity + totalStockVal;
-  const totalSafeAssets = totalAllCash + totalTenantDepositVal + insuranceTotal;
-  const netWorth = (totalInvestAssets + totalSafeAssets) - totalAllDebt;
-
-  // 4. 총 실현손익 (연도별/월별 실시간 집계 - 주식/공모주 순수 실현손익)
-  const curRealized = data.realized_pnl_summary || rawDashboard?.realized_pnl_summary || {};
-  const rawPnlList = data.realized_pnl_records || rawDashboard?.realized_pnl_records || pnlData?.records || [];
-  // 부동산 매도 기록 완전 배제 (주식/공모주 실현손익만 엄격 집계)
-  const isReRec = (r) => {
-    const at = String(r.asset_type || '').toLowerCase();
-    const c = String(r.code || '').toUpperCase();
-    const b = String(r.broker || '').trim();
-    const n = String(r.name || '');
-    return at === 'real_estate' || c === 'REAL_ESTATE' || b === '부동산' || n.startsWith('[부동산]') || Boolean(r.re_id) || Boolean(r.real_estate_name);
-  };
-  const stockPnlRecords = rawPnlList.filter(r => !isReRec(r));
-  const pnlRecords = filterByOwner(stockPnlRecords);
-
-  const currentPeriod = getKstYearMonth();
-  const currFullYear = String(currentPeriod.year);
-  const currYear2Digit = currFullYear.slice(2);
-  const currMonthNum = currentPeriod.month;
-  const currMonthStr = currMonthNum < 10 ? `0${currMonthNum}` : `${currMonthNum}`;
-  const currYearMonthPrefix = `${currFullYear}-${currMonthStr}`;
-
-  const realizedView = buildRealizedPnlDisplaySummary(curRealized, pnlRecords, o === '모두');
-  let totalRealizedKrw = realizedView.totalPnlKrw;
-  let yearRealizedKrw = 0;
-  let monthRealizedKrw = 0;
-
-  if (pnlRecords.length > 0) {
-    pnlRecords.forEach(r => {
-      const compactDate = String(r.date || '').replaceAll('-', '');
-      const p = finiteRealizedPnlNumber(r.pnl_krw);
-      if (p === null) return;
-      if (compactDate.startsWith(currFullYear)) yearRealizedKrw += p;
-      if (compactDate.startsWith(`${currFullYear}${currMonthStr}`)) monthRealizedKrw += p;
-    });
-  }
-
-  const summaryPnlSubEl = $("#summaryRealizedPnlSub");
-  if (summaryPnlSubEl) {
-    summaryPnlSubEl.textContent = `승률 ${number(realizedView.winRate, 1)}% · 총 ${realizedView.recordCount}건 실현${realizedView.completenessNote ? ` · ${realizedView.completenessNote}` : ''}`;
-  }
-
-  // 5. 총 배당금 및 이자 (연도별/월별 실시간 집계)
-  const curDiv = data.dividend_summary || rawDashboard?.dividend_summary || {};
-  const divRecords = filterByOwner(data.actual_dividend_records || rawDashboard?.actual_dividend_records || actualDividendData?.records || []);
-
-  let totalActualDivKrw = Number(curDiv.total_actual_dividend_krw || curDiv.actual_dividend_krw || 0);
-  let yearActualDivKrw = 0;
-  let monthActualDivKrw = 0;
-
-  if (divRecords.length > 0) {
-    divRecords.forEach(r => {
-      const d = String(r.date || '');
-      const amt = Number(r.amount_krw || r.dividend_krw || r.amount || 0);
-      if (d.startsWith(currFullYear)) yearActualDivKrw += amt;
-      if (d.startsWith(currYearMonthPrefix)) monthActualDivKrw += amt;
-    });
-    if (o !== '모두') {
-      totalActualDivKrw = divRecords.reduce((sum, r) => sum + Number(r.amount_krw || r.dividend_krw || r.amount || 0), 0);
-    }
-  }
-
-  // 통합 실현손익 (매매차익 + 배당금 및 이자)
-  const combinedRealizedKrw = totalRealizedKrw + totalActualDivKrw;
-  const combinedYearRealizedKrw = yearRealizedKrw + yearActualDivKrw;
-  const combinedMonthRealizedKrw = monthRealizedKrw + monthActualDivKrw;
-
-  // 원화 및 달러 주식 세부 계산 (소유자별 보유종목 직접 정밀 집계)
-  const allHoldings = data.holdings || rawDashboard?.holdings || [];
-  const ownedAcctIds = new Set((data.accounts || []).map(a => a.id));
-  const curHoldings = o === '모두' 
-    ? allHoldings 
-    : allHoldings.filter(h => (h.owner && h.owner === o) || ownedAcctIds.has(h.account_id) || (h.owner || '모두') === o);
-
-  const usdKrwRate = (data.fx_rates || rawDashboard?.fx_rates || {})['USD'] || 1385;
-  let krwStockVal = 0, krwStockCost = 0;
-  let usdStockValUsd = 0, usdStockValKrw = 0, usdStockCostUsd = 0, usdStockCostKrw = 0;
-  let krwHoldingCount = 0, usdHoldingCount = 0;
-
-  curHoldings.forEach(h => {
-    const curr = (h.currency || 'KRW').toUpperCase();
-    const mValKrw = Number(h.market_value_krw || 0);
-    const cValKrw = Number(h.cost_value_krw || 0);
-    const mValNative = Number(h.market_value != null ? h.market_value : (mValKrw / usdKrwRate));
-    const cValNative = Number(h.cost_value != null ? h.cost_value : (cValKrw / usdKrwRate));
-
-    if (curr === 'KRW') {
-      krwStockVal += mValKrw;
-      krwStockCost += cValKrw;
-      krwHoldingCount += 1;
-    } else {
-      usdStockValUsd += mValNative;
-      usdStockValKrw += mValKrw || (mValNative * usdKrwRate);
-      usdStockCostUsd += cValNative;
-      usdStockCostKrw += cValKrw || (cValNative * usdKrwRate);
-      usdHoldingCount += 1;
-    }
-  });
-
-  const krwStockProfit = krwStockVal - krwStockCost;
-  const krwStockReturnRate = krwStockCost > 0 ? (krwStockProfit / krwStockCost) * 100 : 0;
-
-  const usdStockProfitUsd = usdStockValUsd - usdStockCostUsd;
-  const usdStockProfitKrw = usdStockValKrw - usdStockCostKrw;
-  const usdStockReturnRate = usdStockCostUsd > 0 ? (usdStockProfitUsd / usdStockCostUsd) * 100 : 0;
-
-  // Existing asset-mode totals are projected to the page-local HOME renderer below.
-  const totalExpectedProfit = (Number(s.profit_krw) || 0) + totalREProfit;
-  const stockPurchaseCost = Math.max(0, totalStockVal - (Number(s.profit_krw) || 0));
-  const totalCombinedCost = stockPurchaseCost + totalREPurchaseVal;
-  const combinedReturnRate = totalCombinedCost > 0 ? ((totalExpectedProfit / totalCombinedCost) * 100) : 0;
-  // Reuse the same property return rule already shown by the real-estate view.
-  const realEstateReturnRate = totalREPurchaseVal > 0 ? (totalREProfit / totalREPurchaseVal) * 100 : 0;
-
-  // The investment summary has one stock-only renderer.
-  // 2. 총 주식자산
-  if ($("#totalInvestRow")) $("#totalInvestRow").style.display = "flex";
-  if ($("#totalInvestLabelText")) $("#totalInvestLabelText").textContent = "총 주식자산";
-  if ($("#totalValue")) $("#totalValue").textContent = money(totalStockVal);
-
-  // 2-1. 원화 주식 카드 표시
-  if ($("#krwStockRow")) $("#krwStockRow").style.display = "flex";
-  if ($("#summaryKrwStockVal")) $("#summaryKrwStockVal").textContent = money(krwStockVal);
-  if ($("#summaryKrwStockProfit")) {
-    const kSign = krwStockProfit >= 0 ? "+" : "";
-    const krSign = krwStockReturnRate >= 0 ? "+" : "";
-    $("#summaryKrwStockProfit").textContent = `${kSign}${money(krwStockProfit)} (${krSign}${number(krwStockReturnRate, 2)}%)`;
-    $("#summaryKrwStockProfit").style.color = krwStockProfit >= 0 ? "#f43f5e" : "#38bdf8";
-  }
-  if ($("#summaryKrwStockCount")) {
-    $("#summaryKrwStockCount").textContent = `${krwHoldingCount}개 종목`;
-  }
-
-  // 2-2. 달러 주식 카드 표시
-  if ($("#usdStockRow")) $("#usdStockRow").style.display = "flex";
-  if ($("#summaryUsdStockValKrw")) $("#summaryUsdStockValKrw").textContent = money(usdStockValKrw);
-  if ($("#summaryUsdStockValUsd")) {
-    $("#summaryUsdStockValUsd").textContent = `$${number(usdStockValUsd, 2)} (${usdHoldingCount}개 종목)`;
-  }
-  if ($("#summaryUsdStockProfit")) {
-    const uSign = usdStockProfitKrw >= 0 ? "+" : "";
-    const urSign = usdStockReturnRate >= 0 ? "+" : "";
-    $("#summaryUsdStockProfit").textContent = `${uSign}${money(usdStockProfitKrw)} (${urSign}${number(usdStockReturnRate, 2)}%)`;
-    $("#summaryUsdStockProfit").style.color = usdStockProfitKrw >= 0 ? "#f43f5e" : "#38bdf8";
-  }
-
-  // 3. 주식 기대수익 (주식 평가손익) & 일간 수익
-  if ($("#expectedProfitRow")) $("#expectedProfitRow").style.display = "flex";
-  if ($("#profitLabelText")) $("#profitLabelText").textContent = "주식 기대수익";
-  if ($("#totalProfit")) {
-    $("#totalProfit").textContent = money(s.profit_krw);
-  }
-  const profitRateEl = $("#profitRate");
-  if (profitRateEl) {
-    profitRateEl.textContent = `(${s.return_rate >= 0 ? "+" : ""}${number(s.return_rate)}%)`;
-  }
-  // Share the existing stock-profit tone, including its zero/missing fallback.
-  const totalProfitNonnegative = (s.profit_krw || 0) >= 0;
-  const totalProfitColor = totalProfitNonnegative ? "#f43f5e" : "#38bdf8";
-  for (const node of [$("#expectedProfitRow .wealth-profit-label"), $("#totalProfit"), profitRateEl]) {
-    if (!node) continue;
-    node.style.color = totalProfitColor;
-    // Existing semantic rules also exclude this amount from White's neutral strong override.
-    node.classList.toggle("up", totalProfitNonnegative);
-    node.classList.toggle("down", !totalProfitNonnegative);
-  }
-
-  // 4. 주식 실현손익
-  if ($("#realizedPnlRow")) $("#realizedPnlRow").style.display = "flex";
-  if ($("#pnlLabelText")) $("#pnlLabelText").textContent = "주식 실현손익";
-  if ($("#summaryRealizedPnl")) {
-    $("#summaryRealizedPnl").textContent = `${totalRealizedKrw >= 0 ? "+" : ""}${money(totalRealizedKrw)}`;
-    $("#summaryRealizedPnl").className = totalRealizedKrw > 0 ? 'gain up' : (totalRealizedKrw < 0 ? 'loss down' : '');
-    $("#summaryRealizedPnl").style.color = totalRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
-  }
-  if ($("#pnlYearLabel")) $("#pnlYearLabel").textContent = `${currYear2Digit}년`;
-  if ($("#summaryRealizedPnlYear")) {
-    $("#summaryRealizedPnlYear").textContent = `${yearRealizedKrw >= 0 ? '+' : ''}${money(yearRealizedKrw)}`;
-    $("#summaryRealizedPnlYear").className = yearRealizedKrw > 0 ? 'gain up' : (yearRealizedKrw < 0 ? 'loss down' : '');
-    $("#summaryRealizedPnlYear").style.color = yearRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
-  }
-  if ($("#pnlMonthLabel")) $("#pnlMonthLabel").textContent = `${currMonthStr}월`;
-  if ($("#summaryRealizedPnlMonth")) {
-    $("#summaryRealizedPnlMonth").textContent = `${monthRealizedKrw >= 0 ? '+' : ''}${money(monthRealizedKrw)}`;
-    $("#summaryRealizedPnlMonth").className = monthRealizedKrw > 0 ? 'gain up' : (monthRealizedKrw < 0 ? 'loss down' : '');
-    $("#summaryRealizedPnlMonth").style.color = monthRealizedKrw >= 0 ? "#f43f5e" : "#38bdf8";
-  }
-
-  // 5. 배당금 (주식 탭에서 별도 표시)
-  if ($("#dividendRow")) $("#dividendRow").style.display = "flex";
-  if ($("#divLabelText")) $("#divLabelText").textContent = "배당금";
-  if ($("#summaryActualDividend")) {
-    $("#summaryActualDividend").textContent = money(totalActualDivKrw);
-  }
-  if ($("#divYearLabel")) $("#divYearLabel").textContent = `${currYear2Digit}년`;
-  if ($("#summaryActualDivYear")) {
-    $("#summaryActualDivYear").textContent = `${yearActualDivKrw >= 0 ? '+' : ''}${money(yearActualDivKrw)}`;
-  }
-  if ($("#divMonthLabel")) $("#divMonthLabel").textContent = `${currMonthStr}월`;
-  if ($("#summaryActualDivMonth")) {
-    $("#summaryActualDivMonth").textContent = `${monthActualDivKrw >= 0 ? '+' : ''}${money(monthActualDivKrw)}`;
-  }
-
-  // Canonical session-gated price P/L and record-to-record valuation change
-  // are separate metrics. The latter may contain trades, quantity changes,
-  // and FX translation effects.
-  const day = data.day_change || {};
-  const dayProfit = day.day_profit_krw;
-  const stockValue = s.total_stock_value_krw;
-  const hasDayProfit = Number.isFinite(dayProfit);
-  const rate = hasDayProfit && Number.isFinite(stockValue)
-    && stockValue > 0 && day.price_profit_status === 'complete'
-    ? dayProfit / stockValue * 100 : null;
-  investmentSummaryView.renderDailyPnl({
-    profit: hasDayProfit ? dayProfit : null,
-    rate: Number.isFinite(rate) ? rate : null,
-    partial: day.price_profit_status === 'partial',
-    date: day.date,
-  });
-
-  const krwStock = krw.stock_value_krw || (Number(krw.market_value_krw || 0) - Number(krw.cash || 0));
-  investmentSummaryView.renderCurrency({ currency: "KRW", marketValue: krw.market_value_krw || 0, stockValue: krwStock, cash: krw.cash || 0 });
-
-  const usdStock = usd.stock_value || (Number(usd.market_value || 0) - Number(usd.cash || 0));
-  investmentSummaryView.renderCurrency({ currency: "USD", marketValue: usd.market_value || 0, stockValue: usdStock, cash: usd.cash || 0 });
-
-  $("#updatedAt") && ($("#updatedAt").textContent = data.updated_at ? `마지막 자산 반영 ${new Date(data.updated_at).toLocaleString("ko-KR")}` : "아직 보유종목이 없습니다.");
-  $("#accountCaption") && ($("#accountCaption").textContent = `전체 ${number(s.account_count, 0)}개 계좌`);
-  // Presentation-only projection of the existing totals; no second calculation policy.
+  const owner = currentOwner || '모두';
+  const { card, home } = dashboardOwnerModel.buildDashboardSummary(data, owner, dashboardInputs, getKstYearMonth);
+  investmentSummaryView.renderSummary(card);
   window.dispatchEvent(new CustomEvent('wealth:summary', { detail: {
-    owner: o, netWorth, debt: totalAllDebt, cash: totalAllCash,
-    invest: totalInvestAssets, expected: totalExpectedProfit, expectedRate: combinedReturnRate,
-    propertyExpected: totalREProfit, propertyExpectedRate: realEstateReturnRate,
-    propertyPurchaseValue: totalREPurchaseVal,
-    stockExpected: Number(s.profit_krw) || 0, stockExpectedRate: Number(s.return_rate) || 0,
-    realized: combinedRealizedKrw, safe: totalSafeAssets,
-    stock: totalStockVal, property: totalREInvestEquity,
-    deposits: totalTenantDepositVal, insurance: insuranceTotal,
-    insuranceReturn: window.WealthInsuranceReturnDisplay?.(data.insurance_accounts || insuranceFeature.rawInsuranceAccounts || [], o),
-    realizedTrade: totalRealizedKrw, dividendInterest: totalActualDivKrw,
-    realizedYear: combinedYearRealizedKrw, realizedMonth: combinedMonthRealizedKrw,
-    dayProfit: Number((data.day_change || {}).day_profit_krw || 0),
-    dayRate: 0,
-    recordChange: (data.day_change || {}).record_change_krw,
-    recordChangeRate: (data.day_change || {}).record_change_rate,
-    dayDate: (data.day_change || {}).date || null,
-    classifications: data.classifications || [],
-    updatedAt: data.updated_at || null,
-    fxRates: data.fx_rates || {},
+    ...home,
+    insuranceReturn: window.WealthInsuranceReturnDisplay?.(data.insurance_accounts || dashboardInputs.rawInsuranceAccounts || [], owner),
   }}));
 }
-
-// ── 3. 투자자산 분류 & 섹터별 도넛 원그래프 ──────────────────────────────────
-
 
 function maskBrokerAccountNo(value) {
   const normalized = String(value || "").replace(/[\s-]+/g, "");
@@ -1366,10 +657,10 @@ const incomeFeature = window.WealthIncomeFeatureController.create({
   get action() { return action; },
   get api() { return api; },
   get attachStockAutoFill() { return attachStockAutoFill; },
-  get buildRealizedPnlDisplaySummary() { return buildRealizedPnlDisplaySummary; },
+  buildRealizedPnlDisplaySummary: dashboardOwnerModel.buildRealizedPnlDisplaySummary,
   get currentOwner() { return currentOwner; },
   get dashboard() { return dashboard; },
-  get finiteRealizedPnlNumber() { return finiteRealizedPnlNumber; },
+  finiteRealizedPnlNumber: dashboardOwnerModel.finiteRealizedPnlNumber,
   get html() { return html; },
   get loadDashboard() { return loadDashboard; },
   get loadMarkets() { return loadMarkets; },

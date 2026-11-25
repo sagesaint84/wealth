@@ -82,8 +82,9 @@ class LayoutContractTests(unittest.TestCase):
 
     def test_layout_listener_is_installed_before_financial_renderer(self):
         elements = Elements((STATIC / 'index.html').read_text(encoding='utf-8'))
-        self.assertLess(elements.scripts.index('/static/wealth-layout.js'),
-                        elements.scripts.index('/static/wealth.js'))
+        for dependency in ('wealth-layout.js', 'wealth-dashboard-owner-model.js', 'wealth-investment-summary-view.js'):
+            self.assertLess(elements.scripts.index(f'/static/{dependency}'),
+                            elements.scripts.index('/static/wealth.js'))
 
     def test_presentation_layer_has_no_api_or_persistence(self):
         source = (STATIC / 'wealth-layout.js').read_text(encoding='utf-8')
@@ -192,7 +193,7 @@ class LayoutContractTests(unittest.TestCase):
     def test_m1_changed_layout_asset_has_its_own_revision(self):
         source = (STATIC / 'index.html').read_text(encoding='utf-8')
         self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-ui-foundation1'), 1)
-        self.assertIn('<meta name="application-version" content="2.1.13" />', source)
+        self.assertIn('<meta name="application-version" content="2.1.14" />', source)
 
 
     def test_m2_section_header_is_shared_by_two_section_level_headings(self):
@@ -268,7 +269,7 @@ class LayoutContractTests(unittest.TestCase):
     def test_m2_header_layout_revision_is_independent_of_app_version(self):
         source = (STATIC / 'index.html').read_text(encoding='utf-8')
         self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-ui-foundation1'), 1)
-        self.assertIn('<meta name="application-version" content="2.1.13" />', source)
+        self.assertIn('<meta name="application-version" content="2.1.14" />', source)
 
 
     def test_m3_metric_card_scope_and_existing_dom_contract(self):

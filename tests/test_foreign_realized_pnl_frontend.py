@@ -11,6 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 WEALTH_JS = ROOT / "app" / "static" / "wealth.js"
+OWNER_MODEL = WEALTH_JS.with_name("wealth-dashboard-owner-model.js")
 
 
 class ForeignRealizedPnlFrontendTests(unittest.TestCase):
@@ -25,17 +26,15 @@ class ForeignRealizedPnlFrontendTests(unittest.TestCase):
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync(process.argv[1], 'utf8');
-const start = source.indexOf('function finiteRealizedPnlNumber');
-const end = source.indexOf('\nfunction renderSummary', start);
-if (start < 0 || end < 0) throw new Error('realized P/L display helpers not found');
-const sandbox = {};
-vm.runInNewContext(source.slice(start, end) + '\nthis.build = buildRealizedPnlDisplaySummary;', sandbox);
+const sandbox = {window: {}};
+vm.runInNewContext(source, sandbox);
+const {buildRealizedPnlDisplaySummary} = sandbox.window.WealthDashboardOwnerModel;
 const input = JSON.parse(process.argv[2]);
-process.stdout.write(JSON.stringify(sandbox.build(input.summary, input.records, input.preferCanonical)));
+process.stdout.write(JSON.stringify(buildRealizedPnlDisplaySummary(input.summary, input.records, input.preferCanonical)));
 """
         result = subprocess.run(
             [
-                "node", "-e", script, str(WEALTH_JS),
+                "node", "-e", script, str(OWNER_MODEL),
                 json.dumps({"summary": summary, "records": records, "preferCanonical": prefer_canonical}),
             ],
             cwd=ROOT,
@@ -94,13 +93,18 @@ process.stdout.write(JSON.stringify(sandbox.build(input.summary, input.records, 
         render_start = self.source.index("function renderSummary")
         render_end = self.source.index("\nfunction ", render_start + 20)
         render_body = self.source[render_start:render_end]
+        model = OWNER_MODEL.read_text(encoding="utf-8")
+        view = WEALTH_JS.with_name("wealth-investment-summary-view.js").read_text(encoding="utf-8")
+        summary_body = model[model.index("function buildDashboardSummary"):model.index("window.WealthDashboardOwnerModel")]
         overview_start = self.source.index("async function updateOverviewCardsAllTime")
-        overview_end = self.source.index("\nasync function ", overview_start + 20)
+        overview_end = self.source.index("\nconst dashboardOwnerModel", overview_start)
         overview_body = self.source[overview_start:overview_end]
-        self.assertIn("buildRealizedPnlDisplaySummary(curRealized, pnlRecords", render_body)
-        self.assertNotIn("Number(r.pnl_krw || 0)", render_body)
+        self.assertIn("dashboardOwnerModel.buildDashboardSummary(", render_body)
+        self.assertIn("buildRealizedPnlDisplaySummary(curRealized, pnlRecords", summary_body)
+        self.assertNotIn("Number(r.pnl_krw || 0)", summary_body)
         self.assertIn("buildRealizedPnlDisplaySummary(pnlRes, [], true)", overview_body)
-        self.assertIn("pnlView.completenessNote", overview_body)
+        self.assertIn("investmentSummaryView.renderRealizedPnlCaption(pnlView)", overview_body)
+        self.assertIn("realizedView.completenessNote", view)
         feature = WEALTH_JS.with_name("wealth-income-feature-controller.js").read_text(encoding="utf-8")
         monthly_start = feature.index("function renderPnlMonthlyDetail")
         monthly_end = feature.index("\n    function calcPnlReProfit", monthly_start)
@@ -116,24 +120,26 @@ process.stdout.write(JSON.stringify(sandbox.build(input.summary, input.records, 
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync(process.argv[1], 'utf8');
-const start = source.indexOf('function renderWithOwner');
-const end = source.indexOf('\n// 다이얼로그', start);
+const start = source.indexOf('const dashboardOwnerModel =');
+const end = source.indexOf('\nconst appShell =', start);
 if (start < 0 || end < 0) throw new Error('renderWithOwner not found');
 const sandbox = {
   rawDashboard: null,
   dashboard: null,
   currentOwner: '모두',
-  computeFilteredSummary: () => ({}),
-  computeFilteredClassifications: () => [],
-  computeFilteredSectors: () => [],
-  computeFilteredCurrencySummary: () => ({}),
-  computeFilteredDayChange: () => ({}),
+  window: {},
+  allAssetRecords: [],
+  accountFeature: {rawBankAccounts: [], rawSavingsAccounts: []},
+  insuranceFeature: {rawInsuranceAccounts: []},
+  realEstateFeature: {rawRealEstates: []},
   loadAssetRecords: () => {},
   loadLedger: () => {},
   isLedgerViewActive: () => false, // This owner-filter unit runs on the home view.
   render: data => { sandbox.result = data; },
 };
-vm.runInNewContext(source.slice(start, end) + '\nthis.run = renderWithOwner;', sandbox);
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), sandbox);
+vm.runInContext(source.slice(start, end) + '\nthis.run = renderWithOwner;', sandbox);
 const data = {
   accounts: [{id: 'a', owner: 'A'}, {id: 'b', owner: 'B'}],
   holdings: [{id: 'ha', account_id: 'a'}, {id: 'hb', account_id: 'b'}],
@@ -145,7 +151,7 @@ process.stdout.write(JSON.stringify({
 }));
 """
         result = subprocess.run(
-            ["node", "-e", script, str(WEALTH_JS)],
+            ["node", "-e", script, str(WEALTH_JS), str(OWNER_MODEL)],
             cwd=ROOT,
             capture_output=True,
             text=True,
