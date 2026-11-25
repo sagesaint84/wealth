@@ -1,8 +1,14 @@
 # Wealth Project State
 
-## v2.1.15 개발 후보 — 연금·IRP 세액공제 공통 모델
+## v2.1.16 개발 후보 — 가계부 API 라우터 분리
 
-- 계좌, 투자, 보험·연금 화면을 `WealthPensionTaxModel`로 연결했다. 기존 계산식과 공개 진입점을 유지하며 동적 검증은 대기 중이다.
+- 가계부와 관련 설정·가져오기 엔드포인트를 전용 라우터로 이전했다. 기존 인증, 요청·응답, 금융 서비스 계약의 동적 검증은 대기 중이다.
+
+## v2.1.15 — 연금·IRP 세액공제 공통 모델
+
+- [PR #266](https://github.com/sagesaint84/wealth/pull/266) 병합 완료. main `8ad12058bc3777de1b6305daded82ff6fcde3dbb`에 annotated Git 태그 `v2.1.15`를 게시했다. 작업 브랜치와 worktree를 정리했다.
+- [Actions #45611320501](https://github.com/sagesaint84/wealth/actions/runs/45611320501) SUCCESS. GHCR `latest`, `2.1.15`, `8ad1205`의 manifest digest는 `sha256:2468a69af95c0884508c0d35f6b648b4c4ce32a2980a8a4e0379b20a34f1a2a3`로 일치했다. Oracle 운영 배포는 실행하지 않았다.
+- Windows 집중 검증 12건과 하위 검증 15건 PASS.
 
 ## v2.1.14 — 가족별 자산 요약 모델과 화면 렌더링
 
