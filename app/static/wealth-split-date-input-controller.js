@@ -17,8 +17,40 @@
 
       const origValDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
       let isSyncingToNative = false;
+      const composing = new Set();
+
+      function bindPartInput(part, normalize) {
+        let valueBeforeComposition;
+        let lastComposition;
+
+        part.addEventListener("compositionstart", () => {
+          composing.add(part);
+          valueBeforeComposition = part.value;
+          lastComposition = undefined;
+        });
+        part.addEventListener("compositionend", () => {
+          composing.delete(part);
+          const committed = part.value;
+          if (committed !== valueBeforeComposition) normalize();
+          lastComposition = { committed, normalized: part.value };
+        });
+        part.addEventListener("input", (event) => {
+          if (event.isComposing || composing.has(part)) return;
+          const previous = lastComposition;
+          lastComposition = undefined;
+          // Some browsers deliver a final input after compositionend.
+          if (previous && part.value === previous.normalized) return;
+          if (previous && part.value === previous.committed &&
+              ["insertCompositionText", "insertFromComposition"].includes(event.inputType)) {
+            part.value = previous.normalized;
+            return;
+          }
+          normalize();
+        });
+      }
 
       function syncToNative() {
+        if (composing.size) return;
         const y = (yearInput.value || "").trim();
         const m = (monthInput.value || "").trim();
         const d = (dayInput.value || "").trim();
@@ -42,7 +74,7 @@
       }
 
       function syncFromNative() {
-        if (isSyncingToNative) return;
+        if (isSyncingToNative || composing.size) return;
         const val = origValDesc ? origValDesc.get.call(nativeInput) : nativeInput.value;
         if (val && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
           const [y, m, d] = val.split("-");
@@ -89,6 +121,7 @@
 
       // 래퍼 영역 클릭 시 빈 칸 또는 연도로 스마트 포커스
       wrap.addEventListener("click", (e) => {
+        if (composing.size) return;
         if (e.target === wrap || e.target.classList.contains("date-part-sep")) {
           if (!yearInput.value) {
             yearInput.focus();
@@ -109,7 +142,7 @@
       dayInput.addEventListener("focus", () => dayInput.select());
 
       // [핵심] 연도(Year): 4자리 숫자 입력 시 자동으로 월(Month) 입력칸으로 이동
-      yearInput.addEventListener("input", () => {
+      bindPartInput(yearInput, () => {
         const raw = yearInput.value.replace(/\D/g, "");
         if (raw.length > 4) {
           if (tryDistributeDateString(raw)) return;
@@ -125,6 +158,7 @@
       });
 
       yearInput.addEventListener("blur", () => {
+        if (composing.size) return;
         let raw = yearInput.value.replace(/\D/g, "");
         if (raw.length === 2) {
           yearInput.value = String(2000 + parseInt(raw, 10));
@@ -133,6 +167,7 @@
       });
 
       yearInput.addEventListener("keydown", (e) => {
+        if (e.isComposing || composing.size) return;
         if (["ArrowRight", "Enter", "/", "-", "."].includes(e.key)) {
           if (yearInput.value.length >= 2) {
             if (yearInput.value.length === 2) {
@@ -147,6 +182,7 @@
       });
 
       yearInput.addEventListener("paste", (e) => {
+        if (composing.size) return;
         const pasted = (e.clipboardData || window.clipboardData)?.getData("text");
         if (pasted && tryDistributeDateString(pasted)) {
           e.preventDefault();
@@ -154,7 +190,7 @@
       });
 
       // 월(Month): 2자리 입력 시(또는 2~9 한자리 입력 시 0 자동 패딩) 자동으로 일(Day) 입력칸으로 이동
-      monthInput.addEventListener("input", () => {
+      bindPartInput(monthInput, () => {
         let raw = monthInput.value.replace(/\D/g, "").slice(0, 2);
         // 2~9 입력 시 02~09로 자동 완성 후 바로 일(day)로 이동
         if (raw.length === 1 && parseInt(raw, 10) >= 2) {
@@ -179,6 +215,7 @@
       });
 
       monthInput.addEventListener("blur", () => {
+        if (composing.size) return;
         let raw = monthInput.value.replace(/\D/g, "");
         if (raw.length === 1) {
           let num = parseInt(raw, 10);
@@ -190,6 +227,7 @@
       });
 
       monthInput.addEventListener("keydown", (e) => {
+        if (e.isComposing || composing.size) return;
         if (e.key === "Backspace" && !monthInput.value) {
           e.preventDefault();
           yearInput.focus();
@@ -212,7 +250,7 @@
       });
 
       // 일(Day): 2자리 입력 시 유효 범위 보정 및 동기화
-      dayInput.addEventListener("input", () => {
+      bindPartInput(dayInput, () => {
         let raw = dayInput.value.replace(/\D/g, "").slice(0, 2);
         // 4~9는 어떤 월에도 10자리 수가 될 수 없으므로(31일까지 존재) 04~09로 즉시 패딩
         if (raw.length === 1 && parseInt(raw, 10) >= 4) {
@@ -236,6 +274,7 @@
       });
 
       dayInput.addEventListener("blur", () => {
+        if (composing.size) return;
         let raw = dayInput.value.replace(/\D/g, "");
         if (raw.length === 1) {
           let num = parseInt(raw, 10);
@@ -247,6 +286,7 @@
       });
 
       dayInput.addEventListener("keydown", (e) => {
+        if (e.isComposing || composing.size) return;
         if (e.key === "Backspace" && !dayInput.value) {
           e.preventDefault();
           monthInput.focus();
@@ -274,6 +314,7 @@
 
       // [핵심] 마우스오버 상태에서 휠 회전 시 연도/월/일 실시간 증감 (모달/페이지 스크롤 방지: passive: false)
       yearInput.addEventListener("wheel", (e) => {
+        if (composing.size) return;
         e.preventDefault();
         let y = parseInt(yearInput.value, 10);
         if (isNaN(y) || y < 1900 || y > 2100) {
@@ -300,6 +341,7 @@
       }, { passive: false });
 
       monthInput.addEventListener("wheel", (e) => {
+        if (composing.size) return;
         e.preventDefault();
         let m = parseInt(monthInput.value, 10);
         if (isNaN(m) || m < 1 || m > 12) {
@@ -328,6 +370,7 @@
       }, { passive: false });
 
       dayInput.addEventListener("wheel", (e) => {
+        if (composing.size) return;
         e.preventDefault();
         if (!yearInput.value) {
           yearInput.value = String(new Date().getFullYear());
