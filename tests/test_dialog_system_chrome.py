@@ -170,3 +170,203 @@ def test_all_dialog_roles_geometry_and_readonly_lifecycle(chrome_preview, width,
     assert evaluate('__dialogProbe.mutations') == []
     assert evaluate('__contributions.writes') == []
     assert evaluate('__settingsProbe.errors') == []
+
+
+@pytest.mark.parametrize('width', [1280, 390])
+def test_global_actions_and_split_date_inputs(chrome_preview, width):
+    call, evaluate = start(chrome_preview, width, BOOT + GUARD + r"""
+const guardedFetch = window.fetch;
+window.__permissionFailures = [];
+window.__dividendPreviewRequests = [];
+window.fetch = async function(input, options) {
+  const address = new URL(input instanceof Request ? input.url : String(input), location.href);
+  const method = (options?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+  if (address.origin === location.origin && address.pathname === '/api/actual-dividends/estimate' &&
+      !address.search && method === 'POST') {
+    __dividendPreviewRequests.push({path: address.pathname, method});
+    return Response.json({tax_type_label: '합성 세금', estimated: true, gross_amount: 0, tax: 0});
+  }
+  const response = await guardedFetch.apply(this, arguments);
+  if ([401, 403].includes(response.status)) __permissionFailures.push(response.status);
+  return response;
+};
+""")
+    wait_for(evaluate, "WealthStartup.canRead() && !loadAssetDataForUser.pending")
+    assert evaluate("typeof WealthGlobalActionController.bind === 'function' && typeof setupAutoAdvancingDateInput === 'function'")
+    startup = evaluate('__dialogProbe.mutations.splice(0)')
+    assert all(item['url'] == '/api/refresh-prices' for item in startup)
+
+    def route(name, ready):
+        evaluate(f"location.hash={json.dumps(name)}")
+        wait_for(evaluate, ready)
+
+    def open_and_close(button, dialog):
+        count = evaluate('__settingsProbe.dialogs')
+        click(call, evaluate, button)
+        wait_for(evaluate, f"document.getElementById('{dialog}').open")
+        assert evaluate('__settingsProbe.dialogs') == count + 1
+        click(call, evaluate, f'#{dialog} .close')
+        assert not evaluate(f"document.getElementById('{dialog}').open")
+
+    route('assets', "document.querySelector('.wealth-workspace').dataset.activeView === 'assets'")
+    click(call, evaluate, '#topbarFamilyTabs [data-owner="아빠"]')
+    assert evaluate("currentOwner === '아빠'")
+    for category, button, dialog in [
+        ('securities', '#addAccountBtn', 'accountAddDialog'),
+        ('banking', '#addBankIntegratedBtn', 'bankAccountDialog'),
+        ('real_estate', '#addRealEstateBtn', 'realEstateDialog'),
+    ]:
+        click(call, evaluate, f'.account-cat-tab[data-cat="{category}"]')
+        assert evaluate('WealthAssetCategoryState.current()') == category
+        open_and_close(button, dialog)
+
+    for tab, button, dialog in [
+        ('pnl', '#addPnlBtn', 'pnlRecordDialog'),
+        ('dividend', '#addDividendBtn', 'dividendRecordDialog'),
+    ]:
+        route(tab, f"document.querySelector('.wealth-workspace').dataset.incomeTab === '{tab}'")
+        open_and_close(button, dialog)
+    evaluate('__settingsProbe.confirmAllowed=false')
+    confirm_count = evaluate('__settingsProbe.confirms.length')
+    click(call, evaluate, '#clearAllDividendBtn')
+    assert evaluate('__settingsProbe.confirms.length') == confirm_count + 1
+    assert evaluate('__dialogProbe.mutations') == []
+    assert evaluate('__permissionFailures') == []
+    assert evaluate('__settingsProbe.errors') == []
+    print(f'GLOBAL_ACTION_{width}=PASS', flush=True)
+
+    callers = {
+        'pnlSplitDateWrap': 'pnlRecordDialog',
+        'divSplitDateWrap': 'dividendRecordDialog',
+        'ledgerTxSplitDateWrap': 'ledgerTxDialog',
+        'ledgerPaySplitDateWrap': 'ledgerCardPayDialog',
+    }
+
+    def show_date_fields(wrapper, dialog):
+        evaluate(f"""
+        (() => {{
+          document.getElementById('{dialog}').showModal();
+          const wrap = document.getElementById('{wrapper}');
+          window.__dateParts = [...wrap.querySelectorAll('.date-part')];
+          window.__dateNative = wrap.querySelector('input[type=date]');
+        }})()
+        """)
+
+    def close_date_fields(dialog):
+        evaluate(f"document.getElementById('{dialog}').close()")
+
+    def type_text(text):
+        call('Input.insertText', {'text': text})
+
+    for wrapper, dialog in callers.items():
+        show_date_fields(wrapper, dialog)
+        assert evaluate(f"document.getElementById('{wrapper}').dataset.autoAdvancingInit") == 'true'
+        evaluate("""
+        __dateNative.value='2025-04-03';
+        """)
+        assert evaluate('__dateParts.map(part => part.value)') == ['2025', '04', '03']
+        assert evaluate(f"""
+        (() => {{
+          const original = document.getElementById('{wrapper}')._syncFromNative;
+          setupAutoAdvancingDateInput('#{wrapper}');
+          setupAutoAdvancingDateInput('#{wrapper}');
+          return original === document.getElementById('{wrapper}')._syncFromNative;
+        }})()
+        """), wrapper
+        evaluate("""
+        window.__nativeDateEvents = [];
+        for (const kind of ['input', 'change']) {
+          __dateNative.addEventListener(kind, event => __nativeDateEvents.push([event.type, event.target.value]));
+        }
+        __dateParts.forEach(part => { part.value=''; });
+        __dateParts[0].focus();
+        """)
+        type_text('2024')
+        assert evaluate('document.activeElement === __dateParts[1]'), wrapper
+        type_text('2')
+        assert evaluate('document.activeElement === __dateParts[2]'), wrapper
+        type_text('29')
+        assert evaluate('__dateNative.value') == '2024-02-29', wrapper
+        assert evaluate('__nativeDateEvents') == [['input', '2024-02-29'], ['change', '2024-02-29']], wrapper
+
+        evaluate("""
+        (() => {
+          const clipboardData = new DataTransfer();
+          clipboardData.setData('text/plain', '2025/4/1');
+          __dateParts[0].focus();
+          __dateParts[0].dispatchEvent(new ClipboardEvent('paste', {clipboardData, bubbles: true, cancelable: true}));
+        })()
+        """)
+        assert evaluate('__dateNative.value') == '2025-04-01', wrapper
+        assert evaluate('document.activeElement === __dateParts[2]'), wrapper
+        evaluate('__dateParts[2].select()')
+        type_text('31')
+        assert evaluate('__dateNative.value') == '2025-04-30', wrapper
+        assert evaluate('__dateParts[2].value') == '30', wrapper
+        close_date_fields(dialog)
+        print(f'{width}px {wrapper}: focus, native value/events, paste, leap day, month end and repeat bind PASS', flush=True)
+
+    for wrapper, dialog in callers.items():
+        show_date_fields(wrapper, dialog)
+        evaluate("""
+        __dateNative.value='2024-02-29';
+        window.__composition = [];
+        __dateParts[2].addEventListener('input', event => {
+          if (event.isComposing) __composition.push(event.data);
+        });
+        __dateParts[2].focus();
+        __dateParts[2].setSelectionRange(0, 2);
+        """)
+        call('Input.imeSetComposition', {'text': '한', 'selectionStart': 1, 'selectionEnd': 1})
+        assert evaluate('__composition') == ['한'], wrapper
+        assert evaluate('__dateNative.value') == '2024-02-29', wrapper
+        assert evaluate('document.activeElement === __dateParts[2]'), wrapper
+        assert evaluate('__dateParts[2].value') == '한', f'{wrapper}: composing text was overwritten'
+        call('Input.imeSetComposition', {'text': '', 'selectionStart': 0, 'selectionEnd': 0})
+        close_date_fields(dialog)
+
+    for wrapper, dialog in callers.items():
+        show_date_fields(wrapper, dialog)
+        for index, committed, expected, next_focus in [
+            (0, '2025', '2025-04-15', 1),
+            (1, '6', '2024-06-15', 2),
+            (2, '30', '2024-04-30', 2),
+        ]:
+            for text, final_date in [('한', '2024-04-15'), (committed, expected)]:
+                evaluate(f"""
+                __dateNative.value='2024-04-15';
+                __nativeDateEvents.length=0;
+                window.__imePart=__dateParts[{index}];
+                __imePart.focus();
+                __imePart.select();
+                """)
+                end = len(text)
+                call('Input.imeSetComposition', {'text': text, 'selectionStart': end, 'selectionEnd': end})
+                assert evaluate('__imePart.value') == text, (wrapper, index, text)
+                assert evaluate('document.activeElement === __imePart'), (wrapper, index)
+                assert evaluate('__dateNative.value') == '2024-04-15', (wrapper, index)
+                assert evaluate('__nativeDateEvents') == [], (wrapper, index)
+                type_text(text)
+                assert evaluate('__dateNative.value') == final_date, (wrapper, index, text)
+                if text == '한':
+                    assert evaluate('__imePart.value') == '', (wrapper, index)
+                    assert evaluate('document.activeElement === __imePart'), (wrapper, index)
+                    assert evaluate('__nativeDateEvents') == [], (wrapper, index)
+                else:
+                    assert evaluate(f'document.activeElement === __dateParts[{next_focus}]'), (wrapper, index)
+                    assert evaluate('__imePart.value') == final_date.split('-')[index], (wrapper, index)
+                    events = [['input', final_date], ['change', final_date]]
+                    assert evaluate('__nativeDateEvents') == events, (wrapper, index)
+                    evaluate("__imePart.dispatchEvent(new InputEvent('input', {inputType:'insertCompositionText', bubbles:true}))")
+                    assert evaluate('__nativeDateEvents') == events, (wrapper, index)
+        close_date_fields(dialog)
+    assert evaluate('__dialogProbe.mutations') == []
+    assert evaluate('__permissionFailures') == []
+    assert evaluate('__settingsProbe.errors') == []
+    assert not [event for event in evaluate.load_errors if event.get('method') == 'Runtime.exceptionThrown']
+    wait_for(evaluate, '__dividendPreviewRequests.length > 0')
+    preview_requests = evaluate('__dividendPreviewRequests')
+    assert all(request == {'path': '/api/actual-dividends/estimate', 'method': 'POST'} for request in preview_requests)
+    assert evaluate('__dialogProbe.mutations') == []
+    print(f'READONLY_PREVIEW_POST_{width}={len(preview_requests)} MUTATION_REQUESTS_{width}=0', flush=True)
+    print(f'SPLIT_DATE_{width}=PASS', flush=True)

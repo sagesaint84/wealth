@@ -80,8 +80,13 @@
     return null;
   }
 
+  // Split inputs use calendar month lengths while keeping their browser-local fallback date.
+  function getDaysInMonth(year, month) {
+    return new Date(year, month, 0).getDate();
+  }
+
   const api = { getKstDateParts, getKstYearMonth, getKstIsoDate, getKstDateRange, shiftYearMonth, parseYearMonth };
-  window.WealthDateHelper = api;
+  window.WealthDateHelper = { ...api, getDaysInMonth };
   // Preserve legacy classic-script globals as references to the same owner.
   Object.assign(window, api);
 })();

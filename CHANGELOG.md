@@ -1,11 +1,18 @@
 # Wealth 변경 이력
 
+## Wealth v2.1.12 — 전역 클릭 위임과 분할 날짜 입력
+
+- 계좌·은행·보험·부동산·투자·배당·실현손익의 전역 클릭 위임을 공통 제어기로 이전했다. 기능별 동작은 기존 제어기에 유지했다.
+- 실현손익·배당·가계부 거래·카드 결제의 분할 날짜 입력이 공통 입력 제어기와 기존 날짜 소유자를 사용한다.
+- FastAPI와 화면 표시 버전을 2.1.12로 맞췄다. PR 제출·병합·GHCR 이미지 게시·Git 태그는 대기 중이며 Oracle 운영 배포는 미실행이다.
+
 ## Wealth v2.1.11 — 앱 연결 제어기 및 릴리스 일관성
 
 - 공통 다이얼로그·입력 이벤트, 테마·PWA, 앱 화면 전환 및 부트스트랩 흐름을 앱 셸 제어기로 이전했다.
 - GHCR의 `latest`와 short SHA는 유지한다. 새 앱 버전 태그는 push 직전 main보다 APP_VERSION이 높을 때만 게시한다.
-- Toss WTS 실현손익·배당이자의 공통 KST 최근 30일 초기화와 수동 날짜 보존 검증을 기존 화면 테스트에 추가했다. 실행 대기 상태다.
-- GitHub 병합 대기. GHCR 이미지 미게시. Oracle 운영 배포 미실행.
+- [PR #262](https://github.com/sagesaint84/wealth/pull/262) 병합 완료. main `d6987cb22c9ab097a4478ffb2738a0c8efba19cb`에 Git 태그 `v2.1.11`을 게시했다.
+- [Actions #45538636442](https://github.com/sagesaint84/wealth/actions/runs/45538636442) SUCCESS. GHCR `latest`, `d6987cb`, `2.1.11`의 게시 시점 manifest digest는 `sha256:802303deec6f88c7f69f3f05b473407c62a4b8ad4ed93ac54b40a7e43d8463aa`로 일치했다. Oracle 운영 반영은 사용자 확인 대기다.
+- [Issue #206](https://github.com/sagesaint84/wealth/issues/206) 양쪽 Toss WTS 날짜의 KST 최근 30일 기본값과 화면 전환 후 수동 날짜 보존은 합성 Chrome 1280px·390px에서 PASS다. 운영 화면 확인은 PENDING이다.
 
 ## Wealth v2.1.10 — 사용자 접근 및 자격증명 제어기
 
