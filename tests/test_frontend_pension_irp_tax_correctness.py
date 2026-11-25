@@ -13,6 +13,7 @@ from app.services.tax_benefit import get_total_tax_benefits
 
 ROOT = Path(__file__).resolve().parents[1]
 WEALTH_JS = ROOT / "app" / "static" / "wealth.js"
+PENSION_TAX_MODEL = WEALTH_JS.with_name("wealth-pension-tax-model.js")
 
 
 class FrontendPensionIrpTaxCorrectnessTests(unittest.TestCase):
@@ -21,40 +22,26 @@ class FrontendPensionIrpTaxCorrectnessTests(unittest.TestCase):
         if not shutil.which("node"):
             raise unittest.SkipTest("node runtime is not available")
         cls.source = WEALTH_JS.read_text(encoding="utf-8")
+        cls.tax_view = WEALTH_JS.with_name("wealth-tax-accounts-view.js").read_text(encoding="utf-8")
 
     def run_frontend(self, accounts: list[dict], selected_id: str | None = None) -> dict:
         script = r"""
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync(process.argv[1], 'utf8');
-const deductibleStart = source.indexOf('function isAccountTaxDeductible');
-const deductibleEnd = source.indexOf('\nfunction isTaxAdvantagedAccount', deductibleStart);
-const advantagedStart = deductibleEnd + 1;
-const advantagedEnd = source.indexOf('\n// ── 4.', advantagedStart);
-const categoryStart = source.indexOf('function getTaxCategory');
-const categoryEnd = source.indexOf('\nfunction currentWealthView', categoryStart);
-if ([deductibleStart, deductibleEnd, advantagedEnd, categoryStart, categoryEnd].some(i => i < 0)) {
-  throw new Error('pension tax helpers not found');
-}
-const sandbox = {};
-vm.runInNewContext(
-  source.slice(deductibleStart, deductibleEnd) + '\n' +
-  source.slice(advantagedStart, advantagedEnd) + '\n' +
-  source.slice(categoryStart, categoryEnd) +
-  '\nthis.calculate = calculateOwnerYearPensionTaxBenefits;' +
-  '\nthis.accountSaved = calcAccountCumulativeTaxSaved;',
-  sandbox
-);
+const sandbox = {window: {}};
+vm.runInNewContext(source, sandbox);
+const model = sandbox.window.WealthPensionTaxModel;
 const input = JSON.parse(process.argv[2]);
-const result = sandbox.calculate(input.accounts);
+const result = model.calculateOwnerYearPensionTaxBenefits(input.accounts);
 if (input.selectedId) {
   const selected = input.accounts.find(account => account.id === input.selectedId);
-  result.selectedOwnerCumulativeTaxSaved = sandbox.accountSaved(selected, input.accounts);
+  result.selectedOwnerCumulativeTaxSaved = model.calcAccountCumulativeTaxSaved(selected, input.accounts);
 }
 process.stdout.write(JSON.stringify(result));
 """
         result = subprocess.run(
-            ["node", "-e", script, str(WEALTH_JS), json.dumps({"accounts": accounts, "selectedId": selected_id})],
+            ["node", "-e", script, str(PENSION_TAX_MODEL), json.dumps({"accounts": accounts, "selectedId": selected_id})],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -210,7 +197,7 @@ process.stdout.write(JSON.stringify(result));
         irp = self.run_frontend(accounts, "irp")
         self.assertEqual(first["selectedOwnerCumulativeTaxSaved"], irp["selectedOwnerCumulativeTaxSaved"])
         self.assertEqual(first["selectedOwnerCumulativeTaxSaved"], 1_485_000)
-        self.assertIn("소유자 합산 누적 절세액", self.source)
+        self.assertIn("소유자 합산 누적 절세액", self.tax_view)
 
     def test_year_specific_income_rates_are_applied_after_owner_year_caps(self) -> None:
         result = self.run_frontend([
@@ -281,7 +268,7 @@ process.stdout.write(JSON.stringify(result));
         ])
         self.assertEqual(result["current"]["eligibleContribution"], 0)
         self.assertEqual(result["current"]["taxSaved"], 0)
-        self.assertIn("ISA 혜택: 비과세 200~400만 + 9.9% 분리과세", self.source)
+        self.assertIn("ISA 혜택: 비과세 200~400만 + 9.9% 분리과세", self.tax_view)
 
     def test_general_accounts_are_not_reclassified_as_pension_savings(self) -> None:
         result = self.run_frontend([

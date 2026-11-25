@@ -9,6 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 WEALTH_JS = ROOT / "app" / "static" / "wealth.js"
+PENSION_TAX_MODEL = WEALTH_JS.with_name("wealth-pension-tax-model.js")
 WEALTH_HTML = ROOT / "app" / "static" / "index.html"
 WEALTH_LAYOUT_JS = ROOT / "app" / "static" / "wealth-layout.js"
 WEALTH_PLANNING_JS = ROOT / "app" / "static" / "wealth-planning.js"
@@ -67,34 +68,22 @@ class WealthBatch4PolishTests(unittest.TestCase):
 const fs = require('fs');
 const vm = require('vm');
 const source = fs.readFileSync(process.argv[1], 'utf8');
-const deductibleStart = source.indexOf('function isAccountTaxDeductible');
-const deductibleEnd = source.indexOf('\nfunction isTaxAdvantagedAccount', deductibleStart);
-const advantagedStart = deductibleEnd + 1;
-const advantagedEnd = source.indexOf('\n// ── 4.', advantagedStart);
-const categoryStart = source.indexOf('function getTaxCategory');
-const categoryEnd = source.indexOf('\nfunction currentWealthView', categoryStart);
-const sandbox = {};
-vm.runInNewContext(
-  source.slice(deductibleStart, deductibleEnd) + '\n' +
-  source.slice(advantagedStart, advantagedEnd) + '\n' +
-  source.slice(categoryStart, categoryEnd) +
-  '\nthis.calculateOwnerYearPensionTaxBenefits = calculateOwnerYearPensionTaxBenefits;' +
-  '\nthis.calcAccountCumulativeTaxSaved = calcAccountCumulativeTaxSaved;',
-  sandbox
-);
+const sandbox = {window: {}};
+vm.runInNewContext(source, sandbox);
+const model = sandbox.window.WealthPensionTaxModel;
 const input = JSON.parse(process.argv[2]);
 const out = {
-  ownerBenefits: sandbox.calculateOwnerYearPensionTaxBenefits(input.accounts),
+  ownerBenefits: model.calculateOwnerYearPensionTaxBenefits(input.accounts),
   perAccount: input.accounts.map(a => ({
     id: a.id,
-    allocatedSaved: sandbox.calculateOwnerYearPensionTaxBenefits(input.accounts).cumulative.byAccount[String(a.id || '')]?.taxSaved || 0,
-    ownerAggregateSaved: sandbox.calcAccountCumulativeTaxSaved(a, input.accounts),
+    allocatedSaved: model.calculateOwnerYearPensionTaxBenefits(input.accounts).cumulative.byAccount[String(a.id || '')]?.taxSaved || 0,
+    ownerAggregateSaved: model.calcAccountCumulativeTaxSaved(a, input.accounts),
   })),
 };
 process.stdout.write(JSON.stringify(out));
 """
         res = subprocess.run(
-            ["node", "-e", script, str(WEALTH_JS), json.dumps({"accounts": accounts})],
+            ["node", "-e", script, str(PENSION_TAX_MODEL), json.dumps({"accounts": accounts})],
             cwd=ROOT,
             capture_output=True,
             text=True,
