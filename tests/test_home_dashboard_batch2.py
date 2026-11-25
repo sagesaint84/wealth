@@ -10,6 +10,8 @@ class HomeDashboardBatch2Tests(unittest.TestCase):
         cls.layout = (root / "app/static/wealth-layout.js").read_text(encoding="utf-8")
         cls.css = (root / "app/static/wealth-layout.css").read_text(encoding="utf-8")
         cls.main = (root / "app/static/wealth.js").read_text(encoding="utf-8")
+        cls.owner_model = (root / "app/static/wealth-dashboard-owner-model.js").read_text(encoding="utf-8")
+        cls.summary_view = (root / "app/static/wealth-investment-summary-view.js").read_text(encoding="utf-8")
         cls.planning = (root / "app/static/wealth-planning.js").read_text(encoding="utf-8")
 
     def test_debt_is_a_secondary_existing_value_with_non_profit_color(self):
@@ -22,11 +24,27 @@ class HomeDashboardBatch2Tests(unittest.TestCase):
     def test_expected_return_uses_existing_property_and_stock_domain_values(self):
         self.assertIn('<em>부동산 기대수익</em><small id="wealthAssetPropertyExpected">', self.html)
         self.assertIn('<em>주식 기대수익</em><small id="wealthAssetStockExpected">', self.html)
-        self.assertIn("propertyExpected: totalREProfit", self.main)
-        self.assertIn("stockExpected: Number(s.profit_krw) || 0", self.main)
-        self.assertIn("propertyExpectedRate: realEstateReturnRate", self.main)
-        self.assertIn("stockExpectedRate: Number(s.return_rate) || 0", self.main)
-        self.assertIn("totalExpectedProfit = (Number(s.profit_krw) || 0) + totalREProfit", self.main)
+        self.assertIn("propertyExpected: totalREProfit", self.owner_model)
+        self.assertIn("stockExpected: Number(s.profit_krw) || 0", self.owner_model)
+        self.assertIn("propertyExpectedRate: realEstateReturnRate", self.owner_model)
+        self.assertIn("stockExpectedRate: Number(s.return_rate) || 0", self.owner_model)
+        self.assertIn("totalExpectedProfit = (Number(s.profit_krw) || 0) + totalREProfit", self.owner_model)
+        self.assertIn('$("#profitLabelText").textContent = "주식 기대수익"', self.summary_view)
+        self.assertIn('$("#totalProfit").textContent = money(s.profit_krw)', self.summary_view)
+        self.assertIn("number(s.return_rate)", self.summary_view)
+        self.assertIn("setSigned('wealthAssetPropertyExpected', s.propertyExpected,", self.layout)
+        self.assertIn("setSigned('wealthAssetStockExpected', s.stockExpected,", self.layout)
+
+        render_start = self.main.index("function renderSummary(data)")
+        render_end = self.main.index("\nfunction ", render_start + 1)
+        render = self.main[render_start:render_end]
+        calculate = render.index("const { card, home } = dashboardOwnerModel.buildDashboardSummary(data, owner,")
+        display = render.index("investmentSummaryView.renderSummary(card)")
+        publish = render.index("window.dispatchEvent(new CustomEvent('wealth:summary', { detail: {")
+        self.assertLess(calculate, display)
+        self.assertLess(display, publish)
+        self.assertIn("...home,", render[publish:])
+        self.assertIn("window.addEventListener('wealth:summary', ({ detail: s }) =>", self.layout)
 
     def test_real_estate_allocation_wording_and_return_are_distinct(self):
         # Classification is current_price × ownership, before debt deduction.
@@ -38,9 +56,12 @@ class HomeDashboardBatch2Tests(unittest.TestCase):
         self.assertIn("rate: s.propertyExpectedRate, profit: s.propertyExpected, cost: s.propertyPurchaseValue", self.layout)
         self.assertIn("rate: item.return_rate, profit: item.profit_krw, cost: item.cost_value_krw", self.layout)
         self.assertIn("metric.textContent = returnRate === null ? '—' : pct(returnRate)", self.layout)
-        self.assertIn("propertyExpected: totalREProfit, propertyExpectedRate: realEstateReturnRate", self.main)
-        self.assertIn("propertyPurchaseValue: totalREPurchaseVal", self.main)
-        self.assertIn("const netWorth = (totalInvestAssets + totalSafeAssets) - totalAllDebt", self.main)
+        self.assertIn("propertyExpected: totalREProfit, propertyExpectedRate: realEstateReturnRate", self.owner_model)
+        self.assertIn("propertyPurchaseValue: totalREPurchaseVal", self.owner_model)
+        self.assertIn("const netWorth = (totalInvestAssets + totalSafeAssets) - totalAllDebt", self.owner_model)
+        self.assertIn("const pVal = (Number(r.current_price) || 0) * share", self.owner_model)
+        self.assertIn("const totalInvestAssets = totalREInvestEquity + totalStockVal", self.owner_model)
+        self.assertIn("const totalSafeAssets = totalAllCash + totalTenantDepositVal + insuranceTotal", self.owner_model)
 
     def test_history_removes_summary_cards_and_uses_desktop_chart_list_split(self):
         for label in ("기간 시작", "최근 기록", "최저 / 최고", "기간 증감"):

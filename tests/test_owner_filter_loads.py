@@ -14,7 +14,7 @@ def _run_owner_script(mode: str) -> None:
     source = SOURCE.read_text(encoding="utf-8")
     fragments = (
         ("function selectOwner(owner) {", "\n// ── 핵심 요약"),
-        ("function renderWithOwner(data, owner) {", "\n// 다이얼로그"),
+        ("const dashboardOwnerModel =", "\nconst appShell ="),
         ("async function loadDashboard(recordSnapshots = false) {", "\nfunction normalizeYear"),
     )
     owner_model = (STATIC / "wealth-dashboard-owner-model.js").read_text(encoding="utf-8")
@@ -41,9 +41,9 @@ const context = {
   allAssetRecords: [], assetRecords: [],
   selectedDividendYear: 'all', selectedPnlYear: 'all', currentPnlTradeType: 'all',
   document: {querySelectorAll() { return []; }},
-  computeFilteredSummary: () => ({}), computeFilteredClassifications: () => [],
-  computeFilteredSectors: () => [], computeFilteredCurrencySummary: () => ({}),
-  computeFilteredDayChange: () => ({}), render() {},
+  accountFeature: {rawBankAccounts: [], rawSavingsAccounts: []},
+  insuranceFeature: {rawInsuranceAccounts: []}, realEstateFeature: {rawRealEstates: []},
+  render() {},
   syncHoldingSignalsContext() {},
   loadDividends() {}, loadActualDividends() {}, loadRealizedPnl() {},
   updateOverviewCardsAllTime() {},

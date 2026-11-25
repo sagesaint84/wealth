@@ -49,17 +49,17 @@ const sandbox={Date:Clock,Intl:input.intlFailure?{...Intl,DateTimeFormat:()=>{th
  currentOwner:input.owner,STOCK_PORTFOLIO_MODE:'sector',rawDashboard:null,pnlData:null,actualDividendData:null,
  accountFeature:{rawLoanAccounts:[],rawBankAccounts:[],rawSavingsAccounts:[]},
  insuranceFeature:{rawInsuranceAccounts:[]},realEstateFeature:{rawRealEstates:[]},
- calculateDashboardDebt:()=>({totalMinusBankDebt:0,totalPureDebt:0}),
  $:selector=>elements[selector]||(elements[selector]=createElement()),
  CustomEvent:class{constructor(type,init){this.detail=init.detail;}},
  window:{dispatchEvent:e=>{sandbox.summary=e.detail;}}};
 vm.createContext(sandbox);
-for (const asset of ['wealth-date-helper.js', 'wealth-format.js', 'wealth-investment-summary-view.js']) {
+for (const asset of ['wealth-date-helper.js', 'wealth-format.js', 'wealth-dashboard-owner-model.js', 'wealth-investment-summary-view.js']) {
   vm.runInContext(fs.readFileSync(path.join(staticDir, asset), 'utf8'), sandbox);
 }
 sandbox.getKstYearMonth=sandbox.window.WealthDateHelper.getKstYearMonth;
 vm.runInContext(source.slice(source.indexOf('const number ='),source.indexOf('function formatKoreanMoneyFriendly')),sandbox);
-vm.runInContext(source.slice(source.indexOf('function finiteRealizedPnlNumber'),source.indexOf('const sectorView =')),sandbox);
+vm.runInContext(source.slice(source.indexOf('const dashboardOwnerModel ='),source.indexOf('function renderWithOwner')),sandbox);
+vm.runInContext(source.slice(source.indexOf('const investmentSummaryView ='),source.indexOf('function maskBrokerAccountNo')),sandbox);
 sandbox.renderSummary({realized_pnl_records:input.rows,realized_pnl_summary:input.canonical});
 process.stdout.write(JSON.stringify({summary:sandbox.summary,elements}));
 '''
@@ -120,7 +120,9 @@ def test_kst_boundary_and_existing_helper_fallback_use_october():
 
 def test_legacy_summary_producers_and_fixed_dates_physically_absent():
     html = (STATIC/'index.html').read_text(encoding='utf-8')
-    source = (STATIC/'wealth.js').read_text(encoding='utf-8')
+    source = "\n".join((STATIC / name).read_text(encoding='utf-8') for name in (
+        'wealth.js', 'wealth-dashboard-owner-model.js', 'wealth-investment-summary-view.js',
+    ))
     for identifier in ('netWorthRow','safeAssetRow','subAssetBreakdown','pnlSubBreakdown',
                        'summaryNetWorth','summarySafeAssetVal'):
         assert f'id="{identifier}"' not in html

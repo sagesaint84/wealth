@@ -40,11 +40,8 @@ assert.equal(display({...stock,name:'새 자산군'}), 10);
 
 // Exercise the actual classification producer with synthetic balances and
 // ownership. Its property value is gross valuation, not debt-netted equity.
-const source = fs.readFileSync(process.argv[2], 'utf8');
-const classificationSource = 'function computeFilteredClassifications(' +
-  source.split('function computeFilteredClassifications(')[1].split('function computeFilteredSectors(')[0];
-const classify = eval('(' + classificationSource.trim() + ')');
-globalThis.classifyHolding = () => '국내주식';
+eval(fs.readFileSync(process.argv[2], 'utf8'));
+const {computeFilteredClassifications} = window.WealthDashboardOwnerModel;
 const raw = {
   real_estates: [
     {property_type:'rental',current_price:1000,purchase_price:600,deposit_amount:900,
@@ -56,7 +53,7 @@ const raw = {
   insurance_accounts:[{owner:'아빠',expected_amount:70,expected_refund_amount:999}],
 };
 const inputsBefore = JSON.stringify(raw);
-const classifications = classify([stock], [{cash_krw:50}], {USD:1385}, '아빠', raw);
+const classifications = computeFilteredClassifications([stock], [{cash_krw:50}], {USD:1385}, '아빠', raw);
 const byName = Object.fromEntries(classifications.map(item => [item.name,item]));
 assert.equal(byName['부동산'].market_value_krw, 400);
 assert.equal(byName['부동산'].holding_count, 1);
@@ -78,7 +75,7 @@ for (const name of ['현금·예수금', '보험', '임차보증금']) {
 assert.equal(JSON.stringify(raw), inputsBefore);
 '''
     result = subprocess.run(
-        ['node', '-e', script, str(ROOT / 'app/static/wealth-layout.js'), str(ROOT / 'app/static/wealth.js')],
+        ['node', '-e', script, str(ROOT / 'app/static/wealth-layout.js'), str(ROOT / 'app/static/wealth-dashboard-owner-model.js')],
         capture_output=True, text=True, timeout=15,
     )
     assert result.returncode == 0, result.stderr
