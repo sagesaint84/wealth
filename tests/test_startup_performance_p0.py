@@ -39,14 +39,18 @@ def fragment(source, start, end):
     return start + source.split(start, 1)[1].split(end, 1)[0]
 
 
+def api_client_code(source):
+    client = (STATIC / 'wealth-api-client.js').read_text(encoding='utf-8')
+    wiring = fragment(source, 'const apiClient = globalThis.WealthApiClient.create(', 'globalThis.WealthStartup = globalThis.WealthStartupReadController.create(')
+    return client + '\n' + wiring
+
+
 def startup_transport_code(source, *, modern=True):
-    api = fragment(source, 'const startupReadPending = new Map();', 'const fetchJson = api;')
-    coordinator = (source.split('// Opt-in synthetic profiling only:', 1)[1].split('const startupReadPending = new Map();', 1)[0]
-        if modern else '')
-    # The first line after the comment is prose, not executable JavaScript.
-    if modern:
-        coordinator = coordinator[coordinator.index('globalThis.WealthStartup ='):]
-    return coordinator + api
+    if not modern:
+        return fragment(source, 'const startupReadPending = new Map();', 'const fetchJson = api;')
+    controller = (STATIC / 'wealth-startup-read-controller.js').read_text(encoding='utf-8')
+    wiring = fragment(source, 'globalThis.WealthStartup = globalThis.WealthStartupReadController.create(', 'const fetchJson = api;')
+    return api_client_code(source) + controller + '\n' + wiring
 
 
 def startup_code(source, *, modern=True):
@@ -184,7 +188,7 @@ def run(script, *args):
 @pytest.mark.parametrize('late_install', [False, True])
 def test_income_filter_install_is_lazy_and_active_reads_remain_scoped(late_install):
     source = SOURCE.read_text(encoding='utf-8')
-    shared_api = fragment(source, 'const startupReadPending = new Map();', 'const fetchJson = api;')
+    shared_api = api_client_code(source)
     core = (ROOT/'app/static/wealth-period-filter-core.js').read_text(encoding='utf-8')
     filters = (ROOT/'app/static/wealth-income-period-broker-filter.js').read_text(encoding='utf-8')
     run(r"""
@@ -223,8 +227,7 @@ const c={URL,location:{origin:'http://synthetic.invalid',hash:late?'#dividend':'
   return visible;
  },count(){},request(){}},
  renderActualDividends:data=>renders.push(data),updateDividendYearOptions:years=>c.years=years,
- // Keep the extracted api()/apiRequest() implementation and observe its actual
- // fetch boundary; a mock named apiRequest would be overwritten by its declaration.
+ // Observe requests at the real client's fetch boundary.
  fetch:(url,options)=>new Promise((resolve,reject)=>calls.push({url,options,
   resolve:data=>resolve({status:200,ok:true,json:async()=>data}),reject}))};
 function setDividendVisible(visible){
@@ -240,7 +243,7 @@ const rows=(name,amount=100)=>({records:[
  {date:'2026-04-08',code:'316140',broker:name,amount_krw:amount},
  {date:'2025-04-08',code:'005930',broker:'prior-year',amount_krw:900}],
  interest_records:[{date:'2026-04-09',broker:'interest-broker',amount_krw:20}]});
-const clearCache=()=>vm.runInContext('startupIncomeReuse=false;allTimeReadCache.clear();',c);
+const clearCache=()=>{c.finishStartupIncomeReads();c.invalidateStartupReads();};
 (async()=>{
  if(late){
   assert.equal(calls.length,1,'late installation initializes only an already visible actual screen');
@@ -617,7 +620,7 @@ c.WealthUnifiedTimeseries={...c.renderer,refreshVisiblePanZoom(){}};
 def test_dividend_prepared_data_rejects_stale_write_epoch():
     source = SOURCE.read_text(encoding='utf-8')
     chart = (ROOT / 'app/static/wealth-timeseries-unified.js').read_text(encoding='utf-8')
-    code = fragment(source, 'const startupReadPending = new Map();', 'const fetchJson = api;')
+    code = api_client_code(source)
     code += fragment(chart, '  async function dividendSource() {', '  function monthKey(')
     run(r"""
 const assert = require('node:assert/strict'), vm = require('node:vm');

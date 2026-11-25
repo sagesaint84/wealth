@@ -1,9 +1,15 @@
 # Wealth Project State
 
-## v2.1.12 개발 후보 — 전역 클릭 위임과 분할 날짜 입력
+## v2.1.13 개발 후보 — 공통 API와 시작 데이터 로딩
 
-- 계좌·은행·보험·부동산·투자·배당·실현손익 전역 클릭을 공통 제어기로 연결한다. 분할 날짜 입력은 실현손익·배당·가계부 거래·카드 결제에서 기존 날짜 소유자와 함께 재사용한다.
-- PR 제출·병합·GHCR 이미지 게시·Git 태그는 대기 중이다. Oracle 운영 배포는 미실행이다.
+- 공통 API 클라이언트가 요청·응답 처리, GET 중복 제거, 캐시와 읽기 세대를 소유한다. 시작 읽기 제어기는 인증 상태·화면 가시성에 따른 보조 조회와 계측을 소유한다.
+- 구현 및 정적 검증 배치. 동적 검증과 GitHub 통합은 대기 중이다.
+
+## v2.1.12 — 전역 클릭 위임과 분할 날짜 입력
+
+- [PR #263](https://github.com/sagesaint84/wealth/pull/263) 병합 완료. main `d9f620d3e1a4952ecdc5f8d9bf21a17d16877a58`에 annotated Git 태그 `v2.1.12`를 게시했다.
+- [Actions #45553171166](https://github.com/sagesaint84/wealth/actions/runs/45553171166) SUCCESS. GHCR `latest`, `d9f620d`, `2.1.12`의 게시 시점 manifest digest는 `sha256:3ba793d9ef5bee85c309cfdcdeb5c2d41c754f1c74fa13fc9e407ba890aef2eb`로 일치했다. Oracle 운영 반영은 사용자 확인 대기다.
+- 합성 Chrome 1280px·390px에서 전역 클릭, 분할 날짜와 한글 조합 집중 검사 2건 PASS. 작업 브랜치와 worktree 정리 완료.
 
 ## v2.1.11 — 앱 셸과 릴리스 일관성
 

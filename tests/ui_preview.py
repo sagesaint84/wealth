@@ -66,6 +66,8 @@ ALLOWED.update({
     'wealth-asset-records-screen-controller.js',
     'wealth-admin-users-view.js',
     'wealth-app-shell-controller.js',
+    'wealth-api-client.js',
+    'wealth-startup-read-controller.js',
     'wealth-global-action-controller.js',
     'wealth-split-date-input-controller.js',
     'wealth-user-access-feature-controller.js',
