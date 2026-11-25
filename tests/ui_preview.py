@@ -53,6 +53,7 @@ ALLOWED.update({
     'wealth-stock-autocomplete.js',
     'wealth-ipo-schedule-card-view.js',
     'wealth-dashboard-owner-model.js',
+    'wealth-pension-tax-model.js',
     'wealth-holding-account-options-view.js',
     'wealth-holding-dialog-controller.js',
     'wealth-tax-accounts-view.js',

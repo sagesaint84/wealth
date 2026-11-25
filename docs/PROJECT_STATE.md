@@ -1,9 +1,15 @@
 # Wealth Project State
 
-## v2.1.14 개발 후보 — 가족별 자산 요약 모델과 화면 렌더링
+## v2.1.15 개발 후보 — 연금·IRP 세액공제 공통 모델
+
+- 계좌, 투자, 보험·연금 화면을 `WealthPensionTaxModel`로 연결했다. 기존 계산식과 공개 진입점을 유지하며 동적 검증은 대기 중이다.
+
+## v2.1.14 — 가족별 자산 요약 모델과 화면 렌더링
 
 - 가족별 자산 선택과 집계는 기존 대시보드 모델이 담당한다. 기존 투자 요약 View는 카드 DOM을 갱신하며 앱은 기존 공개 진입점과 HOME 이벤트를 연결한다.
-- 가족별 금액, 기간 집계와 요약 카드 동작 검증은 대기 중이다.
+- [PR #265](https://github.com/sagesaint84/wealth/pull/265) 병합 완료. main `bc8465c55b4f6761d12a685292152d7dbfebb5ad`에 annotated Git 태그 `v2.1.14`를 게시했다.
+- [Actions #45595543061](https://github.com/sagesaint84/wealth/actions/runs/45595543061) SUCCESS. GHCR `latest`, `bc8465c`, `2.1.14`의 manifest digest가 빌드 로그의 `sha256:1d142d7402ddf0dc82746bc68540097161cca0f4c6ea4192291db419d1fd23d2`와 일치했다. Oracle 운영 배포는 실행하지 않았다.
+- Windows 집중 검증 6건 PASS. Fold7 412px·750px 화면 검증은 대기 중이며, 작업 브랜치와 worktree 정리를 완료했다.
 
 ## v2.1.13 — 공통 API와 시작 데이터 로딩
 
