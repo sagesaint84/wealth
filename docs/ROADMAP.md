@@ -1,8 +1,12 @@
 # Wealth Roadmap
 
-## v2.1.17 개발 후보 — 비증권 자산 API 라우터 분리
+## v2.1.18 개발 후보 — 계좌·보유종목·가족 API 라우터 분리
 
-- 다음 집중 검증은 라우트와 OpenAPI, 국민연금 소유권·업로드 순서 및 이력 충돌, 예적금 중복 입금, 마이너스통장 연결과 부동산 매각·KB시세다.
+- 다음 집중 검증은 라우트와 HoldingCreate OpenAPI 요청 스키마, 계좌·보유종목 연결 및 가족·IPO 참조와 사용자별 격리다.
+
+## v2.1.17 — 비증권 자산 API 라우터 분리
+
+- [PR #268](https://github.com/sagesaint84/wealth/pull/268) 통합 완료. 태그와 이미지 근거는 [PROJECT_STATE](PROJECT_STATE.md#v2117--비증권-자산-api-라우터-분리)에 기록했다.
 
 ## v2.1.16 — 가계부 API 라우터 분리
 
