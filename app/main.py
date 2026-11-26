@@ -252,7 +252,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-APP_VERSION = "2.1.18"
+APP_VERSION = "2.1.19"
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -2426,134 +2426,28 @@ async def _actual_dividend_evidence(records, username):
     return evidence
 
 
-@app.get("/api/actual-dividends")
-async def get_actual_dividends(request: Request, owner: str = "모두", year: str | None = None) -> dict:
-    """Return actual dividend records and 12-month summary."""
-    username = get_current_username(request)
-    summary = get_actual_dividend_summary(owner=owner, year=year, username=username)
-    from app.services.dividend_records import estimate_record_dividend
-    evidence = await _actual_dividend_evidence(summary['records'], username)
-    # Enrich response copies only. Never migrate or persist inferred tax values.
-    summary['records'] = [{**r, 'tax_estimate': estimate_record_dividend(r, evidence.get(r.get('code')))}
-        for r in summary['records']]
-    return summary
+from app.routers.actual_dividends import create_actual_dividends_router
 
-
-@app.post('/api/actual-dividends/estimate')
-async def preview_actual_dividend_estimate(request: Request) -> JSONResponse:
-    username = get_current_username(request)
-    from app.services.dividend_records import estimate_record_dividend, _record_tax_metadata
-    try:
-        body = await request.json()
-        if not isinstance(body, dict):
-            raise ValueError('invalid record')
-        _record_tax_metadata(body)
-        evidence = await _actual_dividend_evidence([body], username)
-        result = estimate_record_dividend(body, evidence.get(body.get('code')))
-    except (ValueError, TypeError):
-        raise HTTPException(400, '배당 세금 입력값을 확인해 주세요.') from None
-    return JSONResponse(result, headers={'Cache-Control': 'no-store'})
-
-
-@app.post("/api/actual-dividends")
-async def add_actual_dividend(request: Request) -> dict:
-    """Add a new actual dividend record."""
-    username = get_current_username(request)
-    body = await request.json()
-    try:
-        record = create_dividend_record(body, username=username)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    return {"message": "배당금이 등록되었습니다.", "record": record}
-
-
-@app.put("/api/actual-dividends/{record_id}")
-async def edit_actual_dividend(record_id: str, request: Request) -> dict:
-    """Update an existing actual dividend record."""
-    username = get_current_username(request)
-    body = await request.json()
-    try:
-        record = update_dividend_record(record_id, body, username=username)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    if not record:
-        raise HTTPException(status_code=404, detail="배당 기록을 찾을 수 없습니다.")
-    return {"message": "배당금이 수정되었습니다.", "record": record}
-
-
-@app.delete("/api/actual-dividends/{record_id}")
-async def remove_actual_dividend(record_id: str, request: Request) -> dict:
-    """Delete an actual dividend record."""
-    username = get_current_username(request)
-    try:
-        ok = delete_dividend_record(record_id, username=username)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    if not ok:
-        raise HTTPException(status_code=404, detail="배당 기록을 찾을 수 없습니다.")
-    return {"message": "배당 기록이 삭제되었습니다."}
-
-
-@app.post("/api/import-dividends")
-async def import_dividends_endpoint(request: Request, file: UploadFile = File(...)) -> dict:
-    """Import actual dividend records from Excel or CSV."""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="업로드할 파일을 선택하세요.")
-    username = get_current_username(request)
-    contents = await file.read()
-    full = get_dashboard(username=username)
-    fx_rate = full.get("fx_rates", {}).get("USD", 1385.0)
-    try:
-        records = import_dividend_file_data(contents, file.filename, fx_rate=fx_rate, username=username)
-        return {
-            "message": f"총 {len(records)}건의 배당금 내역을 가져왔습니다.",
-            "count": len(records),
-            "records": records,
-        }
-    except Exception as e:
-        logger.exception("배당 파일 가져오기 실패")
-        raise HTTPException(status_code=400, detail=f"배당 파일 처리 실패: {e}")
-
-
-@app.post("/api/actual-dividends/clear")
-async def clear_actual_dividends_endpoint(request: Request) -> dict:
-    """Clear all actual dividend records."""
-    username = get_current_username(request)
-    clear_dividend_records(username=username)
-    return {"message": "모든 실제 배당금 기록이 삭제되었습니다."}
-
-
-@app.post("/api/actual-dividends/recalculate-fx")
-async def recalculate_actual_dividends_fx(request: Request) -> dict:
-    """Recalculate USD dividend amounts using historical exchange rates for each deposit date."""
-    username = get_current_username(request)
-    await sync_historical_fx()
-    updated = recalculate_dividend_historical_fx(username=username)
-    return {"message": f"총 {updated}건의 해외 배당금 환율이 입금일자 기준으로 재계산되었습니다.", "updated_count": updated}
-
-
-@app.get("/api/historical-fx")
-async def get_historical_fx_endpoint(date: str = "") -> dict:
-    """Get historical USD/KRW exchange rate for a given date."""
-    today = datetime.now().strftime("%Y-%m-%d")
-    target = date.strip() or today
-    rate = get_historical_fx_rate(target)
-    return {"date": target, "rate": rate, "currency": "USD"}
-
-
-@app.get("/api/sample/dividends")
-async def download_sample_dividends():
-    """Download sample Excel file for actual dividend tracking."""
-    p = ROOT_DIR / "data" / "샘플_배당.xlsx"
-    if not p.exists():
-        p = ROOT_DIR / "샘플_배당.xlsx"
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="샘플_배당.xlsx 파일을 찾을 수 없습니다.")
-    return FileResponse(
-        path=str(p),
-        filename="샘플_배당.xlsx",
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+# Keep the existing shared evidence cache and resolve app dependencies at call time.
+actual_dividends_router = create_actual_dividends_router(
+    get_current_username=lambda request: get_current_username(request),
+    get_dashboard=lambda **kwargs: get_dashboard(**kwargs),
+    get_root_dir=lambda: ROOT_DIR,
+    log_exception=lambda message: logger.exception(message),
+    get_actual_dividend_summary=lambda *args, **kwargs: get_actual_dividend_summary(*args, **kwargs),
+    _actual_dividend_evidence=lambda records, username: _actual_dividend_evidence(records, username),
+    create_dividend_record=lambda *args, **kwargs: create_dividend_record(*args, **kwargs),
+    update_dividend_record=lambda *args, **kwargs: update_dividend_record(*args, **kwargs),
+    delete_dividend_record=lambda *args, **kwargs: delete_dividend_record(*args, **kwargs),
+    import_dividend_file_data=lambda *args, **kwargs: import_dividend_file_data(*args, **kwargs),
+    clear_dividend_records=lambda *args, **kwargs: clear_dividend_records(*args, **kwargs),
+    sync_historical_fx=lambda *args, **kwargs: sync_historical_fx(*args, **kwargs),
+    recalculate_dividend_historical_fx=lambda *args, **kwargs: recalculate_dividend_historical_fx(*args, **kwargs),
+    get_historical_fx_rate=lambda *args, **kwargs: get_historical_fx_rate(*args, **kwargs),
+    now=lambda: datetime.now(),
+)
+app.include_router(actual_dividends_router)
+globals().update({route.name: route.endpoint for route in actual_dividends_router.routes})
 
 
 @app.get("/api/sample/holdings")
@@ -3072,94 +2966,23 @@ async def unlink_ipo_applicant_sale(ipo_id: str, owner: str, pnl_record_id: str,
 # Realized PnL API
 # ---------------------------------------------------------------------------
 
-@app.get("/api/realized-pnl")
-async def get_realized_pnl(request: Request, owner: str = "모두", year: str | None = None, trade_type: str = "all") -> dict:
-    """Return realized profit and loss records and summary."""
-    username = get_current_username(request)
-    return get_pnl_summary(owner=owner, year=year, trade_type=trade_type, username=username)
+from app.routers.realized_pnl import create_realized_pnl_routers
 
-
-@app.post("/api/realized-pnl")
-async def add_realized_pnl(request: Request) -> dict:
-    """Add a new realized PnL record."""
-    username = get_current_username(request)
-    body = await request.json()
-    record = create_pnl_record(body, username=username)
-    return {"message": "매도 실현손익이 등록되었습니다.", "record": record}
-
-
-@app.put("/api/realized-pnl/{record_id}")
-async def edit_realized_pnl(record_id: str, request: Request) -> dict:
-    """Update an existing realized PnL record."""
-    username = get_current_username(request)
-    body = await request.json()
-    record = update_pnl_record(record_id, body, username=username)
-    if not record:
-        raise HTTPException(status_code=404, detail="실현손익 기록을 찾을 수 없습니다.")
-    return {"message": "매도 실현손익이 수정되었습니다.", "record": record}
-
-
-@app.delete("/api/realized-pnl/{record_id}")
-async def remove_realized_pnl(record_id: str, request: Request) -> dict:
-    """Delete a realized PnL record."""
-    username = get_current_username(request)
-    try:
-        ok = delete_pnl_record(record_id, username=username)
-    except PnlRecordLinkedToIpoError as exc:
-        raise HTTPException(status_code=409, detail={"code": "PNL_RECORD_LINKED_TO_IPO", "message": "Unlink the IPO sale before deleting this P&L record"}) from exc
-    if not ok:
-        raise HTTPException(status_code=404, detail="실현손익 기록을 찾을 수 없습니다.")
-    return {"message": "실현손익 기록이 삭제되었습니다."}
-
-
-@app.post("/api/realized-pnl/clear")
-async def clear_realized_pnl_endpoint(
-    request: Request,
-    broker: str | None = None,
-) -> dict:
-    """Clear all realized PnL records, or only one broker scope when requested."""
-    username = get_current_username(request)
-
-    broker_scope = None if broker is None else str(broker).strip()
-    if broker is not None and not broker_scope:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "BROKER_SCOPE_INVALID",
-                "message": "Broker scope is required",
-            },
-        )
-
-    try:
-        if broker_scope is None:
-            clear_pnl_records(username=username)
-            return {
-                "message": "모든 매도 실현손익 기록이 삭제되었습니다."
-            }
-
-        deleted = clear_pnl_records_for_broker(
-            broker_scope,
-            username=username,
-        )
-    except PnlRecordsLinkedToIpoError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "PNL_RECORDS_LINKED_TO_IPO",
-                "message": "Unlink IPO sales before clearing realized P&L",
-            },
-        ) from exc
-
-    broker_label = (
-        "증권사 미지정"
-        if broker_scope == "__unassigned__"
-        else broker_scope
-    )
-    return {
-        "message": f"{broker_label} 실현손익 {deleted}건이 삭제되었습니다.",
-        "deleted": deleted,
-        "broker": broker_scope,
-    }
+realized_pnl_router, realized_pnl_import_router = create_realized_pnl_routers(
+    get_current_username=lambda request: get_current_username(request),
+    get_dashboard=lambda **kwargs: get_dashboard(**kwargs),
+    get_root_dir=lambda: ROOT_DIR,
+    log_exception=lambda message: logger.exception(message),
+    get_pnl_summary=lambda *args, **kwargs: get_pnl_summary(*args, **kwargs),
+    create_pnl_record=lambda *args, **kwargs: create_pnl_record(*args, **kwargs),
+    update_pnl_record=lambda *args, **kwargs: update_pnl_record(*args, **kwargs),
+    delete_pnl_record=lambda *args, **kwargs: delete_pnl_record(*args, **kwargs),
+    clear_pnl_records=lambda *args, **kwargs: clear_pnl_records(*args, **kwargs),
+    clear_pnl_records_for_broker=lambda *args, **kwargs: clear_pnl_records_for_broker(*args, **kwargs),
+    import_pnl_file_data=lambda *args, **kwargs: import_pnl_file_data(*args, **kwargs),
+    recalculate_pnl_historical_fx=lambda *args, **kwargs: recalculate_pnl_historical_fx(*args, **kwargs),
+)
+app.include_router(realized_pnl_router)
 
 
 holdings_clear_router, holdings_collection_router, holding_update_router = create_holdings_routers(
@@ -3170,51 +2993,12 @@ holdings_clear_router, holdings_collection_router, holding_update_router = creat
 app.include_router(holdings_clear_router)
 
 
-@app.post("/api/import-realized-pnl")
-async def import_realized_pnl_endpoint(request: Request, file: UploadFile = File(...)) -> dict:
-    """Import realized PnL records from Excel or CSV."""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="업로드할 파일을 선택하세요.")
-    username = get_current_username(request)
-    contents = await file.read()
-    full = get_dashboard(username=username)
-    fx_rate = full.get("fx_rates", {}).get("USD", 1385.0)
-    try:
-        records = import_pnl_file_data(contents, file.filename, fx_rate=fx_rate, username=username)
-        return {
-            "message": f"총 {len(records)}건의 실현손익 내역을 가져왔습니다.",
-            "count": len(records),
-            "records": records,
-        }
-    except Exception as e:
-        logger.exception("실현손익 파일 가져오기 실패")
-        raise HTTPException(status_code=400, detail=f"실현손익 파일 처리 실패: {e}")
-
-
-@app.post("/api/realized-pnl/recalculate-fx")
-async def recalculate_realized_pnl_fx_endpoint(request: Request) -> dict:
-    """Recalculate historical FX rates and KRW amounts for all USD realized PnL records."""
-    username = get_current_username(request)
-    count = recalculate_pnl_historical_fx(username=username)
-    return {
-        "message": f"총 {count}건의 달러 실현손익 내역을 매도일자 기준 환율 및 환차손익으로 재계산했습니다.",
-        "count": count,
-    }
-
-
-@app.get("/api/sample/realized-pnl")
-async def download_sample_pnl():
-    """Download sample Excel file for realized profit/loss tracking."""
-    p = ROOT_DIR / "data" / "샘플_매도실현손익.xlsx"
-    if not p.exists():
-        p = ROOT_DIR / "샘플_매도실현손익.xlsx"
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="샘플_매도실현손익.xlsx 파일을 찾을 수 없습니다.")
-    return FileResponse(
-        path=str(p),
-        filename="샘플_매도실현손익.xlsx",
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+app.include_router(realized_pnl_import_router)
+globals().update({
+    route.name: route.endpoint
+    for router in (realized_pnl_router, realized_pnl_import_router)
+    for route in router.routes
+})
 
 
 @app.get("/api/status")
