@@ -1,8 +1,14 @@
 # Wealth Project State
 
-## v2.1.16 개발 후보 — 가계부 API 라우터 분리
+## v2.1.17 개발 후보 — 비증권 자산 API 라우터 분리
 
-- 가계부와 관련 설정·가져오기 엔드포인트를 전용 라우터로 이전했다. 기존 인증, 요청·응답, 금융 서비스 계약의 동적 검증은 대기 중이다.
+- 은행·예적금·보험·연금·대출 라우트 21개와 부동산 라우트 6개를 전용 라우터로 이전했다. 실제 라우팅과 금융 API 동적 검증은 대기 중이다.
+
+## v2.1.16 — 가계부 API 라우터 분리
+
+- [PR #267](https://github.com/sagesaint84/wealth/pull/267) 병합 완료. main `387d6d7cd0ee8ad8752d9850f2aee26594997540`에 annotated Git 태그 `v2.1.16`를 게시하고 작업 브랜치와 worktree를 정리했다.
+- [Actions #45618955692](https://github.com/sagesaint84/wealth/actions/runs/45618955692) SUCCESS. GHCR `latest`, `2.1.16`, `387d6d7`의 manifest digest는 빌드 기록의 `sha256:ab4dcf20a61ec4054dc8b7d4089a6fff0229441a9976cd5ad07fb30815271429`와 일치한다. Oracle 운영 배포는 실행하지 않았다.
+- 가계부 라우트 24개와 OpenAPI 24개, 미인증 요청 401 확인. Windows 금융 API 집중 검증 6건 PASS.
 
 ## v2.1.15 — 연금·IRP 세액공제 공통 모델
 
