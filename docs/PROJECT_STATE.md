@@ -1,8 +1,14 @@
 # Wealth Project State
 
-## v2.1.17 개발 후보 — 비증권 자산 API 라우터 분리
+## v2.1.18 개발 후보 — 계좌·보유종목·가족 API 라우터 분리
 
-- 은행·예적금·보험·연금·대출 라우트 21개와 부동산 라우트 6개를 전용 라우터로 이전했다. 실제 라우팅과 금융 API 동적 검증은 대기 중이다.
+- 계좌 8개, 보유종목 5개, 가족 구성원 4개 경로를 전용 라우터로 이전했다. 실제 라우팅, OpenAPI와 금융 API 동적 검증은 대기 중이다.
+
+## v2.1.17 — 비증권 자산 API 라우터 분리
+
+- [PR #268](https://github.com/sagesaint84/wealth/pull/268) 병합 완료. main `4d8b3562929afcfec0a99f3ac4bd505a645e7ce8`에 annotated Git 태그 `v2.1.17`를 게시하고 작업 브랜치와 worktree를 정리했다.
+- [Actions #45805584264](https://github.com/sagesaint84/wealth/actions/runs/45805584264) SUCCESS. GHCR `latest`, `2.1.17`, `4d8b356`의 manifest digest는 빌드 기록의 `sha256:1b335d63aca5f32588934e0136268cfdc9c87215f1a41915a01ee02abc0b76f2`와 일치한다. Oracle 운영 배포는 실행하지 않았다.
+- 실제 라우트와 OpenAPI 각 27개, 미인증 차단, Windows 집중 검증 7건 PASS. 부동산 매각 실제 저장과 KB 외부 시세 호출은 집중 검증 범위 밖이었다.
 
 ## v2.1.16 — 가계부 API 라우터 분리
 

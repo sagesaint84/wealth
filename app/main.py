@@ -252,7 +252,7 @@ def load_env_file() -> None:
 
 if not TESTING:
     load_env_file()
-APP_VERSION = "2.1.17"
+APP_VERSION = "2.1.18"
 app = FastAPI(title="내 자산 대시보드", docs_url=None, redoc_url=None, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -1777,18 +1777,7 @@ async def admin_delete_user(target_username: str, request: Request) -> dict:
 # ---------------------------------------------------------------------------
 
 
-class HoldingCreate(BaseModel):
-    account_id: str | None = Field(default=None, max_length=100)
-    broker: str = Field(min_length=1, max_length=60)
-    account_name: str = Field(min_length=1, max_length=80)
-    code: str = Field(default="", max_length=20)
-    name: str = Field(min_length=1, max_length=80)
-    quantity: float = Field(gt=0)
-    avg_price: float = Field(ge=0)
-    current_price: float = Field(ge=0)
-    currency: str = "KRW"
-    market: str = ""
-    owner: str = "모두"
+from app.routers.holdings import HoldingCreate, create_holdings_routers
 
 
 @app.get("/", include_in_schema=False)
@@ -1965,24 +1954,22 @@ def get_full_dashboard_for_user(username: str, record_snapshots: bool = False) -
     return data
 
 
-@app.get("/api/account-display-order")
-async def get_account_display_order_api(request: Request) -> dict:
-    from app.services.account_display_order import get_account_display_order
-    return get_account_display_order(get_current_username(request))
+from app.routers.accounts import create_accounts_routers
 
+# Resolve these dependencies at request time to preserve existing Python callers and patches.
+portfolio_route_dependencies = {
+    "get_current_username": lambda request: get_current_username(request),
+    "financial_user_locks": lambda *args: financial_user_locks(*args),
+    "read_portfolio": lambda **kwargs: read_portfolio(**kwargs),
+    "write_portfolio": lambda data, **kwargs: write_portfolio(data, **kwargs),
+    "get_family_members": lambda data: get_family_members(data),
+}
+display_order_router, account_collection_router, account_changes_router = create_accounts_routers(
+    **portfolio_route_dependencies,
+    get_dashboard=lambda **kwargs: get_dashboard(**kwargs),
+)
 
-@app.patch("/api/account-display-order")
-async def patch_account_display_order_api(request: Request) -> dict:
-    from app.services.account_display_order import patch_account_display_order
-    username = get_current_username(request)
-    body = await request.body()
-    if len(body) > 256_000:
-        raise HTTPException(status_code=413, detail="순서 요청이 너무 큽니다.")
-    try:
-        payload = json.loads(body)
-        return patch_account_display_order(username, payload)
-    except (ValueError, TypeError, UnicodeDecodeError):
-        raise HTTPException(status_code=400, detail="계좌/기관 순서 요청이 올바르지 않습니다.")
+app.include_router(display_order_router)
 
 
 @app.get("/api/dashboard")
@@ -3175,15 +3162,12 @@ async def clear_realized_pnl_endpoint(
     }
 
 
-@app.post("/api/holdings/clear")
-async def clear_holdings_endpoint(request: Request) -> dict:
-    """Clear all portfolio holdings."""
-    username = get_current_username(request)
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        data["holdings"] = []
-        write_portfolio(data, username=username)
-        return {"message": "모든 보유종목이 삭제되었습니다."}
+holdings_clear_router, holdings_collection_router, holding_update_router = create_holdings_routers(
+    **portfolio_route_dependencies,
+    get_dashboard=lambda **kwargs: get_dashboard(**kwargs),
+)
+
+app.include_router(holdings_clear_router)
 
 
 @app.post("/api/import-realized-pnl")
@@ -5113,124 +5097,7 @@ async def kiwoom_realized_feed_import(request: Request) -> JSONResponse:
 # Family accounts API
 # ---------------------------------------------------------------------------
 
-@app.get("/api/accounts")
-async def get_accounts(request: Request, group: str = "All", owner: str = "모두") -> dict:
-    """Return accounts filtered by family_group and aggregated summary."""
-    username = get_current_username(request)
-    full = get_dashboard(username=username)
-    accounts = full.get("accounts", [])
-    filtered = [a for a in accounts
-                if (owner == "모두" or a.get("owner", "모두") == owner)
-                and (group == "All" or a.get("family_group", "All") == group)]
-    filtered_account_ids = {a.get("id") for a in filtered}
-    filtered_holdings = [
-        holding for holding in full.get("holdings", [])
-        if holding.get("account_id") in filtered_account_ids
-    ]
-    total_stock_value = sum(a.get("stock_value_krw", 0) for a in filtered)
-    total_cash = sum(a.get("cash_krw", 0) for a in filtered)
-    total_value = total_stock_value + total_cash
-    profit = sum(a.get("profit_krw", 0) for a in filtered)
-    holding_count = sum(a.get("holding_count", 0) for a in filtered)
-    return {
-        "summary": {
-            "total_value_krw": total_value,
-            "total_stock_value_krw": total_stock_value,
-            "total_cash_krw": total_cash,
-            "profit_krw": profit,
-            "return_rate": profit / total_stock_value * 100 if total_stock_value else 0,
-            "holding_count": holding_count,
-            "account_count": len(filtered),
-        },
-        "accounts": filtered,
-        "holdings": filtered_holdings,
-        "fx_rates": full.get("fx_rates", {}),
-        "currency_summary": full.get("currency_summary", {}),
-        "classifications": full.get("classifications", []),
-        "updated_at": full.get("updated_at"),
-    }
-
-
-@app.post("/api/accounts")
-async def create_account(request: Request) -> dict:
-    """Create a new account entry."""
-    import uuid
-    username = get_current_username(request)
-    body = await request.json()
-    broker = (body.get("broker") or "").strip()
-    account_name = (body.get("account_name") or body.get("name") or "").strip()
-    owner = (body.get("owner") or "모두").strip()
-    if not broker or not account_name:
-        raise HTTPException(status_code=400, detail="증권사와 계좌 이름은 필수입니다.")
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        if owner not in set(get_family_members(data)):
-            raise HTTPException(status_code=400, detail="등록된 가족 구성원만 소유자로 선택할 수 있습니다.")
-        account_no = str(body.get("account_no") or "").strip()
-        if account_no:
-            duplicate = next((account for account in data["accounts"] if canonical_broker_account_identity(account.get("broker")) == canonical_broker_account_identity(broker) and normalize_broker_account_no(account.get("account_no")) == normalize_broker_account_no(account_no)), None)
-            if duplicate:
-                code = "ACCOUNT_NUMBER_OWNER_CONFLICT" if str(duplicate.get("owner") or "모두") != owner else "ACCOUNT_ALREADY_EXISTS"
-                raise HTTPException(status_code=409, detail={"code": code, "message": "같은 증권사와 계좌번호의 계좌가 이미 등록되어 있습니다."})
-        acc_type = (body.get("account_type") or "general").strip()
-        income_lvl = (body.get("income_level") or "low").strip()
-        annual_dep = max(0.0, float(body.get("annual_deposit") or 0.0))
-        isa_tr = max(0.0, float(body.get("isa_transfer_amount") or 0.0))
-        isa_year = str(body.get("isa_transfer_year") or "2026").strip()
-        def _parse_bool(val: Any, default: bool = True) -> bool:
-            if val is None:
-                return default
-            if isinstance(val, bool):
-                return val
-            if isinstance(val, (int, float)):
-                return bool(val)
-            if isinstance(val, str):
-                s = val.strip().lower()
-                if s in ("false", "0", "no", "off", "non_deductible"):
-                    return False
-                if s in ("true", "1", "yes", "on", "deductible"):
-                    return True
-            return default
-
-        tax_deductible = _parse_bool(body.get("tax_deductible"), True)
-
-        new_account = {
-            "id": str(uuid.uuid4()),
-            "broker": broker,
-            "name": account_name,
-            "owner": owner,
-            "account_type": acc_type,
-            "tax_deductible": tax_deductible,
-            "income_level": income_lvl,
-            "annual_deposit": annual_dep,
-            "isa_transfer_amount": isa_tr,
-            "isa_transfer_year": isa_year,
-            "family_group": "All",
-            "market_value_krw": 0,
-            "stock_value_krw": 0,
-            "cash_krw": 0,
-            "cash_usd": 0,
-            "cash_total_krw": 0,
-            "profit_krw": 0,
-            "holding_count": 0,
-            "account_no": account_no,
-        }
-        cash_krw = float(to_number(body.get("cash_krw", 0.0)))
-        cash_usd = float(to_number(body.get("cash_usd", 0.0)))
-        if cash_krw > 0 or cash_usd > 0:
-            cash_balances = data["settings"].setdefault("cash_balances", {})
-            cash_balances[new_account["id"]] = {"KRW": cash_krw, "USD": cash_usd}
-            usd_rate = float(data.get("settings", {}).get("usd_krw_rate", 1400.0))
-            cash_total_krw = cash_krw + (cash_usd * usd_rate)
-            new_account["cash_krw"] = cash_krw
-            new_account["cash_usd"] = cash_usd
-            new_account["cash_total_krw"] = cash_total_krw
-            new_account["market_value_krw"] = cash_total_krw
-        if "yearly_contributions" in body:
-            new_account["yearly_contributions"] = body.get("yearly_contributions") or []
-        data.setdefault("accounts", []).append(new_account)
-        write_portfolio(data, username=username)
-        return {"message": f"계좌 '{broker} - {account_name}'이(가) 추가되었습니다.", **new_account}
+app.include_router(account_collection_router)
 
 
 # Register the asset routers in the original savings and real-estate route order.
@@ -5259,71 +5126,11 @@ globals().update({route.name: route.endpoint
 # Family members CRUD API
 # ---------------------------------------------------------------------------
 
-@app.get("/api/family-members")
-async def list_family_members(request: Request) -> dict:
-    username = get_current_username(request)
-    data = read_portfolio(username=username)
-    return {"members": get_family_members(data)}
+from app.routers.family_members import create_family_members_router
 
-@app.post("/api/family-members")
-async def add_family_member(request: Request) -> dict:
-    username = get_current_username(request)
-    body = await request.json()
-    name = (body.get("name") or "").strip()
-    if not name:
-        raise HTTPException(400, "이름을 입력해 주세요.")
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        members = get_family_members(data)
-        if name in members:
-            raise HTTPException(409, "이미 존재하는 이름입니다.")
-        members.append(name)
-        data.setdefault("settings", {})["family_members"] = members
-        write_portfolio(data, username=username)
-        return {"members": members, "message": f"'{name}' 구성원을 추가했습니다."}
+family_members_router = create_family_members_router(**portfolio_route_dependencies)
 
-@app.put("/api/family-members/{old_name}")
-async def rename_family_member(old_name: str, request: Request) -> dict:
-    username = get_current_username(request)
-    body = await request.json()
-    new_name = (body.get("name") or "").strip()
-    if not new_name:
-        raise HTTPException(400, "새 이름을 입력해 주세요.")
-    from app.services.family_members import (
-        FamilyMemberRenameError,
-        IpoApplicantRenameCollision,
-        rename_family_member_references,
-    )
-    try:
-        result = rename_family_member_references(username, old_name, new_name)
-    except FamilyMemberRenameError as exc:
-        code = str(exc)
-        if isinstance(exc, IpoApplicantRenameCollision):
-            raise HTTPException(409, detail={"code": "IPO_APPLICANT_RENAME_COLLISION", "message": "IPO applicant rename conflicts"}) from exc
-        if code == "FAMILY_MEMBER_NOT_FOUND":
-            raise HTTPException(404, "구성원을 찾지 못했습니다.") from exc
-        if code == "FAMILY_MEMBER_EXISTS":
-            raise HTTPException(409, "이미 존재하는 이름입니다.") from exc
-        raise HTTPException(400, "가족 구성원 이름을 변경할 수 없습니다.") from exc
-    return {"members": result["members"], "ipo_revision": result["ipo_revision"],
-            "message": f"'{old_name}' -> '{new_name}'으로 이름을 변경했습니다."}
-
-@app.delete("/api/family-members/{member_name}")
-async def delete_family_member(member_name: str, request: Request) -> dict:
-    username = get_current_username(request)
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        members = get_family_members(data)
-        if member_name not in members:
-            raise HTTPException(404, "구성원을 찾지 못했습니다.")
-        members = [m for m in members if m != member_name]
-        data.setdefault("settings", {})["family_members"] = members
-        # Reset owner on accounts that belonged to deleted member
-        for acct in data.get("accounts", []):
-            if acct.get("owner") == member_name:
-                acct["owner"] = "모두"
-        write_portfolio(data, username=username)
-        return {"members": members, "message": f"'{member_name}' 구성원을 삭제했습니다."}
+app.include_router(family_members_router)
 
 
 @app.get("/api/market-overview")
@@ -5335,188 +5142,23 @@ async def market_overview() -> dict:
         return {"markets": [], "exchange_rate": None, "unavailable": True, **unavailable_market_indicators()}
 
 
-@app.get("/api/holdings/signals")
-async def get_holding_signals(request: Request, owner: str = "모두") -> JSONResponse:
-    from app.services.portfolio import read_portfolio_readonly
-    from app.services.holding_signals import holdings_signals
-    snapshot = read_portfolio_readonly(get_current_username(request))
-    if owner not in set(get_family_members(snapshot)) | {"모두"}:
-        raise HTTPException(400, "등록된 가족 구성원을 선택해 주세요.")
-    return JSONResponse(await holdings_signals(snapshot, owner), headers={"Cache-Control": "no-store"})
-
-@app.post("/api/holdings", status_code=201)
-async def create_holding(payload: HoldingCreate, request: Request) -> dict:
-    username = get_current_username(request)
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        from app.services.holding_accounts import resolve_holding_account
-        if payload.owner not in set(get_family_members(data)) | {"모두"}:
-            raise HTTPException(400, "등록된 가족 구성원을 선택해 주세요.")
-        try:
-            account = resolve_holding_account(data, payload.model_dump())
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        item = normalize_holding(payload.model_dump(), account["id"], account["broker"], account["name"], "manual")
-        upsert_holdings(data, [item])
-        write_portfolio(data, username=username)
-        return {"message": "보유종목을 저장했습니다.", "dashboard": get_dashboard(username=username)}
+app.include_router(holdings_collection_router)
 
 
-@app.delete("/api/holdings/{holding_id}")
-async def delete_holding(holding_id: str, request: Request) -> dict:
-    username = get_current_username(request)
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        before = len(data["holdings"])
-        data["holdings"] = [holding for holding in data["holdings"] if holding["id"] != holding_id]
-        if before == len(data["holdings"]):
-            raise HTTPException(404, "보유종목을 찾지 못했습니다.")
-        # Registered accounts (including empty AccountInfo imports) survive a
-        # holding deletion. Account removal has its own explicit endpoint.
-        write_portfolio(data, username=username)
-        return {"message": "보유종목을 삭제했습니다."}
+app.include_router(account_changes_router)
 
 
-@app.delete("/api/accounts/{account_id}")
-async def delete_account(account_id: str, request: Request) -> dict:
-    username = get_current_username(request)
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        if not any(account.get("id") == account_id for account in data["accounts"]):
-            raise HTTPException(404, "계좌를 찾지 못했습니다.")
-        data["accounts"] = [account for account in data["accounts"] if account.get("id") != account_id]
-        data["holdings"] = [holding for holding in data["holdings"] if holding.get("account_id") != account_id]
-        if "cash_balances" in data["settings"] and account_id in data["settings"]["cash_balances"]:
-            del data["settings"]["cash_balances"][account_id]
-        write_portfolio(data, username=username)
-        return {"message": "증권사 계좌와 연결된 보유종목을 삭제했습니다."}
+app.include_router(holding_update_router)
 
-
-@app.put("/api/accounts/{account_id}")
-async def rename_account(account_id: str, payload: dict, request: Request) -> dict:
-    username = get_current_username(request)
-    name = str(payload.get("name") or payload.get("account_name") or "").strip()
-    broker = str(payload.get("broker") or "").strip()
-    if not name:
-        raise HTTPException(400, "계좌 이름을 입력해 주세요.")
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        account = next((item for item in data["accounts"] if item.get("id") == account_id), None)
-        if account is None:
-            raise HTTPException(404, "계좌를 찾지 못했습니다.")
-        owner_val = str(payload.get("owner") or "").strip()
-        effective_broker = broker or str(account.get("broker") or "")
-        effective_owner = owner_val or str(account.get("owner") or "모두")
-        if "account_no" in payload:
-            requested_no = str(payload.get("account_no") or "").strip()
-            if requested_no:
-                duplicate = next((item for item in data["accounts"] if item.get("id") != account_id and canonical_broker_account_identity(item.get("broker")) == canonical_broker_account_identity(effective_broker) and normalize_broker_account_no(item.get("account_no")) == normalize_broker_account_no(requested_no)), None)
-                if duplicate:
-                    code = "ACCOUNT_NUMBER_OWNER_CONFLICT" if str(duplicate.get("owner") or "모두") != effective_owner else "ACCOUNT_ALREADY_EXISTS"
-                    raise HTTPException(409, detail={"code": code, "message": "같은 증권사와 계좌번호의 계좌가 이미 등록되어 있습니다."})
-        account["name"] = name
-        if broker:
-            account["broker"] = broker
-        if owner_val:
-            account["owner"] = owner_val
-        if "account_type" in payload:
-            account["account_type"] = str(payload.get("account_type") or "general").strip()
-        if "account_no" in payload:
-            requested_no = str(payload.get("account_no") or "").strip()
-            account["account_no"] = requested_no
-        if "tax_deductible" in payload:
-            td_val = payload.get("tax_deductible")
-            if isinstance(td_val, bool):
-                account["tax_deductible"] = td_val
-            elif isinstance(td_val, str):
-                account["tax_deductible"] = td_val.strip().lower() not in ("false", "0", "no", "off", "non_deductible")
-            elif isinstance(td_val, (int, float)):
-                account["tax_deductible"] = bool(td_val)
-            else:
-                account["tax_deductible"] = bool(td_val)
-        if "income_level" in payload:
-            account["income_level"] = str(payload.get("income_level") or "low").strip()
-        if "annual_deposit" in payload:
-            account["annual_deposit"] = max(0.0, float(payload.get("annual_deposit") or 0.0))
-        if "isa_transfer_amount" in payload:
-            account["isa_transfer_amount"] = max(0.0, float(payload.get("isa_transfer_amount") or 0.0))
-        if "isa_transfer_year" in payload:
-            account["isa_transfer_year"] = str(payload.get("isa_transfer_year") or "").strip()
-        if "yearly_contributions" in payload:
-            ycs = payload.get("yearly_contributions") or []
-            inc = account.get("income_level") or "low"
-            for yc in ycs:
-                if isinstance(yc, dict) and not yc.get("income_level"):
-                    yc["income_level"] = inc
-            account["yearly_contributions"] = ycs
-        elif account.get("account_type") in ("pension_savings", "irp") and float(account.get("annual_deposit") or 0) > 0 and not account.get("yearly_contributions"):
-            from datetime import datetime as _dt
-            account["yearly_contributions"] = [{
-                "year": str(_dt.now().year),
-                "deposit": float(account.get("annual_deposit") or 0),
-                "is_deductible": account.get("tax_deductible", True),
-                "income_level": account.get("income_level", "low")
-            }]
-
-        if "cash_krw" in payload or "cash_usd" in payload:
-            cash_balances = data["settings"].setdefault("cash_balances", {})
-            existing_cash = cash_balances.get(account_id, {})
-            cash_krw = float(to_number(payload["cash_krw"])) if "cash_krw" in payload else float(to_number(existing_cash.get("KRW", existing_cash.get("krw", 0.0))))
-            cash_usd = float(to_number(payload["cash_usd"])) if "cash_usd" in payload else float(to_number(existing_cash.get("USD", existing_cash.get("usd", 0.0))))
-            cash_balances[account_id] = {"KRW": cash_krw, "USD": cash_usd}
-
-        for holding in data["holdings"]:
-            if holding.get("account_id") == account_id:
-                holding["account_name"] = name
-                if broker:
-                    holding["broker"] = broker
-        write_portfolio(data, username=username)
-        return {"message": "증권사 및 계좌 정보를 수정했습니다.", "dashboard": get_dashboard(username=username)}
-
-
-@app.get("/api/tax-benefits")
-async def get_tax_benefits_endpoint(request: Request, owner: str | None = None) -> dict:
-    from app.services.tax_benefit import get_total_tax_benefits
-    username = get_current_username(request)
-    data = read_portfolio(username=username)
-    return get_total_tax_benefits(data, owner=owner)
-
-
-@app.put("/api/accounts/{account_id}/cash")
-async def update_account_cash(account_id: str, payload: dict, request: Request) -> dict:
-    username = get_current_username(request)
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        if not any(account.get("id") == account_id for account in data["accounts"]):
-            raise HTTPException(404, "계좌를 찾지 못했습니다.")
-        cash_krw = float(to_number(payload.get("cash_krw") or payload.get("KRW")))
-        cash_usd = float(to_number(payload.get("cash_usd") or payload.get("USD")))
-        cash_balances = data["settings"].setdefault("cash_balances", {})
-        cash_balances[account_id] = {"KRW": cash_krw, "USD": cash_usd}
-        write_portfolio(data, username=username)
-        return {"message": "계좌 예수금을 수정했습니다.", "dashboard": get_dashboard(username=username)}
-
-
-@app.put("/api/holdings/{holding_id}")
-async def update_holding(holding_id: str, payload: HoldingCreate, request: Request) -> dict:
-    username = get_current_username(request)
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        current = next((item for item in data["holdings"] if item["id"] == holding_id), None)
-        if current is None:
-            raise HTTPException(404, "보유종목을 찾지 못했습니다.")
-        from app.services.holding_accounts import resolve_holding_account
-        if payload.owner not in set(get_family_members(data)) | {"모두"}:
-            raise HTTPException(400, "등록된 가족 구성원을 선택해 주세요.")
-        try:
-            account = resolve_holding_account(data, payload.model_dump(), current=current)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        item = normalize_holding(payload.model_dump(), account["id"], account["broker"], account["name"], current.get("source", "manual"))
-        item["id"] = holding_id
-        data["holdings"] = [item if holding["id"] == holding_id else holding for holding in data["holdings"]]
-        write_portfolio(data, username=username)
-        return {"message": "보유종목을 수정했습니다.", "dashboard": get_dashboard(username=username)}
+# Keep the original Python endpoint names for direct callers.
+globals().update({
+    route.name: route.endpoint
+    for router in (
+        display_order_router, account_collection_router, account_changes_router,
+        holdings_clear_router, holdings_collection_router, holding_update_router, family_members_router,
+    )
+    for route in router.routes
+})
 
 
 @app.post("/api/import")
