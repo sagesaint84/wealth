@@ -1,8 +1,12 @@
 # Wealth Roadmap
 
-## v2.1.18 개발 후보 — 계좌·보유종목·가족 API 라우터 분리
+## v2.1.19 개발 후보 — 실제 배당·실현손익 API 라우터 분리
 
-- 다음 집중 검증은 라우트와 HoldingCreate OpenAPI 요청 스키마, 계좌·보유종목 연결 및 가족·IPO 참조와 사용자별 격리다.
+- 다음 집중 검증은 기존 라우트와 OpenAPI, 배당 추정 캐시·사용자 격리, 실현손익의 IPO 연결·증권사 범위, 파일 가져오기·환율이다.
+
+## v2.1.18 — 계좌·보유종목·가족 API 라우터 분리
+
+- [PR #269](https://github.com/sagesaint84/wealth/pull/269) 통합 완료. 태그와 이미지 근거는 [PROJECT_STATE](PROJECT_STATE.md#v2118--계좌보유종목가족-api-라우터-분리)에 기록했다.
 
 ## v2.1.17 — 비증권 자산 API 라우터 분리
 

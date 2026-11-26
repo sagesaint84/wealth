@@ -193,7 +193,7 @@ class LayoutContractTests(unittest.TestCase):
     def test_m1_changed_layout_asset_has_its_own_revision(self):
         source = (STATIC / 'index.html').read_text(encoding='utf-8')
         self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-ui-foundation1'), 1)
-        self.assertIn('<meta name="application-version" content="2.1.18" />', source)
+        self.assertIn('<meta name="application-version" content="2.1.19" />', source)
 
 
     def test_m2_section_header_is_shared_by_two_section_level_headings(self):
@@ -269,7 +269,7 @@ class LayoutContractTests(unittest.TestCase):
     def test_m2_header_layout_revision_is_independent_of_app_version(self):
         source = (STATIC / 'index.html').read_text(encoding='utf-8')
         self.assertEqual(source.count('/static/wealth-layout.css?v=2.1.9-ui-foundation1'), 1)
-        self.assertIn('<meta name="application-version" content="2.1.18" />', source)
+        self.assertIn('<meta name="application-version" content="2.1.19" />', source)
 
 
     def test_m3_metric_card_scope_and_existing_dom_contract(self):
