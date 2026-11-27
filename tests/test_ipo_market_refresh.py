@@ -138,7 +138,7 @@ class IpoMarketRefreshTests(unittest.TestCase):
 
     def test_refresh_api_failure_is_not_cacheable(self):
         token = main._serializer.dumps({"user": self.username, "role": "user"})
-        with patch("app.services.ipo.orchestrator.refresh_ipo_market", side_effect=RuntimeError("source down")), \
+        with patch("app.services.ipo.refresh_adapter.refresh_ipo_market", side_effect=RuntimeError("source down")), \
              patch("app.services.user_manager.get_user_by_name", return_value={"username": self.username, "role": "user"}):
             response = TestClient(main.app).post("/api/ipo/market/refresh", headers={"Cookie": f"{main.COOKIE_NAME}={token}"})
         self.assertEqual(response.status_code, 502)
@@ -148,7 +148,7 @@ class IpoMarketRefreshTests(unittest.TestCase):
 
     def test_refresh_api_lock_conflict_is_409_and_not_cacheable(self):
         token = main._serializer.dumps({"user": self.username, "role": "user"})
-        with patch("app.services.ipo.orchestrator.refresh_ipo_market", side_effect=IpoRefreshAlreadyRunning()), \
+        with patch("app.services.ipo.refresh_adapter.refresh_ipo_market", side_effect=IpoRefreshAlreadyRunning()), \
              patch("app.services.user_manager.get_user_by_name", return_value={"username": self.username, "role": "user"}):
             response = TestClient(main.app).post("/api/ipo/market/refresh", headers={"Cookie": f"{main.COOKIE_NAME}={token}"})
         self.assertEqual(response.status_code, 409)
@@ -158,7 +158,7 @@ class IpoMarketRefreshTests(unittest.TestCase):
     def test_refresh_api_preserved_primary_failure_returns_502_without_changing_store(self):
         token = main._serializer.dumps({"user": self.username, "role": "user"})
         before = self.market_file.read_bytes()
-        with patch("app.services.ipo.orchestrator.refresh_ipo_market", return_value={"status": "preserved", "market_only": True}), \
+        with patch("app.services.ipo.refresh_adapter.refresh_ipo_market", return_value={"status": "preserved", "market_only": True}), \
              patch("app.services.user_manager.get_user_by_name", return_value={"username": self.username, "role": "user"}):
             response = TestClient(main.app).post("/api/ipo/market/refresh", headers={"Cookie": f"{main.COOKIE_NAME}={token}"})
         self.assertEqual(response.status_code, 502)
@@ -170,7 +170,7 @@ class IpoMarketRefreshTests(unittest.TestCase):
         market = {"schema_version": 1, "updated_at": "new", "ipos": [{"ipo_id": "spac", "company_name": "테스트스팩", "listing_track": "spac"}]}
         token = main._serializer.dumps({"user": self.username, "role": "user"})
         before = self.portfolio_file.read_bytes()
-        with patch("app.services.ipo.orchestrator.refresh_ipo_market", return_value={"status": "ok", "market_only": True, "sources": {"krx": "source_error"}}) as refresh, \
+        with patch("app.services.ipo.refresh_adapter.refresh_ipo_market", return_value={"status": "ok", "market_only": True, "sources": {"krx": "source_error"}}) as refresh, \
              patch("app.services.ipo.store.read_market_store", return_value=copy.deepcopy(market)), \
              patch("app.services.user_manager.get_user_by_name", return_value={"username": self.username, "role": "user"}):
             response = TestClient(main.app).post("/api/ipo/market/refresh", headers={"Cookie": f"{main.COOKIE_NAME}={token}"})
