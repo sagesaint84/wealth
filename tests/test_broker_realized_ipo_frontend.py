@@ -18,6 +18,7 @@ PREVIEW_SCREEN = (STATIC / "wealth-broker-import-preview-screen-controller.js").
 MODEL = (STATIC / "wealth-broker-import-preview-model.js").read_text(encoding="utf-8")
 MAIN = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
 BROKER_ROUTES = (ROOT / "app" / "routers" / "broker_realized.py").read_text(encoding="utf-8")
+TOSS_WTS_ROUTES = (ROOT / "app" / "routers" / "toss_wts_feed.py").read_text(encoding="utf-8")
 
 
 def python_route(source: str, name: str) -> str:
@@ -183,7 +184,7 @@ class BrokerRealizedIpoFrontendTests(unittest.TestCase):
             "kiwoom_realized_feed_import_preview", "kiwoom_realized_feed_import",
         )
         for name in route_functions:
-            source = MAIN if name.startswith("toss_wts_") else BROKER_ROUTES
+            source = TOSS_WTS_ROUTES if name.startswith("toss_wts_") else BROKER_ROUTES
             body = python_route(source, name)
             with self.subTest(route=name):
                 if name.endswith("import_preview"):
