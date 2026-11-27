@@ -2216,13 +2216,11 @@ family_members_router = create_family_members_router(**portfolio_route_dependenc
 app.include_router(family_members_router)
 
 
-@app.get("/api/market-overview")
-async def market_overview() -> dict:
-    try:
-        return await fetch_market_overview()
-    except Exception:
-        from app.services.market_indicators import unavailable_market_indicators
-        return {"markets": [], "exchange_rate": None, "unavailable": True, **unavailable_market_indicators()}
+from app.routers.market_data import create_market_data_routers
+
+market_overview_router, market_quotes_router = create_market_data_routers(sys.modules[__name__])
+app.include_router(market_overview_router)
+globals().update({route.name: route.endpoint for route in market_overview_router.routes})
 
 
 app.include_router(holdings_collection_router)
@@ -2824,18 +2822,11 @@ async def sync_kiwoom_for_user(username: str, *, retry_transient: bool = False) 
 
 
 
-@app.post("/api/fx/refresh")
-async def refresh_fx_rate(request: Request) -> dict:
-    username = get_current_username(request)
-    rate = await fetch_fx_rate_usd_krw()
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        data["settings"]["fx_rates"]["USD"] = rate
-        now_str = datetime.now().astimezone().isoformat(timespec="seconds")
-        data["settings"]["fx_info"] = {"source": "실시간 웹 환율", "rate": rate, "updated_at": now_str}
-        data["settings"]["fx_updated_at"] = now_str
-        write_portfolio(data, username=username)
-        return {"message": f"실시간 환율(USD/KRW: {rate:,.1f}원)을 반영했습니다.", "rate": rate}
+from app.routers.price_refresh import create_price_refresh_routers
+
+fx_refresh_router, prices_refresh_router = create_price_refresh_routers(sys.modules[__name__])
+app.include_router(fx_refresh_router)
+globals().update({route.name: route.endpoint for route in fx_refresh_router.routes})
 
 
 async def refresh_prices_for_user(username: str) -> dict:
@@ -2919,20 +2910,11 @@ async def refresh_prices_for_user(username: str) -> dict:
     }
 
 
-@app.post("/api/refresh-prices")
-async def refresh_prices(request: Request) -> dict:
-    username = get_current_username(request)
-    return await refresh_prices_for_user(username=username)
+app.include_router(prices_refresh_router)
+globals().update({route.name: route.endpoint for route in prices_refresh_router.routes})
 
-@app.get("/api/stock-chart/{code}")
-async def get_stock_chart(code: str, period: str = "1M") -> dict:
-    return await fetch_stock_chart_data(code, period)
-
-
-@app.get("/api/stock-search")
-async def stock_search(q: str = "") -> dict:
-    from app.services.stock_master import async_search_stock_by_name
-    return await async_search_stock_by_name(q)
+app.include_router(market_quotes_router)
+globals().update({route.name: route.endpoint for route in market_quotes_router.routes})
 
 
 async def sync_all_accounts_for_user(
