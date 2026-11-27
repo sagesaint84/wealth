@@ -4015,10 +4015,11 @@ async def sync_kb_for_user(username: str, *, retry_transient: bool = False) -> d
         return {"broker": "KB증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": False, "cash_updated": False, "data_preserved": False, "warnings": warnings[:10], **retry_info}
 
 
-@app.post("/api/sync/kb")
-async def sync_kb(request: Request = None) -> dict:
-    username = get_current_username(request) if request else "sagesaint"
-    return await sync_kb_for_user(username=username)
+from app.routers.broker_sync import create_broker_sync_routers
+
+broker_sync_router, all_accounts_sync_router = create_broker_sync_routers(sys.modules[__name__])
+app.include_router(broker_sync_router)
+globals().update({route.name: route.endpoint for route in broker_sync_router.routes})
 
 
 
@@ -4165,12 +4166,6 @@ async def sync_toss_for_user(username: str, *, retry_transient: bool = False) ->
         return {"broker": "토스증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": not cash_failures, "cash_updated": bool(cash_successes), "data_preserved": bool(cash_failures), **retry_info}
 
 
-@app.post("/api/sync/toss")
-async def sync_toss(request: Request = None) -> dict:
-    username = get_current_username(request) if request else "sagesaint"
-    return await sync_toss_for_user(username=username)
-
-
 
 async def sync_namoo_for_user(username: str, *, retry_transient: bool = False) -> dict:
     client = NhPlugOpenAPI(username=username)
@@ -4266,12 +4261,6 @@ async def sync_namoo_for_user(username: str, *, retry_transient: bool = False) -
         status = _holdings_success_status(records)
         message = "나무증권 보유종목이 0개로 확인되어 예수금만 동기화했습니다." if not holdings else f"나무증권 보유종목 {len(holdings)}개 및 예수금을 동기화했습니다."
         return {"broker": "NH투자증권(나무)", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
-
-
-@app.post("/api/sync/namoo")
-async def sync_namoo(request: Request = None) -> dict:
-    username = get_current_username(request) if request else "sagesaint"
-    return await sync_namoo_for_user(username=username)
 
 
 
@@ -4371,12 +4360,6 @@ async def sync_kis_for_user(username: str, *, retry_transient: bool = False) -> 
         return {"broker": "한국투자증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
 
 
-@app.post("/api/sync/kis")
-async def sync_kis(request: Request = None) -> dict:
-    username = get_current_username(request) if request else "sagesaint"
-    return await sync_kis_for_user(username=username)
-
-
 
 async def sync_kiwoom_for_user(username: str, *, retry_transient: bool = False) -> dict:
     client = KiwoomOpenAPI(username=username)
@@ -4470,12 +4453,6 @@ async def sync_kiwoom_for_user(username: str, *, retry_transient: bool = False) 
         status = _holdings_success_status(records)
         message = "키움증권 국내 보유종목이 0개로 확인되어 KRW 예수금만 동기화했습니다." if not holdings else f"키움증권 국내 보유종목 {len(holdings)}개 및 KRW 예수금을 동기화했습니다."
         return {"broker": "키움증권", "status": status, "message": message, "count": len(holdings), "holdings_valid": True, "holdings_state": records.state.value, "cash_valid": True, "cash_updated": True, "data_preserved": False, **retry_info}
-
-
-@app.post("/api/sync/kiwoom")
-async def sync_kiwoom(request: Request = None) -> dict:
-    username = get_current_username(request) if request else "sagesaint"
-    return await sync_kiwoom_for_user(username=username)
 
 
 
@@ -4670,10 +4647,8 @@ async def sync_all_accounts_for_user(
     return {"message": " / ".join(lines), "synced": len(succeeded), "errors": errors, "brokers": broker_results}
 
 
-@app.post("/api/sync/all")
-async def sync_all_accounts(request: Request) -> dict:
-    username = get_current_username(request)
-    return await sync_all_accounts_for_user(username=username)
+app.include_router(all_accounts_sync_router)
+globals().update({route.name: route.endpoint for route in all_accounts_sync_router.routes})
 
 
 
