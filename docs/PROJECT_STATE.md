@@ -1,8 +1,12 @@
 # Wealth Project State
 
-## 현재 후보 — KFTC 오픈뱅킹·KRX API 라우터 분리
+## 현재 후보 — 사용자 OpenAPI·관리자 사용자 API 라우터 분리
 
-- KFTC 오픈뱅킹 API 9개와 KRX 사용자 인증정보 API 4개를 각각 라우터에 등록했다. 앱 버전은 `2.1.20`을 유지하며 집중 동적 검증은 대기 중이다.
+- 사용자 OpenAPI 설정 API 4개와 관리자 사용자 관리 API 4개를 각각 라우터로 분리했다. 앱 버전은 `2.1.20`을 유지하며 집중 동적 검증은 대기 중이다.
+
+## KFTC 오픈뱅킹·KRX API 라우터 분리
+
+- KFTC 오픈뱅킹 API 9개와 KRX 사용자 인증정보 API 4개를 분리한 [PR #277](https://github.com/sagesaint84/wealth/pull/277)이 main `283ce886bacd4a4eddac3e47486a33085e24adfd`에 병합됐다. GHCR 빌드 결과는 확인 대기 중이다.
 
 ## 알림·설정·외부 연동 API 라우터 분리
 

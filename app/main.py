@@ -846,12 +846,11 @@ async def force_change_password_endpoint(request: Request, response: Response) -
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.get("/api/user/openapi-config")
-async def get_user_openapi_keys(request: Request) -> dict:
-    """현재 로그인한 사용자의 마스킹된 OpenAPI 키 정보 반환"""
-    username = get_current_username(request)
-    from app.services.user_openapi import get_masked_user_openapi_config
-    return get_masked_user_openapi_config(username)
+from app.routers.user_openapi import create_user_openapi_routers
+
+user_openapi_read_router, user_openapi_management_router = create_user_openapi_routers(sys.modules[__name__])
+app.include_router(user_openapi_read_router)
+globals().update({route.name: route.endpoint for route in user_openapi_read_router.routes})
 
 from app.routers.notification_settings import create_notification_settings_router
 
@@ -900,130 +899,17 @@ app.include_router(krx_credentials_router)
 globals().update({route.name: route.endpoint for route in krx_credentials_router.routes})
 
 
-@app.post("/api/user/openapi-config")
-async def save_user_openapi_keys(request: Request) -> dict:
-    """현재 로그인한 사용자의 OpenAPI 키 설정 저장"""
-    username = get_current_username(request)
-    payload = await request.json()
-    from app.services.user_openapi import save_user_openapi_config
-    try:
-        save_user_openapi_config(username, payload)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return {"message": "증권사 OpenAPI 설정이 안전하게 저장되었습니다."}
-
-
-@app.post("/api/user/openapi-config/dart/test")
-async def test_user_dart_openapi(request: Request) -> dict:
-    """현재 로그인한 사용자의 OpenDART API 키 유효성 확인"""
-    username = get_current_username(request)
-    if not username or username == "admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-    from app.services.ipo.dart_client import (
-        DartAuthError,
-        DartClient,
-        DartRateLimitError,
-        DartSourceError,
-    )
-    client = DartClient(username=username)
-    if not client.is_configured():
-        return {
-            "configured": False,
-            "valid": False,
-            "error_code": "NOT_CONFIGURED",
-            "message": "DART API 인증키가 설정되지 않았습니다.",
-        }
-    try:
-        client.verify_credentials()
-        return {
-            "configured": True,
-            "valid": True,
-            "source": client.credential_source,
-            "message": "OpenDART 연결이 정상적으로 확인되었습니다.",
-        }
-    except DartAuthError:
-        return {"configured": True, "valid": False, "error_code": "AUTH_ERROR", "message": "인증키가 올바르지 않습니다."}
-    except DartRateLimitError:
-        return {"configured": True, "valid": False, "error_code": "RATE_LIMIT", "message": "일일 요청 한도를 초과했습니다."}
-    except DartSourceError:
-        return {"configured": True, "valid": False, "error_code": "NETWORK_ERROR", "message": "DART 시스템 오류 또는 점검 중입니다."}
-    except Exception:
-        return {"configured": True, "valid": False, "error_code": "NETWORK_ERROR", "message": "네트워크 통신 오류가 발생했습니다."}
-
-
-@app.delete("/api/user/openapi-config/{broker}")
-async def delete_user_openapi_broker(broker: str, request: Request) -> dict:
-    """현재 로그인한 사용자의 특정 증권사 또는 OpenDART 설정 및 토큰 삭제"""
-    username = get_current_username(request)
-    if broker not in ("toss", "kb", "nh", "kis", "kiwoom", "dart"):
-        raise HTTPException(status_code=400, detail="유효하지 않은 증권사 또는 API 대상입니다.")
-    from app.services.user_openapi import delete_user_broker_openapi
-    delete_user_broker_openapi(username, broker)
-    broker_names = {
-        "toss": "토스증권",
-        "kb": "KB증권",
-        "nh": "나무증권",
-        "kis": "한국투자증권",
-        "kiwoom": "키움증권",
-        "dart": "OpenDART",
-    }
-    bname = broker_names.get(broker, broker)
-    return {"message": f"{bname} 설정이 삭제되었습니다."}
+app.include_router(user_openapi_management_router)
+globals().update({route.name: route.endpoint for route in user_openapi_management_router.routes})
 
 
 
 
-@app.get("/api/admin/users")
-async def admin_list_users(request: Request) -> dict:
-    """(Admin 전용) 등록된 모든 사용자 목록 반환"""
-    if get_current_role(request) != "admin":
-        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
-    from app.services.user_manager import list_users
-    return {"users": list_users()}
+from app.routers.admin_users import create_admin_users_router
 
-
-@app.post("/api/admin/users")
-async def admin_create_user(request: Request) -> dict:
-    """(Admin 전용) 신규 사용자 생성 (초기 4자리 비밀번호, must_change_password=True)"""
-    if get_current_role(request) != "admin":
-        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
-    body = await request.json()
-    uname = str(body.get("username", "")).strip()
-    init_pw = str(body.get("initial_password", "")).strip()
-    from app.services.user_manager import create_new_user
-    try:
-        create_new_user(uname, init_pw)
-        return {"message": f"사용자 '{uname}'(이)가 생성되었습니다. (초기 비밀번호: {init_pw})"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.post("/api/admin/users/{target_username}/reset-password")
-async def admin_reset_user_password(target_username: str, request: Request) -> dict:
-    """(Admin 전용) 사용자 비밀번호를 4자리로 초기화"""
-    if get_current_role(request) != "admin":
-        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
-    body = await request.json()
-    new_pw_4digit = str(body.get("new_password", "")).strip()
-    from app.services.user_manager import admin_reset_password_to_4digit
-    try:
-        admin_reset_password_to_4digit(target_username, new_pw_4digit)
-        return {"message": f"'{target_username}'의 비밀번호가 '{new_pw_4digit}'(으)로 초기화되었습니다."}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.delete("/api/admin/users/{target_username}")
-async def admin_delete_user(target_username: str, request: Request) -> dict:
-    """(Admin 전용) 사용자 계정 삭제"""
-    if get_current_role(request) != "admin":
-        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
-    from app.services.user_manager import delete_user_account
-    try:
-        delete_user_account(target_username)
-        return {"message": f"사용자 '{target_username}' 계정이 삭제되었습니다."}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+admin_users_router = create_admin_users_router(sys.modules[__name__])
+app.include_router(admin_users_router)
+globals().update({route.name: route.endpoint for route in admin_users_router.routes})
 
 
 # ---------------------------------------------------------------------------
