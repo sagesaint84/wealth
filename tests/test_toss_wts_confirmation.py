@@ -5,6 +5,7 @@ Complete descendant termination remains an explicitly unresolved runtime risk.
 """
 from __future__ import annotations
 
+import ast
 import base64
 import hashlib
 import importlib.util
@@ -191,8 +192,12 @@ class ConfirmationTests(unittest.TestCase):
         self.assertIn("ticket === _tossLoginQrTicket", source)
         self.assertIn("encodeURIComponent(result.qr_revision)", source)
         self.assertNotIn("encodeURIComponent(result.answer_letter)", source)
-        api = (ROOT / "app/main.py").read_text(encoding="utf-8")
-        block = api.split("async def toss_wts_login_status_api", 1)[1].split('@app.get(', 1)[0]
+        api = (ROOT / "app/routers/toss_wts_session.py").read_text(encoding="utf-8")
+        endpoint = next(
+            node for node in ast.walk(ast.parse(api))
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "toss_wts_login_status_api"
+        )
+        block = ast.get_source_segment(api, endpoint)
         self.assertIn('"Cache-Control": "no-store"', block)
         self.assertIn("requesting_username=username", block)
 
