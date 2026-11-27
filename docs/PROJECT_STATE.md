@@ -1,8 +1,13 @@
 # Wealth Project State
 
-## v2.1.21 개발 범위 — 증권사 실현손익 API 라우터 분리
+## 현재 후보 — Toss WTS 가져오기 API 라우터 분리
 
-- KIS·NH·KB·키움의 상태, 실현손익 조회, 미리보기, 가져오기 확정 API 16개를 공통 라우터 모듈로 이전한다. 인증, 증권계좌 매핑, 미리보기 티켓과 금융 저장 계약을 유지한다. 집중 동적 검증은 대기 중이다.
+- 세션 준비·확인, 실현손익, 배당·이자 API 8개를 공통 라우터에 등록했다. 기존 인증·세션·티켓·금융 저장 계약을 유지한다. 앱 버전은 `2.1.20`이며 집중 동적 검증은 대기 중이다.
+
+## 증권사 실현손익·계좌 동기화 API 라우터 분리
+
+- 실현손익 API 16개를 분리한 [PR #272](https://github.com/sagesaint84/wealth/pull/272)가 main `312d99513de3291252058a09d8426d9dac77f6d6`에 병합됐다. [Actions #45968154908](https://github.com/sagesaint84/wealth/actions/runs/45968154908) SUCCESS. GHCR `312d995` manifest digest는 `sha256:983f38cf23faafb8c69597cd60a15b8c886c9967e008e928b4b764d955034d84`이다.
+- 계좌 동기화 API 6개를 분리한 [PR #273](https://github.com/sagesaint84/wealth/pull/273)이 main `1f3a4ec4b378d203d74bdb656529f1d90de3ce05`에 병합됐다. [Actions #45973797280](https://github.com/sagesaint84/wealth/actions/runs/45973797280) SUCCESS. GHCR `1f3a4ec`와 확인 시점의 `latest` digest는 `sha256:03d7437945c98cb00ee46d2e33bfa9e2ce274cac18a8a9cc967b5f7e3f9aca64`로 일치했다.
 
 ## v2.1.20 — IPO 시장·청약 API 라우터 분리
 
