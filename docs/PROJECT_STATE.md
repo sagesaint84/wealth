@@ -1,8 +1,12 @@
 # Wealth Project State
 
-## 현재 후보 — Toss WTS 설정·로그인·세션 관리 API 라우터 분리
+## 현재 후보 — 알림·설정·외부 연동 API 라우터 분리
 
-- 설정 조회·저장, 로그인·QR, 세션 상태·연장 API 9개를 공통 라우터에 등록했다. 앱 버전은 `2.1.20`을 유지하며 집중 동적 검증은 대기 중이다.
+- 알림·설정 API 12개와 Kakao·Telegram 외부 연동 API 10개를 각각 공통 라우터에 등록했다. 앱 버전은 `2.1.20`을 유지하며 집중 동적 검증은 대기 중이다.
+
+## Toss WTS 설정·로그인·세션 관리 API 라우터 분리
+
+- 설정 조회·저장, 로그인·QR, 세션 상태·연장 API 9개를 분리한 [PR #275](https://github.com/sagesaint84/wealth/pull/275)가 main `0d767faaeb0e5f20f0d2c9ce22cdf848c4e61a19`에 병합됐다.
 
 ## Toss WTS 가져오기 API 라우터 분리
 
