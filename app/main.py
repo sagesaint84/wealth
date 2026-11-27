@@ -2366,106 +2366,29 @@ async def clear_all(request: Request) -> dict:
         return {"message": "저장된 보유내역을 모두 지웠습니다."}
 
 
-@app.get("/api/planning")
-async def get_planning(request: Request) -> dict:
-    from app.services.planning import read_planning
-    return read_planning(_require_authenticated_username(request))
+from app.routers.planning import create_planning_routers
+
+planning_read_router, planning_write_router = create_planning_routers(sys.modules[__name__])
+app.include_router(planning_read_router)
+globals().update({route.name: route.endpoint for route in planning_read_router.routes})
 
 
-@app.get("/api/color-preferences")
-async def get_color_preferences(request: Request) -> dict:
-    from app.services.color_preferences import read_colors
-    username = _require_authenticated_username(request)
-    try:
-        return read_colors(username)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+from app.routers.color_preferences import create_color_preferences_router
+
+color_preferences_router = create_color_preferences_router(sys.modules[__name__])
+app.include_router(color_preferences_router)
+globals().update({route.name: route.endpoint for route in color_preferences_router.routes})
 
 
-@app.patch("/api/color-preferences")
-async def patch_color_preferences(request: Request) -> dict:
-    from app.services.color_preferences import patch_color
-    username = _require_authenticated_username(request)
-    try:
-        return patch_color(username, await request.json())
-    except (ValueError, TypeError) as exc:
-        raise HTTPException(400, str(exc)) from exc
+app.include_router(planning_write_router)
+globals().update({route.name: route.endpoint for route in planning_write_router.routes})
 
 
-@app.post("/api/planning/{operation}")
-async def save_planning(operation: str, request: Request) -> dict:
-    from app.services.planning import mutate, PlanningConflict
-    username = _require_authenticated_username(request)
-    payload = await request.json()
-    if not isinstance(payload, dict):
-        raise HTTPException(400, "입력 형식이 올바르지 않습니다.")
-    try:
-        if operation == "snapshot-all":
-            source = str(payload.get("source") or "user_confirmed")
-            if source not in {"auto", "user_confirmed"}:
-                raise ValueError("기록 출처를 확인하세요.")
-            data = get_full_dashboard_for_user(username=username, record_snapshots=False)
-            state, _snapshots = save_all_owner_net_worth_snapshots(data, username, source=source)
-            return state
-        return mutate(username, operation, payload)
-    except PlanningConflict as exc:
-        raise HTTPException(409, str(exc)) from exc
-    except (ValueError, TypeError, KeyError, AttributeError) as exc:
-        raise HTTPException(400, "입력값을 확인하세요. " + str(exc)) from exc
+from app.routers.asset_records import create_asset_records_router
 
-
-@app.get("/api/asset-records")
-async def get_asset_records(request: Request, owner: str = "") -> dict:
-    username = get_current_username(request)
-    records = list_asset_records(username=username)
-    if owner:
-        records = [r for r in records if (r.get("owner") or "모두") == owner]
-    return {"records": records}
-
-
-
-@app.post("/api/asset-records")
-async def create_asset_record(payload: dict, request: Request) -> dict:
-    username = get_current_username(request)
-    payload["owner"] = payload.get("owner") or "모두"
-    record = upsert_asset_record(payload, by_date=bool(payload.get("date")), username=username)
-    return {"message": "자산기록을 저장했습니다.", "record": record}
-
-
-@app.put("/api/asset-records/{record_id}")
-async def update_asset_record(record_id: str, payload: dict, request: Request) -> dict:
-    username = get_current_username(request)
-    payload["id"] = record_id
-    if "owner" not in payload or not payload["owner"]:
-        payload["owner"] = "모두"
-    record = upsert_asset_record(payload, username=username)
-    return {"message": "자산기록을 수정했습니다.", "record": record}
-
-
-@app.delete("/api/asset-records/{record_id}")
-async def remove_asset_record(record_id: str, request: Request) -> dict:
-    username = get_current_username(request)
-    if not delete_asset_record(record_id, username=username):
-        raise HTTPException(404, "자산기록을 찾지 못했습니다.")
-    return {"message": "자산기록을 삭제했습니다."}
-
-
-@app.post("/api/asset-records/snapshot")
-async def snapshot_asset_record(request: Request) -> dict:
-    username = get_current_username(request)
-    data = get_dashboard(username=username)
-    records = auto_save_all_owner_snapshots(
-        data,
-        username=username,
-        source="snapshot",
-        memo="수동 스냅샷",
-    )
-    record_all = next((record for record in records if (record.get("owner") or "모두") == "모두"), None)
-    return {
-        "message": f"오늘 주식기록을 모든 가족 범위({len(records)}개)에 저장했습니다.",
-        "record": record_all,
-        "records": records,
-    }
+asset_records_router = create_asset_records_router(sys.modules[__name__])
+app.include_router(asset_records_router)
+globals().update({route.name: route.endpoint for route in asset_records_router.routes})
 
 
 def _resolve_kb_sync_account(data: dict):
