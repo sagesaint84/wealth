@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 import unittest
 from pathlib import Path
@@ -16,6 +17,16 @@ SCREEN = (STATIC / "wealth-broker-realized-screen-controller.js").read_text(enco
 PREVIEW_SCREEN = (STATIC / "wealth-broker-import-preview-screen-controller.js").read_text(encoding="utf-8")
 MODEL = (STATIC / "wealth-broker-import-preview-model.js").read_text(encoding="utf-8")
 MAIN = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
+BROKER_ROUTES = (ROOT / "app" / "routers" / "broker_realized.py").read_text(encoding="utf-8")
+
+
+def python_route(source: str, name: str) -> str:
+    return next(
+        ast.get_source_segment(source, node)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == name
+    )
+
 
 
 def broker_function(source: str, name: str) -> str:
@@ -82,7 +93,7 @@ def assert_mapped_import(test, provider, title):
     test.assertIn("showMessage(errorText(error, errorFallback), 'error')", commit_feed)
     test.assertIn("state.importing = false", commit_feed)
 
-    route = MAIN.split(f"async def {provider}_realized_feed_import(", 1)[1].split("\nasync def ", 1)[0]
+    route = python_route(BROKER_ROUTES, f"{provider}_realized_feed_import")
     test.assertIn('body.get("account_id")', route)
     test.assertIn(f"_{provider}_destination(username,", route)
     destination = MAIN.split(f"def _{provider}_destination(", 1)[1].split("\ndef ", 1)[0]
@@ -171,10 +182,9 @@ class BrokerRealizedIpoFrontendTests(unittest.TestCase):
             "nh_realized_feed_import_preview", "nh_realized_feed_import",
             "kiwoom_realized_feed_import_preview", "kiwoom_realized_feed_import",
         )
-        for index, name in enumerate(route_functions):
-            start = MAIN.index(f"async def {name}(")
-            next_start = MAIN.find("\nasync def ", start + 1)
-            body = MAIN[start:next_start if next_start >= 0 else len(MAIN)]
+        for name in route_functions:
+            source = MAIN if name.startswith("toss_wts_") else BROKER_ROUTES
+            body = python_route(source, name)
             with self.subTest(route=name):
                 if name.endswith("import_preview"):
                     self.assertIn("_apply_broker_import_preferences", body)

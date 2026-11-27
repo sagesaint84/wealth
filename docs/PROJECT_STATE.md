@@ -1,8 +1,13 @@
 # Wealth Project State
 
-## v2.1.20 개발 후보 — IPO 시장·청약 API 라우터 분리
+## v2.1.21 개발 범위 — 증권사 실현손익 API 라우터 분리
 
-- IPO 시장·과거자료 6개와 청약·계좌·배정·매도 연결 12개 경로를 이전했다. 실제 라우팅, OpenAPI, 사용자별 청약·과거자료 가져오기 동적 검증은 대기 중이다.
+- KIS·NH·KB·키움의 상태, 실현손익 조회, 미리보기, 가져오기 확정 API 16개를 공통 라우터 모듈로 이전한다. 인증, 증권계좌 매핑, 미리보기 티켓과 금융 저장 계약을 유지한다. 집중 동적 검증은 대기 중이다.
+
+## v2.1.20 — IPO 시장·청약 API 라우터 분리
+
+- IPO 시장·과거자료 6개와 청약·계좌·배정·매도 연결 12개를 이전했다. [PR #271](https://github.com/sagesaint84/wealth/pull/271)이 main `2f2e0cb0d594b2faf057a106e8a39e53b703baf9`에 병합됐다.
+- [Actions #45949373116](https://github.com/sagesaint84/wealth/actions/runs/45949373116) SUCCESS. GHCR `2.1.20`, `2f2e0cb`의 manifest digest는 `sha256:3d81cf0ca516a3eb13c6ac368cf686e49f6ba3079de4b186638cb3ac8bd2265c`로 일치한다. Oracle 운영 상태는 이번 확인 범위에 포함되지 않았다.
 
 ## v2.1.19 — 실제 배당·실현손익 API 라우터 분리
 

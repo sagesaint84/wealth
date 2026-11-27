@@ -9,12 +9,11 @@ import unittest
 from pathlib import Path
 
 from tests.test_broker_realized_ipo_frontend import (
-    FEATURE as JS, APP, FEED, PREVIEW_SCREEN, SCREEN, UI, assert_explicit_broker_tab, assert_mapped_import, broker_function, mapped_config,
+    FEATURE as JS, APP, FEED, PREVIEW_SCREEN, SCREEN, UI, assert_explicit_broker_tab, assert_mapped_import, broker_function, mapped_config, BROKER_ROUTES, python_route,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8") + (ROOT / "app/static/wealth-settings-surface.js").read_text(encoding="utf-8")
-MAIN = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
 
 
 class KbRealizedFrontendTests(unittest.TestCase):
@@ -122,9 +121,7 @@ class KbRealizedFrontendTests(unittest.TestCase):
 
     def test_kb_preview_and_import_routes_use_common_layer(self) -> None:
         for name in ("kb_realized_feed_import_preview", "kb_realized_feed_import"):
-            start = MAIN.index(f"async def {name}(")
-            next_start = MAIN.find("\nasync def ", start + 1)
-            body = MAIN[start:next_start if next_start >= 0 else len(MAIN)]
+            body = python_route(BROKER_ROUTES, name)
             with self.subTest(route=name):
                 self.assertIn("_broker_import_items_hash", body)
                 self.assertIn("_apply_broker_import_preferences", body)
