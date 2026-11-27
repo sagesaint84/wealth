@@ -1,8 +1,12 @@
 # Wealth Project State
 
-## 현재 후보 — 알림·설정·외부 연동 API 라우터 분리
+## 현재 후보 — KFTC 오픈뱅킹·KRX API 라우터 분리
 
-- 알림·설정 API 12개와 Kakao·Telegram 외부 연동 API 10개를 각각 공통 라우터에 등록했다. 앱 버전은 `2.1.20`을 유지하며 집중 동적 검증은 대기 중이다.
+- KFTC 오픈뱅킹 API 9개와 KRX 사용자 인증정보 API 4개를 각각 라우터에 등록했다. 앱 버전은 `2.1.20`을 유지하며 집중 동적 검증은 대기 중이다.
+
+## 알림·설정·외부 연동 API 라우터 분리
+
+- 알림·설정 API 12개와 외부 연동 API 10개를 분리한 [PR #276](https://github.com/sagesaint84/wealth/pull/276)이 main `25576ca14d4a2469638eb46072f5d3dea5dfff28`에 병합됐다.
 
 ## Toss WTS 설정·로그인·세션 관리 API 라우터 분리
 
