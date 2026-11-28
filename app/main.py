@@ -899,91 +899,13 @@ globals().update({route.name: route.endpoint for route in broker_sync_router.rou
 
 
 from app.routers.price_refresh import create_price_refresh_routers
+from app.services.portfolio_price_refresh import create_portfolio_price_refresh
+
+refresh_prices_for_user, refresh_fx_for_user = create_portfolio_price_refresh(sys.modules[__name__])
 
 fx_refresh_router, prices_refresh_router = create_price_refresh_routers(sys.modules[__name__])
 app.include_router(fx_refresh_router)
 globals().update({route.name: route.endpoint for route in fx_refresh_router.routes})
-
-
-async def refresh_prices_for_user(username: str) -> dict:
-    data = read_portfolio(username=username)
-    if is_test_mode():
-        return {
-            "message": "테스트 환경에서는 외부 시세 갱신을 실행하지 않습니다. 기존 데이터를 유지했습니다.",
-            "count": 0,
-            "fx_rate": data.get("settings", {}).get("fx_rates", {}).get("USD"),
-            "warnings": [],
-            "status": "TEST_MODE",
-            "data_preserved": True,
-        }
-    now_str = datetime.now().astimezone().isoformat(timespec="seconds")
-
-    # 보유종목이 없는 경우에도 지수 및 환율 정상 갱신
-    if not data.get("holdings"):
-        fx_rate = await fetch_fx_rate_usd_krw()
-        if fx_rate and fx_rate > 0:
-            with financial_user_locks(username, 'portfolio.json'):
-                data = read_portfolio(username=username)
-                data.setdefault("settings", {})
-                data["settings"].setdefault("exchange_rates", {})["USD"] = fx_rate
-                data["settings"]["fx_rates"] = {"KRW": 1.0, "USD": fx_rate}
-                data["settings"]["fx_info"] = {"source": "실시간 웹 환율", "rate": fx_rate, "updated_at": now_str}
-                data["settings"]["fx_updated_at"] = now_str
-                write_portfolio(data, username=username)
-        return {
-            "message": "지수 및 환율을 갱신했습니다.",
-            "count": 0,
-            "fx_rate": fx_rate,
-            "warnings": [],
-        }
-
-    # 네이버페이 증권 & 야후 파이낸스 & 웹 실시간 환율 병렬 직접 갱신 (토큰 불필요)
-    res = await refresh_all_holdings_prices(data["holdings"])
-    prices = res.get("prices", {})
-    daily_changes = res.get("daily_changes", {})
-    period_rates = res.get("period_rates", {})
-    fx_rate = res.get("fx_rate", 1385.0)
-
-    with financial_user_locks(username, 'portfolio.json'):
-        data = read_portfolio(username=username)
-        # 포트폴리오 업데이트
-        for holding in data["holdings"]:
-            hid = holding["id"]
-            if hid in prices and prices[hid] > 0:
-                holding["current_price"] = prices[hid]
-                holding["price_updated_at"] = now_str
-
-        if daily_changes:
-            data["settings"].setdefault("daily_price_changes", {}).update(daily_changes)
-        if period_rates:
-            data["settings"].setdefault("period_rates", {}).update(period_rates)
-        session_obs = res.get("session_obs", {})
-        if session_obs:
-            stored_obs = data["settings"].setdefault("price_session_obs", {})
-            merge_price_session_obs(stored_obs, session_obs)
-
-        session_dates = res.get("session_dates", {})
-        if session_dates:
-            stored_dates = data["settings"].setdefault("price_session_dates", {})
-            for code, inc_date in session_dates.items():
-                inc_norm = normalize_session_date(inc_date)
-                if not inc_norm:
-                    continue
-                cur_date = normalize_session_date(stored_dates.get(code))
-                if cur_date and inc_norm < cur_date:
-                    continue
-                stored_dates[code] = inc_date
-        if fx_rate and fx_rate > 0:
-            data["settings"].setdefault("exchange_rates", {})["USD"] = fx_rate
-            data["settings"]["fx_updated_at"] = now_str
-
-        write_portfolio(data, username=username)
-    return {
-        "message": f"전체 {len(prices)}개 종목 시세 및 환율({fx_rate:,.1f}원)을 갱신했습니다.",
-        "count": len(prices),
-        "fx_rate": fx_rate,
-        "warnings": [],
-    }
 
 
 app.include_router(prices_refresh_router)
