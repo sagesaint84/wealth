@@ -244,38 +244,10 @@ app.router.lifespan_context = app_lifespan
 # 로그인 / 멀티유저 인증
 # ---------------------------------------------------------------------------
 
-def _resolve_session_secret() -> str:
-    """Resolve the session signing secret - fail closed in all environments.
+from app.services.auth_session import create_auth_session
 
-    Priority:
-    1. DASHBOARD_SECRET_KEY environment variable (all environments).
-    2. WEALTH_TEST_SIGNING_SECRET (test environment only, explicit opt-in).
-    3. Raise RuntimeError - no built-in fallback exists.
-    """
-    explicit = os.getenv("DASHBOARD_SECRET_KEY", "").strip()
-    if explicit: return explicit
-    if TESTING:
-        test_value = os.getenv("WEALTH_TEST_SIGNING_SECRET", "").strip()
-        if test_value: return test_value
-    from app.services.system_secrets import resolve_application_secret
-    return resolve_application_secret()
+globals().update(create_auth_session(sys.modules[__name__]))
 
-
-SECRET_KEY = _resolve_session_secret()
-SESSION_MAX_AGE = 60 * 60 * 24 * 14  # 14일 동안 로그인 유지
-COOKIE_NAME = "dashboard_session_v2"
-
-_serializer = URLSafeTimedSerializer(SECRET_KEY)
-PUBLIC_PATHS = {
-    "/login",
-    "/change-password-init",
-    "/sw.js",
-    "/manifest.json",
-    "/favicon.ico",
-    "/api/integrations/telegram/webhook",
-    "/api/integrations/kakao/oauth/callback",
-    "/api/kftc/openbanking/oauth/callback",
-}
 
 _SENSITIVE_EXPORT_KEYS = {
     "accesstoken",
@@ -349,105 +321,7 @@ def _sanitize_export_data(value: object) -> object:
     return value
 
 
-def _require_authenticated_username(request: Request) -> str:
-    """인증 미들웨어를 우회해 호출되더라도 기본 사용자로 대체하지 않는다."""
-    username = getattr(request.state, "username", None)
-    if not username:
-        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
-    return str(username)
-
-
-def get_current_username(request: Request) -> str:
-    return _require_authenticated_username(request)
-
-
-def get_current_role(request: Request) -> str:
-    return getattr(request.state, "role", None) or "user"
-
-
-def _new_session_token(user: dict) -> str:
-    from app.services.update_permissions import session_stamp, valid_identity
-    if not valid_identity(user):
-        return _serializer.dumps({"user": user["username"]})
-    return _serializer.dumps({"user": user["username"], "uid": user.get("id"),
-                              "auth_stamp": session_stamp(user, SECRET_KEY), "sid": secrets.token_urlsafe(24)})
-
-
-def _updater_session_current(request: Request, user: dict) -> bool:
-    from app.services.update_permissions import session_stamp, valid_identity
-    try:
-        claims = _serializer.loads(request.cookies.get(COOKIE_NAME, ''), max_age=SESSION_MAX_AGE)
-        return (valid_identity(user) and isinstance(claims.get('sid'), str)
-                and re.fullmatch(r'[A-Za-z0-9_-]{32}', claims['sid']) is not None
-                and claims.get('uid') == user['id']
-                and secrets.compare_digest(str(claims.get('auth_stamp', '')), session_stamp(user, SECRET_KEY)))
-    except (BadSignature, SignatureExpired, ValueError, TypeError):
-        return False
-
-
-def _refresh_auth_cookie(response: Response, username: str) -> None:
-    from app.services.user_manager import get_user_by_name
-    user = get_user_by_name(username)
-    response.set_cookie(COOKIE_NAME, _new_session_token(user), httponly=True,
-                        secure=not TESTING, samesite='lax', max_age=SESSION_MAX_AGE)
-
-
-def _get_authenticated_user(request: Request) -> dict[str, Any] | None:
-    token = request.cookies.get(COOKIE_NAME)
-    if not token or not _serializer:
-        return None
-    try:
-        data = _serializer.loads(token, max_age=SESSION_MAX_AGE)
-        uname = data.get("user")
-        if uname:
-            from app.services.user_manager import get_user_by_name
-            user = get_user_by_name(uname)
-            # New sessions expire when this identity is recreated or credentials reset.
-            # Legacy sessions retain existing financial access; updater requires re-login.
-            if user and ('uid' in data or 'auth_stamp' in data) and not _updater_session_current(request, user):
-                return None
-            return user
-    except (BadSignature, SignatureExpired, Exception):
-        pass
-    return None
-
-
-@app.middleware("http")
-async def require_login(request: Request, call_next):
-    path = request.url.path
-    # Immutable authorization identity is resolved from the current persisted
-    # user record below; it is never accepted from the signed cookie.
-    request.state.user_id = None
-    
-    if path in PUBLIC_PATHS or path.startswith("/static/"):
-        return await call_next(request)
-    
-    user = _get_authenticated_user(request)
-    if not user:
-        if path.startswith("/a/"):
-            return RedirectResponse(f"/login?return_to={quote(path, safe='')}")
-        if path.startswith("/api/"):
-            return JSONResponse({"detail": "로그인이 필요합니다."}, status_code=401,
-                                headers={"Cache-Control":"no-store"} if path.startswith("/api/settings/toss-wts/session/") else None)
-        return RedirectResponse("/login")
-    
-    request.state.username = user["username"]
-    request.state.user_id = user.get("id")
-    request.state.role = user.get("role", "user")
-    request.state.must_change_password = bool(user.get("must_change_password", False))
-
-    # 초기 비밀번호 상태(must_change_password)일 때: 대시보드 진입을 원천 차단하고 비밀번호 변경 화면으로 리다이렉트
-    if request.state.must_change_password:
-        if path.startswith("/api/"):
-            allowed_api = {"/api/auth/me", "/api/auth/force-change-password"}
-            if path not in allowed_api:
-                return JSONResponse({"detail": "비밀번호 변경이 필요합니다."}, status_code=403,
-                                    headers={"Cache-Control":"no-store"} if path.startswith("/api/settings/toss-wts/session/") else None)
-        else:
-            if path not in ("/change-password-init", "/logout"):
-                return RedirectResponse("/change-password-init")
-
-    return await call_next(request)
+app.middleware("http")(require_login)
 
 
 from app.routers.auth import (
@@ -474,9 +348,6 @@ notification_settings_router = create_notification_settings_router(sys.modules[_
 app.include_router(notification_settings_router)
 globals().update({route.name: route.endpoint for route in notification_settings_router.routes})
 
-def _require_system_settings_admin(request: Request) -> None:
-    if get_current_role(request) != "admin":
-        raise HTTPException(status_code=403, detail={"code": "ADMIN_REQUIRED"})
 
 from app.routers.toss_wts_session import create_toss_wts_session_router
 
