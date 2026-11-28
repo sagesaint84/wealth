@@ -260,3 +260,25 @@ def create_notification_integrations_router(
         "_kakao_oauth_callback_page": _kakao_oauth_callback_page,
         "_telegram_management_http_error": _telegram_management_http_error,
     }
+
+
+def create_telegram_webhook_router(runtime: ModuleType) -> APIRouter:
+    router = APIRouter()
+
+    @router.post("/api/integrations/telegram/webhook")
+    async def telegram_ipo_webhook(request: Request) -> dict:
+        """Provider-authenticated Telegram IPO action ingress."""
+        from app.services.ipo.telegram_interactive import handle_update, interactive_config
+        if interactive_config() is None:
+            raise runtime.HTTPException(status_code=503, detail={"code": "TELEGRAM_INTERACTIVE_DISABLED"})
+        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        try:
+            update = await request.json()
+        except Exception as exc:
+            raise runtime.HTTPException(status_code=400, detail={"code": "INVALID_TELEGRAM_UPDATE"}) from exc
+        result = handle_update(update, secret)
+        if result == "unauthorized":
+            raise runtime.HTTPException(status_code=403, detail={"code": "TELEGRAM_UNAUTHORIZED"})
+        return {"status": result}
+
+    return router

@@ -207,13 +207,13 @@ from app.services.broker_portfolio_sync import create_broker_portfolio_sync
 globals().update(create_broker_portfolio_sync(sys.modules[__name__]))
 
 
-@app.get("/sw.js")
-async def service_worker_file():
-    return FileResponse(STATIC_DIR / "sw.js", media_type="application/javascript", headers={"Service-Worker-Allowed": "/"})
+from app.routers.site_files import create_site_file_routers
 
-@app.get("/manifest.json")
-async def manifest_file_root():
-    return FileResponse(STATIC_DIR / "manifest.json", media_type="application/manifest+json")
+root_assets_router, site_pages_router, site_samples_router = create_site_file_routers(sys.modules[__name__])
+app.include_router(root_assets_router)
+globals().update({route.name: route.endpoint for route in root_assets_router.routes})
+
+
 async def ensure_data_dir():
     if TESTING:
         return
@@ -407,19 +407,8 @@ globals().update({route.name: route.endpoint for route in admin_users_router.rou
 from app.routers.holdings import HoldingCreate, create_holdings_routers
 
 
-@app.get("/", include_in_schema=False)
-async def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
-
-
-@app.get("/dashboard", include_in_schema=False)
-async def dashboard_page() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
-
-
-@app.get("/favicon.ico", include_in_schema=False)
-async def favicon() -> HTMLResponse:
-    return HTMLResponse(status_code=204)
+app.include_router(site_pages_router)
+globals().update({route.name: route.endpoint for route in site_pages_router.routes})
 
 
 from app.services.dashboard_composition import create_dashboard_composition
@@ -485,55 +474,19 @@ app.include_router(actual_dividends_router)
 globals().update({route.name: route.endpoint for route in actual_dividends_router.routes})
 
 
-@app.get("/api/sample/holdings")
-async def download_sample_holdings():
-    """Download sample Excel file for portfolio holdings."""
-    p = ROOT_DIR / "data" / "샘플_타증권사_보유종목.xlsx"
-    if not p.exists():
-        p = ROOT_DIR / "샘플_타증권사_보유종목.xlsx"
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="샘플_타증권사_보유종목.xlsx 파일을 찾을 수 없습니다.")
-    return FileResponse(
-        path=str(p),
-        filename="샘플_타증권사_보유종목.xlsx",
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-
-@app.get("/api/sample/accounts")
-async def download_sample_accounts():
-    p = ROOT_DIR / "data" / "샘플_증권계좌.xlsx"
-    if not p.exists():
-        p = ROOT_DIR / "샘플_증권계좌.xlsx"
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="샘플_증권계좌.xlsx 파일을 찾을 수 없습니다.")
-    return FileResponse(path=str(p), filename="샘플_증권계좌.xlsx", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+app.include_router(site_samples_router)
+globals().update({route.name: route.endpoint for route in site_samples_router.routes})
 
 
 # ---------------------------------------------------------------------------
 # MoneyLog Unified Calendar API
 # ---------------------------------------------------------------------------
 
-@app.get("/api/moneylog/calendar")
-async def get_moneylog_calendar(
-    request: Request,
-    from_date: str = Query(..., alias="from"),
-    to_date: str = Query(..., alias="to"),
-    owner: str = "모두",
-) -> dict:
-    """Return unified calendar events for realized PnL, dividends, interest, ledger, and IPOs."""
-    username = get_current_username(request)
-    try:
-        from app.services.ipo.calendar import build_moneylog_calendar_events
-        events = build_moneylog_calendar_events(username, from_date, to_date, owner)
-        return {
-            "from": from_date,
-            "to": to_date,
-            "owner": owner,
-            "events": events,
-        }
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+from app.routers.moneylog_calendar import create_moneylog_calendar_router
+
+moneylog_calendar_router = create_moneylog_calendar_router(sys.modules[__name__])
+app.include_router(moneylog_calendar_router)
+globals().update({route.name: route.endpoint for route in moneylog_calendar_router.routes})
 
 
 # ---------------------------------------------------------------------------
@@ -550,21 +503,11 @@ app.include_router(ipo_market_router)
 globals().update({route.name: route.endpoint for route in ipo_market_router.routes})
 
 
-@app.post("/api/integrations/telegram/webhook")
-async def telegram_ipo_webhook(request: Request) -> dict:
-    """Provider-authenticated Telegram IPO action ingress."""
-    from app.services.ipo.telegram_interactive import handle_update, interactive_config
-    if interactive_config() is None:
-        raise HTTPException(status_code=503, detail={"code": "TELEGRAM_INTERACTIVE_DISABLED"})
-    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-    try:
-        update = await request.json()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail={"code": "INVALID_TELEGRAM_UPDATE"}) from exc
-    result = handle_update(update, secret)
-    if result == "unauthorized":
-        raise HTTPException(status_code=403, detail={"code": "TELEGRAM_UNAUTHORIZED"})
-    return {"status": result}
+from app.routers.notification_integrations import create_telegram_webhook_router
+
+telegram_webhook_router = create_telegram_webhook_router(sys.modules[__name__])
+app.include_router(telegram_webhook_router)
+globals().update({route.name: route.endpoint for route in telegram_webhook_router.routes})
 
 
 from app.routers.ipo_applications import (
@@ -622,14 +565,11 @@ globals().update({
 })
 
 
-@app.get("/api/status")
-async def status() -> dict:
-    return {
-        "kb_configured": KBOpenAPI().configured,
-        "toss_configured": TossOpenAPI().configured,
-        "namoo_configured": NhPlugOpenAPI().configured,
-        "storage": "local",
-    }
+from app.routers.broker_sync import create_broker_status_router
+
+broker_status_router = create_broker_status_router(sys.modules[__name__])
+app.include_router(broker_status_router)
+globals().update({route.name: route.endpoint for route in broker_status_router.routes})
 
 
 from app.routers.toss_wts_feed import create_toss_wts_feed_router
