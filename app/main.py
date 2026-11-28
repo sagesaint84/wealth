@@ -176,20 +176,9 @@ def _apply_broker_import_preferences(
         ) from exc
 
 
-def load_env_file() -> None:
-    if os.getenv("WEALTH_DISABLE_ENV_FILE", "").strip().lower() in {"1", "true", "yes"}:
-        return
-    env_path = ROOT_DIR / ".env"
-    if not env_path.exists():
-        return
-    if not env_path.is_file():
-        raise RuntimeError("Configuration error: .env must be a regular file, but a directory was found.")
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
+from app.services.app_startup import create_app_startup
 
+globals().update(create_app_startup(sys.modules[__name__]))
 
 if not TESTING:
     load_env_file()
@@ -214,29 +203,6 @@ app.include_router(root_assets_router)
 globals().update({route.name: route.endpoint for route in root_assets_router.routes})
 
 
-async def ensure_data_dir():
-    if TESTING:
-        return
-    data_dir = ROOT_DIR / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    # 1. 멀티유저 초기화 및 sagesaint 데이터 자동 마이그레이션 실행
-    from app.services.user_manager import init_users_and_migration
-    init_users_and_migration()
-    # 2. 계좌 가족 그룹 마이그레이션 실행
-    migrate_add_family_group()
-    # 3. 5년치 과거 환율 비동기 동기화
-    asyncio.create_task(sync_historical_fx())
-    # 4. 종목 마스터(국내 ETF/상장사/미국주식) 비동기 동기화
-    asyncio.create_task(sync_stock_master_online())
-
-
-@asynccontextmanager
-async def app_lifespan(_app: FastAPI):
-    """Run the existing startup contract once per application lifespan."""
-    await ensure_data_dir()
-    yield
-
-
 app.router.lifespan_context = app_lifespan
 
 
@@ -249,76 +215,9 @@ from app.services.auth_session import create_auth_session
 globals().update(create_auth_session(sys.modules[__name__]))
 
 
-_SENSITIVE_EXPORT_KEYS = {
-    "accesstoken",
-    "apikey",
-    "apisecret",
-    "appkey",
-    "appsecret",
-    "authtoken",
-    "bearertoken",
-    "clientsecret",
-    "credential",
-    "credentials",
-    "password",
-    "passwordhash",
-    "passwordsalt",
-    "privatekey",
-    "refreshtoken",
-    "salt",
-    "secret",
-    "secretkey",
-    "sessionid",
-    "sessionsecret",
-    "sessiontoken",
-    "token",
-    "tokencache",
-    "webhookurl",
-}
+from app.services.backup_security import create_backup_security
 
-
-def _normalize_sensitive_key(key: object) -> str:
-    return "".join(char.lower() for char in str(key) if char.isalnum())
-
-
-def _is_sensitive_export_key(key: object) -> bool:
-    normalized = _normalize_sensitive_key(key)
-    return normalized in _SENSITIVE_EXPORT_KEYS or normalized.endswith(
-        (
-            "accesstoken",
-            "apikey",
-            "apisecret",
-            "appkey",
-            "appsecret",
-            "clientsecret",
-            "credential",
-            "credentials",
-            "password",
-            "passwordhash",
-            "privatekey",
-            "refreshtoken",
-            "secret",
-            "sessionsecret",
-            "token",
-            "tokencache",
-            "webhookurl",
-        )
-    )
-
-
-def _sanitize_export_data(value: object) -> object:
-    """백업 데이터 어디에도 인증정보가 포함되지 않도록 재귀적으로 제거한다."""
-    if isinstance(value, dict):
-        return {
-            key: _sanitize_export_data(item)
-            for key, item in value.items()
-            if not _is_sensitive_export_key(key)
-        }
-    if isinstance(value, list):
-        return [_sanitize_export_data(item) for item in value]
-    if isinstance(value, tuple):
-        return [_sanitize_export_data(item) for item in value]
-    return value
+globals().update(create_backup_security(sys.modules[__name__]))
 
 
 app.middleware("http")(require_login)
