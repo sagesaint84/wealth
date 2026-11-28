@@ -40,3 +40,18 @@ def create_broker_sync_routers(runtime: ModuleType) -> tuple[APIRouter, APIRoute
         return await runtime.sync_all_accounts_for_user(username=username)
 
     return broker_router, all_accounts_router
+
+
+def create_broker_status_router(runtime: ModuleType) -> APIRouter:
+    router = APIRouter()
+
+    @router.get("/api/status")
+    async def status() -> dict:
+        return {
+            "kb_configured": runtime.KBOpenAPI().configured,
+            "toss_configured": runtime.TossOpenAPI().configured,
+            "namoo_configured": runtime.NhPlugOpenAPI().configured,
+            "storage": "local",
+        }
+
+    return router
